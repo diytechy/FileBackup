@@ -7,7 +7,7 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #calculating and comparing the hash would not be required.  Turning this off will ensure any file modification is
 #indeed backed up, but will significantly increase execution time of the backup script and result in more
 #wear to platter disks.
-$SkipHashChkForEqualPathAndModDate = 1
+$SkipHashIfEqualPathAndModDate = 1
 
 #Path Configurations:
 $BkpVolumeLabel = "SecondaryBackup"
@@ -25,7 +25,7 @@ $SmtpPort        = "587"
 
 #1. Files that are in {BkpVolumeLabel}\{ChkFolderLabel} but not in {SrcVolumeLabel}\{ChkFolderLabel} 
 # will be tagged as removed from source and will all be archieved into a 7z archive inside 
-# {SrcVolumeLabel}\{ChkFolderLabel} with the name of {yyyy-MM-dd-HH-MM-ss.7z}.  Files that were archived
+# {BkpVolumeLabel}\{DelFolderLabel} with the name of {yyyy-MM-dd-HH-mm-ss.7z}.  Files that were archived
 # will then be deleted from the backup folder.  This is performed using a hash check, so modified files will
 # also be tagged.
 
@@ -50,7 +50,7 @@ if (-not (Test-Path -Path $EmailInfoPath -PathType Leaf)) {
 #$ErrorActionPreference = "Stop"
 #$ErrorActionPreference = 'Continue'
 
-#Before try, set the parameters to send the email, as -if this does not load- the email cannot be sent and thus any caught error can't be emailed anyways.
+#Before checking for copies, ect: set the parameters to send the email, as -if this does not load- the email cannot be sent and thus any caught error can't be emailed anyways.
 $Secrets = Import-Clixml -Path $EmailInfoPath
 $SendMsgProps = @{
     To = $Secrets.ToEmail
@@ -67,9 +67,14 @@ Try {
     }
 
     Set-Alias Start-SevenZip $7zipPath
-
+    
+    #Get all file paths to work with, and create label of delete archive if it needs to be created.
     $BkpDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$BkpVolumeLabel*"}).DriveLetter
     $SrcDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$SrcVolumeLabel*"}).DriveLetter
+    if (($SrcDrives.Count -eq 0) -or ($SrcDrives.Count -eq 0))
+    {
+        throw "Dependent drive not found!"
+    }
     $SrcDrive = $SrcDrives[0] + ":\"
     $SrcPath = $SrcDrive + $ChkFolderLabel
     $BkpPath = $BkpDrives[0] + ":\" + $ChkFolderLabel
@@ -78,6 +83,8 @@ Try {
     $DelPathPre =  $DelPathRoot + "\" + $TodayCode
     $DelPathFldr = $DelPathPre + "\"
     $DelPath7Zip = $DelPathPre + ".7z"
+
+    #Create report paths
     $ModReport = $DelPathPre + "-ModifiedOrDeletedFiles.txt"
     $DelReport = $DelPathPre + "-RemovedFromBackupDueToDetectedMove.txt"
     $CopyReport = $DelPathPre + "-CopiedToBackup.txt"
@@ -163,9 +170,12 @@ Try {
     }
     
     #************************ 1 ***************************
+    #Just sets a key for if there are files with the same size that are in both the source and destination, as thoase
+    #could be the same file, and a method must be used to compare the files to assert if they really are the same files
+    #Methods are used further below, but switch between mod date / filepath if enabled, and hash.
+    #Build out grouping definition, note there are probably much more efficient ways to do this.
     $FilesGroupedSizeWise = $AllFiles | Group-Object -Property Length 
     $FilesGroupedSizeWise | Add-Member -MemberType  NoteProperty -Name LocKey -Value $([int]0)
-    #Build out grouping definition, note there are probably much more efficient ways to do this.
     foreach ($group in $FilesGroupedSizeWise) {
         $SrcSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $SrcKey }
         $BkpSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $BkpKey }
@@ -181,7 +191,7 @@ Try {
     }
 
     #************************ 2 ***************************
-    #Now allocate each group to a seperate lists, to be grouped later, and hash those that need to be checked.
+    #Now allocate each group to a seperate lists, to be grouped later, and compare those that need to be checked.
     $UnhashedFiles2Send2Del = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
     foreach ($file in $UnhashedFiles2Send2Del) {
         $ExtLen[0] = $file.FullName.Length - $BkpLen
@@ -194,18 +204,27 @@ Try {
         $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
         $file.DeterminedAction = $SetBackup
     }
-    
-    $Asset = New-Object -TypeName PSObject
-    $GroupID = @{Length=0; BkpPath=""; Hash="****************************************************************"}
+    #TODO: Remove below lines
+    #$Asset = New-Object -TypeName PSObject
+    #$GroupID = @{Length=0; BkpPath=""; Hash="****************************************************************"}
 
-    $Files2Hash = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
+    $Files2CmprCont = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
+    foreach ($file in $Files2CmprCont) {
+        $ExtLen[0] = $file.FullName.Length - $SrcLen
+        $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
+    }
+
+    
+
+    #Calculate the hash of files.
+    $Files2Hash = $Files2CmprCont
     $Files2Hash | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
     $Files2Hash | Add-Member -MemberType NoteProperty -Name GroupID -Value $([string]"")
-
     foreach ($prehashfile in $Files2Hash) {
         $hashset = Get-FileHash -Path $prehashfile.FullName
         $prehashfile.Hash = $hashset.Hash
     }
+
 
     $FilesGroupedByHash = $Files2Hash | Group-Object -Property Hash
     $FilesGroupedByHash | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)

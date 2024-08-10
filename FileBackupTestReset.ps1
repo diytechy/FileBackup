@@ -1,5 +1,6 @@
 ﻿$BkpVolumeLabel = "SecondaryBackup"
 $SrcVolumeLabel = "PrimaryBackup"
+#Modify this path with your path that contains anything you want to copy over as a start test environment.
 $TestSrcContentArchive = "C:\TestSrcContent\"
 
 $BkpDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$BkpVolumeLabel*"}).DriveLetter
