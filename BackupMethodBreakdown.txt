@@ -1,0 +1,40 @@
+Source: List of files with sizes and hashes
+Backup: List of files with sizes and hashes
+Delete: List of files with sizes and hashes
+Source: List of files with sizes but no hash
+Backup: List of files with sizes but no hash
+Delete: List of files with sizes but no hash
+
+0. Get list of all paths, create error folder if any path exceeds 240 characters?  (Room for backup subfolder)???
+1. General: Generate list of files / sizes from source.
+2. General: Generate list of files / sizes from delete.
+3. General: Use copied list of files / sizes from backup.
+Block: Prepare files that need to be perminately removed from the delete list.
+	A: Merge delete list to source list, group by size.
+	B: Calculate hash for files that exist in both source and delete, group by hash.
+	C: Any files in group (group size <2) and in backup have already exist in source.  Set those files to a list of files to be removed from the delete folder since they have been restored to the source.  Note files that are moved will not be clearly visable, it will not prevent corruption to records.
+
+Block: Move files that have been removed from source into the delete folder:
+	4. Merge backup list to source list, group by size.
+	5. Calculate hash for files that exist in both source and delete, group by hash.
+	6. Create separate list of files not in group (group size <2) and in backup folder, that is the list of files that need to be moved to delete subfolder.
+
+Block: Copy new files from source to backup	
+	Option 1A, not using rsync:
+		7. Create separate list of files not in group (group size <2) and in source folder, that is the list of files that need to be moved to backup folder.
+		7. Create separate list of files in group (group size >=2) and in source folder, that is the list of files that might have changed location even if they still exist, so they may still need to be moved?  Note this might be simplified by just running rsync 
+	Option 2A, use rsync:
+	
+Block: Remove files from the delete section that are now in the backup section (since they have been copied over)
+
+
+: Get files that need to be moved to delete
+	1. Create list of files / sizes in delete section
+	1. Compare list with hashs to get matches between delete and source.  
+: Get files that need to be removed from delete
+	1. Compare list with hashs to get matches between delete and source.  Set aside to 
+	2. Compare list without hashes to get matches between delete and source.
+: Perform rsync?
+3. Compare Source List to Delete List
+	1. Any files that match size to be compared for hash.
+	2. Any matches hash files to be removed from delete source since they are now back in source.

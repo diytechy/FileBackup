@@ -1,0 +1,7 @@
+Orient around validation of reports, these should indicate actual changes, but should verify structure as well:
+
+    $ModReport = $DelPathPre + "-ModifiedOrDeletedFiles.txt"
+    $DelReport = $DelPathPre + "-RemovedFromBackupDueToDetectedMove.txt"
+    $CopyReport = $DelPathPre + "-CopiedToBackup.txt"
+    $LenReport = $SrcDrive + "ERROR" + " - " + $TodayCode + " - Length.txt"
+    $DupReport = $SrcDrive + $TodayCode + "-PotentialDuplicates.txt"
