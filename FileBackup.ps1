@@ -170,199 +170,226 @@ Try {
     }
     
     #************************ 1 ***************************
-    #Just sets a key for if there are files with the same size that are in both the source and destination, as thoase
-    #could be the same file, and a method must be used to compare the files to assert if they really are the same files
-    #Methods are used further below, but switch between mod date / filepath if enabled, and hash.
-    #Build out grouping definition, note there are probably much more efficient ways to do this.
-    $FilesGroupedSizeWise = $AllFiles | Group-Object -Property Length 
-    $FilesGroupedSizeWise | Add-Member -MemberType  NoteProperty -Name LocKey -Value $([int]0)
-    foreach ($group in $FilesGroupedSizeWise) {
-        $SrcSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $SrcKey }
-        $BkpSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $BkpKey }
-        if ($group.Count -eq $SrcSubGrp.Count){
-            $group.LocKey = $SrcKey
+    #Group all files by their size (since those might be duplicate):
+    # 1. If enabled, set a flag for items from each group that appear to be equal based on their path and modification date.
+    # 2. Then seperate out files from groups that aren't flagged and only exist in the source or only exist in the backup path,
+    #    as those will require action to be taken.
+    if ($SkipHashIfEqualPathAndModDate) {
+        $AllFiles | Add-Member -MemberType NoteProperty -Name BkpFnd -Value $([int]0)
+        $FilesGroupedSizeWise = $AllFiles | Group-Object -Property Length 
+        foreach ($group in $FilesGroupedSizeWise) {
+            #$files = ($group| Select-Object -Expand Group)
+            foreach ($file in ($group| Select-Object -Expand Group)){
+                if ($file.LocKey -eq $SrcKey){
+                    $ExtLen[0] = $file.FullName.Length - $SrcLen
+                    $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
+                    #Get 0 indexed result of file, to then compare modification date.
+                    $CurrInd[0] = ($group| Select-Object -Expand Group).FullName.IndexOf($file.BkpPath)
+                    #If we found a matching index, it exists, let's see if the modification dates are the same.
+                    if($CurrInd[0] -ge 0){
+                        #Do the modification dates match?
+                        if ($file.LastWriteTime -eq ($group| Select-Object -Expand Group)[$CurrInd[0]].LastWriteTime){
+                            $file.BkpFnd = 1
+                            ($group| Select-Object -Expand Group)[$CurrInd[0]].BkpFnd = 1
+                        }
+                    }
+                }
+            }
         }
-        elseif ($group.Count -eq $BkpSubGrp.Count){
-            $group.LocKey = $BkpKey
-        }
-        else {
-            $group.LocKey = $BthKey
-        }
+        #Now rebuild, only keeping files that didn't have their backup found.
+        $FilesGroupedSizeWise = (($FilesGroupedSizeWise| Select-Object -Expand Group) | Where-Object { $_.BkpFnd -ne 1}) | Group-Object -Property Length 
+    }
+    else {
+        $FilesGroupedSizeWise = $AllFiles | Group-Object -Property Length 
     }
 
-    #************************ 2 ***************************
-    #Now allocate each group to a seperate lists, to be grouped later, and compare those that need to be checked.
-    $UnhashedFiles2Send2Del = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
-    foreach ($file in $UnhashedFiles2Send2Del) {
-        $ExtLen[0] = $file.FullName.Length - $BkpLen
-        $file.RemPath = $DelPathFldr + $file.FullName.Substring($SrcLen,$ExtLen[0])
-        $file.DeterminedAction = $SetRemove
-    }
-    $UnhashedFiles2Copy2Bkp = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object -Expand Group
-    foreach ($file in $UnhashedFiles2Copy2Bkp) {
-        $ExtLen[0] = $file.FullName.Length - $SrcLen
-        $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
-        $file.DeterminedAction = $SetBackup
-    }
-    #TODO: Remove below lines
-    #$Asset = New-Object -TypeName PSObject
-    #$GroupID = @{Length=0; BkpPath=""; Hash="****************************************************************"}
+    #If any files remain, we need to decide what to  do with them.
+    if ($FilesGroupedSizeWise.Count) {
+        $FilesGroupedSizeWise | Add-Member -MemberType  NoteProperty -Name LocKey -Value $([int]0)
+        foreach ($group in $FilesGroupedSizeWise) {
+            $SrcSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $SrcKey }
+            $BkpSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $BkpKey }
+            if ($group.Count -eq $SrcSubGrp.Count){
+                $group.LocKey = $SrcKey
+            }
+            elseif ($group.Count -eq $BkpSubGrp.Count){
+                $group.LocKey = $BkpKey
+            }
+            else {
+                $group.LocKey = $BthKey
+            }
+        }
 
-    $Files2CmprCont = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
-    foreach ($file in $Files2CmprCont) {
-        $ExtLen[0] = $file.FullName.Length - $SrcLen
-        $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
-    }
+        #************************ 2 ***************************
+        #Now act on each group:
+        # 1. If enabled, remove items from the group that appear to be equal based on their path and name
+        # 2. Allocate each group to a seperate lists of items to be deleted from backup, to be copied from source
+        #    or to be compared using their hash.
+        #$Files2CmprCont = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
 
+
+        $UnhashedFiles2Send2Del = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
+        foreach ($file in $UnhashedFiles2Send2Del) {
+            $ExtLen[0] = $file.FullName.Length - $BkpLen
+            $file.RemPath = $DelPathFldr + $file.FullName.Substring($SrcLen,$ExtLen[0])
+            $file.DeterminedAction = $SetRemove
+        }
+        $UnhashedFiles2Copy2Bkp = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object -Expand Group
+        foreach ($file in $UnhashedFiles2Copy2Bkp) {
+            $ExtLen[0] = $file.FullName.Length - $SrcLen
+            $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
+            $file.DeterminedAction = $SetBackup
+        }
+        $Files2CmprCont = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
+        $Files2Hash = $Files2CmprCont
+        #Calculate the hash of files.
+        $Asset = New-Object -TypeName PSObject
+        $GroupID = @{Length=0; BkpPath=""; Hash="****************************************************************"}
+        $Files2Hash | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
+        $Files2Hash | Add-Member -MemberType NoteProperty -Name GroupID -Value $([string]"")
+        foreach ($prehashfile in $Files2Hash) {
+            $hashset = Get-FileHash -Path $prehashfile.FullName
+            $prehashfile.Hash = $hashset.Hash
+        }
+
+
+        $FilesGroupedByHash = $Files2Hash | Group-Object -Property Hash
+        $FilesGroupedByHash | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)
+        $FilesGroupedByHash | Add-Member -MemberType NoteProperty -Name DupKey -Value $([int]0)
+        #Build out grouping definition, note there are probably much more efficient ways to do this.
+        $DupInd  = [int[]]::new(1);
+        foreach ($hashgrp in $FilesGroupedByHash) {
+            $SrcSubGrp = $hashgrp.Group | Group-Object  -Property From | ?{ $_.Name -eq $SrcKey }
+            $BkpSubGrp = $hashgrp.Group | Group-Object  -Property From | ?{ $_.Name -eq $BkpKey }
+            if ($hashgrp.Count -eq $SrcSubGrp.Count){
+                $hashgrp.LocKey = $SrcKey
+            }
+            elseif ($hashgrp.Count -eq $BkpSubGrp.Count){
+                $hashgrp.LocKey = $BkpKey
+            }
+            else {
+                $hashgrp.LocKey = $BthKey
+            }
+            if ($SrcSubGrp.Count -gt 1)
+            {
+                $DupInd[0] = $DupInd[0] + 1
+                $hashgrp.DupKey = 1;
+                foreach ($selfile in ($hashgrp| Select-Object -Expand Group)){
+                    if ($selfile.LocKey -eq $SrcKey) {
+                        $selfile.DupGrp = $DupInd[0]
+                    }
+                }
+            }
+        }
+        $DupSet = ($FilesGroupedByHash| Select-Object -Expand Group) | Where-Object { $_.DupGrp -gt 0 }
+        #$DupList = @{
+        #    Group = $DupSet.DupGrp
+        #    File  = $DupSet.FullName
+        #}
+        if ($DupSet.Count){
+            $DupSet | Select-Object -Property DupGrp,FullName |
+            Export-Csv -LiteralPath $DupReport -NoTypeInformation
+            #$DupList| ConvertTo-Csv | Out-File -Append -FilePath $DupReport
+        }
+    
+        #************************ 3 ***************************
+        #Now allocate each group to a seperate lists, to be grouped later, and hash those that need to be checked.
+        $HashedFiles2Send2Del = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
+        foreach ($file in $HashedFiles2Send2Del) {
+            $ExtLen[0] = $file.FullName.Length - $BkpLen
+            $file.RemPath = $DelPathFldr + $file.FullName.Substring($SrcLen,$ExtLen[0])
+            $file.DeterminedAction = $SetRemove
+        }
+        $HashedFiles2Copy2Bkp = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object -Expand Group
+        foreach ($file in $HashedFiles2Copy2Bkp) {
+            $ExtLen[0] = $file.FullName.Length - $SrcLen
+            $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
+            $file.DeterminedAction = $SetBackup
+        }
+        $HashedFiles2Chk2Copy = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
+
+        foreach ($file in $HashedFiles2Chk2Copy) {
+            #If the fiile is in the source path, calculate the equivalent backup path for that file.
+            #Else, just set it to the full path.
+            if($file.FullName.StartsWith($SrcPath)){
+                $ExtLen[0] = $file.FullName.Length - $SrcLen
+                $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
+            } else {
+                $ExtLen[0] = $file.FullName.Length - $BkpLen
+                $file.BkpPath = $file.FullName
+                $file.RemPath = $DelPathFldr + $file.FullName.Substring($BkpLen,$ExtLen[0])
+            }
+            $file.GroupID = $file.BkpPath+"-S-"+$file.Length.tostring()+"-H-"+$file.Hash
+
+        }
+        $FilesGroupedByGroupID = $HashedFiles2Chk2Copy | Group-Object -Property GroupID
+        $FilesNotBackedUp = $FilesGroupedByGroupID| Where-Object { $_.Count -ne 2 } | Select-Object -Expand Group
+        $RenamedFiles2Copy2Bkp = $FilesNotBackedUp| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object
+        $RenamedBFiles2PermDel = $FilesNotBackedUp| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object
+        if( -Not (Test-Path -Path $DelPathRoot ) ) {
+            New-Item -Path $DelPathRoot -ItemType "directory" | Out-Null
+        }
+
+
+        #************************ 4 ***************************
+        #Delete files from backup since they have been renamed, moved, or otherwise exist in the source.
+        $Files2DelFromBackupWOZip = $RenamedBFiles2PermDel
+        if ($Files2DelFromBackupWOZip.Count) {
+            Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
+            $Files2DelFromBackupWOZip.FullName | Out-File -Append $DelReport
+        }
     
 
-    #Calculate the hash of files.
-    $Files2Hash = $Files2CmprCont
-    $Files2Hash | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
-    $Files2Hash | Add-Member -MemberType NoteProperty -Name GroupID -Value $([string]"")
-    foreach ($prehashfile in $Files2Hash) {
-        $hashset = Get-FileHash -Path $prehashfile.FullName
-        $prehashfile.Hash = $hashset.Hash
-    }
+        #************************ 5 ***************************
+        #Move files that have been removed from source but still exist in the backup folder to thier designated delete location and zip.  Save report.
+        if ($HashedFiles2Send2Del.Count)     {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $HashedFiles2Send2Del}
+        if ($UnhashedFiles2Send2Del.Count)   {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $UnhashedFiles2Send2Del}
+        if ($Files2Send2DelAndZip.Count) {
+            $DeleteDirs2Set = (Split-Path $Files2Send2DelAndZip.RemPath -Parent) | Get-Unique | Sort-Object { $_.Length }
+            New-Item -Path $DelPathFldr -ItemType "directory" | Out-Null
+            foreach ($dir2make in $DeleteDirs2Set) {
+                if( -Not (Test-Path -Path $dir2make ) ) {
+                    New-Item -Path $dir2make -ItemType "directory" | Out-Null
+                }
+            }
+            foreach ($file2move in $Files2Send2DelAndZip) {
+                Move-Item -Path $file2move.FullName -Destination $file2move.RemPath
+            }
+            #Now zip up folder, and delete.
+            Start-SevenZip a -mx=9 -bso0 -bsp0 $DelPath7zip $DelPathFldr
+            Remove-Item -LiteralPath $DelPathFldr -Force -Recurse| Out-Null
+            $Files2Send2DelAndZip.FullName | Out-File -Append $ModReport
+        }
 
 
-    $FilesGroupedByHash = $Files2Hash | Group-Object -Property Hash
-    $FilesGroupedByHash | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)
-    $FilesGroupedByHash | Add-Member -MemberType NoteProperty -Name DupKey -Value $([int]0)
-    #Build out grouping definition, note there are probably much more efficient ways to do this.
-    $DupInd  = [int[]]::new(1);
-    foreach ($hashgrp in $FilesGroupedByHash) {
-        $SrcSubGrp = $hashgrp.Group | Group-Object  -Property From | ?{ $_.Name -eq $SrcKey }
-        $BkpSubGrp = $hashgrp.Group | Group-Object  -Property From | ?{ $_.Name -eq $BkpKey }
-        if ($hashgrp.Count -eq $SrcSubGrp.Count){
-            $hashgrp.LocKey = $SrcKey
+        #************************ 6 ***************************
+        #Copy corresonding files from source to backup.
+        if ($RenamedFiles2Copy2Bkp.Count)  {$Files2Backup = $Files2Backup + $RenamedFiles2Copy2Bkp}
+        if ($HashedFiles2Copy2Bkp.Count)   {$Files2Backup = $Files2Backup + $HashedFiles2Copy2Bkp}
+        if ($UnhashedFiles2Copy2Bkp.Count) {$Files2Backup = $Files2Backup + $UnhashedFiles2Copy2Bkp}
+        if ($Files2Backup.Count) {
+            $BackupDirs2Set = (Split-Path $Files2Backup.BkpPath -Parent) | Get-Unique | Sort-Object { $_.Length }
+            foreach ($dir2make in $BackupDirs2Set) {
+                if( -Not (Test-Path -Path $dir2make ) ) {
+                    New-Item -Path $dir2make -ItemType "directory" | Out-Null
+                }
+            }
+            foreach ($file2copy in $Files2Backup) {
+                Copy-Item -Path $file2copy.FullName -Destination $file2copy.BkpPath | Out-Null
+            }
+            $Files2Backup.FullName | Out-File -Append $CopyReport
         }
-        elseif ($hashgrp.Count -eq $BkpSubGrp.Count){
-            $hashgrp.LocKey = $BkpKey
-        }
-        else {
-            $hashgrp.LocKey = $BthKey
-        }
-        if ($SrcSubGrp.Count -gt 1)
-        {
-            $DupInd[0] = $DupInd[0] + 1
-            $hashgrp.DupKey = 1;
-            foreach ($selfile in ($hashgrp| Select-Object -Expand Group)){
-                if ($selfile.LocKey -eq $SrcKey) {
-                    $selfile.DupGrp = $DupInd[0]
+    
+        #************************ 7 ***************************
+        #Delete remaining directories in backup that don't exist in source.
+        if ($BackupDirs2Del.count) {
+            foreach ($dir2remove in $BackupDirs2Del.FullName) {
+                if((Test-Path -Path $dir2remove) ) {
+                    Remove-Item -LiteralPath $dir2remove  -Force -Recurse | Out-Null
                 }
             }
         }
     }
-    $DupSet = ($FilesGroupedByHash| Select-Object -Expand Group) | Where-Object { $_.DupGrp -gt 0 }
-    #$DupList = @{
-    #    Group = $DupSet.DupGrp
-    #    File  = $DupSet.FullName
-    #}
-    if ($DupSet.Count){
-        $DupSet | Select-Object -Property DupGrp,FullName |
-        Export-Csv -LiteralPath $DupReport -NoTypeInformation
-        #$DupList| ConvertTo-Csv | Out-File -Append -FilePath $DupReport
-    }
-    
-    #************************ 3 ***************************
-    #Now allocate each group to a seperate lists, to be grouped later, and hash those that need to be checked.
-    $HashedFiles2Send2Del = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
-    foreach ($file in $HashedFiles2Send2Del) {
-        $ExtLen[0] = $file.FullName.Length - $BkpLen
-        $file.RemPath = $DelPathFldr + $file.FullName.Substring($SrcLen,$ExtLen[0])
-        $file.DeterminedAction = $SetRemove
-    }
-    $HashedFiles2Copy2Bkp = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object -Expand Group
-    foreach ($file in $HashedFiles2Copy2Bkp) {
-        $ExtLen[0] = $file.FullName.Length - $SrcLen
-        $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
-        $file.DeterminedAction = $SetBackup
-    }
-    $HashedFiles2Chk2Copy = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
-
-    foreach ($file in $HashedFiles2Chk2Copy) {
-        #If the fiile is in the source path, calculate the equivalent backup path for that file.
-        #Else, just set it to the full path.
-        if($file.FullName.StartsWith($SrcPath)){
-            $ExtLen[0] = $file.FullName.Length - $SrcLen
-            $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
-        } else {
-            $ExtLen[0] = $file.FullName.Length - $BkpLen
-            $file.BkpPath = $file.FullName
-            $file.RemPath = $DelPathFldr + $file.FullName.Substring($BkpLen,$ExtLen[0])
-        }
-        $file.GroupID = $file.BkpPath+"-S-"+$file.Length.tostring()+"-H-"+$file.Hash
-
-    }
-    $FilesGroupedByGroupID = $HashedFiles2Chk2Copy | Group-Object -Property GroupID
-    $FilesNotBackedUp = $FilesGroupedByGroupID| Where-Object { $_.Count -ne 2 } | Select-Object -Expand Group
-    $RenamedFiles2Copy2Bkp = $FilesNotBackedUp| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object
-    $RenamedBFiles2PermDel = $FilesNotBackedUp| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object
-    if( -Not (Test-Path -Path $DelPathRoot ) ) {
-        New-Item -Path $DelPathRoot -ItemType "directory" | Out-Null
-    }
-
-
-    #************************ 4 ***************************
-    #Delete files from backup since they have been renamed, moved, or otherwise exist in the source.
-    $Files2DelFromBackupWOZip = $RenamedBFiles2PermDel
-    if ($Files2DelFromBackupWOZip.Count) {
-        Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
-        $Files2DelFromBackupWOZip.FullName | Out-File -Append $DelReport
-    }
-    
-
-    #************************ 5 ***************************
-    #Move files that have been removed from source but still exist in the backup folder to thier designated delete location and zip.  Save report.
-    if ($HashedFiles2Send2Del.Count)     {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $HashedFiles2Send2Del}
-    if ($UnhashedFiles2Send2Del.Count)   {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $UnhashedFiles2Send2Del}
-    if ($Files2Send2DelAndZip.Count) {
-        $DeleteDirs2Set = (Split-Path $Files2Send2DelAndZip.RemPath -Parent) | Get-Unique | Sort-Object { $_.Length }
-        New-Item -Path $DelPathFldr -ItemType "directory" | Out-Null
-        foreach ($dir2make in $DeleteDirs2Set) {
-            if( -Not (Test-Path -Path $dir2make ) ) {
-                New-Item -Path $dir2make -ItemType "directory" | Out-Null
-            }
-        }
-        foreach ($file2move in $Files2Send2DelAndZip) {
-            Move-Item -Path $file2move.FullName -Destination $file2move.RemPath
-        }
-        #Now zip up folder, and delete.
-        Start-SevenZip a -mx=9 -bso0 -bsp0 $DelPath7zip $DelPathFldr
-        Remove-Item -LiteralPath $DelPathFldr -Force -Recurse| Out-Null
-        $Files2Send2DelAndZip.FullName | Out-File -Append $ModReport
-    }
-
-
-    #************************ 6 ***************************
-    #Copy corresonding files from source to backup.
-    if ($RenamedFiles2Copy2Bkp.Count)  {$Files2Backup = $Files2Backup + $RenamedFiles2Copy2Bkp}
-    if ($HashedFiles2Copy2Bkp.Count)   {$Files2Backup = $Files2Backup + $HashedFiles2Copy2Bkp}
-    if ($UnhashedFiles2Copy2Bkp.Count) {$Files2Backup = $Files2Backup + $UnhashedFiles2Copy2Bkp}
-    if ($Files2Backup.Count) {
-        $BackupDirs2Set = (Split-Path $Files2Backup.BkpPath -Parent) | Get-Unique | Sort-Object { $_.Length }
-        foreach ($dir2make in $BackupDirs2Set) {
-            if( -Not (Test-Path -Path $dir2make ) ) {
-                New-Item -Path $dir2make -ItemType "directory" | Out-Null
-            }
-        }
-        foreach ($file2copy in $Files2Backup) {
-            Copy-Item -Path $file2copy.FullName -Destination $file2copy.BkpPath | Out-Null
-        }
-        $Files2Backup.FullName | Out-File -Append $CopyReport
-    }
-    
-    #************************ 7 ***************************
-    #Delete remaining directories in backup that don't exist in source.
-    if ($BackupDirs2Del.count) {
-        foreach ($dir2remove in $BackupDirs2Del.FullName) {
-            if((Test-Path -Path $dir2remove) ) {
-                Remove-Item -LiteralPath $dir2remove  -Force -Recurse | Out-Null
-            }
-        }
-    }
-
     
     #************************ 8 ***************************
     #Wrapup, set alert definitions.
