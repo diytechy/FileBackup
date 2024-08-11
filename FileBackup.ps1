@@ -187,7 +187,9 @@ Try {
                     $CurrInd[0] = ($group| Select-Object -Expand Group).FullName.IndexOf($file.BkpPath)
                     #If we found a matching index, it exists, let's see if the modification dates are the same.
                     if($CurrInd[0] -ge 0){
-                        #Do the modification dates match?
+                        #Do the modification dates match?  If so tag both the modified and backup file so we don't spend anymore time on it.
+                        #Note this does create risk where a deleted file from the backup region is no longer able to be verified as a duplicate,
+                        #and thus will be archived when it could have been deleted outright.
                         if ($file.LastWriteTime -eq ($group| Select-Object -Expand Group)[$CurrInd[0]].LastWriteTime){
                             $file.BkpFnd = 1
                             ($group| Select-Object -Expand Group)[$CurrInd[0]].BkpFnd = 1
