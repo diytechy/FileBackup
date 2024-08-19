@@ -73,8 +73,9 @@ foreach ($SelFileGrp in $FileGrps) {
         Copy-Item -Path $file2cpy.FullName -Destination $file2cpy.TmpPath | Out-Null
     }
     #Create output names
-    $RprtPath = $7ZRprtPrepend + $SelGrpID[0].ToString() + ".txt"
-    $ArchPath = $7ZPathPrepend + $SelGrpID[0].ToString() + ".7z"
+    $IDStr = '{0:d4}' -f [Int]$SelGrpID[0].ToString()
+    $RprtPath = $7ZRprtPrepend + $IDStr + ".txt"
+    $ArchPath = $7ZPathPrepend + $IDStr + ".7z"
     Start-SevenZip a -mx=9 -bso0 -bsp0 $ArchPath $ArchivePrepPath
     $SelFileList.TmpPath | Out-File -Append $RprtPath
     $Msg = "Group " + $SelGrpID[0].ToString() + " of " + $FileGrps.Count.ToString() + " archived"
