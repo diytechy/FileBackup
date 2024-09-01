@@ -1,0 +1,63 @@
+If no modification folders specified, don't need to check for 7zip.
+Add method / option to generate clonespy crc per set.
+Allow a different backup directory per set?
+How to specify hash comparison frequency?
+ "W", "M", "N", "E" ???
+ 
+ 
+Inputs:
+OLD: SkipHashIfEqualPathAndModDate = 1;
+NEW ALT 1: SkipSrcHashIfEqualPathAndModDate = 1;
+NEW ALT 1: SkipBkpHashIfEqualPathAndModDate = 1;
+NEW ALT 2: SrcHashIfEqualPathAndModDateFreq = "W";
+NEW ALT 2: BkpHashIfEqualPathAndModDateFreq = "W";
+
+BkpVolLbl = "SecondaryBackup";
+SrcVolLbl = "PrimaryBackup";
+DelFldrLbl = "Modified";
+ChkFldrLbl = "Shared";
+HashCmprFreq = "N"; 
+
+Outputs:
+
+$ModReport 
+$DelReport 
+$CopyReport
+$LenReport 
+$DupReport
+NEW: HASH TABLE (location, size, modedate, hash)
+
+
+
+Every time:
+Get all files.
+
+
+BkpVolLbl = "SecondaryBackup";
+SrcVolLbl = "PrimaryBackup";
+DelFldrLbl = "Modified";
+ChkFldrLbl = "Shared";
+SrcHashIfEqualPathAndModDateFreq = "W";
+BkpHashIfEqualPathAndModDateFreq = "W";
+
+(Get-Date).DayOfWeek.value__
+
+    $SrcPath = $SrcDrive + $ChkFolderLabel
+    $BkpPath = $BkpDrives[0] + ":\" + $ChkFolderLabel
+	
+    $ModPathFldr = $ModPathPre + "\"
+    $ModPath7Zip = $ModPathPre + ".7z"
+	
+	EnableRprtGen
+	ArchiveChangesInMod
+	
+	
+	
+    #Create report paths
+    $ModReport = $DelPathPre + "-ModifiedOrDeletedFiles.txt"
+    $DelReport = $DelPathPre + "-RemovedFromBackupDueToDetectedMove.txt"
+    $CopyReport = $DelPathPre + "-CopiedToBackup.txt"
+    $LenReport = $SrcDrive + "ERROR" + " - " + $TodayCode + " - Length.txt"
+    $DupReport = $SrcDrive + $TodayCode + "-PotentialDuplicates.csv"
+	
+	BackupPrevAndRemovedFilesToRepFldr
