@@ -2,37 +2,51 @@
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #Warning - This is the first functional powershell script I have attempted to create.  Suggestions appreciated
 # but may not be understood.
+#Assumptions:
+    #Backup is performed daily and started at the same time.
+    #Files to backup are in a subfolder (you could try to set a blank check label, but I am not testing for it)
+
 
 #Configuration Parameters
-#This will significantly increase compare time by assuming files between the primary and secondary check 
-#folders that have the same relative path, modification date, and size, are the exact same file, such that
-#calculating and comparing the hash would not be required.  Turning this off will ensure any file modification is
-#indeed backed up, but will significantly increase execution time of the backup script and result in more
-#wear to platter disks.
-$SkipHashIfEqualPathAndModDate = 1
-
-#$data = @( @{name=''; num=#}, @{name=''; num=#} )
+#BkpVolLbl - The label of the volume / drive to backup to.
+#SrcVolLbl - The label of the volume / drive to backup from.
+#RepFldrLbl - The name of the folder where reports will be generated (and old file versions archived to if enabled)
+#ChkFldrLbl - The folder / path in the source drive to actually backup (this script is not designed to backup root, for various reasons)
+#BackupPrevAndRemovedFilesToRepFldr - Allows old file versions to be backed up before they are overwritten.
+#SrcHashIfEqualPathAndModDateFreq - How often to perform a hash on all files in the source folder, for verifying content has truly remained constant..
+#BkpHashIfEqualPathAndModDateFreq - How often to perform a hash on all files in backup  folder when all other attributes match, for verifying content has truly remained constant.
+#Freq codes for above vars: "E" - Every time, "W" - Every week (Occurs on sunday), "M" - Every month (Occurs on first day), "Y" - Every year (Occurs on Jan, 1)
 #Path Configurations:
+PriVolLbl = "Library"
+BkpVolLbl = "PriBackup"
+BkpVolLbl2 = "LPBackup"
+
 $BkpSets = @( @{
-BkpVolLbl = "SecondaryBackup";
-SrcVolLbl = "PrimaryBackup";
-RepFldrLbl = "Modified";
+SrcVolLbl = $PriVolLbl;
+SrcHshPth = "C:\SharedFilesHashTable.csv";
+BkpVolLbl = $BkpVolLbl;
+RepVolLbl = $BkpVolLbl;
+RepFldrLbl = "Report";
 ChkFldrLbl = "Shared";
 BackupPrevAndRemovedFilesToRepFldr = 1;
 SrcHashIfEqualPathAndModDateFreq = "W";
 BkpHashIfEqualPathAndModDateFreq = "M";
 }, @{
-BkpVolLbl = "SecondaryBackup";
-SrcVolLbl = "PrimaryBackup";
-RepFldrLbl = "Modified";
+SrcVolLbl = $PriVolLbl;
+SrcHshPth = "C:\PrivateFilesHashTable.csv";
+BkpVolLbl = $BkpVolLbl;
+RepVolLbl = $BkpVolLbl;
+RepFldrLbl = "Report";
 ChkFldrLbl = "Private";
 BackupPrevAndRemovedFilesToRepFldr = 1;
 SrcHashIfEqualPathAndModDateFreq = "W";
 BkpHashIfEqualPathAndModDateFreq = "M";
 }, @{
-BkpVolLbl = "SecondaryBackup";
-SrcVolLbl = "PrimaryBackup";
-RepFldrLbl = "Modified";
+SrcVolLbl = $PriVolLbl;
+SrcHshPth = "C:\NonDocsFilesHashTable.csv";
+BkpVolLbl = $BkpVolLbl;
+RepVolLbl = $BkpVolLbl2;
+RepFldrLbl = "Report";
 ChkFldrLbl = "NonDocs";
 BackupPrevAndRemovedFilesToRepFldr = 1;
 SrcHashIfEqualPathAndModDateFreq = "W";
@@ -95,13 +109,13 @@ Try {
     #First, validate the input configurations and get the corresponding properties.
     for ($i = 0; $i -lt $NBackupSets; $i++) {
         #Get all file paths to work with, and create label of delete archive if it needs to be created.
-        $BkpDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$BkpVolumeLabel*"}).DriveLetter
-        $SrcDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$SrcVolumeLabel*"}).DriveLetter
+        $BkpDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$BkpDrives[$i].BkpVolLbl*"}).DriveLetter
+        $SrcDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$BkpDrives[$i].SrcVolLbl*"}).DriveLetter
         if (($SrcDrives.Count -eq 1) -and ($SrcDrives.Count -eq 1))
         {
-            $SrcDrive = $SrcDrives[$i] + ":\"
-            $BkpSets[$i].SrcPath = $SrcDrive + $ChkFolderLabel
-            $BkpSets[$i].BkpPath = $BkpDrives[$i] + ":\" + $ChkFolderLabel
+            $SrcDrive = $SrcDrives[0] + ":\"
+            $BkpSets[$i].SrcPath = $SrcDrive + $BkpDrives[$i].ChkFldrLbl
+            $BkpSets[$i].BkpPath = $BkpDrives[0] + ":\" + $BkpDrives[$i].ChkFldrLbl
             switch($BkpSets[$i].SrcHashIfEqualPathAndModDateFreq){
                 "E" {$BkpSets[$i].CalcSrcHash = 1}
                 "W" {
@@ -182,27 +196,26 @@ Try {
     }
     
     for ($i = 0; $i -lt $NBackupSets; $i++) {
-        $SrcDrive = $SrcDrives[0] + ":\"
-        $SrcPath = $SrcDrive + $ChkFolderLabel
-        $BkpPath = $BkpDrives[0] + ":\" + $ChkFolderLabel
-        $RepPathRoot = $BkpDrives[0] + ":\" + $ModFolderLabel
-        $RepPathPre =  $RepPathRoot + "\" + $TodayCode
-        $RepPathFldr = $RepPathPre + "\"
-        $RepPath7Zip = $RepPathPre + ".7z"
-
+        $SrcPath       = $BkpSets[$i].SrcPath
+        $BkpPath       = $BkpSets[$i].BkpPath
+        $CalcSrcHash   = $BkpSets[$i].CalcSrcHash
+        $CalcBkpHash   = $BkpSets[$i].CalcBkpHash
+        $EnableRprtGen = $BkpSets[$i].EnableRprtGen
         #Create report paths
-        $ModReport = $RepPathPre + "-ModifiedOrDeletedFiles.txt"
-        $DelReport = $RepPathPre + "-RemovedFromBackupDueToDetectedMove.txt"
-        $CopyReport = $RepPathPre + "-CopiedToBackup.txt"
-        $LenReport = $SrcDrive + "ERROR" + " - " + $TodayCode + " - Length.txt"
-        $DupReport = $SrcDrive + $TodayCode + "-PotentialDuplicates.csv"
-    
+        $RepPathRoot   = $BkpSets[$i].RepPathRoot
+        $ModReport     = $BkpSets[$i].ModReport 
+        $DelReport     = $BkpSets[$i].DelReport 
+        $CopyReport    = $BkpSets[$i].CopyReport
+        $LenReport     = $BkpSets[$i].LenReport 
+        $DupReport     = $BkpSets[$i].DupReport
+        #Archive paths
+        $ArchiveChangesInRep = $BkpSets[$i].ArchiveChangesInRep = 1
+        $RepPathFldr         = $BkpSets[$i].RepPathFldr
+        $RepPath7Zip         = $BkpSets[$i].RepPath7Zip
+
         #Build out grouping definition, note there are probably much more efficient ways to do this.
         $CurrInd  = [int[]]::new(1);
         $ExtLen   = [int[]]::new(1);
-
-        $SrcDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$SrcVolumeLabel*"}).DriveLetter
-        $SrcPath = $SrcDrives[0] + ":\" + $ChkFolderLabel
 
         $SrcLen   = $SrcPath.Length;
         $BkpLen   = $BkpPath.Length;
