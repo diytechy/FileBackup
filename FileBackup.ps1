@@ -16,6 +16,7 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #SrcHashIfEqualPathAndModDateFreq - How often to perform a hash on all files in the source folder, for verifying content has truly remained constant..
 #BkpHashIfEqualPathAndModDateFreq - How often to perform a hash on all files in backup  folder when all other attributes match, for verifying content has truly remained constant.
 #Freq codes for above vars: "E" - Every time, "W" - Every week (Occurs on sunday), "M" - Every month (Occurs on first day), "Y" - Every year (Occurs on Jan, 1)
+#Note if the backup files are scheduled to hash, the source files will also be hashed ton ensure syncrony.
 #Path Configurations:
 $PriVolLbl = "Library"
 $BkpVolLbl = "PriBackup"
@@ -107,11 +108,10 @@ Try {
         #Get all file paths to work with, and create label of delete archive if it needs to be created.
         $BkpDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like ("*"+$BkpSets[$i].BkpVolLbl+"*")}).DriveLetter
         $SrcDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like ("*"+$BkpSets[$i].SrcVolLbl+"*")}).DriveLetter
-        if (($SrcDrives.Count -eq 1) -and ($SrcDrives.Count -eq 1))
-        {
+        if (($SrcDrives.Count -eq 1) -and ($SrcDrives.Count -eq 1)) {
             $SrcDrive = $SrcDrives[0] + ":\"
-            $BkpSets[$i].SrcPath = $SrcDrive + $BkpDrives[$i].ChkFldrLbl
-            $BkpSets[$i].BkpPath = $BkpDrives[0] + ":\" + $BkpDrives[$i].ChkFldrLbl
+            $BkpSets[$i].SrcPath = $SrcDrive + $BkpSets[$i].ChkFldrLbl
+            $BkpSets[$i].BkpPath = $BkpDrives[0] + ":\" + $BkpSets[$i].ChkFldrLbl
             switch($BkpSets[$i].SrcHashIfEqualPathAndModDateFreq){
                 "E" {$BkpSets[$i].CalcSrcHash = 1}
                 "W" {
@@ -150,6 +150,9 @@ Try {
                     else {$BkpSets[$i].CalcBkpHash = 0}}
                 Default {throw "Invalid or undefined backup hash configuration!"}
             }
+            if ($BkpSets[$i].CalcBkpHash){
+                $BkpSets[$i].CalcSrcHash = 1
+            }
 
             if ($BkpSets[$i].RepFldrLbl.length -gt 0){
                 $BkpSets[$i].EnableRprtGen = 1
@@ -160,8 +163,8 @@ Try {
                 $BkpSets[$i].ModReport = $RepPathPre + "-ModifiedOrDeletedFiles.txt"
                 $BkpSets[$i].DelReport = $RepPathPre + "-RemovedFromBackupDueToDetectedMove.txt"
                 $BkpSets[$i].CopyReport = $RepPathPre + "-CopiedToBackup.txt"
-                $BkpSets[$i].LenReport = $SrcDrive + "ERROR" + " - " + $TodayCode + " - Length.txt"
-                $BkpSets[$i].DupReport = $SrcDrive + $TodayCode + "-PotentialDuplicates.csv"
+                $BkpSets[$i].LenReport = $RepPathPre + "ERROR" + " - " + $TodayCode + " - Length.txt"
+                $BkpSets[$i].DupReport = $RepPathPre + "-PotentialDuplicates.csv"
                 if ($BkpSets[$i].BackupPrevAndRemovedFilesToRepFldr) {
                     $ArchiveChanges = 1
                     $BkpSets[$i].ArchiveChangesInRep = 1
@@ -239,6 +242,8 @@ Try {
         $AllBkpFiles = @(Get-ChildItem -Path $BkpPath -Recurse -File)
         $AllBkpFldrs = @(Get-ChildItem -Path $BkpPath -Recurse -Directory | Select-Object -Property FullName)
         $AllBkpFiles = @($AllBkpFiles | Add-Member -MemberType NoteProperty -Name From -Value $BkpKey -PassThru)
+
+        if ($AllFiles){Remove-Variable AllFiles}
         $AllFiles = $AllSrcFiles + $AllBkpFiles
         $AllFiles | Add-Member -MemberType NoteProperty -Name BkpPath -Value $([string]"")
         $AllFiles | Add-Member -MemberType NoteProperty -Name RemPath -Value $([string]"")
@@ -246,6 +251,9 @@ Try {
         $AllFiles | Add-Member -MemberType NoteProperty -Name FullPotLength -Value $([int]0)
         $AllFiles | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)
         $AllFiles | Add-Member -MemberType NoteProperty -Name DupGrp -Value $([int]0)
+        $AllFiles | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
+        
+        if ($AllFldrs){Remove-Variable AllFldrs}
         if ($AllSrcFldrs.count){
             $AllFldrs = $AllFldrs + $AllSrcFldrs
         }
@@ -256,22 +264,47 @@ Try {
         $AllFldrs | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)
         $AllFldrs | Add-Member -MemberType NoteProperty -Name RelLen -Value $([int]0)
 
-        #************************ Pre ***************************
-        #Check for file path length.
-        $CurrInd  = [int[]]::new(1);
-        $CurrInd[0] = 0
+        #************************ Pre - A ***************************
+        #Check for file path length, and get the hash of the source files (either by matching properties to a previously hashed file or by rehashing)
+        $CurrInd  = [int[]]::new(1); $CurrInd[0] = 0
+        $MatchedHash  = [int[]]::new(1); $MatchedHash[0] = 0
         foreach ($file in $AllFiles) {
             if($file.FullName.StartsWith($SrcPath)){
                 $file.FullPotLength = $file.FullName.Length - $SrcLen + $ModLen
                 $file.LocKey = $SrcKey
+                #If we're not rebuilding the hash, recalculate
+                if(-not($RebuildSrcHashTblFlag) -and $AllOldSrcProps){
+                    $MatchingFile = @($AllOldSrcProps | ?{( $_.FullName -eq $file.FullName) -and ( $_.Length -eq $file.Length) -and ($_.LastWriteTime -eq $file.LastWriteTime.ToString())})
+                    if($MatchingFile.Count -eq 1){
+                        $file.Hash = $MatchingFile.Hash
+                        $MatchedHash[0] = $MatchedHash[0] +1
+                    }
+                    else {
+                        $hashset = Get-FileHash -Path $file.FullName
+                        $file.Hash = $hashset.Hash
+                    }
+                }
+                #Else if the hash must be rebuilt, do it now.
+                else {
+                    $hashset = Get-FileHash -Path $file.FullName
+                    $file.Hash = $hashset.Hash
+                }
             } else {
                 $file.FullPotLength = $file.FullName.Length - $BkpLen + $ModLen
                 $file.LocKey = $BkpKey
             }
         }
+        #Export all source files for future import / compoarison.
+        $SrcFilesWithHash = $AllFiles | Where-Object {( $_.LocKey -eq $SrcKey)} 
+        $SrcFilesWithHash | Select-Object -Property Fullname, Length, LastWriteTime, Hash|
+        Export-Csv -Path $HashTblPath -NoTypeInformation
 
+        
+
+        #************************ Pre - B ***************************
+        #Prepare folder related attributes.
         foreach ($SelFldr in $AllFldrs) {
-            #Write-Host $selfldr.FullName
+            #Write-Host $selfldr.FullName0
             #$SelFldr = $AllFldrs[$i]
             if($SelFldr.FullName.StartsWith($SrcPath)) {
                 $ExtLen[0] = $SelFldr.FullName.Length - $SrcLen
@@ -286,21 +319,52 @@ Try {
                 $SelFldr.RelLen = $ExtLen[0]
             }
         }
+        #************************ Pre - C ***************************
         #Produce directories to create and remove
         $GrpRelDir = @($AllFldrs | Group-Object  -Property RelPath | ?{ $_.Count -eq 1 } | Select-Object -Expand Group)
         $BackupDirs2Del = @($GrpRelDir | ?{ $_.LocKey -eq $BkpKey } | Sort-Object -Property RelLen)
-        #$BackupDirs2Set = @($GrpRelDir | ?{ $_.LocKey -eq $SrcKey } | Sort-Object -Property RelLen -Descending)
 
         $FilesMayExceedLim = $group.Group | Group-Object  -Property From | ?{ $_.FullPotLength -gt $PotLengthLimit }
         if ($FilesMayExceedLim.Count){
             $FilesMayExceedLim.FullName | Out-File -Append $LenReport
         }
+        if( -Not (Test-Path -Path $RepPathRoot ) ) {
+            New-Item -Path $RepPathRoot -ItemType "directory" | Out-Null
+        }
+
+        
+        #************************ Pre - D ***************************
+        #Get duplicate group index to report duplicates
+        $DupInd  = [int[]]::new(1); $DupInd[0] = 0
+        $SrcFilesGroupedByHash = $SrcFilesWithHash | Group-Object -Property Hash
+        $SrcFilesGroupedByHash | Add-Member -MemberType NoteProperty -Name DupGrp -Value $([int]0)
+        foreach ($hashgrp in $SrcFilesGroupedByHash) {
+
+            if ($hashgrp.Count -gt 1)
+            {
+                $DupInd[0] = $DupInd[0] + 1
+                foreach ($selfile in ($hashgrp| Select-Object -Expand Group)){
+                    $selfile.DupGrp = $DupInd[0]
+                }
+            }
+        }
+            
+
+        #************************ Pre - E ***************************
+        #Identify duplicates and produce report if enabled.
+        $DupSet = ($SrcFilesGroupedByHash | Select-Object -Expand Group) | Where-Object { $_.DupGrp -gt 0 }
+        if ($DupSet.Count -and $EnableRprtGen){
+            $DupSet | Select-Object -Property DupGrp,FullName |
+            Export-Csv -LiteralPath $DupReport -NoTypeInformation
+        }
+
     
         #************************ 1 ***************************
         #Group all files by their size (since those might be duplicate):
         # 1. If enabled, set a flag for items from each group that appear to be equal based on their path and modification date.
         # 2. Then seperate out files from groups that aren't flagged and only exist in the source or only exist in the backup path,
         #    as those will require action to be taken.
+        $SkipHashIfEqualPathAndModDate = -not($RebuildBkpHashTblFlag)
         if ($SkipHashIfEqualPathAndModDate) {
             $AllFiles | Add-Member -MemberType NoteProperty -Name BkpFnd -Value $([int]0)
             $FilesGroupedSizeWise = $AllFiles | Group-Object -Property Length 
@@ -326,15 +390,20 @@ Try {
                 }
             }
             #Now rebuild, only keeping files that didn't have their backup found.
-            $FilesGroupedSizeWise = (($FilesGroupedSizeWise| Select-Object -Expand Group) | Where-Object { $_.BkpFnd -ne 1}) | Group-Object -Property Length 
+            $FilesGroupedSizeWise = @((($FilesGroupedSizeWise| Select-Object -Expand Group) | Where-Object { $_.BkpFnd -ne 1}) | Group-Object -Property Length )
         }
         else {
-            $FilesGroupedSizeWise = $AllFiles | Group-Object -Property Length 
+            $FilesGroupedSizeWise = @($AllFiles | Group-Object -Property Length) 
         }
-
+        
+        #************************ 2 ***************************
         #If any files remain, we need to decide what to  do with them.
         if ($FilesGroupedSizeWise.Count) {
             $FilesGroupedSizeWise | Add-Member -MemberType  NoteProperty -Name LocKey -Value $([int]0)
+            #************************ 2A ***************************
+            #If any files have the same size in both the source and backup, they need to be tagged as existing in both, since we need more information about them before deciding what to do.
+            #Files that are only in source can be directly copied.
+            #Files that are only in backup can just be removed.
             foreach ($group in $FilesGroupedSizeWise) {
                 $SrcSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $SrcKey }
                 $BkpSubGrp = $group.Group | Group-Object  -Property From | ?{ $_.Name -eq $BkpKey }
@@ -349,13 +418,11 @@ Try {
                 }
             }
 
-            #************************ 2 ***************************
+            #************************ 2B ***************************
             #Now act on each group:
-            # 1. If enabled, remove items from the group that appear to be equal based on their path and name
+            # 1. If enabled, remove items from the group that appear to be equal based on their path and name, because they should be the same (nothing needs to be done with them)
             # 2. Allocate each group to a seperate lists of items to be deleted from backup, to be copied from source
             #    or to be compared using their hash.
-            #$Files2CmprCont = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
-
 
             $UnhashedFiles2Send2Del = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
             foreach ($file in $UnhashedFiles2Send2Del) {
@@ -363,22 +430,31 @@ Try {
                 $file.RemPath = $RepPathFldr + $file.FullName.Substring($SrcLen,$ExtLen[0])
                 $file.DeterminedAction = $SetRemove
             }
+
             $UnhashedFiles2Copy2Bkp = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object -Expand Group
             foreach ($file in $UnhashedFiles2Copy2Bkp) {
                 $ExtLen[0] = $file.FullName.Length - $SrcLen
                 $file.BkpPath = $BkpPath + $file.FullName.Substring($SrcLen,$ExtLen[0])
                 $file.DeterminedAction = $SetBackup
             }
+
+            #************************ 2C ***************************
+            #As noted, if they were in both, need to get more info.
             $Files2CmprCont = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
             $Files2Hash = $Files2CmprCont
-            #Calculate the hash of files.
+
+            #Calculate the hash of files or grab it from the value that was already pulled.
             $Asset = New-Object -TypeName PSObject
             $GroupID = @{Length=0; BkpPath=""; Hash="****************************************************************"}
-            $Files2Hash | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
             $Files2Hash | Add-Member -MemberType NoteProperty -Name GroupID -Value $([string]"")
             foreach ($prehashfile in $Files2Hash) {
-                $hashset = Get-FileHash -Path $prehashfile.FullName
-                $prehashfile.Hash = $hashset.Hash
+                if ($prehashfile.LocKey -eq $SrcKey) {
+                    #Do nothing, the hash should already exist.
+                }
+                else {
+                    $hashset = Get-FileHash -Path $prehashfile.FullName
+                    $prehashfile.Hash = $hashset.Hash
+                }
             }
 
 
@@ -399,26 +475,6 @@ Try {
                 else {
                     $hashgrp.LocKey = $BthKey
                 }
-                if ($SrcSubGrp.Count -gt 1)
-                {
-                    $DupInd[0] = $DupInd[0] + 1
-                    $hashgrp.DupKey = 1;
-                    foreach ($selfile in ($hashgrp| Select-Object -Expand Group)){
-                        if ($selfile.LocKey -eq $SrcKey) {
-                            $selfile.DupGrp = $DupInd[0]
-                        }
-                    }
-                }
-            }
-            $DupSet = ($FilesGroupedByHash| Select-Object -Expand Group) | Where-Object { $_.DupGrp -gt 0 }
-            #$DupList = @{
-            #    Group = $DupSet.DupGrp
-            #    File  = $DupSet.FullName
-            #}
-            if ($DupSet.Count){
-                $DupSet | Select-Object -Property DupGrp,FullName |
-                Export-Csv -LiteralPath $DupReport -NoTypeInformation
-                #$DupList| ConvertTo-Csv | Out-File -Append -FilePath $DupReport
             }
     
             #************************ 3 ***************************
@@ -455,9 +511,6 @@ Try {
             $FilesNotBackedUp = $FilesGroupedByGroupID| Where-Object { $_.Count -ne 2 } | Select-Object -Expand Group
             $RenamedFiles2Copy2Bkp = $FilesNotBackedUp| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object
             $RenamedBFiles2PermDel = $FilesNotBackedUp| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object
-            if( -Not (Test-Path -Path $RepPathRoot ) ) {
-                New-Item -Path $RepPathRoot -ItemType "directory" | Out-Null
-            }
 
 
             #************************ 4 ***************************
@@ -531,4 +584,4 @@ Try {
     $SendMsgProps['Subject'] = "Automatic Backup Failed"
     $Error[0]
 }
-#Send-MailMessage @SendMsgProps -UseSsl
+Send-MailMessage @SendMsgProps -UseSsl
