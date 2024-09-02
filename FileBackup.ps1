@@ -17,47 +17,42 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #BkpHashIfEqualPathAndModDateFreq - How often to perform a hash on all files in backup  folder when all other attributes match, for verifying content has truly remained constant.
 #Freq codes for above vars: "E" - Every time, "W" - Every week (Occurs on sunday), "M" - Every month (Occurs on first day), "Y" - Every year (Occurs on Jan, 1)
 #Path Configurations:
-PriVolLbl = "Library"
-BkpVolLbl = "PriBackup"
-BkpVolLbl2 = "LPBackup"
+$PriVolLbl = "Library"
+$BkpVolLbl = "PriBackup"
+$BkpVolLbl2 = "LPBackup"
 
 $BkpSets = @( @{
 SrcVolLbl = $PriVolLbl;
-SrcHshPth = "C:\SharedFilesHashTable.csv";
+SrcHshPth = "~\SharedFilesHashTable.csv";
 BkpVolLbl = $BkpVolLbl;
 RepVolLbl = $BkpVolLbl;
-RepFldrLbl = "Report";
+RepFldrLbl = "BackedUpReports";
 ChkFldrLbl = "Shared";
 BackupPrevAndRemovedFilesToRepFldr = 1;
 SrcHashIfEqualPathAndModDateFreq = "W";
 BkpHashIfEqualPathAndModDateFreq = "M";
 }, @{
 SrcVolLbl = $PriVolLbl;
-SrcHshPth = "C:\PrivateFilesHashTable.csv";
+SrcHshPth = "~\PrivateFilesHashTable.csv";
 BkpVolLbl = $BkpVolLbl;
 RepVolLbl = $BkpVolLbl;
-RepFldrLbl = "Report";
+RepFldrLbl = "BackedUpReports";
 ChkFldrLbl = "Private";
 BackupPrevAndRemovedFilesToRepFldr = 1;
 SrcHashIfEqualPathAndModDateFreq = "W";
 BkpHashIfEqualPathAndModDateFreq = "M";
 }, @{
 SrcVolLbl = $PriVolLbl;
-SrcHshPth = "C:\NonDocsFilesHashTable.csv";
+SrcHshPth = "~\NonDocsFilesHashTable.csv";
 BkpVolLbl = $BkpVolLbl;
-RepVolLbl = $BkpVolLbl2;
-RepFldrLbl = "Report";
+RepVolLbl = $BkpVolLbl;
+RepFldrLbl = "NonDocReports";
 ChkFldrLbl = "NonDocs";
 BackupPrevAndRemovedFilesToRepFldr = 1;
 SrcHashIfEqualPathAndModDateFreq = "W";
 BkpHashIfEqualPathAndModDateFreq = "M";
 })
 #
-
-$BkpVolumeLabel = "SecondaryBackup"
-$SrcVolumeLabel = "PrimaryBackup"
-$ModFolderLabel = "Modified"
-$ChkFolderLabel = "Shared\"
 
 #Email server info
 $EmailInfoPath   = "~\autocred.xml"
@@ -106,11 +101,12 @@ $SendMsgProps = @{
 Try {
     $NBackupSets = $BkpSets.Count
     $TodayCode = $((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss'))
+    $ArchiveChangesFlag = 0 #Checked later, if this gets set further in the loop, we need to verify 7z is installed.
     #First, validate the input configurations and get the corresponding properties.
     for ($i = 0; $i -lt $NBackupSets; $i++) {
         #Get all file paths to work with, and create label of delete archive if it needs to be created.
-        $BkpDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$BkpDrives[$i].BkpVolLbl*"}).DriveLetter
-        $SrcDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like "*$BkpDrives[$i].SrcVolLbl*"}).DriveLetter
+        $BkpDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like ("*"+$BkpSets[$i].BkpVolLbl+"*")}).DriveLetter
+        $SrcDrives = (Get-Volume | Where-Object {$_.FileSystemLabel -like ("*"+$BkpSets[$i].SrcVolLbl+"*")}).DriveLetter
         if (($SrcDrives.Count -eq 1) -and ($SrcDrives.Count -eq 1))
         {
             $SrcDrive = $SrcDrives[0] + ":\"
@@ -157,7 +153,7 @@ Try {
 
             if ($BkpSets[$i].RepFldrLbl.length -gt 0){
                 $BkpSets[$i].EnableRprtGen = 1
-                $RepPathRoot = $BkpDrives[$i] + ":\" + $BkpSets[$i].$RepFldrLbl
+                $RepPathRoot = $BkpDrives[0] + ":\" + $BkpSets[$i].RepFldrLbl + "\" + $BkpSets[$i].ChkFldrLbl
                 $RepPathPre =  $RepPathRoot + "\" + $TodayCode
                 $BkpSets[$i].RepPathRoot = $RepPathRoot
                 #Create report paths
@@ -167,6 +163,7 @@ Try {
                 $BkpSets[$i].LenReport = $SrcDrive + "ERROR" + " - " + $TodayCode + " - Length.txt"
                 $BkpSets[$i].DupReport = $SrcDrive + $TodayCode + "-PotentialDuplicates.csv"
                 if ($BkpSets[$i].BackupPrevAndRemovedFilesToRepFldr) {
+                    $ArchiveChanges = 1
                     $BkpSets[$i].ArchiveChangesInRep = 1
                     $BkpSets[$i].RepPathFldr = $RepPathPre + "\"
                     $BkpSets[$i].RepPath7Zip = $RepPathPre + ".7z"
@@ -186,13 +183,15 @@ Try {
     }
 
     #Check for 7-zip, required to build out archives if intention appears to be to modify.
-    $7zipPath = "$env:ProgramFiles\7-Zip\7z.exe"
+    if($ArchiveChangesFlag) {
+        $7zipPath = "$env:ProgramFiles\7-Zip\7z.exe"
 
-    if (-not (Test-Path -Path $7zipPath -PathType Leaf)) {
-        throw "7 zip executable '$7zipPath' not found"
-    }
-    else {
-        Set-Alias Start-SevenZip $7zipPath
+        if (-not (Test-Path -Path $7zipPath -PathType Leaf)) {
+            throw "7 zip executable '$7zipPath' not found"
+        }
+        else {
+            Set-Alias Start-SevenZip $7zipPath
+        }
     }
     
     for ($i = 0; $i -lt $NBackupSets; $i++) {
@@ -201,6 +200,9 @@ Try {
         $CalcSrcHash   = $BkpSets[$i].CalcSrcHash
         $CalcBkpHash   = $BkpSets[$i].CalcBkpHash
         $EnableRprtGen = $BkpSets[$i].EnableRprtGen
+        $HashTblPath   = $BkpSets[$i].SrcHshPth
+        $RebuildSrcHashTblFlag   = $BkpSets[$i].CalcSrcHash
+        $RebuildBkpHashTblFlag   = $BkpSets[$i].CalcSrcHash
         #Create report paths
         $RepPathRoot   = $BkpSets[$i].RepPathRoot
         $ModReport     = $BkpSets[$i].ModReport 
@@ -209,9 +211,11 @@ Try {
         $LenReport     = $BkpSets[$i].LenReport 
         $DupReport     = $BkpSets[$i].DupReport
         #Archive paths
-        $ArchiveChangesInRep = $BkpSets[$i].ArchiveChangesInRep = 1
+        $ArchiveChangesInRep = $BkpSets[$i].ArchiveChangesInRep
         $RepPathFldr         = $BkpSets[$i].RepPathFldr
         $RepPath7Zip         = $BkpSets[$i].RepPath7Zip
+        #Load up the source hash table if it exists and the flag to rehash the entire source isn't set.
+
 
         #Build out grouping definition, note there are probably much more efficient ways to do this.
         $CurrInd  = [int[]]::new(1);
@@ -225,9 +229,13 @@ Try {
         $AllSrcFldrs = @(Get-ChildItem -Path $SrcPath -Recurse -Directory | Select-Object -Property FullName)
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
 
-        if (-not (Test-Path -Path $BkpPath -PathType Container)) {
-            New-Item -Path $BkpPath -ItemType "directory" | Out-Null
+        if ((Test-Path -Path $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
+            $AllOldSrcProps = Import-Csv -LiteralPath $HashTblPath
         }
+        elseif ($AllOldSrcProps) {
+            Remove-Variable AllOldSrcProps
+        }
+
         $AllBkpFiles = @(Get-ChildItem -Path $BkpPath -Recurse -File)
         $AllBkpFldrs = @(Get-ChildItem -Path $BkpPath -Recurse -Directory | Select-Object -Property FullName)
         $AllBkpFiles = @($AllBkpFiles | Add-Member -MemberType NoteProperty -Name From -Value $BkpKey -PassThru)

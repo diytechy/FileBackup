@@ -1,0 +1,40 @@
+
+SrcVolLbl = $PriVolLbl;
+SrcHshPth = "C:\SharedFilesHashTable.csv";
+BkpVolLbl = $BkpVolLbl;
+RepVolLbl = $BkpVolLbl;
+RepFldrLbl = "BackedUpReports";
+ChkFldrLbl = "Shared";
+BackupPrevAndRemovedFilesToRepFldr = 1;
+SrcHashIfEqualPathAndModDateFreq = "W";
+BkpHashIfEqualPathAndModDateFreq = "M";
+
+	$BkpSets[$i].EnableRprtGen = 1
+	$RepPathRoot = $BkpDrives[0] + ":\" + $BkpSets[$i].RepFldrLbl + "\" + $BkpSets[$i].ChkFldrLbl
+	$RepPathPre =  $RepPathRoot + "\" + $TodayCode
+	$BkpSets[$i].RepPathRoot = $RepPathRoot
+	#Create report paths
+	$BkpSets[$i].ModReport = $RepPathPre + "-ModifiedOrDeletedFiles.txt"
+	$BkpSets[$i].DelReport = $RepPathPre + "-RemovedFromBackupDueToDetectedMove.txt"
+	$BkpSets[$i].CopyReport = $RepPathPre + "-CopiedToBackup.txt"
+	$BkpSets[$i].LenReport = $SrcDrive + "ERROR" + " - " + $TodayCode + " - Length.txt"
+	$BkpSets[$i].DupReport = $SrcDrive + $TodayCode + "-PotentialDuplicates.csv"
+	if ($BkpSets[$i].BackupPrevAndRemovedFilesToRepFldr) {
+		$ArchiveChanges = 1
+		$BkpSets[$i].ArchiveChangesInRep = 1
+		$BkpSets[$i].RepPathFldr = $RepPathPre + "\"
+		$BkpSets[$i].RepPath7Zip = $RepPathPre + ".7z"
+	}
+	else {
+		$BkpSets[$i].ArchiveChangesInRep = 0
+	}
+}
+else {
+	$BkpSets[$i].ArchiveChangesInRep = 0
+	$BkpSets[$i].EnableRprtGen = 1
+	
+	$BkpSets[$i].CalcBkpHash
+	$BkpSets[$i].CalcSrcHash
+	SrcHshPth
+	
+	$variable | Export-Csv -Path C:\MyFolder\output.csv -NoTypeInformation
