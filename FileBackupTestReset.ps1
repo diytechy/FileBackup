@@ -1,4 +1,6 @@
-﻿#Modify this path with your path that contains anything you want to copy over as a start test environment.
+﻿#First clean out variables (for clean run)
+Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
+#Modify this path with your path that contains anything you want to copy over as a start test environment.
 $TestSrcContentArchive = "C:\TestSrcContent\"
 #Modify drive labels below:
 $PriVolLbl = "Library"

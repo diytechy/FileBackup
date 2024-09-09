@@ -9,9 +9,49 @@
 #Choose Generate.
 #https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwiemvzirciHAxXYhIkEHQO3AjcQFnoECBkQAQ&url=https%3A%2F%2Fknowledge.workspace.google.com%2Fkb%2Fhow-to-create-app-passwords-000009237&usg=AOvVaw0XTi4ejHyhkIASe-Pqircz&opi=89978449
 
+$PriVolLbl = "Library"
+$BkpVolLbl = "PriBackup"
+$BkpVolLbl2 = "LPBackup"
+
 $Secrets = @{
     FromEmail = "fromuser@gmail.com"
     ToEmail = "touser@hotmail.com"
     Credential = Get-Credential
 }
-$Secrets | Export-Clixml -Path ~\autocred.xml
+
+$BkpSets = @( @{
+SrcVolLbl = $PriVolLbl;
+SrcHshPth = "~\SharedFilesHashTable.csv";
+BkpVolLbl = $BkpVolLbl;
+RepVolLbl = $BkpVolLbl;
+RepFldrLbl = "BackedUpReports";
+ChkFldrLbl = "Shared";
+BackupPrevAndRemovedFilesToRepFldr = 1;
+SrcHashIfEqualPathAndModDateFreq = "W";
+BkpHashIfEqualPathAndModDateFreq = "M";
+}, @{
+SrcVolLbl = $PriVolLbl;
+SrcHshPth = "~\PrivateFilesHashTable.csv";
+BkpVolLbl = $BkpVolLbl;
+RepVolLbl = $BkpVolLbl;
+RepFldrLbl = "BackedUpReports";
+ChkFldrLbl = "Private";
+BackupPrevAndRemovedFilesToRepFldr = 1;
+SrcHashIfEqualPathAndModDateFreq = "W";
+BkpHashIfEqualPathAndModDateFreq = "M";
+}, @{
+SrcVolLbl = $PriVolLbl;
+SrcHshPth = "~\NonDocsFilesHashTable.csv";
+BkpVolLbl = $BkpVolLbl;
+RepVolLbl = $BkpVolLbl;
+RepFldrLbl = "NonDocReports";
+ChkFldrLbl = "NonDocs";
+BackupPrevAndRemovedFilesToRepFldr = 1;
+SrcHashIfEqualPathAndModDateFreq = "W";
+BkpHashIfEqualPathAndModDateFreq = "M";
+})
+$AllProps = @{
+Secrets = $Secrets;
+BkpSets = $BkpSets;
+}
+$AllProps | Export-Clixml -Path ~\FileBackupProps.xml

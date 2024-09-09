@@ -18,45 +18,11 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #Freq codes for above vars: "E" - Every time, "W" - Every week (Occurs on sunday), "M" - Every month (Occurs on first day), "Y" - Every year (Occurs on Jan, 1)
 #Note if the backup files are scheduled to hash, the source files will also be hashed ton ensure syncrony.
 #Path Configurations:
-$PriVolLbl = "Library"
-$BkpVolLbl = "PriBackup"
-$BkpVolLbl2 = "LPBackup"
 
-$BkpSets = @( @{
-SrcVolLbl = $PriVolLbl;
-SrcHshPth = "~\SharedFilesHashTable.csv";
-BkpVolLbl = $BkpVolLbl;
-RepVolLbl = $BkpVolLbl;
-RepFldrLbl = "BackedUpReports";
-ChkFldrLbl = "Shared";
-BackupPrevAndRemovedFilesToRepFldr = 1;
-SrcHashIfEqualPathAndModDateFreq = "W";
-BkpHashIfEqualPathAndModDateFreq = "M";
-}, @{
-SrcVolLbl = $PriVolLbl;
-SrcHshPth = "~\PrivateFilesHashTable.csv";
-BkpVolLbl = $BkpVolLbl;
-RepVolLbl = $BkpVolLbl;
-RepFldrLbl = "BackedUpReports";
-ChkFldrLbl = "Private";
-BackupPrevAndRemovedFilesToRepFldr = 1;
-SrcHashIfEqualPathAndModDateFreq = "W";
-BkpHashIfEqualPathAndModDateFreq = "M";
-}, @{
-SrcVolLbl = $PriVolLbl;
-SrcHshPth = "~\NonDocsFilesHashTable.csv";
-BkpVolLbl = $BkpVolLbl;
-RepVolLbl = $BkpVolLbl;
-RepFldrLbl = "NonDocReports";
-ChkFldrLbl = "NonDocs";
-BackupPrevAndRemovedFilesToRepFldr = 1;
-SrcHashIfEqualPathAndModDateFreq = "W";
-BkpHashIfEqualPathAndModDateFreq = "M";
-})
 #
 
 #Email server info
-$EmailInfoPath   = "~\autocred.xml"
+$PropsInfoPath   = "~\FileBackupProps.xml"
 $SmtpServer      = "smtp.gmail.com"
 $SmtpPort        = "587"
 
@@ -83,15 +49,19 @@ $DoNothing = 0
 $SetBackup = 1
 $SetRemove = 2
 
-if (-not (Test-Path -Path $EmailInfoPath -PathType Leaf)) {
+if (-not (Test-Path -Path $PropsInfoPath -PathType Leaf)) {
     throw "Email definition file '$EmailInfoPath' not found, modify and execute the PrepCredentialFile.ps1 to securly create with user specific attributes"
 }
+
+
 
 #$ErrorActionPreference = "Stop"
 #$ErrorActionPreference = 'Continue'
 
 #Before checking for copies, ect: set the parameters to send the email, as -if this does not load- the email cannot be sent and thus any caught error can't be emailed anyways.
-$Secrets = Import-Clixml -Path $EmailInfoPath
+$ImportProps = Import-Clixml -Path $PropsInfoPath
+$Secrets     = $ImportProps.Secrets
+$BkpSets     = $ImportProps.BkpSets
 $SendMsgProps = @{
     To = $Secrets.ToEmail
     From = $Secrets.FromEmail
