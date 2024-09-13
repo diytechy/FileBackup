@@ -71,6 +71,7 @@ $SendMsgProps = @{
 }
 Try {
     $NBackupSets = $BkpSets.Count
+	Write-Host "Number of sets to extract:" $NBackupSets.ToString()
     $TodayCode = $((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss'))
     $ArchiveChangesFlag = 0 #Checked later, if this gets set further in the loop, we need to verify 7z is installed.
     #First, validate the input configurations and get the corresponding properties.
@@ -197,9 +198,15 @@ Try {
         $SrcLen   = $SrcPath.Length;
         $BkpLen   = $BkpPath.Length;
         $ModLen   = $RepPathFldr.Length;
+		Write-Host "Set " $i.ToString() + " of " + $NBackupSets.ToString()
+		Write-Host "Backing up "+ $SrcPath + " to " $BkpPath
+		Write-Host "Flag to force hashing of source files: " $RebuildSrcHashTblFlag.ToString()
+		Write-Host "Flag to force hashing of backup files: " $RebuildBkpHashTblFlag.ToString()
 
         $AllSrcFiles = @(Get-ChildItem -Path $SrcPath -Recurse -File)
+		Write-Host $AllSrcFiles.length.ToString() + " source files to check"
         $AllSrcFldrs = @(Get-ChildItem -Path $SrcPath -Recurse -Directory | Select-Object -Property FullName)
+		Write-Host $AllSrcFldrs.length.ToString() + " source folders to check"
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
 
         if ((Test-Path -Path $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
@@ -210,7 +217,9 @@ Try {
         }
 
         $AllBkpFiles = @(Get-ChildItem -Path $BkpPath -Recurse -File)
+		Write-Host $AllBkpFiles.length.ToString() + " backup files to check"
         $AllBkpFldrs = @(Get-ChildItem -Path $BkpPath -Recurse -Directory | Select-Object -Property FullName)
+		Write-Host $AllBkpFldrs.length.ToString() + " backup folders to check"
         $AllBkpFiles = @($AllBkpFiles | Add-Member -MemberType NoteProperty -Name From -Value $BkpKey -PassThru)
 
         if ($AllFiles){Remove-Variable AllFiles}
@@ -238,6 +247,7 @@ Try {
         #Check for file path length, and get the hash of the source files (either by matching properties to a previously hashed file or by rehashing)
         $CurrInd  = [int[]]::new(1); $CurrInd[0] = 0
         $MatchedHash  = [int[]]::new(1); $MatchedHash[0] = 0
+		Write-Host "Syncronizing hash information with source files..."
         foreach ($file in $AllFiles) {
             if($file.FullName.StartsWith($SrcPath)){
                 $file.FullPotLength = $file.FullName.Length - $SrcLen + $ModLen
@@ -264,6 +274,7 @@ Try {
                 $file.LocKey = $BkpKey
             }
         }
+		Write-Host "Source file hashing complete."
         #Export all source files for future import / compoarison.
         $SrcFilesWithHash = $AllFiles | Where-Object {( $_.LocKey -eq $SrcKey)} 
         $SrcFilesWithHash | Select-Object -Property Fullname, Length, LastWriteTime, Hash|
@@ -273,6 +284,7 @@ Try {
 
         #************************ Pre - B ***************************
         #Prepare folder related attributes.
+		Write-Host "Determining folders to create..."
         foreach ($SelFldr in $AllFldrs) {
             #Write-Host $selfldr.FullName0
             #$SelFldr = $AllFldrs[$i]
@@ -308,6 +320,7 @@ Try {
         $DupInd  = [int[]]::new(1); $DupInd[0] = 0
         $SrcFilesGroupedByHash = $SrcFilesWithHash | Group-Object -Property Hash
         $SrcFilesGroupedByHash | Add-Member -MemberType NoteProperty -Name DupGrp -Value $([int]0)
+		Write-Host "Determining duplicate files..."
         foreach ($hashgrp in $SrcFilesGroupedByHash) {
 
             if ($hashgrp.Count -gt 1)
@@ -336,6 +349,7 @@ Try {
         #    as those will require action to be taken.
         $SkipHashIfEqualPathAndModDate = -not($RebuildBkpHashTblFlag)
         if ($SkipHashIfEqualPathAndModDate) {
+			Write-Host "Determining if backup files exist according to path and modification date..."
             $AllFiles | Add-Member -MemberType NoteProperty -Name BkpFnd -Value $([int]0)
             $FilesGroupedSizeWise = $AllFiles | Group-Object -Property Length 
             foreach ($group in $FilesGroupedSizeWise) {
@@ -369,6 +383,7 @@ Try {
         #************************ 2 ***************************
         #If any files remain, we need to decide what to  do with them.
         if ($FilesGroupedSizeWise.Count) {
+			Write-Host "Determining if backup files exist by hash..."
             $FilesGroupedSizeWise | Add-Member -MemberType  NoteProperty -Name LocKey -Value $([int]0)
             #************************ 2A ***************************
             #If any files have the same size in both the source and backup, they need to be tagged as existing in both, since we need more information about them before deciding what to do.
@@ -485,6 +500,7 @@ Try {
 
             #************************ 4 ***************************
             #Delete files from backup since they have been renamed, moved, or otherwise exist in the source.
+			Write-Host "Removing backup files that have had name changed..."
             $Files2DelFromBackupWOZip = $RenamedBFiles2PermDel
             if ($Files2DelFromBackupWOZip.Count) {
                 #Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
@@ -497,6 +513,7 @@ Try {
             if ($HashedFiles2Send2Del.Count)     {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $HashedFiles2Send2Del}
             if ($UnhashedFiles2Send2Del.Count)   {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $UnhashedFiles2Send2Del}
             if ($Files2Send2DelAndZip.Count) {
+				Write-Host "Archiving files that have been removed..."
                 $DeleteDirs2Set = (Split-Path $Files2Send2DelAndZip.RemPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 New-Item -Path $RepPathFldr -ItemType "directory" | Out-Null
                 foreach ($dir2make in $DeleteDirs2Set) {
@@ -520,6 +537,7 @@ Try {
             if ($HashedFiles2Copy2Bkp.Count)   {$Files2Backup = $Files2Backup + $HashedFiles2Copy2Bkp}
             if ($UnhashedFiles2Copy2Bkp.Count) {$Files2Backup = $Files2Backup + $UnhashedFiles2Copy2Bkp}
             if ($Files2Backup.Count) {
+				Write-Host "Copying files from source to backup..."
                 $BackupDirs2Set = (Split-Path $Files2Backup.BkpPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 foreach ($dir2make in $BackupDirs2Set) {
                     if( -Not (Test-Path -Path $dir2make ) ) {
@@ -552,7 +570,7 @@ Try {
 } Catch {
     Write-Error ($_.Exception | Format-List -Force | Out-String) -ErrorAction Continue
     Write-Error ($_.InvocationInfo | Format-List -Force | Out-String) -ErrorAction Continue
-    $SendMsgProps['Body'] = $_.Exception | Format-List -Force
+    $SendMsgProps['Body'] = ($_.Exception | Format-List -Force | Out-String)
     $SendMsgProps['Subject'] = "Automatic Backup Failed"
 }
 Send-MailMessage @SendMsgProps -UseSsl
