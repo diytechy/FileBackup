@@ -487,7 +487,7 @@ Try {
             #Delete files from backup since they have been renamed, moved, or otherwise exist in the source.
             $Files2DelFromBackupWOZip = $RenamedBFiles2PermDel
             if ($Files2DelFromBackupWOZip.Count) {
-                Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
+                #Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
                 $Files2DelFromBackupWOZip.FullName | Out-File -Append $DelReport
             }
     
@@ -509,7 +509,7 @@ Try {
                 }
                 #Now zip up folder, and delete.
                 Start-SevenZip a -mx=9 -bso0 -bsp0 $RepPath7Zip $RepPathFldr
-                Remove-Item -LiteralPath $RepPathFldr -Force -Recurse| Out-Null
+                #Remove-Item -LiteralPath $RepPathFldr -Force -Recurse| Out-Null
                 $Files2Send2DelAndZip.FullName | Out-File -Append $ModReport
             }
 
@@ -537,7 +537,7 @@ Try {
             if ($BackupDirs2Del.count) {
                 foreach ($dir2remove in $BackupDirs2Del.FullName) {
                     if((Test-Path -Path $dir2remove) ) {
-                        Remove-Item -LiteralPath $dir2remove  -Force -Recurse | Out-Null
+                        #Remove-Item -LiteralPath $dir2remove  -Force -Recurse | Out-Null
                     }
                 }
             }
@@ -550,8 +550,9 @@ Try {
     $SendMsgProps['Subject'] = "Automatic Backup Successful"
 
 } Catch {
-    $SendMsgProps['Body'] = $($error[0])
+    Write-Error ($_.Exception | Format-List -Force | Out-String) -ErrorAction Continue
+    Write-Error ($_.InvocationInfo | Format-List -Force | Out-String) -ErrorAction Continue
+    $SendMsgProps['Body'] = $_.Exception | Format-List -Force
     $SendMsgProps['Subject'] = "Automatic Backup Failed"
-    $Error[0]
 }
 Send-MailMessage @SendMsgProps -UseSsl
