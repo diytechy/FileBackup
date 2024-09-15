@@ -49,7 +49,7 @@ $DoNothing = 0
 $SetBackup = 1
 $SetRemove = 2
 
-if (-not (Test-Path -Path $PropsInfoPath -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath $PropsInfoPath -PathType Leaf)) {
     throw "Email definition file '$EmailInfoPath' not found, modify and execute the PrepCredentialFile.ps1 to securly create with user specific attributes"
 }
 
@@ -160,7 +160,7 @@ Try {
     if($ArchiveChangesFlag) {
         $7zipPath = "$env:ProgramFiles\7-Zip\7z.exe"
 
-        if (-not (Test-Path -Path $7zipPath -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath $7zipPath -PathType Leaf)) {
             throw "7 zip executable '$7zipPath' not found"
         }
         else {
@@ -209,7 +209,7 @@ Try {
 		Write-Host $AllSrcFldrs.length.ToString() + " source folders to check"
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
 
-        if ((Test-Path -Path $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
+        if ((Test-Path -LiteralPath $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
             $AllOldSrcProps = Import-Csv -LiteralPath $HashTblPath
         }
         elseif ($AllOldSrcProps) {
@@ -310,7 +310,7 @@ Try {
         if ($FilesMayExceedLim.Count){
             $FilesMayExceedLim.FullName | Out-File -Append $LenReport
         }
-        if( -Not (Test-Path -Path $RepPathRoot ) ) {
+        if( -Not (Test-Path -LiteralPath $RepPathRoot ) ) {
             New-Item -Path $RepPathRoot -ItemType "directory" | Out-Null
         }
 
@@ -517,7 +517,7 @@ Try {
                 $DeleteDirs2Set = (Split-Path $Files2Send2DelAndZip.RemPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 New-Item -Path $RepPathFldr -ItemType "directory" | Out-Null
                 foreach ($dir2make in $DeleteDirs2Set) {
-                    if( -Not (Test-Path -Path $dir2make ) ) {
+                    if( -Not (Test-Path -LiteralPath $dir2make ) ) {
                         New-Item -Path $dir2make -ItemType "directory" | Out-Null
                     }
                 }
@@ -540,7 +540,7 @@ Try {
 				Write-Host "Copying files from source to backup..."
                 $BackupDirs2Set = (Split-Path $Files2Backup.BkpPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 foreach ($dir2make in $BackupDirs2Set) {
-                    if( -Not (Test-Path -Path $dir2make ) ) {
+                    if( -Not (Test-Path -LiteralPath $dir2make ) ) {
                         New-Item -Path $dir2make -ItemType "directory" | Out-Null
                     }
                 }
@@ -554,7 +554,7 @@ Try {
             #Delete remaining directories in backup that don't exist in source.
             if ($BackupDirs2Del.count) {
                 foreach ($dir2remove in $BackupDirs2Del.FullName) {
-                    if((Test-Path -Path $dir2remove) ) {
+                    if((Test-Path -LiteralPath $dir2remove) ) {
                         #Remove-Item -LiteralPath $dir2remove  -Force -Recurse | Out-Null
                     }
                 }
