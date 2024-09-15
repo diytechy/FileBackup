@@ -21,7 +21,6 @@ $PropsInfoPath = "~\FileBackupProps.xml"
 $Secrets = @{
 	FromEmail = "fromuser@gmail.com"
 	ToEmail = "touser@hotmail.com"
-	Credential = Get-Credential
 }
 $BkpSets = @( @{
 SrcVolLbl = $PriVolLbl;
@@ -69,8 +68,8 @@ if (-not (Test-Path -Path $PropsInfoPath -PathType Leaf)) {
 	$SecretPrep   = $ImportProps.Secrets
 }
 #Overwrite with the latest user definition.
-$SecretPrep.FromEmail = Secrets.FromEmail;
-$SecretPrep.ToEmail   = Secrets.ToEmail;
+$SecretPrep.FromEmail = $Secrets.FromEmail;
+$SecretPrep.ToEmail   = $Secrets.ToEmail;
 
 $AllProps = @{
 	ErrPath = $ErrPathStr;
