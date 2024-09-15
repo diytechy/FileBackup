@@ -12,13 +12,17 @@
 $PriVolLbl = "Library"
 $BkpVolLbl = "PriBackup"
 $BkpVolLbl2 = "LPBackup"
+$ErrPathStr = "A:\FileBackupLastError.txt"
 
+#Warning: changing the path below will require the main FileBackup script to also be updated to look for it in the same location.
+$PropsInfoPath = "~\FileBackupProps.xml"
+
+#Customize these structure element values below per your configuration.
 $Secrets = @{
-    FromEmail = "fromuser@gmail.com"
-    ToEmail = "touser@hotmail.com"
-    Credential = Get-Credential
+	FromEmail = "fromuser@gmail.com"
+	ToEmail = "touser@hotmail.com"
+	Credential = Get-Credential
 }
-
 $BkpSets = @( @{
 SrcVolLbl = $PriVolLbl;
 SrcHshPth = "~\SharedFilesHashTable.csv";
@@ -50,8 +54,27 @@ BackupPrevAndRemovedFilesToRepFldr = 1;
 SrcHashIfEqualPathAndModDateFreq = "W";
 BkpHashIfEqualPathAndModDateFreq = "M";
 })
-$AllProps = @{
-Secrets = $Secrets;
-BkpSets = $BkpSets;
+
+if (-not (Test-Path -Path $PropsInfoPath -PathType Leaf)) {
+	#Note, the from / to elements here are overwritten by the user definition above.
+	$SecretPrep = @{
+		FromEmail = "fromuser@gmail.com"
+		ToEmail = "touser@hotmail.com"
+		Credential = Get-Credential
+	}
+} else {
+	Write-Host "Properties file already detected, importing encrypted authentication definition."
+	Write-Host "If you would like to redefine the authentication definition, please delete " + $PropsInfoPath +" and rerun this script."
+	$ImportProps = Import-Clixml -Path $PropsInfoPath
+	$SecretPrep   = $ImportProps.Secrets
 }
-$AllProps | Export-Clixml -Path ~\FileBackupProps.xml
+#Overwrite with the latest user definition.
+$SecretPrep.FromEmail = Secrets.FromEmail;
+$SecretPrep.ToEmail   = Secrets.ToEmail;
+
+$AllProps = @{
+	ErrPath = $ErrPathStr;
+	Secrets = $SecretPrep;
+	BkpSets = $BkpSets;
+}
+$AllProps | Export-Clixml -Path $PropsInfoPath -Force
