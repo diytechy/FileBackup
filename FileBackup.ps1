@@ -39,6 +39,7 @@ $SmtpPort        = "587"
 # modified) will be copied from the source location to the backup location.
 
 $RemEnbl = 1
+$ArchiveChangesFlag = 1
 $DbgInd = 0
 #Key Words
 $PotLengthLimit = 254
@@ -75,7 +76,7 @@ Try {
     $NBackupSets = $BkpSets.Count
 	Write-Host "Number of sets to extract:" $NBackupSets.ToString()
     $TodayCode = $((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss'))
-    $ArchiveChangesFlag = 0 #Checked later, if this gets set further in the loop, we need to verify 7z is installed.
+    #$ArchiveChangesFlag = 0 #Checked later, if this gets set further in the loop, we need to verify 7z is installed.
     #First, validate the input configurations and get the corresponding properties.
     for ($i = 0; $i -lt $NBackupSets; $i++) {
         #Get all file paths to work with, and create label of delete archive if it needs to be created.
@@ -522,7 +523,7 @@ Try {
             #Move files that have been removed from source but still exist in the backup folder to thier designated delete location and zip.  Save report.
             if ($HashedFiles2Send2Del.Count)     {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $HashedFiles2Send2Del}
             if ($UnhashedFiles2Send2Del.Count)   {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $UnhashedFiles2Send2Del}
-            if ($Files2Send2DelAndZip.Count -and $RemEnbl) {
+            if ($Files2Send2DelAndZip.Count -and $RemEnbl -and $ArchiveChangesFlag) {
 				Write-Host "Archiving files that have been removed..."
                 $DeleteDirs2Set = (Split-Path $Files2Send2DelAndZip.RemPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 New-Item -Path $RepPathFldr -ItemType "directory" | Out-Null
@@ -558,7 +559,7 @@ Try {
                     }
                 }
                 foreach ($file2copy in $Files2Backup) {
-                    Copy-Item -Path $file2copy.FullName -Destination $file2copy.BkpPath | Out-Null
+                    Copy-Item -LiteralPath $file2copy.FullName -Destination $file2copy.BkpPath | Out-Null
                 }
                 $Files2Backup.FullName | Out-File -Append $CopyReport
             }
