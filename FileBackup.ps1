@@ -38,6 +38,8 @@ $SmtpPort        = "587"
 #2. Files that exist in {SrcVolumeLabel}\{ChkFolderLabel} but not {BkpVolumeLabel}\{ChkFolderLabel} (or are
 # modified) will be copied from the source location to the backup location.
 
+$RemEnbl = 1
+$DbgInd = 0
 #Key Words
 $PotLengthLimit = 254
 
@@ -167,8 +169,16 @@ Try {
             Set-Alias Start-SevenZip $7zipPath
         }
     }
+	
+	if($DbgInd){
+		$SrtGrp = $DbgInd - 1
+		$EndGrp = $DbgInd
+	}else{
+		$SrtGrp = 0
+		$EndGrp = $NBackupSets
+	}
     
-    for ($i = 0; $i -lt $NBackupSets; $i++) {
+    for ($i = $SrtGrp; $i -lt $EndGrp; $i++) {
         $SrcPath       = $BkpSets[$i].SrcPath
         $BkpPath       = $BkpSets[$i].BkpPath
         $CalcSrcHash   = $BkpSets[$i].CalcSrcHash
@@ -198,15 +208,15 @@ Try {
         $SrcLen   = $SrcPath.Length;
         $BkpLen   = $BkpPath.Length;
         $ModLen   = $RepPathFldr.Length;
-		Write-Host "Set " $i.ToString() + " of " + $NBackupSets.ToString()
-		Write-Host "Backing up "+ $SrcPath + " to " $BkpPath
+		Write-Host "Set " ($i+1).ToString() " of " $NBackupSets.ToString()
+		Write-Host "Backing up "$SrcPath " to " $BkpPath
 		Write-Host "Flag to force hashing of source files: " $RebuildSrcHashTblFlag.ToString()
 		Write-Host "Flag to force hashing of backup files: " $RebuildBkpHashTblFlag.ToString()
 
         $AllSrcFiles = @(Get-ChildItem -Path $SrcPath -Recurse -File)
-		Write-Host $AllSrcFiles.length.ToString() + " source files to check"
+		Write-Host $AllSrcFiles.length.ToString() " source files to check"
         $AllSrcFldrs = @(Get-ChildItem -Path $SrcPath -Recurse -Directory | Select-Object -Property FullName)
-		Write-Host $AllSrcFldrs.length.ToString() + " source folders to check"
+		Write-Host $AllSrcFldrs.length.ToString() " source folders to check"
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
 
         if ((Test-Path -LiteralPath $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
@@ -217,9 +227,9 @@ Try {
         }
 
         $AllBkpFiles = @(Get-ChildItem -Path $BkpPath -Recurse -File)
-		Write-Host $AllBkpFiles.length.ToString() + " backup files to check"
+		Write-Host $AllBkpFiles.length.ToString() " backup files to check"
         $AllBkpFldrs = @(Get-ChildItem -Path $BkpPath -Recurse -Directory | Select-Object -Property FullName)
-		Write-Host $AllBkpFldrs.length.ToString() + " backup folders to check"
+		Write-Host $AllBkpFldrs.length.ToString() " backup folders to check"
         $AllBkpFiles = @($AllBkpFiles | Add-Member -MemberType NoteProperty -Name From -Value $BkpKey -PassThru)
 
         if ($AllFiles){Remove-Variable AllFiles}
@@ -500,10 +510,10 @@ Try {
 
             #************************ 4 ***************************
             #Delete files from backup since they have been renamed, moved, or otherwise exist in the source.
-			Write-Host "Removing backup files that have had name changed..."
             $Files2DelFromBackupWOZip = $RenamedBFiles2PermDel
-            if ($Files2DelFromBackupWOZip.Count) {
-                #Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
+            if ($Files2DelFromBackupWOZip.Count -and $RemEnbl) {
+				Write-Host "Removing backup files that have had name changed..."
+                Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
                 $Files2DelFromBackupWOZip.FullName | Out-File -Append $DelReport
             }
     
@@ -512,7 +522,7 @@ Try {
             #Move files that have been removed from source but still exist in the backup folder to thier designated delete location and zip.  Save report.
             if ($HashedFiles2Send2Del.Count)     {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $HashedFiles2Send2Del}
             if ($UnhashedFiles2Send2Del.Count)   {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $UnhashedFiles2Send2Del}
-            if ($Files2Send2DelAndZip.Count) {
+            if ($Files2Send2DelAndZip.Count -and $RemEnbl) {
 				Write-Host "Archiving files that have been removed..."
                 $DeleteDirs2Set = (Split-Path $Files2Send2DelAndZip.RemPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 New-Item -Path $RepPathFldr -ItemType "directory" | Out-Null
@@ -526,13 +536,16 @@ Try {
                 }
                 #Now zip up folder, and delete.
                 Start-SevenZip a -mx=9 -bso0 -bsp0 $RepPath7Zip $RepPathFldr
-                #Remove-Item -LiteralPath $RepPathFldr -Force -Recurse| Out-Null
+                Remove-Item -LiteralPath $RepPathFldr -Force -Recurse| Out-Null
                 $Files2Send2DelAndZip.FullName | Out-File -Append $ModReport
             }
 
 
             #************************ 6 ***************************
             #Copy corresonding files from source to backup.
+            if ($Files2Backup) {
+                Remove-Variable Files2Backup
+            }
             if ($RenamedFiles2Copy2Bkp.Count)  {$Files2Backup = $Files2Backup + $RenamedFiles2Copy2Bkp}
             if ($HashedFiles2Copy2Bkp.Count)   {$Files2Backup = $Files2Backup + $HashedFiles2Copy2Bkp}
             if ($UnhashedFiles2Copy2Bkp.Count) {$Files2Backup = $Files2Backup + $UnhashedFiles2Copy2Bkp}
@@ -552,10 +565,10 @@ Try {
     
             #************************ 7 ***************************
             #Delete remaining directories in backup that don't exist in source.
-            if ($BackupDirs2Del.count) {
+            if ($BackupDirs2Del.count -and $RemEnbl) {
                 foreach ($dir2remove in $BackupDirs2Del.FullName) {
                     if((Test-Path -LiteralPath $dir2remove) ) {
-                        #Remove-Item -LiteralPath $dir2remove  -Force -Recurse | Out-Null
+                        Remove-Item -LiteralPath $dir2remove  -Force -Recurse | Out-Null
                     }
                 }
             }
