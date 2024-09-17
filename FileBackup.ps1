@@ -62,7 +62,7 @@ if (-not (Test-Path -LiteralPath $PropsInfoPath -PathType Leaf)) {
 #$ErrorActionPreference = 'Continue'
 
 #Before checking for copies, ect: set the parameters to send the email, as -if this does not load- the email cannot be sent and thus any caught error can't be emailed anyways.
-$ImportProps = Import-Clixml -Path $PropsInfoPath
+$ImportProps = Import-Clixml -LiteralPath $PropsInfoPath
 $Secrets     = $ImportProps.Secrets
 $BkpSets     = $ImportProps.BkpSets
 $SendMsgProps = @{
@@ -214,9 +214,9 @@ Try {
 		Write-Host "Flag to force hashing of source files: " $RebuildSrcHashTblFlag.ToString()
 		Write-Host "Flag to force hashing of backup files: " $RebuildBkpHashTblFlag.ToString()
 
-        $AllSrcFiles = @(Get-ChildItem -Path $SrcPath -Recurse -File)
+        $AllSrcFiles = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -File)
 		Write-Host $AllSrcFiles.length.ToString() " source files to check"
-        $AllSrcFldrs = @(Get-ChildItem -Path $SrcPath -Recurse -Directory | Select-Object -Property FullName)
+        $AllSrcFldrs = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -Directory | Select-Object -Property FullName)
 		Write-Host $AllSrcFldrs.length.ToString() " source folders to check"
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
 
@@ -227,9 +227,9 @@ Try {
             Remove-Variable AllOldSrcProps
         }
 
-        $AllBkpFiles = @(Get-ChildItem -Path $BkpPath -Recurse -File)
+        $AllBkpFiles = @(Get-ChildItem -LiteralPath $BkpPath -Recurse -File)
 		Write-Host $AllBkpFiles.length.ToString() " backup files to check"
-        $AllBkpFldrs = @(Get-ChildItem -Path $BkpPath -Recurse -Directory | Select-Object -Property FullName)
+        $AllBkpFldrs = @(Get-ChildItem -LiteralPath $BkpPath -Recurse -Directory | Select-Object -Property FullName)
 		Write-Host $AllBkpFldrs.length.ToString() " backup folders to check"
         $AllBkpFiles = @($AllBkpFiles | Add-Member -MemberType NoteProperty -Name From -Value $BkpKey -PassThru)
 
@@ -271,13 +271,13 @@ Try {
                         $MatchedHash[0] = $MatchedHash[0] +1
                     }
                     else {
-                        $hashset = Get-FileHash -Path $file.FullName
+                        $hashset = Get-FileHash -LiteralPath $file.FullName
                         $file.Hash = $hashset.Hash
                     }
                 }
                 #Else if the hash must be rebuilt, do it now.
                 else {
-                    $hashset = Get-FileHash -Path $file.FullName
+                    $hashset = Get-FileHash -LiteralPath $file.FullName
                     $file.Hash = $hashset.Hash
                 }
             } else {
@@ -448,7 +448,7 @@ Try {
                     #Do nothing, the hash should already exist.
                 }
                 else {
-                    $hashset = Get-FileHash -Path $prehashfile.FullName
+                    $hashset = Get-FileHash -LiteralPath $prehashfile.FullName
                     $prehashfile.Hash = $hashset.Hash
                 }
             }
@@ -514,7 +514,7 @@ Try {
             $Files2DelFromBackupWOZip = $RenamedBFiles2PermDel
             if ($Files2DelFromBackupWOZip.Count -and $RemEnbl) {
 				Write-Host "Removing backup files that have had name changed..."
-                Remove-Item -Path $Files2DelFromBackupWOZip.FullName -Force
+                Remove-Item -LiteralPath $Files2DelFromBackupWOZip.FullName -Force
                 $Files2DelFromBackupWOZip.FullName | Out-File -Append $DelReport
             }
     
@@ -533,7 +533,7 @@ Try {
                     }
                 }
                 foreach ($file2move in $Files2Send2DelAndZip) {
-                    Move-Item -Path $file2move.FullName -Destination $file2move.RemPath
+                    Move-Item -LiteralPath $file2move.FullName -Destination $file2move.RemPath
                 }
                 #Now zip up folder, and delete.
                 Start-SevenZip a -mx=9 -bso0 -bsp0 $RepPath7Zip $RepPathFldr
