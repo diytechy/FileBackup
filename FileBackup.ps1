@@ -38,6 +38,7 @@ $SmtpPort        = "587"
 #2. Files that exist in {SrcVolumeLabel}\{ChkFolderLabel} but not {BkpVolumeLabel}\{ChkFolderLabel} (or are
 # modified) will be copied from the source location to the backup location.
 
+$ProgressUpdateRate_ms = 2000
 $RemEnbl = 1
 $ArchiveChangesFlag = 1
 $DbgInd = 0
