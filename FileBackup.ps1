@@ -39,6 +39,13 @@ $SmtpPort        = "587"
 # modified) will be copied from the source location to the backup location.
 
 $ProgressUpdateRate_ms = 2000
+
+
+$CurrInnerProgDbl  = [double[]]::new(0);
+$CurrBkpSetProgDbl = [double[]]::new(0);
+$CurrOuterProgDbl  = [double[]]::new(0);
+$CurrBkpSetOverDbl = [double[]]::new(0);
+$CurrInd  = [double[]]::new(1);
 $RemEnbl = 1
 $ArchiveChangesFlag = 1
 $DbgInd = 0
@@ -73,6 +80,23 @@ $SendMsgProps = @{
     Port=$SmtpPort
     Credential = $Secrets.Credential
 }
+#Initialize progress bar properties
+$OuterLoopProg = @{
+	ID       = 0
+	Activity = "Getting ready.  Please wait..."
+	Status   = "Getting ready.  Please wait..."
+	PercentComplete  = 0
+	CurrentOperation = 0
+}
+$InnerLoopProg = @{
+	ID       = 1
+	Activity = "Getting ready.  Please wait..."
+	Status   = "Getting ready.  Please wait..."
+	PercentComplete  = 0
+	CurrentOperation = 0
+	ParentID = 0
+}
+Try {
 Try {
     $NBackupSets = $BkpSets.Count
 	Write-Host "Number of sets to extract:" $NBackupSets.ToString()
@@ -210,12 +234,30 @@ Try {
         $SrcLen   = $SrcPath.Length;
         $BkpLen   = $BkpPath.Length;
         $ModLen   = $RepPathFldr.Length;
-		Write-Host "Set " ($i+1).ToString() " of " $NBackupSets.ToString()
-		Write-Host "Backing up "$SrcPath " to " $BkpPath
-		Write-Host "Flag to force hashing of source files: " $RebuildSrcHashTblFlag.ToString()
-		Write-Host "Flag to force hashing of backup files: " $RebuildBkpHashTblFlag.ToString()
+		#Attribute updates for outer loop and resetting inner loop definitions.
+		$CurrBkpSetProgDbl[0] = 0;
+		$CurrInnerProgDbl[0]  = 0;
+		$CurrBkpSetOverDbl[0] = $i;
+		$OuterLoopProg.Activity = "Set " ($i+1).ToString() " of " $NBackupSets.ToString() " :Backing up "$SrcPath " to " $BkpPath
+		$OuterLoopProg.Status   = "Force source hashing: " $RebuildSrcHashTblFlag.ToString() ", Force backup hashing: " $RebuildBkpHashTblFlag.ToString()
+		#General update fields.
+		$CurrBkpSetProgDbl[0]
+		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
+		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " $OuterLoopProg.PercentComplete.ToString()
+		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
+		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
+		Write-Progress @OuterLoopProg
+		Write-Progress @InnerLoopProg
 
+		$InnerLoopProg.Activity = "Getting folder / file properties"
+		$InnerLoopProg.Status = "Getting source files..."
+		$CurrInnerProgDbl[0] = 0;
+		Write-Progress @InnerLoopProg
         $AllSrcFiles = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -File)
+		$InnerLoopProg.Activity = "Getting backup files..."
+		$InnerLoopProg.Activity = "Getting backup files..."
+		Write-Progress @InnerLoopProg
 		Write-Host $AllSrcFiles.length.ToString() " source files to check"
         $AllSrcFldrs = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -Directory | Select-Object -Property FullName)
 		Write-Host $AllSrcFldrs.length.ToString() " source folders to check"
