@@ -245,37 +245,68 @@ Try {
 		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " $OuterLoopProg.PercentComplete.ToString()
+		Write-Progress @OuterLoopProg
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
-		Write-Progress @OuterLoopProg
 		Write-Progress @InnerLoopProg
 
+		#**************UPDATING INNER LOOP****************
 		$InnerLoopProg.Activity = "Getting folder / file properties"
 		$InnerLoopProg.Status = "Getting source files..."
 		$CurrInnerProgDbl[0] = 0;
+		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
+		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
 		Write-Progress @InnerLoopProg
+		#*************************************************
         $AllSrcFiles = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -File)
-		$InnerLoopProg.Activity = "Getting backup files..."
-		$InnerLoopProg.Activity = "Getting backup files..."
+		#**************UPDATING INNER LOOP****************
+		$InnerLoopProg.Status = "Getting source folders..."
+		$CurrInnerProgDbl[0] = 25;
+		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
+		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
 		Write-Progress @InnerLoopProg
-		Write-Host $AllSrcFiles.length.ToString() " source files to check"
+		#*************************************************
         $AllSrcFldrs = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -Directory | Select-Object -Property FullName)
-		Write-Host $AllSrcFldrs.length.ToString() " source folders to check"
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
 
         if ((Test-Path -LiteralPath $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
+			#**************UPDATING INNER LOOP****************
+			$InnerLoopProg.Status = "Loading previously saved hash definition for source files..."
+			Write-Progress @InnerLoopProg
+			#*************************************************
             $AllOldSrcProps = Import-Csv -LiteralPath $HashTblPath
         }
         elseif ($AllOldSrcProps) {
             Remove-Variable AllOldSrcProps
         }
 
+		#**************UPDATING INNER LOOP****************
+		$InnerLoopProg.Status = "Getting backup files..."
+		$CurrInnerProgDbl[0] = 50;
+		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
+		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
+		Write-Progress @InnerLoopProg
+		#*************************************************
         $AllBkpFiles = @(Get-ChildItem -LiteralPath $BkpPath -Recurse -File)
-		Write-Host $AllBkpFiles.length.ToString() " backup files to check"
+		#Write-Host $AllBkpFiles.length.ToString() " backup files to check"
+		#**************UPDATING INNER LOOP****************
+		$InnerLoopProg.Status = "Getting backup folders..."
+		$CurrInnerProgDbl[0] = 75;
+		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
+		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
+		Write-Progress @InnerLoopProg
+		#*************************************************
         $AllBkpFldrs = @(Get-ChildItem -LiteralPath $BkpPath -Recurse -Directory | Select-Object -Property FullName)
-		Write-Host $AllBkpFldrs.length.ToString() " backup folders to check"
+		#Write-Host $AllBkpFldrs.length.ToString() " backup folders to check"
         $AllBkpFiles = @($AllBkpFiles | Add-Member -MemberType NoteProperty -Name From -Value $BkpKey -PassThru)
 
+		#**************UPDATING INNER LOOP****************
+		$InnerLoopProg.Status = "Allocating properties to determine.."
+		$CurrInnerProgDbl[0] = 99;
+		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
+		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
+		Write-Progress @InnerLoopProg
+		#*************************************************
         if ($AllFiles){Remove-Variable AllFiles}
         $AllFiles = $AllSrcFiles + $AllBkpFiles
         $AllFiles | Add-Member -MemberType NoteProperty -Name BkpPath -Value $([string]"")
@@ -301,7 +332,13 @@ Try {
         #Check for file path length, and get the hash of the source files (either by matching properties to a previously hashed file or by rehashing)
         $CurrInd  = [int[]]::new(1); $CurrInd[0] = 0
         $MatchedHash  = [int[]]::new(1); $MatchedHash[0] = 0
-		Write-Host "Syncronizing hash information with source files..."
+		#**************UPDATING OUTER LOOP****************
+		$InnerLoopProg.Status = "Syncronizing hash information for source files..."
+		$CurrInnerProgDbl[0] = 0;
+		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
+		$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
+		Write-Progress @InnerLoopProg
+		#*************************************************
         foreach ($file in $AllFiles) {
             if($file.FullName.StartsWith($SrcPath)){
                 $file.FullPotLength = $file.FullName.Length - $SrcLen + $ModLen
