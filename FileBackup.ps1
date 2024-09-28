@@ -245,7 +245,7 @@ Try {
 		$OuterLoopProg.Status   = "Force source hashing: " + $RebuildSrcHashTblFlag.ToString() +", Force backup hashing: " +$RebuildBkpHashTblFlag.ToString()
 		#General update fields.
 		$CurrBkpSetProgDbl[0] = 0;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -344,7 +344,7 @@ Try {
         $MatchedHash  = [int[]]::new(1); $MatchedHash[0] = 0
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.05;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -394,7 +394,7 @@ Try {
         }
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.1;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -416,7 +416,7 @@ Try {
         #Prepare folder related attributes.
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.15;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -513,7 +513,7 @@ Try {
         #    as those will require action to be taken.
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.20;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -575,7 +575,7 @@ Try {
         if ($FilesGroupedSizeWise.Count) {
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.25;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -621,7 +621,7 @@ Try {
             #    or to be compared using their hash.
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.30;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -648,7 +648,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.33;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -675,7 +675,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.35;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -717,7 +717,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.5;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -757,7 +757,7 @@ Try {
     
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.525;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -785,7 +785,7 @@ Try {
             }
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.55;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -813,7 +813,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.575;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -853,7 +853,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.6;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -945,7 +945,7 @@ Try {
             if ($Files2Backup.Count) {
 		        #**************UPDATING BOTH LOOPS****************
 		        $CurrBkpSetProgDbl[0] = 0.7;
-		        $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		        $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		        $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		        $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		        Write-Progress @OuterLoopProg;
@@ -995,7 +995,7 @@ Try {
             if ($BackupDirs2Del.count -and $RemEnbl) {
 		        #**************UPDATING BOTH LOOPS****************
 		        $CurrBkpSetProgDbl[0] = 099;
-		        $OuterProgPerc = ((($CurrBkpSetOverDbl[0]*$NBackupSets + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		        $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		        $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		        $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		        Write-Progress @OuterLoopProg;
