@@ -245,7 +245,7 @@ Try {
 		$OuterLoopProg.Status   = "Force source hashing: " + $RebuildSrcHashTblFlag.ToString() +", Force backup hashing: " +$RebuildBkpHashTblFlag.ToString()
 		#General update fields.
 		$CurrBkpSetProgDbl[0] = 0;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -344,7 +344,7 @@ Try {
         $MatchedHash  = [int[]]::new(1); $MatchedHash[0] = 0
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.05;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -394,7 +394,7 @@ Try {
         }
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.1;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -416,7 +416,7 @@ Try {
         #Prepare folder related attributes.
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.15;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -513,7 +513,7 @@ Try {
         #    as those will require action to be taken.
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.20;
-		$OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		$OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
@@ -526,6 +526,7 @@ Try {
         $SkipHashIfEqualPathAndModDate = -not($RebuildBkpHashTblFlag)
         if ($SkipHashIfEqualPathAndModDate) {
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #**************UPDATING BOTH LOOPS****************
 		    $InnerLoopProg.Status = "Determining if backup files exist according to path and modification date..."
 		    $CurrInnerProgDbl[0] = 0;
@@ -575,7 +576,7 @@ Try {
         if ($FilesGroupedSizeWise.Count) {
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.25;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -585,6 +586,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
 
 		    #*************************************************
@@ -621,7 +623,7 @@ Try {
             #    or to be compared using their hash.
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.30;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -631,6 +633,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             $UnhashedFiles2Send2Del = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
             foreach ($file in $UnhashedFiles2Send2Del) {
@@ -648,7 +651,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.33;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -658,6 +661,8 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             $UnhashedFiles2Copy2Bkp = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object -Expand Group
             foreach ($file in $UnhashedFiles2Copy2Bkp) {
@@ -675,7 +680,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.35;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -685,6 +690,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
 
             #************************ 2C ***************************
@@ -717,7 +723,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.5;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -727,6 +733,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
 
             $FilesGroupedByHash = $Files2Hash | Group-Object -Property Hash
@@ -757,7 +764,7 @@ Try {
     
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.525;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -767,6 +774,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             #************************ 3 ***************************
             #Now allocate each group to a seperate lists, to be grouped later, and hash those that need to be checked.
@@ -785,7 +793,7 @@ Try {
             }
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.55;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -795,6 +803,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             $HashedFiles2Copy2Bkp = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $SrcKey } | Select-Object -Expand Group
             foreach ($file in $HashedFiles2Copy2Bkp) {
@@ -813,7 +822,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.575;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -823,6 +832,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             foreach ($file in $HashedFiles2Chk2Copy) {
                 #If the fiile is in the source path, calculate the equivalent backup path for that file.
@@ -853,7 +863,7 @@ Try {
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.6;
-		    $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
@@ -863,6 +873,7 @@ Try {
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		    Write-Progress @InnerLoopProg
             $LoopProg = 0
+			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             #************************ 4 ***************************
             #Delete files from backup since they have been renamed, moved, or otherwise exist in the source.
@@ -886,6 +897,7 @@ Try {
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
                 $LoopProg = 0
+				$PrevInnerProgPercInt[0] = 0
 		        #*************************************************
                 $DeleteDirs2Set = (Split-Path $Files2Send2DelAndZip.RemPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 New-Item -Path $RepPathFldr -ItemType "directory" | Out-Null
@@ -908,6 +920,7 @@ Try {
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
                 $LoopProg = 0
+				$PrevInnerProgPercInt[0] = 0
 		        #*************************************************
                 foreach ($file2move in $Files2Send2DelAndZip) {
                     Move-Item -LiteralPath $file2move.FullName -Destination $file2move.RemPath
@@ -926,6 +939,7 @@ Try {
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
                 $LoopProg = 0
+				$PrevInnerProgPercInt[0] = 0
 		        #*************************************************
                 #Now zip up folder, and delete.
                 Start-SevenZip a -mx=9 -bso0 -bsp0 $RepPath7Zip $RepPathFldr
@@ -945,7 +959,7 @@ Try {
             if ($Files2Backup.Count) {
 		        #**************UPDATING BOTH LOOPS****************
 		        $CurrBkpSetProgDbl[0] = 0.7;
-		        $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		        $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		        $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		        $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		        Write-Progress @OuterLoopProg;
@@ -955,6 +969,7 @@ Try {
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
                 $LoopProg = 0
+				$PrevInnerProgPercInt[0] = 0
 		        #*************************************************
                 $BackupDirs2Set = (Split-Path $Files2Backup.BkpPath -Parent) | Get-Unique | Sort-Object { $_.Length }
                 foreach ($dir2make in $BackupDirs2Set) {
@@ -976,6 +991,7 @@ Try {
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
                 $LoopProg = 0
+				$PrevInnerProgPercInt[0] = 0
 		        #*************************************************
                 foreach ($file2copy in $Files2Backup) {
                     Copy-Item -LiteralPath $file2copy.FullName -Destination $file2copy.BkpPath | Out-Null
@@ -995,7 +1011,7 @@ Try {
             if ($BackupDirs2Del.count -and $RemEnbl) {
 		        #**************UPDATING BOTH LOOPS****************
 		        $CurrBkpSetProgDbl[0] = 099;
-		        $OuterProgPerc = ((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
+		        $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		        $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		        $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		        Write-Progress @OuterLoopProg;
@@ -1005,6 +1021,7 @@ Try {
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
                 $LoopProg = 0
+				$PrevInnerProgPercInt[0] = 0
 		        #*************************************************
                 foreach ($dir2remove in $BackupDirs2Del.FullName) {
                     if((Test-Path -LiteralPath $dir2remove) ) {
