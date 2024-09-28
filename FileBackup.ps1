@@ -348,6 +348,7 @@ Try {
 		$OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		Write-Progress @OuterLoopProg;
+		$InnerLoopProg.Activity = "Verifying which files need to be backed up..."
 		$InnerLoopProg.Status = "Getting hash information for source files and backup properties..."
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
@@ -454,7 +455,7 @@ Try {
         #Return;
         #************************ Pre - C ***************************
 		#**************UPDATING INNER LOOP****************
-		$InnerLoopProg.Status = "Creating folders..."
+		$InnerLoopProg.Status = "Checking file names..."
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -475,7 +476,7 @@ Try {
         
         #************************ Pre - D ***************************
 		#**************UPDATING INNER LOOP****************
-		$InnerLoopProg.Status = "Determining duplicate files..."
+		$InnerLoopProg.Status = "Determining duplicate files by content (hash)..."
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -627,6 +628,7 @@ Try {
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
 		    Write-Progress @OuterLoopProg;
+		    $InnerLoopProg.Activity = "Mirroring content."
 		    $InnerLoopProg.Status = "Removing items from group that are already backed up..."
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
