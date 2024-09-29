@@ -390,6 +390,7 @@ Try {
             if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                 $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                 $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+				$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
             }
         }
@@ -449,6 +450,7 @@ Try {
             if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                 $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                 $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+				$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		        Write-Progress @InnerLoopProg
             }
         }
@@ -562,6 +564,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -613,6 +616,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -647,6 +651,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -676,6 +681,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -717,6 +723,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -760,6 +767,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -790,6 +798,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -817,6 +826,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
             }
@@ -853,6 +863,7 @@ Try {
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+					$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
                 }
 
@@ -912,6 +923,7 @@ Try {
                     if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                         $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                         $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+						$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		                Write-Progress @InnerLoopProg
                     }
                 }
@@ -931,6 +943,7 @@ Try {
                     if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                         $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                         $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+						$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		                Write-Progress @InnerLoopProg
                     }
                 }
@@ -983,6 +996,7 @@ Try {
                     if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                         $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                         $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+						$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		                Write-Progress @InnerLoopProg
                     }
                 }
@@ -1002,6 +1016,7 @@ Try {
                     if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                         $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                         $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+						$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		                Write-Progress @InnerLoopProg
                     }
                 }
@@ -1034,6 +1049,7 @@ Try {
                     if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                         $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                         $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+						$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		                Write-Progress @InnerLoopProg
                     }
                 }
