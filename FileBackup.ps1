@@ -386,12 +386,14 @@ Try {
                 $file.LocKey = $BkpKey
             }
             $LoopProg += $file.Length
-            $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
-            if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
-                $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
-                $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
-				$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
-		        Write-Progress @InnerLoopProg
+            if ($AllFilesizeTtl) {
+                $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
+                if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
+                    $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
+                    $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+				    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
+		            Write-Progress @InnerLoopProg
+                }
             }
         }
 		#**************UPDATING BOTH LOOPS****************
@@ -719,7 +721,7 @@ Try {
                     $prehashfile.Hash = $hashset.Hash
                 }
                 $LoopProg += 1
-                $CurrInnerProgPercInt[0] = ($LoopProg*100)/($UnhashedFiles2Send2Del.Count)
+                $CurrInnerProgPercInt[0] = ($LoopProg*100)/($Files2Hash.Count)
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
@@ -859,7 +861,7 @@ Try {
                 }
                 $file.GroupID = $file.BkpPath+"-S-"+$file.Length.tostring()+"-H-"+$file.Hash
                 $LoopProg += 1
-                $CurrInnerProgPercInt[0] = ($LoopProg*100)/($HashedFiles2Copy2Bkp.Count)
+                $CurrInnerProgPercInt[0] = ($LoopProg*100)/($HashedFiles2Chk2Copy.Count)
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
@@ -1027,7 +1029,7 @@ Try {
             #Delete remaining directories in backup that don't exist in source.
             if ($BackupDirs2Del.count -and $RemEnbl) {
 		        #**************UPDATING BOTH LOOPS****************
-		        $CurrBkpSetProgDbl[0] = 099;
+		        $CurrBkpSetProgDbl[0] = 0.99;
 		        $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		        $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		        $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
