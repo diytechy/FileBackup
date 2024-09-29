@@ -334,9 +334,11 @@ Try {
         if ($AllBkpFldrs.count){
             $AllFldrs = $AllFldrs + $AllBkpFldrs
         }
-        $AllFldrs | Add-Member  -MemberType NoteProperty -Name RelPath -Value $([string]"")
-        $AllFldrs | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)
-        $AllFldrs | Add-Member -MemberType NoteProperty -Name RelLen -Value $([int]0)
+        if ($AllFldrs.Count) {
+            $AllFldrs | Add-Member  -MemberType NoteProperty -Name RelPath -Value $([string]"")
+            $AllFldrs | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)
+            $AllFldrs | Add-Member -MemberType NoteProperty -Name RelLen -Value $([int]0)
+        }
 
         #************************ Pre - A ***************************
         #Check for file path length, and get the hash of the source files (either by matching properties to a previously hashed file or by rehashing)
@@ -1029,7 +1031,7 @@ Try {
             #Delete remaining directories in backup that don't exist in source.
             if ($BackupDirs2Del.count -and $RemEnbl) {
 		        #**************UPDATING BOTH LOOPS****************
-		        $CurrBkpSetProgDbl[0] = 0.99;
+		        $CurrBkpSetProgDbl[0] = 099;
 		        $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		        $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		        $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
