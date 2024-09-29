@@ -1031,7 +1031,7 @@ Try {
             #Delete remaining directories in backup that don't exist in source.
             if ($BackupDirs2Del.count -and $RemEnbl) {
 		        #**************UPDATING BOTH LOOPS****************
-		        $CurrBkpSetProgDbl[0] = 099;
+		        $CurrBkpSetProgDbl[0] = 0.99;
 		        $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		        $OuterLoopProg.PercentComplete  = $OuterProgPerc;
 		        $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
