@@ -214,7 +214,7 @@ Try {
         $EnableRprtGen = $BkpSets[$i].EnableRprtGen
         $HashTblPath   = $BkpSets[$i].SrcHshPth
         $RebuildSrcHashTblFlag   = $BkpSets[$i].CalcSrcHash
-        $RebuildBkpHashTblFlag   = $BkpSets[$i].CalcSrcHash
+        $RebuildBkpHashTblFlag   = $BkpSets[$i].CalcBkpHash
         #Create report paths
         $RepPathRoot   = $BkpSets[$i].RepPathRoot
         $ModReport     = $BkpSets[$i].ModReport 
