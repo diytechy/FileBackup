@@ -16,10 +16,8 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #SrcHashIfEqualPathAndModDateFreq - How often to perform a hash on all files in the source folder, for verifying content has truly remained constant..
 #BkpHashIfEqualPathAndModDateFreq - How often to perform a hash on all files in backup  folder when all other attributes match, for verifying content has truly remained constant.
 #Freq codes for above vars: "E" - Every time, "W" - Every week (Occurs on sunday), "M" - Every month (Occurs on first day), "Y" - Every year (Occurs on Jan, 1)
-#Note if the backup files are scheduled to hash, the source files will also be hashed ton ensure syncrony.
+#Note if the backup files are scheduled to hash, the source files will also be hashed to ensure synchrony.
 #Path Configurations:
-
-#
 
 #Email server info
 $PropsInfoPath   = "~\FileBackupProps.xml"
@@ -30,7 +28,7 @@ $SmtpPort        = "587"
 #This will do the following:
 
 #1. Files that are in {BkpVolumeLabel}\{ChkFolderLabel} but not in {SrcVolumeLabel}\{ChkFolderLabel} 
-# will be tagged as removed from source and will all be archieved into a 7z archive inside 
+# will be tagged as removed from source and will all be archived into a 7z archive inside
 # {BkpVolumeLabel}\{ModFolderLabel} with the name of {yyyy-MM-dd-HH-mm-ss.7z}.  Files that were archived
 # will then be deleted from the backup folder.  This is performed using a hash check, so modified files will
 # also be tagged.
@@ -49,6 +47,7 @@ $PrevInnerProgPercInt = [int32[]]::new(1);
 $CurrInnerProgPercInt = [int32[]]::new(1);
 $CurrInd  = [double[]]::new(1);
 $RemEnbl = 1
+#Sets if changed files should be archived.
 $ArchiveChangesFlag = 1
 $DbgInd = 0
 #Key Words
@@ -101,9 +100,8 @@ $InnerLoopProg = @{
 
 Try {
     $NBackupSets = $BkpSets.Count
-	Write-Host "Number of sets to extract:" $NBackupSets.ToString()
+	 Write-Host "Number of sets to extract:" $NBackupSets.ToString()
     $TodayCode = $((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss'))
-    #$ArchiveChangesFlag = 0 #Checked later, if this gets set further in the loop, we need to verify 7z is installed.
     #First, validate the input configurations and get the corresponding properties.
     for ($i = 0; $i -lt $NBackupSets; $i++) {
         #Get all file paths to work with, and create label of delete archive if it needs to be created.
@@ -628,7 +626,7 @@ Try {
             #************************ 2B ***************************
             #Now act on each group:
             # 1. If enabled, remove items from the group that appear to be equal based on their path and name, because they should be the same (nothing needs to be done with them)
-            # 2. Allocate each group to a seperate lists of items to be deleted from backup, to be copied from source
+            # 2. Allocate each group to a separate lists of items to be deleted from backup, to be copied from source
             #    or to be compared using their hash.
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.30;
@@ -791,7 +789,7 @@ Try {
 			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             #************************ 3 ***************************
-            #Now allocate each group to a seperate lists, to be grouped later, and hash those that need to be checked.
+            #Now allocate each group to a separate lists, to be grouped later, and hash those that need to be checked.
             $HashedFiles2Send2Del = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
             foreach ($file in $HashedFiles2Send2Del) {
                 $ExtLen[0] = $file.FullName.Length - $BkpLen
@@ -851,7 +849,7 @@ Try {
 			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
             foreach ($file in $HashedFiles2Chk2Copy) {
-                #If the fiile is in the source path, calculate the equivalent backup path for that file.
+                #If the file is in the source path, calculate the equivalent backup path for that file.
                 #Else, just set it to the full path.
                 if($file.FullName.StartsWith($SrcPath)){
                     $ExtLen[0] = $file.FullName.Length - $SrcLen
@@ -903,7 +901,7 @@ Try {
 
             #************************ 5 ***************************
             
-            #Move files that have been removed from source but still exist in the backup folder to thier designated delete location and zip.  Save report.
+            #Move files that have been removed from source but still exist in the backup folder to their designated delete location and zip.  Save report.
             if ($HashedFiles2Send2Del.Count)     {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $HashedFiles2Send2Del}
             if ($UnhashedFiles2Send2Del.Count)   {$Files2Send2DelAndZip = $Files2Send2DelAndZip + $UnhashedFiles2Send2Del}
             if ($Files2Send2DelAndZip.Count -and $RemEnbl -and $ArchiveChangesFlag) {
@@ -968,7 +966,7 @@ Try {
 
 
             #************************ 6 ***************************
-            #Copy corresonding files from source to backup.
+            #Copy corresponding files from source to backup.
             if ($Files2Backup) {
                 Remove-Variable Files2Backup
             }
