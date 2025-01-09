@@ -1,7 +1,7 @@
 ﻿#First clean out variables (for clean run)
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #If debugging a specific index, set this (note this is 1-indexed, 0 means disabled):
-$DbgInd = 0
+$DbgInd = 3
 
 #Warning - This is the first functional powershell script I have attempted to create.  Suggestions appreciated.
 #Assumptions:
@@ -236,10 +236,10 @@ Try {
 		$CurrBkpSetOverDbl = $i;
         $TmpNum = $i+1;
         $LogMsg = "Set " + $TmpNum.ToString() + " of " + $NBackupSets.ToString() + " :Backing up " + $SrcPath + " to " + $BkpPath
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$OuterLoopProg.Activity = $LogMsg
         $LogMsg = "Force source hashing: " + $RebuildSrcHashTblFlag.ToString() +", Force backup hashing: " +$RebuildBkpHashTblFlag.ToString()
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$OuterLoopProg.Status   = $LogMsg
 		#General update fields.
 		$CurrBkpSetProgDbl[0] = 0;
@@ -254,7 +254,7 @@ Try {
 		#**************UPDATING INNER LOOP****************
 		$InnerLoopProg.Activity = "Getting folder / file properties"
         $LogMsg = "Getting source files..."
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
         $InnerLoopProg.Status = $LogMsg
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
@@ -265,7 +265,7 @@ Try {
         $SrcFilesizeTtl = $AllSrcFiles | Measure-Object -Property Length -Sum; $SrcFilesizeTtl =$SrcFilesizeTtl.Sum
 		#**************UPDATING INNER LOOP****************
         $LogMsg = $SrcFilesizeTtl.Count.ToString() + " source files found.  Getting source folders..."
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$InnerLoopProg.Status = $LogMsg
 		$CurrInnerProgDbl[0] = 0.25;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
@@ -278,12 +278,12 @@ Try {
         if ((Test-Path -LiteralPath $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
 			#**************UPDATING INNER LOOP****************
 			$LogMsg = "Loading previously saved hash definition for source files..."
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 			$InnerLoopProg.Status = $LogMsg
 			Write-Progress @InnerLoopProg
 			#*************************************************
             $AllOldSrcProps = Import-Csv -LiteralPath $HashTblPath
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
         }
         elseif ($AllOldSrcProps) {
             Remove-Variable AllOldSrcProps
@@ -292,7 +292,7 @@ Try {
 		#**************UPDATING INNER LOOP****************
 		$LogMsg = $AllSrcFldrs.Count.ToString() + " source folders found.  Getting backup files..."
 		$InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0.5;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -310,7 +310,7 @@ Try {
 		#**************UPDATING INNER LOOP****************
 		$LogMsg = $AllBkpFiles.Count.ToString() + " backup files found.  Getting backup folders..."
 		$InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0.75;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -322,7 +322,7 @@ Try {
 		#**************UPDATING INNER LOOP****************
 		$LogMsg = $AllBkpFldrs.Count.ToString() + " backup folders found.  Allocating properties to determine..."
 		$InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0.99;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -355,6 +355,7 @@ Try {
         #Check for file path length, and get the hash of the source files (either by matching properties to a previously hashed file or by rehashing)
         $CurrInd  = [int[]]::new(1); $CurrInd[0] = 0
         $MatchedHash  = [int[]]::new(1); $MatchedHash[0] = 0
+        $CalcedHash  = [int[]]::new(1); $CalcedHash[0] = 0
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.05;
 		$OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
@@ -364,7 +365,7 @@ Try {
 		$InnerLoopProg.Activity = "Verifying which files need to be backed up..."
 		$LogMsg = "Getting hash information for source files (" + $AllFiles.Count.ToString() + ") and backup properties..."
         $InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -374,6 +375,7 @@ Try {
 
         $AllFilesizeTtl = $AllFiles | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
         $LoopProg = 0;
+        $NFilesProc = 0;
         $PrevInnerProgPercInt[0] = 0;
         foreach ($file in $AllFiles) {
             if($file.FullName.StartsWith($SrcPath)){
@@ -389,18 +391,21 @@ Try {
                     else {
                         $hashset = Get-FileHash -LiteralPath $file.FullName
                         $file.Hash = $hashset.Hash
+                        $CalcedHash[0] = $CalcedHash[0] +1
                     }
                 }
                 #Else if the hash must be rebuilt, do it now.
                 else {
                     $hashset = Get-FileHash -LiteralPath $file.FullName
                     $file.Hash = $hashset.Hash
+                    $CalcedHash[0] = $CalcedHash[0] +1
                 }
             } else {
                 $file.FullPotLength = $file.FullName.Length - $BkpLen + $ModLen
                 $file.LocKey = $BkpKey
             }
             $LoopProg += $file.Length
+            $NFilesProc += 1
             if ($AllFilesizeTtl) {
                 $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
@@ -410,9 +415,15 @@ Try {
 		            Write-Progress @InnerLoopProg
                 }
             }
+            if ($NFilesProc -ge 1000){
+                ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - 1000 files analyzed") | Out-File -Append $RunReport
+                $NFilesProc = 0
+            }
         }
         $LogMsg = "Number of source files that hashing was skipped on: " + $MatchedHash[0].ToString()
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        $LogMsg = "Number of source files that were hashed: " + $CalcedHash[0].ToString()
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 
 		#**************UPDATING BOTH LOOPS****************
 		$CurrBkpSetProgDbl[0] = 0.1;
@@ -422,7 +433,7 @@ Try {
 		Write-Progress @OuterLoopProg;
 		$LogMsg = "Saving source hash information for future runs..."
         $InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -446,7 +457,7 @@ Try {
 		Write-Progress @OuterLoopProg;
         $LogMsg = "Determining folders to create..."
         $InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -483,7 +494,7 @@ Try {
 		#**************UPDATING INNER LOOP****************
         $LogMsg = "Checking file names..."
         $InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -506,7 +517,7 @@ Try {
 		#**************UPDATING INNER LOOP****************
         $LogMsg = "Determining duplicate files by content (hash)..."
         $InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -550,7 +561,7 @@ Try {
 		Write-Progress @OuterLoopProg;
         $LogMsg = "Determining which files require backup..."
         $InnerLoopProg.Status = $LogMsg
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		$OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -563,7 +574,7 @@ Try {
 		    #**************UPDATING BOTH LOOPS****************
             $LogMsg = "Determining if backup files exist according to path and modification date..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $OuterLoopProg.CurrentOperation = "Overall Percent Complete: " + $OuterLoopProg.PercentComplete.ToString()
@@ -618,7 +629,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Finding similarly sizes files to compare content..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -669,7 +680,7 @@ Try {
 		    $InnerLoopProg.Activity = "Mirroring content."
             $LogMsg = "Removing items from group that are already backed up..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -700,7 +711,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Tagging unique source files for backup..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -732,7 +743,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Checking content of potential backup matches..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -776,7 +787,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Finalizing list of files to backup part 1 of 3..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -820,7 +831,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Finalizing list of files to remove from backup..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -852,7 +863,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Finalizing list of files to backup part 2 of 3..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -884,7 +895,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Finalizing list of files to backup part 2 of 3..."
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -928,7 +939,7 @@ Try {
 		    Write-Progress @OuterLoopProg;
             $LogMsg = "Removing files from backup that already exist (have been renamed / removed as they were duplicate)"
             $InnerLoopProg.Status = $LogMsg
-            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+            ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		    $CurrInnerProgDbl[0] = 0;
 		    $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -998,7 +1009,7 @@ Try {
 		        #**************UPDATING BOTH LOOPS****************
                 $LogMsg = "Compressing files for archive..."
                 $InnerLoopProg.Status = $LogMsg
-                ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+                ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		        $CurrInnerProgDbl[0] = 0;
 		        $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -1030,7 +1041,7 @@ Try {
 		        Write-Progress @OuterLoopProg;
                 $LogMsg = "Creating directories for backup..."
                 $InnerLoopProg.Status = $LogMsg
-                ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+                ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		        $CurrInnerProgDbl[0] = 0;
 		        $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -1055,7 +1066,7 @@ Try {
 		        #**************UPDATING BOTH LOOPS****************
                 $LogMsg = "Backing up applicable files..."
                 $InnerLoopProg.Status = $LogMsg
-                ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+                ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		        $CurrInnerProgDbl[0] = 0;
 		        $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -1088,7 +1099,7 @@ Try {
 		        Write-Progress @OuterLoopProg;
                 $LogMsg = "Cleaing up directories from backup that no longer exist..."
                 $InnerLoopProg.Status = $LogMsg
-                ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+                ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		        $CurrInnerProgDbl[0] = 0;
 		        $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		        $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
@@ -1112,7 +1123,7 @@ Try {
             }
         }
         $LogMsg = "Complete"
-        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
     }
     
     #************************ 8 ***************************
