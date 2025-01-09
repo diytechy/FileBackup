@@ -283,6 +283,8 @@ Try {
 			Write-Progress @InnerLoopProg
 			#*************************************************
             $AllOldSrcProps = Import-Csv -LiteralPath $HashTblPath
+            $AllOldSrcProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $([DateTime]
+            $AllOldSrcProps.LastWriteTimeDateTime = [DateTime]$AllOldSrcProps.LastWriteTime
             ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
         }
         elseif ($AllOldSrcProps) {
@@ -337,6 +339,8 @@ Try {
         $AllFiles | Add-Member -MemberType NoteProperty -Name LocKey -Value $([int]0)
         $AllFiles | Add-Member -MemberType NoteProperty -Name DupGrp -Value $([int]0)
         $AllFiles | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
+        #$AllFiles | Add-Member -MemberType NoteProperty -Name LastWriteTimeStr -Value $([string]"****************************************************************")
+        #$AllFiles.LastWriteTimeStr = $AllFiles.LastWriteTime.ToString()
         
         if ($AllFldrs){Remove-Variable AllFldrs}
         if ($AllSrcFldrs.count){
@@ -383,7 +387,7 @@ Try {
                 $file.LocKey = $SrcKey
                 #If we're not rebuilding the hash, recalculate
                 if(-not($RebuildSrcHashTblFlag) -and $AllOldSrcProps){
-                    $MatchingFile = @($AllOldSrcProps | ?{( $_.FullName -eq $file.FullName) -and ( $_.Length -eq $file.Length) -and ($_.LastWriteTime -eq $file.LastWriteTime.ToString())})
+                    $MatchingFile = @($AllOldSrcProps | Where-Object{( $_.FullName -eq $file.FullName) -and ( $_.Length -eq $file.Length) -and ($_.LastWriteTimeDateTime -eq $file.LastWriteTime)})
                     if($MatchingFile.Count -eq 1){
                         $file.Hash = $MatchingFile.Hash
                         $MatchedHash[0] = $MatchedHash[0] +1
