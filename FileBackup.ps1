@@ -283,8 +283,9 @@ Try {
 			Write-Progress @InnerLoopProg
 			#*************************************************
             $AllOldSrcProps = Import-Csv -LiteralPath $HashTblPath
-            $AllOldSrcProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $([DateTime]
-            $AllOldSrcProps.LastWriteTimeDateTime = [DateTime]$AllOldSrcProps.LastWriteTime
+            $AllOldSrcProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $([DateTime])
+            #$AllOldSrcProps.LastWriteTimeDateTime = [DateTime]$AllOldSrcProps.LastWriteTime
+            $AllOldSrcProps.LastWriteTimeDateTime = [datetime]::ParseExact($AllOldSrcProps.LastWriteTime, 'yyyy-MM-dd HH:mm:ss ', $null)
             ($((Get-Date).ToString('yyyy-MM-dd_hh:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
         }
         elseif ($AllOldSrcProps) {
