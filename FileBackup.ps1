@@ -1,5 +1,8 @@
 ﻿#First clean out variables (for clean run)
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
+#If debugging a specific index, set this (note this is 1-indexed, 0 means disabled):
+$DbgInd = 0
+
 #Warning - This is the first functional powershell script I have attempted to create.  Suggestions appreciated.
 #Assumptions:
     #Backup is performed daily and started at the same time.
@@ -35,12 +38,10 @@ $SmtpPort        = "587"
 #2. Files that exist in {SrcVolumeLabel}\{ChkFolderLabel} but not {BkpVolumeLabel}\{ChkFolderLabel} (or are
 # modified) will be copied from the source location to the backup location.
 
-$ProgressUpdateRate_ms = 2000
 
 
 $CurrInnerProgDbl  = [double[]]::new(1);
 $CurrBkpSetProgDbl = [double[]]::new(1);
-$CurrOuterProgDbl  = [double[]]::new(1);
 $CurrBkpSetOverDbl = [double[]]::new(1);
 $PrevInnerProgPercInt = [int32[]]::new(1);
 $CurrInnerProgPercInt = [int32[]]::new(1);
@@ -48,7 +49,6 @@ $CurrInd  = [double[]]::new(1);
 $RemEnbl = 1
 #Sets if changed files should be archived.
 $ArchiveChangesFlag = 1
-$DbgInd = 0
 #Key Words
 $PotLengthLimit = 254
 
@@ -165,7 +165,6 @@ Try {
                 $BkpSets[$i].LenReport = $RepPathPre + "ERROR" + " - " + $TodayCode + " - Length.txt"
                 $BkpSets[$i].DupReport = $RepPathPre + "-PotentialDuplicates.csv"
                 if ($BkpSets[$i].BackupPrevAndRemovedFilesToRepFldr) {
-                    $ArchiveChanges = 1
                     $BkpSets[$i].ArchiveChangesInRep = 1
                     $BkpSets[$i].RepPathFldr = $RepPathPre + "\"
                     $BkpSets[$i].RepPath7Zip = $RepPathPre + ".7z"
@@ -207,8 +206,6 @@ Try {
     for ($i = $SrtGrp; $i -lt $EndGrp; $i++) {
         $SrcPath       = $BkpSets[$i].SrcPath
         $BkpPath       = $BkpSets[$i].BkpPath
-        $CalcSrcHash   = $BkpSets[$i].CalcSrcHash
-        $CalcBkpHash   = $BkpSets[$i].CalcBkpHash
         $EnableRprtGen = $BkpSets[$i].EnableRprtGen
         $HashTblPath   = $BkpSets[$i].SrcHshPth
         $RebuildSrcHashTblFlag   = $BkpSets[$i].CalcSrcHash
@@ -222,7 +219,6 @@ Try {
         $LenReport     = $BkpSets[$i].LenReport 
         $DupReport     = $BkpSets[$i].DupReport
         #Archive paths
-        $ArchiveChangesInRep = $BkpSets[$i].ArchiveChangesInRep
         $RepPathFldr         = $BkpSets[$i].RepPathFldr
         $RepPath7Zip         = $BkpSets[$i].RepPath7Zip
         #Load up the source hash table if it exists and the flag to rehash the entire source isn't set.
@@ -239,9 +235,12 @@ Try {
 		$CurrInnerProgDbl[0]  = 0;
 		$CurrBkpSetOverDbl = $i;
         $TmpNum = $i+1;
-#.ToString()
-		$OuterLoopProg.Activity = "Set " + $TmpNum.ToString() + " of " + $NBackupSets.ToString() + " :Backing up " + $SrcPath + " to " + $BkpPath
-		$OuterLoopProg.Status   = "Force source hashing: " + $RebuildSrcHashTblFlag.ToString() +", Force backup hashing: " +$RebuildBkpHashTblFlag.ToString()
+        $LogMsg = "Set " + $TmpNum.ToString() + " of " + $NBackupSets.ToString() + " :Backing up " + $SrcPath + " to " + $BkpPath
+        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+		$OuterLoopProg.Activity = $LogMsg
+        $LogMsg = "Force source hashing: " + $RebuildSrcHashTblFlag.ToString() +", Force backup hashing: " +$RebuildBkpHashTblFlag.ToString()
+        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+		$OuterLoopProg.Status   = $LogMsg
 		#General update fields.
 		$CurrBkpSetProgDbl[0] = 0;
 		$OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
@@ -254,7 +253,9 @@ Try {
 
 		#**************UPDATING INNER LOOP****************
 		$InnerLoopProg.Activity = "Getting folder / file properties"
-		$InnerLoopProg.Status = "Getting source files..."
+        $LogMsg = "Getting source files..."
+        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+        $InnerLoopProg.Status = $LogMsg
 		$CurrInnerProgDbl[0] = 0;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		#$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
@@ -263,7 +264,9 @@ Try {
         $AllSrcFiles = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -File)
         $SrcFilesizeTtl = $AllSrcFiles | Measure-Object -Property Length -Sum; $SrcFilesizeTtl =$SrcFilesizeTtl.Sum
 		#**************UPDATING INNER LOOP****************
-		$InnerLoopProg.Status = $SrcFilesizeTtl.Count.ToString() + " source files found.  Getting source folders..."
+        $LogMsg = $SrcFilesizeTtl.Count.ToString() + " source files found.  Getting source folders..."
+        ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+		$InnerLoopProg.Status = $LogMsg
 		$CurrInnerProgDbl[0] = 0.25;
 		$InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 		#$InnerLoopProg.CurrentOperation = "Current Step: " $InnerLoopProg.PercentComplete.ToString() "% Complete"
@@ -275,6 +278,7 @@ Try {
         if ((Test-Path -LiteralPath $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
 			#**************UPDATING INNER LOOP****************
 			$LogMsg = "Loading previously saved hash definition for source files..."
+            ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 			$InnerLoopProg.Status = $LogMsg
 			Write-Progress @InnerLoopProg
 			#*************************************************
@@ -286,7 +290,7 @@ Try {
         }
 
 		#**************UPDATING INNER LOOP****************
-		$LogMsg = $AllSrcFldrs.Count.ToString() + "Source folders found.  Getting backup files..."
+		$LogMsg = $AllSrcFldrs.Count.ToString() + " source folders found.  Getting backup files..."
 		$InnerLoopProg.Status = $LogMsg
         ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0.5;
@@ -304,7 +308,7 @@ Try {
         $AllBkpFiles = @(Get-ChildItem -LiteralPath $BkpPath -Recurse -File)
 		#Write-Host $AllBkpFiles.length.ToString() " backup files to check"
 		#**************UPDATING INNER LOOP****************
-		$LogMsg = $AllBkpFiles.Count.ToString() + "Backup files found.  Getting backup folders..."
+		$LogMsg = $AllBkpFiles.Count.ToString() + " backup files found.  Getting backup folders..."
 		$InnerLoopProg.Status = $LogMsg
         ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0.75;
@@ -316,7 +320,7 @@ Try {
         $AllBkpFiles = @($AllBkpFiles | Add-Member -MemberType NoteProperty -Name From -Value $BkpKey -PassThru)
 
 		#**************UPDATING INNER LOOP****************
-		$LogMsg = $AllBkpFldrs.Count.ToString() + "Bbckup folders found.  Allocating properties to determine..."
+		$LogMsg = $AllBkpFldrs.Count.ToString() + " backup folders found.  Allocating properties to determine..."
 		$InnerLoopProg.Status = $LogMsg
         ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		$CurrInnerProgDbl[0] = 0.99;
@@ -407,7 +411,7 @@ Try {
                 }
             }
         }
-        $LogMsg = "Number of source files that hashing was skipped on: " + $MatchedHash.ToString()
+        $LogMsg = "Number of source files that hashing was skipped on: " + $MatchedHash[0].ToString()
         ($((Get-Date).ToString('yyyy-MM-dd-hh-mm-ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 
 		#**************UPDATING BOTH LOOPS****************
