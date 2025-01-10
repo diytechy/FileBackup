@@ -39,7 +39,8 @@ $SmtpPort        = "587"
 # modified) will be copied from the source location to the backup location.
 
 
-$HashTblDateFormat = 'yyyy-MM-dd HH:mm:ss z'
+#$HashTblDateFormat = 'yyyy-MM-dd HH:mm:ss.S z'
+$HashTblDateFormat = "O"
 $CurrInnerProgDbl  = [double[]]::new(1);
 $CurrBkpSetProgDbl = [double[]]::new(1);
 $CurrBkpSetOverDbl = [double[]]::new(1);
@@ -285,7 +286,9 @@ Try {
             $AllOldSrcProps = Import-Csv -LiteralPath $HashTblPath
             $AllOldSrcProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $([DateTime])
             #$AllOldSrcProps.LastWriteTimeDateTime = [DateTime]$AllOldSrcProps.LastWriteTime
-            $AllOldSrcProps.LastWriteTimeDateTime = [datetime]::ParseExact($AllOldSrcProps.LastWriteTimeStr, $HashTblDateFormat, $null)
+            foreach ($srcprop in $AllOldSrcProps){
+                $srcprop.LastWriteTimeDateTime = [datetime]::ParseExact($srcprop.LastWriteTimeStr, $HashTblDateFormat, $null)
+            }
             ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
         }
         elseif ($AllOldSrcProps) {
