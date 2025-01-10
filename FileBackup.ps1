@@ -275,7 +275,7 @@ Try {
 		#*************************************************
         $AllSrcFldrs = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -Directory | Select-Object -Property FullName)
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
-$       $map = @{}
+        $map = @{}
         if ((Test-Path -LiteralPath $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
 			#**************UPDATING INNER LOOP****************
 			$LogMsg = "Loading previously saved hash definition for source files..."
@@ -289,9 +289,9 @@ $       $map = @{}
             foreach ($srcprop in $AllOldSrcProps){
                 $srcprop.LastWriteTimeDateTime = [datetime]::ParseExact($srcprop.LastWriteTimeStr, $HashTblDateFormat, $null)
                 $key = [System.ValueTuple[string, long, datetime]]::new(
-                $src.FullName, $src.Length, $src.LastWriteTime)
+                $srcprop.FullName, $srcprop.Length, $srcprop.LastWriteTimeDateTime)
 
-                $map[$key] = $src
+                $map[$key] = $srcprop
             }
             ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
         }
