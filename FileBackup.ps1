@@ -556,6 +556,8 @@ Try {
                 }
             }
         }
+        $LogMsg = "Total number of duplicate groups found: " + $DupInd[0].ToString()
+        ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
             
 
         #************************ Pre - E ***************************
@@ -721,6 +723,8 @@ Try {
 		            Write-Progress @InnerLoopProg
                 }
             }
+            $LogMsg = "Total number of removed unhashed files: " + $LoopProg.ToString()
+            ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.33;
@@ -753,6 +757,8 @@ Try {
 		            Write-Progress @InnerLoopProg
                 }
             }
+            $LogMsg = "Total number of unhashed files tagged to backup: " + $LoopProg.ToString()
+            ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
             
 		    #**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.35;
@@ -874,7 +880,10 @@ Try {
 		            Write-Progress @InnerLoopProg
                 }
             }
-		    #**************UPDATING BOTH LOOPS****************
+            $LogMsg = "Total number of removed hashed files: " + $LoopProg.ToString()
+            ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
+
+#**************UPDATING BOTH LOOPS****************
 		    $CurrBkpSetProgDbl[0] = 0.55;
 		    $OuterProgPerc = [math]::floor((($CurrBkpSetOverDbl[0] + $CurrBkpSetProgDbl[0])*100)/$NBackupSets);
 		    $OuterLoopProg.PercentComplete  = $OuterProgPerc;
@@ -904,6 +913,8 @@ Try {
 		            Write-Progress @InnerLoopProg
                 }
             }
+            $LogMsg = "Total number of unhashed files tagged to backup: " + $LoopProg.ToString()
+            ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
             $HashedFiles2Chk2Copy = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $BthKey } | Select-Object -Expand Group
             
 		    #**************UPDATING BOTH LOOPS****************
@@ -1082,6 +1093,8 @@ Try {
 		                Write-Progress @InnerLoopProg
                     }
                 }
+                $LogMsg = "Total number of created directories: " + $LoopProg.ToString()
+                ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
 		        #**************UPDATING BOTH LOOPS****************
                 $LogMsg = "Backing up applicable files..."
                 $InnerLoopProg.Status = $LogMsg
@@ -1104,6 +1117,8 @@ Try {
 		                Write-Progress @InnerLoopProg
                     }
                 }
+                $LogMsg = "Total number of files copied to backup: " + $LoopProg.ToString()
+                ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
                 $Files2Backup.FullName | Out-File -Append $CopyReport
             }
     
@@ -1139,6 +1154,8 @@ Try {
 		                Write-Progress @InnerLoopProg
                     }
                 }
+                $LogMsg = "Total number of directories removed: " + $LoopProg.ToString()
+                ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
             }
         }
         $LogMsg = "Complete"
