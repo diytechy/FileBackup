@@ -275,7 +275,7 @@ Try {
 		#*************************************************
         $AllSrcFldrs = @(Get-ChildItem -LiteralPath $SrcPath -Recurse -Directory | Select-Object -Property FullName)
         $AllSrcFiles = @($AllSrcFiles | Add-Member -MemberType NoteProperty -Name From -Value $SrcKey -PassThru)
-
+$       $map = @{}
         if ((Test-Path -LiteralPath $HashTblPath -PathType Leaf) -and ($RebuildSrcHashTblFlag -eq 0)) {
 			#**************UPDATING INNER LOOP****************
 			$LogMsg = "Loading previously saved hash definition for source files..."
@@ -288,6 +288,10 @@ Try {
             #$AllOldSrcProps.LastWriteTimeDateTime = [DateTime]$AllOldSrcProps.LastWriteTime
             foreach ($srcprop in $AllOldSrcProps){
                 $srcprop.LastWriteTimeDateTime = [datetime]::ParseExact($srcprop.LastWriteTimeStr, $HashTblDateFormat, $null)
+                $key = [System.ValueTuple[string, long, datetime]]::new(
+                $src.FullName, $src.Length, $src.LastWriteTime)
+
+                $map[$key] = $src
             }
             ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
         }
@@ -391,7 +395,10 @@ Try {
                 $file.LocKey = $SrcKey
                 #If we're not rebuilding the hash, recalculate
                 if(-not($RebuildSrcHashTblFlag) -and $AllOldSrcProps){
-                    $MatchingFile = @($AllOldSrcProps | Where-Object{( $_.FullName -eq $file.FullName) -and ( $_.Length -eq $file.Length) -and ($_.LastWriteTimeDateTime -eq $file.LastWriteTime)})
+                    $key = [System.ValueTuple[string, long, datetime]]::new(
+                    $file.FullName, $file.Length, $file.LastWriteTime)
+                    #$MatchingFile = @($AllOldSrcProps | Where-Object{( $_.FullName -eq $file.FullName) -and ( $_.Length -eq $file.Length) -and ($_.LastWriteTimeDateTime -eq $file.LastWriteTime)})
+                    $MatchingFile = $map[$key]
                     if($MatchingFile.Count -eq 1){
                         $file.Hash = $MatchingFile.Hash
                         $MatchedHash[0] = $MatchedHash[0] +1
