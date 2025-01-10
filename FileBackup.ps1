@@ -39,7 +39,7 @@ $SmtpPort        = "587"
 # modified) will be copied from the source location to the backup location.
 
 
-$HashTblDateFormat = 'yyyy-MM-dd HH:mm:ss'
+$HashTblDateFormat = 'yyyy-MM-dd HH:mm:ss z'
 $CurrInnerProgDbl  = [double[]]::new(1);
 $CurrBkpSetProgDbl = [double[]]::new(1);
 $CurrBkpSetOverDbl = [double[]]::new(1);
@@ -447,7 +447,10 @@ Try {
 
         #Export all source files for future import / compoarison.
         $SrcFilesWithHash = $AllFiles | Where-Object {( $_.LocKey -eq $SrcKey)}
-        $SrcFilesWithHash.LastWriteTimeStr = $SrcFilesWithHash.LastWriteTime.ToString($HashTblDateFormat)
+        $SrcFilesWithHash | Add-Member -MemberType NoteProperty -Name LastWriteTimeStr -Value $([string]"****************************************************************")
+        foreach ($filerec in $SrcFilesWithHash) {
+            $filerec.LastWriteTimeStr = $filerec.LastWriteTime.ToString($HashTblDateFormat)
+        }
         $SrcFilesWithHash | Select-Object -Property Fullname, Length, LastWriteTimeStr, Hash|
         Export-Csv -Path $HashTblPath -NoTypeInformation
 
