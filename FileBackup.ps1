@@ -1,7 +1,7 @@
 ﻿#First clean out variables (for clean run)
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 #If debugging a specific index, set this (note this is 1-indexed, 0 means disabled):
-$DbgInd = 3
+$DbgInd = 0
 
 #Warning - This is the first functional powershell script I have attempted to create.  Suggestions appreciated.
 #Assumptions:
@@ -430,8 +430,8 @@ Try {
 		            Write-Progress @InnerLoopProg
                 }
             }
-            if ($NFilesProc -ge 1000){
-                ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - 1000 files analyzed") | Out-File -Append $RunReport
+            if ($NFilesProc -ge 10000){
+                ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - 10000 files analyzed") | Out-File -Append $RunReport
                 $NFilesProc = 0
             }
         }
