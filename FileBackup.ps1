@@ -123,6 +123,11 @@ Try {
                         $BkpSets[$i].CalcSrcHash = 1
                     }
                     else {$BkpSets[$i].CalcSrcHash = 0}}
+                "Q" {
+                    if (((Get-Date).Month % 3) -eq 0){
+                    $BkpSets[$i].CalcSrcHash = 1
+                    }
+                    else {$BkpSets[$i].CalcSrcHash = 0}}
                 "Y" {
                     if (((Get-Date).Day -eq 1) -and ((Get-Date).Month -eq 1)){
                         $BkpSets[$i].CalcSrcHash = 1
@@ -142,6 +147,11 @@ Try {
                         $BkpSets[$i].CalcBkpHash = 1
                     }
                     else {$BkpSets[$i].CalcBkpHash = 0}}
+                "Q" {
+                    if (((Get-Date).Month % 3) -eq 0){
+                    $BkpSets[$i].CalcSrcHash = 1
+                    }
+                    else {$BkpSets[$i].CalcSrcHash = 0}}
                 "Y" {
                     if (((Get-Date).Day -eq 1) -and ((Get-Date).Month -eq 1)){
                         $BkpSets[$i].CalcBkpHash = 1
