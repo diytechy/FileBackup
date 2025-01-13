@@ -133,7 +133,8 @@ Try {
                         $BkpSets[$i].CalcSrcHash = 1
                     }
                     else {$BkpSets[$i].CalcSrcHash = 0}}
-                Default {throw "Invalid or undefined source hash configuration!"}
+                #Default {throw "Invalid or undefined source hash configuration!"}
+                Default {$BkpSets[$i].CalcSrcHash = 0}
             }
             switch($BkpSets[$i].BkpHashIfEqualPathAndModDateFreq){
                 "E" {$BkpSets[$i].CalcBkpHash = 1}
@@ -157,7 +158,8 @@ Try {
                         $BkpSets[$i].CalcBkpHash = 1
                     }
                     else {$BkpSets[$i].CalcBkpHash = 0}}
-                Default {throw "Invalid or undefined backup hash configuration!"}
+                #Default {throw "Invalid or undefined backup hash configuration!"}
+                Default {$BkpSets[$i].CalcBkpHash = 0}
             }
             if ($BkpSets[$i].CalcBkpHash){
                 $BkpSets[$i].CalcSrcHash = 1
