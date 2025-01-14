@@ -90,33 +90,32 @@ foreach ($file in $AllFiles) {
 }
 $Files2Move = @($AllFiles | Where-Object{( $_.MoveFileFlag -eq 1)})
 
-$hashfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("HASH"))} | Select-Object -Property MoveLoc | ForEach-Object { Split-Path $_ -Parent } | Select-Object -Unique
-$namefolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("NAME"))} | Select-Object -Property MoveLoc| ForEach-Object { Split-Path $_ -Parent } | Select-Object -Unique
-$jsonfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("JSON"))} | Select-Object -Property MoveLoc| ForEach-Object { Split-Path $_ -Parent } | Select-Object -Unique
-
-$jsonfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("JSON"))} | ForEach-Object { Split-Path $_.MoveLoc -Parent } | Select-Object -Unique
 #Getting all folders
-<#
+$hashfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("HASH"))} | ForEach-Object { Split-Path $_.MoveLoc -Parent } | Select-Object -Unique
+$namefolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("NAME"))} | ForEach-Object { Split-Path $_.MoveLoc -Parent } | Select-Object -Unique
+$jsonfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("JSON"))} | ForEach-Object { Split-Path $_.MoveLoc -Parent } | Select-Object -Unique
 
-$OutObj = Compare-Object -ReferenceObject $AllFiles -DifferenceObject $HashProps -Property Hash -PassThru -IncludeEqual
-
-#$OutObj.SideIndicator
-#$FiltObj = Where-Object -InputObject $OutObj -Property "SideIndicator" -Value "<=" -EQ
-#Worked? ==>   $FiltObj = $OutObj | Where-Object SideIndicator -Match "<="
-$FiltObj = ($OutObj | Where-Object SideIndicator -Match "==") | Where-Object Loc -Match "1"
-
-
-$InnerLoopProg.Activity = "Removing files that already exist in backup hashes..."
-$LoopProg = 0;
-$PrevInnerProgPercInt[0] = -1;
-foreach ($file in $FiltObj) {
-    Remove-Item -LiteralPath $file.FullName -Force
-    $CurrInnerProgPercInt[0] = ($LoopProg*100)/$FiltObj.Count
-    if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
-        $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
-        $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
-		$InnerLoopProg.Status = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
-		Write-Progress @InnerLoopProg
+$allfoldersneeded = $Files2Move | ForEach-Object { Split-Path $_.MoveLoc -Parent } | Select-Object -Unique | Sort-Object {$_.Length}
+#Creating all folders if needed
+foreach ($fldr in  $allfoldersneeded){
+    if( -Not (Test-Path -LiteralPath $fldr ) ) {
+        New-Item -Path $fldr -ItemType "directory" | Out-Null
     }
 }
-#>
+
+#Now move respective files
+foreach ($file2move in $Files2Move) {
+    Move-Item -LiteralPath $file2move.FullName -Destination $file2move.MoveLoc
+    }
+
+#Now remove empty folders from the source.
+
+$EmptyFldrs = Get-ChildItem -Path $CmprPath  -Recurse -Directory | Where-Object {$_.GetFiles().Count -eq 0 -and $_.GetDirectories().Count -eq 0}
+while ($EmptyFldrs){
+    foreach ($fldr2rem in $EmptyFldrs){
+        Remove-Item -LiteralPath $fldr2rem.FullName -Force -Recurse| Out-Null
+    }
+
+    $EmptyFldrs = Get-ChildItem -Path $CmprPath  -Recurse -Directory | Where-Object {$_.GetFiles().Count -eq 0 -and $_.GetDirectories().Count -eq 0}
+    
+}
