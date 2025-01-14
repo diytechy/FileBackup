@@ -6,7 +6,10 @@ $HashPaths = @(
 "A:\PrivateFilesHashTable.csv"
 "A:\NonDocsFilesHashTable.csv"
 )
-$CmprPath = "E:\2Chk\"
+$CmprPath = "D:\2Chk\"
+$DupHashMovePath = "D:\DupHashFldr\"
+$DupNameMovePath = "D:\DupNameFldr\"
+
 
 #Variable initialization.
 $CurrInnerProgPercInt = [int32[]]::new(1);
@@ -30,7 +33,8 @@ $HashProps | Add-Member -MemberType NoteProperty -Name Loc  -Value $([int16]0)
 #$HashProps.Hash
 $AllFiles = @(Get-ChildItem -LiteralPath $CmprPath -Recurse -File)
 $AllFiles | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
-$AllFiles | Add-Member -MemberType NoteProperty -Name Loc  -Value $([int16]1)
+$AllFiles | Add-Member -MemberType NoteProperty -Name MoveFileFlag  -Value $([int16]0)
+$AllFiles | Add-Member -MemberType NoteProperty -Name MoveLoc  -Value $([string]"****************************************************************")
 $AllFilesizeTtl = $AllFiles | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
 
 
@@ -40,10 +44,25 @@ $CurrInnerProgDbl[0] = 0;
 $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 $LoopProg = 0;
 $PrevInnerProgPercInt[0] = 0;
+
 foreach ($file in $AllFiles) {
     $hashset = Get-FileHash -LiteralPath $file.FullName
     $file.Hash = $hashset.Hash
     $LoopProg += $file.Length
+    $MatchingFileHash = @($HashProps | Where-Object{( $_.Hash -eq $file.Hash)})
+    $MatchingFileName = @($HashProps | Where-Object{( $_.Name -eq $file.Name)})
+    if($MatchingFileHash) {
+        $ExtLen = $file.FullName.Length - $CmprPath.Length
+        $file.MoveLoc = $DupHashMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
+        $file.MoveFileFlag = 1
+    }
+    elseif($MatchingFileName) {
+        $ExtLen = $file.FullName.Length - $CmprPath.Length
+        $file.MoveLoc = $DupNameMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
+        $file.MoveFileFlag = 1
+    }
+
+    #$FullMovePathLength = $file.FullName.Length - $SrcLen + $ModLen
     if ($AllFilesizeTtl) {
         $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
         if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
@@ -54,6 +73,9 @@ foreach ($file in $AllFiles) {
         }
     }
 }
+$Files2Move = @($AllFiles | Where-Object{( $_.MoveFileFlag -eq 1)})
+
+<#
 
 $OutObj = Compare-Object -ReferenceObject $AllFiles -DifferenceObject $HashProps -Property Hash -PassThru -IncludeEqual
 
@@ -76,3 +98,4 @@ foreach ($file in $FiltObj) {
 		Write-Progress @InnerLoopProg
     }
 }
+#>
