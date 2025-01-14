@@ -440,12 +440,12 @@ Try {
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
 				    $InnerLoopProg.CurrentOperation = "Current Step: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
 		            Write-Progress @InnerLoopProg
+                    ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $InnerLoopProg.PercentComplete.ToString() + "% Complete") | Out-File -Append $RunReport
                 }
             }
-            if ($NFilesProc -ge 10000){
-                ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - 10000 files analyzed") | Out-File -Append $RunReport
-                $NFilesProc = 0
-            }
+            #if ($NFilesProc -ge 10000){
+            #    $NFilesProc = 0
+            #}
         }
         $LogMsg = "Number of source files that hashing was skipped on: " + $MatchedHash[0].ToString()
         ($((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) + " - " + $LogMsg) | Out-File -Append $RunReport
