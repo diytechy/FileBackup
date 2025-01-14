@@ -39,6 +39,7 @@ $AllFiles = @(Get-ChildItem -LiteralPath $CmprPath -Recurse -File)
 $AllFiles | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
 $AllFiles | Add-Member -MemberType NoteProperty -Name MoveFileFlag  -Value $([int16]0)
 $AllFiles | Add-Member -MemberType NoteProperty -Name MoveLoc  -Value $([string]"****************************************************************")
+$AllFiles | Add-Member -MemberType NoteProperty -Name MoveLbl  -Value $([string]"****")
 $AllFilesizeTtl = $AllFiles | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
 
 
@@ -49,27 +50,31 @@ $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 $LoopProg = 0;
 $PrevInnerProgPercInt[0] = 0;
 
+#Shorten length for simplicity
+$SrcL = $CmprPath.Length
 foreach ($file in $AllFiles) {
+    #Get hash
     $hashset = Get-FileHash -LiteralPath $file.FullName
     $file.Hash = $hashset.Hash
+    
+    #Get substring def.
+    $ExtLen = $file.FullName.Length - $SrcL
+
     $LoopProg += $file.Length
-    #$MatchingFileHash = @($HashProps | Where-Object{( $_.Hash -eq $file.Hash)})
-    #$Test = ($HashProps.Hash -eq $file.Hash)
-    #$MatchingFileName = @($HashProps | Where-Object{( $_.Name -eq $file.Name)})
     if($HashProps.Hash -eq $file.Hash) {
-        $ExtLen = $file.FullName.Length - $CmprPath.Length
-        $file.MoveLoc = $DupHashMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
+        $file.MoveLoc = $DupHashMovePath + $file.FullName.Substring($SrcL,$ExtLen)
         $file.MoveFileFlag = 1
+        $file.MoveLbl = "HASH"
     }
     elseif($HashProps.Name -eq $file.Name){
-        $ExtLen = $file.FullName.Length - $CmprPath.Length
-        $file.MoveLoc = $DupNameMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
+        $file.MoveLoc = $DupNameMovePath + $file.FullName.Substring($SrcL,$ExtLen)
         $file.MoveFileFlag = 1
+        $file.MoveLbl = "NAME"
     }
-    elseif($file.Name.Contains(".json")){
-        $ExtLen = $file.FullName.Length - $CmprPath.Length
-        $file.MoveLoc = $DupJSONMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
+    elseif($DupJSONMovePath -and $file.Name.Contains(".json")){
+        $file.MoveLoc = $DupJSONMovePath + $file.FullName.Substring($SrcL,$ExtLen)
         $file.MoveFileFlag = 1
+        $file.MoveLbl = "JSON"
     }
 
     #$FullMovePathLength = $file.FullName.Length - $SrcLen + $ModLen
@@ -85,7 +90,12 @@ foreach ($file in $AllFiles) {
 }
 $Files2Move = @($AllFiles | Where-Object{( $_.MoveFileFlag -eq 1)})
 
+$hashfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("HASH"))} | Select-Object -Property MoveLoc | ForEach-Object { Split-Path $_ -Parent } | Select-Object -Unique
+$namefolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("NAME"))} | Select-Object -Property MoveLoc| ForEach-Object { Split-Path $_ -Parent } | Select-Object -Unique
+$jsonfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("JSON"))} | Select-Object -Property MoveLoc| ForEach-Object { Split-Path $_ -Parent } | Select-Object -Unique
 
+$jsonfolders = $Files2Move | Where-Object{( $_.MoveLbl.contains("JSON"))} | ForEach-Object { Split-Path $_.MoveLoc -Parent } | Select-Object -Unique
+#Getting all folders
 <#
 
 $OutObj = Compare-Object -ReferenceObject $AllFiles -DifferenceObject $HashProps -Property Hash -PassThru -IncludeEqual
