@@ -2,13 +2,17 @@
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 
 $HashPaths = @(
-"A:\SharedFilesHashTable.csv"
-"A:\PrivateFilesHashTable.csv"
-"A:\NonDocsFilesHashTable.csv"
+#"A:\SharedFilesHashTable.csv"
+#"A:\PrivateFilesHashTable.csv"
+#"A:\NonDocsFilesHashTable.csv"
+"D:\SharedFilesHashTable.csv"
+"D:\PrivateFilesHashTable.csv"
+"D:\NonDocsFilesHashTable.csv"
 )
 $CmprPath = "D:\2Chk\"
 $DupHashMovePath = "D:\DupHashFldr\"
 $DupNameMovePath = "D:\DupNameFldr\"
+$DupJSONMovePath = "D:\DupJSONFldr\"
 
 
 #Variable initialization.
@@ -49,16 +53,22 @@ foreach ($file in $AllFiles) {
     $hashset = Get-FileHash -LiteralPath $file.FullName
     $file.Hash = $hashset.Hash
     $LoopProg += $file.Length
-    $MatchingFileHash = @($HashProps | Where-Object{( $_.Hash -eq $file.Hash)})
-    $MatchingFileName = @($HashProps | Where-Object{( $_.Name -eq $file.Name)})
-    if($MatchingFileHash) {
+    #$MatchingFileHash = @($HashProps | Where-Object{( $_.Hash -eq $file.Hash)})
+    #$Test = ($HashProps.Hash -eq $file.Hash)
+    #$MatchingFileName = @($HashProps | Where-Object{( $_.Name -eq $file.Name)})
+    if($HashProps.Hash -eq $file.Hash) {
         $ExtLen = $file.FullName.Length - $CmprPath.Length
         $file.MoveLoc = $DupHashMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
         $file.MoveFileFlag = 1
     }
-    elseif($MatchingFileName) {
+    elseif($HashProps.Name -eq $file.Name){
         $ExtLen = $file.FullName.Length - $CmprPath.Length
         $file.MoveLoc = $DupNameMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
+        $file.MoveFileFlag = 1
+    }
+    elseif($file.Name.Contains(".json")){
+        $ExtLen = $file.FullName.Length - $CmprPath.Length
+        $file.MoveLoc = $DupJSONMovePath + $file.FullName.Substring($SrcLen,$ExtLen)
         $file.MoveFileFlag = 1
     }
 
@@ -74,6 +84,7 @@ foreach ($file in $AllFiles) {
     }
 }
 $Files2Move = @($AllFiles | Where-Object{( $_.MoveFileFlag -eq 1)})
+
 
 <#
 
