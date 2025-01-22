@@ -410,7 +410,7 @@ Try {
                     $key = [System.ValueTuple[string, long, datetime]]::new(
                     $file.FullName, $file.Length, $file.LastWriteTime)
                     #$MatchingFile = @($AllOldSrcProps | Where-Object{( $_.FullName -eq $file.FullName) -and ( $_.Length -eq $file.Length) -and ($_.LastWriteTimeDateTime -eq $file.LastWriteTime)})
-                    $MatchingFile = $map[$key]
+                    $MatchingFile = @($map[$key])
                     if($MatchingFile.Count -eq 1){
                         $file.Hash = $MatchingFile.Hash
                         $MatchedHash[0] = $MatchedHash[0] +1
