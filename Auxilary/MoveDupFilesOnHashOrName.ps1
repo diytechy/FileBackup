@@ -2,12 +2,12 @@
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 
 $HashPaths = @(
-#"A:\SharedFilesHashTable.csv"
-#"A:\PrivateFilesHashTable.csv"
-#"A:\NonDocsFilesHashTable.csv"
-"D:\SharedFilesHashTable.csv"
-"D:\PrivateFilesHashTable.csv"
-"D:\NonDocsFilesHashTable.csv"
+"A:\SharedFilesHashTable.csv"
+"A:\PrivateFilesHashTable.csv"
+"A:\NonDocsFilesHashTable.csv"
+#"D:\SharedFilesHashTable.csv"
+#"D:\PrivateFilesHashTable.csv"
+#"D:\NonDocsFilesHashTable.csv"
 )
 $CmprPath = "D:\2Chk\"
 $DupHashMovePath = "D:\DupHashFldr\"
@@ -34,7 +34,6 @@ foreach ($path in $HashPaths) {
 }
 Write-Host "All hash definitions imported"
 $HashProps | Add-Member -MemberType NoteProperty -Name Loc  -Value $([int16]0)
-#$HashProps.Hash
 $AllFiles = @(Get-ChildItem -LiteralPath $CmprPath -Recurse -File)
 $AllFiles | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
 $AllFiles | Add-Member -MemberType NoteProperty -Name MoveFileFlag  -Value $([int16]0)
@@ -48,14 +47,17 @@ $InnerLoopProg.Status = "Please wait..."
 $CurrInnerProgDbl[0] = 0;
 $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
 $LoopProg = 0;
-$PrevInnerProgPercInt[0] = 0;
+$PrevInnerProgPercInt[0] = -1;
 
 #Shorten length for simplicity
 $SrcL = $CmprPath.Length
 foreach ($file in $AllFiles) {
     #Get hash
-    $hashset = Get-FileHash -LiteralPath $file.FullName
-    $file.Hash = $hashset.Hash
+    try{
+        $hashset = Get-FileHash -LiteralPath $file.FullName
+        $file.Hash = $hashset.Hash
+    }catch{
+    }
     
     #Get substring def.
     $ExtLen = $file.FullName.Length - $SrcL
@@ -71,13 +73,12 @@ foreach ($file in $AllFiles) {
         $file.MoveFileFlag = 1
         $file.MoveLbl = "NAME"
     }
-    elseif($DupJSONMovePath -and $file.Name.Contains(".json")){
-        $file.MoveLoc = $DupJSONMovePath + $file.FullName.Substring($SrcL,$ExtLen)
-        $file.MoveFileFlag = 1
-        $file.MoveLbl = "JSON"
-    }
+    #elseif($DupJSONMovePath -and $file.Name.Contains(".json")){
+    #    $file.MoveLoc = $DupJSONMovePath + $file.FullName.Substring($SrcL,$ExtLen)
+    #    $file.MoveFileFlag = 1
+    #    $file.MoveLbl = "JSON"
+    #}
 
-    #$FullMovePathLength = $file.FullName.Length - $SrcLen + $ModLen
     if ($AllFilesizeTtl) {
         $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
         if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0]){
@@ -115,7 +116,5 @@ while ($EmptyFldrs){
     foreach ($fldr2rem in $EmptyFldrs){
         Remove-Item -LiteralPath $fldr2rem.FullName -Force -Recurse| Out-Null
     }
-
     $EmptyFldrs = Get-ChildItem -Path $CmprPath  -Recurse -Directory | Where-Object {$_.GetFiles().Count -eq 0 -and $_.GetDirectories().Count -eq 0}
-    
 }
