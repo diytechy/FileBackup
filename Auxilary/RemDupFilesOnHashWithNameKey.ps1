@@ -9,7 +9,7 @@ $HashPaths = @(
 #"D:\PrivateFilesHashTable.csv"
 #"D:\NonDocsFilesHashTable.csv"
 )
-$CmprPath = "D:\2Chk\"
+$DupReport = "D:\AllPotentialDuplicates.csv"
 
 #Highest value in this array has priority
 $DupRemKeys = @(
@@ -21,7 +21,6 @@ $DupRemKeys = @(
 "Repo_Serv"
 )
 
-$HashTable=@{}
 foreach ($path in $HashPaths) {
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         $HashProps += @(Import-Csv -LiteralPath $path)
@@ -29,21 +28,27 @@ foreach ($path in $HashPaths) {
 }
 Write-Host "All hash definitions imported"
 
+$hTable=@{}
+$ATable=@{
+FullName = $HashProps.FullName | Out-String
+Hash = $HashProps.Hash | Out-String
+}
+
+$HashProps.psobject.properties | foreach -begin {$h=@{}} -process {$h."$($_.Name)" = $_.Value} -end {$h}
+
+
 foreach($r in $HashProps)
 {
-    $HashTable[$r.FullName]=$r.FullName | Out-String
-    $HashTable[$r.Hash]=$r.Hash | Out-String
+    $hTable[$r.FullName]=$r.FullName | Out-String
+    $hTable[$r.Hash]=$r.Hash | Out-String
 }
 
 #Now build full hash table definition and determine what to remove.
-$HashProps | Add-Member -MemberType NoteProperty -Name DupGrp -Value $([int]0)
-$HashProps | Add-Member -MemberType NoteProperty -Name HashCode -Value $([string]"****************************************************************")
-foreach ($FileEntry in $HashProps) {
-    $FileEntry.HashCode = $FileEntry.Hash | Out-String
-}
+$hTable | Add-Member -MemberType NoteProperty -Name DupGrp -Value $([int]0)
 Write-Host "All hash codes converted"
 
-$SrcFilesGroupedByHash = $HashProps | Group-Object -Property HashCode
+$SrcFilesGroupedByHash = $hTable | Group-Object -Property Hash
+Write-Host "All hash codes grouped"
 foreach ($hashgrp in $SrcFilesGroupedByHash) {
 
     if ($hashgrp.Count -gt 1)
@@ -53,4 +58,9 @@ foreach ($hashgrp in $SrcFilesGroupedByHash) {
             $selfile.DupGrp = $DupInd[0]
         }
     }
+}
+$DupSet = ($SrcFilesGroupedByHash | Select-Object -Expand Group) | Where-Object { $_.DupGrp -gt 0 }
+if ($DupSet.Count){
+    $DupSet | Select-Object -Property DupGrp,FullName |
+    Export-Csv -LiteralPath $DupReport -NoTypeInformation
 }
