@@ -9,7 +9,8 @@ $HashPaths = @(
 #"D:\PrivateFilesHashTable.csv"
 #"D:\NonDocsFilesHashTable.csv"
 )
-$DupReport = "A:\AllDuplicatesToRemove.csv"
+$DelReport = "A:\AllDuplicatesToRemove.csv"
+$DupReport = "A:\AllDuplicatesToReview.csv"
 
 #Highest value in this array has priority
 $DupRemKeys = @(
@@ -37,6 +38,10 @@ $SrcFilesGroupedByLength = $HashProps | Group-Object -Property Length
 
 Write-Host "Files grouped by size"
 $LenInd = 0
+$Prog = 0;
+$Total = $SrcFilesGroupedByLength.Count
+$Perc = 0
+$PrevPerc = 0
 foreach ($filegrp in $SrcFilesGroupedByLength)
 {
     if ($filegrp.Count -gt 1)
@@ -54,6 +59,12 @@ foreach ($filegrp in $SrcFilesGroupedByLength)
                 $selfile.Hash = $hashset.Hash
             }
         }
+    }
+    $Prog++
+    $Perc = $Prog*100/$Total
+    if ($Perc -gt ($PrevPerc + 1))
+    {
+        Write-Host "Inc 1%"
     }
 }
 Write-Host "Remaining hash definitions computed"
@@ -91,6 +102,7 @@ foreach ($DupSet in $DupSets2Chk)
         }
     }
 }
-$DelSetFull = ($SrcFilesGroupedByHash | Select-Object -Expand Group) | Where-Object { $_.DelGrp -gt 0 }
+$DupSets2Chk = ($SrcFilesGroupedByHash | Select-Object -Expand Group) | Where-Object { $_.DelGrp -gt 0 }
 $DelSetFull | Export-Csv -Path $DupReport -NoTypeInformation
+$DelSetFull | Export-Csv -Path $DelReport -NoTypeInformation
 Write-Host "Full delete list produced and saved"
