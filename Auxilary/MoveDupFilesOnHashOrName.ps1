@@ -49,15 +49,19 @@ $AllFilesizeTtl = $AllFiles | Measure-Object -Property Length -Sum ; $AllFilesiz
 
 $datemap = @{}
 $namemap = @{}
+$hashmap = @{}
+$sizemap = @{}
 foreach ($srcprop in $HashProps){
     $srcprop.Name = ($srcprop.FullName | Split-Path -Leaf)
     $srcprop.LastWriteTimeDateTime = [datetime]::ParseExact($srcprop.LastWriteTimeStr, $HashTblDateFormat, $null)
     $datekey = [System.ValueTuple[string, long, datetime]]::new(
     $srcprop.Name, $srcprop.Length, $srcprop.LastWriteTimeDateTime)
     $namekey = [System.ValueTuple[string]]::new($srcprop.Name)
+    $sizekey = [System.ValueTuple[long]]::new($srcprop.Length)
 
-    $datemap[$datekey] = $srcprop
-    $namemap[$namekey] = $srcprop
+    $datemap[$datekey] = 1
+    $namemap[$namekey] = 1
+    $sizemap[$sizekey] = 1
 }
 Write-Host "Data prepared."
 
@@ -70,22 +74,25 @@ $PrevInnerProgPercInt[0] = -1;
 
 #Shorten length for simplicity
 $SrcL = $CmprPath.Length
+$EnblFlg = 0
 if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2))
 {
     foreach ($file in $AllFiles)
     {
         if($file.Length)
         {
+            $sizekey = [System.ValueTuple[long]]::new($file.Length)
+            $ExtLen = $file.FullName.Length - $SrcL
             #First, see if the file size has any matches in the databases, if not, it's definitely not a duplicate.
-            $PotMatches = @($HashProps | Where-Object { $_.Length -eq $file.Length })
-            if ($PotMatches.Count)
+            #$PotMatches = @($HashProps | Where-Object { $_.Length -eq $file.Length })
+            #$PotMatches = $HashProps.Where  $_.Length -eq $file.Length
+            if ($sizemap[$sizekey])
+            #if ($PotMatches.Count -and $EnblFlg)
             {
                 #Get substring def.
-                $ExtLen = $file.FullName.Length - $SrcL
                 $key = [System.ValueTuple[string, long, datetime]]::new(
                         $file.Name, $file.Length, $file.LastWriteTime)
-                $MatchingFile = @($datemap[$key])
-                if ($MatchingFile.Count -eq 1)
+                if ($datemap[$key])
                 {
                     $file.MoveLoc = $DupDateMovePath + $file.FullName.Substring($SrcL, $ExtLen)
                     $file.MoveFileFlag = 1
@@ -103,14 +110,17 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
                                 $hashset = Get-FileHash -LiteralPath $potfile.FullName
                                 $potfile.Hash = $hashset.Hash
                             }
-                                $PotHits++
+                            $hashkey = [System.ValueTuple[string, long]]::new($potfile.Hash, $potfile.Length)
+                            $hashmap[$hashkey] = 1
+                            $PotHits++
 
                         }
                         Write-Host ("Potential Hits: " +$PotHits.ToString())
-                        $PotMatches = @($HashProps | Where-Object { $_.Length -eq $file.Length })
+                        #$PotMatches = @($HashProps | Where-Object { $_.Length -eq $file.Length })
                         $hashset = Get-FileHash -LiteralPath $file.FullName
                         $file.Hash = $hashset.Hash
-                        if ($file.Hash.Length -and ($PotMatches.Hash -eq $file.Hash))
+                        $hashkey = [System.ValueTuple[string, long]]::new($file.Hash, $file.Length)
+                        if ($hashmap[$hashkey] )
                         {
                             $file.MoveLoc = $DupHashMovePath + $file.FullName.Substring($SrcL, $ExtLen)
                             $file.MoveFileFlag = 1
@@ -128,7 +138,7 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
             {
                 #Already set, do nothing.
             }
-            elseif($namemap[$namekey].Count)
+            elseif($namemap[$namekey])
             {
                 $file.MoveLoc = $DupNameMovePath + $file.FullName.Substring($SrcL, $ExtLen)
                 $file.MoveFileFlag = 1
@@ -156,7 +166,7 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
         }
     }
     $Files2Move = @($AllFiles | Where-Object{ ( $_.MoveFileFlag -eq 1) })
-    $Files2Move | Export-Csv -LiteralPath $MoveRepPath -NoTypeInformation
+    $Files2Move | Select-Object -Property MoveLbl,FullName,MoveLoc | Export-Csv -LiteralPath $MoveRepPath -NoTypeInformation
     Write-Host "List of files to move exported"
 }
 if($runvar -ne 1)
