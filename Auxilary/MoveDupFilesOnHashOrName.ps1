@@ -3,6 +3,7 @@ Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 
 $runvar = 0
 $MoveRepPath = "D:\Files2Move.csv"
+$InvFilenameRepPath = "D:\InvalidFilenames.csv"
 $HashPaths = @(
 "A:\SharedFilesHashTable.csv"
 "A:\PrivateFilesHashTable.csv"
@@ -43,6 +44,7 @@ $HashProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Va
 $AllFiles = @(Get-ChildItem -LiteralPath $CmprPath -Recurse -File)
 $AllFiles | Add-Member -MemberType NoteProperty -Name Hash -Value $([string]"****************************************************************")
 $AllFiles | Add-Member -MemberType NoteProperty -Name MoveFileFlag  -Value $([int16]0)
+$AllFiles | Add-Member -MemberType NoteProperty -Name ValidFilename -Value $([int16]0)
 $AllFiles | Add-Member -MemberType NoteProperty -Name MoveLoc  -Value $([string]"****************************************************************")
 $AllFiles | Add-Member -MemberType NoteProperty -Name MoveLbl  -Value $([string]"****")
 $AllFilesizeTtl = $AllFiles | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
@@ -74,10 +76,23 @@ $PrevInnerProgPercInt[0] = -1;
 
 #Shorten length for simplicity
 $SrcL = $CmprPath.Length
-$EnblFlg = 0
-if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2))
+$EnblFlg = 1
+$FilesChecked = 0
+if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2) -and $EnblFlg)
 {
+
     foreach ($file in $AllFiles)
+    {
+        if(Test-Path -LiteralPath $file.FullName)
+        {
+            $file.ValidFilename = 1
+            $FilesChecked++
+        }
+    }
+    #$AllFiles = ($AllFiles | Where-Object -Property ValidFilename -eq 1)
+    Write-Host ("Total files validated: "+$FilesChecked.ToString())
+    #Write-Host ("Total files validated: "+$AllFiles.Count.ToString())
+    foreach ($file in ($AllFiles | Where-Object -Property ValidFilename -eq 1))
     {
         if($file.Length)
         {
@@ -167,7 +182,10 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
     }
     $Files2Move = @($AllFiles | Where-Object{ ( $_.MoveFileFlag -eq 1) })
     $Files2Move | Select-Object -Property MoveLbl,FullName,MoveLoc | Export-Csv -LiteralPath $MoveRepPath -NoTypeInformation
-    Write-Host "List of files to move exported"
+    #$AllFiles = ($AllFiles | Where-Object -Property ValidFilename -eq 1)
+    $InvalidFileList = @($AllFiles | Where-Object -Property ValidFilename -ne 1)
+    $InvalidFileList | Select-Object -Property FullName | Export-Csv -LiteralPath $InvFilenameRepPath -NoTypeInformation
+    Write-Host "List of invalid files and files to move exported"
 }
 if($runvar -ne 1)
 {
