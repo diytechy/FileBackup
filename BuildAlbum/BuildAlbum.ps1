@@ -1,5 +1,5 @@
 #Process level, 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 0
+$ProcLvl = 2
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
@@ -165,6 +165,7 @@ $AllPrepFiles | Add-Member -MemberType NoteProperty -Name Need2ConvFlag -Value $
 $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvExpected -Value $([int]0)
 $AllPrepFiles | Add-Member -MemberType NoteProperty -Name IsImg -Value $([int]0)
 $AllPrepFiles | Add-Member -MemberType NoteProperty -Name IsVid -Value $([int]0)
+$AllPrepFiles | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
 if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
 {
     $PrpL = $PrepFileRootPath.Length
@@ -175,6 +176,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
     {
         $PrevConvProps = Import-Csv -LiteralPath $ConvReportPath
         $PrevConvProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $( [DateTime] )
+        $PrevConvProps | Add-Member -MemberType NoteProperty -Name RemoveFlag -Value $( [int]0 )
         $PrevConvProps | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
         foreach ($PrevProp in $PrevConvProps)
         {
@@ -196,6 +198,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         $file.LastWriteTimeStr = $file.LastWriteTime.ToString($HashTblDateFormat)
         $datekey = [System.ValueTuple[string, long, datetime]]::new(
                 $RelPath, $file.Length, $file.LastWriteTime)
+        $file.TupleVal = $datekey
         $IncChk = 0
         foreach($type in $ImgTypes){
             if($file.Name.EndsWith($type)){
@@ -223,6 +226,20 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
     }
     $ExpectedFiles = ($AllPrepFiles | Where-Object -Property ConvExpected -eq 1)
     $Files2Conv    = ($AllPrepFiles | Where-Object -Property Need2ConvFlag -eq 1)
+    #Remove items that shouldn't be there.  Not really necessary but good to cleanup
+    foreach ($PrevProp in $PrevConvProps){
+        if($CurrConvMap[$PrevProp.TupleVal]) {} #Do nothing if file should exist.
+        #elseif(Test-Path -LiteralPath $PrevProp.ConvPath){} #Do nothing if there is no path information.
+        elseif(Test-Path -Path $PrevProp.ConvPath){
+            $PrevProp.RemoveFlag = 1
+        }
+    }
+    $OldPrepFiles2Rem  = ($AllPrepFiles | Where-Object -Property RemoveFlag -eq 1)
+    Write-Host ($OldPrepFiles2Rem.Count.ToString() + " old media files to remove!")
+    foreach($PrevProp in OldPrepFiles2Rem)
+    {
+        remove-item -LiteralPath $PrevProp.ConvPath -Force
+    }
     Write-Host ($Files2Conv.Count.ToString() + " media files to convert!")
     $PrevInnerProgPercInt[0] = 0
     $LoopProg = 0
@@ -251,15 +268,6 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             #Export-Csv -Path $ConvReportPath -NoTypeInformation
         }
     }
-    #Remove items that shouldn't be there.  Not really necessary but good to cleanup
-    Write-Host "Removeing old converted files that are no longer present if applicable"
-    foreach ($PrevProp in $PrevConvProps){
-        if($CurrConvMap[$PrevProp.TupleVal]) {} #Do nothing if file should exist.
-        #elseif(Test-Path -LiteralPath $PrevProp.ConvPath){} #Do nothing if there is no path information.
-        elseif(Test-Path -Path $PrevProp.ConvPath){
-            remove-item -LiteralPath $PrevProp.ConvPath -Force
-        }
-    }
     #Finally save off report of converted files.
     #$ConvReportPath
     $ExpectedFiles | Select-Object -Property Name,RelPath,ConvPath,Length,LastWriteTimeStr|
@@ -268,13 +276,78 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
     $ImageFiles = ($AllPrepFiles | Where-Object -Property IsImg -eq 1)
     $VideoFiles = ($AllPrepFiles | Where-Object -Property IsVid -eq 1)
     $AllFiles = $ImageFiles + $VideoFiles
-
     foreach ($set in $OutputSizes){
+        $Files2Chk = $AllFiles
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int] 0)
+        $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
         #Convert all logs accordingly
         Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
-        foreach($file in $AllFiles){
-            #
+        $ContFileRootPath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
+        $ContReportPath = ($ContFileRootPath + "\Report.csv")
+        PrevContInd = @{}
+        PrevContInd = @{}
+        #Remove old content items if they are not up to date anymore.
+        if(Test-Path -Path $ContReportPath){
+            $PrevContProps = Import-Csv -LiteralPath $ContReportPath
+            foreach($SelProp in $PrevContProps){
+                $datekey = [System.ValueTuple[string, long, datetime]]::new(
+                        $SelProp.RelPath, $SelProp.Length, $SelProp.LastWriteTime)
+                $PrevContInd[$datekey] = $SelProp.GrpInstance
+                if($CurrConvMap[$datekey]){}#If exists, do nothing
+                #Else remove it.
+                elseif(Test-Path -Path $SelProp.ContPath)
+                {
+                    Remove-Item -LiteralPath $SelProp.ContPath - Force
+                }
+            }
         }
+        #Get index of current content items
+        foreach($grp in $FileGroups)
+        {
+            InstIdxSet = @{}
+            foreach ($file in $grp)
+            {
+                #
+                $datekey = [System.ValueTuple[string, long, datetime]]::new(
+                        $file.RelPath, $file.Length, $file.LastWriteTime)
+                #If a previous index already exists for this file, store it.
+                if ($PrevContInd[$datekey])
+                {
+                    $file.InstInd = $PrevContInd[$datekey]
+                    InstIdxSet[$file.InstInd] = 1
+                }
+            }
+            #Populate any missing indexes for the group
+            $grp = $grp | Sort-Object -Property InstInd
+            $GrpIdx = 1;
+            foreach ($file in $grp)
+            {
+                if ($file.InstInd ){}#If index is set do nothing
+                else
+                {
+                    #Incriment index till one is found that is not used.
+                    while(InstIdxSet[$GrpIdx]){$GrpIdx++}
+                    #Once it's found, set it and set the map to indicate the index has been used.
+                    $file.InstInd = $GrpIdx
+                    InstIdxSet[$GrpIdx] = 1
+                }
+
+            }
+            #Create the export path and perform the export.
+            foreach ($file in $grp)
+            {
+                $file.ContPath = $GrpIdx
+            }
+        }
+        #Ungroup all files
+
+        #Save the prep file
+
+        #Process the files
+
+        #Save the report
+        $ContReportPath
 
     }
 }
