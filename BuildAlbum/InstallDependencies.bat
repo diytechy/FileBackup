@@ -1,0 +1,1 @@
+pwsh .\InstallDependencies.ps1

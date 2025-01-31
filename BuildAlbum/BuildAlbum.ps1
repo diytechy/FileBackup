@@ -1,5 +1,5 @@
 #Process level, 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 2
+$ProcLvl = 0
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
@@ -31,13 +31,33 @@ $VidTypes = @(
 #3. Resize images into their destination path
 #4. Resize videos into their destination path
 
+#ffmpeg video & Handbrake path:
+$ConvVid = 1
+if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+        Write-Host "ffmpeg is already installed."}
+    else{Write-Host  "ffmpeg not detected, videos will not be converted"
+    $ConvVid = 0}
+if (Get-Command HandBrakeCLI -ErrorAction SilentlyContinue) {
+        Write-Host "HandBrakeCLI  is already installed."}
+    else{Write-Host  "HandBrakeCLI not detected, videos will not be converted"
+    $ConvVid = 0}
+
+
 #JPEG Lossless rotator path:
+$RotImg = 1
+if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+        Write-Host "jpeg lossless rotator is already installed."}
+    else{Write-Host  "jpeg lossless rotator not detected, images will not be rotated"
+    $RotImg = 0}
 
 #Image Magick path:
+$MagImg = 1
+if (Get-Command magick -ErrorAction SilentlyContinue) {
+        Write-Host "Image Magick is already installed."}
+    else{Write-Host  "Image Magick not detected, images will not be enhanced"
+    $MagImg = 0}
 
 #Image resizer path:
-
-#Handbrake path:
 
 $HashTblDateFormat = "O"
 $AllTypes = $ImgTypes + $VidTypes
@@ -64,7 +84,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -eq 1)) -and (Test-Path -LiteralPath $InputFi
     if ($AllInputFiles.Count)
     {
         $FndFile = @{}
-        $AllInputFiles | Add-Member -MemberType NoteProperty -Name CopyPath -Value $([string]"****")
+        $AllInputFiles | Add-Member -MemberType NoteProperty -Name CopyPath -Value $([string])
         $AllInputFiles | Add-Member -MemberType NoteProperty -Name CopyFlag -Value $([int]0)
         $AllInputFiles | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
         $SrcL = $InputFileRootPath.Length
@@ -157,10 +177,11 @@ else{
 #******************Step 2, convert images.*******************
 #************************************************************
 $AllPrepFiles = @(Get-ChildItem -LiteralPath $PrepFileRootPath -Recurse -File)
-$AllPrepFiles | Add-Member -MemberType NoteProperty -Name RelPath -Value $([string]"****")
-$AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvPath -Value $([string]"****")
-$AllPrepFiles | Add-Member -MemberType NoteProperty -Name LastWriteTimeStr -Value $([string]"****")
-$AllPrepFiles | Add-Member -MemberType NoteProperty -Name SelLabelGrp -Value $([string]"****")
+$AllPrepFiles | Add-Member -MemberType NoteProperty -Name RelPath -Value $([string])
+$AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvPath -Value $([string])
+$AllPrepFiles | Add-Member -MemberType NoteProperty -Name ContExt -Value $([string])
+$AllPrepFiles | Add-Member -MemberType NoteProperty -Name LastWriteTimeStr -Value $([string])
+$AllPrepFiles | Add-Member -MemberType NoteProperty -Name SelLabelGrp -Value $([string])
 $AllPrepFiles | Add-Member -MemberType NoteProperty -Name Need2ConvFlag -Value $([int]0)
 $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvExpected -Value $([int]0)
 $AllPrepFiles | Add-Member -MemberType NoteProperty -Name IsImg -Value $([int]0)
@@ -204,6 +225,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             if($file.Name.EndsWith($type)){
                 $file.ConvExpected = 1
                 $file.IsImg = 1
+                $file.ContExt = ".jpg"
                 $IncChk = 1
                 #Set tuple for current conversion map, for removal reference.
                 $CurrConvMap[$datekey] = 1
@@ -212,6 +234,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         foreach($type in $VidTypes){
             if($file.Name.EndsWith($type)){
                 $file.IsVid = 1
+                $file.ContExt = ".mp4"
             }
         }
         #If it is an image, set the conversion source path accordingly.
@@ -236,7 +259,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
     }
     $OldPrepFiles2Rem  = ($AllPrepFiles | Where-Object -Property RemoveFlag -eq 1)
     Write-Host ($OldPrepFiles2Rem.Count.ToString() + " old media files to remove!")
-    foreach($PrevProp in OldPrepFiles2Rem)
+    foreach($PrevProp in $OldPrepFiles2Rem)
     {
         remove-item -LiteralPath $PrevProp.ConvPath -Force
     }
@@ -253,7 +276,8 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         }
         #Do the conversion stuff here
         copy-item $file.FullName $file.ConvPath
-
+        if($RotImg){$null = jpegr $file.ConvPath}
+        if($MagImg){$null = magick mogrify -autocolor -autotone -enrich -autogamma $file.ConvPath}
         $file.Complete = 1
         $LoopProg += $file.Length
         $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
@@ -263,9 +287,6 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
             $InnerLoopProg.Status = "Converting files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
             Write-Progress @InnerLoopProg
-            #$Files2Conv | Where-Object -Property Complete -eq 1 |
-            #Select-Object -Property RelPath, Length, LastWriteTimeStr, ConvPath|
-            #Export-Csv -Path $ConvReportPath -NoTypeInformation
         }
     }
     #Finally save off report of converted files.
@@ -276,17 +297,22 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
     $ImageFiles = ($AllPrepFiles | Where-Object -Property IsImg -eq 1)
     $VideoFiles = ($AllPrepFiles | Where-Object -Property IsVid -eq 1)
     $AllFiles = $ImageFiles + $VideoFiles
+    Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
     foreach ($set in $OutputSizes){
         $Files2Chk = $AllFiles
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] )
         $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int] 0)
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
         $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
+        $whdispratio = $set.XDim/$set.YDim
         #Convert all logs accordingly
         Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
         $ContFileRootPath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
         $ContReportPath = ($ContFileRootPath + "\Report.csv")
-        PrevContInd = @{}
-        PrevContInd = @{}
+        $ContReportPrePath = ($ContFileRootPath + "\PreReport.csv")
+        $PrevContInd = @{}
+        #PrevContInd = @{}
         #Remove old content items if they are not up to date anymore.
         if(Test-Path -Path $ContReportPath){
             $PrevContProps = Import-Csv -LiteralPath $ContReportPath
@@ -305,50 +331,85 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         #Get index of current content items
         foreach($grp in $FileGroups)
         {
-            InstIdxSet = @{}
-            foreach ($file in $grp)
+            $InstIdxSet = @{}
+            foreach ($file in ($grp| Select-Object -Expand Group))
             {
                 #
                 $datekey = [System.ValueTuple[string, long, datetime]]::new(
                         $file.RelPath, $file.Length, $file.LastWriteTime)
                 #If a previous index already exists for this file, store it.
-                if ($PrevContInd[$datekey])
+                if ($PrevContInd.Count -and $PrevContInd[$datekey])
                 {
                     $file.InstInd = $PrevContInd[$datekey]
-                    InstIdxSet[$file.InstInd] = 1
+                    $InstIdxSet[$file.InstInd] = 1
                 }
             }
             #Populate any missing indexes for the group
-            $grp = $grp | Sort-Object -Property InstInd
             $GrpIdx = 1;
-            foreach ($file in $grp)
+            foreach ($file in ($grp| Select-Object -Expand Group) )
             {
                 if ($file.InstInd ){}#If index is set do nothing
                 else
                 {
                     #Incriment index till one is found that is not used.
-                    while(InstIdxSet[$GrpIdx]){$GrpIdx++}
+                    if($InstIdxSet.Count){
+                        while($InstIdxSet[$GrpIdx]){$GrpIdx++}
+                    }
                     #Once it's found, set it and set the map to indicate the index has been used.
                     $file.InstInd = $GrpIdx
-                    InstIdxSet[$GrpIdx] = 1
+                    $InstIdxSet[$GrpIdx] = 1
+                    #Set the flag to export the content, since it's new.
+                    $file.Exp2ContPath = 1
                 }
 
             }
-            #Create the export path and perform the export.
-            foreach ($file in $grp)
-            {
-                $file.ContPath = $GrpIdx
-            }
         }
         #Ungroup all files
-
+        $Files2GetCont = (($FileGroups| Select-Object -Expand Group) | Where-Object -Property Exp2ContPath -eq 1)
+        #Create the export path and perform the export.
+        foreach ($file in $Files2GetCont)
+        {
+            $file.ContPath  = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString('0000')+$file.ContExt)
+            $file.ContTitle = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString())
+        }
+        #Create report placeholder if it doesn't exist
+        if (Test-Path -Path $ContReportPrePath){}
+        else {$null = New-Item -ItemType File -Path $ContReportPrePath -Force}
+        $Files2GetCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath|
+            Export-Csv -LiteralPath $ContReportPrePath -NoTypeInformation
         #Save the prep file
 
         #Process the files
 
+        $PrevInnerProgPercInt[0] = 0
+        $LoopProg = 0
+        $AllFilesizeTtl = $Files2GetCont | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
+        foreach ($file in $Files2GetCont)
+        {
+            if($file.IsImg){
+                $image  = New-Object -ComObject Wia.ImageFile
+                $image.loadfile($file.ConvPath)
+                #if
+
+            }
+            elseif($file.IsVid){
+#$VTest = $file.FileName | Select-Object -Property @{n='Resolution';expression={C:\MediaInfo.exe $_.FullName --inform="Video;%Width%x%Height%"}},name
+#Write-Host $VTest
+$VTest = ffprobe $file.FileName
+            }
+            $LoopProg += $file.Length
+            $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
+            if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
+            {
+                $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
+                $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+                $InnerLoopProg.Status = "Creating content files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
+                Write-Progress @InnerLoopProg
+            }
+        }
+
         #Save the report
-        $ContReportPath
+        #$ContReportPath
 
     }
 }
-
