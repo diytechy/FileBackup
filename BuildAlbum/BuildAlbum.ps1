@@ -1,5 +1,5 @@
 #Process level, 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 0
+$ProcLvl = 2
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
@@ -199,6 +199,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         $PrevConvProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $( [DateTime] )
         $PrevConvProps | Add-Member -MemberType NoteProperty -Name RemoveFlag -Value $( [int]0 )
         $PrevConvProps | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
+        Write-Host ($PrevConvProps.Count.ToString() + " files to check for previous properties")
         foreach ($PrevProp in $PrevConvProps)
         {
             $PrevProp.LastWriteTimeDateTime = [datetime]::ParseExact($PrevProp.LastWriteTimeStr, $HashTblDateFormat, $null)
@@ -208,6 +209,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             $PrevConvMap[$key] = 1
         }
     }
+    Write-Host ($AllPrepFiles.Count.ToString() + " files to get conversion attributes for...")
     foreach ($file in $AllPrepFiles){
         $ExtLen = $file.FullName.Length - $PrpL
         $RelPath = $file.FullName.Substring($PrpL, $ExtLen)
@@ -250,6 +252,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
     $ExpectedFiles = ($AllPrepFiles | Where-Object -Property ConvExpected -eq 1)
     $Files2Conv    = ($AllPrepFiles | Where-Object -Property Need2ConvFlag -eq 1)
     #Remove items that shouldn't be there.  Not really necessary but good to cleanup
+    Write-Host ("Checking for old files to remove")
     foreach ($PrevProp in $PrevConvProps){
         if($CurrConvMap[$PrevProp.TupleVal]) {} #Do nothing if file should exist.
         #elseif(Test-Path -LiteralPath $PrevProp.ConvPath){} #Do nothing if there is no path information.
@@ -268,6 +271,9 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
     $LoopProg = 0
     $AllFilesizeTtl = $Files2Conv | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
     $Files2Conv | Add-Member -MemberType NoteProperty -Name Complete -Value $([int]0)
+    if($Files2Conv.Count){
+        $ConvDirs2Batch = (Split-Path $Files2Conv.ConvPath -Parent) | Get-Unique | Sort-Object { $_.Length }
+    }
     foreach ($file in $Files2Conv)
     {
         if(Test-Path -LiteralPath $file.ConvPath){}#Do nothing
@@ -276,8 +282,8 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         }
         #Do the conversion stuff here
         copy-item $file.FullName $file.ConvPath
-        if($RotImg){$null = jpegr $file.ConvPath}
-        if($MagImg){$null = magick mogrify -autocolor -autotone -enrich -autogamma $file.ConvPath}
+        #if($RotImg){$null = jpegr $file.ConvPath}
+        #if($MagImg){$null = magick mogrify -autocolor -autotone -enrich -autogamma $file.ConvPath}
         $file.Complete = 1
         $LoopProg += $file.Length
         $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
@@ -288,6 +294,26 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             $InnerLoopProg.Status = "Converting files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
             Write-Progress @InnerLoopProg
         }
+    }
+    if($RotImg -and $ConvDirs2Batch.Count ){
+        Write-Host ($ConvDirs2Batch.Count.ToString() + " media folders to batch rotate!")
+        $PrevInnerProgPercInt[0] = 0
+        $LoopProg = 0
+        $AllFilesizeTtl = $ConvDirs2Batch.Count
+        foreach ($fldr in $ConvDirs2Batch)
+        {
+            $null = jpegr -auto -s $fldr
+            $LoopProg ++
+            $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
+            if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
+            {
+                $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
+                $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+                $InnerLoopProg.Status = "Rotating Images: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
+                Write-Progress @InnerLoopProg
+            }
+        }
+
     }
     #Finally save off report of converted files.
     #$ConvReportPath
@@ -306,6 +332,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
         $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
         $whdispratio = $set.XDim/$set.YDim
+        Write-Host ("Width to height ratio: "+$whdispratio.ToString())
         #Convert all logs accordingly
         Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
         $ContFileRootPath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
@@ -314,8 +341,10 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         $PrevContInd = @{}
         #PrevContInd = @{}
         #Remove old content items if they are not up to date anymore.
+        Write-Host ("Removing old files if needed")
         if(Test-Path -Path $ContReportPath){
             $PrevContProps = Import-Csv -LiteralPath $ContReportPath
+            Write-Host ("Checking "+$PrevContProps.Count.ToString()+" old entries...")
             foreach($SelProp in $PrevContProps){
                 $datekey = [System.ValueTuple[string, long, datetime]]::new(
                         $SelProp.RelPath, $SelProp.Length, $SelProp.LastWriteTime)
@@ -329,6 +358,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             }
         }
         #Get index of current content items
+        Write-Host ("Checking "+$FileGroups.Count.ToString()+" groups...")
         foreach($grp in $FileGroups)
         {
             $InstIdxSet = @{}
@@ -367,6 +397,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         #Ungroup all files
         $Files2GetCont = (($FileGroups| Select-Object -Expand Group) | Where-Object -Property Exp2ContPath -eq 1)
         #Create the export path and perform the export.
+        Write-Host ("Checking "+$Files2GetCont.Count.ToString()+" for content definitions...")
         foreach ($file in $Files2GetCont)
         {
             $file.ContPath  = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString('0000')+$file.ContExt)
@@ -384,18 +415,48 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         $PrevInnerProgPercInt[0] = 0
         $LoopProg = 0
         $AllFilesizeTtl = $Files2GetCont | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
+        Write-Host ("Exporting "+$Files2GetCont.Count.ToString()+" files...")
         foreach ($file in $Files2GetCont)
         {
             if($file.IsImg){
                 $image  = New-Object -ComObject Wia.ImageFile
                 $image.loadfile($file.ConvPath)
-                #if
+                $whimgratio = $image.Width/$image.Height
+                #If width is greater, limit this dimension for resize.
+                if($whimgratio -gt $whdispratio)
+                {
+                    $contw = [int]$set.XDim
+                    $conth = [int]($set.XDim/$whimgratio)
+                }
+                else
+                {
+                    $conth = [int]$set.YDim
+                    $contw = [int]($set.YDim*$whimgratio)
+                }
+                $null = magick $file.ConvPath -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
+
+                #Optional / future explore:
+                #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
+                    #
 
             }
             elseif($file.IsVid){
-#$VTest = $file.FileName | Select-Object -Property @{n='Resolution';expression={C:\MediaInfo.exe $_.FullName --inform="Video;%Width%x%Height%"}},name
-#Write-Host $VTest
-$VTest = ffprobe $file.FileName
+                $VWidth  = ffprobe -v error -select_streams v -show_entries stream=width -of csv=p=0:s=x $file.FullName
+                $VHeight = ffprobe -v error -select_streams v -show_entries stream=height -of csv=p=0:s=x $file.FullName
+                $whvidratio = $VWidth/$VHeight
+                #If width is greater, limit this dimension for resize.
+                if($whvidratio -gt $whdispratio)
+                {
+                    $contw = [int]$set.XDim
+                    $conth = [int]($set.XDim/$whvidratio)
+                }
+                else
+                {
+                    $conth = [int]$set.YDim
+                    $contw = [int]($set.YDim*$whvidratio)
+                }
+                #handbrakecli -w $contw.ToString() -h $conth.ToString() -i $file.FullName -o $file.ContPath
+                $null = handbrakecli -i $file.FullName -o $file.ContPath -w $contw.ToString()
             }
             $LoopProg += $file.Length
             $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
@@ -410,6 +471,10 @@ $VTest = ffprobe $file.FileName
 
         #Save the report
         #$ContReportPath
+        if (Test-Path -Path $$ContReportPath){}
+        else {$null = New-Item -ItemType File -Path $$ContReportPath -Force}
+        $Files2GetCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath|
+            Export-Csv -LiteralPath $$ContReportPath -NoTypeInformation
 
     }
 }
