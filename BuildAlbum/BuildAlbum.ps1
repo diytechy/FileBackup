@@ -63,7 +63,6 @@ $HashTblDateFormat = "O"
 $AllTypes = $ImgTypes + $VidTypes
 $CurrInnerProgPercInt = [int32[]]::new(1);
 $PrevInnerProgPercInt = [int32[]]::new(1);
-$CurrInnerProgDbl  = [double[]]::new(1);
 $InnerLoopProg = @{
 	ID       = 1
 	Activity = "Getting ready.  Please wait..."
@@ -71,7 +70,7 @@ $InnerLoopProg = @{
 	PercentComplete  = 0
 	CurrentOperation = 0
 }
-#Write-Host $AllTypes[0]
+$timer0 = Get-Date
 #Verify all process staging files are up-to-date.  Copy them over or delete them as needed.
 if((($ProcLvl -eq 0) -or ($ProcLvl -eq 1)) -and (Test-Path -LiteralPath $InputFileRootPath)){
     #Make the prep directory if it doesn't already exist.
@@ -339,23 +338,33 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         $ContReportPath = ($ContFileRootPath + "\Report.csv")
         $ContReportPrePath = ($ContFileRootPath + "\PreReport.csv")
         $PrevContInd = @{}
-        #PrevContInd = @{}
+        $PrevFileSet = @{}
         #Remove old content items if they are not up to date anymore.
         Write-Host ("Removing old files if needed")
         if(Test-Path -Path $ContReportPath){
             $PrevContProps = Import-Csv -LiteralPath $ContReportPath
             Write-Host ("Checking "+$PrevContProps.Count.ToString()+" old entries...")
+            #Remove files from the database which don't have matching attributes to the current definitions
             foreach($SelProp in $PrevContProps){
+                $DateTimeVal = [datetime]::ParseExact($SelProp.LastWriteTimeStr, $HashTblDateFormat, $null)
                 $datekey = [System.ValueTuple[string, long, datetime]]::new(
-                        $SelProp.RelPath, $SelProp.Length, $SelProp.LastWriteTime)
+                        $SelProp.RelPath, $SelProp.Length, $DateTimeVal)
                 $PrevContInd[$datekey] = $SelProp.GrpInstance
+                $selfilename = Split-Path -Path $SelProp.ContPath -Leaf
+                $PrevFileSet[$selfilename] = 1
                 if($CurrConvMap[$datekey]){}#If exists, do nothing
                 #Else remove it.
                 elseif(Test-Path -Path $SelProp.ContPath)
                 {
-                    Remove-Item -LiteralPath $SelProp.ContPath - Force
+                    Remove-Item -LiteralPath $SelProp.ContPath -Force
                 }
             }
+        }
+        #Remove files from the folder which didn't belong to the database.
+        $AllCurrContFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Recurse -File)
+        foreach($ContFile in $AllCurrContFiles){
+            if($PrevFileSet[$ContFile.Name]){}#If file should exist, do nothing.
+            else{remove-item -LiteralPath $ContFile.FullName -Force}
         }
         #Get index of current content items
         Write-Host ("Checking "+$FileGroups.Count.ToString()+" groups...")
@@ -396,6 +405,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         }
         #Ungroup all files
         $Files2GetCont = (($FileGroups| Select-Object -Expand Group) | Where-Object -Property Exp2ContPath -eq 1)
+        $Files2GetCont | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
         #Create the export path and perform the export.
         Write-Host ("Checking "+$Files2GetCont.Count.ToString()+" for content definitions...")
         foreach ($file in $Files2GetCont)
@@ -418,46 +428,58 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         Write-Host ("Exporting "+$Files2GetCont.Count.ToString()+" files...")
         foreach ($file in $Files2GetCont)
         {
-            if($file.IsImg){
-                $image  = New-Object -ComObject Wia.ImageFile
-                $image.loadfile($file.ConvPath)
-                $whimgratio = $image.Width/$image.Height
-                #If width is greater, limit this dimension for resize.
-                if($whimgratio -gt $whdispratio)
+            try
+            {
+                if ($file.IsImg)
                 {
-                    $contw = [int]$set.XDim
-                    $conth = [int]($set.XDim/$whimgratio)
-                }
-                else
-                {
-                    $conth = [int]$set.YDim
-                    $contw = [int]($set.YDim*$whimgratio)
-                }
-                $null = magick $file.ConvPath -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
-
-                #Optional / future explore:
-                #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
+                    $image = New-Object -ComObject Wia.ImageFile
+                    $image.loadfile($file.ConvPath)
+                    $whimgratio = $image.Width/$image.Height
+                    #If width is greater, limit this dimension for resize.
+                    if ($whimgratio -gt $whdispratio)
+                    {
+                        $contw = [int]$set.XDim
+                        $conth = [int]($set.XDim/$whimgratio)
+                    }
+                    else
+                    {
+                        $conth = [int]$set.YDim
+                        $contw = [int]($set.YDim*$whimgratio)
+                    }
+                    ($null = magick $file.ConvPath -quite -resize ($contw.ToString() + "x" + $conth.ToString() + ">") $file.ContPath) *> $null
+                    $file.ExpContSuccess = 1
+                    #Optional / future explore:
+                    #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
                     #
 
-            }
-            elseif($file.IsVid -and $ConvVid){
-                ($VWidth  = ffprobe -v error -select_streams v -show_entries stream=width -of csv=p=0:s= $file.FullName) 2> $null
-                ($VHeight = ffprobe -v error -select_streams v -show_entries stream=height -of csv=p=0:s= $file.FullName) 2> $null
-                $whvidratio = $VWidth/$VHeight
-                #If width is greater, limit this dimension for resize.
-                if($whvidratio -gt $whdispratio)
-                {
-                    $contw = [int]$set.XDim
-                    $conth = [int]($set.XDim/$whvidratio)
                 }
-                else
+                elseif($file.IsVid -and $ConvVid)
                 {
-                    $conth = [int]$set.YDim
-                    $contw = [int]($set.YDim*$whvidratio)
+                    ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 $file.FullName) *> $null
+                    $Parts = $VPrams -split ','
+                    if ($Parts.Count -gt 1){
+                        $VWidth = [Int]::Parse($Parts[0] -split ',', 1)
+                        $VHeight = [Int]::Parse($Parts[($Parts.Count-1)] -split ',', 1)
+                        $whvidratio = $VWidth/$VHeight
+                        #If width is greater, limit this dimension for resize.
+                        if ($whvidratio -gt $whdispratio)
+                        {
+                            $contw = [int]$set.XDim
+                            $conth = [int]($set.XDim/$whvidratio)
+                        }
+                        else
+                        {
+                            $conth = [int]$set.YDim
+                            $contw = [int]($set.YDim*$whvidratio)
+                        }
+                        #handbrakecli -w $contw.ToString() -h $conth.ToString() -i $file.FullName -o $file.ContPath
+                        ($null = handbrakecli -i $file.FullName -o $file.ContPath -w $contw.ToString()) *> $null
+                        $file.ExpContSuccess = 1
+
+                    }
                 }
-                #handbrakecli -w $contw.ToString() -h $conth.ToString() -i $file.FullName -o $file.ContPath
-                $null = handbrakecli -i $file.FullName -o $file.ContPath -w $contw.ToString()
             }
+            catch{}
             $LoopProg += $file.Length
             $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
             if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
@@ -473,7 +495,8 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         #$ContReportPath
         if (Test-Path -Path $ContReportPath){}
         else {$null = New-Item -ItemType File -Path $ContReportPath -Force}
-        $Files2GetCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath|
+        $FilesExportedWithCont = ($Files2GetCont | Where-Object -Property ExpContSuccess -eq 1)
+        $FilesExportedWithCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath|
             Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
 
     }
