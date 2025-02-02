@@ -1,5 +1,5 @@
 #Process level, 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 2
+$ProcLvl = 0
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
@@ -440,9 +440,9 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
                     #
 
             }
-            elseif($file.IsVid){
-                $VWidth  = ffprobe -v error -select_streams v -show_entries stream=width -of csv=p=0:s=x $file.FullName
-                $VHeight = ffprobe -v error -select_streams v -show_entries stream=height -of csv=p=0:s=x $file.FullName
+            elseif($file.IsVid -and $ConvVid){
+                ($VWidth  = ffprobe -v error -select_streams v -show_entries stream=width -of csv=p=0:s= $file.FullName) 2> $null
+                ($VHeight = ffprobe -v error -select_streams v -show_entries stream=height -of csv=p=0:s= $file.FullName) 2> $null
                 $whvidratio = $VWidth/$VHeight
                 #If width is greater, limit this dimension for resize.
                 if($whvidratio -gt $whdispratio)
@@ -471,10 +471,10 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
 
         #Save the report
         #$ContReportPath
-        if (Test-Path -Path $$ContReportPath){}
-        else {$null = New-Item -ItemType File -Path $$ContReportPath -Force}
+        if (Test-Path -Path $ContReportPath){}
+        else {$null = New-Item -ItemType File -Path $ContReportPath -Force}
         $Files2GetCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath|
-            Export-Csv -LiteralPath $$ContReportPath -NoTypeInformation
+            Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
 
     }
 }
