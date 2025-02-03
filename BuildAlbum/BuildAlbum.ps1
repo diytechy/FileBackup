@@ -329,6 +329,7 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] )
         $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int] 0)
         $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
         $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
         $whdispratio = $set.XDim/$set.YDim
         Write-Host ("Width to height ratio: "+$whdispratio.ToString())
@@ -387,7 +388,11 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             $GrpIdx = 1;
             foreach ($file in ($grp| Select-Object -Expand Group) )
             {
-                if ($file.InstInd ){}#If index is set do nothing
+                if ($file.InstInd )
+                {
+                    #It's already been exported, so set the flag.
+                    $file.ExpContSuccess = 1
+                }
                 else
                 {
                     #Incriment index till one is found that is not used.
@@ -404,11 +409,10 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
             }
         }
         #Ungroup all files
-        $Files2GetCont = (($FileGroups| Select-Object -Expand Group) | Where-Object -Property Exp2ContPath -eq 1)
-        $Files2GetCont | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
+        $Files2GetCont = ($FileGroups| Select-Object -Expand Group)
         #Create the export path and perform the export.
         Write-Host ("Checking "+$Files2GetCont.Count.ToString()+" for content definitions...")
-        foreach ($file in $Files2GetCont)
+        foreach ($file in ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1))
         {
             $file.ContPath  = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString('0000')+$file.ContExt)
             $file.ContTitle = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString())
@@ -424,9 +428,9 @@ if((($ProcLvl -eq 0) -or ($ProcLvl -gt 1)) -and ($AllPrepFiles.Count))
 
         $PrevInnerProgPercInt[0] = 0
         $LoopProg = 0
-        $AllFilesizeTtl = $Files2GetCont | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
+        $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
         Write-Host ("Exporting "+$Files2GetCont.Count.ToString()+" files...")
-        foreach ($file in $Files2GetCont)
+        foreach ($file in ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1))
         {
             try
             {
