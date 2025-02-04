@@ -224,7 +224,7 @@ function New-MediaForDisplay
             Write-Host ("Width to height ratio: "+$whdispratio.ToString())
             #Convert all logs accordingly
             Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
-            $ContFileRootPath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
+            $ContFileRootPath = $set.Outpath
             if (Test-Path -LiteralPath $ContFileRootPath -PathType Container)
             {}
             else{New-Item -Path $ContFileRootPath -ItemType "directory"}
@@ -308,6 +308,15 @@ function New-MediaForDisplay
             {
                 $file.ContPath  = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString('0000')+$file.ContExt)
                 $file.ContTitle = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString())
+                #If the intent is also to convert the picture to a video, also define the path of the video to export to.
+                try
+                {
+                    if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
+                    {
+                        $file.ImgVidPath = ($ContFileRootPath + $set.ImgVidFldr + "\" + $file.SelLabelGrp + "-" + $file.InstInd.ToString('0000') + $file.ContExt)
+                    }
+                }
+                catch{}
             }
             #Create report placeholder if it doesn't exist
             if (Test-Path -Path $ContReportPrePath){}

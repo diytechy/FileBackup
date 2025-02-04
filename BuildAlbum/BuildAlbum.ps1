@@ -1,23 +1,28 @@
 Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 2
+$ProcLvl = 3
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
 $OutputFilePrepend = "D:\Album"
 #Define output definitions:
 $OutputDefs = @(
-    [pscustomobject]@{XDim=1440;YDim=1080;FPS=30;PicDispTime=5;FadeTime = 0.7;BulkVidTimeMin=20})
+    [pscustomobject]@{XDim=1440;YDim=1080;FPS=30;PicDispTime=6;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid"})
 #    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
 
 #Adding dependent scripts:
 Import-Module ".\BuildAlbum\CopyMediaFromNetwork2Local.psm1"
 Import-Module ".\BuildAlbum\PrepareMediaForDisplay.psm1"
+Import-Module ".\BuildAlbum\PackMediaIntoVideo.psm1"
 
 #Build derived definitions
+$OutputDefs | Add-Member -MemberType NoteProperty -Name Outpath -Value $([string])
+$OutputDefs | Add-Member -MemberType NoteProperty -Name OutGrp -Value $([string])
 foreach($set in $OutputDefs)
 {
-    $ContFileRootPath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
+    $Set.Outpath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
+    $Set.OutGrp = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim+"Groups")
 }
+#Run operations.
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
     Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath
 }
