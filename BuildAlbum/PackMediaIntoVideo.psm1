@@ -46,9 +46,14 @@ function Set-VideoFromMedia
     #Now - for each set - break all the files into designated groups and their corresponding destinations.
     foreach ($set in $OutputSizes){
         $ContFileRootPath = $set.Outpath
-        $VidPacksRootPath = $set.Outpath + "\VidPacks"
+        $VidPacksRootPath = $ContFileRootPath + $set.ImgVidFldr
         $VidPacksFileDefPath = $set.Outpath + "\VidPackDef"
         $AllInputFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Filter "*.mp4")
+        #Add in video packs for images if defined and intended.
+        if((Test-Path -LiteralPath $VidPacksRootPath -PathType Container) -and $set.ImgVidFldr.Length -and $set.PicDispTime)
+        {
+            $AllInputFiles = $AllInputFiles + @(Get-ChildItem -LiteralPath $VidPacksRootPath -Filter "*.mp4")
+        }
         $AllInputFiles | Add-Member -MemberType NoteProperty -Name GroupN -Value $([int])
         #Figure out the nominal number of files per group, assuming most are pictures lasting for the still duration.
         $NFilesPerGrp = (($Set.BulkVidTimeMin*60)/$Set.PicDispTime)
@@ -70,7 +75,7 @@ function Set-VideoFromMedia
         $GrpDef = @{}
         #Now build a list for each group.  This will be used in ffmpeg to actually build out the video.
         foreach ($grp in $Groups){
-            $FileSet = (($AllInputFiles | Where-Object {( $_.GroupN -eq $grp)} | Select-Object -ExpandProperty FullName) | Sort-Object)
+            $FileSet = (($AllInputFiles | Where-Object {( $_.GroupN -eq $grp)} | Sort-Object -Property Name) | Select-Object -ExpandProperty FullName)
             $GrpDef[$grp] = $FileSet
             $grp.FileListPath = $VidPacksFileDefPath  + " Grp-" + $grp.ToString()
             $grp.VidExpPath   = $VidPacksRootPath  + "\Grp-" + $grp.ToString()

@@ -216,6 +216,7 @@ function New-MediaForDisplay
             $Files2Chk = $AllFiles
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] )
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] )
+            $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string] )
             $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int] 0)
             $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
@@ -225,9 +226,11 @@ function New-MediaForDisplay
             #Convert all logs accordingly
             Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
             $ContFileRootPath = $set.Outpath
-            if (Test-Path -LiteralPath $ContFileRootPath -PathType Container)
-            {}
-            else{New-Item -Path $ContFileRootPath -ItemType "directory"}
+            $VidPacksRootPath = $ContFileRootPath + $set.ImgVidFldr
+            if (-not(Test-Path -LiteralPath $ContFileRootPath -PathType Container))
+            {New-Item -Path $ContFileRootPath -ItemType "directory"}
+            if ($set.ImgVidFldr.length -and $set.PicDispTime -and (-not(Test-Path -LiteralPath $VidPacksRootPath -PathType Container)))
+            {New-Item -Path $VidPacksRootPath -ItemType "directory"}
             $ContReportPath = ($ContFileRootPath + "\Report.csv")
             $ContReportPrePath = ($ContFileRootPath + "\PreReport.csv")
             $PrevContInd = @{}
@@ -236,6 +239,7 @@ function New-MediaForDisplay
             Write-Host ("Removing old files if needed")
             if(Test-Path -Path $ContReportPath){
                 $PrevContProps = Import-Csv -LiteralPath $ContReportPath
+                $PrevContProps | Add-Member -MemberType NoteProperty -Name RemoveFlg -Value $( [int] 0)
                 Write-Host ("Checking "+$PrevContProps.Count.ToString()+" old entries...")
                 #Remove files from the database which don't have matching attributes to the current definitions
                 foreach($SelProp in $PrevContProps){
@@ -249,7 +253,19 @@ function New-MediaForDisplay
                     #Else remove it.
                     elseif(Test-Path -Path $SelProp.ContPath)
                     {
+                       $SelProp.RemoveFlg = 1
+                    }
+                }
+                $PrevContProps2Rem = ($PrevContProps | Where-Object -Property RemoveFlg -eq 1)
+                Write-Host ($PrevContProps2Rem.Count.ToString()+" old entries set to remove...")
+                foreach($SelProp in $PrevContProps2Rem){
+                    if ($SelProp.ContPath.Length -and (Test-Path -LiteralPath $SelProp.ContPath -PathType Leaf))
+                    {
                         Remove-Item -LiteralPath $SelProp.ContPath -Force
+                    }
+                    if ($SelProp.ImgVidPath.Length -and (Test-Path -LiteralPath $SelProp.ImgVidPath -PathType Leaf))
+                    {
+                        Remove-Item -LiteralPath $SelProp.ImgVidPath -Force
                     }
                 }
             }
@@ -313,7 +329,7 @@ function New-MediaForDisplay
                 {
                     if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
                     {
-                        $file.ImgVidPath = ($ContFileRootPath + $set.ImgVidFldr + "\" + $file.SelLabelGrp + "-" + $file.InstInd.ToString('0000') + $file.ContExt)
+                        $file.ImgVidPath = ($ContFileRootPath + $set.ImgVidFldr + "\" + $file.SelLabelGrp + "-" + $file.InstInd.ToString('0000')+".mp4")
                     }
                 }
                 catch{}
@@ -321,7 +337,7 @@ function New-MediaForDisplay
             #Create report placeholder if it doesn't exist
             if (Test-Path -Path $ContReportPrePath){}
             else {$null = New-Item -ItemType File -Path $ContReportPrePath -Force}
-            $Files2GetCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath|
+            $Files2GetCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
                 Export-Csv -LiteralPath $ContReportPrePath -NoTypeInformation
             #Save the prep file
 
@@ -343,15 +359,51 @@ function New-MediaForDisplay
                         #If width is greater, limit this dimension for resize.
                         if ($whimgratio -gt $whdispratio)
                         {
-                            $contw = [int]$set.XDim
-                            $conth = [int]($set.XDim/$whimgratio)
+                            $contw = $set.XDim
+                            $conth = ($set.XDim/$whimgratio)
                         }
                         else
                         {
-                            $conth = [int]$set.YDim
-                            $contw = [int]($set.YDim*$whimgratio)
+                            $conth = $set.YDim
+                            $contw = ($set.YDim*$whimgratio)
                         }
-                        ($null = magick $file.ConvPath -quite -resize ($contw.ToString() + "x" + $conth.ToString() + ">") $file.ContPath) *> $null
+                        #Restrict resizing to nearest even number if this needs to be encoded to a video
+                        if($file.ImgVidPath.length)
+                        {
+                            if(($contw%2) -ge 1){
+                                $contw = [math]::Ceiling($contw)
+                            }
+                            else
+                            {
+                                $contw = [math]::Floor($contw)
+                            }
+                            if(($conth%2) -ge 1){
+                                $conth = [math]::Ceiling($conth)
+                            }
+                            else
+                            {
+                                $conth = [math]::Floor($conth)
+                            }
+                        }
+                        $wint = $contw -as [Int]
+                        $hint = $conth -as [Int]
+                        ($null = magick $file.ConvPath -resize ($wint.ToString() + "x" + $hint.ToString() + "!>") $file.ContPath) *> $null
+                        if($file.ImgVidPath.length)
+                        {
+                            $frameRate = 30
+                            $quality = 5 #Lower is better
+                            #$ffmpegCmd = "ffmpeg -framerate $frameRate -i `"$($file.ContPath)`" -c:v libx264 -pix_fmt yuv420p -r $frameRate `"$($file.ImgVidPath)`""
+                            #$ffmpegCmd = "ffmpeg -framerate $frameRate -i `"$($file.ContPath)`" -c:v libx264 -pix_fmt yuv420p -r $frameRate `"$($file.ImgVidPath)`""
+                            $ffmpegCmd = "ffmpeg -y -f lavfi -i anullsrc  -loop 1 -f image2 -i `"$($file.ContPath)`" -r 30 -t 10 -pix_fmt yuvj420p -map 0:a -map 1:v `"$($file.ImgVidPath)`""
+                            $ffmpegCmd1 = "ffmpeg -y -f lavfi -i anullsrc  -loop 1 -f image2 -i "
+                            $ffmpegCmd2 = "`"$($file.ContPath)`" -r $frameRate -t $($set.PicDispTime) -pix_fmt yuvj420p "
+                            $ffmpegCmd2 = "`"$($file.ContPath)`" -r $frameRate -t $($set.PicDispTime) -vcodec libx264 -crf $quality -pix_fmt yuvj420p "
+                            $ffmpegCmd3 = "-map 0:a -map 1:v `"$($file.ImgVidPath)`""
+                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmd2+$ffmpegCmd3
+                            #$ffmpegCmd = "ffmpeg -framerate " + $frameRate + " -i '" " + $file.ContPath + "'" -c:v libx264 -pix_fmt yuv420p -r " + $frameRate + " " + $file.ImgVidPath
+                            #Execute the FFmpeg command
+                            (Invoke-Expression $ffmpegCmd) *> $null
+                        }
                         $file.ExpContSuccess = 1
                         #Optional / future explore:
                         #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
@@ -401,7 +453,7 @@ function New-MediaForDisplay
             if (Test-Path -Path $ContReportPath){}
             else {$null = New-Item -ItemType File -Path $ContReportPath -Force}
             $FilesExportedWithCont = ($Files2GetCont | Where-Object -Property ExpContSuccess -eq 1)
-            $FilesExportedWithCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath|
+            $FilesExportedWithCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
                 Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
 
         }
