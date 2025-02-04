@@ -7,23 +7,12 @@ function Copy-MediaFromNetwork
     $InputFileRootPath = $inputFolder
     $PrepFileRootPath  = $outputFolder
 
-    $ImgTypes = @(
-    "jpg"
-    "gif"
-    "tif"
-    "tiff"
-    "jpeg"
-    "png"
-    "bmp"
-    )
+    #$Types2Pull = "'*.jpg','*.gif','*.tif','*.tiff','*.jpeg','*.png','*.bmp','*.wmv','*.mov','*.m4a','*.mp4','*.avi'"
+    #$Types2Pull = "*.jpg","*.gif","*.tif","*.tiff","*.jpeg","*.png","*.bmp","*.wmv","*.mov","*.m4a","*.mp4","*.avi"
+    #$Types2Pull = ".jpg",".gif",".tif",".tiff",".jpeg",".png",".bmp",".wmv",".mov",".m4a",".mp4",".avi"
 
-    $VidTypes = @(
-    "wmv"
-    "mov"
-    "m4a"
-    "mp4"
-    "avi"
-    )
+    $Types2Pull = "jpg$","gif$","tif$","tiff$","jpeg$","png$","bmp$","wmv$","mov$","m4a$","mp4$","avi$"
+    $TypeChkRegex = [string]::Join('|', $Types2Pull)
     $HashTblDateFormat = "O"
     $AllTypes = $ImgTypes + $VidTypes
     $CurrInnerProgPercInt = [int32[]]::new(1);
@@ -63,15 +52,9 @@ function Copy-MediaFromNetwork
             foreach ($file in $AllInputFiles)
             {
                 $IncChk = -not ($file.FullName.Contains("DNP"))
-                if ($IncChk)
+                if ($IncChk -and ($file.Name -match $TypeChkRegex))
                 {
-                    foreach ($type in $AllTypes)
-                    {
-                        if ($file.Name.EndsWith($type) -and $IncChk)
-                        {
-                            $file.CopyFlag = 1
-                        }
-                    }
+                    $file.CopyFlag = 1
                 }
                 if ($file.CopyFlag)
                 {

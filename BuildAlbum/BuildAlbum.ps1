@@ -1,26 +1,31 @@
 Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 1
+$ProcLvl = 2
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
 $OutputFilePrepend = "D:\Album"
 #Define output definitions:
-$OutputSizes = @(
-    [pscustomobject]@{XDim=1440;YDim=1080;FPS=30;Conv2Vid=1})
+$OutputDefs = @(
+    [pscustomobject]@{XDim=1440;YDim=1080;FPS=30;PicDispTime=5;FadeTime = 0.7;BulkVidTimeMin=20})
 #    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
 
 #Adding dependent scripts:
-powershell -command "& { . .\CopyMediaFromNetwork2Local.ps1; Copy-MediaFromNetwork}"
-powershell -command "& { . .\PrepareMediaForDisplay.ps1; Prepare-MediaForDisplay}"
+Import-Module ".\BuildAlbum\CopyMediaFromNetwork2Local.psm1"
+Import-Module ".\BuildAlbum\PrepareMediaForDisplay.psm1"
 
+#Build derived definitions
+foreach($set in $OutputDefs)
+{
+    $ContFileRootPath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
+}
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
     Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
-    Copy-Prepare-MediaForDisplay $PrepFileRootPath $ConvFileRootPath $OutputFilePrepend $OutputSizes
+    New-MediaForDisplay $PrepFileRootPath $ConvFileRootPath $OutputFilePrepend $OutputDefs
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
-    Copy-Prepare-MediaForDisplay $PrepFileRootPath $ConvFileRootPath $OutputFilePrepend $OutputSizes
+    Set-VideoFromMedia $OutputFilePrepend $OutputDefs
 }
 #3 Steps:
 #1. Prepare files by copying them to local path
