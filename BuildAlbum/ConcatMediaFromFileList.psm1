@@ -48,9 +48,9 @@ function Join-VideosFromList
         $VidPathInputStr = [Object[]]::new($FileList.Count)
         $VFadeInputStr   = [Object[]]::new($FileList.Count)
         $AFadeInputStr   = [Object[]]::new($FileList.Count)
-        $VidPathInputStr = [string[]]::new($FileList.Count)
-        $VFadeInputStr   = [string[]]::new($FileList.Count)
-        $AFadeInputStr   = [string[]]::new($FileList.Count)
+        #$VidPathInputStr = [string[]]::new($FileList.Count)
+        #$VFadeInputStr   = [string[]]::new($FileList.Count)
+        #$AFadeInputStr   = [string[]]::new($FileList.Count)
         $PrevVFadeStr = "[0]"
         $PrevAFadeStr = "[0:a]"
         $AccumDur = 0
@@ -59,9 +59,9 @@ function Join-VideosFromList
             #Get video definition.
             #($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height, -of flat $entry) *> $null
             #($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 $file.FullName) *> $null
-            $VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height,duration -of csv=p=0 `"$entry`"
+            #$VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height,duration -of csv=p=0 `"$entry`"
             $ToRun = "ffprobe -v error -select_streams v -show_entries stream=width,height,duration -of csv=p=0 `"" +$entry+ "`""
-            $VPrams = $ToRun
+            $VPrams = Invoke-Expression $ToRun
             $splitString = $VPrams -split ","
             $Width = [Int] $splitString[0]
             $Height = [Int] $splitString[1]
@@ -83,10 +83,10 @@ function Join-VideosFromList
             $InstanceInd ++
             $SelInd = $InstanceInd-1
             #Get video path input definition.
-            $VidPathInputStr[$SelInd] = "-i "+$entry.ToString()
+            $VidPathInputStr[$SelInd] = "-i `""+$entry.ToString() +"`""
             #Get video fade definitions.
-            $CurrVFadeStr = "[vfade"+$InstanceInd+"]"
-            $CurrAFadeStr = "[afade"+$InstanceInd+"]"
+            $CurrVFadeStr = "[vfade"+$InstanceInd.ToString()+"]"
+            $CurrAFadeStr = "[afade"+$InstanceInd.ToString()+"]"
             if ($InstanceInd -ge $FileList.Count)
             {
                 $VLastAppend = ",format=yuv420p"
@@ -97,24 +97,27 @@ function Join-VideosFromList
                 $VLastAppend = $CurrVFadeStr
                 $ALastAppend = $CurrAFadeStr+";"
             }
-            $VFadeStreamStr = "["+$InstanceInd.ToString+":v]"
-            $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VFadeStreamStr+"xfade=transition=fade:duration="+$crossfadedur.ToString+":offset="+$AccumDur.ToString()+$VLastAppend+";"
+            $VFadeStreamStr = "["+$InstanceInd.ToString()+":v]"
+            $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VFadeStreamStr+"xfade=transition=fade:duration="+$crossfadedur.ToString()+":offset="+$AccumDur.ToString()+$VLastAppend+";"
             $PrevVFadeStr = $CurrVFadeStr #For next iteration
             #Get audio fade definitoins.
-            $AFadeStreamStr = "["+$InstanceInd.ToString+":v]"
-            $AFadeInputStr[$SelInd] = $PrevAFadeStr+$AFadeStreamStr+"crossfade=d="+$crossfadedur.ToString+$ALastAppend
+            $AFadeStreamStr = "["+$InstanceInd.ToString()+":a]"
+            $AFadeInputStr[$SelInd] = $PrevAFadeStr+$AFadeStreamStr+"crossfade=d="+$crossfadedur.ToString()+$ALastAppend
             $PrevAFadeStr = $CurrAFadeStr #For next iteration
         }
         Write-Host "Building final command string"
         #$CmdPartStart = Join-String
-        $CmdPartInput = $VidPathInputStr | Join-String -Seperator " \`n"
-        $CmdPartVFade = Join-String $VFadeInputStr -Seperator " \`n"
-        $CmdPartAFade = Join-String $AFadeInputStr -Seperator " \`n"
+        $CmdPartInput = $VidPathInputStr -join " \`n"
+        $CmdPartVFade = $VFadeInputStr -join " \`n"
+        $CmdPartAFade = $AFadeInputStr -join " \`n"
         $CmdPartEnded = "-movflags faststart " +$outputFile
 
-        $FullCmdStart = "ffmpeg "+$CmdPartInput+" -filter_complex \`n"
-        $FullCmd = $FullCmdStart + $CmdPartVFade + "\`n" + $CmdPartAFade + "\`n" + $CmdPartEnded
+        $FullCmdStart = "ffmpeg "+$CmdPartInput+" -filter_complex \`n`""
+        $PreCmd = $FullCmdStart + $CmdPartVFade + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
+        $FullCmd = $PreCmd -replace '\\\r?\n',''
+        $FullCmd = "dir `"$FileListPathOrCSV`""
 
         Write-Host "Building video"
+        Invoke-Expression $FullCmd
     }
 }
