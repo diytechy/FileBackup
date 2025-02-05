@@ -42,18 +42,13 @@ function Join-VideosFromList
         Write-Host "Getting properties of all video files and building full command"
         $InstanceInd = [Int] 0
         $SelInd      = [Int] 0
-        #$VidPathInputStr = @([string])
-        #$VFadeInputStr = @([string])
-        #$AFadeInputStr = @([string])
         $VidPathInputStr = [Object[]]::new($FileList.Count)
         $VFadeInputStr   = [Object[]]::new($FileList.Count)
         $AFadeInputStr   = [Object[]]::new($FileList.Count)
-        #$VidPathInputStr = [string[]]::new($FileList.Count)
-        #$VFadeInputStr   = [string[]]::new($FileList.Count)
-        #$AFadeInputStr   = [string[]]::new($FileList.Count)
         $PrevVFadeStr = "[0]"
         $PrevAFadeStr = "[0:a]"
         $AccumDur = 0
+        $LastFile = [Int]0
         foreach ($entry in $FileList)
         {
             #Get video definition.
@@ -87,37 +82,53 @@ function Join-VideosFromList
             #Get video fade definitions.
             $CurrVFadeStr = "[vfade"+$InstanceInd.ToString()+"]"
             $CurrAFadeStr = "[afade"+$InstanceInd.ToString()+"]"
-            if ($InstanceInd -ge $FileList.Count)
+            if ($InstanceInd -eq ($FileList.Count-1))
             {
                 $VLastAppend = ",format=yuv420p"
                 $ALastAppend = ""
+            }
+            elseif ($InstanceInd -ge $FileList.Count)
+            {
+                $LastFile = 1
             }
             else
             {
                 $VLastAppend = $CurrVFadeStr
                 $ALastAppend = $CurrAFadeStr+";"
+                #Temp override for testing:
+                $ALastAppend = ";"
             }
-            $VFadeStreamStr = "["+$InstanceInd.ToString()+":v]"
-            $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VFadeStreamStr+"xfade=transition=fade:duration="+$crossfadedur.ToString()+":offset="+$AccumDur.ToString()+$VLastAppend+";"
-            $PrevVFadeStr = $CurrVFadeStr #For next iteration
+            #Temp override for testing:
+            $VLastAppend = ""
+            $VFadeStreamStr = "["+$InstanceInd.ToString()+"]"
+            if (-not $LastFile)
+            {
+                $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VFadeStreamStr+"xfade=transition=fade:duration="+$crossfadedur.ToString()+":offset="+$AccumDur.ToString()+$VLastAppend+";"
+            }
+            $PrevVFadeStr = $VFadeStreamStr #For next iteration
             #Get audio fade definitoins.
             $AFadeStreamStr = "["+$InstanceInd.ToString()+":a]"
-            $AFadeInputStr[$SelInd] = $PrevAFadeStr+$AFadeStreamStr+"crossfade=d="+$crossfadedur.ToString()+$ALastAppend
-            $PrevAFadeStr = $CurrAFadeStr #For next iteration
+            if (-not $LastFile)
+            {
+                $AFadeInputStr[$SelInd] = $PrevAFadeStr+$AFadeStreamStr+"acrossfade=d="+$crossfadedur.ToString()+$ALastAppend
+            }
+            $PrevAFadeStr = $AFadeStreamStr #For next iteration
+
         }
         Write-Host "Building final command string"
         #$CmdPartStart = Join-String
         $CmdPartInput = $VidPathInputStr -join " \`n"
-        $CmdPartVFade = $VFadeInputStr -join " \`n"
-        $CmdPartAFade = $AFadeInputStr -join " \`n"
-        $CmdPartEnded = "-movflags faststart " +$outputFile
+        $CmdPartVFade = $VFadeInputStr -join "\`n"
+        $CmdPartAFade = $AFadeInputStr -join "\`n"
+        $CmdPartEnded = " -vcodec libx265 -pix_fmt yuv420p -acodec aac -movflags faststart " +$outputFile
 
-        $FullCmdStart = "ffmpeg "+$CmdPartInput+" -filter_complex \`n`""
+        $FullCmdStart = "ffmpeg -y "+$CmdPartInput+" -filter_complex \`n`""
         $PreCmd = $FullCmdStart + $CmdPartVFade + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
         $FullCmd = $PreCmd -replace '\\\r?\n',''
-        $FullCmd = "dir `"$FileListPathOrCSV`""
+        #$FullCmd = "dir `"$FileListPathOrCSV`""
 
         Write-Host "Building video"
         Invoke-Expression $FullCmd
+        Write-Host "Build complete"
     }
 }
