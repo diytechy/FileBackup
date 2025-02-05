@@ -390,6 +390,7 @@ function New-MediaForDisplay
                         ($null = magick $file.ConvPath -resize ($wint.ToString() + "x" + $hint.ToString() + "!>") $file.ContPath) *> $null
                         if($file.ImgVidPath.length)
                         {
+                            #Consider using zoompan filter here.
                             $frameRate = 30
                             $quality = 5 #Lower is better
                             #$ffmpegCmd = "ffmpeg -framerate $frameRate -i `"$($file.ContPath)`" -c:v libx264 -pix_fmt yuv420p -r $frameRate `"$($file.ImgVidPath)`""

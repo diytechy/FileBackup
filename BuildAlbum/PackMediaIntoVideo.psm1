@@ -1,3 +1,4 @@
+Import-Module ".\BuildAlbum\ConcatMediaFromFileList.psm1"
 function Set-VideoFromMedia
 {
     param (
@@ -16,11 +17,6 @@ function Set-VideoFromMedia
     }
     #ffmpeg video & Handbrake path:
     $ConvVid = 1
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-    #Write-Host "ffmpeg is already installed."
-    }
-    else{Throw  "Error: npm not detected, dependencies cannot be installed to pack video."
-    $ConvVid = 0}
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
     #Write-Host "ffmpeg is already installed."
     }
@@ -32,13 +28,7 @@ function Set-VideoFromMedia
     else{Write-Host  "HandBrakeCLI not detected, videos will not be converted"
     $ConvVid = 0}
 
-    #Check to see if ffmpeg-concat is installed, and if not, install it.
-    $packages = npm list
-    if( -not ($packages.Contains("Test")))
-    {
-        npm install -g ffmpeg-concat
-        npm install ffmpeg-concat
-    }
+
     #JPEG Lossless rotator path:
     $RotImg = 1
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
