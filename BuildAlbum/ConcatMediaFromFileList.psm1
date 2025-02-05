@@ -120,7 +120,7 @@ function Join-VideosFromList
         $CmdPartInput = $VidPathInputStr -join " \`n"
         $CmdPartVFade = $VFadeInputStr -join "\`n"
         $CmdPartAFade = $AFadeInputStr -join "\`n"
-        $CmdPartEnded = " -vcodec libx265 -pix_fmt yuv420p -acodec aac -movflags faststart " +$outputFile
+        $CmdPartEnded = " -vcodec libx265 -pix_fmt yuv420p -x265-params crf=5 -acodec aac -movflags faststart " +$outputFile
 
         $FullCmdStart = "ffmpeg -y "+$CmdPartInput+" -filter_complex \`n`""
         $PreCmd = $FullCmdStart + $CmdPartVFade + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
