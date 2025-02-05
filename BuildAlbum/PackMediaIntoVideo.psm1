@@ -72,7 +72,7 @@ function Set-VideoFromMedia
         }
         $Groups= $AllInputFiles | Select-Object -ExpandProperty GroupN | Sort-Object -Unique
         $Groups | Add-Member -MemberType NoteProperty -Name FileListPath -Value $([string])
-        $Groups | Add-Member -MemberType NoteProperty -Name OutputPath -Value $([string])
+        $Groups | Add-Member -MemberType NoteProperty -Name VidExpPath -Value $([string])
         #Map to store file list.
         $GrpDef = @{}
         #Now build a list for each group.  This will be used in ffmpeg to actually build out the video.
@@ -83,6 +83,9 @@ function Set-VideoFromMedia
             $grp.VidExpPath   = $VidPacksRootPath  + "\Grp-" + $grp.ToString()
             #Create file to describe what videos to append.
             $FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
+        }
+        foreach ($grp in $Groups){
+            Join-VideosFromList $GrpDef[$grp] $set.FadeTime
         }
         $SelGrpN = 0
     }
