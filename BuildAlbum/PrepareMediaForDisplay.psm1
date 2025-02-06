@@ -16,6 +16,8 @@ function New-MediaForDisplay
 	PercentComplete  = 0
 	CurrentOperation = 0
     }
+    $MaxSrtZoom = 1.3
+    $MinSrtZoom = 1.1
     #ffmpeg video & Handbrake path:
     $ConvVid = 1
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
@@ -208,8 +210,8 @@ function New-MediaForDisplay
         $ExpectedFiles | Select-Object -Property Name,RelPath,ConvPath,Length,LastWriteTimeStr|
                 Export-Csv -LiteralPath $ConvReportPath -NoTypeInformation
         #Now, for each set, run the final export tooling depending on if the file is a video or image.
-        $ImageFiles = ($AllPrepFiles | Where-Object -Property IsImg -eq 1)
-        $VideoFiles = ($AllPrepFiles | Where-Object -Property IsVid -eq 1)
+        $ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
+        $VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
         $AllFiles = $ImageFiles + $VideoFiles
         Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
         foreach ($set in $OutputSizes){
@@ -357,7 +359,12 @@ function New-MediaForDisplay
                         $image.loadfile($file.ConvPath)
                         $whimgratio = $image.Width/$image.Height
                         #If width is greater, limit this dimension for resize.
-                        if ($whimgratio -gt $whdispratio)
+                        if($file.ImgVidPath.length)
+                        {
+                            $contw = $set.XDim*2
+                            $conth = $set.YDim*2
+                        }
+                        elseif ($whimgratio -gt $whdispratio)
                         {
                             $contw = $set.XDim
                             $conth = ($set.XDim/$whimgratio)
@@ -367,39 +374,34 @@ function New-MediaForDisplay
                             $conth = $set.YDim
                             $contw = ($set.YDim*$whimgratio)
                         }
-                        #Restrict resizing to nearest even number if this needs to be encoded to a video
-                        if($file.ImgVidPath.length)
-                        {
-                            if(($contw%2) -ge 1){
-                                $contw = [math]::Ceiling($contw)
-                            }
-                            else
-                            {
-                                $contw = [math]::Floor($contw)
-                            }
-                            if(($conth%2) -ge 1){
-                                $conth = [math]::Ceiling($conth)
-                            }
-                            else
-                            {
-                                $conth = [math]::Floor($conth)
-                            }
-                        }
                         $wint = $contw -as [Int]
                         $hint = $conth -as [Int]
-                        ($null = magick $file.ConvPath -resize ($wint.ToString() + "x" + $hint.ToString() + "!>") $file.ContPath) *> $null
+                        $SizeStr = $wint.ToString() + "x" + $hint.ToString()
+                        if($file.ImgVidPath.length)
+                        {
+                            $ExpCmd = "-gravity center -background black -extent $SizeStr"
+                        }
+                        else{
+                            $ExpCmd = ""
+                        }
+                        ($null = magick $file.ConvPath -resize $SizeStr $ExpCmd  $file.ContPath) *> $null
+                        # ($null = magick $file.ConvPath -resize ( + " ") $file.ContPath) *> $null
+                        #
                         if($file.ImgVidPath.length)
                         {
                             #Consider using zoompan filter here.
                             $frameRate = 30
                             $quality = 5 #Lower is better
-                            #$ffmpegCmd = "ffmpeg -framerate $frameRate -i `"$($file.ContPath)`" -c:v libx264 -pix_fmt yuv420p -r $frameRate `"$($file.ImgVidPath)`""
-                            #$ffmpegCmd = "ffmpeg -framerate $frameRate -i `"$($file.ContPath)`" -c:v libx264 -pix_fmt yuv420p -r $frameRate `"$($file.ImgVidPath)`""
-                            $ffmpegCmd = "ffmpeg -y -f lavfi -i anullsrc  -loop 1 -f image2 -i `"$($file.ContPath)`" -r 30 -t 10 -pix_fmt yuvj420p -map 0:a -map 1:v `"$($file.ImgVidPath)`""
-                            $ffmpegCmd1 = "ffmpeg -y -f lavfi -i anullsrc  -loop 1 -f image2 -i "
-                            $ffmpegCmd2 = "`"$($file.ContPath)`" -r $frameRate -t $($set.PicDispTime) -pix_fmt yuvj420p "
-                            $ffmpegCmd2 = "`"$($file.ContPath)`" -r $frameRate -t $($set.PicDispTime) -vcodec libx264 -crf $quality -pix_fmt yuvj420p "
-                            $ffmpegCmd3 = "-map 0:a -map 1:v `"$($file.ImgVidPath)`""
+                            $ffmpegCmd1 = "ffmpeg -y "
+                            $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
+                            $ffmpegCmdV1= "-framerate " + $frameRate + " -i `" + $($file.ContPath) + "
+                            $ffmpegCmdV2 = "-r $frameRate -t $($set.PicDispTime)`" "
+                            $filtercfg = -filter_complex `"zoompan=z='if(lte(mod(it*25,42),10),min(max(zoom,pzoom)+0.02,1.5),min(max(zoom,pzoom)-0.0065,1.5))':
+x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1`" "
+                            $filtercfg = " "
+                            $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
+                            $ffmpegOut = "-map 0:a -map 1:v `"$($file.ImgVidPath)`""
+                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegDef+$ffmpegOut
                             $ffmpegCmd = $ffmpegCmd1+$ffmpegCmd2+$ffmpegCmd3
                             #$ffmpegCmd = "ffmpeg -framerate " + $frameRate + " -i '" " + $file.ContPath + "'" -c:v libx264 -pix_fmt yuv420p -r " + $frameRate + " " + $file.ImgVidPath
                             #Execute the FFmpeg command
@@ -410,7 +412,8 @@ function New-MediaForDisplay
                         #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
                         #
 
-                    }
+
+                        }
                     elseif($file.IsVid -and $ConvVid)
                     {
                         ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 $file.FullName) *> $null
@@ -430,8 +433,67 @@ function New-MediaForDisplay
                                 $conth = [int]$set.YDim
                                 $contw = [int]($set.YDim*$whvidratio)
                             }
-                            #handbrakecli -w $contw.ToString() -h $conth.ToString() -i $file.FullName -o $file.ContPath
-                            ($null = handbrakecli -i $file.FullName -o $file.ContPath -w $contw.ToString()) *> $null
+                            #If video packing, need to set the pad limits
+                            if($Set.VidPack)
+                            {
+                                $Sides = $set.XDim - $contw;
+                                $TopBot = $set.YDim - $conth;
+                                $LBand = [math]::Floor($Sides/2)
+                                $TBand = [math]::Floor($TopBot/2)
+                                $RBand = $LBand
+                                $BBand = $TBand
+
+                                if ($Sides%2)
+                                {
+                                    $RBand = $LBand+1
+                                }
+                                if (($TopBot%2) -ge 1)
+                                {
+                                    $BBand = $TBand+1
+                                }
+                                $wint = $set.XDim -as [Int]
+                                $hint = $set.YDim -as [Int]
+                            }
+                            else
+                            {
+                                $LBand = 0
+                                $TBand = 0
+                                $RBand = 0
+                                $BBand = 0
+                                if (($contw%2) -ge 1)
+                                {
+                                    $contw = [math]::Ceiling($contw)
+                                }
+                                else
+                                {
+                                    $contw = [math]::Floor($contw)
+                                }
+                                if (($conth%2) -ge 1)
+                                {
+                                    $conth = [math]::Ceiling($conth)
+                                }
+                                else
+                                {
+                                    $conth = [math]::Floor($conth)
+                                }
+                                $VidPad = $null
+                                $wint = $contw -as [Int]
+                                $hint = $conth -as [Int]
+                            }
+                            #If bordering is required.
+                            if($LBand -or $RBand -or $TBand -or $BBand)
+                            {
+                                $PadOpt = "--pad top=$($TBand.ToString()):bottom=$($BBand.ToString()):left=$($LBand.ToString()):right=$($RBand.ToString())"
+                                $PadOpt = "--pad top=0:bottom=0"
+                                $PadOpt = "--pad top=0"
+                            }
+                            else
+                            {
+                                $PadOpt = ""
+                            }
+                            $PadOpt = ""
+                            $handbrakecmd = "handbrakecli -i `"$($file.FullName)`" $PadOpt -o `"$($file.ContPath)`" -w $($wint.ToString()) -l $($hint.ToString())"
+                            (Invoke-Expression $handbrakecmd) *> $null
                             $file.ExpContSuccess = 1
 
                         }

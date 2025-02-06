@@ -1,12 +1,16 @@
 Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 3
+$ProcLvl = 0
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
 $OutputFilePrepend = "D:\Album"
+$InputFileRootPath ="D:\T"
+$PrepFileRootPath ="D:\TAlbumPrep"
+$ConvFileRootPath ="D:\TAlbumConv"
+$OutputFilePrepend = "D:\TAlbum"
 #Define output definitions:
 $OutputDefs = @(
-    [pscustomobject]@{XDim=1440;YDim=1080;FPS=30;PicDispTime=6;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid"})
+    [pscustomobject]@{XDim=1600;YDim=900;FPS=30;PicDispTime=60;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid"})
 #    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
 
 #Adding dependent scripts:
@@ -17,10 +21,15 @@ Import-Module ".\BuildAlbum\PackMediaIntoVideo.psm1"
 #Build derived definitions
 $OutputDefs | Add-Member -MemberType NoteProperty -Name Outpath -Value $([string])
 $OutputDefs | Add-Member -MemberType NoteProperty -Name OutGrp -Value $([string])
+$OutputDefs | Add-Member -MemberType NoteProperty -Name VidPack -Value $([Int])
 foreach($set in $OutputDefs)
 {
     $Set.Outpath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
     $Set.OutGrp = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim+"Groups")
+    if($Set.PicDispTime -and $Set.BulkVidTimeMin -and $Set.ImgVidFldr.Count)
+    {
+        $Set.VidPack = 1
+    }
 }
 #Run operations.
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
