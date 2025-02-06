@@ -394,30 +394,26 @@ function New-MediaForDisplay
                         (Invoke-Expression $IMCmd) *> $null
                         if($file.ImgVidPath.length)
                         {
-                            #Consider using zoompan filter here.
+                            $FullImgDur = $Set.FadeTime*2 +$Set.PicDispTime
                             $frameRate = 30
+                            $NFramesExp = [Int] ($FullImgDur*$frameRate)
+                            #Zoompan configuration here.
+                            $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
+                            $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
+
                             $quality = 5 #Lower is better
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
                             $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
-                            $ffmpegCmdV2 = "-r $frameRate -t $($set.PicDispTime) "
-                            #if(lte(mod(it*25,42),10),min(max(zoom,pzoom)+0.02,1.5),min(max(zoom,pzoom)-0.0065,1.5))':
-                            #$filtercfg1 = "-filter_complex `"[1:v]zoompan=z=min(max(zoom,pzoom)+0.02,1.5)':"
-                            #$filtercfg1 = "-filter_complex `"[1:v]zoompan=z=1':"
-                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='min(pzoom+0.002,1.5)':"
-                            #$filtercfg2 = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1`"
-                            $filtercfg2 = "x=0:y=0:d=90`" "
-                            $filtercfg2 = "x=500:y=500:d=1:fps=$frameRate`" "
-
-                            $filtercfg = " "
+                            $ffmpegCmdV2 = "-r $frameRate -t $FullImgDur "
+                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)':"
+                            $filtercfg2 = "x='iw/2':y='ih/2':d=1:fps=$frameRate`" "
                             $filtercfg = $filtercfg1 + $filtercfg2
+
                             $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
-                            #$ffmpegOut = "-map 0:a -map 1:v -s $SizeStr `"$($file.ImgVidPath)`""
-                            $ffmpegOut = "-map 0:a -map 1:v scale=$SizeStr2 `"$($file.ImgVidPath)`""
                             $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
                             $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegDef+$ffmpegOut
-                            #$ffmpegCmd = $ffmpegCmd1+$ffmpegCmd2+$ffmpegCmd3
-                            #$ffmpegCmd = "ffmpeg -framerate " + $frameRate + " -i '" " + $file.ContPath + "'" -c:v libx264 -pix_fmt yuv420p -r " + $frameRate + " " + $file.ImgVidPath
+
                             #Execute the FFmpeg command
                             (Invoke-Expression $ffmpegCmd) *> $null
                         }
