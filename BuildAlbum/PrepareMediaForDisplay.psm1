@@ -400,11 +400,8 @@ function New-MediaForDisplay
                             $NFramesExp = [Int] ($FullImgDur*$frameRate)
                             #Zoompan configuration here.
                             $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
-                            $SetSrtZoom = 1.5
                             $XRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                             $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
-                            $XRatio = 0.5
-                            $YRatio = 0.5
                             $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
 
                             $quality = 5 #Lower is better
