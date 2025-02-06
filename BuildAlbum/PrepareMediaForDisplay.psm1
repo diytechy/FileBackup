@@ -68,7 +68,7 @@ function New-MediaForDisplay
     #************************************************************
     $AllPrepFiles = @(Get-ChildItem -LiteralPath $PrepFileRootPath -Recurse -File)
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name RelPath -Value $([string])
-    $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvPath -Value $([string])
+    $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvPath -Value $([string]"")
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ContExt -Value $([string])
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name LastWriteTimeStr -Value $([string])
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name SelLabelGrp -Value $([string])
@@ -111,6 +111,8 @@ function New-MediaForDisplay
             $file.LastWriteTimeStr = $file.LastWriteTime.ToString($HashTblDateFormat)
             $datekey = [System.ValueTuple[string, long, datetime]]::new(
                     $RelPath, $file.Length, $file.LastWriteTime)
+                    #Set tuple for current conversion map, for removal reference.
+                    $CurrConvMap[$datekey] = 1
             $file.TupleVal = $datekey
             $IncChk = 0
             foreach($type in $ImgTypes){
@@ -119,8 +121,6 @@ function New-MediaForDisplay
                     $file.IsImg = 1
                     $file.ContExt = ".jpg"
                     $IncChk = 1
-                    #Set tuple for current conversion map, for removal reference.
-                    $CurrConvMap[$datekey] = 1
                 }
             }
             foreach($type in $VidTypes){
@@ -205,20 +205,24 @@ function New-MediaForDisplay
             }
 
         }
+
         #Finally save off report of converted files.
         #$ConvReportPath
         $ExpectedFiles | Select-Object -Property Name,RelPath,ConvPath,Length,LastWriteTimeStr|
                 Export-Csv -LiteralPath $ConvReportPath -NoTypeInformation
         #Now, for each set, run the final export tooling depending on if the file is a video or image.
+        #********************************************************************************************
+        #********************************************************************************************
+        #********************************************************************************************
         $ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
         $VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
         $AllFiles = $ImageFiles + $VideoFiles
         Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
         foreach ($set in $OutputSizes){
             $Files2Chk = $AllFiles
-            $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] )
-            $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] )
-            $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string] )
+            $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] "")
+            $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] "")
+            $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string] "")
             $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int] 0)
             $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
@@ -230,41 +234,71 @@ function New-MediaForDisplay
             $ContFileRootPath = $set.Outpath
             $VidPacksRootPath = $ContFileRootPath + $set.ImgVidFldr
             if (-not(Test-Path -LiteralPath $ContFileRootPath -PathType Container))
-            {New-Item -Path $ContFileRootPath -ItemType "directory"}
+            {New-Item -Path $ContFileRootPath -ItemType "directory" | Out-Null}
             if ($set.ImgVidFldr.length -and $set.PicDispTime -and (-not(Test-Path -LiteralPath $VidPacksRootPath -PathType Container)))
-            {New-Item -Path $VidPacksRootPath -ItemType "directory"}
+            {New-Item -Path $VidPacksRootPath -ItemType "directory" | Out-Null}
             $ContReportPath = ($ContFileRootPath + "\Report.csv")
             $ContReportPrePath = ($ContFileRootPath + "\PreReport.csv")
             $PrevContInd = @{}
             $PrevFileSet = @{}
+            $selfilename = Split-Path -Path $ContReportPrePath -Leaf
+            $PrevFileSet[$selfilename] = 1
             #Remove old content items if they are not up to date anymore.
-            Write-Host ("Removing old files if needed")
+            Write-Host ("Checking report file to verify integrity and determine which files need to be updated...")
             if(Test-Path -Path $ContReportPath){
                 $PrevContProps = Import-Csv -LiteralPath $ContReportPath
                 $PrevContProps | Add-Member -MemberType NoteProperty -Name RemoveFlg -Value $( [int] 0)
+                $PrevContProps | Add-Member -MemberType NoteProperty -Name RemImgVid -Value $( [int] 0)
                 Write-Host ("Checking "+$PrevContProps.Count.ToString()+" old entries...")
                 #Remove files from the database which don't have matching attributes to the current definitions
+                $PrevFileSet[$selfilename] =
+                $selfilename = Split-Path -Path $ContReportPath -Leaf
+                $PrevFileSet[$selfilename] = 1
                 foreach($SelProp in $PrevContProps){
                     $DateTimeVal = [datetime]::ParseExact($SelProp.LastWriteTimeStr, $HashTblDateFormat, $null)
                     $datekey = [System.ValueTuple[string, long, datetime]]::new(
                             $SelProp.RelPath, $SelProp.Length, $DateTimeVal)
-                    $PrevContInd[$datekey] = $SelProp.GrpInstance
-                    $selfilename = Split-Path -Path $SelProp.ContPath -Leaf
+                    $PrevContInd[$datekey] = $SelProp.InstInd -as [Int]
+                    $selfilename = $SelProp.ContPath
                     $PrevFileSet[$selfilename] = 1
-                    if($CurrConvMap[$datekey]){}#If exists, do nothing
-                    #Else remove it.
-                    elseif(Test-Path -Path $SelProp.ContPath)
+                    if($SelProp.ImgVidPath.Length)
                     {
-                       $SelProp.RemoveFlg = 1
+                        $selfilename = $SelProp.ImgVidPath
+                        $PrevFileSet[$selfilename] = 1
+                    }
+                    if($CurrConvMap[$datekey])
+                    #If the file exists and the video is expected, but doesn't exist, remove it.
+                    {
+                        if($SelProp.ImgVidPath.Length -and -not (Test-Path -Path $SelProp.ImgVidPath -Type Leaf))
+                        {
+                            $SelProp.RemoveFlg = 1
+                        }
+                    }#If exists, do nothing
+                    #Else remove it.
+                    else
+                    {
+                        if(Test-Path -Path $SelProp.ContPath -Type Leaf)
+                        {
+                            $SelProp.RemoveFlg = 1
+                        }
+                        if($SelProp.ImgVidPath.Length -and (Test-Path -Path $SelProp.ImgVidPath -Type Leaf))
+                        {
+                            $SelProp.RemImgVid = 1
+                        }
                     }
                 }
-                $PrevContProps2Rem = ($PrevContProps | Where-Object -Property RemoveFlg -eq 1)
-                Write-Host ($PrevContProps2Rem.Count.ToString()+" old entries set to remove...")
-                foreach($SelProp in $PrevContProps2Rem){
+                $PrevContProps2Rem = @($PrevContProps | Where-Object -Property RemoveFlg -eq 1)
+                $PrevImgVids2Rem = @($PrevContProps | Where-Object -Property RemImgVid -eq 1)
+                Write-Host ("Old entries set to remove: "+($PrevContProps2Rem.Count+$PrevImgVids2Rem.Count).ToString())
+                foreach($SelProp in $PrevContProps2Rem)
+                {
                     if ($SelProp.ContPath.Length -and (Test-Path -LiteralPath $SelProp.ContPath -PathType Leaf))
                     {
                         Remove-Item -LiteralPath $SelProp.ContPath -Force
                     }
+                }
+                foreach($SelProp in $PrevImgVids2Rem)
+                {
                     if ($SelProp.ImgVidPath.Length -and (Test-Path -LiteralPath $SelProp.ImgVidPath -PathType Leaf))
                     {
                         Remove-Item -LiteralPath $SelProp.ImgVidPath -Force
@@ -273,10 +307,15 @@ function New-MediaForDisplay
             }
             #Remove files from the folder which didn't belong to the database.
             $AllCurrContFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Recurse -File)
+            $AllCurrContFiles | Add-Member -MemberType NoteProperty -Name RemFlag -Value $( [int] 0)
             foreach($ContFile in $AllCurrContFiles){
-                if($PrevFileSet[$ContFile.Name]){}#If file should exist, do nothing.
-                else{remove-item -LiteralPath $ContFile.FullName -Force}
+                if($PrevFileSet[$ContFile.Fullname]){}#If file should exist, do nothing.
+                else{$ContFile.RemFlag = 1}
             }
+            $CurrContFiles2Rem = @($AllCurrContFiles| Where-Object -Property RemFlag -eq 1)
+            Write-Host ("Removing "+$CurrContFiles2Rem.Count.ToString()+" files that were not expected...")
+            foreach ($ContFile in $CurrContFiles2Rem)
+            {remove-item -LiteralPath $ContFile.FullName -Force}
             #Get index of current content items
             Write-Host ("Checking "+$FileGroups.Count.ToString()+" groups...")
             foreach($grp in $FileGroups)
@@ -322,7 +361,7 @@ function New-MediaForDisplay
             $Files2GetCont = ($FileGroups| Select-Object -Expand Group)
             #Create the export path and perform the export.
             Write-Host ("Checking "+$Files2GetCont.Count.ToString()+" for content definitions...")
-            foreach ($file in ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1))
+            foreach ($file in $Files2GetCont)
             {
                 $file.ContPath  = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString('0000')+$file.ContExt)
                 $file.ContTitle = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString())
@@ -348,7 +387,7 @@ function New-MediaForDisplay
             $PrevInnerProgPercInt[0] = 0
             $LoopProg = 0
             $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
-            Write-Host ("Exporting "+$Files2GetCont.Count.ToString()+" files...")
+            Write-Host ("Exporting "+($Files2GetCont | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" files...")
             foreach ($file in ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1))
             {
                 try
@@ -412,7 +451,7 @@ function New-MediaForDisplay
                             $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
                             $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
                             $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
-                            $filtercfg2 = ":d=1:fps=$frameRate`" "
+                            $filtercfg2 = ":d=1:fps=$($frameRate):s=$SizeOut`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
                             $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
@@ -531,7 +570,7 @@ function New-MediaForDisplay
             if (Test-Path -Path $ContReportPath){}
             else {$null = New-Item -ItemType File -Path $ContReportPath -Force}
             $FilesExportedWithCont = ($Files2GetCont | Where-Object -Property ExpContSuccess -eq 1)
-            $FilesExportedWithCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
+            $FilesExportedWithCont | Select-Object -Property Name,InstInd,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
                 Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
 
         }
