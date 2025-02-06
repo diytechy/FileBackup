@@ -377,16 +377,20 @@ function New-MediaForDisplay
                         $wint = $contw -as [Int]
                         $hint = $conth -as [Int]
                         $SizeStr = $wint.ToString() + "x" + $hint.ToString()
+                        $quality = 95
                         if($file.ImgVidPath.length)
                         {
-                            $ExpCmd = "-gravity center -background black -extent $SizeStr"
+                            $ExpCmd = "-compose Copy -gravity center -extent  $SizeStr -quality $quality "
                         }
                         else{
                             $ExpCmd = ""
                         }
-                        ($null = magick $file.ConvPath -resize $SizeStr $ExpCmd  $file.ContPath) *> $null
-                        # ($null = magick $file.ConvPath -resize ( + " ") $file.ContPath) *> $null
-                        #
+                        #magick input.jpg -resize 800x600 -background black -compose Copy \
+                        #-gravity center -extent 800x600 -quality 92 output.jpg
+                        $IMCmd1 = "magick `"$($file.ConvPath)`" -resize $SizeStr -quality $($quality.ToString()) -background black "
+                        $IMCmdOut = "`"$($file.ContPath)`""
+                        $IMCmd = $IMCmd1+$ExpCmd+$IMCmdOut
+                        (Invoke-Expression $IMCmd) *> $null
                         if($file.ImgVidPath.length)
                         {
                             #Consider using zoompan filter here.
@@ -394,15 +398,17 @@ function New-MediaForDisplay
                             $quality = 5 #Lower is better
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
-                            $ffmpegCmdV1= "-framerate " + $frameRate + " -i `" + $($file.ContPath) + "
-                            $ffmpegCmdV2 = "-r $frameRate -t $($set.PicDispTime)`" "
-                            $filtercfg = -filter_complex `"zoompan=z='if(lte(mod(it*25,42),10),min(max(zoom,pzoom)+0.02,1.5),min(max(zoom,pzoom)-0.0065,1.5))':
-x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1`" "
+                            $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
+                            $ffmpegCmdV2 = "-r $frameRate -t $($set.PicDispTime) "
+                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z=1':"
+                            #$filtercfg2 = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1`"
+                            $filtercfg2 = "x=0:y=0:d=1`" "
                             $filtercfg = " "
+                            $filtercfg = $filtercfg1 + $filtercfg2
                             $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
                             $ffmpegOut = "-map 0:a -map 1:v `"$($file.ImgVidPath)`""
                             $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegDef+$ffmpegOut
-                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmd2+$ffmpegCmd3
+                            #$ffmpegCmd = $ffmpegCmd1+$ffmpegCmd2+$ffmpegCmd3
                             #$ffmpegCmd = "ffmpeg -framerate " + $frameRate + " -i '" " + $file.ContPath + "'" -c:v libx264 -pix_fmt yuv420p -r " + $frameRate + " " + $file.ImgVidPath
                             #Execute the FFmpeg command
                             (Invoke-Expression $ffmpegCmd) *> $null
