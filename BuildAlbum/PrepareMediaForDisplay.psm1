@@ -419,6 +419,8 @@ function New-MediaForDisplay
                             $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
                             $filtercfgX = ":x='if(gte(in,1),px-$XRate,$SetSrtX)'"
                             $filtercfgY = ":y='if(gte(in,1),py-$YRate,$SetSrtY)'"
+                            $filtercfgX = ":x='($wint*(1.0-1/zoom))'"
+                            $filtercfgY = ":y='$hint*(1.0-1/zoom)'"
                             $filtercfg2 = ":d=1:fps=$frameRate`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
