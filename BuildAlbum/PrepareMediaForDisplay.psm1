@@ -400,9 +400,14 @@ function New-MediaForDisplay
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
                             $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
                             $ffmpegCmdV2 = "-r $frameRate -t $($set.PicDispTime) "
-                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z=1':"
+                            #if(lte(mod(it*25,42),10),min(max(zoom,pzoom)+0.02,1.5),min(max(zoom,pzoom)-0.0065,1.5))':
+                            #$filtercfg1 = "-filter_complex `"[1:v]zoompan=z=min(max(zoom,pzoom)+0.02,1.5)':"
+                            #$filtercfg1 = "-filter_complex `"[1:v]zoompan=z=1':"
+                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='max(pzoom+0.02,1.5)':"
                             #$filtercfg2 = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1`"
-                            $filtercfg2 = "x=0:y=0:d=1`" "
+                            $filtercfg2 = "x=0:y=0:d=90`" "
+                            $filtercfg2 = "x=0:y=0:d=1:s=$SizeStr`" "
+
                             $filtercfg = " "
                             $filtercfg = $filtercfg1 + $filtercfg2
                             $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
