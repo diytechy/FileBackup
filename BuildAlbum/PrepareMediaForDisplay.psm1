@@ -377,6 +377,7 @@ function New-MediaForDisplay
                         $wint = $contw -as [Int]
                         $hint = $conth -as [Int]
                         $SizeStr = $wint.ToString() + "x" + $hint.ToString()
+                        $SizeStr2 = $set.XDim.ToString() + ":" + $set.YDim.ToString()
                         $quality = 95
                         if($file.ImgVidPath.length)
                         {
@@ -403,15 +404,17 @@ function New-MediaForDisplay
                             #if(lte(mod(it*25,42),10),min(max(zoom,pzoom)+0.02,1.5),min(max(zoom,pzoom)-0.0065,1.5))':
                             #$filtercfg1 = "-filter_complex `"[1:v]zoompan=z=min(max(zoom,pzoom)+0.02,1.5)':"
                             #$filtercfg1 = "-filter_complex `"[1:v]zoompan=z=1':"
-                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='max(pzoom+0.02,1.5)':"
+                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='min(pzoom+0.002,1.5)':"
                             #$filtercfg2 = "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1`"
                             $filtercfg2 = "x=0:y=0:d=90`" "
-                            $filtercfg2 = "x=0:y=0:d=1:s=$SizeStr`" "
+                            $filtercfg2 = "x=500:y=500:d=1:fps=$frameRate`" "
 
                             $filtercfg = " "
                             $filtercfg = $filtercfg1 + $filtercfg2
                             $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
-                            $ffmpegOut = "-map 0:a -map 1:v `"$($file.ImgVidPath)`""
+                            #$ffmpegOut = "-map 0:a -map 1:v -s $SizeStr `"$($file.ImgVidPath)`""
+                            $ffmpegOut = "-map 0:a -map 1:v scale=$SizeStr2 `"$($file.ImgVidPath)`""
+                            $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
                             $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegDef+$ffmpegOut
                             #$ffmpegCmd = $ffmpegCmd1+$ffmpegCmd2+$ffmpegCmd3
                             #$ffmpegCmd = "ffmpeg -framerate " + $frameRate + " -i '" " + $file.ContPath + "'" -c:v libx264 -pix_fmt yuv420p -r " + $frameRate + " " + $file.ImgVidPath

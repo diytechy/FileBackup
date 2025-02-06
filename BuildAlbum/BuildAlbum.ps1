@@ -10,7 +10,7 @@ $ConvFileRootPath ="D:\TAlbumConv"
 $OutputFilePrepend = "D:\TAlbum"
 #Define output definitions:
 $OutputDefs = @(
-    [pscustomobject]@{XDim=1600;YDim=900;FPS=30;PicDispTime=60;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid"})
+    [pscustomobject]@{XDim=1600;YDim=900;FPS=30;PicDispTime=10;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid"})
 #    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
 
 #Adding dependent scripts:
