@@ -378,6 +378,7 @@ function New-MediaForDisplay
                         $hint = $conth -as [Int]
                         $SizeStr = $wint.ToString() + "x" + $hint.ToString()
                         $SizeStr2 = $set.XDim.ToString() + ":" + $set.YDim.ToString()
+                        $SizeOut = $set.XDim.ToString() + "x" + $set.YDim.ToString()
                         $quality = 95
                         if($file.ImgVidPath.length)
                         {
@@ -399,16 +400,27 @@ function New-MediaForDisplay
                             $NFramesExp = [Int] ($FullImgDur*$frameRate)
                             #Zoompan configuration here.
                             $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
+                            $SetSrtZoom = 1.5
+                            $SetSrtX = Get-Random -Minimum 0.0 -Maximum ($wint*(1-1/$SetSrtZoom))
+                            $SetSrtY = Get-Random -Minimum 0.0 -Maximum ($hint*(1-1/$SetSrtZoom))
+                            $SetSrtX = ($wint*(1-1/$SetSrtZoom))
+                            $SetSrtY = ($hint*(1-1/$SetSrtZoom))
+                            #$SetSrtX = 0
+                            #$SetSrtY = 0
                             $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
+                            $XRate = ($SetSrtX)/$NFramesExp
+                            $YRate = ($SetSrtY)/$NFramesExp
 
                             $quality = 5 #Lower is better
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
                             $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
                             $ffmpegCmdV2 = "-r $frameRate -t $FullImgDur "
-                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)':"
-                            $filtercfg2 = "x='iw/2':y='ih/2':d=1:fps=$frameRate`" "
-                            $filtercfg = $filtercfg1 + $filtercfg2
+                            $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
+                            $filtercfgX = ":x='if(gte(in,1),px-$XRate,$SetSrtX)'"
+                            $filtercfgY = ":y='if(gte(in,1),py-$YRate,$SetSrtY)'"
+                            $filtercfg2 = ":d=1:fps=$frameRate`" "
+                            $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
                             $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
                             $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
