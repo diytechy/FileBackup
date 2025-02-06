@@ -401,15 +401,11 @@ function New-MediaForDisplay
                             #Zoompan configuration here.
                             $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
                             $SetSrtZoom = 1.5
-                            $SetSrtX = Get-Random -Minimum 0.0 -Maximum ($wint*(1-1/$SetSrtZoom))
-                            $SetSrtY = Get-Random -Minimum 0.0 -Maximum ($hint*(1-1/$SetSrtZoom))
-                            $SetSrtX = ($wint*(1-1/$SetSrtZoom))
-                            $SetSrtY = ($hint*(1-1/$SetSrtZoom))
-                            #$SetSrtX = 0
-                            #$SetSrtY = 0
+                            $XRatio = Get-Random -Minimum 0.0 -Maximum 1.0
+                            $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
+                            $XRatio = 0.5
+                            $YRatio = 0.5
                             $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
-                            $XRate = ($SetSrtX)/$NFramesExp
-                            $YRate = ($SetSrtY)/$NFramesExp
 
                             $quality = 5 #Lower is better
                             $ffmpegCmd1 = "ffmpeg -y "
@@ -417,10 +413,8 @@ function New-MediaForDisplay
                             $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
                             $ffmpegCmdV2 = "-r $frameRate -t $FullImgDur "
                             $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
-                            $filtercfgX = ":x='if(gte(in,1),px-$XRate,$SetSrtX)'"
-                            $filtercfgY = ":y='if(gte(in,1),py-$YRate,$SetSrtY)'"
-                            $filtercfgX = ":x='($wint*(1.0-1/zoom))'"
-                            $filtercfgY = ":y='$hint*(1.0-1/zoom)'"
+                            $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
+                            $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
                             $filtercfg2 = ":d=1:fps=$frameRate`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
