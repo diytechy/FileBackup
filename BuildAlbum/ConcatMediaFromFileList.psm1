@@ -5,11 +5,13 @@ function Join-VideosFromList
         [decimal]$crossfadedur = 0.5,
         [string]$outputFile = "output.mp4"
     )
-    if( Test-Path $FileListPathOrCSV -PathType Leaf -ErrorAction SilentlyContinue)
+    $FileChk = Test-Path $FileListPathOrCSV -PathType Leaf
+    $FldrChk = Test-Path $FileListPathOrCSV -PathType Container
+    if((($FileChk.Count -eq 1) -and $FileChk -and $FileListPathOrCSV.endsWith("csv")) )
     {
         $FileList = Import-Csv -LiteralPath $FileListPathOrCSV
     }
-    elseif(Test-Path $FileListPathOrCSV -PathType Container)
+    elseif(($FldrChk.Count -eq 1) -and $FldrChk)
     {
         $AllInputFiles = @(Get-ChildItem -LiteralPath $FileListPathOrCSV -Filter "*.mp4" -Recurse)
         $FileList = ($AllInputFiles | Select-Object -ExpandProperty FullName)
@@ -47,33 +49,19 @@ function Join-VideosFromList
         $AFadeInputStr   = [Object[]]::new($FileList.Count)
         $PrevVFadeStr = "[0]"
         $PrevAFadeStr = "[0:a]"
-        $AccumDur = 0
+        $NextVidOffset = 0
         $LastFile = [Int]0
         foreach ($entry in $FileList)
         {
             #Get video definition.
-            #($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height, -of flat $entry) *> $null
-            #($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 $file.FullName) *> $null
-            #$VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height,duration -of csv=p=0 `"$entry`"
             $ToRun = "ffprobe -v error -select_streams v -show_entries stream=width,height,duration -of csv=p=0 `"" +$entry+ "`""
             $VPrams = Invoke-Expression $ToRun
             $splitString = $VPrams -split ","
             $Width = [Int] $splitString[0]
             $Height = [Int] $splitString[1]
             $Dur = [decimal] $splitString[2]
-            $AccumDur = $AccumDur + $Dur - $crossfadedur
-        <#
-        ffmpeg -i v0.mp4 -i v1.mp4 -i v2.mp4 -i v3.mp4 -i v4.mp4 -filter_complex \
-        "[0][1:v]xfade=transition=fade:duration=1:offset=3[vfade1]; \
-         [vfade1][2:v]xfade=transition=fade:duration=1:offset=10[vfade2]; \         $crossfadedur
-         [vfade2][3:v]xfade=transition=fade:duration=1:offset=21[vfade3]; \
-         [vfade3][4:v]xfade=transition=fade:duration=1:offset=25,format=yuv420p; \
-         [0:a][1:a]acrossfade=d=1[afade1]; \
-         [afade1][2:a]acrossfade=d=1[afade2]; \
-         [afade2][3:a]acrossfade=d=1[afade3]; \
-         [afade3][4:a]acrossfade=d=1" \
-        -movflags +faststart out.mp4
-        #>
+            $NextVidOffset = $NextVidOffset + $Dur - $crossfadedur
+
             ##Incriment index for use in other string definitions
             $InstanceInd ++
             $SelInd = $InstanceInd-1
@@ -103,7 +91,7 @@ function Join-VideosFromList
             $VFadeStreamStr = "["+$InstanceInd.ToString()+"]"
             if (-not $LastFile)
             {
-                $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VFadeStreamStr+"xfade=transition=fade:duration="+$crossfadedur.ToString()+":offset="+$AccumDur.ToString()+$VLastAppend+";"
+                $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VFadeStreamStr+"xfade=transition=fade:duration="+$crossfadedur.ToString()+":offset="+$NextVidOffset.ToString()+$VLastAppend+";"
             }
             $PrevVFadeStr = $VFadeStreamStr #For next iteration
             #Get audio fade definitoins.
