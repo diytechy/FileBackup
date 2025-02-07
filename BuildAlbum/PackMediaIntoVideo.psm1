@@ -80,7 +80,7 @@ function Set-VideoFromMedia
         if ($set.MaxSizeInGB)
         {
             $DurTotal = $AllInputFiles | Measure-Object -Property Dur -Sum ; $DurTotal = [double] $DurTotal.Sum
-            $BitTotal = $set.MaxSizeInGB*1.25e+8
+            $BitTotal = 8*$set.MaxSizeInGB*1.25e+8
             $TarBitrate = $BitTotal/$DurTotal #Assume fading is negligable.
         }
         $Groups= $AllInputFiles | Select-Object -ExpandProperty GroupN | Sort-Object -Unique
@@ -98,7 +98,7 @@ function Set-VideoFromMedia
             $FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
         foreach ($grp in $Groups){
-            Join-VideosFromList $GrpDef[$grp] $set.FadeTime $grp.VidExpPath $TarBitrate
+            Join-VideosFromList $GrpDef[$grp] $set.FadeTime $grp.VidExpPath $set.Quality
         }
         $SelGrpN = 0
     }
