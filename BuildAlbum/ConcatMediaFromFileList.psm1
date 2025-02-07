@@ -74,7 +74,7 @@ function Join-VideosFromList
             $CurrAFadeStr = "[afade"+$InstanceInd.ToString()+"]"
             if ($InstanceInd -eq ($FileList.Count-1))
             {
-                $VLastAppend = ",format=yuv420p"
+                $VLastAppend = ""
                 $ALastAppend = ""
             }
             elseif ($InstanceInd -ge $FileList.Count)
@@ -86,35 +86,22 @@ function Join-VideosFromList
                 $VLastAppend = $CurrVFadeStr
                 $ALastAppend = $CurrAFadeStr+";"
                 #Temp override for testing:
-                $ALastAppend = ";"
             }
             #Temp override for testing:
-            $VLastAppend = ""
-            $VFadeStreamStr = "["+$InstanceInd.ToString()+"]"
-            #$VChanInputStr[$SelInd] = "["+ $SelInd.ToString()+":v]" + "settb=AVTB" +$PrevVFadeStr +"`;"
-            #=expr=1/25
-            #$VChanInputStr[$SelInd] = "["+ $SelInd.ToString()+":v]" + "settb=expr=1/6000" +$PrevVFadeStr +"`;"
-            #if($SelInd)
-            #{
-            #    $VChanInputStr[$SelInd] = "["+ $SelInd.ToString()+":v]" + "settb=expr=1/6000"+ "[MAIN]" +"`;"
-            #}
-            #else{
-            #    $VChanInputStr[$SelInd] = "["+ $SelInd.ToString()+":v]" + "settb=expr=1/6000" +$PrevVFadeStr +"`;"
-            #}
-            #$VChanInputStr[$SelInd] = "["+ $SelInd.ToString()+":v]" + "settb=expr=1/6000" +$PrevVFadeStr +"`;"
+            $VStreamStrInput = "["+$InstanceInd.ToString()+":v]"
             if (-not $LastFile)
             {
-                $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VFadeStreamStr+"xfade=transition=fade:duration="+$crossfadedur.ToString()+":offset="+$NextVidOffset.ToString()+$VLastAppend+";"
+                $VFadeInputStr[$SelInd] = $PrevVFadeStr+$VStreamStrInput+"xfade=transition=fade:duration="+$crossfadedur.ToString()+":offset="+$NextVidOffset.ToString()+$VLastAppend+";"
             }
-            $PrevVFadeStr = $VFadeStreamStr #For next iteration
+            $PrevVFadeStr = $CurrVFadeStr #For next iteration
             #Get audio fade definitoins.
-            $AFadeStreamStr = "["+$InstanceInd.ToString()+":a]"
+            $AStreamStrInput = "["+$InstanceInd.ToString()+":a]"
             $AChanInputStr[$SelInd] = "["+ $SelInd.ToString()+":a]" + "asettb=AVTB" +$PrevAFadeStr +"`;"
             if (-not $LastFile)
             {
-                $AFadeInputStr[$SelInd] = $PrevAFadeStr+$AFadeStreamStr+"acrossfade=d="+$crossfadedur.ToString()+$ALastAppend
+                $AFadeInputStr[$SelInd] = $PrevAFadeStr+$AStreamStrInput+"acrossfade=d="+$crossfadedur.ToString()+$ALastAppend
             }
-            $PrevAFadeStr = $AFadeStreamStr #For next iteration
+            $PrevAFadeStr = $CurrAFadeStr #For next iteration
 
         }
         Write-Host "Building final command string"
