@@ -1,5 +1,5 @@
 Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
-$ProcLvl = 3
+$ProcLvl = 2
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"

@@ -18,6 +18,12 @@ function New-MediaForDisplay
     }
     $MaxSrtZoom = 1.3
     $MinSrtZoom = 1.1
+    $frameRate = 29.95
+    $audiorate = 48000
+    $videorate = 6000 #timescale
+    $vq        = 10 #Lower is higher quality.
+    $ffmpegcdc = "-video_track_timescale $videorate -c:v -vcodec libx264 -crf $vq -pix_fmt yuvj420p "
+    $ffmpegaudcmd = "-c:a aac -ar $audiorate "
     #ffmpeg video & Handbrake path:
     $ConvVid = 1
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
@@ -435,7 +441,6 @@ function New-MediaForDisplay
                         if($file.ImgVidPath.length)
                         {
                             $FullImgDur = $Set.FadeTime*2 +$Set.PicDispTime
-                            $frameRate = 30
                             $NFramesExp = [Int] ($FullImgDur*$frameRate)
                             #Zoompan configuration here.
                             $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
@@ -443,7 +448,6 @@ function New-MediaForDisplay
                             $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                             $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
 
-                            $quality = 5 #Lower is better
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
                             $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
@@ -454,9 +458,8 @@ function New-MediaForDisplay
                             $filtercfg2 = ":d=1:fps=$($frameRate):s=$SizeOut`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
-                            $ffmpegDef = "-vcodec libx264 -crf $quality -pix_fmt yuvj420p "
                             $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
-                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegDef+$ffmpegOut
+                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegcdc+$ffmpegOut
 
                             #Execute the FFmpeg command
                             (Invoke-Expression $ffmpegCmd) *> $null
@@ -534,20 +537,26 @@ function New-MediaForDisplay
                                 $wint = $contw -as [Int]
                                 $hint = $conth -as [Int]
                             }
+                            $sizestr = $wint.ToString()+":"+$hint.ToString()
                             #If bordering is required.
                             if($LBand -or $RBand -or $TBand -or $BBand)
                             {
-                                $PadOpt = "--pad top=$($TBand.ToString()):bottom=$($BBand.ToString()):left=$($LBand.ToString()):right=$($RBand.ToString())"
-                                $PadOpt = "--pad top=0:bottom=0"
-                                $PadOpt = "--pad top=0"
+                                $PadOpt = ",pad="+$sizestr + "`:$LBand`:$TBand,setsar=1"
+                                #$PadOpt = ",pad top=$($TBand.ToString()):bottom=$($BBand.ToString()):left=$($LBand.ToString()):right=$($RBand.ToString())"
                             }
                             else
                             {
                                 $PadOpt = ""
                             }
-                            $PadOpt = ""
+                            #$PadOpt = ""
+                            #$outputFile = $file.ContPath.split(".")[0]
                             $handbrakecmd = "handbrakecli -i `"$($file.FullName)`" $PadOpt -o `"$($file.ContPath)`" -w $($wint.ToString()) -l $($hint.ToString())"
-                            (Invoke-Expression $handbrakecmd) *> $null
+                            $ffmpeginput  = "ffmpeg -y -i `"$($file.FullName)`" "
+                            $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
+                            $ffmpegcmd = $ffmpeginput+$ffmpegaudcmd + $ffmpegvidcmd1+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
+                            $ffmpegcmd = $ffmpeginput+$ffmpegaudcmd + $ffmpegvidcmd1+" -movflags faststart `"$($file.ContPath)`""
+                            (Invoke-Expression $ffmpegcmd) *> $null
+                            # (Invoke-Expression $handbrakecmd) *> $null
                             $file.ExpContSuccess = 1
 
                         }
