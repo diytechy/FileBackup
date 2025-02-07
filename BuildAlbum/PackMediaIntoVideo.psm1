@@ -49,7 +49,7 @@ function Set-VideoFromMedia
     foreach ($set in $OutputSizes){
         $ContFileRootPath = $set.Outpath
         $VidPacksRootPath = $ContFileRootPath + $set.ImgVidFldr
-        $VidPacksFileDefPath = $set.Outpath + "\VidPackDef"
+        $VidPacksFileDefPath = $set.OutGrp
         $AllInputFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Filter "*.mp4")
         #Add in video packs for images if defined and intended.
         if((Test-Path -LiteralPath $VidPacksRootPath -PathType Container) -and $set.ImgVidFldr.Length -and $set.PicDispTime)
@@ -57,6 +57,7 @@ function Set-VideoFromMedia
             $AllInputFiles = $AllInputFiles + @(Get-ChildItem -LiteralPath $VidPacksRootPath -Filter "*.mp4")
         }
         $AllInputFiles | Add-Member -MemberType NoteProperty -Name GroupN -Value $([int])
+        $AllInputFiles | Add-Member -MemberType NoteProperty -Name Dur -Value $([Decimal])
         #Figure out the nominal number of files per group, assuming most are pictures lasting for the still duration.
         $NFilesPerGrp = (($Set.BulkVidTimeMin*60)/$Set.PicDispTime)
         $NGroups = [Math]::Floor($AllInputFiles.Count/$NFilesPerGrp) -as [Int]
@@ -69,6 +70,11 @@ function Set-VideoFromMedia
             if($SelGrpN -gt $NGroups){
                 $SelGrpN = 1
             }
+            $ToRun = "ffprobe -v error -select_streams v -show_entries stream=width,duration -of csv=p=0 `"" +$file.Fullname+ "`""
+            ($VPrams = Invoke-Expression $ToRun) *> $null
+            $splitString = $VPrams -split ","
+            #$Width = [Int] $splitString[0]
+            $file.Dur = [decimal] $splitString[1]
         }
         $Groups= $AllInputFiles | Select-Object -ExpandProperty GroupN | Sort-Object -Unique
         $Groups | Add-Member -MemberType NoteProperty -Name FileListPath -Value $([string])
@@ -80,12 +86,12 @@ function Set-VideoFromMedia
             $FileSet = (($AllInputFiles | Where-Object {( $_.GroupN -eq $grp)} | Sort-Object -Property Name) | Select-Object -ExpandProperty FullName)
             $GrpDef[$grp] = $FileSet
             $grp.FileListPath = $VidPacksFileDefPath  + " Grp-" + $grp.ToString()
-            $grp.VidExpPath   = $VidPacksRootPath  + "\Grp-" + $grp.ToString()
+            $grp.VidExpPath   = $VidPacksFileDefPath  + "\Grp-" + $grp.ToString()+".mp4"
             #Create file to describe what videos to append.
             $FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
         foreach ($grp in $Groups){
-            Join-VideosFromList $GrpDef[$grp] $set.FadeTime
+            Join-VideosFromList $GrpDef[$grp] $set.FadeTime $grp.VidExpPath
         }
         $SelGrpN = 0
     }

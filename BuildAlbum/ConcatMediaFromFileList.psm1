@@ -3,7 +3,8 @@ function Join-VideosFromList
     param (
         $FileListPathOrCSV,
         [decimal]$crossfadedur = 0.5,
-        [string]$outputFile = "output.mp4"
+        [string]$outputFile = "output.mp4",
+        [int]$vidqty = 50
     )
     $FileChk = Test-Path $FileListPathOrCSV -PathType Leaf
     $FldrChk = Test-Path $FileListPathOrCSV -PathType Container
@@ -31,6 +32,8 @@ function Join-VideosFromList
             throw "Input must be a list of strings, list of files, a directory, or path to a csv."
         }
     }
+    if (Test-Path -Path $outputFile){}
+    else {$null = New-Item -ItemType File -Path $outputFile -Force}
     if($FileList.Count -lt 1)
     {
         throw "No files found, or format not supported"
@@ -105,20 +108,18 @@ function Join-VideosFromList
 
         }
         Write-Host "Building final command string"
-        #$CmdPartStart = Join-String
         $CmdPartInput = $VidPathInputStr -join " \`n"
         $CmdPartVChan = $VChanInputStr -join "\`n"
         $CmdPartVFade = $VFadeInputStr -join "\`n"
         $CmdPartAChan = $AChanInputStr -join "\`n"
         $CmdPartAFade = $AFadeInputStr -join "\`n"
-        $CmdPartEnded = " -vcodec libx265 -pix_fmt yuv420p -x265-params crf=5 -acodec aac -movflags faststart " +$outputFile
+        $CmdPartEnded = " -vcodec libx265 -pix_fmt yuv420p -x265-params crf=$vidqty -acodec aac -movflags faststart " +$outputFile
 
         $FullCmdStart = "ffmpeg -y "+$CmdPartInput+" -filter_complex \`n`""
-        $PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAChan + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
+        #$PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAChan + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
         $PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
-        $PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "`"\`n" +  $CmdPartEnded
+        #$PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "`"\`n" +  $CmdPartEnded
         $FullCmd = $PreCmd -replace '\\\r?\n',''
-        #$FullCmd = "dir `"$FileListPathOrCSV`""
 
         Write-Host "Building video"
         Invoke-Expression $FullCmd

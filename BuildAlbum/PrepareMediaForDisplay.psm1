@@ -474,10 +474,39 @@ function New-MediaForDisplay
                     elseif($file.IsVid -and $ConvVid)
                     {
                         ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 $file.FullName) *> $null
-                        $Parts = $VPrams -split ','
-                        if ($Parts.Count -gt 1){
-                            $VWidth = [Int]::Parse($Parts[0] -split ',', 1)
-                            $VHeight = [Int]::Parse($Parts[($Parts.Count-1)] -split ',', 1)
+                        ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height,displaymatrix -of csv=p=0 $file.FullName) *> $null
+                        #displaymatrix:
+                        ($VPrams = ffprobe -v error -of csv=p=0 $file.FullName) *> $null
+                        $VPrams = ffprobe $file.FullName
+                        $VPrams = ffprobe -v error -show_streams -select_streams v:0 -of ini $file.FullName
+                        $VWidth = [Int]::0
+                        $VWidth = [Int]::0
+                        $Rotation = [Int]::0
+                        if ($VPrams.Count -gt 1){
+                            foreach($Pram in $VPrams)
+                            {
+                                if($Pram.StartsWith("width="))
+                                {
+                                    $PreWidth = [Int]::Parse($Pram.split('width=')[1])
+                                }
+                                if($Pram.StartsWith("height=")){
+                                    $PreHeight = [Int]::Parse($Pram.split('height=')[1])
+                                }
+                                if($Pram.StartsWith("rotation=")){
+                                    $Rotation = [Int]::Parse($Pram.split('rotation=')[1])
+                                }
+                            }
+                            #If video is not oriented according to it's resolution, assume  a 90 deg turn.
+                            if($Rotation%180 -ne 0)
+                            {
+                                $VWidth = $PreHeight
+                                $VHeight = $PreWidth
+                            }
+                            else
+                            {
+                                $VWidth = $PreWidth
+                                $VHeight = $PreHeight
+                            }
                             $whvidratio = $VWidth/$VHeight
                             #If width is greater, limit this dimension for resize.
                             if ($whvidratio -gt $whdispratio)
