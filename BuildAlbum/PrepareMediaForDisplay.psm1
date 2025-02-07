@@ -22,7 +22,7 @@ function New-MediaForDisplay
     $audiorate = 48000
     $videorate = 6000 #timescale
     $vq        = 10 #Lower is higher quality.
-    $ffmpegcdc = "-video_track_timescale $videorate -c:v -vcodec libx264 -crf $vq -pix_fmt yuvj420p "
+    $ffmpegcdc = "-video_track_timescale $videorate -vcodec libx264 -crf $vq -pix_fmt yuvj420p -r $frameRate "
     $ffmpegaudcmd = "-c:a aac -ar $audiorate "
     #ffmpeg video & Handbrake path:
     $ConvVid = 1
@@ -451,7 +451,7 @@ function New-MediaForDisplay
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
                             $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
-                            $ffmpegCmdV2 = "-r $frameRate -t $FullImgDur "
+                            $ffmpegCmdV2 = "-t $FullImgDur "
                             $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
                             $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
                             $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
@@ -459,7 +459,7 @@ function New-MediaForDisplay
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
                             $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
-                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegcdc+$ffmpegOut
+                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegcdc+$ffmpegOut
 
                             #Execute the FFmpeg command
                             (Invoke-Expression $ffmpegCmd) *> $null
@@ -533,7 +533,6 @@ function New-MediaForDisplay
                                 {
                                     $conth = [math]::Floor($conth)
                                 }
-                                $VidPad = $null
                                 $wint = $contw -as [Int]
                                 $hint = $conth -as [Int]
                             }
@@ -542,21 +541,16 @@ function New-MediaForDisplay
                             if($LBand -or $RBand -or $TBand -or $BBand)
                             {
                                 $PadOpt = ",pad="+$sizestr + "`:$LBand`:$TBand,setsar=1"
-                                #$PadOpt = ",pad top=$($TBand.ToString()):bottom=$($BBand.ToString()):left=$($LBand.ToString()):right=$($RBand.ToString())"
                             }
                             else
                             {
                                 $PadOpt = ""
                             }
-                            #$PadOpt = ""
                             #$outputFile = $file.ContPath.split(".")[0]
-                            $handbrakecmd = "handbrakecli -i `"$($file.FullName)`" $PadOpt -o `"$($file.ContPath)`" -w $($wint.ToString()) -l $($hint.ToString())"
                             $ffmpeginput  = "ffmpeg -y -i `"$($file.FullName)`" "
                             $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
-                            $ffmpegcmd = $ffmpeginput+$ffmpegaudcmd + $ffmpegvidcmd1+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
-                            $ffmpegcmd = $ffmpeginput+$ffmpegaudcmd + $ffmpegvidcmd1+" -movflags faststart `"$($file.ContPath)`""
+                            $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
                             (Invoke-Expression $ffmpegcmd) *> $null
-                            # (Invoke-Expression $handbrakecmd) *> $null
                             $file.ExpContSuccess = 1
 
                         }

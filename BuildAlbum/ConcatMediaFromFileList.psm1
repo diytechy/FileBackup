@@ -129,6 +129,7 @@ function Join-VideosFromList
         $FullCmdStart = "ffmpeg -y "+$CmdPartInput+" -filter_complex \`n`""
         $PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAChan + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
         $PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
+        $PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "`"\`n" +  $CmdPartEnded
         $FullCmd = $PreCmd -replace '\\\r?\n',''
         #$FullCmd = "dir `"$FileListPathOrCSV`""
 
