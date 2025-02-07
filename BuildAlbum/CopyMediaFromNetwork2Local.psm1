@@ -139,4 +139,5 @@ function Copy-MediaFromNetwork
     {
         throw "The input processing path was empty."
     }
+    write-host "File syncronization complete"
 }

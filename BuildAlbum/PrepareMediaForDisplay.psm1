@@ -406,8 +406,8 @@ function New-MediaForDisplay
                         #If width is greater, limit this dimension for resize.
                         if($file.ImgVidPath.length)
                         {
-                            $contw = $set.XDim*2
-                            $conth = $set.YDim*2
+                            $contw = $set.XDim*4
+                            $conth = $set.YDim*4
                         }
                         elseif ($whimgratio -gt $whdispratio)
                         {
