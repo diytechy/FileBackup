@@ -394,8 +394,12 @@ function New-MediaForDisplay
             $LoopProg = 0
             $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
             Write-Host ("Exporting "+($Files2GetCont | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" files...")
-            foreach ($file in ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1))
+            (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Process{
+                $_.Name
+            } #-ThrottleLimit 4
+            if(0)
             {
+                $file = $_
                 try
                 {
                     if ($file.IsImg)
@@ -465,6 +469,7 @@ function New-MediaForDisplay
                             (Invoke-Expression $ffmpegCmd) *> $null
                         }
                         $file.ExpContSuccess = 1
+                        $_.ExpContSuccess = 1
                         #Optional / future explore:
                         #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
                         #
@@ -581,6 +586,7 @@ function New-MediaForDisplay
                             $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
                             (Invoke-Expression $ffmpegcmd) *> $null
                             $file.ExpContSuccess = 1
+                            $_.ExpContSuccess = 1
 
                         }
                     }

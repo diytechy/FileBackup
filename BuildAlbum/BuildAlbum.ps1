@@ -1,9 +1,14 @@
 Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
+Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 $ProcLvl = 2
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
 $OutputFilePrepend = "D:\Album"
+$InputFileRootPath ="D:\T"
+$PrepFileRootPath ="D:\TAlbumPrep"
+$ConvFileRootPath ="D:\TAlbumConv"
+$OutputFilePrepend = "D:\TAlbum"
 #Define output definitions:
 $OutputDefs = @(
     [pscustomobject]@{XDim=1440;YDim=900;FPS=30;PicDispTime=6;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid";Quality=20})
