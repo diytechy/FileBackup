@@ -4,7 +4,7 @@ function Join-VideosFromList
         $FileListPathOrCSV,
         [decimal]$crossfadedur = 0.5,
         [string]$outputFile = "output.mp4",
-        [int]$vidqty = 50
+        [int]$vidbr = 5000
     )
     $FileChk = Test-Path $FileListPathOrCSV -PathType Leaf
     $FldrChk = Test-Path $FileListPathOrCSV -PathType Container
@@ -113,7 +113,7 @@ function Join-VideosFromList
         $CmdPartVFade = $VFadeInputStr -join "\`n"
         $CmdPartAChan = $AChanInputStr -join "\`n"
         $CmdPartAFade = $AFadeInputStr -join "\`n"
-        $CmdPartEnded = " -vcodec libx265 -pix_fmt yuv420p -x265-params crf=$vidqty -acodec aac -movflags faststart " +$outputFile
+        $CmdPartEnded = " -vcodec libx265 -pix_fmt yuv420p -x265-params -vb=$vidbr -crf 10 -acodec aac -movflags faststart " +$outputFile
 
         $FullCmdStart = "ffmpeg -y "+$CmdPartInput+" -filter_complex \`n`""
         #$PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAChan + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
