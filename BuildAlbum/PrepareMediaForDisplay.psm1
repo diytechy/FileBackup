@@ -400,15 +400,16 @@ function New-MediaForDisplay
             (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
                 $_.Name
                 $file = $_
-                $set =$using:set
-                $AllFilesizeTtl=$using:AllFilesizeTtl
-                $AllFilesizeTtl=$using:AllFilesizeTtl
-                $GDefs = $using:GDefs
-                $framerate = $using:GDefs.framerate
-                $MinSrtZoom = $using:GDefs.MinSrtZoom
-                $MaxSrtZoom = $using:GDefs.MaxSrtZoom
-                $ffmpegcdc  = $using:GDefs.ffmpegcdc
-                $ffmpegcdc  = $using:GDefs.ffmpegaudcmd
+                $XDim=$using:set.XDim
+                $YDim=$using:set.YDim
+                $FadeTime    = $using:set.FadeTime
+                $PicDispTime = $using:set.PicDispTime
+                $VidPack     = $using:set.VidPack
+                $framerate   = $using:GDefs.framerate
+                $MinSrtZoom  = $using:GDefs.MinSrtZoom
+                $MaxSrtZoom  = $using:GDefs.MaxSrtZoom
+                $ffmpegcdc   = $using:GDefs.ffmpegcdc
+                $ffmpegcdc   = $using:GDefs.ffmpegaudcmd
 
                 try
                 {
@@ -420,24 +421,24 @@ function New-MediaForDisplay
                         #If width is greater, limit this dimension for resize.
                         if($file.ImgVidPath.length)
                         {
-                            $contw = $set.XDim*4
-                            $conth = $set.YDim*4
+                            $contw = $XDim*4
+                            $conth = $YDim*4
                         }
                         elseif ($whimgratio -gt $whdispratio)
                         {
-                            $contw = $set.XDim
-                            $conth = ($set.XDim/$whimgratio)
+                            $contw = $XDim
+                            $conth = ($XDim/$whimgratio)
                         }
                         else
                         {
-                            $conth = $set.YDim
-                            $contw = ($set.YDim*$whimgratio)
+                            $conth = $YDim
+                            $contw = ($YDim*$whimgratio)
                         }
                         $wint = $contw -as [Int]
                         $hint = $conth -as [Int]
                         $SizeStr = $wint.ToString() + "x" + $hint.ToString()
-                        $SizeStr2 = $set.XDim.ToString() + ":" + $set.YDim.ToString()
-                        $SizeOut = $set.XDim.ToString() + "x" + $set.YDim.ToString()
+                        $SizeStr2 = $XDim.ToString() + ":" + $YDim.ToString()
+                        $SizeOut = $XDim.ToString() + "x" + $YDim.ToString()
                         $quality = 95
                         if($file.ImgVidPath.length)
                         {
@@ -456,7 +457,7 @@ function New-MediaForDisplay
                         if($file.ImgVidPath.length)
                         {
                             write-host "$($file.ImgVidPath) - B"
-                            $FullImgDur = $Set.FadeTime*2 +$Set.PicDispTime
+                            $FullImgDur = $FadeTime*2 +$PicDispTime
                             write-host "$($file.ImgVidPath) - $FullImgDur"
                             write-host "$($file.ImgVidPath) - $frameRate"
                             $NFramesExp = ($FullImgDur*$FrameRate) -as [Int]
@@ -477,7 +478,7 @@ function New-MediaForDisplay
                             $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
                             $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
                             $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
-                            $filtercfg2 = ":d=1:fps=$frameRate:s=$SizeOut`" "
+                            $filtercfg2 = ":d=1:fps=$frameRate`:s=$SizeOut`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
                             write-host "$($file.ImgVidPath) - C"
 
@@ -485,7 +486,7 @@ function New-MediaForDisplay
                             $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegcdc+$ffmpegOut
 
                             #Execute the FFmpeg command
-                            write-host "ffmpeg command:"
+                            write-host "ffmpeg command for image conversion:"
                             write-host $ffmpegcmd
                             (Invoke-Expression $ffmpegCmd) *> $null
                         }
@@ -532,23 +533,23 @@ function New-MediaForDisplay
                             #If width is greater, limit this dimension for resize.
                             if ($whvidratio -gt $whdispratio)
                             {
-                                $contw = [int]$set.XDim
-                                $conth = [int]($set.XDim/$whvidratio)
+                                $contw = [int] $XDim
+                                $conth = [int]($XDim/$whvidratio)
                             }
                             else
                             {
-                                $conth = [int]$set.YDim
-                                $contw = [int]($set.YDim*$whvidratio)
+                                $conth = [int] $YDim
+                                $contw = [int]($YDim*$whvidratio)
                             }
                             #If video packing, need to set the pad limits
-                            if($Set.VidPack)
+                            if($VidPack)
                             {
-                                $Sides = $set.XDim - $contw;
-                                $TopBot = $set.YDim - $conth;
-                                $LBand = [math]::Floor($Sides/2)
-                                $TBand = [math]::Floor($TopBot/2)
-                                $RBand = $LBand
-                                $BBand = $TBand
+                                $Sides  = $XDim - $contw;
+                                $TopBot = $YDim - $conth;
+                                $LBand  = [math]::Floor($Sides/2)
+                                $TBand  = [math]::Floor($TopBot/2)
+                                $RBand  = $LBand
+                                $BBand  = $TBand
 
                                 if ($Sides%2)
                                 {
@@ -558,8 +559,8 @@ function New-MediaForDisplay
                                 {
                                     $BBand = $TBand+1
                                 }
-                                $wint = $set.XDim -as [Int]
-                                $hint = $set.YDim -as [Int]
+                                $wint = $XDim -as [Int]
+                                $hint = $YDim -as [Int]
                             }
                             else
                             {
@@ -601,7 +602,7 @@ function New-MediaForDisplay
                             $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
                             $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
 
-                            write-host "ffmpeg command:"
+                            write-host "ffmpeg command for video conversion:"
                             write-host $ffmpegcmd
                             (Invoke-Expression $ffmpegcmd) *> $null
                             $file.ExpContSuccess = 1
