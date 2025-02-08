@@ -235,7 +235,6 @@ function New-MediaForDisplay
             $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
             $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
-            $whdispratio = $set.XDim/$set.YDim
             Write-Host ("Width to height ratio: "+$whdispratio.ToString())
             #Convert all logs accordingly
             Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
@@ -410,6 +409,8 @@ function New-MediaForDisplay
                 $MaxSrtZoom  = $using:GDefs.MaxSrtZoom
                 $ffmpegcdc   = $using:GDefs.ffmpegcdc
                 $ffmpegcdc   = $using:GDefs.ffmpegaudcmd
+                $whdispratio = $XDim/$YDim
+                write-host "$($file.ImgVidPath) Vidpack: $VidPack"
 
                 try
                 {
@@ -516,9 +517,11 @@ function New-MediaForDisplay
                                 }
                                 if($Pram.StartsWith("rotation=")){
                                     $Rotation = [Int]::Parse($Pram.split('rotation=')[1])
+                                    write-host "$($file.ContPath) - Rotation - $Rotation"
                                 }
                             }
                             #If video is not oriented according to it's resolution, assume  a 90 deg turn.
+                        #write-host "$($file.ContPath) - $XDim"
                             if($Rotation%180 -ne 0)
                             {
                                 $VWidth = $PreHeight
@@ -542,6 +545,11 @@ function New-MediaForDisplay
                                 $contw = [int]($YDim*$whvidratio)
                             }
                             #If video packing, need to set the pad limits
+                        #conth / contw is what the video dimensions need to be.
+                        write-host "$($file.ContPath) - conth - $conth"
+                        write-host "$($file.ContPath) - YDim - $YDim"
+                        write-host "$($file.ContPath) - contw - $contw"
+                        write-host "$($file.ContPath) - XDim - $XDim"
                             if($VidPack)
                             {
                                 $Sides  = $XDim - $contw;
