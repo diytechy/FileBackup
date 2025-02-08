@@ -4,8 +4,7 @@ function New-MediaForDisplay
         [string]$PrepFileRootPath,
         [string]$ConvFileRootPath,
         [string]$OutputFilePrepend,
-        $OutputSizes,
-        [Int]$SelFrameRate = 30
+        $OutputSizes
     )
     $HashTblDateFormat = "O"
     $CurrInnerProgPercInt = [int32[]]::new(1);
@@ -23,11 +22,11 @@ function New-MediaForDisplay
     $GDefs = @{
         MaxSrtZoom = 1.3
         MinSrtZoom = 1.1
-        frameRate = $SelFrameRate
+        frameRate = 0 #Configured below per set.
         audiorate = $arval
         videorate = $vrate 
         vq = $vqual
-        ffmpegcdc = "-video_track_timescale $vrate -vcodec libx264 -crf $vqual -pix_fmt yuvj420p -r $SelFrameRate "
+        ffmpegcdc = "" #Configured below per set.
         ffmpegaudcmd = "-c:a aac -ar $arval "
     }
     #ffmpeg video & Handbrake path:
@@ -226,6 +225,8 @@ function New-MediaForDisplay
         $AllFiles = $ImageFiles + $VideoFiles
         Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
         foreach ($set in $OutputSizes){
+            $GDefs.frameRate = $set.FPS
+            $GDefs.ffmpegcdc = "-video_track_timescale $vrate -vcodec libx264 -crf $vqual -pix_fmt yuvj420p -r $($set.FPS) "
             $Files2Chk = $AllFiles
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] "")
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] "")
@@ -401,7 +402,14 @@ function New-MediaForDisplay
                 $file = $_
                 $set =$using:set
                 $AllFilesizeTtl=$using:AllFilesizeTtl
-                $GDefs = $usage:GDefs
+                $AllFilesizeTtl=$using:AllFilesizeTtl
+                $GDefs = $using:GDefs
+                $framerate = $using:GDefs.framerate
+                $MinSrtZoom = $using:GDefs.MinSrtZoom
+                $MaxSrtZoom = $using:GDefs.MaxSrtZoom
+                $ffmpegcdc  = $using:GDefs.ffmpegcdc
+                $ffmpegcdc  = $using:GDefs.ffmpegaudcmd
+
                 try
                 {
                     if ($file.IsImg)
@@ -444,30 +452,41 @@ function New-MediaForDisplay
                         $IMCmdOut = "`"$($file.ContPath)`""
                         $IMCmd = $IMCmd1+$ExpCmd+$IMCmdOut
                         (Invoke-Expression $IMCmd) *> $null
+                        write-host "$($file.ImgVidPath) - A"
                         if($file.ImgVidPath.length)
                         {
+                            write-host "$($file.ImgVidPath) - B"
                             $FullImgDur = $Set.FadeTime*2 +$Set.PicDispTime
-                            $NFramesExp = [Int] ($FullImgDur*$GDefs.frameRate)
+                            write-host "$($file.ImgVidPath) - $FullImgDur"
+                            write-host "$($file.ImgVidPath) - $frameRate"
+                            $NFramesExp = ($FullImgDur*$FrameRate) -as [Int]
                             #Zoompan configuration here.
-                            $SetSrtZoom = Get-Random -Minimum $GDefs.MinSrtZoom -Maximum $GDefs.MaxSrtZoom
+                            write-host "$($file.ImgVidPath) - C"
+                            $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
                             $XRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                             $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
+                            write-host "$($file.ImgVidPath) - D"
+                            write-host "$($file.ImgVidPath) - $NFramesExp"
                             $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
+                            write-host "$($file.ImgVidPath) - E"
 
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
-                            $ffmpegCmdV1= "-framerate " + $GDefs.frameRate + " -i `"$($file.ContPath)`" "
+                            $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
                             $ffmpegCmdV2 = "-t $FullImgDur "
                             $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
                             $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
                             $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
-                            $filtercfg2 = ":d=1:fps=$($GDefs.frameRate):s=$SizeOut`" "
+                            $filtercfg2 = ":d=1:fps=$frameRate:s=$SizeOut`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
+                            write-host "$($file.ImgVidPath) - C"
 
                             $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
-                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$($GDefs.ffmpegaudcmd)+$($GDefs.ffmpegcdc)+$ffmpegOut
+                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegcdc+$ffmpegOut
 
                             #Execute the FFmpeg command
+                            write-host "ffmpeg command:"
+                            write-host $ffmpegcmd
                             (Invoke-Expression $ffmpegCmd) *> $null
                         }
                         $file.ExpContSuccess = 1
@@ -480,11 +499,6 @@ function New-MediaForDisplay
                         }
                     elseif($file.IsVid)
                     {
-                        ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 $file.FullName) *> $null
-                        ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height,displaymatrix -of csv=p=0 $file.FullName) *> $null
-                        #displaymatrix:
-                        ($VPrams = ffprobe -v error -of csv=p=0 $file.FullName) *> $null
-                        $VPrams = ffprobe $file.FullName
                         $VPrams = ffprobe -v error -show_streams -select_streams v:0 -of ini $file.FullName
                         $VWidth = [Int]::0
                         $VWidth = [Int]::0
@@ -585,7 +599,10 @@ function New-MediaForDisplay
                             #$outputFile = $file.ContPath.split(".")[0]
                             $ffmpeginput  = "ffmpeg -y -i `"$($file.FullName)`" "
                             $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
-                            $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$($GDefs.ffmpegaudcmd)+$($GDefs.ffmpegcdc)+" -movflags faststart `"$($file.ContPath)`""
+                            $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
+
+                            write-host "ffmpeg command:"
+                            write-host $ffmpegcmd
                             (Invoke-Expression $ffmpegcmd) *> $null
                             $file.ExpContSuccess = 1
                             $_.ExpContSuccess = 1
