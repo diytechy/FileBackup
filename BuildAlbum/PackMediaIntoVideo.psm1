@@ -104,7 +104,7 @@ function Set-VideoFromMedia
             $SelGrpDef     = $GrpDef[$_]
             Import-Module ".\BuildAlbum\ConcatMediaFromFileList.psm1"
             Join-VideosFromList $SelGrpDef $FadeTime $_.VidExpPath $Quality
-        } -ThrottleLimit 1
+        } -ThrottleLimit 2
         $SelGrpN = 0
     }
 }

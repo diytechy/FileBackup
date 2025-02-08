@@ -202,7 +202,8 @@ function New-MediaForDisplay
             $AllFilesizeTtl = $ConvDirs2Batch.Count
             foreach ($fldr in $ConvDirs2Batch)
             {
-                $null = jpegr -auto -s $fldr
+                $jpegrcmd = "jpegr -auto -s `"$fldr`""
+                (Invoke-Expression $jpegrcmd) *> $null
                 $LoopProg ++
                 $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
@@ -423,9 +424,9 @@ function New-MediaForDisplay
                         $image.loadfile($file.ConvPath)
                         $whimgratio = $image.Width/$image.Height
                         #If width is greater, limit this dimension for resize.
-                        write-host "$($file.Name) Input width:  $($image.Width)"
-                        write-host "$($file.Name) Input height:  $($image.Height)"
-                        write-host $image
+                        #write-host "$($file.Name) Input width:  $($image.Width)"
+                        #write-host "$($file.Name) Input height:  $($image.Height)"
+                        #write-host $image
                         if($file.ImgVidPath.length)
                         {
                             $contw = $XDim*4
