@@ -4,37 +4,38 @@ function New-MediaForDisplay
         [string]$PrepFileRootPath,
         [string]$ConvFileRootPath,
         [string]$OutputFilePrepend,
-        $OutputSizes
+        $OutputSizes,
+        [Int]$SelFrameRate = 30
     )
     $HashTblDateFormat = "O"
     $CurrInnerProgPercInt = [int32[]]::new(1);
     $PrevInnerProgPercInt = [int32[]]::new(1);
     $InnerLoopProg = @{
-	ID       = 1
-	Activity = "Getting ready.  Please wait..."
-	Status   = "Getting ready.  Please wait..."
-	PercentComplete  = 0
-	CurrentOperation = 0
+        ID = 1
+        Activity = "Getting ready.  Please wait..."
+        Status = "Getting ready.  Please wait..."
+        PercentComplete = 0
+        CurrentOperation = 0
     }
-    $MaxSrtZoom = 1.3
-    $MinSrtZoom = 1.1
-    $frameRate = 29.95
-    $audiorate = 48000
-    $videorate = 6000 #timescale
-    $vq        = 10 #Lower is higher quality.
-    $ffmpegcdc = "-video_track_timescale $videorate -vcodec libx264 -crf $vq -pix_fmt yuvj420p -r $frameRate "
-    $ffmpegaudcmd = "-c:a aac -ar $audiorate "
+    $arval = 48000 #audio rate
+    $vrate = 6000 #timescale
+    $vqual = 10 #Quality to convert to, lower is better.
+    $GDefs = @{
+        MaxSrtZoom = 1.3
+        MinSrtZoom = 1.1
+        frameRate = $SelFrameRate
+        audiorate = $arval
+        videorate = $vrate 
+        vq = $vqual
+        ffmpegcdc = "-video_track_timescale $vrate -vcodec libx264 -crf $vqual -pix_fmt yuvj420p -r $SelFrameRate "
+        ffmpegaudcmd = "-c:a aac -ar $arval "
+    }
     #ffmpeg video & Handbrake path:
     $ConvVid = 1
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
     #Write-Host "ffmpeg is already installed."
     }
-    else{Write-Host  "ffmpeg not detected, videos will not be converted"
-    $ConvVid = 0}
-    if (Get-Command HandBrakeCLI -ErrorAction SilentlyContinue) {
-    #Write-Host "HandBrakeCLI  is already installed."
-    }
-    else{Write-Host  "HandBrakeCLI not detected, videos will not be converted"
+    else{throw  "ffmpeg not detected, videos will not be converted"
     $ConvVid = 0}
 
     #JPEG Lossless rotator path:
@@ -42,7 +43,7 @@ function New-MediaForDisplay
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
             #Write-Host "jpeg lossless rotator is already installed."
             }
-        else{Write-Host  "jpeg lossless rotator not detected, images will not be rotated"
+        else{throw  "jpeg lossless rotator not detected, images will not be rotated"
         $RotImg = 0}
 
     #Image Magick path:
@@ -50,7 +51,7 @@ function New-MediaForDisplay
     if (Get-Command magick -ErrorAction SilentlyContinue) {
             #Write-Host "Image Magick is already installed."
             }
-        else{Write-Host  "Image Magick not detected, images will not be enhanced"
+        else{throw  "Image Magick not detected, images will not be enhanced"
         $MagImg = 0}
     $ImgTypes = @(
     "jpg"
@@ -392,14 +393,15 @@ function New-MediaForDisplay
 
             $PrevInnerProgPercInt[0] = 0
             $LoopProg = 0
+            $ShowProg = 1
             $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
             Write-Host ("Exporting "+($Files2GetCont | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" files...")
-            (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Process{
+            (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
                 $_.Name
-            } #-ThrottleLimit 4
-            if(0)
-            {
                 $file = $_
+                $set =$using:set
+                $AllFilesizeTtl=$using:AllFilesizeTtl
+                $GDefs = $usage:GDefs
                 try
                 {
                     if ($file.IsImg)
@@ -445,25 +447,25 @@ function New-MediaForDisplay
                         if($file.ImgVidPath.length)
                         {
                             $FullImgDur = $Set.FadeTime*2 +$Set.PicDispTime
-                            $NFramesExp = [Int] ($FullImgDur*$frameRate)
+                            $NFramesExp = [Int] ($FullImgDur*$GDefs.frameRate)
                             #Zoompan configuration here.
-                            $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
+                            $SetSrtZoom = Get-Random -Minimum $GDefs.MinSrtZoom -Maximum $GDefs.MaxSrtZoom
                             $XRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                             $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                             $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
 
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
-                            $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
+                            $ffmpegCmdV1= "-framerate " + $GDefs.frameRate + " -i `"$($file.ContPath)`" "
                             $ffmpegCmdV2 = "-t $FullImgDur "
                             $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
                             $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
                             $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
-                            $filtercfg2 = ":d=1:fps=$($frameRate):s=$SizeOut`" "
+                            $filtercfg2 = ":d=1:fps=$($GDefs.frameRate):s=$SizeOut`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
                             $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
-                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegcdc+$ffmpegOut
+                            $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$($GDefs.ffmpegaudcmd)+$($GDefs.ffmpegcdc)+$ffmpegOut
 
                             #Execute the FFmpeg command
                             (Invoke-Expression $ffmpegCmd) *> $null
@@ -583,7 +585,7 @@ function New-MediaForDisplay
                             #$outputFile = $file.ContPath.split(".")[0]
                             $ffmpeginput  = "ffmpeg -y -i `"$($file.FullName)`" "
                             $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
-                            $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
+                            $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$($GDefs.ffmpegaudcmd)+$($GDefs.ffmpegcdc)+" -movflags faststart `"$($file.ContPath)`""
                             (Invoke-Expression $ffmpegcmd) *> $null
                             $file.ExpContSuccess = 1
                             $_.ExpContSuccess = 1
@@ -592,16 +594,19 @@ function New-MediaForDisplay
                     }
                 }
                 catch{}
-                $LoopProg += $file.Length
-                $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
-                if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
+                if($ShowProg)
                 {
-                    $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
-                    $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
-                    $InnerLoopProg.Status = "Creating content files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
-                    Write-Progress @InnerLoopProg
+                    $LoopProg += $file.Length
+                    $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
+                    if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
+                    {
+                        $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
+                        $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+                        $InnerLoopProg.Status = "Creating content files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
+                        Write-Progress @InnerLoopProg
+                    }
                 }
-            }
+            } -UseNewRunspace -ThrottleLimit 1
 
             #Save the report
             #$ContReportPath

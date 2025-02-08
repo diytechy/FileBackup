@@ -33,6 +33,7 @@ foreach($set in $OutputDefs)
     }
 }
 #Run operations.
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
     Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath
 }
@@ -42,6 +43,9 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
     Set-VideoFromMedia $OutputFilePrepend $OutputDefs
 }
+$stopwatch.Stop()
+$elapsedTime = $stopwatch.Elapsed
+write-host "Elapsed time: $elapsedTime"
 #3 Steps:
 #1. Prepare files by copying them to local path
 #2. Prepare images by converting them to a conversion path (enhance / rotate)
