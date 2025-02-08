@@ -82,6 +82,7 @@ function New-MediaForDisplay
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvExpected -Value $([int]0)
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name IsImg -Value $([int]0)
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name IsVid -Value $([int]0)
+    $AllPrepFiles | Add-Member -MemberType NoteProperty -Name FileIdx -Value $([int]0)
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
     if($AllPrepFiles.Count)
     {
@@ -106,7 +107,10 @@ function New-MediaForDisplay
             }
         }
         Write-Host ($AllPrepFiles.Count.ToString() + " files to get conversion attributes for...")
+        $FileCntr = 0
         foreach ($file in $AllPrepFiles){
+            $FileCntr++
+            $file.FileIdx = $FileCntr
             $ExtLen = $file.FullName.Length - $PrpL
             $RelPath = $file.FullName.Substring($PrpL, $ExtLen)
             $ChkPath = $file.FullName.Substring(($PrpL+1), ($ExtLen-1))
@@ -235,7 +239,6 @@ function New-MediaForDisplay
             $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
             $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
-            Write-Host ("Width to height ratio: "+$whdispratio.ToString())
             #Convert all logs accordingly
             Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
             $ContFileRootPath = $set.Outpath
@@ -397,7 +400,6 @@ function New-MediaForDisplay
             $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
             Write-Host ("Exporting "+($Files2GetCont | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" files...")
             (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
-                $_.Name
                 $file = $_
                 $XDim=$using:set.XDim
                 $YDim=$using:set.YDim
@@ -410,7 +412,7 @@ function New-MediaForDisplay
                 $ffmpegcdc   = $using:GDefs.ffmpegcdc
                 $ffmpegcdc   = $using:GDefs.ffmpegaudcmd
                 $whdispratio = $XDim/$YDim
-                write-host "$($file.ImgVidPath) Vidpack: $VidPack"
+                write-host "Building content for file index: $($file.FileIdx) - $($file.Name)..."
 
                 try
                 {
@@ -454,23 +456,15 @@ function New-MediaForDisplay
                         $IMCmdOut = "`"$($file.ContPath)`""
                         $IMCmd = $IMCmd1+$ExpCmd+$IMCmdOut
                         (Invoke-Expression $IMCmd) *> $null
-                        write-host "$($file.ImgVidPath) - A"
                         if($file.ImgVidPath.length)
                         {
-                            write-host "$($file.ImgVidPath) - B"
                             $FullImgDur = $FadeTime*2 +$PicDispTime
-                            write-host "$($file.ImgVidPath) - $FullImgDur"
-                            write-host "$($file.ImgVidPath) - $frameRate"
                             $NFramesExp = ($FullImgDur*$FrameRate) -as [Int]
                             #Zoompan configuration here.
-                            write-host "$($file.ImgVidPath) - C"
                             $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
                             $XRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                             $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
-                            write-host "$($file.ImgVidPath) - D"
-                            write-host "$($file.ImgVidPath) - $NFramesExp"
                             $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
-                            write-host "$($file.ImgVidPath) - E"
 
                             $ffmpegCmd1 = "ffmpeg -y "
                             $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
@@ -481,14 +475,13 @@ function New-MediaForDisplay
                             $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
                             $filtercfg2 = ":d=1:fps=$frameRate`:s=$SizeOut`" "
                             $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
-                            write-host "$($file.ImgVidPath) - C"
 
                             $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
                             $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegcdc+$ffmpegOut
 
                             #Execute the FFmpeg command
-                            write-host "ffmpeg command for image conversion:"
-                            write-host $ffmpegcmd
+                            #write-host "ffmpeg command for image conversion:"
+                            #write-host $ffmpegcmd
                             (Invoke-Expression $ffmpegCmd) *> $null
                         }
                         $file.ExpContSuccess = 1
@@ -517,11 +510,9 @@ function New-MediaForDisplay
                                 }
                                 if($Pram.StartsWith("rotation=")){
                                     $Rotation = [Int]::Parse($Pram.split('rotation=')[1])
-                                    write-host "$($file.ContPath) - Rotation - $Rotation"
                                 }
                             }
                             #If video is not oriented according to it's resolution, assume  a 90 deg turn.
-                        #write-host "$($file.ContPath) - $XDim"
                             if($Rotation%180 -ne 0)
                             {
                                 $VWidth = $PreHeight
@@ -545,11 +536,6 @@ function New-MediaForDisplay
                                 $contw = [int]($YDim*$whvidratio)
                             }
                             #If video packing, need to set the pad limits
-                        #conth / contw is what the video dimensions need to be.
-                        write-host "$($file.ContPath) - conth - $conth"
-                        write-host "$($file.ContPath) - YDim - $YDim"
-                        write-host "$($file.ContPath) - contw - $contw"
-                        write-host "$($file.ContPath) - XDim - $XDim"
                             if($VidPack)
                             {
                                 $Sides  = $XDim - $contw;
@@ -610,8 +596,8 @@ function New-MediaForDisplay
                             $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
                             $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
 
-                            write-host "ffmpeg command for video conversion:"
-                            write-host $ffmpegcmd
+                            #write-host "ffmpeg command for video conversion:"
+                            #write-host $ffmpegcmd
                             (Invoke-Expression $ffmpegcmd) *> $null
                             $file.ExpContSuccess = 1
                             $_.ExpContSuccess = 1
