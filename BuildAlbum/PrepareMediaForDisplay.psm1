@@ -396,12 +396,12 @@ function New-MediaForDisplay
             $ShowProg = 1
             $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
             Write-Host ("Exporting "+($Files2GetCont | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" files...")
-            (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
+            (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Process{
                 $_.Name
                 $file = $_
-                $set =$using:set
-                $AllFilesizeTtl=$using:AllFilesizeTtl
-                $GDefs = $usage:GDefs
+                #$set =$using:set
+                #$AllFilesizeTtl=$using:AllFilesizeTtl
+                #$GDefs = $usage:GDefs
                 try
                 {
                     if ($file.IsImg)
@@ -478,7 +478,7 @@ function New-MediaForDisplay
 
 
                         }
-                    elseif($file.IsVid -and $ConvVid)
+                    elseif($file.IsVid)
                     {
                         ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 $file.FullName) *> $null
                         ($VPrams = ffprobe -v error -select_streams v -show_entries stream=width,height,displaymatrix -of csv=p=0 $file.FullName) *> $null
@@ -606,7 +606,7 @@ function New-MediaForDisplay
                         Write-Progress @InnerLoopProg
                     }
                 }
-            } -UseNewRunspace -ThrottleLimit 1
+            } #-UseNewRunspace -ThrottleLimit 1
 
             #Save the report
             #$ContReportPath
