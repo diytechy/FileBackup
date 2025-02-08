@@ -396,12 +396,12 @@ function New-MediaForDisplay
             $ShowProg = 1
             $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
             Write-Host ("Exporting "+($Files2GetCont | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" files...")
-            (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Process{
+            (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
                 $_.Name
                 $file = $_
-                #$set =$using:set
-                #$AllFilesizeTtl=$using:AllFilesizeTtl
-                #$GDefs = $usage:GDefs
+                $set =$using:set
+                $AllFilesizeTtl=$using:AllFilesizeTtl
+                $GDefs = $usage:GDefs
                 try
                 {
                     if ($file.IsImg)
@@ -606,7 +606,7 @@ function New-MediaForDisplay
                         Write-Progress @InnerLoopProg
                     }
                 }
-            } #-UseNewRunspace -ThrottleLimit 1
+            } -ThrottleLimit 1
 
             #Save the report
             #$ContReportPath
