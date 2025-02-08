@@ -423,6 +423,9 @@ function New-MediaForDisplay
                         $image.loadfile($file.ConvPath)
                         $whimgratio = $image.Width/$image.Height
                         #If width is greater, limit this dimension for resize.
+                        write-host "$($file.Name) Input width:  $($image.Width)"
+                        write-host "$($file.Name) Input height:  $($image.Height)"
+                        write-host $image
                         if($file.ImgVidPath.length)
                         {
                             $contw = $XDim*4
