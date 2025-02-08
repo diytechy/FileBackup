@@ -403,16 +403,17 @@ function New-MediaForDisplay
                 $file = $_
                 $XDim=$using:set.XDim
                 $YDim=$using:set.YDim
-                $FadeTime    = $using:set.FadeTime
-                $PicDispTime = $using:set.PicDispTime
-                $VidPack     = $using:set.VidPack
-                $framerate   = $using:GDefs.framerate
-                $MinSrtZoom  = $using:GDefs.MinSrtZoom
-                $MaxSrtZoom  = $using:GDefs.MaxSrtZoom
-                $ffmpegcdc   = $using:GDefs.ffmpegcdc
-                $ffmpegcdc   = $using:GDefs.ffmpegaudcmd
+                $FadeTime       = $using:set.FadeTime
+                $PicDispTime    = $using:set.PicDispTime
+                $VidPack        = $using:set.VidPack
+                $framerate      = $using:GDefs.framerate
+                $MinSrtZoom     = $using:GDefs.MinSrtZoom
+                $MaxSrtZoom     = $using:GDefs.MaxSrtZoom
+                $ffmpegcdc      = $using:GDefs.ffmpegcdc
+                $ffmpegaudcmd   = $using:GDefs.ffmpegaudcmd
                 $whdispratio = $XDim/$YDim
                 write-host "Building content for file index: $($file.FileIdx) - $($file.Name)..."
+                #write-host "Codec export definition: $ffmpegcdc"
 
                 try
                 {
