@@ -618,7 +618,7 @@ function New-MediaForDisplay
                         Write-Progress @InnerLoopProg
                     }
                 }
-            } -ThrottleLimit 4
+            } -ThrottleLimit 8
 
             #Save the report
             #$ContReportPath
