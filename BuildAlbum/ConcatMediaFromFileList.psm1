@@ -68,6 +68,28 @@ function Join-VideosFromList
         {
             #Get video definition.
             $ToRun = "ffprobe -v error -select_streams v -show_entries stream=width,height,duration -of csv=p=0 `"" +$entry+ "`""
+            $VPrams = "ffprobe -v error -show_streams -select_streams v`:0 -of ini `"$entry`""
+            $VWidth = [Int]::0
+            $VWidth = [Int]::0
+            $Rotation = [Int]::0
+            if ($VPrams.Count -gt 1)
+            {
+                foreach ($Pram in $VPrams)
+                {
+                    if ( $Pram.StartsWith("width="))
+                    {
+                        $PreWidth = [Int]::Parse($Pram.split('width=')[1])
+                    }
+                    if ( $Pram.StartsWith("height="))
+                    {
+                        $PreHeight = [Int]::Parse($Pram.split('height=')[1])
+                    }
+                    if ( $Pram.StartsWith("rotation="))
+                    {
+                        $Rotation = [Int]::Parse($Pram.split('rotation=')[1])
+                    }
+                }
+            }
             $VPrams = Invoke-Expression $ToRun
             $splitString = $VPrams -split ","
             $Width = [Int] $splitString[0]

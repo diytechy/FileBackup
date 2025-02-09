@@ -11,7 +11,7 @@ $OutputFilePrepend = "D:\Album"
 #$OutputFilePrepend = "D:\TAlbum"
 #Define output definitions:
 $OutputDefs = @(
-    [pscustomobject]@{XDim=1440;YDim=900;FPS=30;PicDispTime=6;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid";Quality=22})
+    [pscustomobject]@{XDim=1440;YDim=900;FPS=30;PicDispTime=6;FadeTime = 0.7;BulkVidTimeMin=20;ImgVidFldr="\ImgInVid";Quality=30})
 #    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
 
 #Adding dependent scripts:
