@@ -59,7 +59,7 @@ function Set-VideoFromMedia
             $FileSet = (($AllInputFiles | Where-Object {( $_.GroupN -eq $grp)} | Sort-Object -Property Name) | Select-Object -ExpandProperty FullName)
             $GrpDef[$grp] = $FileSet
             $grp.FileListPath = $VidPacksFileDefPath  + " Grp-" + $grp.ToString()
-            $grp.VidExpPath   = $VidPacksFileDefPath  + "\Grp-" + $grp.ToString()+".mp4"
+            $grp.VidExpPath   = $VidPacksFileDefPath  + "\Grp-" + $grp.ToString()
             #Create file to describe what videos to append.
             $FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }

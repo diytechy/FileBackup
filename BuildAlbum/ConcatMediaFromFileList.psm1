@@ -34,6 +34,11 @@ function Join-VideosFromList
             throw "Input must be a list of strings, list of files, a directory, or path to a csv."
         }
     }
+    $vscript = $outputFile+"vstream.ps1"
+    $ascript = $outputFile+"astream.ps1"
+    $vidfile = $outputFile+"vstream.mp4"
+    $audfile = $outputFile+"astream.aac"
+    $finfile = $outputFile+".mp4"
     if (Test-Path -Path $outputFile){}
     else {$null = New-Item -ItemType File -Path $outputFile -Force}
     if($FileList.Count -lt 1)
@@ -46,10 +51,11 @@ function Join-VideosFromList
     }
     elseif($FileList.Count -gt 1)
     {
-        Write-Host "Getting properties of all video files and building full command for $outputFile"
+        Write-Host "Getting properties of all video files and building full command for $outputFile..."
         $InstanceInd = [Int] 0
         $SelInd      = [Int] 0
-        $VidPathInputStr = [String[]]::new($FileList.Count)
+        $VidPathVInputStr = [String[]]::new($FileList.Count)
+        $VidPathAInputStr = [String[]]::new($FileList.Count)
         $VChanInputStr   = [String[]]::new($FileList.Count)
         $AChanInputStr   = [String[]]::new($FileList.Count)
         $VFadeInputStr   = [String[]]::new($FileList.Count)
@@ -73,7 +79,8 @@ function Join-VideosFromList
             $InstanceInd ++
             $SelInd = $InstanceInd-1
             #Get video path input definition.
-            $VidPathInputStr[$SelInd] = "-i `""+$entry.ToString() +"`""
+            $VidPathVInputStr[$SelInd] = "-an -i `""+$entry.ToString() +"`""
+            $VidPathAInputStr[$SelInd] = "-vn -i `""+$entry.ToString() +"`""
             #Get video fade definitions.
             $CurrVFadeStr = "[vfade"+$InstanceInd.ToString()+"]"
             $CurrAFadeStr = "[afade"+$InstanceInd.ToString()+"]"
@@ -110,22 +117,42 @@ function Join-VideosFromList
 
         }
         #Write-Host "Building final command string"
-        $CmdPartInput = $VidPathInputStr -join " \`n"
-        $CmdPartVChan = $VChanInputStr -join "\`n"
+        $CmdPartVInput = $VidPathVInputStr -join " \`n"
+        $CmdPartAInput = $VidPathAInputStr -join " \`n"
         $CmdPartVFade = $VFadeInputStr -join "\`n"
         $CmdPartAChan = $AChanInputStr -join "\`n"
         $CmdPartAFade = $AFadeInputStr -join "\`n"
-        $CmdPartEnded = " -vcodec libx265 -crf $vidqty -preset slow -pix_fmt yuv420p -acodec aac -movflags faststart " +$outputFile
+        $VCmdPartEnded = " -vcodec libx265 -crf $vidqty -preset slow -pix_fmt yuv420p -movflags faststart `"$vidfile`""
+        $ACmdPartEnded = " -acodec aac -movflags faststart `"$audfile`""
 # -maxrate=$vidbr -bufsize $vidbuff
-        $FullCmdStart = "ffmpeg -y "+$CmdPartInput+" -filter_complex \`n`""
+        #$FullCmdStart = "ffmpeg -y "+$CmdPartInput
+        $FilterDef = "-filter_complex \`n`""
+        $VFiltChain = $FilterDef+$CmdPartVFade + "`"\`n"
+        $AFiltChain = $FilterDef+$CmdPartAFade + "`"\`n"
+        $VPreCmd = "ffmpeg -y " +  "\`n" + $CmdPartVInput + " " + $VFiltChain + " " + $VCmdPartEnded
+        $APreCmd = "ffmpeg -y " +  "\`n" + $CmdPartAInput + " " + $AFiltChain + " " + $ACmdPartEnded
         #$PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAChan + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
-        $PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
+        #$PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "\`n" + $CmdPartAFade + "`"\`n" + $CmdPartEnded
         #$PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "`"\`n" +  $CmdPartEnded
-        $FullCmd = $PreCmd -replace '\\\r?\n',''
-
+        $FullVCmd = $VPreCmd -replace '\\\r?\n',''
+        $FullACmd = $APreCmd -replace '\\\r?\n',''
+        if($FullVCmd.Length -gt 32767)
+        {
+            throw "Video contruct command larger than maximum allowed limit.  Reduce the number of file inputs to reduce concat limit."
+        }
+        if($FullACmd.Length -gt 32767)
+        {
+            throw "Audio contruct command larger than maximum allowed limit.  Reduce the number of file inputs to reduce concat limit."
+        }
+        #Build scripts to run.
+        $FullVCmd | Out-File -FilePath $vscript -force
+        $FullACmd | Out-File -FilePath $ascript -force
         Write-Host "Building video for $outputFile..."
+        Invoke-Expression $vscript
+        Invoke-Expression $ascript
+        $FullCmd = "ffmpeg -y -an -i `"$vidfile`" -vn -i `"$audfile`" -c copy `"$finfile`""
         Invoke-Expression $FullCmd
         #(Invoke-Expression $FullCmd) *> $null
-        Write-Host "$outputFile complete"
+        Write-Host "$finfile complete"
     }
 }
