@@ -63,14 +63,28 @@ function Set-VideoFromMedia
             #Create file to describe what videos to append.
             $FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
-        $Groups | ForEach-Object -Parallel{
-            $FadeTime      = $using:set.FadeTime
-            $Quality       = $using:set.Quality
-            $GrpDef        = $using:GrpDef
-            $SelGrpDef     = $GrpDef[$_]
-            Import-Module ".\BuildAlbum\ConcatMediaFromFileList.psm1"
-            Join-VideosFromList $SelGrpDef $FadeTime $_.VidExpPath $Quality
-        } -ThrottleLimit 1
+        if(0)
+        {
+            $Groups | ForEach-Object -Parallel{
+                $FadeTime = $using:set.FadeTime
+                $Quality = $using:set.Quality
+                $GrpDef = $using:GrpDef
+                $SelGrpDef = $GrpDef[$_]
+                Import-Module ".\BuildAlbum\ConcatMediaFromFileList.psm1"
+                Join-VideosFromList $SelGrpDef $FadeTime $_.VidExpPath $Quality
+            } -ThrottleLimit 1
+        }
+        else
+        {
+            foreach ($grp in $Groups)
+            {
+                $FadeTime = $set.FadeTime
+                $Quality = $set.Quality
+                $SelGrpDef = $GrpDef[$grp]
+                $SelVidExpPath = $grp.VidExpPath
+                Join-VideosFromList $SelGrpDef $FadeTime $SelVidExpPath $Quality
+            }
+        }
         $SelGrpN = 0
     }
 }
