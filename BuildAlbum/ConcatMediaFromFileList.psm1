@@ -46,7 +46,7 @@ function Join-VideosFromList
     }
     elseif($FileList.Count -gt 1)
     {
-        Write-Host "Getting properties of all video files and building full command"
+        Write-Host "Getting properties of all video files and building full command for $outputFile"
         $InstanceInd = [Int] 0
         $SelInd      = [Int] 0
         $VidPathInputStr = [String[]]::new($FileList.Count)
@@ -109,7 +109,7 @@ function Join-VideosFromList
             $PrevAFadeStr = $CurrAFadeStr #For next iteration
 
         }
-        Write-Host "Building final command string"
+        #Write-Host "Building final command string"
         $CmdPartInput = $VidPathInputStr -join " \`n"
         $CmdPartVChan = $VChanInputStr -join "\`n"
         $CmdPartVFade = $VFadeInputStr -join "\`n"
@@ -123,8 +123,9 @@ function Join-VideosFromList
         #$PreCmd = $FullCmdStart + "\`n" + $CmdPartVChan + "\`n" + $CmdPartVFade + "`"\`n" +  $CmdPartEnded
         $FullCmd = $PreCmd -replace '\\\r?\n',''
 
-        Write-Host "Building video"
+        Write-Host "Building video for $outputFile..."
         Invoke-Expression $FullCmd
-        Write-Host "Build complete"
+        #(Invoke-Expression $FullCmd) *> $null
+        Write-Host "$outputFile complete"
     }
 }
