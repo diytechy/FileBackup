@@ -5,6 +5,9 @@ $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
 $OutputFilePrepend = "D:\Album"
+#0 - Only generate content when new files are available, 1
+#1 - Generate content if files appear updated.
+$ContOODChk       = 0
 $InputFileRootPath ="D:\T"
 $PrepFileRootPath ="D:\TAlbumPrep"
 $ConvFileRootPath ="D:\TAlbumConv"
@@ -48,7 +51,7 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
     $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath
-    Update-MediaForDisplaySets $PrepMediaDef $OutputFilePrepend $OutputDefs
+    Update-MediaForDisplaySets $PrepMediaDef $OutputFilePrepend $OutputDefs $ContOODChk
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
     Write-Host "***************************************"

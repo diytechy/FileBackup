@@ -206,7 +206,8 @@ function Update-MediaForDisplaySets
     param (
         $AllPrepFiles,
         [string]$OutputFilePrepend,
-        $OutputSizes
+        $OutputSizes,
+        [Int] $ContOODChk = 0
     )
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {}
     else {throw  "ffmpeg not detected, videos will not be converted"}
@@ -215,19 +216,21 @@ function Update-MediaForDisplaySets
 
     $arval = 48000 #audio rate
     $vrate = 60000 #timescale
-    $tqual = 10 #Quality to convert to for transitions, higher because these must be reencoded with fade to reduce loss.
-    $vqual = 10 #Quality to convert bulk video to, matches set definition because this will not be reencoded.
+    $tqual = 10 #Quality to convert to for transitions, higher quality because these must be reencoded with fade to reduce loss.
     $GDefs = @{
         MaxSrtZoom = 1.5
         MinSrtZoom = 1.2
         frameRate = 0 #Configured below per set.
         audiorate = $arval
         videorate = $vrate
-        tq = $vqual
-        vq = $vqual
-        ffmpegcdc = "" #Configured below per set.
+        tq = $tqual
+        vq = $tqual #Is updated per set definition.
+        ffmpegvcdcstd = "" #Configured below per set.
+        ffmpegvcdctra = "" #Configured below per set.
         ffmpegaudcmd = "-c:a aac -ar $arval "
     }
+    $ExpFileTupleExists = @{}
+    $ExpFileRelPathExists = @{}
     #Now, for each set, run the final export tooling depending on if the file is a video or image.
     #********************************************************************************************
     #********************************************************************************************
@@ -235,10 +238,17 @@ function Update-MediaForDisplaySets
     $ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
     $VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
     $AllFiles = $ImageFiles + $VideoFiles
+    #Define file existance and up-to-date definitions.
     Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
+    foreach ($file in $AllFiles)
+    {
+        $ExpFileTupleExists[$file.TupleVal] = 1
+        $ExpFileRelPathExists[$file.relpath] = 1
+    }
     foreach ($set in $OutputSizes){
         $GDefs.frameRate = $set.FPS
-        $GDefs.ffmpegcdc = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.quality) -preset slow -pix_fmt yuvj420p -r $($set.FPS) -movflags faststart "
+        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.vq) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $($set.FPS) -movflags faststart "
+        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.tq) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $($set.FPS) -movflags faststart "
         $Files2Chk = $AllFiles
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] "")
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] "")
@@ -417,11 +427,11 @@ function Update-MediaForDisplaySets
             $framerate      = $using:GDefs.framerate
             $MinSrtZoom     = $using:GDefs.MinSrtZoom
             $MaxSrtZoom     = $using:GDefs.MaxSrtZoom
-            $ffmpegcdc      = $using:GDefs.ffmpegcdc
+            $ffmpegvcdcstd      = $using:GDefs.ffmpegvcdcstd
             $ffmpegaudcmd   = $using:GDefs.ffmpegaudcmd
             $whdispratio    = $XDim/$YDim
             write-host "Building content for file index: $($file.FileIdx) - $($file.Name)..."
-            #write-host "Codec export definition: $ffmpegcdc"
+            #write-host "Codec export definition: $ffmpegvcdcstd"
 
             try
             {
@@ -488,7 +498,7 @@ function Update-MediaForDisplaySets
                         $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
                         $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
-                        $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegcdc+$ffmpegOut
+                        $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegvcdcstd+$ffmpegOut
 
                         #Execute the FFmpeg command
                         #write-host "ffmpeg command for image conversion:"
@@ -605,7 +615,7 @@ function Update-MediaForDisplaySets
                         #$outputFile = $file.ContPath.split(".")[0]
                         $ffmpeginput  = "ffmpeg -y -i `"$($file.FullName)`" "
                         $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
-                        $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegcdc+" -movflags faststart `"$($file.ContPath)`""
+                        $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegvcdcstd+" -movflags faststart `"$($file.ContPath)`""
 
                         #write-host "ffmpeg command for video conversion:"
                         #write-host $ffmpegcmd
