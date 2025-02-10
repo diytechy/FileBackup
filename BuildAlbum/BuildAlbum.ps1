@@ -1,6 +1,6 @@
 Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 3 #Remember- this is completed
+$ProcLvl = 2 #Remember- this is completed
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
@@ -47,7 +47,8 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
     Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
-    New-MediaForDisplay $PrepFileRootPath $ConvFileRootPath $OutputFilePrepend $OutputDefs
+    $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath
+    Update-MediaForDisplaySets $PrepMediaDef $OutputFilePrepend $OutputDefs
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
     Write-Host "***************************************"
