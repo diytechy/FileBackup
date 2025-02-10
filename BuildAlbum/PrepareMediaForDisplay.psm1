@@ -77,8 +77,6 @@ function Update-ConvertedMediaImagesForDisplay
             $file.FileIdx = $FileCntr
             $ExtLen = $file.FullName.Length - $PrpL
             $RelPath = $file.FullName.Substring($PrpL, $ExtLen)
-            $ChkPath = $file.FullName.Substring(($PrpL + 1), ($ExtLen - 1))
-            #$ChkPath = $file.FullName.Substring($PrpL+1, $ExtLen)
             $file.RelPath = $RelPath
             $file.LastWriteTimeStr = $file.LastWriteTime.ToString($HashTblDateFormat)
             $datekey = [System.ValueTuple[string, long, datetime]]::new(
@@ -229,7 +227,7 @@ function Update-MediaForDisplaySets
         ffmpegvcdctra = "" #Configured below per set.
         ffmpegaudcmd = "-c:a aac -ar $arval "
     }
-    $ExpFileTupleExists = @{}
+    $ExpFileTupleNonZeroIdx = @{}
     $ExpFileRelPathExists = @{}
     #Now, for each set, run the final export tooling depending on if the file is a video or image.
     #********************************************************************************************
@@ -238,26 +236,56 @@ function Update-MediaForDisplaySets
     $ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
     $VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
     $AllFiles = $ImageFiles + $VideoFiles
+    $SrcFileTuple2EntryIdx = @{}
     #Define file existance and up-to-date definitions.
     Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
+    $idx=0
     foreach ($file in $AllFiles)
     {
-        $ExpFileTupleExists[$file.TupleVal] = 1
+        $idx++
+        $ExpFileTupleNonZeroIdx[$file.TupleVal] = $idx
         $ExpFileRelPathExists[$file.relpath] = 1
     }
+
     foreach ($set in $OutputSizes){
+        #Get group names for files according to set definition.
+        #Definitions for exporting, which will be used in actual data export.
         $GDefs.frameRate = $set.FPS
         $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.vq) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $($set.FPS) -movflags faststart "
         $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.tq) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $($set.FPS) -movflags faststart "
         $Files2Chk = $AllFiles
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string] "")
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime])
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] "")
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] "")
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPFlg -Value $( [int] 0)
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelImgVidPath -Value $( [string] "")
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string] "")
         $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int] 0)
         $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpContSuccess -Value $( [int] 0)
-        $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
-        #Convert all logs accordingly
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpDefComplete -Value $( [int] 0)
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name PreRepExpIndP1 -Value $( [int] 0)
+        foreach ($file in $Files2Chk)
+        {
+             if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
+             {
+                 $file.ImgVidPFlg = 1
+             }
+            $TenativeLbl = ""
+            if ($set.NameMethod.StartsWith("FldrLvl"))
+            {
+                $LvlIdx = [Int]$set.NameMethod.split("FldrLvl")[1]
+                $Parts = $file.relpath -split '\\'
+                #If the level index desired is folder, use it, else keep the label designation blank.
+                if($Parts.Count -ge ($LvlIdx + 1)){
+                    $TenativeLbl = $Parts[$LvlIdx]
+                }
+            }
+            else{
+            }
+            if($TenativeLbl.Length){$file.SelLabelGrp = $TenativeLbl}
+        }
+        #Create common definitions for set.
         Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
         $ContFileRootPath = $set.Outpath
         $VidPacksRootPath = $ContFileRootPath + $set.ImgVidFldr
@@ -265,71 +293,78 @@ function Update-MediaForDisplaySets
         {New-Item -Path $ContFileRootPath -ItemType "directory" | Out-Null}
         if ($set.ImgVidFldr.length -and $set.PicDispTime -and (-not(Test-Path -LiteralPath $VidPacksRootPath -PathType Container)))
         {New-Item -Path $VidPacksRootPath -ItemType "directory" | Out-Null}
-        $ContReportPath = ($ContFileRootPath + "\Report.csv")
         $ContReportPrePath = ($ContFileRootPath + "\PreReport.csv")
+        #Define files groups that should exxist so they are not reomved.
         $PrevContInd = @{}
         $PrevFileSet = @{}
         $selfilename = Split-Path -Path $ContReportPrePath -Leaf
         $PrevFileSet[$selfilename] = 1
         #Remove old content items if they are not up to date anymore.
         Write-Host ("Checking report file to verify integrity and determine which files need to be updated...")
-        if(Test-Path -Path $ContReportPath){
-            $PrevContProps = Import-Csv -LiteralPath $ContReportPath
-            $PrevContProps | Add-Member -MemberType NoteProperty -Name RemoveFlg -Value $( [int] 0)
-            $PrevContProps | Add-Member -MemberType NoteProperty -Name RemImgVid -Value $( [int] 0)
-            Write-Host ("Checking "+$PrevContProps.Count.ToString()+" old entries...")
-            #Remove files from the database which don't have matching attributes to the current definitions
-            $PrevFileSet[$selfilename] =
-            $selfilename = Split-Path -Path $ContReportPath -Leaf
-            $PrevFileSet[$selfilename] = 1
-            foreach($SelProp in $PrevContProps){
+        if(Test-Path -Path $ContReportPrePath)
+        {
+            $PrevContProps = Import-Csv -LiteralPath $ContReportPrePath
+            Write-Host ("Checking " + $PrevContProps.Count.ToString() + " old entries...")
+            $RepIdxP1 = 0
+            foreach ($SelProp in $PrevContProps)
+            {
+                $fileU2D = 0
+                $RepIdxP1++
+                #Check to see if all properties in the report are up-to-date.
                 $DateTimeVal = [datetime]::ParseExact($SelProp.LastWriteTimeStr, $HashTblDateFormat, $null)
                 $datekey = [System.ValueTuple[string, long, datetime]]::new(
                         $SelProp.RelPath, $SelProp.Length, $DateTimeVal)
-                $PrevContInd[$datekey] = $SelProp.InstInd -as [Int]
-                $selfilename = $SelProp.ContPath
-                $PrevFileSet[$selfilename] = 1
-                if($SelProp.ImgVidPath.Length)
+
+                if ($SelProp.RelContPath.Length)
                 {
-                    $selfilename = $SelProp.ImgVidPath
-                    $PrevFileSet[$selfilename] = 1
-                }
-                if($CurrentPrepFileTupleExists[$datekey])
-                #If the file exists and the video is expected, but doesn't exist, remove it.
-                {
-                    if($SelProp.ImgVidPath.Length -and -not (Test-Path -Path $SelProp.ImgVidPath -Type Leaf))
+                    #If the file exists, check the creation date
+                    $FullContPath = $ContFileRootPath + $SelProp.RelContPath
+                    if (Test-Path $FullContPath -PathType Leaf)
                     {
-                        $SelProp.RemoveFlg = 1
-                    }
-                }#If exists, do nothing
-                #Else remove it.
-                else
-                {
-                    if(Test-Path -Path $SelProp.ContPath -Type Leaf)
-                    {
-                        $SelProp.RemoveFlg = 1
-                    }
-                    if($SelProp.ImgVidPath.Length -and (Test-Path -Path $SelProp.ImgVidPath -Type Leaf))
-                    {
-                        $SelProp.RemImgVid = 1
+                        $SelCreationTime = [datetime]::ParseExact($SelProp.LastCreateTimeStr, $HashTblDateFormat, $null)
+                        #If the creation date matches, check to see if the video image is up-to-date
+                        if ($SelCreationTime -eq (Get-Item -LiteralPath "$FullContPath").CreationTime)
+                        {
+                            #See if a corresponding file index exists
+                            if (ExpFileTupleNonZeroIdx[$datekey])
+                            {
+                                #See if there should be a corresponding image path.
+                                if (Files2Chk[ExpFileTupleNonZeroIdx[$datekey]-1].ImgVidPFlg)
+                                {
+                                    if ($SelProp.RelImgVidPath.Length)
+                                    {
+                                        $FullImgPath = $ContFileRootPath + $SelProp.RelImgVidPath
+                                        #If the creation date matches, check to see if the video image is up-to-date
+                                        if ($SelCreationTime = (Get-Item -LiteralPath "$FullImgPath").CreationTime)
+                                        {
+                                            #If the creation date matches, check to see if the video image is up-to-date
+                                            if ($SelCreationTime = (Get-Item -LiteralPath "$FullImgPath").CreationTime)
+                                            {
+                                                $fileU2D = 1
+                                                $PrevFileSet[$FullImgPath] = 1
+                                            }
+                                        }
+                                    }
+
+                                }
+                                #If the files exists, but there should not be an image video, claim this index.
+                                else
+                                {
+                                }
+                            }
+                            else
+                            {
+                                $fileU2D = 1
+                            }
+                        }
                     }
                 }
-            }
-            $PrevContProps2Rem = @($PrevContProps | Where-Object -Property RemoveFlg -eq 1)
-            $PrevImgVids2Rem = @($PrevContProps | Where-Object -Property RemImgVid -eq 1)
-            Write-Host ("Old entries set to remove: "+($PrevContProps2Rem.Count+$PrevImgVids2Rem.Count).ToString())
-            foreach($SelProp in $PrevContProps2Rem)
-            {
-                if ($SelProp.ContPath.Length -and (Test-Path -LiteralPath $SelProp.ContPath -PathType Leaf))
+                #Set the index and group index for reference.
+                if ($fileU2D)
                 {
-                    Remove-Item -LiteralPath $SelProp.ContPath -Force
-                }
-            }
-            foreach($SelProp in $PrevImgVids2Rem)
-            {
-                if ($SelProp.ImgVidPath.Length -and (Test-Path -LiteralPath $SelProp.ImgVidPath -PathType Leaf))
-                {
-                    Remove-Item -LiteralPath $SelProp.ImgVidPath -Force
+                    Files2Chk[ExpFileTupleNonZeroIdx[$datekey]-1].PreRepExpIndP1 = $RepIdxP1
+                    Files2Chk[ExpFileTupleNonZeroIdx[$datekey]-1].InstInd = $SelProp.InstInd
+                    $PrevFileSet[$FullContPath] = 1
                 }
             }
         }
@@ -337,27 +372,32 @@ function Update-MediaForDisplaySets
         $AllCurrContFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Recurse -File)
         $AllCurrContFiles | Add-Member -MemberType NoteProperty -Name RemFlag -Value $( [int] 0)
         foreach($ContFile in $AllCurrContFiles){
-            if($PrevFileSet[$ContFile.Fullname]){}#If file should exist, do nothing.
+            #If this is a transition file and the core file exists, assume all three can stay (don't tag for removal)
+            $PathLen = $ContFile.FullName.Length
+            if($ContFile.Fullname.EndsWith("srt") -or $ContFile.Fullname.EndsWith("end")){
+                $CoreName = $ContFile.Fullname.Substring(0,($PathLen-3))
+            }
+            else{$CoreName = $ContFile.Fullname}
+            if($PrevFileSet[$CoreName]){}#If file should exist, do nothing.
             else{$ContFile.RemFlag = 1}
         }
         $CurrContFiles2Rem = @($AllCurrContFiles| Where-Object -Property RemFlag -eq 1)
-        Write-Host ("Removing "+$CurrContFiles2Rem.Count.ToString()+" files that were not expected...")
+        Write-Host ("Removing "+$CurrContFiles2Rem.Count.ToString()+" file(s) that were not expected...")
         foreach ($ContFile in $CurrContFiles2Rem)
         {remove-item -LiteralPath $ContFile.FullName -Force}
         #Get index of current content items
+
+        #Group files
+        $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
         Write-Host ("Checking "+$FileGroups.Count.ToString()+" groups...")
         foreach($grp in $FileGroups)
         {
             $InstIdxSet = @{}
             foreach ($file in ($grp| Select-Object -ExpandProperty Group))
             {
-                #
-                $datekey = [System.ValueTuple[string, long, datetime]]::new(
-                        $file.RelPath, $file.Length, $file.LastWriteTime)
                 #If a previous index already exists for this file, store it.
-                if ($PrevContInd.Count -and $PrevContInd[$datekey])
+                if ($file.InstInd)
                 {
-                    $file.InstInd = $PrevContInd[$datekey]
                     $InstIdxSet[$file.InstInd] = 1
                 }
             }
@@ -365,10 +405,11 @@ function Update-MediaForDisplaySets
             $GrpIdx = 1;
             foreach ($file in ($grp| Select-Object -Expand Group) )
             {
+                #Also set all the corresponding information for that index.
                 if ($file.InstInd )
                 {
                     #It's already been exported, so set the flag.
-                    $file.ExpContSuccess = 1
+                    $file.ExpDefComplete = 1
                 }
                 else
                 {
@@ -385,21 +426,29 @@ function Update-MediaForDisplaySets
 
             }
         }
-        #Ungroup all files
-        $Files2GetCont = ($FileGroups| Select-Object -Expand Group)
+        #Ungroup all files back to the original variable.
+        $Files2Chk = ($FileGroups| Select-Object -Expand Group)
+
         #Create the export path and perform the export.
-        Write-Host ("Checking "+$Files2GetCont.Count.ToString()+" for content definitions...")
-        foreach ($file in $Files2GetCont)
+        Write-Host ("Checking "+($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" for content definitions...")
+        foreach ($file in ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1))
         {
-            $file.ContPath  = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString('0000')+$file.ContExt)
-            $file.ContTitle = ($ContFileRootPath+"\"+$file.SelLabelGrp+"-"+$file.InstInd.ToString())
+            if($file.SelLabelGrp.Length){
+                $Designator = $file.SelLabelGrp+"-"+$file.InstInd.ToString('00000')
+            else{$Designator = $file.InstInd.ToString('00000')}
+            $file.RelContPath = $Designator + $file.ContExt
+            $file.ContPath  = ($ContFileRootPath+"\"+$file.RelContPath)
+            $file.ContTitle = $Designator
             #If the intent is also to convert the picture to a video, also define the path of the video to export to.
             try
             {
                 if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
                 {
-                    $file.ImgVidPath = ($ContFileRootPath + $set.ImgVidFldr + "\" + $file.SelLabelGrp + "-" + $file.InstInd.ToString('0000')+".mp4")
+                    $file.RelImgVidPath = ($set.ImgVidFldr + "\" + $Designator+".mp4")
+                    $file.ImgVidPath = ($ContFileRootPath + $file.RelImgVidPath)
                 }
+                #It's already been exported, so set the flag.
+                $file.ExpDefComplete = 1
             }
             catch{}
         }
@@ -505,8 +554,7 @@ function Update-MediaForDisplaySets
                         #write-host $ffmpegcmd
                         (Invoke-Expression $ffmpegCmd) *> $null
                     }
-                    $file.ExpContSuccess = 1
-                    $_.ExpContSuccess = 1
+
                     #Optional / future explore:
                     #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
                     #
@@ -620,8 +668,8 @@ function Update-MediaForDisplaySets
                         #write-host "ffmpeg command for video conversion:"
                         #write-host $ffmpegcmd
                         (Invoke-Expression $ffmpegcmd) *> $null
-                        $file.ExpContSuccess = 1
-                        $_.ExpContSuccess = 1
+                        $file.ExpDefComplete = 1
+                        $_.ExpDefComplete = 1
 
                     }
                 }
@@ -645,7 +693,7 @@ function Update-MediaForDisplaySets
         #$ContReportPath
         if (Test-Path -Path $ContReportPath){}
         else {$null = New-Item -ItemType File -Path $ContReportPath -Force}
-        $FilesExportedWithCont = ($Files2GetCont | Where-Object -Property ExpContSuccess -eq 1)
+        $FilesExportedWithCont = ($Files2GetCont | Where-Object -Property ExpDefComplete -eq 1)
         $FilesExportedWithCont | Select-Object -Property Name,InstInd,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
             Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
 
