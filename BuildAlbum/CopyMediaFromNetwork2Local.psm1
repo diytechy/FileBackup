@@ -7,14 +7,9 @@ function Copy-MediaFromNetwork
     $InputFileRootPath = $inputFolder
     $PrepFileRootPath  = $outputFolder
 
-    #$Types2Pull = "'*.jpg','*.gif','*.tif','*.tiff','*.jpeg','*.png','*.bmp','*.wmv','*.mov','*.m4a','*.mp4','*.avi'"
-    #$Types2Pull = "*.jpg","*.gif","*.tif","*.tiff","*.jpeg","*.png","*.bmp","*.wmv","*.mov","*.m4a","*.mp4","*.avi"
-    #$Types2Pull = ".jpg",".gif",".tif",".tiff",".jpeg",".png",".bmp",".wmv",".mov",".m4a",".mp4",".avi"
-
     $Types2Pull = "jpg$","gif$","tif$","tiff$","jpeg$","png$","bmp$","wmv$","mov$","m4a$","mp4$","avi$"
     $TypeChkRegex = [string]::Join('|', $Types2Pull)
-    $HashTblDateFormat = "O"
-    $AllTypes = $ImgTypes + $VidTypes
+
     $CurrInnerProgPercInt = [int32[]]::new(1);
     $PrevInnerProgPercInt = [int32[]]::new(1);
     $InnerLoopProg = @{

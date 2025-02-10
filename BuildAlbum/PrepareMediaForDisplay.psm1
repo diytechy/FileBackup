@@ -20,8 +20,8 @@ function New-MediaForDisplay
     $vrate = 6000 #timescale
     $vqual = 10 #Quality to convert to, lower is better.
     $GDefs = @{
-        MaxSrtZoom = 1.3
-        MinSrtZoom = 1.1
+        MaxSrtZoom = 1.5
+        MinSrtZoom = 1.2
         frameRate = 0 #Configured below per set.
         audiorate = $arval
         videorate = $vrate 
@@ -29,6 +29,7 @@ function New-MediaForDisplay
         ffmpegcdc = "" #Configured below per set.
         ffmpegaudcmd = "-c:a aac -ar $arval "
     }
+
     #ffmpeg video & Handbrake path:
     $ConvVid = 1
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
@@ -231,7 +232,7 @@ function New-MediaForDisplay
         Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
         foreach ($set in $OutputSizes){
             $GDefs.frameRate = $set.FPS
-            $GDefs.ffmpegcdc = "-video_track_timescale $vrate -vcodec libx264 -crf $vqual -pix_fmt yuvj420p -r $($set.FPS) "
+            $GDefs.ffmpegcdc = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.quality) -preset slow -pix_fmt yuvj420p -r $($set.FPS) -movflags faststart "
             $Files2Chk = $AllFiles
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] "")
             $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] "")
@@ -332,7 +333,7 @@ function New-MediaForDisplay
             foreach($grp in $FileGroups)
             {
                 $InstIdxSet = @{}
-                foreach ($file in ($grp| Select-Object -Expand Group))
+                foreach ($file in ($grp| Select-Object -ExpandProperty Group))
                 {
                     #
                     $datekey = [System.ValueTuple[string, long, datetime]]::new(
@@ -412,7 +413,7 @@ function New-MediaForDisplay
                 $MaxSrtZoom     = $using:GDefs.MaxSrtZoom
                 $ffmpegcdc      = $using:GDefs.ffmpegcdc
                 $ffmpegaudcmd   = $using:GDefs.ffmpegaudcmd
-                $whdispratio = $XDim/$YDim
+                $whdispratio    = $XDim/$YDim
                 write-host "Building content for file index: $($file.FileIdx) - $($file.Name)..."
                 #write-host "Codec export definition: $ffmpegcdc"
 
@@ -423,15 +424,14 @@ function New-MediaForDisplay
                         $image = New-Object -ComObject Wia.ImageFile
                         $image.loadfile($file.ConvPath)
                         $whimgratio = $image.Width/$image.Height
-                        #If width is greater, limit this dimension for resize.
-                        #write-host "$($file.Name) Input width:  $($image.Width)"
-                        #write-host "$($file.Name) Input height:  $($image.Height)"
-                        #write-host $image
+                        #If we're converting the picture to an image, it must oversized substantially to
+                        #allow smooth zooming.  Keeping a whole number in case it is rendered to the nominal dimensions.
                         if($file.ImgVidPath.length)
                         {
-                            $contw = $XDim*4
-                            $conth = $YDim*4
+                            $contw = [math]::Ceiling($XDim*4*$MaxSrtZoom)
+                            $conth = [math]::Ceiling($YDim*4*$MaxSrtZoom)
                         }
+                        #If width is greater, limit this dimension for resize.
                         elseif ($whimgratio -gt $whdispratio)
                         {
                             $contw = $XDim
