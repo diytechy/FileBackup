@@ -222,6 +222,9 @@ function Update-MediaForDisplaySets
         throw  "Image Magick not detected, videos will not be converted"
     }
 
+    $CurrInnerProgPercInt = [int32[]]::new(1);
+    $PrevInnerProgPercInt = [int32[]]::new(1);
+    $HashTblDateFormat = "O"
     $arval = 48000 #audio rate
     $vrate = 60000 #timescale
     $tqual = 10 #Quality to convert to for transitions, higher quality because these must be reencoded with fade to reduce loss.
@@ -246,7 +249,7 @@ function Update-MediaForDisplaySets
     $ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
     $VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
     $AllFiles = $ImageFiles + $VideoFiles
-    $SrcFileTuple2EntryIdx = @{ }
+    #$SrcFileTuple2EntryIdx = @{ }
     #Define file existance and up-to-date definitions.
     Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
     $idx = 0
@@ -262,8 +265,8 @@ function Update-MediaForDisplaySets
         #Get group names for files according to set definition.
         #Definitions for exporting, which will be used in actual data export.
         $GDefs.frameRate = $set.FPS
-        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $( $set.vq ) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
-        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $( $set.tq ) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
+        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $($Set.Quality ) -colorspace 1 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
+        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $($GDefs.tq ) -colorspace 1 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
         $Files2Chk = $AllFiles
         $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string]"" )
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime] )
@@ -316,10 +319,10 @@ function Update-MediaForDisplaySets
         }
         $ContReportPrePath = ($ContFileRootPath + "\PreReport.csv")
         #Define files groups that should exxist so they are not reomved.
-        $PrevContInd = @{ }
+        #$PrevContInd = @{ }
         $PrevFileSet = @{ }
-        $selfilename = Split-Path -Path $ContReportPrePath -Leaf
-        $PrevFileSet[$selfilename] = 1
+        #$selfilename = Split-Path -Path $ContReportPrePath -Leaf
+        $PrevFileSet[$ContReportPrePath] = 1
         #Remove old content items if they are not up to date anymore.
         Write-Host ("Checking report file to verify integrity and determine which files need to be updated...")
         if (Test-Path -Path $ContReportPrePath)
@@ -340,7 +343,7 @@ function Update-MediaForDisplaySets
                 if ($SelProp.RelContPath.Length)
                 {
                     #If the file exists, check the creation date
-                    $FullContPath = $ContFileRootPath + $SelProp.RelContPath
+                    $FullContPath = $ContFileRootPath + "\" + $SelProp.RelContPath
                     if (Test-Path $FullContPath -PathType Leaf)
                     {
                         $SelCreationTime = [datetime]::ParseExact($SelProp.ContCreationDateStr, $HashTblDateFormat, $null)
@@ -349,10 +352,10 @@ function Update-MediaForDisplaySets
                         if ($SelCreationTime -eq (Get-Item -LiteralPath "$FullContPath").CreationTime)
                         {
                             #See if a corresponding file index exists
-                            if (ExpFileTupleNonZeroIdx[$datekey])
+                            if ($ExpFileTupleNonZeroIdx[$datekey])
                             {
                                 #See if there should be a corresponding image path.
-                                if (Files2Chk[ExpFileTupleNonZeroIdx[$datekey]-1].ImgVidPFlg)
+                                if ($Files2Chk[$ExpFileTupleNonZeroIdx[$datekey]-1].ImgVidPFlg)
                                 {
                                     if ($SelProp.RelImgVidPath.Length)
                                     {
@@ -385,8 +388,8 @@ function Update-MediaForDisplaySets
                 #Set the index and group index for reference.
                 if ($fileU2D)
                 {
-                    Files2Chk[ExpFileTupleNonZeroIdx[$datekey]-1].PreRepExpIndP1 = $RepIdxP1
-                    Files2Chk[ExpFileTupleNonZeroIdx[$datekey]-1].InstInd = $SelProp.InstInd
+                    $Files2Chk[$ExpFileTupleNonZeroIdx[$datekey]-1].PreRepExpIndP1 = $RepIdxP1
+                    $Files2Chk[$ExpFileTupleNonZeroIdx[$datekey]-1].InstInd = $SelProp.InstInd
                     $PrevFileSet[$FullContPath] = 1
                 }
             }
@@ -398,7 +401,7 @@ function Update-MediaForDisplaySets
         {
             #If this is a transition file and the core file exists, assume all three can stay (don't tag for removal)
             $PathLen = $ContFile.FullName.Length
-            if ($ContFile.Fullname.EndsWith("srt") -or $ContFile.Fullname.EndsWith("end"))
+            if ($ContFile.Fullname.EndsWith("mp4srt") -or $ContFile.Fullname.EndsWith("mp4end"))
             {
                 $CoreName = $ContFile.Fullname.Substring(0, ($PathLen - 3))
             }
@@ -415,7 +418,7 @@ function Update-MediaForDisplaySets
             }
         }
         $CurrContFiles2Rem = @($AllCurrContFiles| Where-Object -Property RemFlag -eq 1)
-        Write-Host ("Removing " + $CurrContFiles2Rem.Count.ToString() + " file(s) that were not expected...")
+        Write-Host ("Removing " + $CurrContFiles2Rem.Count.ToString() + " file(s) that were not expectedor out of date...")
         foreach ($ContFile in $CurrContFiles2Rem)
         {
             remove-item -LiteralPath $ContFile.FullName -Force
@@ -445,7 +448,9 @@ function Update-MediaForDisplaySets
                 {
                     #It's already been exported, so set the flag.
                     $file.ExpDefComplete = 1
-                    $file.ContCreationDate = ContReportPrePath[$file.PreRepExpIndP1-1].$ContCreationDate
+                    $file.ContCreationDate = $PrevContProps[$file.PreRepExpIndP1-1].ContCreationDate
+                    $file.RelContPath      = $PrevContProps[$file.PreRepExpIndP1-1].RelContPath
+                    $file.RelImgVidPath    = $PrevContProps[$file.PreRepExpIndP1-1].RelImgVidPath
                 }
                 else
                 {
@@ -474,7 +479,7 @@ function Update-MediaForDisplaySets
 
         #Create the export path and perform the export.
         Write-Host ("Checking " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " for content definitions...")
-        foreach ($file in ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1))
+        foreach ($file in @($Files2Chk | Where-Object -Property Exp2ContPath -eq 1))
         {
             if ($file.SelLabelGrp.Length)
             {
@@ -528,6 +533,7 @@ function Update-MediaForDisplaySets
             $MinSrtZoom = $using:GDefs.MinSrtZoom
             $MaxSrtZoom = $using:GDefs.MaxSrtZoom
             $ffmpegvcdcstd = $using:GDefs.ffmpegvcdcstd
+            $ffmpegvcdctra = $using:GDefs.ffmpegvcdctra
             $ffmpegaudcmd = $using:GDefs.ffmpegaudcmd
             $whdispratio = $XDim/$YDim
             $CurrDateTime = $using:CurrDateTime
@@ -579,8 +585,10 @@ function Update-MediaForDisplaySets
                     $IMCmdOut = "`"$( $file.ContPath )`""
                     $IMCmd = $IMCmd1 + $ExpCmd + $IMCmdOut
                     (Invoke-Expression $IMCmd) *> $null
+                    [System.IO.File]::SetCreationTime( "$( $file.ContPath )", $CurrDateTime)
                     if ($file.ImgVidPath.length)
                     {
+                        #Write-Host("**************************L1****************************")
                         $SelFadeFrames = [Int]($FadeTime*$framerate)
                         $SelFadeTime = ($SelFadeFrames/$framerate)
                         $SelNormFrames = [Int]($PicDispTime*$framerate)
@@ -595,6 +603,7 @@ function Update-MediaForDisplaySets
                         $SetNomZoom = $SetSrtZoom - ($ZoomRate*$SelFadeFrames)
                         $SetEndZoom = $SetNomZoom - ($ZoomRate*$SelNormFrames)
 
+                        #Write-Host("**************************L2****************************")
                         $ffmpegCmd1 = "ffmpeg -y "
                         $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
                         $ffmpegCmdV1 = "-framerate " + $frameRate + " -i `"$( $file.ContPath )`" "
@@ -608,28 +617,37 @@ function Update-MediaForDisplaySets
                         $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
                         $filtercfg2 = ":d=1:fps=$frameRate`:s=$SizeOut`" "
 
+                        #Write-Host("**************************L3****************************")
                         $ffmpegOutSrt = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)srt`""
                         $ffmpegOutNom = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)`""
                         $ffmpegOutEnd = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)end`""
-                        $ffmpegCmdSrt = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $SrtffmpegCmdV2
-                        + $Srtfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
-                        + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutSrt
-                        $ffmpegCmdNom = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $ffmpegCmdV2
-                        + $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
-                        + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutNom
-                        $ffmpegCmdEnd = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $EndffmpegCmdV2
-                        + $Endfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
-                        + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutEnd
+                        #Write-Host("**************************L4****************************")
+                        $ffmpegCmdSrt = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $SrtffmpegCmdV2 `
+                        + $Srtfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2 `
+                        + $ffmpegaudcmd + $ffmpegvcdctra + $ffmpegOutSrt
 
+                        #Write-Host("**************************L5****************************")
+                        $ffmpegCmdNom = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $ffmpegCmdV2 `
+                        + $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2 `
+                        + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutNom
+                        $ffmpegCmdEnd = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $EndffmpegCmdV2 `
+                        + $Endfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2 `
+                        + $ffmpegaudcmd + $ffmpegvcdctra + $ffmpegOutEnd
+
+                        Write-Host("**************************L8****************************")
                         #Execute the FFmpeg command
                         #write-host "ffmpeg command for image conversion:"
                         #write-host $ffmpegcmd
+                        $ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
                         (Invoke-Expression $ffmpegCmdSrt) *> $null
                         (Invoke-Expression $ffmpegCmdNom) *> $null
                         (Invoke-Expression $ffmpegCmdEnd) *> $null
-                        (Get-Item "$($file.ImgVidPath)srt").CreationTime = $CurrDateTime
-                        (Get-Item "$($file.ImgVidPath)end").CreationTime = $CurrDateTime
-                        (Get-Item "$($file.ImgVidPath)").CreationTime = $CurrDateTime
+                        [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)srt", $CurrDateTime)
+                        [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)end", $CurrDateTime)
+                        [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)", $CurrDateTime)
+                        #(Get-Item "$($file.ImgVidPath)srt").CreationTime = $CurrDateTime
+                        #(Get-Item "$($file.ImgVidPath)end").CreationTime = $CurrDateTime
+                        #(Get-Item "$($file.ImgVidPath)").CreationTime = $CurrDateTime
                     }
 
                     #Optional / future explore:
@@ -769,20 +787,6 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 8
-
-        #Save the report
-        #$ContReportPath
-        if (Test-Path -Path $ContReportPath)
-        {
-        }
-        else
-        {
-            $null = New-Item -ItemType File -Path $ContReportPath -Force
-        }
-        $FilesExportedWithCont = ($Files2GetCont | Where-Object -Property ExpDefComplete -eq 1)
-        $FilesExportedWithCont | Select-Object -Property Name,InstInd,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
-                Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
-
+        } -ThrottleLimit 1
     }
 }
