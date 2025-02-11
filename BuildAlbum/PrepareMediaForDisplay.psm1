@@ -530,6 +530,7 @@ function Update-MediaForDisplaySets
             $ffmpegvcdcstd = $using:GDefs.ffmpegvcdcstd
             $ffmpegaudcmd = $using:GDefs.ffmpegaudcmd
             $whdispratio = $XDim/$YDim
+            $CurrDateTime = $using:CurrDateTime
             write-host "Building content for file index: $( $file.FileIdx ) - $( $file.Name )..."
             #write-host "Codec export definition: $ffmpegvcdcstd"
 
@@ -580,6 +581,10 @@ function Update-MediaForDisplaySets
                     (Invoke-Expression $IMCmd) *> $null
                     if ($file.ImgVidPath.length)
                     {
+                        $SelFadeFrames = [Int]($FadeTime*$framerate)
+                        $SelFadeTime = ($SelFadeFrames/$framerate)
+                        $SelNormFrames = [Int]($PicDispTime*$framerate)
+                        $SelNormTime = ($SelNormFrames/$framerate)
                         $FullImgDur = $FadeTime*2 + $PicDispTime
                         $NFramesExp = ($FullImgDur*$FrameRate) -as [Int]
                         #Zoompan configuration here.
@@ -587,24 +592,44 @@ function Update-MediaForDisplaySets
                         $XRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                         $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                         $ZoomRate = ($SetSrtZoom - 1)/$NFramesExp
+                        $SetNomZoom = $SetSrtZoom - ($ZoomRate*$SelFadeFrames)
+                        $SetEndZoom = $SetNomZoom - ($ZoomRate*$SelNormFrames)
 
                         $ffmpegCmd1 = "ffmpeg -y "
                         $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
                         $ffmpegCmdV1 = "-framerate " + $frameRate + " -i `"$( $file.ContPath )`" "
-                        $ffmpegCmdV2 = "-t $FullImgDur "
-                        $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
+                        $SrtffmpegCmdV2 = "-t $SelFadeTime "
+                        $Srtfiltercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
+                        $ffmpegCmdV2 = "-t $SelNormTime "
+                        $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetNomZoom)'"
+                        $EndffmpegCmdV2 = "-t $SelFadeTime "
+                        $Endfiltercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetEndZoom)'"
                         $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
                         $filtercfgY = ":y='$hint*$YRatio*(1.0-1/zoom)'"
                         $filtercfg2 = ":d=1:fps=$frameRate`:s=$SizeOut`" "
-                        $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
-                        $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$( $file.ImgVidPath )`""
-                        $ffmpegCmd = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $ffmpegCmdV2 + $filtercfg + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOut
+                        $ffmpegOutSrt = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)srt`""
+                        $ffmpegOutNom = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)`""
+                        $ffmpegOutEnd = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)end`""
+                        $ffmpegCmdSrt = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $SrtffmpegCmdV2
+                        + $Srtfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
+                        + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutSrt
+                        $ffmpegCmdNom = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $ffmpegCmdV2
+                        + $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
+                        + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutNom
+                        $ffmpegCmdEnd = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $EndffmpegCmdV2
+                        + $Endfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
+                        + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutEnd
 
                         #Execute the FFmpeg command
                         #write-host "ffmpeg command for image conversion:"
                         #write-host $ffmpegcmd
-                        (Invoke-Expression $ffmpegCmd) *> $null
+                        (Invoke-Expression $ffmpegCmdSrt) *> $null
+                        (Invoke-Expression $ffmpegCmdNom) *> $null
+                        (Invoke-Expression $ffmpegCmdEnd) *> $null
+                        (Get-Item "$($file.ImgVidPath)srt").CreationTime = $CurrDateTime
+                        (Get-Item "$($file.ImgVidPath)end").CreationTime = $CurrDateTime
+                        (Get-Item "$($file.ImgVidPath)").CreationTime = $CurrDateTime
                     }
 
                     #Optional / future explore:
