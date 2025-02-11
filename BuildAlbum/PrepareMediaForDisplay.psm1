@@ -340,6 +340,10 @@ function Update-MediaForDisplaySets
                 $datekey = [System.ValueTuple[string, long, datetime]]::new(
                         $SelProp.RelPath, $SelProp.Length, $DateTimeVal)
 
+                if($SelProp.RelContPath.Endswith("mp4")){
+
+                write-host($SelProp.RelContPath)
+                }
                 if ($SelProp.RelContPath.Length)
                 {
                     #If the file exists, check the creation date
@@ -376,11 +380,8 @@ function Update-MediaForDisplaySets
                                 #If the files exists, but there should not be an image video, claim this index.
                                 else
                                 {
+                                    $fileU2D = 1
                                 }
-                            }
-                            else
-                            {
-                                $fileU2D = 1
                             }
                         }
                     }
@@ -389,7 +390,7 @@ function Update-MediaForDisplaySets
                 if ($fileU2D)
                 {
                     $Files2Chk[$ExpFileTupleNonZeroIdx[$datekey]-1].PreRepExpIndP1 = $RepIdxP1
-                    $Files2Chk[$ExpFileTupleNonZeroIdx[$datekey]-1].InstInd = $SelProp.InstInd
+                    $Files2Chk[$ExpFileTupleNonZeroIdx[$datekey]-1].InstInd = [Int] $SelProp.InstInd
                     $PrevFileSet[$FullContPath] = 1
                 }
             }
@@ -774,7 +775,7 @@ function Update-MediaForDisplaySets
                         write-host "T1"
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)end", $CurrDateTime)
-                        [System.IO.File]::SetCreationTime( "$($file.ContPath)"   , $CurrDateTime)
+                        [System.IO.File]::SetCreationTime( "$($file.ContPath)", $CurrDateTime)
 
                         #write-host "ffmpeg command for video conversion:"
                         #write-host $ffmpegcmd
