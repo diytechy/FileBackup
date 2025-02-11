@@ -5,16 +5,16 @@ function Join-VidPartsFromList
         [string]$outputFile = "output.mp4",
         $vidqty = [Int] 20
     )
-    try
+    if(($FileListProps.Count -gt 1) -and ($FileListProps[0] -is [string]))
     {
-        $FileList = ($FileListProps | Select-Object -ExpandProperty FullName)
+        $FileList = $FileListProps
     }
-    catch
-    {
+    else{
         throw "Input must be a list of strings."
     }
     $grpfldr = $outputFile
     $tranprepend = $outputFile+"\t"
+    $appendlist = $outputFile+"\buildlist.txt"
     $finfile = $outputFile+".mp4"
     if (Test-Path -Path $grpfldr -PathType Container){}
     else {$null = New-Item -ItemType Directory -Path $grpfldr -Force}
@@ -76,9 +76,9 @@ function Join-VidPartsFromList
                     {
                         $PreHeight = [Int]::Parse($Pram.split('height=')[1])
                     }
-                    if ( $Pram.StartsWith("framerate="))
+                    if ( $Pram.StartsWith("avg_frame_rate="))
                     {
-                        $framerate = [decimal]::Parse($Pram.split('framerate=')[1])
+                        $framerate = [decimal]::Parse( (Invoke-Expression ($Pram.split('avg_frame_rate=')[1])))
                     }
                     if ( $Pram.StartsWith("rotation="))
                     {
@@ -191,8 +191,9 @@ function Join-VidPartsFromList
         #*********************** Perpare transitions  *************************
         #*********************************************************************
         #Only pick files with common format, since they must be concatable.
+        $EncodeDef = "-video_track_timescale $vseltimebase -vcodec $selvcodec -crf $($Set.Quality ) -colorspace $selcolorspace -preset slow -pix_fmt $selpixfmt -r $( $set.FPS ) -movflags faststart "
         $FileList = @($GrpSets |  Select-Object -ExpandProperty Group) | Where-Object -Property Need2Conv -eq 0
-        $FileList = $FileList | Add-Member -MemberType NoteProperty -Name ExportSuccess -Value $([int]0)
+        $FileList | Add-Member -MemberType NoteProperty -Name ExportSuccess -Value $([int]0)
         $NFilesExported = 0
         $LastExpIdx = -1
         $CurrExpIdx = 0
@@ -202,25 +203,26 @@ function Join-VidPartsFromList
         $VidPathStr = [String[]]::new($FileList.Count*2+1)
         foreach ($file in $FileList)
         {
+            $CurrIdx++
             try
             {
                 $postname = [System.IO.Path]::GetFileNameWithoutExtension($file)
                 $tdur = $file.dur
                 $VSrt = $file+"srt"
                 $VEnd = $file+"end"
-                if(PrevVid2TransitionFrom.Length)
+                if($PrevVid2TransitionFrom.Length)
                 {
                     $prename  = [System.IO.Path]::GetFileNameWithoutExtension($PrevVid2TransitionFrom)
                 }
-                $CurrExpIdx = $LastExpIdx+1
+                $CurrExpIdx = $LastExpIdx
                 #If first video, fade in.
                 if ($NFilesExported -eq 0)
                 {
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadein" + $postname + ".mp4"
-                    tincmd = "ffmpeg -i `"$VSrt`" -vf `"fade=t=in:st=0:d=$tdur`" -af `"afade=t=in:st=0:d=$tdur`" `"$tname`""
+                    $tincmd = "ffmpeg -y -f 'mp4' -i `"$VSrt`" -vf `"fade=t=in:st=0:d=$tdur`" -af `"afade=t=in:st=0:d=$tdur`" $EncodeDef `"$tname`""
                     (Invoke-Expression $tincmd) *> $null
-                    $VidPathStr[$CurrExpIdx+1] = $tname
+                    $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
                 }
                 #Else transition from previous video
                 else
@@ -228,34 +230,45 @@ function Join-VidPartsFromList
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + $prename + "to" + $postname + ".mp4"
                     $V1 = $PrevVid2TransitionFrom+"end"
-                    tcmd = "ffmpeg -i `"$V1`" -i `"$VSrt`" -filter_complex `"xfade=offset=0.0:duration=$tdur;acrossfade=duration=$tdur`" `"$tname`""
+                    $tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0][1]xfade=offset=0.0:duration=$tdur;[0][1]acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
+
+                    if($CurrIdx -eq 13)
+                    {
+                        write-host "ChkHere"
+                    }
                     (Invoke-Expression $tcmd) *> $null
-                    $VidPathStr[$CurrExpIdx+1] = $tname
+                    $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
                 }
                 #Standard, just add the file to the transition list.
                 $CurrExpIdx = $CurrExpIdx+1
-                $VidPathStr[$CurrExpIdx+1] = $file
+                $VidPathStr[$CurrExpIdx] = "file `'$file`'"
 
                 #If the file, fade to black.
                 if ($CurrIdx -eq $FileList.Count)
                 {
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadeout" + $postname + ".mp4"
-                    toutcmd = "ffmpeg -i `"$VEnd`" -vf `"fade=t=out:st=0:d=$tdur`" -af `"afade=t=out:st=0:d=$tdur`" `"$tname`""
+                    $toutcmd = "ffmpeg -y -f 'mp4' -i `"$VEnd`" -vf `"fade=t=out:st=0:d=$tdur`" -af `"afade=t=out:st=0:d=$tdur`" $EncodeDef `"$tname`""
                     (Invoke-Expression $toutcmd) *> $null
-                    $VidPathStr[$CurrExpIdx+1] = $tname
+                    $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
                 }
                 #If we get this far, update the previous properties for the next video to transition from.
                 $PrevVidDuration = $file.dur
                 $PrevVid2TransitionFrom = $file
+                $LastExpIdx = $CurrExpIdx
+                $NFilesExported++
             }
             catch{
             }
 
         }
-
+        $VidPathExp = $VidPathStr[0..$LastExpIdx]
+        $VidPathExp| Out-File -FilePath "$appendlist" -force
         #Build list of all raw files to concat.
+        $ffmpegcmd = "ffmpeg -y -safe 0 -f concat -i `"$appendlist`" -c copy `"$finfile`""
+        (Invoke-Expression $ffmpegcmd) *> $null
         #Concat files.
         Write-Host "$finfile complete"
+        \
     }
 }

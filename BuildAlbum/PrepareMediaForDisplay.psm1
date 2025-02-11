@@ -4,7 +4,7 @@ function Update-ConvertedMediaImagesForDisplay
         [string]$PrepFileRootPath,
         [string]$ConvFileRootPath
     )
-    if (Get-Command jpegr -ErrorAction SilentlyContinue) {}
+    if (Get-Command jpegr -ErrorAction SilentlyContinue) {$RotImg = 1}
     else {throw  "Jpeg lossless rotator not detected, images will not be converted"}
     if (Get-Command magick -ErrorAction SilentlyContinue) {}
     else {throw  "Image Magick not detected, images will not be converted"}
@@ -165,6 +165,7 @@ function Update-ConvertedMediaImagesForDisplay
                 $InnerLoopProg.Status = "Converting files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
                 Write-Progress @InnerLoopProg
             }
+            Write-Progress @InnerLoopProg -Completed
         }
         if ($RotImg -and $ConvDirs2Batch.Count)
         {
@@ -186,6 +187,7 @@ function Update-ConvertedMediaImagesForDisplay
                     Write-Progress @InnerLoopProg
                 }
             }
+            Write-Progress @InnerLoopProg -Completed
 
         }
         $FilesConverted = @(($AllPrepFiles | Where-Object -Property ConvExpected -eq 1) | Where-Object -Property Need2ConvFlag -eq 0)
@@ -263,8 +265,8 @@ function Update-MediaForDisplaySets
         #Get group names for files according to set definition.
         #Definitions for exporting, which will be used in actual data export.
         $GDefs.frameRate = $set.FPS
-        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $($Set.Quality ) -colorspace 1 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
-        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $($GDefs.tq ) -colorspace 1 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
+        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $($Set.Quality ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
+        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $($GDefs.tq ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
         $Files2Chk = $AllFiles
         $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string]"" )
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime] )
@@ -586,7 +588,7 @@ function Update-MediaForDisplaySets
                     #-gravity center -extent 800x600 -quality 92 output.jpg#Optional / future explore:
                     #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
                     #
-                    $IMCmd1 = "magick `"$( $file.ConvPath )`" -resize $SizeStr -quality $($quality.ToString() ) -background black "
+                    $IMCmd1 = "magick `"$( $file.ConvPath )`" -auto-orient -resize $SizeStr -quality $($quality.ToString() ) -background black "
                     $IMCmdOut = "`"$( $file.ContPath )`""
                     $IMCmd = $IMCmd1 + $ExpCmd + $IMCmdOut
                     (Invoke-Expression $IMCmd) *> $null
@@ -799,6 +801,6 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 1
+        } -ThrottleLimit 8
     }
 }

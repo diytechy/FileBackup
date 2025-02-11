@@ -22,7 +22,7 @@ $OutputDefs = @(
         BulkVidTimeMin=20;
         NameMethod = "FldrLvl2";
         ImgVidFldr="\ImgInVid";
-        Quality=30})
+        Quality=25})
 #    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
 
 #Adding dependent scripts:
