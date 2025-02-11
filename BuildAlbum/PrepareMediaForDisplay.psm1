@@ -539,7 +539,11 @@ function Update-MediaForDisplaySets
             $CurrDateTime = $using:CurrDateTime
             write-host "Building content for file index: $( $file.FileIdx ) - $( $file.Name )..."
             #write-host "Codec export definition: $ffmpegvcdcstd"
-
+            #Create common definitions.
+            $SelFadeFrames = [Int]($FadeTime*$framerate)
+            $SelFadeTime = ($SelFadeFrames/$framerate)
+            $SelNormFrames = [Int]($PicDispTime*$framerate)
+            $SelNormTime = ($SelNormFrames/$framerate)
             try
             {
                 if ($file.IsImg)
@@ -580,7 +584,9 @@ function Update-MediaForDisplaySets
                         $ExpCmd = ""
                     }
                     #magick input.jpg -resize 800x600 -background black -compose Copy \
-                    #-gravity center -extent 800x600 -quality 92 output.jpg
+                    #-gravity center -extent 800x600 -quality 92 output.jpg#Optional / future explore:
+                    #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
+                    #
                     $IMCmd1 = "magick `"$( $file.ConvPath )`" -resize $SizeStr -quality $($quality.ToString() ) -background black "
                     $IMCmdOut = "`"$( $file.ContPath )`""
                     $IMCmd = $IMCmd1 + $ExpCmd + $IMCmdOut
@@ -589,10 +595,6 @@ function Update-MediaForDisplaySets
                     if ($file.ImgVidPath.length)
                     {
                         #Write-Host("**************************L1****************************")
-                        $SelFadeFrames = [Int]($FadeTime*$framerate)
-                        $SelFadeTime = ($SelFadeFrames/$framerate)
-                        $SelNormFrames = [Int]($PicDispTime*$framerate)
-                        $SelNormTime = ($SelNormFrames/$framerate)
                         $FullImgDur = $FadeTime*2 + $PicDispTime
                         $NFramesExp = ($FullImgDur*$FrameRate) -as [Int]
                         #Zoompan configuration here.
@@ -634,7 +636,7 @@ function Update-MediaForDisplaySets
                         + $Endfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2 `
                         + $ffmpegaudcmd + $ffmpegvcdctra + $ffmpegOutEnd
 
-                        Write-Host("**************************L8****************************")
+                        #Write-Host("**************************L8****************************")
                         #Execute the FFmpeg command
                         #write-host "ffmpeg command for image conversion:"
                         #write-host $ffmpegcmd
@@ -645,16 +647,7 @@ function Update-MediaForDisplaySets
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)", $CurrDateTime)
-                        #(Get-Item "$($file.ImgVidPath)srt").CreationTime = $CurrDateTime
-                        #(Get-Item "$($file.ImgVidPath)end").CreationTime = $CurrDateTime
-                        #(Get-Item "$($file.ImgVidPath)").CreationTime = $CurrDateTime
                     }
-
-                    #Optional / future explore:
-                    #$null = magick $file.ConvPath -auto-gamma -auto-level -white-balance -resize ($contw.ToString()+"x"+$conth.ToString()+">") $file.ContPath
-                    #
-
-
                 }
                 elseif($file.IsVid)
                 {
@@ -662,6 +655,7 @@ function Update-MediaForDisplaySets
                     $VWidth = [Int]::0
                     $VWidth = [Int]::0
                     $Rotation = [Int]::0
+                    $Duration = 0.0
                     if ($VPrams.Count -gt 1)
                     {
                         foreach ($Pram in $VPrams)
@@ -677,6 +671,10 @@ function Update-MediaForDisplaySets
                             if ( $Pram.StartsWith("rotation="))
                             {
                                 $Rotation = [Int]::Parse($Pram.split('rotation=')[1])
+                            }
+                            if ( $Pram.StartsWith("duration="))
+                            {
+                                $Duration = [Decimal]::Parse($Pram.split('duration=')[1])
                             }
                         }
                         #If video is not oriented according to it's resolution, assume  a 90 deg turn.
@@ -758,10 +756,25 @@ function Update-MediaForDisplaySets
                         {
                             $PadOpt = ""
                         }
-                        #$outputFile = $file.ContPath.split(".")[0]
-                        $ffmpeginput = "ffmpeg -y -i `"$( $file.FullName )`" "
+                        $nomdur = $Duration - ($SelFadeTime*2)
+                        $endsrt = $Duration - $SelFadeTime
+                        $ffmpeginputsrt = "ffmpeg -y -t $SelFadeTime -i `"$( $file.FullName )`" "
+                        $ffmpeginputnom = "ffmpeg -y -ss $SelFadeTime -t $nomdur -i `"$( $file.FullName )`" "
+                        $ffmpeginputend = "ffmpeg -y -ss $endsrt -t $SelFadeTime -i `"$( $file.FullName )`" "
                         $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
-                        $ffmpegcmd = $ffmpeginput + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdcstd + " -movflags faststart `"$( $file.ContPath )`""
+                        $ffmpegcmdsrt = $ffmpeginputsrt + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)srt`""
+                        $ffmpegcmdend = $ffmpeginputend + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)end`""
+                        $ffmpegcmdnom = $ffmpeginputnom + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdcstd + " -movflags faststart -f 'mp4' `"$( $file.ContPath)`""
+
+                        write-host "T0"
+                        $ffmpegcmdsrt | Out-File -FilePath "$($file.ContPath)srtcmd"
+                        (Invoke-Expression $ffmpegcmdsrt) *> $null
+                        (Invoke-Expression $ffmpegcmdend) *> $null
+                        (Invoke-Expression $ffmpegcmdnom) *> $null
+                        write-host "T1"
+                        [System.IO.File]::SetCreationTime( "$($file.ContPath)srt", $CurrDateTime)
+                        [System.IO.File]::SetCreationTime( "$($file.ContPath)end", $CurrDateTime)
+                        [System.IO.File]::SetCreationTime( "$($file.ContPath)"   , $CurrDateTime)
 
                         #write-host "ffmpeg command for video conversion:"
                         #write-host $ffmpegcmd
