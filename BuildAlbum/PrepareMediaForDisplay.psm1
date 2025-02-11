@@ -203,9 +203,7 @@ function Update-MediaForDisplaySets
 {
     param (
         $AllPrepFiles,
-        [string]$OutputFilePrepend,
-        $OutputSizes,
-        [Int] $ContOODChk = 0
+        $OutputSizes
     )
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue)
     {

@@ -1,13 +1,12 @@
 Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 2 #Remember- this is completed
+$ProcLvl = 3 #Remember- this is completed
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"
 $OutputFilePrepend = "D:\Album"
 #0 - Only generate content when new files are available, 1
 #1 - Generate content if files appear updated.
-$ContOODChk       = 0
 $InputFileRootPath ="D:\T"
 $PrepFileRootPath ="D:\TAlbumPrep"
 $ConvFileRootPath ="D:\TAlbumConv"
@@ -51,13 +50,13 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
     $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath
-    Update-MediaForDisplaySets $PrepMediaDef $OutputFilePrepend $OutputDefs $ContOODChk
+    Update-MediaForDisplaySets $PrepMediaDef $OutputDefs
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
     Write-Host "***************************************"
     Write-Host "**** Building final output videos *****"
     Write-Host "***************************************"
-    Set-VideoFromMedia $OutputFilePrepend $OutputDefs
+    Set-VideoFromMedia $OutputDefs
 }
 $stopwatch.Stop()
 $elapsedTime = $stopwatch.Elapsed

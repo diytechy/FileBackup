@@ -1,8 +1,7 @@
-Import-Module ".\BuildAlbum\ConcatMediaFromFileList.psm1"
+Import-Module ".\BuildAlbum\ConcatVidPartsFromFileList.psm1"
 function Set-VideoFromMedia
 {
     param (
-        [string]$OutputFilePrepend,
         $OutputSizes
     )
 
@@ -82,7 +81,7 @@ function Set-VideoFromMedia
                 $Quality = $set.Quality
                 $SelGrpDef = $GrpDef[$grp]
                 $SelVidExpPath = $grp.VidExpPath
-                Join-VideosFromList $SelGrpDef $FadeTime $SelVidExpPath $Quality
+                Join-VidPartsFromList $SelGrpDef $SelVidExpPath $Quality
             }
         }
         $SelGrpN = 0
