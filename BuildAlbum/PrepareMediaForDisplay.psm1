@@ -207,10 +207,20 @@ function Update-MediaForDisplaySets
         $OutputSizes,
         [Int] $ContOODChk = 0
     )
-    if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {}
-    else {throw  "ffmpeg not detected, videos will not be converted"}
-    if (Get-Command magick -ErrorAction SilentlyContinue) {}
-    else {throw  "Image Magick not detected, videos will not be converted"}
+    if (Get-Command ffmpeg -ErrorAction SilentlyContinue)
+    {
+    }
+    else
+    {
+        throw  "ffmpeg not detected, videos will not be converted"
+    }
+    if (Get-Command magick -ErrorAction SilentlyContinue)
+    {
+    }
+    else
+    {
+        throw  "Image Magick not detected, videos will not be converted"
+    }
 
     $arval = 48000 #audio rate
     $vrate = 60000 #timescale
@@ -227,8 +237,8 @@ function Update-MediaForDisplaySets
         ffmpegvcdctra = "" #Configured below per set.
         ffmpegaudcmd = "-c:a aac -ar $arval "
     }
-    $ExpFileTupleNonZeroIdx = @{}
-    $ExpFileRelPathExists = @{}
+    $ExpFileTupleNonZeroIdx = @{ }
+    $ExpFileRelPathExists = @{ }
     #Now, for each set, run the final export tooling depending on if the file is a video or image.
     #********************************************************************************************
     #********************************************************************************************
@@ -236,74 +246,86 @@ function Update-MediaForDisplaySets
     $ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
     $VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
     $AllFiles = $ImageFiles + $VideoFiles
-    $SrcFileTuple2EntryIdx = @{}
+    $SrcFileTuple2EntryIdx = @{ }
     #Define file existance and up-to-date definitions.
     Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
-    $idx=0
+    $idx = 0
     foreach ($file in $AllFiles)
     {
         $idx++
         $ExpFileTupleNonZeroIdx[$file.TupleVal] = $idx
         $ExpFileRelPathExists[$file.relpath] = 1
     }
-
-    foreach ($set in $OutputSizes){
+    $CurrDateTime = Get-Date
+    foreach ($set in $OutputSizes)
+    {
         #Get group names for files according to set definition.
         #Definitions for exporting, which will be used in actual data export.
         $GDefs.frameRate = $set.FPS
-        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.vq) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $($set.FPS) -movflags faststart "
-        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $($set.tq) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $($set.FPS) -movflags faststart "
+        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $( $set.vq ) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
+        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $( $set.tq ) -colorspace BT.709 -preset slow -pix_fmt yuvj422p -r $( $set.FPS ) -movflags faststart "
         $Files2Chk = $AllFiles
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string] "")
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime])
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string] "")
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string] "")
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPFlg -Value $( [int] 0)
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelImgVidPath -Value $( [string] "")
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string] "")
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int] 0)
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int] 0)
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpDefComplete -Value $( [int] 0)
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name PreRepExpIndP1 -Value $( [int] 0)
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string]"" )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime] )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDateStr -Value $( [string] "" )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string]"" )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string]"" )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPFlg -Value $( [int]0 )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelImgVidPath -Value $( [string]"" )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string]"" )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int]0 )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int]0 )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpDefComplete -Value $( [int]0 )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name PreRepExpIndP1 -Value $( [int]0 )
         foreach ($file in $Files2Chk)
         {
-             if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
-             {
-                 $file.ImgVidPFlg = 1
-             }
+            if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
+            {
+                $file.ImgVidPFlg = 1
+            }
             $TenativeLbl = ""
-            if ($set.NameMethod.StartsWith("FldrLvl"))
+            if ( $set.NameMethod.StartsWith("FldrLvl"))
             {
                 $LvlIdx = [Int]$set.NameMethod.split("FldrLvl")[1]
                 $Parts = $file.relpath -split '\\'
                 #If the level index desired is folder, use it, else keep the label designation blank.
-                if($Parts.Count -ge ($LvlIdx + 1)){
+                if ($Parts.Count -ge ($LvlIdx + 1))
+                {
                     $TenativeLbl = $Parts[$LvlIdx]
                 }
             }
-            else{
+            else
+            {
             }
-            if($TenativeLbl.Length){$file.SelLabelGrp = $TenativeLbl}
+            if ($TenativeLbl.Length)
+            {
+                $file.SelLabelGrp = $TenativeLbl
+            }
         }
         #Create common definitions for set.
-        Write-Host ("Exporting media for set: " + $set.XDim + " by "  + $set.YDim)
+        Write-Host ("Exporting media for set: " + $set.XDim + " by " + $set.YDim)
         $ContFileRootPath = $set.Outpath
         $VidPacksRootPath = $ContFileRootPath + $set.ImgVidFldr
-        if (-not(Test-Path -LiteralPath $ContFileRootPath -PathType Container))
-        {New-Item -Path $ContFileRootPath -ItemType "directory" | Out-Null}
-        if ($set.ImgVidFldr.length -and $set.PicDispTime -and (-not(Test-Path -LiteralPath $VidPacksRootPath -PathType Container)))
-        {New-Item -Path $VidPacksRootPath -ItemType "directory" | Out-Null}
+        if (-not (Test-Path -LiteralPath $ContFileRootPath -PathType Container))
+        {
+            New-Item -Path $ContFileRootPath -ItemType "directory" | Out-Null
+        }
+        if ($set.ImgVidFldr.length -and $set.PicDispTime -and (-not (Test-Path -LiteralPath $VidPacksRootPath -PathType Container)))
+        {
+            New-Item -Path $VidPacksRootPath -ItemType "directory" | Out-Null
+        }
         $ContReportPrePath = ($ContFileRootPath + "\PreReport.csv")
         #Define files groups that should exxist so they are not reomved.
-        $PrevContInd = @{}
-        $PrevFileSet = @{}
+        $PrevContInd = @{ }
+        $PrevFileSet = @{ }
         $selfilename = Split-Path -Path $ContReportPrePath -Leaf
         $PrevFileSet[$selfilename] = 1
         #Remove old content items if they are not up to date anymore.
         Write-Host ("Checking report file to verify integrity and determine which files need to be updated...")
-        if(Test-Path -Path $ContReportPrePath)
+        if (Test-Path -Path $ContReportPrePath)
         {
             $PrevContProps = Import-Csv -LiteralPath $ContReportPrePath
+            $PrevContProps| Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $([DateTime])
             Write-Host ("Checking " + $PrevContProps.Count.ToString() + " old entries...")
             $RepIdxP1 = 0
             foreach ($SelProp in $PrevContProps)
@@ -321,7 +343,8 @@ function Update-MediaForDisplaySets
                     $FullContPath = $ContFileRootPath + $SelProp.RelContPath
                     if (Test-Path $FullContPath -PathType Leaf)
                     {
-                        $SelCreationTime = [datetime]::ParseExact($SelProp.LastCreateTimeStr, $HashTblDateFormat, $null)
+                        $SelCreationTime = [datetime]::ParseExact($SelProp.ContCreationDateStr, $HashTblDateFormat, $null)
+                        $SelProp.ContCreationDate = $SelCreationTime
                         #If the creation date matches, check to see if the video image is up-to-date
                         if ($SelCreationTime -eq (Get-Item -LiteralPath "$FullContPath").CreationTime)
                         {
@@ -370,29 +393,41 @@ function Update-MediaForDisplaySets
         }
         #Remove files from the folder which didn't belong to the database.
         $AllCurrContFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Recurse -File)
-        $AllCurrContFiles | Add-Member -MemberType NoteProperty -Name RemFlag -Value $( [int] 0)
-        foreach($ContFile in $AllCurrContFiles){
+        $AllCurrContFiles | Add-Member -MemberType NoteProperty -Name RemFlag -Value $( [int]0 )
+        foreach ($ContFile in $AllCurrContFiles)
+        {
             #If this is a transition file and the core file exists, assume all three can stay (don't tag for removal)
             $PathLen = $ContFile.FullName.Length
-            if($ContFile.Fullname.EndsWith("srt") -or $ContFile.Fullname.EndsWith("end")){
-                $CoreName = $ContFile.Fullname.Substring(0,($PathLen-3))
+            if ($ContFile.Fullname.EndsWith("srt") -or $ContFile.Fullname.EndsWith("end"))
+            {
+                $CoreName = $ContFile.Fullname.Substring(0, ($PathLen - 3))
             }
-            else{$CoreName = $ContFile.Fullname}
-            if($PrevFileSet[$CoreName]){}#If file should exist, do nothing.
-            else{$ContFile.RemFlag = 1}
+            else
+            {
+                $CoreName = $ContFile.Fullname
+            }
+            if ($PrevFileSet[$CoreName])
+            {
+            }#If file should exist, do nothing.
+            else
+            {
+                $ContFile.RemFlag = 1
+            }
         }
         $CurrContFiles2Rem = @($AllCurrContFiles| Where-Object -Property RemFlag -eq 1)
-        Write-Host ("Removing "+$CurrContFiles2Rem.Count.ToString()+" file(s) that were not expected...")
+        Write-Host ("Removing " + $CurrContFiles2Rem.Count.ToString() + " file(s) that were not expected...")
         foreach ($ContFile in $CurrContFiles2Rem)
-        {remove-item -LiteralPath $ContFile.FullName -Force}
+        {
+            remove-item -LiteralPath $ContFile.FullName -Force
+        }
         #Get index of current content items
 
         #Group files
-        $FileGroups = $Files2Chk | Group-Object -Property SelLabelGrp
-        Write-Host ("Checking "+$FileGroups.Count.ToString()+" groups...")
-        foreach($grp in $FileGroups)
+        $FileGroups = @($Files2Chk | Group-Object -Property SelLabelGrp)
+        Write-Host ("Checking " + $FileGroups.Count.ToString() + " group(s)...")
+        foreach ($grp in $FileGroups)
         {
-            $InstIdxSet = @{}
+            $InstIdxSet = @{ }
             foreach ($file in ($grp| Select-Object -ExpandProperty Group))
             {
                 #If a previous index already exists for this file, store it.
@@ -403,26 +438,34 @@ function Update-MediaForDisplaySets
             }
             #Populate any missing indexes for the group
             $GrpIdx = 1;
-            foreach ($file in ($grp| Select-Object -Expand Group) )
+            foreach ($file in ($grp| Select-Object -Expand Group))
             {
                 #Also set all the corresponding information for that index.
-                if ($file.InstInd )
+                if ($file.InstInd)
                 {
                     #It's already been exported, so set the flag.
                     $file.ExpDefComplete = 1
+                    $file.ContCreationDate = ContReportPrePath[$file.PreRepExpIndP1-1].$ContCreationDate
                 }
                 else
                 {
                     #Incriment index till one is found that is not used.
-                    if($InstIdxSet.Count){
-                        while($InstIdxSet[$GrpIdx]){$GrpIdx++}
+                    if ($InstIdxSet.Count)
+                    {
+                        while ($InstIdxSet[$GrpIdx])
+                        {
+                            $GrpIdx++
+                        }
                     }
                     #Once it's found, set it and set the map to indicate the index has been used.
                     $file.InstInd = $GrpIdx
+                    $file.ContCreationDate = $CurrDateTime
                     $InstIdxSet[$GrpIdx] = 1
                     #Set the flag to export the content, since it's new.
                     $file.Exp2ContPath = 1
                 }
+                #Finally, convert datestr.
+                $file.ContCreationDateStr = $file.ContCreationDate.ToString($HashTblDateFormat)
 
             }
         }
@@ -430,33 +473,41 @@ function Update-MediaForDisplaySets
         $Files2Chk = ($FileGroups| Select-Object -Expand Group)
 
         #Create the export path and perform the export.
-        Write-Host ("Checking "+($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" for content definitions...")
+        Write-Host ("Checking " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " for content definitions...")
         foreach ($file in ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1))
         {
-            if($file.SelLabelGrp.Length){
-                $Designator = $file.SelLabelGrp+"-"+$file.InstInd.ToString('00000')
-            else{$Designator = $file.InstInd.ToString('00000')}
+            if ($file.SelLabelGrp.Length)
+            {
+                $Designator = $file.SelLabelGrp + "-" + $file.InstInd.ToString('00000')}
+            else{ $Designator = $file.InstInd.ToString('00000') }
             $file.RelContPath = $Designator + $file.ContExt
-            $file.ContPath  = ($ContFileRootPath+"\"+$file.RelContPath)
+            $file.ContPath = ($ContFileRootPath + "\" + $file.RelContPath)
             $file.ContTitle = $Designator
             #If the intent is also to convert the picture to a video, also define the path of the video to export to.
             try
             {
                 if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
                 {
-                    $file.RelImgVidPath = ($set.ImgVidFldr + "\" + $Designator+".mp4")
+                    $file.RelImgVidPath = ($set.ImgVidFldr + "\" + $Designator + ".mp4")
                     $file.ImgVidPath = ($ContFileRootPath + $file.RelImgVidPath)
                 }
                 #It's already been exported, so set the flag.
                 $file.ExpDefComplete = 1
             }
-            catch{}
+            catch
+            {
+            }
         }
         #Create report placeholder if it doesn't exist
-        if (Test-Path -Path $ContReportPrePath){}
-        else {$null = New-Item -ItemType File -Path $ContReportPrePath -Force}
-        $Files2GetCont | Select-Object -Property Name,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
-            Export-Csv -LiteralPath $ContReportPrePath -NoTypeInformation
+        if (Test-Path -Path $ContReportPrePath)
+        {
+        }
+        else
+        {
+            $null = New-Item -ItemType File -Path $ContReportPrePath -Force
+        }
+        ($Files2Chk | Where-Object -Property ExpDefComplete -eq 1) | Select-Object -Property RelPath,Length,LastWriteTimeStr,RelContPath,RelImgVidPath,ContCreationDateStr,InstInd|
+                Export-Csv -LiteralPath $ContReportPrePath -NoTypeInformation
         #Save the prep file
 
         #Process the files
@@ -464,22 +515,22 @@ function Update-MediaForDisplaySets
         $PrevInnerProgPercInt[0] = 0
         $LoopProg = 0
         $ShowProg = 1
-        $AllFilesizeTtl = ($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum ; $AllFilesizeTtl =$AllFilesizeTtl.Sum
-        Write-Host ("Exporting "+($Files2GetCont | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()+" files...")
-        (($Files2GetCont| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
+        $AllFilesizeTtl = ($Files2Chk| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
+        Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
             $file = $_
-            $XDim=$using:set.XDim
-            $YDim=$using:set.YDim
-            $FadeTime       = $using:set.FadeTime
-            $PicDispTime    = $using:set.PicDispTime
-            $VidPack        = $using:set.VidPack
-            $framerate      = $using:GDefs.framerate
-            $MinSrtZoom     = $using:GDefs.MinSrtZoom
-            $MaxSrtZoom     = $using:GDefs.MaxSrtZoom
-            $ffmpegvcdcstd      = $using:GDefs.ffmpegvcdcstd
-            $ffmpegaudcmd   = $using:GDefs.ffmpegaudcmd
-            $whdispratio    = $XDim/$YDim
-            write-host "Building content for file index: $($file.FileIdx) - $($file.Name)..."
+            $XDim = $using:set.XDim
+            $YDim = $using:set.YDim
+            $FadeTime = $using:set.FadeTime
+            $PicDispTime = $using:set.PicDispTime
+            $VidPack = $using:set.VidPack
+            $framerate = $using:GDefs.framerate
+            $MinSrtZoom = $using:GDefs.MinSrtZoom
+            $MaxSrtZoom = $using:GDefs.MaxSrtZoom
+            $ffmpegvcdcstd = $using:GDefs.ffmpegvcdcstd
+            $ffmpegaudcmd = $using:GDefs.ffmpegaudcmd
+            $whdispratio = $XDim/$YDim
+            write-host "Building content for file index: $( $file.FileIdx ) - $( $file.Name )..."
             #write-host "Codec export definition: $ffmpegvcdcstd"
 
             try
@@ -491,7 +542,7 @@ function Update-MediaForDisplaySets
                     $whimgratio = $image.Width/$image.Height
                     #If we're converting the picture to an image, it must oversized substantially to
                     #allow smooth zooming.  Keeping a whole number in case it is rendered to the nominal dimensions.
-                    if($file.ImgVidPath.length)
+                    if ($file.ImgVidPath.length)
                     {
                         $contw = [math]::Ceiling($XDim*4*$MaxSrtZoom)
                         $conth = [math]::Ceiling($YDim*4*$MaxSrtZoom)
@@ -513,32 +564,33 @@ function Update-MediaForDisplaySets
                     $SizeStr2 = $XDim.ToString() + ":" + $YDim.ToString()
                     $SizeOut = $XDim.ToString() + "x" + $YDim.ToString()
                     $quality = 95
-                    if($file.ImgVidPath.length)
+                    if ($file.ImgVidPath.length)
                     {
                         $ExpCmd = "-compose Copy -gravity center -extent  $SizeStr -quality $quality "
                     }
-                    else{
+                    else
+                    {
                         $ExpCmd = ""
                     }
                     #magick input.jpg -resize 800x600 -background black -compose Copy \
                     #-gravity center -extent 800x600 -quality 92 output.jpg
-                    $IMCmd1 = "magick `"$($file.ConvPath)`" -resize $SizeStr -quality $($quality.ToString()) -background black "
-                    $IMCmdOut = "`"$($file.ContPath)`""
-                    $IMCmd = $IMCmd1+$ExpCmd+$IMCmdOut
+                    $IMCmd1 = "magick `"$( $file.ConvPath )`" -resize $SizeStr -quality $($quality.ToString() ) -background black "
+                    $IMCmdOut = "`"$( $file.ContPath )`""
+                    $IMCmd = $IMCmd1 + $ExpCmd + $IMCmdOut
                     (Invoke-Expression $IMCmd) *> $null
-                    if($file.ImgVidPath.length)
+                    if ($file.ImgVidPath.length)
                     {
-                        $FullImgDur = $FadeTime*2 +$PicDispTime
+                        $FullImgDur = $FadeTime*2 + $PicDispTime
                         $NFramesExp = ($FullImgDur*$FrameRate) -as [Int]
                         #Zoompan configuration here.
                         $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
                         $XRatio = Get-Random -Minimum 0.0 -Maximum 1.0
                         $YRatio = Get-Random -Minimum 0.0 -Maximum 1.0
-                        $ZoomRate = ($SetSrtZoom-1)/$NFramesExp
+                        $ZoomRate = ($SetSrtZoom - 1)/$NFramesExp
 
                         $ffmpegCmd1 = "ffmpeg -y "
                         $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1 -f image2 "
-                        $ffmpegCmdV1= "-framerate " + $frameRate + " -i `"$($file.ContPath)`" "
+                        $ffmpegCmdV1 = "-framerate " + $frameRate + " -i `"$( $file.ContPath )`" "
                         $ffmpegCmdV2 = "-t $FullImgDur "
                         $filtercfg1 = "-filter_complex `"[1:v]zoompan=z='if(gte(in,1),min(pzoom-$ZoomRate,1.5),$SetSrtZoom)'"
                         $filtercfgX = ":x='($wint*$XRatio*(1.0-1/zoom))'"
@@ -546,8 +598,8 @@ function Update-MediaForDisplaySets
                         $filtercfg2 = ":d=1:fps=$frameRate`:s=$SizeOut`" "
                         $filtercfg = $filtercfg1 + $filtercfgX + $filtercfgY + $filtercfg2
 
-                        $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$($file.ImgVidPath)`""
-                        $ffmpegCmd = $ffmpegCmd1+$ffmpegCmdA+$ffmpegCmdV1+$ffmpegCmdV2+$filtercfg+$ffmpegaudcmd+$ffmpegvcdcstd+$ffmpegOut
+                        $ffmpegOut = "-map 0:a -map 1:v -s $SizeStr2 `"$( $file.ImgVidPath )`""
+                        $ffmpegCmd = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $ffmpegCmdV2 + $filtercfg + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOut
 
                         #Execute the FFmpeg command
                         #write-host "ffmpeg command for image conversion:"
@@ -560,29 +612,32 @@ function Update-MediaForDisplaySets
                     #
 
 
-                    }
+                }
                 elseif($file.IsVid)
                 {
                     $VPrams = ffprobe -v error -show_streams -select_streams v:0 -of ini $file.FullName
                     $VWidth = [Int]::0
                     $VWidth = [Int]::0
                     $Rotation = [Int]::0
-                    if ($VPrams.Count -gt 1){
-                        foreach($Pram in $VPrams)
+                    if ($VPrams.Count -gt 1)
+                    {
+                        foreach ($Pram in $VPrams)
                         {
-                            if($Pram.StartsWith("width="))
+                            if ( $Pram.StartsWith("width="))
                             {
                                 $PreWidth = [Int]::Parse($Pram.split('width=')[1])
                             }
-                            if($Pram.StartsWith("height=")){
+                            if ( $Pram.StartsWith("height="))
+                            {
                                 $PreHeight = [Int]::Parse($Pram.split('height=')[1])
                             }
-                            if($Pram.StartsWith("rotation=")){
+                            if ( $Pram.StartsWith("rotation="))
+                            {
                                 $Rotation = [Int]::Parse($Pram.split('rotation=')[1])
                             }
                         }
                         #If video is not oriented according to it's resolution, assume  a 90 deg turn.
-                        if($Rotation%180 -ne 0)
+                        if ($Rotation%180 -ne 0)
                         {
                             $VWidth = $PreHeight
                             $VHeight = $PreWidth
@@ -596,31 +651,31 @@ function Update-MediaForDisplaySets
                         #If width is greater, limit this dimension for resize.
                         if ($whvidratio -gt $whdispratio)
                         {
-                            $contw = [int] $XDim
+                            $contw = [int]$XDim
                             $conth = [int]($XDim/$whvidratio)
                         }
                         else
                         {
-                            $conth = [int] $YDim
+                            $conth = [int]$YDim
                             $contw = [int]($YDim*$whvidratio)
                         }
                         #If video packing, need to set the pad limits
-                        if($VidPack)
+                        if ($VidPack)
                         {
-                            $Sides  = $XDim - $contw;
+                            $Sides = $XDim - $contw;
                             $TopBot = $YDim - $conth;
-                            $LBand  = [math]::Floor($Sides/2)
-                            $TBand  = [math]::Floor($TopBot/2)
-                            $RBand  = $LBand
-                            $BBand  = $TBand
+                            $LBand = [math]::Floor($Sides/2)
+                            $TBand = [math]::Floor($TopBot/2)
+                            $RBand = $LBand
+                            $BBand = $TBand
 
                             if ($Sides%2)
                             {
-                                $RBand = $LBand+1
+                                $RBand = $LBand + 1
                             }
                             if (($TopBot%2) -ge 1)
                             {
-                                $BBand = $TBand+1
+                                $BBand = $TBand + 1
                             }
                             $wint = $XDim -as [Int]
                             $hint = $YDim -as [Int]
@@ -650,20 +705,20 @@ function Update-MediaForDisplaySets
                             $wint = $contw -as [Int]
                             $hint = $conth -as [Int]
                         }
-                        $sizestr = $wint.ToString()+":"+$hint.ToString()
+                        $sizestr = $wint.ToString() + ":" + $hint.ToString()
                         #If bordering is required.
-                        if($LBand -or $RBand -or $TBand -or $BBand)
+                        if ($LBand -or $RBand -or $TBand -or $BBand)
                         {
-                            $PadOpt = ",pad="+$sizestr + "`:$LBand`:$TBand,setsar=1"
+                            $PadOpt = ",pad=" + $sizestr + "`:$LBand`:$TBand,setsar=1"
                         }
                         else
                         {
                             $PadOpt = ""
                         }
                         #$outputFile = $file.ContPath.split(".")[0]
-                        $ffmpeginput  = "ffmpeg -y -i `"$($file.FullName)`" "
+                        $ffmpeginput = "ffmpeg -y -i `"$( $file.FullName )`" "
                         $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
-                        $ffmpegcmd = $ffmpeginput+$ffmpegvidcmd1+$ffmpegaudcmd+$ffmpegvcdcstd+" -movflags faststart `"$($file.ContPath)`""
+                        $ffmpegcmd = $ffmpeginput + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdcstd + " -movflags faststart `"$( $file.ContPath )`""
 
                         #write-host "ffmpeg command for video conversion:"
                         #write-host $ffmpegcmd
@@ -674,8 +729,10 @@ function Update-MediaForDisplaySets
                     }
                 }
             }
-            catch{}
-            if($ShowProg)
+            catch
+            {
+            }
+            if ($ShowProg)
             {
                 $LoopProg += $file.Length
                 $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
@@ -691,12 +748,16 @@ function Update-MediaForDisplaySets
 
         #Save the report
         #$ContReportPath
-        if (Test-Path -Path $ContReportPath){}
-        else {$null = New-Item -ItemType File -Path $ContReportPath -Force}
+        if (Test-Path -Path $ContReportPath)
+        {
+        }
+        else
+        {
+            $null = New-Item -ItemType File -Path $ContReportPath -Force
+        }
         $FilesExportedWithCont = ($Files2GetCont | Where-Object -Property ExpDefComplete -eq 1)
         $FilesExportedWithCont | Select-Object -Property Name,InstInd,RelPath,FullName,ConvPath,Length,LastWriteTimeStr,ContPath,ImgVidPath|
-            Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
+                Export-Csv -LiteralPath $ContReportPath -NoTypeInformation
 
     }
-
 }
