@@ -1,6 +1,6 @@
-Clear-Host; #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
+Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 2 #Remember- this is completed
+$ProcLvl = 3 #Remember- this is completed
 $InputFileRootPath ="S:"
 $PrepFileRootPath ="D:\AlbumPrep"
 $ConvFileRootPath ="D:\AlbumConv"

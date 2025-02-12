@@ -28,6 +28,8 @@ function Join-VidPartsFromList
 
         $FileList | Add-Member -MemberType NoteProperty -Name VidDef -Value $([System.ValueTuple[int, int, int, double,string, string]])
         $FileList | Add-Member -MemberType NoteProperty -Name Dur -Value $([decimal])
+        $FileList | Add-Member -MemberType NoteProperty -Name SrtDur -Value $([decimal])
+        $FileList | Add-Member -MemberType NoteProperty -Name EndDur -Value $([decimal])
         $FileList | Add-Member -MemberType NoteProperty -Name FrameRate -Value $([decimal])
         $FileList | Add-Member -MemberType NoteProperty -Name Need2Conv -Value $([int]0)
         $FileList | Add-Member -MemberType NoteProperty -Name colorspace -Value $([string]"")
@@ -46,24 +48,48 @@ function Join-VidPartsFromList
         #*********************************************************************
         #*********************** Get file properties *************************
         #*********************************************************************
+        $FileList = @($FileList[0..2])
         foreach ($entry in $FileList)
         {
             #Get video definition.
-            $ChkName = $entry+"srt"
-            $VPramsCmd = "ffprobe -v error -show_streams -select_streams v`:0 -of ini `"$ChkName`""
-            $APramsCmd = "ffprobe -v error -show_streams -select_streams a`:0 -of ini `"$ChkName`""
+            $SrtChkName = $entry+"srt"
+            $NomChkName = $entry
+            $EndChkName = $entry+"end"
+            $VPramsCmd = "ffprobe -v error -show_streams -select_streams v`:0 -of ini `"$NomChkName`""
+            $VPramsCmd = "ffprobe -v error -show_streams -select_streams v`:0 -of ini `"$NomChkName`""
+            $VSrtPramsCmd = "ffprobe -v error -show_streams -select_streams v`:0 -of ini `"$SrtChkName`""
+            $VEndPramsCmd = "ffprobe -v error -show_streams -select_streams v`:0 -of ini `"$EndChkName`""
+            $APramsCmd = "ffprobe -v error -show_streams -select_streams a`:0 -of ini `"$NomChkName`""
             $VPrams = Invoke-Expression $VPramsCmd
+            $VSrtPrams = Invoke-Expression $VSrtPramsCmd
+            $VEndPrams = Invoke-Expression $VEndPramsCmd
             $APrams = Invoke-Expression $APramsCmd
             $PreWidth = [Int]::0
             $PreHeight = [Int]::0
             $Rotation = [Int]::0
             $timebase = 0
+            $atimebase = 0
             $colorspace = ""
             $pixfmt = ""
             $vcodec = ""
             $acodec = ""
             $arate = 0
             $framerate = 0
+            $Dur = 0; $SrtDur = 0; $EndDur = 0
+            foreach ($Pram in $VSrtPrams)
+            {
+                if ( $Pram.StartsWith("duration="))
+                {
+                    $SrtDur = [decimal]::Parse($Pram.split('duration=')[1])
+                }
+            }
+            foreach ($Pram in $VEndPrams)
+            {
+                if ( $Pram.StartsWith("duration="))
+                {
+                    $EndDur = [decimal]::Parse($Pram.split('duration=')[1])
+                }
+            }
             if ($VPrams.Count -gt 1)
             {
                 foreach ($Pram in $VPrams)
@@ -130,7 +156,8 @@ function Join-VidPartsFromList
             $entry.VidDef = [System.ValueTuple[int, int, int, decimal, string, string]]::new(
                      $Width, $Height, $timebase, $arate, $vdefinition, $adefinition)
 
-            $entry.framerate = $framerate; $entry.timebase = $timebase; $entry.Dur = $Dur
+            $entry.framerate = $framerate; $entry.timebase = $timebase;
+            $entry.Dur = $Dur ; $entry.SrtDur = $SrtDur ; $entry.EndDur = $EndDur
             $entry.width = $width; $entry.height = $height; $entry.vcodec = $vcodec
             $entry.acodec = $acodec; $entry.arate  = $arate; $entry.pixfmt = $pixfmt
             $entry.atimebase = $atimebase; $entry.colorspace = $colorspace
@@ -207,7 +234,6 @@ function Join-VidPartsFromList
             try
             {
                 $postname = [System.IO.Path]::GetFileNameWithoutExtension($file)
-                $tdur = $file.dur
                 $VSrt = $file+"srt"
                 $VEnd = $file+"end"
                 if($PrevVid2TransitionFrom.Length)
@@ -218,6 +244,7 @@ function Join-VidPartsFromList
                 #If first video, fade in.
                 if ($NFilesExported -eq 0)
                 {
+                    $tdur = $file.srtdur
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadein" + $postname + ".mp4"
                     $tincmd = "ffmpeg -y -f 'mp4' -i `"$VSrt`" -vf `"fade=t=in:st=0:d=$tdur`" $EncodeDef `"$tname`""
@@ -227,6 +254,7 @@ function Join-VidPartsFromList
                 #Else transition from previous video
                 else
                 {
+                    $tdur = $file.srtdur
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + $prename + "to" + $postname + ".mp4"
                     $V1 = $PrevVid2TransitionFrom+"end"
@@ -239,6 +267,7 @@ function Join-VidPartsFromList
 
                     $tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur;[0:a]aresample=async=1,volume=1.0[a0];[1:a]aresample=async=1,volume=1.0[a1];[a0][a1]acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
                     $tcmd = $FAud + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map 0:a -map `"[vfout]`" $EncodeDef `"$tname`""
+                    $tcmd = $FAud + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map `"[vfout]`" -map 1:a  $EncodeDef `"$tname`""
                     if($CurrIdx -eq 13)
                     {
                         write-host "ChkHere"
@@ -254,6 +283,7 @@ function Join-VidPartsFromList
                 #If the file, fade to black.
                 if ($CurrIdx -eq $FileList.Count)
                 {
+                    $tdur = ($file.enddur*0.9)
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadeout" + $postname + ".mp4"
                     $toutcmd = "ffmpeg -y -f 'mp4' -i `"$VEnd`" -vf `"fade=t=out:st=0:d=$tdur`" $EncodeDef `"$tname`""
@@ -277,6 +307,5 @@ function Join-VidPartsFromList
         (Invoke-Expression $ffmpegcmd) *> $null
         #Concat files.
         Write-Host "$finfile complete"
-        \
     }
 }

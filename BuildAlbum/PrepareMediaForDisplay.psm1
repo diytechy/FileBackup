@@ -772,13 +772,15 @@ function Update-MediaForDisplaySets
                         $ffmpeginputnom = "ffmpeg -y -ss $SelFadeTime -t $nomdur -i `"$( $file.FullName )`" "
                         $ffmpeginputend = "ffmpeg -y -ss $endsrt -t $SelFadeTime -i `"$( $file.FullName )`" "
                         $ffmpegvidfilt = "scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt"
-                        $ffmpegvidcmd1 = "-fv "+ $ffmpegvidfilt
-                        $ffmpegcmdsrt = $ffmpeginputsrt + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)srt`""
-                        $ffmpegcmdend = $ffmpeginputend + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)end`""
+                        $ffmpegvidcmd1 = "-vf "+ $ffmpegvidfilt
+                        $ffmpegcmdsrt = $ffmpeginputsrt + $ffmpegvidcmd1 + " " + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)srt`""
+                        $ffmpegcmdend = $ffmpeginputend + $ffmpegvidcmd1 + " " + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)end`""
                         $ffmpegcmdnom = $ffmpeginputnom + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""
 
                         write-host "T0"
                         $ffmpegcmdnom | Out-File -FilePath "$($file.ContPath)nomcmd"
+                        $ffmpegcmdsrt | Out-File -FilePath "$($file.ContPath)srtcmd"
+                        $ffmpegcmdend | Out-File -FilePath "$($file.ContPath)endcmd"
                         (Invoke-Expression $ffmpegcmdsrt) *> $null
                         (Invoke-Expression $ffmpegcmdend) *> $null
                         (Invoke-Expression $ffmpegcmdnom) *> $null
@@ -786,6 +788,7 @@ function Update-MediaForDisplaySets
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)", $CurrDateTime)
+                        write-host "T2"
 
                         #write-host "ffmpeg command for video conversion:"
                         #write-host $ffmpegcmd
