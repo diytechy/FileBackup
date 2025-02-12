@@ -265,8 +265,8 @@ function Update-MediaForDisplaySets
         #Get group names for files according to set definition.
         #Definitions for exporting, which will be used in actual data export.
         $GDefs.frameRate = $set.FPS
-        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -vcodec libx265 -crf $($Set.Quality ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
-        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -vcodec libx265 -crf $($GDefs.tq ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
+        $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -framerate $($Set.fps ) -vcodec libx265 -crf $($Set.Quality ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
+        $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -framerate $($Set.fps ) -vcodec libx265 -crf $($GDefs.tq ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
         $Files2Chk = $AllFiles
         $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string]"" )
         $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime] )
@@ -765,16 +765,20 @@ function Update-MediaForDisplaySets
                         }
                         $nomdur = $Duration - ($SelFadeTime*2)
                         $endsrt = $Duration - $SelFadeTime
+                        if ($SelFadeTime -lt ($nomdur/2)){$AFd = $SelFadeTime }
+                        else{$AFd = ($nomdur/2)}
+                        $AOtOf = $nomdur - $AFd
                         $ffmpeginputsrt = "ffmpeg -y -t $SelFadeTime -i `"$( $file.FullName )`" "
                         $ffmpeginputnom = "ffmpeg -y -ss $SelFadeTime -t $nomdur -i `"$( $file.FullName )`" "
                         $ffmpeginputend = "ffmpeg -y -ss $endsrt -t $SelFadeTime -i `"$( $file.FullName )`" "
-                        $ffmpegvidcmd1 = "-vf scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt "
+                        $ffmpegvidfilt = "scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt"
+                        $ffmpegvidcmd1 = "-fv "+ $ffmpegvidfilt
                         $ffmpegcmdsrt = $ffmpeginputsrt + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)srt`""
                         $ffmpegcmdend = $ffmpeginputend + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)end`""
-                        $ffmpegcmdnom = $ffmpeginputnom + $ffmpegvidcmd1 + $ffmpegaudcmd + $ffmpegvcdcstd + " -movflags faststart -f 'mp4' `"$( $file.ContPath)`""
+                        $ffmpegcmdnom = $ffmpeginputnom + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""
 
                         write-host "T0"
-                        $ffmpegcmdsrt | Out-File -FilePath "$($file.ContPath)srtcmd"
+                        $ffmpegcmdnom | Out-File -FilePath "$($file.ContPath)nomcmd"
                         (Invoke-Expression $ffmpegcmdsrt) *> $null
                         (Invoke-Expression $ffmpegcmdend) *> $null
                         (Invoke-Expression $ffmpegcmdnom) *> $null
@@ -807,6 +811,7 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 8
+        } -ThrottleLimit 1
+        #4 - 6.5 min
     }
 }

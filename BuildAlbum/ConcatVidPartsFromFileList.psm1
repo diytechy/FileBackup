@@ -220,7 +220,7 @@ function Join-VidPartsFromList
                 {
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadein" + $postname + ".mp4"
-                    $tincmd = "ffmpeg -y -f 'mp4' -i `"$VSrt`" -vf `"fade=t=in:st=0:d=$tdur`" -af `"afade=t=in:st=0:d=$tdur`" $EncodeDef `"$tname`""
+                    $tincmd = "ffmpeg -y -f 'mp4' -i `"$VSrt`" -vf `"fade=t=in:st=0:d=$tdur`" $EncodeDef `"$tname`""
                     (Invoke-Expression $tincmd) *> $null
                     $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
                 }
@@ -232,7 +232,7 @@ function Join-VidPartsFromList
                     $V1 = $PrevVid2TransitionFrom+"end"
                     #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur[vfade];[0:a][1:a]acrossfade=duration=$tdur[afade]`" -map vfade:v -map afade:a $EncodeDef `"$tname`""
 
-                    $FAud = "ffmpeg -y -f lavfi -i anullsrc=r=$selarate`:d=$tdur"
+                    $FAud = "ffmpeg  -hide_banner -loglevel error -nostats -y -f lavfi -i anullsrc=r=$selarate`:d=$tdur"
                     $tcmd = "-f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"xfade=offset=0.0:duration=$tdur;acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
                     #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v:0][1:v:0]xfade=offset=0.0:duration=$tdur`" $EncodeDef `"$tname`""
                     #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur[vout];[0:a]afade=t=out:st=0:d=$tdur[a1];[1:a]afade=t=in:st=0:d=$tdur[a1];[a0][a1]amix=inputs=2:dropout_transition=$tdur`:normalize=0[aout]`" -map `"[vout]`" -map `"[aout]`" $EncodeDef `"$tname`""
@@ -244,7 +244,7 @@ function Join-VidPartsFromList
                         write-host "ChkHere"
                     }
                         write-host $tname
-                    #(Invoke-Expression $tcmd) *> $null
+                    (Invoke-Expression $tcmd) *> null
                     $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
                 }
                 #Standard, just add the file to the transition list.
@@ -256,7 +256,7 @@ function Join-VidPartsFromList
                 {
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadeout" + $postname + ".mp4"
-                    $toutcmd = "ffmpeg -y -f 'mp4' -i `"$VEnd`" -vf `"fade=t=out:st=0:d=$tdur`" -af `"afade=t=out:st=0:d=$tdur`" $EncodeDef `"$tname`""
+                    $toutcmd = "ffmpeg -y -f 'mp4' -i `"$VEnd`" -vf `"fade=t=out:st=0:d=$tdur`" $EncodeDef `"$tname`""
                     (Invoke-Expression $toutcmd) *> $null
                     $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
                 }
