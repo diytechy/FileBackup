@@ -230,13 +230,21 @@ function Join-VidPartsFromList
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + $prename + "to" + $postname + ".mp4"
                     $V1 = $PrevVid2TransitionFrom+"end"
-                    $tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0][1]xfade=offset=0.0:duration=$tdur;[0][1]acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
+                    #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur[vfade];[0:a][1:a]acrossfade=duration=$tdur[afade]`" -map vfade:v -map afade:a $EncodeDef `"$tname`""
 
+                    $FAud = "ffmpeg -y -f lavfi -i anullsrc=r=$selarate`:d=$tdur"
+                    $tcmd = "-f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"xfade=offset=0.0:duration=$tdur;acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
+                    #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v:0][1:v:0]xfade=offset=0.0:duration=$tdur`" $EncodeDef `"$tname`""
+                    #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur[vout];[0:a]afade=t=out:st=0:d=$tdur[a1];[1:a]afade=t=in:st=0:d=$tdur[a1];[a0][a1]amix=inputs=2:dropout_transition=$tdur`:normalize=0[aout]`" -map `"[vout]`" -map `"[aout]`" $EncodeDef `"$tname`""
+
+                    $tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur;[0:a]aresample=async=1,volume=1.0[a0];[1:a]aresample=async=1,volume=1.0[a1];[a0][a1]acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
+                    $tcmd = $FAud + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map 0:a -map `"[vfout]`" $EncodeDef `"$tname`""
                     if($CurrIdx -eq 13)
                     {
                         write-host "ChkHere"
                     }
-                    (Invoke-Expression $tcmd) *> $null
+                        write-host $tname
+                    #(Invoke-Expression $tcmd) *> $null
                     $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
                 }
                 #Standard, just add the file to the transition list.
