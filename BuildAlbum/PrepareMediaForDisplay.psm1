@@ -648,6 +648,12 @@ function Update-MediaForDisplaySets
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)", $CurrDateTime)
+                        #Now rewrite the image again with a smaller size, to save on space.
+                        $IMCmd1 = "magick `"$( $file.ConvPath )`" -auto-orient -resize $SizeOut -quality $($quality.ToString() ) -background black "
+                        $IMCmdOut = "`"$( $file.ContPath )`""
+                        $IMCmd = $IMCmd1 + $ExpCmd + $IMCmdOut
+                        (Invoke-Expression $IMCmd) *> $null
+                        [System.IO.File]::SetCreationTime( "$( $file.ContPath )", $CurrDateTime)
                     }
                 }
                 elseif($file.IsVid)
