@@ -8,10 +8,10 @@ $PrepFileRootPath  = $BuDrv+ ":\AlbumPrep"
 $ConvFileRootPath  = $BuDrv+ ":\AlbumConv"
 $OutputFilePrepend = $BuDrv+ ":\Album"
 
-$InputFileRootPath =$BuDrv+ ":\T"
-$PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
-$ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
-$OutputFilePrepend = $BuDrv+ ":\TAlbum"
+#$InputFileRootPath =$BuDrv+ ":\T"
+#$PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
+#$ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
+#$OutputFilePrepend = $BuDrv+ ":\TAlbum"
 #Define output definitions:
 $OutputDefs = @(
     [pscustomobject]@{
