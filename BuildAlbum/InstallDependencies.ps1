@@ -58,14 +58,14 @@ else
 
         Write-Host "Follow on screen instructions, press a key when installatoin is complete..."
         # Use the native Windows zip command
-        call "JPEGR_Install.exe"
+        Invoke-Expression "./JPEGR_Install.exe"
         Write-Host -NoNewLine 'Press any key to continue...';
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
     }
     Write-Host "Adding jpegr to PATH..."
     $envPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
     [Environment]::SetEnvironmentVariable("PATH", $envPath + ";"+ $jpegrpath, "Machine")
-    Remove-Item "handbrake.zip"
+    Remove-Item "JPEGR_Install.exe"
 }
 
 if (Get-Command magick -ErrorAction SilentlyContinue) {
@@ -77,7 +77,8 @@ else
 
     Write-Host "Follow on screen instructions, press a key when installatoin is complete..."
     # Use the native Windows zip command
-    call "JMagick.exe"
+    Invoke-Expression "./Magick.exe"
     Write-Host -NoNewLine 'Press any key to continue...';
     $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
+    Remove-Item "Magick.exe"
 }

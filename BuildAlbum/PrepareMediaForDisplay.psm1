@@ -342,7 +342,7 @@ function Update-MediaForDisplaySets
 
                 if($SelProp.RelContPath.Endswith("mp4")){
 
-                write-host($SelProp.RelContPath)
+                #write-host($SelProp.RelContPath)
                 }
                 if ($SelProp.RelContPath.Length)
                 {
@@ -579,10 +579,12 @@ function Update-MediaForDisplaySets
                     if ($file.ImgVidPath.length)
                     {
                         $ExpCmd = "-compose Copy -gravity center -extent  $SizeStr -quality $quality "
+                        $PstCmd = "-compose Copy -gravity center -extent  $SizeOut -quality $quality "
                     }
                     else
                     {
                         $ExpCmd = ""
+                        $PstCmd = ""
                     }
                     #magick input.jpg -resize 800x600 -background black -compose Copy \
                     #-gravity center -extent 800x600 -quality 92 output.jpg#Optional / future explore:
@@ -641,17 +643,18 @@ function Update-MediaForDisplaySets
                         #Execute the FFmpeg command
                         #write-host "ffmpeg command for image conversion:"
                         #write-host $ffmpegcmd
-                        $ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
+                        #$ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
                         (Invoke-Expression $ffmpegCmdSrt) *> $null
                         (Invoke-Expression $ffmpegCmdNom) *> $null
                         (Invoke-Expression $ffmpegCmdEnd) *> $null
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)", $CurrDateTime)
+                        Write-Host("**************************L9****************************")
                         #Now rewrite the image again with a smaller size, to save on space.
                         $IMCmd1 = "magick `"$( $file.ConvPath )`" -auto-orient -resize $SizeOut -quality $($quality.ToString() ) -background black "
                         $IMCmdOut = "`"$( $file.ContPath )`""
-                        $IMCmd = $IMCmd1 + $ExpCmd + $IMCmdOut
+                        $IMCmd = $IMCmd1 + $PstCmd + $IMCmdOut
                         (Invoke-Expression $IMCmd) *> $null
                         [System.IO.File]::SetCreationTime( "$( $file.ContPath )", $CurrDateTime)
                     }
@@ -814,7 +817,11 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 1
+        } -ThrottleLimit 8
         #4 - 6.5 min
+        #4 - 3.3 min on Desktop
+        #1 - 5.5 min on desktop
+        #2 - 3.6 min on desktop
+        #8 - 3 min on desktop
     }
 }

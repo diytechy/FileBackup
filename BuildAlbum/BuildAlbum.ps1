@@ -1,16 +1,17 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 3 #Remember- this is completed
+$ProcLvl = 2 #Remember- this is completed
+if ((HOSTNAME) -EQ "DESKTOP-OFFICE"){$BuDrv = "Z"}
+else{$BuDrv = "D"}
 $InputFileRootPath ="S:"
-$PrepFileRootPath ="D:\AlbumPrep"
-$ConvFileRootPath ="D:\AlbumConv"
-$OutputFilePrepend = "D:\Album"
-#0 - Only generate content when new files are available, 1
-#1 - Generate content if files appear updated.
-$InputFileRootPath ="D:\T"
-$PrepFileRootPath ="D:\TAlbumPrep"
-$ConvFileRootPath ="D:\TAlbumConv"
-$OutputFilePrepend = "D:\TAlbum"
+$PrepFileRootPath  = $BuDrv+ ":\AlbumPrep"
+$ConvFileRootPath  = $BuDrv+ ":\AlbumConv"
+$OutputFilePrepend = $BuDrv+ ":\Album"
+
+$InputFileRootPath =$BuDrv+ ":\T"
+$PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
+$ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
+$OutputFilePrepend = $BuDrv+ ":\TAlbum"
 #Define output definitions:
 $OutputDefs = @(
     [pscustomobject]@{
@@ -36,8 +37,8 @@ $OutputDefs | Add-Member -MemberType NoteProperty -Name OutGrp -Value $([string]
 $OutputDefs | Add-Member -MemberType NoteProperty -Name VidPack -Value $([Int])
 foreach($set in $OutputDefs)
 {
-    $Set.Outpath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim)
-    $Set.OutGrp = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim+"Groups")
+    $Set.Outpath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim+"q"+$set.Quality)
+    $Set.OutGrp = ($Set.Outpath+"-Groups")
     if($Set.PicDispTime -and $Set.BulkVidTimeMin -and $Set.ImgVidFldr.Count)
     {
         $Set.VidPack = 1
