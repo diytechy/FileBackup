@@ -1,8 +1,8 @@
 ﻿# NOTE: Below function copied from stack-overflow:
 #https://stackoverflow.com/questions/43728173/looping-through-all-subfolders-zipping-each-folder-in-powershell
 
-$Fldrs2Comp = "E:\02\ToSift\ToSort\Isolate\Server Backups\Pre_MINI-SERV"
-$OutputFldr = "E:\02\ToSift\ToSort\Isolate\Server Backups\Pre_MINI-SERV_Comp"
+$Fldrs2Comp = "D:\2Chk"
+$OutputFldr = "D:\DupFldrComp"
 
 
 
