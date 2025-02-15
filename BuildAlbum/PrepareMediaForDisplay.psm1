@@ -23,7 +23,7 @@ function New-VideoZoomedOutFromPic
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {}
     else {throw  "ffmpeg not detected, images will not be converted"}
     if( -not(Test-Path $BuildDir -PathType Container))
-    {New-Item -Path $BuildDir -ItemType "directory"}
+    {(New-Item -Path $BuildDir -ItemType "directory") *> $null}
     try
     {
         #$SetZoom = $SrtZoom
@@ -595,9 +595,10 @@ function Update-MediaForDisplaySets
         $LoopProg = 0
         $ShowProg = 0
         $RunSeries = 1
+        $funcDef = ${function:New-VideoZoomedOutFromPic}.ToString()
         $AllFilesizeTtl = ($Files2Chk| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
-        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Process{
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
             if ($RunSeries) {
                 $file = $_
                 $XDim = $set.XDim
@@ -613,6 +614,7 @@ function Update-MediaForDisplaySets
                 $ffmpegaudcmd =  $GDefs.ffmpegaudcmd
                 $CurrDateTime =  $CurrDateTime}
             else{
+                ${function:New-VideoZoomedOutFromPic} = $using:funcDef
                 $file = $_
                 $XDim = $using:set.XDim
                 $YDim = $using:set.YDim
@@ -735,8 +737,9 @@ function Update-MediaForDisplaySets
                         #write-host "ffmpeg command for image conversion:"
                         #write-host $ffmpegcmd
                         #$ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
-                        if(1.1)
+                        if(0)
                         {
+                            write-host "About to call function..."
                             New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetSrtZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "srt")
                             New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetNomZoom $ZoomRate $XRatio $YRatio $NFramesStd  $XDim  $YDim $file.ImgVidPath
                             New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetEndZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "end")
@@ -915,7 +918,7 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } #-ThrottleLimit 4
+        } -ThrottleLimit 4
         #4 - 6.5 min
         #4 - 3.3 min on Desktop
         #1 - 5.5 min on desktop
