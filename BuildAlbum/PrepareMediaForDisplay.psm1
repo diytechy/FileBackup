@@ -1,3 +1,76 @@
+
+function New-VideoZoomedOutFromPic
+{
+    param (
+        [string]$InputPicPath,
+        [Int]$InputWidth,
+        [Int]$InputHeight,
+        [decimal] $SrtZoom,
+        [decimal] $ZoomRate,
+        [decimal] $XRatio,
+        [decimal] $YRatio,
+        [decimal] $NFrames,
+        [Int]$OutWidth,
+        [Int]$OutHeight,
+        [string]$OutputPath,
+        [string]$FFMPEGSettings
+    )
+    $ExpCmd = "-compose Copy -quality $quality"
+    $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
+    $BuildDir = $env:TEMP + "\" + (Get-Date -Format "FileDateTime")
+    if (Get-Command magick -ErrorAction SilentlyContinue) {}
+    else {throw  "Image Magick not detected, images will not be converted"}
+    if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {}
+    else {throw  "ffmpeg not detected, images will not be converted"}
+    if( -not(Test-Path $BuildDir -PathType Container))
+    {New-Item -Path $BuildDir -ItemType "directory"}
+    try
+    {
+        #$SetZoom = $SrtZoom
+        $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
+        if ($NFrameChars -lt 1)
+        {
+            $NFrameChars = 1
+        }
+        $FDef = [string[]]::new($NFrameChars);
+        $IStrPre = [string[]]::new($NFrames);
+        $CStrPre = [string[]]::new($NFrames);
+        for ($i = 0; $i -lt $NFrameChars; $i++) {
+            $FDef[$i] = "0"
+        }
+        $FFmtDef = Join-String -InputObject $FDef
+        $TPath = $BuildDir + "\" + "flist.txt"
+        for ($i = 0; $i -lt $NFrames; $i++) {
+            if ($SetZoom -lt 1.0)
+            {
+                $SetZoom = 1.0
+            }
+            $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".jpg"
+            $XOffset = ( $InputWidth*$XRatio*(1.0 - 1.0/$SetZoom)) -as [Int]
+            $YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom)) -as [Int]
+            $XCropDist = ($InputWidth/$SetZoom) -as [Int]
+            $YCropDist = ($InputHeight/$SetZoom) -as [Int]
+            $CropStr = "-crop " + $XCropDist.ToString() + "x" + $YCropDist.ToString() + "+" + $XOffset.ToString() + "+" + $YOffset.ToString()
+            #Run funciton to generate image:
+            $IMCmd = "magick `"$InputPicPath`" " + $ExpCmd + " " + $CropStr + " " + $RszCmd + " " + $FPath
+            (Invoke-Expression $IMCmd) *> $null
+            $IStrPre[$i] = " -i `"$FPath`""
+            $CStrPre[$i] = "file `'$FPath`'"
+            $SetZoom = $SrtZoom - ($ZoomRate*$i)
+        }
+        $IStr = Join-String -InputObject $IStrPre
+        $CStr = Join-String -InputObject $CStrPre -Separator "`r`n"
+        $CStr | Out-File $TPath
+
+        Write-Host "Done"
+        #$ffcmd = "ffmpeg -y -framerate 30 $IStr -c:v libx264 -pix_fmt yuv420p `"$OutputPath`""
+        $ffcmd = "ffmpeg -y -f concat -safe 0 -i `"$TPath`" -framerate 30 -c:v libx264 -pix_fmt yuv420p -f 'mp4' `"$OutputPath`""
+        (Invoke-Expression $ffcmd) *> $null
+    }
+    catch{}
+    finally{(Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null}
+}
+
 function Update-ConvertedMediaImagesForDisplay
 {
     param (
@@ -520,24 +593,40 @@ function Update-MediaForDisplaySets
 
         $PrevInnerProgPercInt[0] = 0
         $LoopProg = 0
-        $ShowProg = 1
+        $ShowProg = 0
+        $RunSeries = 1
         $AllFilesizeTtl = ($Files2Chk| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
-        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
-            $file = $_
-            $XDim = $using:set.XDim
-            $YDim = $using:set.YDim
-            $FadeTime = $using:set.FadeTime
-            $PicDispTime = $using:set.PicDispTime
-            $VidPack = $using:set.VidPack
-            $framerate = $using:GDefs.framerate
-            $MinSrtZoom = $using:GDefs.MinSrtZoom
-            $MaxSrtZoom = $using:GDefs.MaxSrtZoom
-            $ffmpegvcdcstd = $using:GDefs.ffmpegvcdcstd
-            $ffmpegvcdctra = $using:GDefs.ffmpegvcdctra
-            $ffmpegaudcmd = $using:GDefs.ffmpegaudcmd
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Process{
+            if ($RunSeries) {
+                $file = $_
+                $XDim = $set.XDim
+                $YDim = $set.YDim
+                $FadeTime = $set.FadeTime
+                $PicDispTime = $set.PicDispTime
+                $VidPack = $set.VidPack
+                $framerate =     $GDefs.framerate
+                $MinSrtZoom =    $GDefs.MinSrtZoom
+                $MaxSrtZoom =    $GDefs.MaxSrtZoom
+                $ffmpegvcdcstd = $GDefs.ffmpegvcdcstd
+                $ffmpegvcdctra = $GDefs.ffmpegvcdctra
+                $ffmpegaudcmd =  $GDefs.ffmpegaudcmd
+                $CurrDateTime =  $CurrDateTime}
+            else{
+                $file = $_
+                $XDim = $using:set.XDim
+                $YDim = $using:set.YDim
+                $FadeTime = $using:set.FadeTime
+                $PicDispTime = $using:set.PicDispTime
+                $VidPack = $using:set.VidPack
+                $framerate = $using:GDefs.framerate
+                $MinSrtZoom = $using:GDefs.MinSrtZoom
+                $MaxSrtZoom = $using:GDefs.MaxSrtZoom
+                $ffmpegvcdcstd = $using:GDefs.ffmpegvcdcstd
+                $ffmpegvcdctra = $using:GDefs.ffmpegvcdctra
+                $ffmpegaudcmd = $using:GDefs.ffmpegaudcmd
+                $CurrDateTime = $using:CurrDateTime}
             $whdispratio = $XDim/$YDim
-            $CurrDateTime = $using:CurrDateTime
             write-host "Building content for file index: $( $file.FileIdx ) - $( $file.Name )..."
             #write-host "Codec export definition: $ffmpegvcdcstd"
             #Create common definitions.
@@ -599,6 +688,8 @@ function Update-MediaForDisplaySets
                     {
                         #Write-Host("**************************L1****************************")
                         $FullImgDur = $FadeTime*2 + $PicDispTime
+                        $NFramesTrn = ($FadeTime*$FrameRate) -as [Int]
+                        $NFramesStd = ($PicDispTime*$FrameRate) -as [Int]
                         $NFramesExp = ($FullImgDur*$FrameRate) -as [Int]
                         #Zoompan configuration here.
                         $SetSrtZoom = Get-Random -Minimum $MinSrtZoom -Maximum $MaxSrtZoom
@@ -644,9 +735,16 @@ function Update-MediaForDisplaySets
                         #write-host "ffmpeg command for image conversion:"
                         #write-host $ffmpegcmd
                         #$ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
-                        (Invoke-Expression $ffmpegCmdSrt) *> $null
-                        (Invoke-Expression $ffmpegCmdNom) *> $null
-                        (Invoke-Expression $ffmpegCmdEnd) *> $null
+                        if(1.1)
+                        {
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetSrtZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "srt")
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetNomZoom $ZoomRate $XRatio $YRatio $NFramesStd  $XDim  $YDim $file.ImgVidPath
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetEndZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "end")
+                        }else{
+                            (Invoke-Expression $ffmpegCmdSrt) *> $null
+                            (Invoke-Expression $ffmpegCmdNom) *> $null
+                            (Invoke-Expression $ffmpegCmdEnd) *> $null
+                        }
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)", $CurrDateTime)
@@ -817,7 +915,7 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 8
+        } #-ThrottleLimit 4
         #4 - 6.5 min
         #4 - 3.3 min on Desktop
         #1 - 5.5 min on desktop
