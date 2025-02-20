@@ -375,7 +375,8 @@ function Update-MediaForDisplaySets
             }
             if ($TenativeLbl.Length)
             {
-                $file.SelLabelGrp = $TenativeLbl
+                $CleanedLabel = $TenativeLbl -replace "[^a-zA-Z0-9 _-]"
+                $file.SelLabelGrp = $CleanedLabel
             }
         }
         #Create common definitions for set.
@@ -647,8 +648,8 @@ function Update-MediaForDisplaySets
                     #allow smooth zooming.  Keeping a whole number in case it is rendered to the nominal dimensions.
                     if ($file.ImgVidPath.length)
                     {
-                        $contw = [math]::Ceiling($XDim*4*$MaxSrtZoom)
-                        $conth = [math]::Ceiling($YDim*4*$MaxSrtZoom)
+                        $contw = [math]::Ceiling($XDim*3*$MaxSrtZoom)
+                        $conth = [math]::Ceiling($YDim*3*$MaxSrtZoom)
                     }
                     #If width is greater, limit this dimension for resize.
                     elseif ($whimgratio -gt $whdispratio)
@@ -918,7 +919,7 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 4
+        } -ThrottleLimit 12
         #4 - 6.5 min
         #4 - 3.3 min on Desktop
         #1 - 5.5 min on desktop

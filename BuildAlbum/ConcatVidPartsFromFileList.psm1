@@ -48,7 +48,7 @@ function Join-VidPartsFromList
         #*********************************************************************
         #*********************** Get file properties *************************
         #*********************************************************************
-        $FileList = @($FileList[0..2])
+        #$FileList = @($FileList[0..2])
         foreach ($entry in $FileList)
         {
             #Get video definition.
