@@ -1,6 +1,6 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 2 #Remember- this is completed
+$ProcLvl = 3 #Remember- this is completed
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE"){$BuDrv = "Z"}
 else{$BuDrv = "D"}
 $InputFileRootPath ="S:"
@@ -23,7 +23,17 @@ $OutputDefs = @(
         BulkVidTimeMin=20;
         NameMethod = "FldrLvl2";
         ImgVidFldr="\ImgInVid";
-        Quality=25})
+        Quality=25}
+    [pscustomobject]@{
+        XDim=1920;
+        YDim=1080;
+        FPS=30;
+        PicDispTime=6;
+        FadeTime = 0.7;
+        BulkVidTimeMin=30;
+        NameMethod = "FldrLvl2";
+        ImgVidFldr="\ImgInVid";
+        Quality=20})
 #    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
 
 #Adding dependent scripts:
