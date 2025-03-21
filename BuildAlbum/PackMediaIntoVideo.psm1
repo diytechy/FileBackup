@@ -67,10 +67,11 @@ function Set-VideoFromMedia
             $Groups | ForEach-Object -Parallel{
                 $FadeTime = $using:set.FadeTime
                 $Quality = $using:set.Quality
+                $ExpAud = $using:set.ExpAud
                 $GrpDef = $using:GrpDef
                 $SelGrpDef = $GrpDef[$_]
                 Import-Module ".\BuildAlbum\ConcatMediaFromFileList.psm1"
-                Join-VideosFromList $SelGrpDef $FadeTime $_.VidExpPath $Quality
+                Join-VideosFromList $SelGrpDef $FadeTime $_.VidExpPath $Quality $ExpAud
             } -ThrottleLimit 1
         }
         else
@@ -79,9 +80,10 @@ function Set-VideoFromMedia
             {
                 $FadeTime = $set.FadeTime
                 $Quality = $set.Quality
+                $ExpAud = $set.ExpAud
                 $SelGrpDef = $GrpDef[$grp]
                 $SelVidExpPath = $grp.VidExpPath
-                Join-VidPartsFromList $SelGrpDef $SelVidExpPath $Quality
+                Join-VidPartsFromList $SelGrpDef $SelVidExpPath $Quality $ExpAud
             }
         }
         $SelGrpN = 0
