@@ -15,6 +15,33 @@ function New-VideoZoomedOutFromPic
         [string]$OutputPath,
         [string]$FFMPEGSettings
     )
+    #Reference notes:
+    # https://www.imagemagick.org/script/command-line-options.php#distort
+    # https://im.snibgo.com/animsrt.htm
+    #%IMG7%magick ^
+    #-loop 0 -delay 20 ^
+    #%SRC% ^
+    #-duplicate 4 ^
+    #-define distort:viewport=%OUT_WI%x%OUT_HT%+0+0 ^
+    #-distort SRT ^
+    #%%[fx:%IN_X%+%D_IN_X%*t],^
+    #%%[fx:%IN_Y%+%D_IN_Y%*t],^
+    #%%[fx:%SCALE%*pow(%D_SCALE%,t)],^
+    #%%[fx:%ANGLE%+%D_ANGLE%*t],^
+    #%%[fx:%OUT_X%-%D_OUT_X%*t],^
+    #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
+    #as_g1.gif
+
+
+
+
+
+
+
+
+
+
+
     $ExpCmd = "-compose Copy -quality $quality"
     $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
     $BuildDir = $env:TEMP + "\" + (Get-Date -Format "FileDateTime")
@@ -340,19 +367,20 @@ function Update-MediaForDisplaySets
         $GDefs.frameRate = $set.FPS
         $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -framerate $($Set.fps ) -vcodec libx265 -crf $($Set.Quality ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
         $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -framerate $($Set.fps ) -vcodec libx265 -crf $($GDefs.tq ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
+        #Clear-Variable -Name "Files2Chk"
         $Files2Chk = $AllFiles
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string]"" )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime] )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDateStr -Value $( [string] "" )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string]"" )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string]"" )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPFlg -Value $( [int]0 )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelImgVidPath -Value $( [string]"" )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string]"" )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int]0 )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int]0 )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpDefComplete -Value $( [int]0 )
-        $Files2Chk | Add-Member -MemberType NoteProperty -Name PreRepExpIndP1 -Value $( [int]0 )
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelContPath -Value $( [string]"" ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $( [datetime] ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContCreationDateStr -Value $( [string] "" ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContPath -Value $( [string]"" ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ContTitle -Value $( [string]"" ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPFlg -Value $( [int]0 ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name RelImgVidPath -Value $( [string]"" ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ImgVidPath -Value $( [string]"" ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name InstInd -Value $( [int]0 ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name Exp2ContPath -Value $( [int]0 ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExpDefComplete -Value $( [int]0 ) -Force
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name PreRepExpIndP1 -Value $( [int]0 ) -Force
         foreach ($file in $Files2Chk)
         {
             if ($file.IsImg -and $set.ImgVidFldr.Length -and $set.PicDispTime)
@@ -402,7 +430,7 @@ function Update-MediaForDisplaySets
         if (Test-Path -Path $ContReportPrePath)
         {
             $PrevContProps = Import-Csv -LiteralPath $ContReportPrePath
-            $PrevContProps| Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $([DateTime])
+            $PrevContProps| Add-Member -MemberType NoteProperty -Name ContCreationDate -Value $([DateTime])  -Force
             Write-Host ("Checking " + $PrevContProps.Count.ToString() + " old entries...")
             $RepIdxP1 = 0
             foreach ($SelProp in $PrevContProps)
@@ -471,7 +499,7 @@ function Update-MediaForDisplaySets
         }
         #Remove files from the folder which didn't belong to the database.
         $AllCurrContFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Recurse -File)
-        $AllCurrContFiles | Add-Member -MemberType NoteProperty -Name RemFlag -Value $( [int]0 )
+        $AllCurrContFiles | Add-Member -MemberType NoteProperty -Name RemFlag -Value $( [int]0 )  -Force
         foreach ($ContFile in $AllCurrContFiles)
         {
             #If this is a transition file and the core file exists, assume all three can stay (don't tag for removal)
@@ -648,8 +676,8 @@ function Update-MediaForDisplaySets
                     #allow smooth zooming.  Keeping a whole number in case it is rendered to the nominal dimensions.
                     if ($file.ImgVidPath.length)
                     {
-                        $contw = [math]::Ceiling($XDim*3*$MaxSrtZoom)
-                        $conth = [math]::Ceiling($YDim*3*$MaxSrtZoom)
+                        $contw = [math]::Ceiling($XDim*4*$MaxSrtZoom)
+                        $conth = [math]::Ceiling($YDim*4*$MaxSrtZoom)
                     }
                     #If width is greater, limit this dimension for resize.
                     elseif ($whimgratio -gt $whdispratio)
@@ -921,7 +949,7 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 12
+        } -ThrottleLimit 4
         #4 - 6.5 min
         #4 - 3.3 min on Desktop
         #1 - 5.5 min on desktop

@@ -1,30 +1,63 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 2 #Remember- this is completed
+$ProcLvl = 0 #Remember- this is completed
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE"){$BuDrv = "Z"}
 else{$BuDrv = "D"}
-$InputFileRootPath ="S:"
-$PrepFileRootPath  = $BuDrv+ ":\AlbumPrep"
-$ConvFileRootPath  = $BuDrv+ ":\AlbumConv"
-$OutputFilePrepend = $BuDrv+ ":\Album"
-
-#$InputFileRootPath =$BuDrv+ ":\T"
-#$PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
-#$ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
-#$OutputFilePrepend = $BuDrv+ ":\TAlbum"
-#Define output definitions:
-$OutputDefs = @(
+$UseTestPath = 1;
+if ($UseTestPath)
+{
+    $InputFileRootPath =$BuDrv+ ":\T"
+    $PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
+    $ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
+    $OutputFilePrepend = $BuDrv+ ":\TAlbum"
+    $OutputDefs = @(
     [pscustomobject]@{
-        XDim=1440;
-        YDim=900;
-        FPS=30;
-        PicDispTime=6;
+        XDim = 1440;
+        YDim = 900;
+        FPS = 30;
+        PicDispTime = 6;
         FadeTime = 0.7;
-        BulkVidTimeMin=20;
+        BulkVidTimeMin = 20;
         NameMethod = "FldrLvl2";
-        ImgVidFldr="\ImgInVid";
-        Quality=25})
-#    [pscustomobject]@{XDim=1280;YDim=720;FPS=30})
+        ImgVidFldr = "\ImgInVid";
+        Quality = 30;
+        ExpAud = 0
+    })
+
+}
+#Define output definitions:
+else
+{
+    $InputFileRootPath ="S:"
+    $PrepFileRootPath  = $BuDrv+ ":\AlbumPrep"
+    $ConvFileRootPath  = $BuDrv+ ":\AlbumConv"
+    $OutputFilePrepend = $BuDrv+ ":\Album"
+    $OutputDefs = @(
+        [pscustomobject]@{
+            XDim = 1440;
+            YDim = 900;
+            FPS = 30;
+            PicDispTime = 6;
+            FadeTime = 0.7;
+            BulkVidTimeMin = 20;
+            NameMethod = "FldrLvl2";
+            ImgVidFldr = "\ImgInVid";
+            Quality = 30;
+            ExpAud = 0
+        }
+        [pscustomobject]@{
+            XDim = 1920;
+            YDim = 1080;
+            FPS = 25;
+            PicDispTime = 6;
+            FadeTime = 0.7;
+            BulkVidTimeMin = 30;
+            NameMethod = "FldrLvl2";
+            ImgVidFldr = "\ImgInVid";
+            Quality = 20;
+            ExpAud = 0
+        })
+}
 
 #Adding dependent scripts:
 Import-Module ".\BuildAlbum\CopyMediaFromNetwork2Local.psm1"

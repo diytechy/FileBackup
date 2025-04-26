@@ -3,7 +3,8 @@ function Join-VidPartsFromList
     param (
         $FileListProps,
         [string]$outputFile = "output.mp4",
-        $vidqty = [Int] 20
+        $vidqty = [Int] 20,
+        $IncAud = [Int] 1
     )
     if(($FileListProps.Count -gt 1) -and ($FileListProps[0] -is [string]))
     {
@@ -247,9 +248,24 @@ function Join-VidPartsFromList
                     $tdur = $file.srtdur
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadein" + $postname + ".mp4"
+                    $tnameNA = $tranprepend + "-fadein" + $postname + "NA.mp4"
                     $tincmd = "ffmpeg -y -f 'mp4' -i `"$VSrt`" -vf `"fade=t=in:st=0:d=$tdur`" $EncodeDef `"$tname`""
                     (Invoke-Expression $tincmd) *> $null
-                    $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
+                    $FileL = Get-ChildItem -Path "$tname" | Select-Object Length
+                    if($FileL)
+                    {
+                        $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
+                        if (-not $IncAud)
+                        {
+                            $ffmpegcmd = "ffmpeg -y -f 'mp4' -i `"$tname`"  -c copy -an `"$tnameNA`""
+                            (Invoke-Expression $ffmpegcmd) *> $null
+                            $VidPathStr[$CurrExpIdx] = "file `'$tnameNA`'"
+                        }
+                    }
+                    else
+                    {
+                        Write-Error "Blank File"
+                    }
                 }
                 #Else transition from previous video
                 else
@@ -257,38 +273,97 @@ function Join-VidPartsFromList
                     $tdur = $file.srtdur
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + $prename + "to" + $postname + ".mp4"
+                    $tnameNA = $tranprepend + $prename + "to" + $postname + "NA.mp4"
                     $V1 = $PrevVid2TransitionFrom+"end"
                     #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur[vfade];[0:a][1:a]acrossfade=duration=$tdur[afade]`" -map vfade:v -map afade:a $EncodeDef `"$tname`""
 
-                    $FAud = "ffmpeg  -hide_banner -loglevel error -nostats -y -f lavfi -i anullsrc=r=$selarate`:d=$tdur"
+                    $FSrt = "ffmpeg  -hide_banner -loglevel error -nostats -y -f lavfi -i"
+                    $FAudIn = " anullsrc=r=$selarate`:d=$tdur"
+                    $FAudOut =  " -map 1:a"
                     $tcmd = "-f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"xfade=offset=0.0:duration=$tdur;acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
                     #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v:0][1:v:0]xfade=offset=0.0:duration=$tdur`" $EncodeDef `"$tname`""
                     #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur[vout];[0:a]afade=t=out:st=0:d=$tdur[a1];[1:a]afade=t=in:st=0:d=$tdur[a1];[a0][a1]amix=inputs=2:dropout_transition=$tdur`:normalize=0[aout]`" -map `"[vout]`" -map `"[aout]`" $EncodeDef `"$tname`""
 
                     $tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur;[0:a]aresample=async=1,volume=1.0[a0];[1:a]aresample=async=1,volume=1.0[a1];[a0][a1]acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
-                    $tcmd = $FAud + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map 0:a -map `"[vfout]`" $EncodeDef `"$tname`""
-                    $tcmd = $FAud + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map `"[vfout]`" -map 1:a  $EncodeDef `"$tname`""
+                    $tcmd = $FAudIn + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map 0:a -map `"[vfout]`" $EncodeDef `"$tname`""
+                    $tcmd = $FSrt + $FAudIn + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map `"[vfout]`""+$FAudOut+" $EncodeDef `"$tname`""
                     if($CurrIdx -eq 13)
                     {
                         write-host "ChkHere"
                     }
                         write-host $tname
                     (Invoke-Expression $tcmd) *> null
-                    $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
+                    $FileL = Get-ChildItem -Path "$tname" | Select-Object Length
+                    if($FileL)
+                    {
+                        if (-not $IncAud)
+                        {
+                            $ffmpegcmd = "ffmpeg -y -f 'mp4' -i `"$tname`"  -c copy -an `"$tnameNA`""
+                            (Invoke-Expression $ffmpegcmd) *> $null
+                            $VidPathStr[$CurrExpIdx] = "file `'$tnameNA`'"
+                        }
+                        else
+                        {
+                            $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
+                        }
+                    }
+                    else
+                    {
+                        Write-Error "Blank File"
+                    }
                 }
                 #Standard, just add the file to the transition list.
-                $CurrExpIdx = $CurrExpIdx+1
-                $VidPathStr[$CurrExpIdx] = "file `'$file`'"
+                $FileL = Get-ChildItem -Path "$file" | Select-Object Length
+                if($FileL)
+                {
+                    $CurrExpIdx = $CurrExpIdx+1
+                    $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
+                    if (-not $IncAud)
+                    {
+                        $dirname = [System.IO.Path]::GetFileNameWithoutExtension($PrevVid2TransitionFrom)
+                        $tnameNA = $tranprepend + $dirname + "NA.mp4"
+                        $ffmpegcmd = "ffmpeg -y -f 'mp4' -i `"$file`"  -c copy -an `"$tnameNA`""
+                        (Invoke-Expression $ffmpegcmd) *> $null
+                        $VidPathStr[$CurrExpIdx] = "file `'$tnameNA`'"
+                    }
+                    else
+                    {
+                        $VidPathStr[$CurrExpIdx] = "file `'$file`'"
+                    }
+                }
+                else
+                {
+                    Write-Error "Blank File"
+                }
 
-                #If the file, fade to black.
+                #If the last file, fade to black.
                 if ($CurrIdx -eq $FileList.Count)
                 {
                     $tdur = ($file.enddur*0.9)
                     $CurrExpIdx = $CurrExpIdx+1
                     $tname = $tranprepend + "-fadeout" + $postname + ".mp4"
+                    $tnameNA = $tranprepend + "-fadeout" + $postname + "NA.mp4"
                     $toutcmd = "ffmpeg -y -f 'mp4' -i `"$VEnd`" -vf `"fade=t=out:st=0:d=$tdur`" $EncodeDef `"$tname`""
                     (Invoke-Expression $toutcmd) *> $null
                     $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
+                    $FileL = Get-ChildItem -Path "$tname" | Select-Object Length
+                    if($FileL)
+                    {
+                        if (-not $IncAud)
+                        {
+                            $ffmpegcmd = "ffmpeg -y -f 'mp4' -i `"$tname`"  -c copy -an `"$tnameNA`""
+                            (Invoke-Expression $ffmpegcmd) *> $null
+                            $VidPathStr[$CurrExpIdx] = "file `'$tnameNA`'"
+                        }
+                        else
+                        {
+                            $VidPathStr[$CurrExpIdx] = "file `'$file`'"
+                        }
+                    }
+                    else
+                    {
+                        Write-Error "Blank File"
+                    }
                 }
                 #If we get this far, update the previous properties for the next video to transition from.
                 $PrevVidDuration = $file.dur
