@@ -15,14 +15,23 @@ function Set-VideoFromMedia
         $ContFileRootPath = $set.Outpath
         $VidPacksRootPath = $ContFileRootPath + $set.ImgVidFldr
         $VidPacksFileDefPath = $set.OutGrp
-        $AllInputFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Filter "*.mp4")
+        $PrepAllInputFiles = @(Get-ChildItem -LiteralPath $ContFileRootPath -Filter "*.mp4")
         #Add in video packs for images if defined and intended.
         if((Test-Path -LiteralPath $VidPacksRootPath -PathType Container) -and $set.ImgVidFldr.Length -and $set.PicDispTime)
         {
-            $AllInputFiles = $AllInputFiles + @(Get-ChildItem -LiteralPath $VidPacksRootPath -Filter "*.mp4")
+            $PrepAllInputFiles = $PrepAllInputFiles + @(Get-ChildItem -LiteralPath $VidPacksRootPath -Filter "*.mp4")
         }
-        $AllInputFiles | Add-Member -MemberType NoteProperty -Name GroupN -Value $([int])
-        $AllInputFiles | Add-Member -MemberType NoteProperty -Name Dur -Value $([Decimal])
+        $PrepAllInputFiles | Add-Member -MemberType NoteProperty -Name GroupN -Value $([int])
+        $PrepAllInputFiles | Add-Member -MemberType NoteProperty -Name Dur -Value $([Decimal])
+        #Shift the set of input files.
+        if ($PrepAllInputFiles.Count -lt 2){
+            $AllInputFiles = $PrepAllInputFiles
+        }
+        else{
+            $NFiles2Shift = [Math]::Round($PrepAllInputFiles.Count*0.07)
+            if ($NFiles2Shift -eq 0){$NFiles2Shift = 1}
+            $AllInputFiles = $PrepAllInputFiles[$NFiles2Shift..$PrepAllInputFiles.Count] + $PrepAllInputFiles[0..($NFiles2Shift-1)]
+        }
         #Figure out the nominal number of files per group, assuming most are pictures lasting for the still duration.
         $NFilesPerGrp = (($Set.BulkVidTimeMin*60)/$Set.PicDispTime)
         $NGroups = [Math]::Floor($AllInputFiles.Count/$NFilesPerGrp) -as [Int]

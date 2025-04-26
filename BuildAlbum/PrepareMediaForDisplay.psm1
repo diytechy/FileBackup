@@ -649,8 +649,8 @@ function Update-MediaForDisplaySets
                     #allow smooth zooming.  Keeping a whole number in case it is rendered to the nominal dimensions.
                     if ($file.ImgVidPath.length)
                     {
-                        $contw = [math]::Ceiling($XDim*3*$MaxSrtZoom)
-                        $conth = [math]::Ceiling($YDim*3*$MaxSrtZoom)
+                        $contw = [math]::Ceiling($XDim*4*$MaxSrtZoom)
+                        $conth = [math]::Ceiling($YDim*4*$MaxSrtZoom)
                     }
                     #If width is greater, limit this dimension for resize.
                     elseif ($whimgratio -gt $whdispratio)
