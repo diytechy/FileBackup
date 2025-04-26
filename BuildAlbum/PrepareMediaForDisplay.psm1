@@ -15,6 +15,33 @@ function New-VideoZoomedOutFromPic
         [string]$OutputPath,
         [string]$FFMPEGSettings
     )
+    #Reference notes:
+    # https://www.imagemagick.org/script/command-line-options.php#distort
+    # https://im.snibgo.com/animsrt.htm
+    #%IMG7%magick ^
+    #-loop 0 -delay 20 ^
+    #%SRC% ^
+    #-duplicate 4 ^
+    #-define distort:viewport=%OUT_WI%x%OUT_HT%+0+0 ^
+    #-distort SRT ^
+    #%%[fx:%IN_X%+%D_IN_X%*t],^
+    #%%[fx:%IN_Y%+%D_IN_Y%*t],^
+    #%%[fx:%SCALE%*pow(%D_SCALE%,t)],^
+    #%%[fx:%ANGLE%+%D_ANGLE%*t],^
+    #%%[fx:%OUT_X%-%D_OUT_X%*t],^
+    #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
+    #as_g1.gif
+
+
+
+
+
+
+
+
+
+
+
     $ExpCmd = "-compose Copy -quality $quality"
     $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
     $BuildDir = $env:TEMP + "\" + (Get-Date -Format "FileDateTime")
