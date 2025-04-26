@@ -742,13 +742,15 @@ function Update-MediaForDisplaySets
                         {
                             write-host "About to call function..."
                             New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetSrtZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "srt")
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetNomZoom $ZoomRate $XRatio $YRatio $NFramesStd  $XDim  $YDim $file.ImgVidPath
                             New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetEndZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "end")
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetNomZoom $ZoomRate $XRatio $YRatio $NFramesStd  $XDim  $YDim $file.ImgVidPath
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
-                            (Invoke-Expression $ffmpegCmdNom) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
+                            (Invoke-Expression $ffmpegCmdNom) *> $null
                         }
+                        #If each file has content, set the creation time.
+
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)", $CurrDateTime)
