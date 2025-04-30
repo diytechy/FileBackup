@@ -721,7 +721,7 @@ Try {
             $LoopProg = 0
 			$PrevInnerProgPercInt[0] = 0
 		    #*************************************************
-            $UnhashedFiles2Send2Del = $FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
+            $UnhashedFiles2Send2Del = @($FilesGroupedSizeWise| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group)
             foreach ($file in $UnhashedFiles2Send2Del) {
                 $ExtLen[0] = $file.FullName.Length - $BkpLen
                 $file.RemPath = $RepPathFldr + $file.FullName.Substring($SrcLen,$ExtLen[0])
@@ -878,7 +878,7 @@ Try {
 		    #*************************************************
             #************************ 3 ***************************
             #Now allocate each group to a separate lists, to be grouped later, and hash those that need to be checked.
-            $HashedFiles2Send2Del = $FilesGroupedByHash| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group
+            $HashedFiles2Send2Del = @($FilesGroupedByHash| Where-Object { $_.LocKey -eq $BkpKey } | Select-Object -Expand Group)
             foreach ($file in $HashedFiles2Send2Del) {
                 $ExtLen[0] = $file.FullName.Length - $BkpLen
                 $file.RemPath = $RepPathFldr + $file.FullName.Substring($SrcLen,$ExtLen[0])
