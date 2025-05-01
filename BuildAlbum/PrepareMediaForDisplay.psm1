@@ -5,20 +5,25 @@ function New-VideoZoomedOutFromPic
         [string]$InputPicPath,
         [Int]$InputWidth,
         [Int]$InputHeight,
+        [Int]$InputBorderDef,
         [decimal] $SrtZoom,
         [decimal] $ZoomRate,
         [decimal] $XRatio,
         [decimal] $YRatio,
-        [decimal] $NFrames,
+        [decimal] $NFramesTrn,
+        [decimal] $NFramesStd,
         [Int]$OutWidth,
         [Int]$OutHeight,
-        [string]$OutputPath,
+        [string]$OutputPathSrt,
+        [string]$OutputPathNom,
+        [string]$OutputPathEnd,
         [string]$FFMPEGSettings
     )
     #Reference notes:
     # Clone ref:
     #   https://stackoverflow.com/questions/76961118/imagemagick-how-do-i-reuse-one-single-image-to-overlay-it-multiple-times
     #   https://stackoverflow.com/questions/29736137/imagemagick-multiple-operations-in-single-invocation
+    #   https://stackoverflow.com/questions/73708237/can-imagemagick-generate-multiple-outputs-from-one-input
 
     # https://www.imagemagick.org/script/command-line-options.php#distort
     # https://im.snibgo.com/animsrt.htm
@@ -36,7 +41,7 @@ function New-VideoZoomedOutFromPic
     #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
     #as_g1.gif
 
-    $IMCmd1 = "magick `"$( $file.ConvPath )`" -auto-orient -resize $SizeStr -quality $($quality.ToString() ) -background black "
+    $IMCmd1 = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
 
     $ExpCmd = "-compose Copy -quality $quality"
     $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
@@ -665,12 +670,13 @@ function Update-MediaForDisplaySets
             {
                 if ($file.IsImg)
                 {
+                    $ScaleWIM = 1
                     $image = New-Object -ComObject Wia.ImageFile
                     $image.loadfile($file.ConvPath)
                     $whimgratio = $image.Width/$image.Height
                     #If we're converting the picture to an image, it must oversized substantially to
                     #allow smooth zooming.  Keeping a whole number in case it is rendered to the nominal dimensions.
-                    if ($file.ImgVidPath.length)
+                    if (($file.ImgVidPath.length) -and ($ScaleWIM -ne 1))
                     {
                         $contw = [math]::Ceiling($XDim*4*$MaxSrtZoom)
                         $conth = [math]::Ceiling($YDim*4*$MaxSrtZoom)
@@ -680,11 +686,15 @@ function Update-MediaForDisplaySets
                     {
                         $contw = $XDim
                         $conth = ($XDim/$whimgratio)
+                        $border = [Math]::Ceiling(($conth - $YDim)/2)
+                        $borderdef ="$($border.ToString())x0"
                     }
                     else
                     {
                         $conth = $YDim
                         $contw = ($YDim*$whimgratio)
+                        $border = [Math]::Ceiling(($contw - $XDim)/2)
+                        $borderdef = "0x$($border.ToString())"
                     }
                     $wint = $contw -as [Int]
                     $hint = $conth -as [Int]
@@ -762,12 +772,10 @@ function Update-MediaForDisplaySets
                         #write-host "ffmpeg command for image conversion:"
                         #write-host $ffmpegcmd
                         #$ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
-                        if(0)
+                        if($ScaleWIM)
                         {
                             write-host "About to call function..."
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetSrtZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "srt")
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetEndZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $XDim  $YDim ($file.ImgVidPath + "end")
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetNomZoom $ZoomRate $XRatio $YRatio $NFramesStd  $XDim  $YDim $file.ImgVidPath
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $borderdef $SetSrtZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim ($file.ImgVidPath + "srt") $file.ImgVidPath ($file.ImgVidPath + "end")
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
