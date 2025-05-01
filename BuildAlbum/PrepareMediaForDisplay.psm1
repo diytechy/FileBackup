@@ -16,6 +16,10 @@ function New-VideoZoomedOutFromPic
         [string]$FFMPEGSettings
     )
     #Reference notes:
+    # Clone ref:
+    #   https://stackoverflow.com/questions/76961118/imagemagick-how-do-i-reuse-one-single-image-to-overlay-it-multiple-times
+    #   https://stackoverflow.com/questions/29736137/imagemagick-multiple-operations-in-single-invocation
+
     # https://www.imagemagick.org/script/command-line-options.php#distort
     # https://im.snibgo.com/animsrt.htm
     #%IMG7%magick ^
@@ -32,15 +36,7 @@ function New-VideoZoomedOutFromPic
     #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
     #as_g1.gif
 
-
-
-
-
-
-
-
-
-
+    $IMCmd1 = "magick `"$( $file.ConvPath )`" -auto-orient -resize $SizeStr -quality $($quality.ToString() ) -background black "
 
     $ExpCmd = "-compose Copy -quality $quality"
     $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
