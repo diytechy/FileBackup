@@ -40,6 +40,8 @@ function New-VideoZoomedOutFromPic
     #%%[fx:%OUT_X%-%D_OUT_X%*t],^
     #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
     #as_g1.gif
+    
+$IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
 
     Ex:
     magick input.png \
