@@ -8,6 +8,7 @@ function New-VideoZoomedOutFromPic
         [Int]$InputBorderDef,
         [decimal] $SrtZoom,
         [decimal] $ZoomRate,
+        [decimal] $RotRate,
         [decimal] $XRatio,
         [decimal] $YRatio,
         [decimal] $NFramesTrn,
@@ -40,30 +41,33 @@ function New-VideoZoomedOutFromPic
     #%%[fx:%OUT_X%-%D_OUT_X%*t],^
     #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
     #as_g1.gif
-    
-$IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
 
-    Ex:
-    magick input.png \
-   \( -clone 0 -shave '1x0' \) \
-   \( -clone 0 -shave '2x0' \) \
-   \( -clone 0 -shave '3x0' \) \
-   \( -clone 0 -shave '4x0' \) \
-   \( -clone 0 -shave '5x0' \) \
-   \( -clone 0 -shave '0x1' \) \
-   \( -clone 0 -shave '0x2' \) \
-   \( -clone 0 -shave '0x3' \) \
-   \( -clone 0 -shave '0x4' \) \
-   \( -clone 0 -shave '0x5' \) \
-   -delete 0 output_%02d.png
+#$IMFrameCmdEx: (MPR:orig -define distort:viewport=$OutWidthx$OutHeight -distort SRT p1,p2,p3,p... output.png
+#ffmpeg import ex: -i Vid1 -i Vid2 -i...
 
-   %IMG7%magick ^
-  %SRC% ^
-  -define distort:viewport=600x400+0+0 ^
-  -distort SRT 3134,4241,0.75,32.5,200,266.67 ^
-  as_ex1.png
+  #  Ex:
+  #  magick input.png \
+  # \( -clone 0 -shave '1x0' \) \
+  # \( -clone 0 -shave '2x0' \) \
+  # \( -clone 0 -shave '3x0' \) \
+  # \( -clone 0 -shave '4x0' \) \
+  # \( -clone 0 -shave '5x0' \) \
+  # \( -clone 0 -shave '0x1' \) \
+  # \( -clone 0 -shave '0x2' \) \
+  # \( -clone 0 -shave '0x3' \) \
+  # \( -clone 0 -shave '0x4' \) \
+  # \( -clone 0 -shave '0x5' \) \
+  # -delete 0 output_%02d.png
 
+ #  %IMG7%magick ^
+ # %SRC% ^
+ # -define distort:viewport=600x400+0+0 ^
+ # -distort SRT 3134,4241,0.75,32.5,200,266.67 ^
+ # as_ex1.png
+
+    $IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
     $IMCmd1 = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
+    $IMConvPrepend = "(MPR:orig -define distort:viewport=$OutWidthx$OutHeight -distort SRT "
     $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
     $ExpCmd = "-compose Copy -quality $quality"
     $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
@@ -76,7 +80,6 @@ $IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBo
     {(New-Item -Path $BuildDir -ItemType "directory") *> $null}
     try
     {
-        #$SetZoom = $SrtZoom
         $NFrames = $NFramesTrn*2 + $NFramesStd
         $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
         if ($NFrameChars -lt 1)
@@ -92,25 +95,26 @@ $IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBo
         $FFmtDef = Join-String -InputObject $FDef
         $TPath = $BuildDir + "\" + "flist.txt"
         for ($i = 0; $i -lt $NFrames; $i++) {
+            $SetZoom   = $SrtZoom - ($ZoomRate*$i)
+            $SetRotate = $0 + ($RotRate*$i)
             if ($SetZoom -lt 1.0)
             {
                 $SetZoom = 1.0
             }
-            $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".jpg"
-            $XOffset = ( $InputWidth*$XRatio*(1.0 - 1.0/$SetZoom)) -as [Int]
-            $YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom)) -as [Int]
-            $XCropDist = ($InputWidth/$SetZoom) -as [Int]
-            $YCropDist = ($InputHeight/$SetZoom) -as [Int]
-            $CropStr = "-crop " + $XCropDist.ToString() + "x" + $YCropDist.ToString() + "+" + $XOffset.ToString() + "+" + $YOffset.ToString()
-            #Run funciton to generate image:
-            $IMCmd = "magick `"$InputPicPath`" " + $ExpCmd + " " + $CropStr + " " + $RszCmd + " " + $FPath
-            (Invoke-Expression $IMCmd) *> $null
+            $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".png"
+            $XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
+            $YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
+            #Add image file path to array, and add image magic command to array:
+            $IMCmd[$i] = $IMConvPrepend+"$XOffset,$YOffset,0,0,$SetZoom,$SetRotate"
+            $FOutPath[$i] = ""
             $IStrPre[$i] = " -i `"$FPath`""
             $CStrPre[$i] = "file `'$FPath`'"
-            $SetZoom = $SrtZoom - ($ZoomRate*$i)
         }
-        $IStr = Join-String -InputObject $IStrPre
+        #Now create the full command and run image magic to create the pictures.
         $CStr = Join-String -InputObject $CStrPre -Separator "`r`n"
+
+        #Now create the commands for ffmpeg for each video, and create the videos
+        $IStr = Join-String -InputObject $IStrPre
         $CStr | Out-File $TPath
 
         Write-Host "Done"
@@ -119,6 +123,7 @@ $IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBo
         (Invoke-Expression $ffcmd) *> $null
     }
     catch{}
+    #Cleanup
     finally{(Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null}
 }
 
@@ -798,7 +803,7 @@ function Update-MediaForDisplaySets
                         if($ScaleWIM)
                         {
                             write-host "About to call function..."
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $borderdef $SetSrtZoom $ZoomRate $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim ($file.ImgVidPath + "srt") $file.ImgVidPath ($file.ImgVidPath + "end")
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $borderdef $SetSrtZoom $ZoomRate 0 $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim ($file.ImgVidPath + "srt") $file.ImgVidPath ($file.ImgVidPath + "end")
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
