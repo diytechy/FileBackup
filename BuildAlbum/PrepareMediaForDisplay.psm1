@@ -41,7 +41,7 @@ function New-VideoZoomedOutFromPic
     #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
     #as_g1.gif
 
-    $IMCmd1 = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
+    $IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
 
     $ExpCmd = "-compose Copy -quality $quality"
     $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
