@@ -1,0 +1,1 @@
+magick -script "C:\Projects\FileBackup\BuildAlbum\TestEnv\script.mgk"

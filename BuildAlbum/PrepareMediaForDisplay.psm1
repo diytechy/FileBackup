@@ -65,8 +65,8 @@ function New-VideoZoomedOutFromPic
  # -distort SRT 3134,4241,0.75,32.5,200,266.67 ^
  # as_ex1.png
 
-    $IMCmdSrt = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
-    $IMConvPrepend = "``(MPR:orig -define distort:viewport=$OutWidthx$OutHeight -distort SRT "
+    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
+    $IMConvPrepend = "(MPR:orig -define distort:viewport=$OutWidth"+"x"+"$OutHeight -distort SRT "
     $IMCmdEnd = ""
     $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
     $BuildDir = $env:TEMP + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
@@ -107,7 +107,7 @@ function New-VideoZoomedOutFromPic
             $XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
             $YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
             #Add image file path to array, and add image magic command to array:
-            $IMCmd[$i] = $IMConvPrepend+" $XOffset,$YOffset,0,0,$SetZoom,$SetRotate "+ "$FPath" +"``)"
+            $IMCmd[$i] = $IMConvPrepend+" $XOffset,$YOffset,$SetZoom,$SetRotate,0,0 "+" -write "+ "$FPath" +")"
             #Add ffmpeg imporrt definition depending on where we're at
             $ImportStr = " -i $FPath"
             if ($i -ge ($AtEndTransInd)){
@@ -122,7 +122,8 @@ function New-VideoZoomedOutFromPic
                 $FFMPEGSrtVidInput[$i] = $ImportStr
             }
         }
-        $NLC = "```r`n"
+        $ENLC = "```r`n"
+        $NLC = "`r`n"
 
         #Now create the full command and run image magic to create the pictures.
         $IMCmdMid = Join-String -InputObject $IMCmd -Separator $NLC
@@ -132,17 +133,17 @@ function New-VideoZoomedOutFromPic
         #Now create the commands for ffmpeg for each video, and create the videos
         $FFMPEGPre = "ffmpeg -y -f concat -safe 0"
         #Note, format defined by $FFMPEGSettings
-        $FFMPEGSrtVidInputSet = Join-String -InputObject $FFMPEGSrtVidInput -Separator $NLC
+        $FFMPEGSrtVidInputSet = Join-String -InputObject $FFMPEGSrtVidInput -Separator $ENLC
         $FFMPEGSrtVidArray = $FFMPEGPre, $FFMPEGSrtVidInputSet, $FFMPEGSettings, $OutputPathSrt
-        $FFSrtCmd = Join-String -InputObject $FFMPEGSrtVidArray -Separator $NLC
+        $FFSrtCmd = Join-String -InputObject $FFMPEGSrtVidArray -Separator $ENLC
 
-        $FFMPEGNomVidInputSet = Join-String -InputObject $FFMPEGNomVidInput -Separator $NLC
+        $FFMPEGNomVidInputSet = Join-String -InputObject $FFMPEGNomVidInput -Separator $ENLC
         $FFMPEGNomVidArray = $FFMPEGPre, $FFMPEGNomVidInputSet, $FFMPEGSettings, $OutputPathNom
-        $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator $NLC
+        $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator $ENLC
 
-        $FFMPEGEndVidInputSet = Join-String -InputObject $FFMPEGEndVidInput -Separator $NLC
+        $FFMPEGEndVidInputSet = Join-String -InputObject $FFMPEGEndVidInput -Separator $ENLC
         $FFMPEGEndVidArray = $FFMPEGPre, $FFMPEGEndVidInputSet, $FFMPEGSettings, $OutputPathEnd
-        $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator $NLC
+        $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator $ENLC
 
         $AllCmdsSet  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
         $AllCmds = Join-String -InputObject $AllCmdsSet -Separator "`r`n`r`n"
@@ -152,7 +153,7 @@ function New-VideoZoomedOutFromPic
         #Save all commands for debug if enabled
 
         #Perform all actions
-        (Invoke-Expression "magick -script $MgkPath") *> $null
+        (Invoke-Expression "magick -script '$MgkPath'") *> $null
         (Invoke-Expression $FFSrtCmd) *> $null
         (Invoke-Expression $FFNomCmd) *> $null
         (Invoke-Expression $FFEndCmd) *> $null
