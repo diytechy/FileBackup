@@ -95,6 +95,7 @@ function New-VideoZoomedOutFromPic
         }
         $FFmtDef = Join-String -InputObject $FDef
         $TPath = $BuildDir + "\" + "cmd2run.txt"
+        $MgkPath = $BuildDir + "\" + "script.mgk"
         for ($i = 0; $i -lt $NFrames; $i++) {
             $SetZoom   = $SrtZoom - ($ZoomRate*$i)
             $SetRotate = $0 + ($RotRate*$i)
@@ -145,12 +146,13 @@ function New-VideoZoomedOutFromPic
 
         $AllCmdsSet  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
         $AllCmds = Join-String -InputObject $AllCmdsSet -Separator "`r`n`r`n"
+        $IMCmdRun | Out-File $MgkPath
         $AllCmds | Out-File $TPath
 
         #Save all commands for debug if enabled
 
         #Perform all actions
-        (Invoke-Expression $IMCmdRun) *> $null
+        (Invoke-Expression "magick -script $MgkPath") *> $null
         (Invoke-Expression $FFSrtCmd) *> $null
         (Invoke-Expression $FFNomCmd) *> $null
         (Invoke-Expression $FFEndCmd) *> $null
