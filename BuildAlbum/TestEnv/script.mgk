@@ -1,4 +1,4 @@
 "C:\Projects\FileBackup\BuildAlbum\TestEnv\ImgT.jpg"
 -bordercolor black -border 115 -write MPR:orig
--define distort:viewport=900x1400 -distort SRT  61.989791440011676686792734050,22.384756954541863932965724532,1.20593821001516,0,0,0  -write "D:\000.png"
+-define distort:viewport=320x320 -distort SRT  0,0,1.20593821001516,0,0,0  -write "C:\Projects\FileBackup\BuildAlbum\TestEnv\Out01.png"
 -delete 0
