@@ -66,15 +66,17 @@ foreach ($def in $OutputDefs)
 {
     if ($def.CleanBuild)
     {
-        $ChkPath = $def.PrepFileRootPath
+        $ChkPath = $PrepFileRootPath
+        #$ChkPath = $def.PrepFileRootPath
         if (Test-Path -LiteralPath $ChkPath)
         {
-            remove-item -LiteralPath $ChkPath -Force
+            remove-item -LiteralPath $ChkPath -Recurse -Force
         }
-        $ChkPath = $def.ConvFileRootPath
+        $ChkPath = $ConvFileRootPath
+        #$ChkPath = $def.ConvFileRootPath
         if (Test-Path -LiteralPath $ChkPath)
         {
-            remove-item -LiteralPath $ChkPath -Force
+            remove-item -LiteralPath $ChkPath -Recurse -Force
         }
     }
 }

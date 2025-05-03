@@ -66,7 +66,7 @@ function New-VideoZoomedOutFromPic
  # as_ex1.png
 
     $IMCmdSrt = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
-    $IMConvPrepend = "(MPR:orig -define distort:viewport=$OutWidthx$OutHeight -distort SRT "
+    $IMConvPrepend = "``(MPR:orig -define distort:viewport=$OutWidthx$OutHeight -distort SRT "
     $IMCmdEnd = ""
     $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
     $BuildDir = $env:TEMP + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
@@ -106,7 +106,7 @@ function New-VideoZoomedOutFromPic
             $XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
             $YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
             #Add image file path to array, and add image magic command to array:
-            $IMCmd[$i] = $IMConvPrepend+" $XOffset,$YOffset,0,0,$SetZoom,$SetRotate "+ "$FPath" +")"
+            $IMCmd[$i] = $IMConvPrepend+" $XOffset,$YOffset,0,0,$SetZoom,$SetRotate "+ "$FPath" +"``)"
             #Add ffmpeg imporrt definition depending on where we're at
             $ImportStr = " -i $FPath"
             if ($i -ge ($AtEndTransInd)){
@@ -121,20 +121,30 @@ function New-VideoZoomedOutFromPic
                 $FFMPEGSrtVidInput[$i] = $ImportStr
             }
         }
+        $NLC = "```r`n"
+
         #Now create the full command and run image magic to create the pictures.
-        $IMCmdArray = $IMCmdSrt, $IMCmd, $IMCmdEnd
-        $IMCmdRun = Join-String -InputObject $IMCmdArray -Separator "`r`n"
+        $IMCmdMid = Join-String -InputObject $IMCmd -Separator $NLC
+        $IMCmdArray = $IMCmdSrt, $IMCmdMid, $IMCmdEnd
+        $IMCmdRun = Join-String -InputObject $IMCmdArray -Separator $NLC
 
         #Now create the commands for ffmpeg for each video, and create the videos
         $FFMPEGPre = "ffmpeg -y -f concat -safe 0"
         #Note, format defined by $FFMPEGSettings
-        $FFMPEGSrtVidArray = $FFMPEGPre, $FFMPEGSrtVidInput, $FFMPEGSettings, $OutputPathSrt
-        $FFSrtCmd = Join-String -InputObject $FFMPEGSrtVidArray -Separator "`r`n"
-        $FFMPEGNomVidArray = $FFMPEGPre, $FFMPEGNomVidInput, $FFMPEGSettings, $OutputPathNom
-        $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator "`r`n"
-        $FFMPEGEndVidArray = $FFMPEGPre, $FFMPEGEndVidInput, $FFMPEGSettings, $OutputPathEnd
-        $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator "`r`n"
-        $AllCmds  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
+        $FFMPEGSrtVidInputSet = Join-String -InputObject $FFMPEGSrtVidInput -Separator $NLC
+        $FFMPEGSrtVidArray = $FFMPEGPre, $FFMPEGSrtVidInputSet, $FFMPEGSettings, $OutputPathSrt
+        $FFSrtCmd = Join-String -InputObject $FFMPEGSrtVidArray -Separator $NLC
+
+        $FFMPEGNomVidInputSet = Join-String -InputObject $FFMPEGNomVidInput -Separator $NLC
+        $FFMPEGNomVidArray = $FFMPEGPre, $FFMPEGNomVidInputSet, $FFMPEGSettings, $OutputPathNom
+        $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator $NLC
+
+        $FFMPEGEndVidInputSet = Join-String -InputObject $FFMPEGEndVidInput -Separator $NLC
+        $FFMPEGEndVidArray = $FFMPEGPre, $FFMPEGEndVidInputSet, $FFMPEGSettings, $OutputPathEnd
+        $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator $NLC
+
+        $AllCmdsSet  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
+        $AllCmds = Join-String -InputObject $AllCmdsSet -Separator "`r`n`r`n"
         $AllCmds | Out-File $TPath
 
         #Save all commands for debug if enabled
@@ -521,14 +531,17 @@ function Update-MediaForDisplaySets
                                     if ($SelProp.RelImgVidPath.Length)
                                     {
                                         $FullImgPath = $ContFileRootPath + $SelProp.RelImgVidPath
-                                        #If the creation date matches, check to see if the video image is up-to-date
-                                        if ($SelCreationTime = (Get-Item -LiteralPath "$FullImgPath").CreationTime)
+                                        if (Test-Path $FullImgPath -PathType Leaf)
                                         {
                                             #If the creation date matches, check to see if the video image is up-to-date
                                             if ($SelCreationTime = (Get-Item -LiteralPath "$FullImgPath").CreationTime)
                                             {
-                                                $fileU2D = 1
-                                                $PrevFileSet[$FullImgPath] = 1
+                                                #If the creation date matches, check to see if the video image is up-to-date
+                                                if ($SelCreationTime = (Get-Item -LiteralPath "$FullImgPath").CreationTime)
+                                                {
+                                                    $fileU2D = 1
+                                                    $PrevFileSet[$FullImgPath] = 1
+                                                }
                                             }
                                         }
                                     }
@@ -682,7 +695,8 @@ function Update-MediaForDisplaySets
         $funcDef = ${function:New-VideoZoomedOutFromPic}.ToString()
         $AllFilesizeTtl = ($Files2Chk| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
-        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
+        #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
             if ($RunSeries) {
                 $file = $_
                 $XDim = $set.XDim
@@ -740,14 +754,14 @@ function Update-MediaForDisplaySets
                     {
                         $contw = $XDim
                         $conth = ($XDim/$whimgratio)
-                        $border = [Math]::Ceiling(($conth - $YDim)/2)
+                        $border = [Math]::Ceiling(($image.Width/$whdispratio - $image.Height)/2)
                         $borderdef ="$($border.ToString())x0"
                     }
                     else
                     {
                         $conth = $YDim
                         $contw = ($YDim*$whimgratio)
-                        $border = [Math]::Ceiling(($contw - $XDim)/2)
+                        $border = [Math]::Ceiling(($image.Height*$whdispratio - $image.Width)/2)
                         $borderdef = "0x$($border.ToString())"
                     }
                     $wint = $contw -as [Int]
@@ -1007,7 +1021,8 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        } -ThrottleLimit 4
+        }
+        #} -ThrottleLimit 4
         #4 - 6.5 min
         #4 - 3.3 min on Desktop
         #1 - 5.5 min on desktop
