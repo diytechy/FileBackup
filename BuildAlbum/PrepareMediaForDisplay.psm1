@@ -65,12 +65,10 @@ function New-VideoZoomedOutFromPic
  # -distort SRT 3134,4241,0.75,32.5,200,266.67 ^
  # as_ex1.png
 
-    $IMPrepCmd = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
-    $IMCmd1 = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
+    $IMCmdSrt = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
     $IMConvPrepend = "(MPR:orig -define distort:viewport=$OutWidthx$OutHeight -distort SRT "
+    $IMCmdEnd = ""
     $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
-    $ExpCmd = "-compose Copy -quality $quality"
-    $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
     $BuildDir = $env:TEMP + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
     if (Get-Command magick -ErrorAction SilentlyContinue) {}
     else {throw  "Image Magick not detected, images will not be converted"}
@@ -81,19 +79,22 @@ function New-VideoZoomedOutFromPic
     try
     {
         $NFrames = $NFramesTrn*2 + $NFramesStd
+        $AtEndTransInd = $NFramesTrn+$NFramesStd
         $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
         if ($NFrameChars -lt 1)
         {
             $NFrameChars = 1
         }
-        $FDef = [string[]]::new($NFrameChars);
-        $IStrPre = [string[]]::new($NFrames);
-        $CStrPre = [string[]]::new($NFrames);
+        $FDef    = [string[]]::new($NFrameChars);
+        $IMCmd   = [string[]]::new($NFrames);
+        $FFMPEGSrtVidInput   = [string[]]::new($NFramesTrn);
+        $FFMPEGNomVidInput   = [string[]]::new($NFramesStd);
+        $FFMPEGEndVidInput   = [string[]]::new($NFramesTrn);
         for ($i = 0; $i -lt $NFrameChars; $i++) {
             $FDef[$i] = "0"
         }
         $FFmtDef = Join-String -InputObject $FDef
-        $TPath = $BuildDir + "\" + "flist.txt"
+        $TPath = $BuildDir + "\" + "cmd2run.txt"
         for ($i = 0; $i -lt $NFrames; $i++) {
             $SetZoom   = $SrtZoom - ($ZoomRate*$i)
             $SetRotate = $0 + ($RotRate*$i)
@@ -105,26 +106,51 @@ function New-VideoZoomedOutFromPic
             $XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
             $YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
             #Add image file path to array, and add image magic command to array:
-            $IMCmd[$i] = $IMConvPrepend+"$XOffset,$YOffset,0,0,$SetZoom,$SetRotate"
-            $FOutPath[$i] = ""
-            $IStrPre[$i] = " -i `"$FPath`""
-            $CStrPre[$i] = "file `'$FPath`'"
+            $IMCmd[$i] = $IMConvPrepend+" $XOffset,$YOffset,0,0,$SetZoom,$SetRotate "+ "$FPath" +")"
+            #Add ffmpeg imporrt definition depending on where we're at
+            $ImportStr = " -i $FPath"
+            if ($i -ge ($AtEndTransInd)){
+                $FFMPEGEndVidInput[$i - $AtEndTransInd] = $ImportStr
+            }
+            elseif ($i -ge ($NFramesTrn))
+            {
+                $FFMPEGNomVidInput[$i - $NFramesTrn] = $ImportStr
+            }
+            else
+            {
+                $FFMPEGSrtVidInput[$i] = $ImportStr
+            }
         }
         #Now create the full command and run image magic to create the pictures.
-        $CStr = Join-String -InputObject $CStrPre -Separator "`r`n"
+        $IMCmdArray = $IMCmdSrt, $IMCmd, $IMCmdEnd
+        $IMCmdRun = Join-String -InputObject $IMCmdArray -Separator "`r`n"
 
         #Now create the commands for ffmpeg for each video, and create the videos
-        $IStr = Join-String -InputObject $IStrPre
-        $CStr | Out-File $TPath
+        $FFMPEGPre = "ffmpeg -y -f concat -safe 0"
+        #Note, format defined by $FFMPEGSettings
+        $FFMPEGSrtVidArray = $FFMPEGPre, $FFMPEGSrtVidInput, $FFMPEGSettings, $OutputPathSrt
+        $FFSrtCmd = Join-String -InputObject $FFMPEGSrtVidArray -Separator "`r`n"
+        $FFMPEGNomVidArray = $FFMPEGPre, $FFMPEGNomVidInput, $FFMPEGSettings, $OutputPathNom
+        $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator "`r`n"
+        $FFMPEGEndVidArray = $FFMPEGPre, $FFMPEGEndVidInput, $FFMPEGSettings, $OutputPathEnd
+        $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator "`r`n"
+        $AllCmds  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
+        $AllCmds | Out-File $TPath
 
-        Write-Host "Done"
-        #$ffcmd = "ffmpeg -y -framerate 30 $IStr -c:v libx264 -pix_fmt yuv420p `"$OutputPath`""
-        $ffcmd = "ffmpeg -y -f concat -safe 0 -i `"$TPath`" -framerate 30 -c:v libx264 -pix_fmt yuv420p -f 'mp4' `"$OutputPath`""
-        (Invoke-Expression $ffcmd) *> $null
+        #Save all commands for debug if enabled
+
+        #Perform all actions
+        (Invoke-Expression $IMCmdRun) *> $null
+        (Invoke-Expression $FFSrtCmd) *> $null
+        (Invoke-Expression $FFNomCmd) *> $null
+        (Invoke-Expression $FFEndCmd) *> $null
+        #Write-Host "Done"
     }
     catch{}
     #Cleanup
-    finally{(Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null}
+    finally{
+        #(Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null
+    }
 }
 
 function Update-ConvertedMediaImagesForDisplay

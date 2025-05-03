@@ -21,7 +21,8 @@ if ($UseTestPath)
         NameMethod = "FldrLvl2";
         ImgVidFldr = "\ImgInVid";
         Quality = 30;
-        ExpAud = 0
+        ExpAud = 0;
+        CleanBuild = 1;
     })
 
 }
@@ -43,7 +44,8 @@ else
             NameMethod = "FldrLvl2";
             ImgVidFldr = "\ImgInVid";
             Quality = 30;
-            ExpAud = 0
+            ExpAud = 0;
+            CleanBuild = 0;
         }
         [pscustomobject]@{
             XDim = 1920;
@@ -55,10 +57,27 @@ else
             NameMethod = "FldrLvl2";
             ImgVidFldr = "\ImgInVid";
             Quality = 20;
-            ExpAud = 0
+            ExpAud = 0;
+            CleanBuild = 0;
         })
 }
-
+#Clean paths if applicable
+foreach ($def in $OutputDefs)
+{
+    if ($def.CleanBuild)
+    {
+        $ChkPath = $def.PrepFileRootPath
+        if (Test-Path -LiteralPath $ChkPath)
+        {
+            remove-item -LiteralPath $ChkPath -Force
+        }
+        $ChkPath = $def.ConvFileRootPath
+        if (Test-Path -LiteralPath $ChkPath)
+        {
+            remove-item -LiteralPath $ChkPath -Force
+        }
+    }
+}
 #Adding dependent scripts:
 Import-Module ".\BuildAlbum\CopyMediaFromNetwork2Local.psm1"
 Import-Module ".\BuildAlbum\PrepareMediaForDisplay.psm1"
