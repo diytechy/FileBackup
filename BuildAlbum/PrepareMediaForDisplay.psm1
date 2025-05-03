@@ -41,11 +41,31 @@ function New-VideoZoomedOutFromPic
     #%%[fx:%OUT_Y%-%D_OUT_Y%*t] ^
     #as_g1.gif
 
-    $IMCmd1 = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
+    Ex:
+    magick input.png \
+   \( -clone 0 -shave '1x0' \) \
+   \( -clone 0 -shave '2x0' \) \
+   \( -clone 0 -shave '3x0' \) \
+   \( -clone 0 -shave '4x0' \) \
+   \( -clone 0 -shave '5x0' \) \
+   \( -clone 0 -shave '0x1' \) \
+   \( -clone 0 -shave '0x2' \) \
+   \( -clone 0 -shave '0x3' \) \
+   \( -clone 0 -shave '0x4' \) \
+   \( -clone 0 -shave '0x5' \) \
+   -delete 0 output_%02d.png
 
+   %IMG7%magick ^
+  %SRC% ^
+  -define distort:viewport=600x400+0+0 ^
+  -distort SRT 3134,4241,0.75,32.5,200,266.67 ^
+  as_ex1.png
+
+    $IMCmd1 = "magick `"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
+    $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
     $ExpCmd = "-compose Copy -quality $quality"
     $RszCmd = "-resize $($OutWidth.ToString())x$($OutHeight.ToString())"
-    $BuildDir = $env:TEMP + "\" + (Get-Date -Format "FileDateTime")
+    $BuildDir = $env:TEMP + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
     if (Get-Command magick -ErrorAction SilentlyContinue) {}
     else {throw  "Image Magick not detected, images will not be converted"}
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {}
@@ -55,6 +75,7 @@ function New-VideoZoomedOutFromPic
     try
     {
         #$SetZoom = $SrtZoom
+        $NFrames = $NFramesTrn*2 + $NFramesStd
         $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
         if ($NFrameChars -lt 1)
         {
