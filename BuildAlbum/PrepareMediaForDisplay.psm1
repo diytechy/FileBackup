@@ -17,7 +17,8 @@ function New-VideoZoomedOutFromPic
         [Int]$OutHeight,
         [string]$FFMPEGCmdSrtAppend,
         [string]$FFMPEGCmdNomAppend,
-        [string]$FFMPEGCmdEndAppend
+        [string]$FFMPEGCmdEndAppend,
+        [string]$TmpDirName
     )
     #Reference notes:
     # Clone ref:
@@ -68,7 +69,6 @@ function New-VideoZoomedOutFromPic
     $IMConvPrepend = "-read MPR:orig -define distort:viewport=$OutWidth"+"x"+"$OutHeight -distort SRT "
     $IMConvAppend = " -delete 0--1"
     $IMCmdEnd = ""
-    $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
     $BuildDir = $env:TEMP + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
     if (Get-Command magick -ErrorAction SilentlyContinue) {}
     else {throw  "Image Magick not detected, images will not be converted"}
@@ -180,7 +180,8 @@ function Update-ConvertedMediaImagesForDisplay
 {
     param (
         [string]$PrepFileRootPath,
-        [string]$ConvFileRootPath
+        [string]$ConvFileRootPath,
+        [string]$RAMDrv
     )
     if (Get-Command jpegr -ErrorAction SilentlyContinue) {$RotImg = 1}
     else {throw  "Jpeg lossless rotator not detected, images will not be converted"}
@@ -196,6 +197,26 @@ function Update-ConvertedMediaImagesForDisplay
         Status = "Getting ready.  Please wait..."
         PercentComplete = 0
         CurrentOperation = 0
+    }
+    if($RAMDrv.Length)
+    {
+        #If the drive exists, see if there is sufficient capacity to use.
+        $RAMDrvRt = $RAMDrv + ":"
+        if (Test-Path -Path $RAMDrvRt)
+        {
+            $TmpPathMemFree = Get-PSDrive -Name $RAMDrv | Format-List Name, Free, Used, @{Name="Free (MB)";Expression={($_.Free / 1GB).ToString("F2")}};
+            if ($TmpPathMemFree -lt 1000)
+            {
+                Write-Error "Error: Designated RAM drive exists, but is already full" -ForegroundColor Red
+            }
+
+        }
+        else{
+            Write-Host "Disignated RAM drive does not exist, creating..."
+            New-PSDrive -Name "RAMDisk" -PSProvider "FileSystem" -Root "\\.\PhysicalDrive#" -Size  -Credential (Get-Credential)
+            Format-Volume -DriveLetter $RAMDrv -FileSystem NTFS -NewFileSystemLabel "RAMDisk" -Confirm:$false
+        }
+
     }
 
     $ImgTypes = @("jpg", "gif", "tif", "tiff", "jpeg", "png", "bmp")
@@ -855,11 +876,19 @@ function Update-MediaForDisplaySets
                         #$ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
                         if($ScaleWIM)
                         {
+                            if ($RAMDrvDef)
+                            {
+                                $TmpDirName = $RAMDrvDef
+                            }
+                            else
+                            {
+                                $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
+                            }
                             $FFMPEGCmdSrtAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutSrt
                             $FFMPEGCmdNomAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutNom
                             $FFMPEGCmdEndAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutEnd
                             write-host "About to call function..."
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $borderdef $SetSrtZoom $ZoomRate 0 $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $borderdef $SetSrtZoom $ZoomRate 0 $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
