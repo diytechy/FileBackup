@@ -1,5 +1,5 @@
 "C:\Projects\FileBackup\BuildAlbum\TestEnv\ImgT.jpg"
--bordercolor black -border 115 -write MPR:orig -delete 0--1
--read MPR:orig -define distort:viewport=320x320 -distort SRT  0,0,1.3,0,0,0  -write "C:\Projects\FileBackup\BuildAlbum\TestEnv\Out01.png" -delete 0--1
+-bordercolor black -border 100X100 -write MPR:orig -delete 0--1
+-read MPR:orig -distort SRT  420,280,1.3,-45,600,600  -write "C:\Projects\FileBackup\BuildAlbum\TestEnv\Out01.png" -delete 0--1
 -read MPR:orig -define distort:viewport=320x320 -distort SRT  0,0,1.20593821001516,0,0,0  -write "C:\Projects\FileBackup\BuildAlbum\TestEnv\Out02.png" -delete 0--1
--read MPR:orig -define distort:viewport=320x320 -distort SRT  0,0,1.1,0,0,0  -write "C:\Projects\FileBackup\BuildAlbum\TestEnv\Out03.png" -delete 0--1
+-read MPR:orig -define distort:viewport=320x320 -distort SRT  0,0,1.1,45,0,0  -write "C:\Projects\FileBackup\BuildAlbum\TestEnv\Out03.png" -delete 0--1
