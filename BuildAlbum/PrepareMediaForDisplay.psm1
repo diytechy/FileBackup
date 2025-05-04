@@ -15,10 +15,9 @@ function New-VideoZoomedOutFromPic
         [decimal] $NFramesStd,
         [Int]$OutWidth,
         [Int]$OutHeight,
-        [string]$OutputPathSrt,
-        [string]$OutputPathNom,
-        [string]$OutputPathEnd,
-        [string]$FFMPEGSettings
+        [string]$FFMPEGCmdSrtAppend,
+        [string]$FFMPEGCmdNomAppend,
+        [string]$FFMPEGCmdEndAppend
     )
     #Reference notes:
     # Clone ref:
@@ -65,8 +64,9 @@ function New-VideoZoomedOutFromPic
  # -distort SRT 3134,4241,0.75,32.5,200,266.67 ^
  # as_ex1.png
 
-    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0"
-    $IMConvPrepend = "(MPR:orig -define distort:viewport=$OutWidth"+"x"+"$OutHeight -distort SRT "
+    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0--1"
+    $IMConvPrepend = "-read MPR:orig -define distort:viewport=$OutWidth"+"x"+"$OutHeight -distort SRT "
+    $IMConvAppend = " -delete 0--1"
     $IMCmdEnd = ""
     $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
     $BuildDir = $env:TEMP + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
@@ -96,6 +96,9 @@ function New-VideoZoomedOutFromPic
         $FFmtDef = Join-String -InputObject $FDef
         $TPath = $BuildDir + "\" + "cmd2run.txt"
         $MgkPath = $BuildDir + "\" + "script.mgk"
+        $SrtPath = $BuildDir + "\" + "SrtList.txt"
+        $NomPath = $BuildDir + "\" + "NomList.txt"
+        $EndPath = $BuildDir + "\" + "EndList.txt"
         for ($i = 0; $i -lt $NFrames; $i++) {
             $SetZoom   = $SrtZoom - ($ZoomRate*$i)
             $SetRotate = $0 + ($RotRate*$i)
@@ -103,13 +106,13 @@ function New-VideoZoomedOutFromPic
             {
                 $SetZoom = 1.0
             }
-            $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".png"
+            $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".jpg"
             $XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
             $YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
             #Add image file path to array, and add image magic command to array:
-            $IMCmd[$i] = $IMConvPrepend+" $XOffset,$YOffset,$SetZoom,$SetRotate,0,0 "+" -write "+ "$FPath" +")"
+            $IMCmd[$i] = $IMConvPrepend+" $XOffset,$YOffset,$SetZoom,$SetRotate,0,0 "+" -quality 92 -write "+ "`"$FPath`"" +"$IMConvAppend"
             #Add ffmpeg imporrt definition depending on where we're at
-            $ImportStr = " -i $FPath"
+            $ImportStr = "file `'$FPath`'"
             if ($i -ge ($AtEndTransInd)){
                 $FFMPEGEndVidInput[$i - $AtEndTransInd] = $ImportStr
             }
@@ -122,7 +125,7 @@ function New-VideoZoomedOutFromPic
                 $FFMPEGSrtVidInput[$i] = $ImportStr
             }
         }
-        $ENLC = "```r`n"
+        $ENLC = " ```r`n"
         $NLC = "`r`n"
 
         #Now create the full command and run image magic to create the pictures.
@@ -131,18 +134,22 @@ function New-VideoZoomedOutFromPic
         $IMCmdRun = Join-String -InputObject $IMCmdArray -Separator $NLC
 
         #Now create the commands for ffmpeg for each video, and create the videos
-        $FFMPEGPre = "ffmpeg -y -f concat -safe 0"
-        #Note, format defined by $FFMPEGSettings
-        $FFMPEGSrtVidInputSet = Join-String -InputObject $FFMPEGSrtVidInput -Separator $ENLC
-        $FFMPEGSrtVidArray = $FFMPEGPre, $FFMPEGSrtVidInputSet, $FFMPEGSettings, $OutputPathSrt
+        $FFMPEGPre = "ffmpeg -y -f lavfi -i anullsrc -f concat -safe 0 -i "
+
+        $FFMPEGSettings = " "
+        $FFMPEGSrtVidInputSet = Join-String -InputObject $FFMPEGSrtVidInput -Separator $NLC
+        $FFMPEGSrtVidInputSet | Out-File $SrtPath
+        $FFMPEGSrtVidArray = $FFMPEGPre, "`'",$SrtPath, "`'", $FFMPEGSettings, $FFMPEGCmdSrtAppend
         $FFSrtCmd = Join-String -InputObject $FFMPEGSrtVidArray -Separator $ENLC
 
-        $FFMPEGNomVidInputSet = Join-String -InputObject $FFMPEGNomVidInput -Separator $ENLC
-        $FFMPEGNomVidArray = $FFMPEGPre, $FFMPEGNomVidInputSet, $FFMPEGSettings, $OutputPathNom
+        $FFMPEGNomVidInputSet = Join-String -InputObject $FFMPEGNomVidInput -Separator $NLC
+        $FFMPEGNomVidInputSet | Out-File $NomPath
+        $FFMPEGNomVidArray = $FFMPEGPre, $NomPath, $FFMPEGSettings, $FFMPEGCmdNomAppend
         $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator $ENLC
 
-        $FFMPEGEndVidInputSet = Join-String -InputObject $FFMPEGEndVidInput -Separator $ENLC
-        $FFMPEGEndVidArray = $FFMPEGPre, $FFMPEGEndVidInputSet, $FFMPEGSettings, $OutputPathEnd
+        $FFMPEGEndVidInputSet = Join-String -InputObject $FFMPEGEndVidInput -Separator $NLC
+        $FFMPEGEndVidInputSet | Out-File $EndPath
+        $FFMPEGEndVidArray = $FFMPEGPre, $EndPath, $FFMPEGSettings, $FFMPEGCmdEndAppend
         $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator $ENLC
 
         $AllCmdsSet  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
@@ -150,13 +157,16 @@ function New-VideoZoomedOutFromPic
         $IMCmdRun | Out-File $MgkPath
         $AllCmds | Out-File $TPath
 
-        #Save all commands for debug if enabled
-
+        #Preparee / Save all commands for debug if enabled
+        $FFSrtCmdExe = $FFSrtCmd -replace $ENLC,""
+        $FFNomCmdExe = $FFNomCmd -replace $ENLC,""
+        $FFEndCmdExe = $FFEndCmd -replace $ENLC,""
         #Perform all actions
-        (Invoke-Expression "magick -script '$MgkPath'") *> $null
-        (Invoke-Expression $FFSrtCmd) *> $null
-        (Invoke-Expression $FFNomCmd) *> $null
-        (Invoke-Expression $FFEndCmd) *> $null
+        #Measure-Command { (magick -script $MgkPath) *> $null }
+        (magick -script $MgkPath) *> $null
+        (Invoke-Expression $FFSrtCmdExe) *> $null
+        (Invoke-Expression $FFNomCmdExe) *> $null
+        (Invoke-Expression $FFEndCmdExe) *> $null
         #Write-Host "Done"
     }
     catch{}
@@ -845,8 +855,11 @@ function Update-MediaForDisplaySets
                         #$ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
                         if($ScaleWIM)
                         {
+                            $FFMPEGCmdSrtAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutSrt
+                            $FFMPEGCmdNomAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutNom
+                            $FFMPEGCmdEndAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutEnd
                             write-host "About to call function..."
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $borderdef $SetSrtZoom $ZoomRate 0 $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim ($file.ImgVidPath + "srt") $file.ImgVidPath ($file.ImgVidPath + "end")
+                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $borderdef $SetSrtZoom $ZoomRate 0 $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
