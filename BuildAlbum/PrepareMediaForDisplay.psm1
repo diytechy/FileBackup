@@ -70,7 +70,7 @@ function New-VideoZoomedOutFromPic
     if ($whimgratio -gt $whdispratio)
     {
         $PreTrimWidth  = $InputWidth
-        $PreTrimHeight = $InputWidth*$whdispratio
+        $PreTrimHeight = $InputWidth/$whdispratio
         $pureborder = ($PreTrimHeight - $InputHeight)/2
         $border = [Math]::Ceiling($pureborder)
         $HeightOffsetCenterBump = $pureborder - $border
@@ -78,7 +78,7 @@ function New-VideoZoomedOutFromPic
     }
     else
     {
-        $PreTrimWidth  = $InputHeight/$whdispratio
+        $PreTrimWidth  = $InputHeight*$whdispratio
         $PreTrimHeight = $InputHeight
         $pureborder = ($PreTrimWidth - $InputWidth)/2
         $border = [Math]::Ceiling($pureborder)
@@ -100,22 +100,26 @@ function New-VideoZoomedOutFromPic
         #If rotation is being used, calculate the focus and max angle applicable
         #If rotation is clockwise
         #$SrtZoom
-        if($RotDir -gt 0)
+        if ($RotDir -gt 0)
         {
-            $SubFocusRatioX = 1-$YRatio
+            $SubFocusRatioX = 1 - $YRatio
             $SubFocusRatioY = $XRatio
         }
         #Else rotation is counter-clockwise
         else
         {
             $SubFocusRatioX = $YRatio
-            $SubFocusRatioY = 1-$XRatio
+            $SubFocusRatioY = 1 - $XRatio
         }
-        #Get distance from subfocus origin to boundaries?
-        $TDist = ($SubFocusRatioY*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
-        $LDist = ($SubFocusRatioX*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
-        $BDist = ((1-$SubFocusRatioY)*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
-        $RDist = ((1-$SubFocusRatioX)*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
+    }
+    #Get distance from subfocus origin to boundaries?
+    $TDist = ($SubFocusRatioY*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
+    $LDist = ($SubFocusRatioX*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
+    $BDist = ((1-$SubFocusRatioY)*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
+    $RDist = ((1-$SubFocusRatioX)*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
+
+    if($RotDir -ne 0)
+    {
         #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
         $LTRadianAnglFromHorz = [Math]::Atan2( $SubFocusRatioX, $SubFocusRatioY)
         $LTCornerDist = [Math]::Sqrt(`
@@ -146,32 +150,32 @@ function New-VideoZoomedOutFromPic
         if($RotDir -gt 0)
         {
             if($RTCornerDist -gt $TDist){
-                $TRotRadiansMax =  ([Math]::PI/2 - $RTRadianAnglFromHorz) - [Math]::acos($TDist/$RTCornerDist
+                $TRotRadiansMax = [Math]::abs([Math]::acos($TDist/$RTCornerDist)) -  [Math]::abs(([Math]::PI/2 - $RTRadianAnglFromHorz))
             }
             if($LTCornerDist -gt $LDist){
-                $LRotRadiansMax =  [Math]::acos($LDist/$LTCornerDist) - $LTRadianAnglFromHorz
+                $LRotRadiansMax =  [Math]::abs([Math]::acos($LDist/$LTCornerDist)) - [Math]::abs($LTRadianAnglFromHorz)
             }
             if($LBCornerDist -gt $BDist){
-                $BRotRadiansMax =  ([Math]::PI/2 - $LBRadianAnglFromHorz) - [Math]::acos($BDist/$LBCornerDist
+                $BRotRadiansMax =  [Math]::abs([Math]::acos($BDist/$LBCornerDist)) - [Math]::abs([Math]::PI/2 - $LBRadianAnglFromHorz)
             }
             if($RBCornerDist -gt $RDist){
-                $RRotRadiansMax =  [Math]::acos($RDist/$RBCornerDist) - $RBRadianAnglFromHorz
+                $RRotRadiansMax =  [Math]::abs([Math]::acos($RDist/$RBCornerDist)) - [Math]::abs($RBRadianAnglFromHorz)
             }
         }
         #Else rotation is counter-clockwise
         else
         {
             if($RTCornerDist -gt $RDist){
-                $RRotRadiansMax =  [Math]::acos($RDist/$RTCornerDist) - $RTRadianAnglFromHorz
+                $RRotRadiansMax =  [Math]::abs([Math]::acos($RDist/$RTCornerDist)) - [Math]::abs($RTRadianAnglFromHorz)
             }
             if($LTCornerDist -gt $TDist){
-                $TRotRadiansMax =  [Math]::PI/2 - $LTRadianAnglFromHorz - [Math]::acos($TDist/$LTCornerDist)
+                $TRotRadiansMax =  [Math]::abs([Math]::acos($TDist/$LTCornerDist)) - [Math]::abs([Math]::PI/2 - $LTRadianAnglFromHorz)
             }
             if($LBCornerDist -gt $LDist){
-                $LRotRadiansMax =  [Math]::acos($LDist/$LBCornerDist) - $LBRadianAnglFromHorz
+                $LRotRadiansMax =  [Math]::abs([Math]::acos($LDist/$LBCornerDist)) - [Math]::abs($LBRadianAnglFromHorz)
             }
             if($RBCornerDist -gt $BDist){
-                $BRotRadiansMax =  [Math]::PI/2 - $RBRadianAnglFromHorz - [Math]::acos($BDist/$RBCornerDist)
+                $BRotRadiansMax =  [Math]::abs([Math]::acos($BDist/$RBCornerDist)) - [Math]::abs([Math]::PI/2 - $RBRadianAnglFromHorz)
             }
         }
         $RotRadianArray                = $TRotRadiansMax,$LRotRadiansMax,$BRotRadiansMax,$RRotRadiansMax,($MaxRotAngl*([Math]::PI/180))
@@ -183,8 +187,8 @@ function New-VideoZoomedOutFromPic
 
     #Define common command definitions
     $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0--1"
-    $IMConvPrepend = "-read MPR:orig -distort SRT "
-    $IMConvPreWrite = " -define distort:viewport=$OutWidth"+"x"+"$OutHeight -quality 92 -write "
+    $IMConvPrepend = "-read MPR:orig -define distort:viewport=$OutWidth"+"x"+"$OutHeight -distort SRT "
+    $IMConvPreWrite = " -quality 92 -write "
     $IMConvAppend = " -delete 0--1"
     $IMCmdEnd = ""
     $BuildDir = $SetTmpPath + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
@@ -237,8 +241,8 @@ function New-VideoZoomedOutFromPic
             $YOffsetIn = $TDist
             #$XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
             #$YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
-            $XOffsetOut = $SubFocusRatioY*$OutHeight
-            $YOffsetOut = $SubFocusRatioX*$OutWidth
+            $XOffsetOut = $SubFocusRatioY*$OutWidth
+            $YOffsetOut = $SubFocusRatioX*$OutHeight
 
             #Add image file path to array, and add image magic command to array:
             $IMCmd[$i] = $IMConvPrepend+" $XOffsetIn,$YOffsetIn,$SetZoom,$SetRotate,$XOffsetOut,$YOffsetOut "+ $IMConvPreWrite+ "`"$FPath`"" +"$IMConvAppend"
@@ -1012,7 +1016,7 @@ function Update-MediaForDisplaySets
                             $FFMPEGCmdNomAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutNom
                             $FFMPEGCmdEndAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutEnd
                             write-host "About to call function..."
-                            New-VideoZoomedOutFromPic $file.ContPath $wint $hint $SetSrtZoom $ZoomRate $MaxSrtRot $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
+                            New-VideoZoomedOutFromPic $file.ContPath $image.Width $image.Height $SetSrtZoom $ZoomRate $MaxSrtRot $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
