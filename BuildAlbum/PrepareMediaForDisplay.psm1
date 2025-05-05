@@ -117,7 +117,7 @@ function New-VideoZoomedOutFromPic
         $BDist = ((1-$SubFocusRatioY)*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
         $RDist = ((1-$SubFocusRatioX)*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
         #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
-        $LTRadianAnglFromHorz = Atan2( $SubFocusRatioX, $SubFocusRatioY)
+        $LTRadianAnglFromHorz = [Math]::Atan2( $SubFocusRatioX, $SubFocusRatioY)
         $LTCornerDist = [Math]::Sqrt(`
         ([Math]::Pow(($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth),2))+`
         ([Math]::Pow(($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight),2))`
@@ -142,6 +142,7 @@ function New-VideoZoomedOutFromPic
         $LRotRadiansMax = [Math]::PI/2
         $BRotRadiansMax = [Math]::PI/2
         $RRotRadiansMax = [Math]::PI/2
+        #Rotation is clockwise
         if($RotDir -gt 0)
         {
             if($RTCornerDist -gt $TDist){
@@ -193,7 +194,7 @@ function New-VideoZoomedOutFromPic
     {
         $NFrames = $NFramesTrn*2 + $NFramesStd
         $NFrames2StopRot = [Math]::ceiling(($NFramesTrn + $NFramesStd)*(2/3))
-        $DegChngRateA = [Math]::Sqrt(((DegChng*2)/[Math]::Pow($NFrames2StopRot,2)))
+        $DegChngRateA = [Math]::Sqrt((($SrtRotAngle*2)/[Math]::Pow($NFrames2StopRot,2)))
         $AtEndTransInd = $NFramesTrn+$NFramesStd
         $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
         if ($NFrameChars -lt 1)
@@ -589,6 +590,7 @@ function Update-MediaForDisplaySets
         #Get group names for files according to set definition.
         #Definitions for exporting, which will be used in actual data export.
         $GDefs.frameRate = $set.FPS
+        $GDefs.MaxSrtRot = $set.MaxSrtRot
         $GDefs.ffmpegvcdcstd = "-video_track_timescale $vrate -framerate $($Set.fps ) -vcodec libx265 -crf $($Set.Quality ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
         $GDefs.ffmpegvcdctra = "-video_track_timescale $vrate -framerate $($Set.fps ) -vcodec libx265 -crf $($GDefs.tq ) -colorspace 1 -preset slow -pix_fmt yuvj420p -r $( $set.FPS ) -movflags faststart "
         #Clear-Variable -Name "Files2Chk"
