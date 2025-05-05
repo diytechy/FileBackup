@@ -1,7 +1,7 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 $ProcLvl = 0 #Remember- this is completed
-$RAMDrv = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
+$SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE"){$BuDrv = "Z"}
 else{$BuDrv = "D"}
 $UseTestPath = 1;
@@ -17,6 +17,7 @@ if ($UseTestPath)
         YDim = 900;
         FPS = 30;
         PicDispTime = 6;
+        MaxSrtRot = 30;
         FadeTime = 0.7;
         BulkVidTimeMin = 20;
         NameMethod = "FldrLvl2";
@@ -40,6 +41,7 @@ else
             YDim = 900;
             FPS = 30;
             PicDispTime = 6;
+            MaxSrtRot = 30;
             FadeTime = 0.7;
             BulkVidTimeMin = 20;
             NameMethod = "FldrLvl2";
@@ -53,6 +55,7 @@ else
             YDim = 1080;
             FPS = 25;
             PicDispTime = 6;
+            MaxSrtRot = 30;
             FadeTime = 0.7;
             BulkVidTimeMin = 30;
             NameMethod = "FldrLvl2";
@@ -105,7 +108,7 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
     Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
-    $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath $RAMDrv
+    $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath $SetTmpPath
     Update-MediaForDisplaySets $PrepMediaDef $OutputDefs
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
