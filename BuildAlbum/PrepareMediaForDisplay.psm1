@@ -146,29 +146,29 @@ function New-VideoZoomedOutFromPic
         if($RotDir -gt 0)
         {
             if($RTCornerDist -gt $TDist){
-                $TRotRadiansMax =  [Math]::PI/2 - $RTRadianAnglFromHorz - [Math]::acos($TDist/$RTCornerDist)
+                $TRotRadiansMax =  ([Math]::PI/2 - $RTRadianAnglFromHorz) - [Math]::acos($TDist/$RTCornerDist
             }
             if($LTCornerDist -gt $LDist){
-                $LRotRadiansMax =  [Math]::PI/2 - $LTRadianAnglFromHorz - [Math]::acos($LDist/$LTCornerDist)
+                $LRotRadiansMax =  [Math]::acos($LDist/$LTCornerDist) - $LTRadianAnglFromHorz
             }
             if($LBCornerDist -gt $BDist){
-                $BRotRadiansMax =  [Math]::PI/2 - $LBRadianAnglFromHorz - [Math]::acos($BDist/$LBCornerDist)
+                $BRotRadiansMax =  ([Math]::PI/2 - $LBRadianAnglFromHorz) - [Math]::acos($BDist/$LBCornerDist
             }
             if($RBCornerDist -gt $RDist){
-                $RRotRadiansMax =  [Math]::PI/2 - $RBRadianAnglFromHorz - [Math]::acos($RDist/$RBCornerDist)
+                $RRotRadiansMax =  [Math]::acos($RDist/$RBCornerDist) - $RBRadianAnglFromHorz
             }
         }
         #Else rotation is counter-clockwise
         else
         {
             if($RTCornerDist -gt $RDist){
-                $RRotRadiansMax =  [Math]::PI/2 - $RTRadianAnglFromHorz - [Math]::acos($RDist/$RTCornerDist)
+                $RRotRadiansMax =  [Math]::acos($RDist/$RTCornerDist) - $RTRadianAnglFromHorz
             }
             if($LTCornerDist -gt $TDist){
                 $TRotRadiansMax =  [Math]::PI/2 - $LTRadianAnglFromHorz - [Math]::acos($TDist/$LTCornerDist)
             }
             if($LBCornerDist -gt $LDist){
-                $LRotRadiansMax =  [Math]::PI/2 - $LBRadianAnglFromHorz - [Math]::acos($LDist/$LBCornerDist)
+                $LRotRadiansMax =  [Math]::acos($LDist/$LBCornerDist) - $LBRadianAnglFromHorz
             }
             if($RBCornerDist -gt $BDist){
                 $BRotRadiansMax =  [Math]::PI/2 - $RBRadianAnglFromHorz - [Math]::acos($BDist/$RBCornerDist)
@@ -217,7 +217,6 @@ function New-VideoZoomedOutFromPic
         $EndPath = $BuildDir + "\" + "EndList.txt"
         for ($i = 0; $i -lt $NFrames; $i++) {
             $SetZoom   = $SrtZoom - ($ZoomRate*$i)
-            $SetRotate = $0 + ($RotRate*$i)
             if ($SetZoom -lt 1.0)
             {
                 $SetZoom = 1.0
