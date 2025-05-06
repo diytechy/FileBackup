@@ -95,6 +95,7 @@ function New-VideoZoomedOutFromPic
     else{$RotDir = 0}
     $NFrames = $NFramesTrn*2 + $NFramesStd
     #Temp overrides
+    $TestFldr = "Test"
     $RotDir = -1
     $XRatio = 0
     $YRatio = 1
@@ -245,8 +246,15 @@ function New-VideoZoomedOutFromPic
     }
 
     #Define common command definitions
-    $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
-    $BuildDir = $SetTmpPath + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
+    if ($TestFldr)
+    {
+        $TmpDirName = $TestFldr
+    }
+    else
+    {
+        $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($InputPicPath) + (Get-Date -Format "FileDateTime")
+    }
+    $BuildDir = $SetTmpPath + "\" + $TmpDirName
     $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
     $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -page $pagedef -write MPR:orig -write $BorderImg -delete 0--1 -define distort:viewport=$OutWidth"+"x"+"$OutHeight"
     $IMConvPrepend = "-read MPR:orig -distort SRT "
@@ -325,9 +333,18 @@ function New-VideoZoomedOutFromPic
         $NLC = "`r`n"
 
         #Now create the full command and run image magic to create the pictures.
-        $IMCmdMid = Join-String -InputObject $IMCmd -Separator $NLC
+        if ($TestFldr)
+        {
+            $IMCmdMid = Join-String -InputObject $IMCmd[0,-1] -Separator $NLC
+        }
+        else
+        {
+            $IMCmdMid = Join-String -InputObject $IMCmd -Separator $NLC
+        }
         $IMCmdArray = $IMCmdSrt, $IMCmdMid, $IMCmdEnd
         $IMCmdRun = Join-String -InputObject $IMCmdArray -Separator $NLC
+        $IMCmdRun | Out-File $MgkPath
+        $AllCmds | Out-File $TPath
 
         #Now create the commands for ffmpeg for each video, and create the videos
         $FFMPEGPre = "ffmpeg -y -f lavfi -i anullsrc -f concat -safe 0 -i "
@@ -350,8 +367,7 @@ function New-VideoZoomedOutFromPic
 
         $AllCmdsSet  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
         $AllCmds = Join-String -InputObject $AllCmdsSet -Separator "`r`n`r`n"
-        $IMCmdRun | Out-File $MgkPath
-        $AllCmds | Out-File $TPath
+
 
         #Preparee / Save all commands for debug if enabled
         $FFSrtCmdExe = $FFSrtCmd -replace $ENLC,""
