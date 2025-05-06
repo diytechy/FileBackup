@@ -93,12 +93,13 @@ function New-VideoZoomedOutFromPic
         $RotDir = Get-Random -Minimum -1 -Maximum 1
     }
     else{$RotDir = 0}
+    $NFrames = $NFramesTrn*2 + $NFramesStd
     #Temp overrides
     $RotDir = -1
     $XRatio = 0
     $YRatio = 1
     $SrtZoom = 1.5
-    $ZoomRate = 0
+    $ZoomRate = ($SrtZoom/$NFrames)
     #Calculate offsets in terms of ratio for the first frame, as this is the basis for restriction since
     #rotation rate decelerates.
     $SrtImageRatio  = (1.0/$SrtZoom)
@@ -121,6 +122,7 @@ function New-VideoZoomedOutFromPic
         $border = [Math]::Ceiling($pureborder)
         $HeightOffsetCenterBump = $pureborder - $border
         $borderdef = "0X"+$($border.ToString())
+        $pagedef = "+0+"+$($border.ToString())
         $Orig2NewScale = $OutWidth/$InputWidth
     }
     else
@@ -131,9 +133,11 @@ function New-VideoZoomedOutFromPic
         $border = [Math]::Ceiling($pureborder)
         $WidthOffsetCenterBump = $pureborder - $border
         $borderdef = $($border.ToString())+"X0"
+        $pagedef = "+"+$($border.ToString())+"+0"
         $Orig2NewScale = $OutHeight/$InputHeight
     }
     $InputBorderDef = $borderdef
+    $InputPageDef = $pagedef
 
     #Calculate focus point based on selected rotation direction and selected ratios:
     if($RotDir -eq 0)
@@ -244,7 +248,7 @@ function New-VideoZoomedOutFromPic
     $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
     $BuildDir = $SetTmpPath + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
     $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
-    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 -define distort:viewport=$OutWidth"+"x"+"$OutHeight"
+    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -page $pagedef -write MPR:orig -write $BorderImg -delete 0--1 -define distort:viewport=$OutWidth"+"x"+"$OutHeight"
     $IMConvPrepend = "-read MPR:orig -distort SRT "
     $IMConvPreWrite = " -quality 92 -write "
     $IMConvAppend = " -delete 0--1"
@@ -253,7 +257,6 @@ function New-VideoZoomedOutFromPic
     {(New-Item -Path $BuildDir -ItemType "directory") *> $null}
     try
     {
-        $NFrames = $NFramesTrn*2 + $NFramesStd
         $NFrames2StopRot = [Math]::ceiling(($NFramesTrn + $NFramesStd)*(2/3))
         $DegChngRateA = (($SrtRotAngle*2)/[Math]::Pow($NFrames2StopRot,2))
         $AtEndTransInd = $NFramesTrn+$NFramesStd
