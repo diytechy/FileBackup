@@ -169,22 +169,22 @@ function New-VideoZoomedOutFromPic
     if($RotDir -ne 0)
     {
         #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
-        $LTRadianAnglFromHorz = ATan2Abs $SubFocusRatioX $SubFocusRatioY
+        $LTRadianAnglFromHorz = ATan2Abs $SubFocusRatioY $SubFocusRatioX
         $LTCornerDist = HypDistance `
         ($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth) `
         ($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight)
 
-        $RTRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioX) $SubFocusRatioY
+        $RTRadianAnglFromHorz = ATan2Abs $SubFocusRatioY (1-$SubFocusRatioX)
         $RTCornerDist = HypDistance `
         ((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth) `
         ($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight)
 
-        $LBRadianAnglFromHorz = ATan2Abs ($SubFocusRatioX) (1-$SubFocusRatioY)
+        $LBRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioY) ($SubFocusRatioX)
         $LBCornerDist = HypDistance `
         ($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth) `
         ((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight)
 
-        $RBRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioX) (1-$SubFocusRatioY)
+        $RBRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioY) (1-$SubFocusRatioX)
         $RBCornerDist = HypDistance `
         ((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth) `
         ((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight)
@@ -197,34 +197,35 @@ function New-VideoZoomedOutFromPic
         Write-Host $SrtZoom.ToString()
         Write-Host $XRatio.ToString()
         Write-Host $YRatio.ToString()
+        $TolChk = 1E-6
         if($RotDir -gt 0)
         {
-            if($RTCornerDist -gt $TDist){
+            if($RTCornerDist -gt ($TDist+$TolChk)){
                 $TRotRadiansMax = (ComplRad $RTRadianAnglFromHorz) - (AdjacentRadians $TDist $RTCornerDist)
             }
-            if($LTCornerDist -gt $LDist){
+            if($LTCornerDist -gt ($LDist+$TolChk)){
                 $LRotRadiansMax =  $LTRadianAnglFromHorz - (AdjacentRadians $LDist $LTCornerDist)
             }
-            if($LBCornerDist -gt $BDist){
+            if($LBCornerDist -gt ($BDist+$TolChk)){
                 $BRotRadiansMax =  (ComplRad $LBRadianAnglFromHorz) - (AdjacentRadians $BDist $LBCornerDist)
             }
-            if($RBCornerDist -gt $RDist){
+            if($RBCornerDist -gt ($RDist+$TolChk)){
                 $RRotRadiansMax =  $RBRadianAnglFromHorz - (AdjacentRadians $RDist $RBCornerDist)
             }
         }
         #Else rotation is counter-clockwise
         else
         {
-            if($RTCornerDist -gt $RDist){
+            if($RTCornerDist -gt ($RDist+$TolChk)){
                 $RRotRadiansMax =  $RTRadianAnglFromHorz - (AdjacentRadians $RDist $RTCornerDist)
             }
-            if($LTCornerDist -gt $TDist){
+            if($LTCornerDist -gt ($TDist+$TolChk)){
                 $TRotRadiansMax =  (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $TDist $LTCornerDist)
             }
-            if($LBCornerDist -gt $LDist){
+            if($LBCornerDist -gt ($LDist+$TolChk)){
                 $LRotRadiansMax =  $LBRadianAnglFromHorz - (AdjacentRadians $LDist $LBCornerDist)
             }
-            if($RBCornerDist -gt $BDist){
+            if($RBCornerDist -gt ($BDist+$TolChk)){
                 $BRotRadiansMax =  (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $BDist $RBCornerDist)
             }
         }
@@ -235,7 +236,7 @@ function New-VideoZoomedOutFromPic
             Write-Host "WTF"
         }
         $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/2) -Maximum $MaxAllowableRotationInRadians
-        if($RotDir -gt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
+        if($RotDir -lt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
         else{$SrtRotAngle = $SetSrtRotInRad*(-180 / [Math]::PI)}
     }
 
@@ -254,7 +255,7 @@ function New-VideoZoomedOutFromPic
     {
         $NFrames = $NFramesTrn*2 + $NFramesStd
         $NFrames2StopRot = [Math]::ceiling(($NFramesTrn + $NFramesStd)*(2/3))
-        $DegChngRateA = [Math]::Sqrt((($SrtRotAngle*2)/[Math]::Pow($NFrames2StopRot,2)))
+        $DegChngRateA = (($SrtRotAngle*2)/[Math]::Pow($NFrames2StopRot,2))
         $AtEndTransInd = $NFramesTrn+$NFramesStd
         $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
         if ($NFrameChars -lt 1)
