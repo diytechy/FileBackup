@@ -34,8 +34,15 @@ function New-VideoZoomedOutFromPic
     #Check temp directory:
 
     if($SetTmpPath.Length){
-        $TmpPathMemFree = Get-PSDrive -Name $SetTmpPath | Format-List Name, Free, Used, @{Name="Free (MB)";Expression={($_.Free / 1GB)}};
-        if ($TmpPathMemFree -lt 1000)
+        $drive = (Get-Item $SetTmpPath).Root
+        #Method 1
+        #$disk = Get-WmiObject Win32_LogicalDisk | Where-Object {$_.DeviceID -eq $drive.Name.Trim("\")}
+        #$remainingSpaceMB = ($disk.FreeSpace / 1MB)
+        #Method 2
+        $driveInfo = Get-PSDrive -Name $drive.Name[0]
+        $remainingSpaceMB = $driveInfo.Used / 1MB
+
+        if ($remainingSpaceMB -lt 1000)
         {
             Write-Host "Provided temp directory has less than 1 GB of space remaining, converter will attempt to use local user temp space."
             $SetTmpPath = $env:TEMP
@@ -50,6 +57,7 @@ function New-VideoZoomedOutFromPic
     if ($MaxRotAngl)
     {
         $RotDir = Get-Random -Minimum -1 -Maximum 1
+        $RotDir = -1
     }
     else{$RotDir = 0}
 
@@ -74,7 +82,8 @@ function New-VideoZoomedOutFromPic
         $pureborder = ($PreTrimHeight - $InputHeight)/2
         $border = [Math]::Ceiling($pureborder)
         $HeightOffsetCenterBump = $pureborder - $border
-        $borderdef =$($border.ToString())+"X0"
+        $borderdef = "0X"+$($border.ToString())
+        $Orig2NewScale = $OutWidth/$InputWidth
     }
     else
     {
@@ -83,7 +92,8 @@ function New-VideoZoomedOutFromPic
         $pureborder = ($PreTrimWidth - $InputWidth)/2
         $border = [Math]::Ceiling($pureborder)
         $WidthOffsetCenterBump = $pureborder - $border
-        $borderdef = "0X"+$($border.ToString())
+        $borderdef = $($border.ToString())+"X0"
+        $Orig2NewScale = $OutHeight/$InputHeight
     }
     $InputBorderDef = $borderdef
 
@@ -147,6 +157,9 @@ function New-VideoZoomedOutFromPic
         $BRotRadiansMax = [Math]::PI/2
         $RRotRadiansMax = [Math]::PI/2
         #Rotation is clockwise
+        Write-Host $SrtZoom.ToString()
+        Write-Host $XRatio.ToString()
+        Write-Host $YRatio.ToString()
         if($RotDir -gt 0)
         {
             if($RTCornerDist -gt $TDist){
@@ -186,12 +199,14 @@ function New-VideoZoomedOutFromPic
     }
 
     #Define common command definitions
-    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -delete 0--1"
-    $IMConvPrepend = "-read MPR:orig -define distort:viewport=$OutWidth"+"x"+"$OutHeight -distort SRT "
+    $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
+    $BuildDir = $SetTmpPath + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
+    $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
+    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 -define distort:viewport=$OutWidth"+"x"+"$OutHeight"
+    $IMConvPrepend = "-read MPR:orig -distort SRT "
     $IMConvPreWrite = " -quality 92 -write "
     $IMConvAppend = " -delete 0--1"
     $IMCmdEnd = ""
-    $BuildDir = $SetTmpPath + "\" + $TmpDirName + (Get-Date -Format "FileDateTime")
     if( -not(Test-Path $BuildDir -PathType Container))
     {(New-Item -Path $BuildDir -ItemType "directory") *> $null}
     try
@@ -220,11 +235,12 @@ function New-VideoZoomedOutFromPic
         $NomPath = $BuildDir + "\" + "NomList.txt"
         $EndPath = $BuildDir + "\" + "EndList.txt"
         for ($i = 0; $i -lt $NFrames; $i++) {
-            $SetZoom   = $SrtZoom - ($ZoomRate*$i)
-            if ($SetZoom -lt 1.0)
+            $PreZoom   = $SrtZoom - ($ZoomRate*$i)
+            if ($PreZoom -lt 1.0)
             {
-                $SetZoom = 1.0
+                $PreZoom = 1.0
             }
+            $SetZoom = $PreZoom * $Orig2NewScale
             $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".jpg"
             $RotChngInd = ($AtEndTransInd - $i)
             if($RotChngInd -lt 0)
@@ -279,12 +295,12 @@ function New-VideoZoomedOutFromPic
 
         $FFMPEGNomVidInputSet = Join-String -InputObject $FFMPEGNomVidInput -Separator $NLC
         $FFMPEGNomVidInputSet | Out-File $NomPath
-        $FFMPEGNomVidArray = $FFMPEGPre, $NomPath, $FFMPEGSettings, $FFMPEGCmdNomAppend
+        $FFMPEGNomVidArray = $FFMPEGPre, "`'",$NomPath, "`'", $FFMPEGSettings, $FFMPEGCmdNomAppend
         $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator $ENLC
 
         $FFMPEGEndVidInputSet = Join-String -InputObject $FFMPEGEndVidInput -Separator $NLC
         $FFMPEGEndVidInputSet | Out-File $EndPath
-        $FFMPEGEndVidArray = $FFMPEGPre, $EndPath, $FFMPEGSettings, $FFMPEGCmdEndAppend
+        $FFMPEGEndVidArray = $FFMPEGPre, "`'", $EndPath, "`'", $FFMPEGSettings, $FFMPEGCmdEndAppend
         $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator $ENLC
 
         $AllCmdsSet  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
@@ -316,7 +332,7 @@ function Update-ConvertedMediaImagesForDisplay
     param (
         [string]$PrepFileRootPath,
         [string]$ConvFileRootPath,
-        [string]$RAMDrv
+        [string]$SetTmpPath
     )
     if (Get-Command jpegr -ErrorAction SilentlyContinue) {$RotImg = 1}
     else {throw  "Jpeg lossless rotator not detected, images will not be converted"}
@@ -1004,13 +1020,13 @@ function Update-MediaForDisplaySets
                         #$ffmpegCmdSrt | Out-File -FilePath "$($file.ImgVidPath)srtcmd"
                         if($ScaleWIM)
                         {
-                            if ($RAMDrvDef)
+                            if ($SetTmpPath)
                             {
-                                $TmpDirName = $RAMDrvDef
+                                $TmpDirName = $SetTmpPath
                             }
                             else
                             {
-                                $TmpDirName = [System.IO.Path]::GetFileNameWithoutExtension($InputPicPath)
+                                $TmpDirName = $env:TEMP
                             }
                             $FFMPEGCmdSrtAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutSrt
                             $FFMPEGCmdNomAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutNom

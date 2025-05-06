@@ -7,6 +7,7 @@ else{$BuDrv = "D"}
 $UseTestPath = 1;
 if ($UseTestPath)
 {
+    $SetTmpPath = "D:\TestPath"
     $InputFileRootPath =$BuDrv+ ":\T"
     $PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
     $ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
@@ -15,7 +16,7 @@ if ($UseTestPath)
     [pscustomobject]@{
         XDim = 1440;
         YDim = 900;
-        FPS = 30;
+        FPS = 3;
         PicDispTime = 6;
         MaxSrtRot = 30;
         FadeTime = 0.7;
