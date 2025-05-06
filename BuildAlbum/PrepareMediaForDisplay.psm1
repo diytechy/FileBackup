@@ -95,10 +95,10 @@ function New-VideoZoomedOutFromPic
     else{$RotDir = 0}
     #Temp overrides
     $RotDir = -1
-    #$XRatio = .5
-    #$YRatio = .5
-    #$SrtZoom = 1.5
-    #$ZoomRate = 0
+    $XRatio = 0
+    $YRatio = 1
+    $SrtZoom = 1.5
+    $ZoomRate = 0
     #Calculate offsets in terms of ratio for the first frame, as this is the basis for restriction since
     #rotation rate decelerates.
     $SrtImageRatio  = (1.0/$SrtZoom)
@@ -106,7 +106,7 @@ function New-VideoZoomedOutFromPic
     $LeftDistRatio  = $XRatio*$SrtImageBuffer
     $TopDistRatio   = $YRatio*$SrtImageBuffer
     $RightDistRatio = $SrtImageBuffer - $LeftDistRatio
-    $RightDistRatio = $SrtImageBuffer - $TopDistRatio
+    $BotDistRatio   = $SrtImageBuffer - $TopDistRatio
 
     #Determine the border definitions required to meet the end output resolution.
     $whimgratio  = $InputWidth/$InputHeight
@@ -163,8 +163,8 @@ function New-VideoZoomedOutFromPic
     #Get distance from subfocus origin to boundaries?
     $TDist = ($SubFocusRatioY*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
     $LDist = ($SubFocusRatioX*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
-    $BDist = ((1-$SubFocusRatioY)*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
-    $RDist = ((1-$SubFocusRatioX)*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
+    $BDist = ((1-$SubFocusRatioY)*$SrtImageRatio+$BotDistRatio)*$PreTrimHeight
+    $RDist = ((1-$SubFocusRatioX)*$SrtImageRatio+$RightDistRatio)*$PreTrimWidth
 
     if($RotDir -ne 0)
     {
