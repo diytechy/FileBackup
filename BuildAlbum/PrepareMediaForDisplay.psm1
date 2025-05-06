@@ -1,3 +1,37 @@
+function HypDistance
+{
+    param (
+        $XDist,
+        $YDist
+    )
+    return([Math]::Sqrt(`
+    ([Math]::Pow(($XDist),2))+`
+    ([Math]::Pow(($YDist),2))`
+    ))
+}
+function ATan2Abs
+{
+    param (
+        [decimal] $XDist,
+        [decimal] $YDist
+    )
+    return([Math]::Atan2( [Math]::abs($XDist), [Math]::abs($YDist)))
+}
+function AdjacentRadians
+{
+    param (
+        $Adj,
+        $Hyp
+    )
+    return([Math]::acos([Math]::abs($Adj)/[Math]::abs($Hyp)))
+}
+function ComplRad
+{
+    param (
+        $AngleInRad
+    )
+    return([Math]::PI/2 - $AngleInRad)
+}
 
 function New-VideoZoomedOutFromPic
 {
@@ -57,10 +91,14 @@ function New-VideoZoomedOutFromPic
     if ($MaxRotAngl)
     {
         $RotDir = Get-Random -Minimum -1 -Maximum 1
-        $RotDir = -1
     }
     else{$RotDir = 0}
-
+    #Temp overrides
+    $RotDir = -1
+    #$XRatio = .5
+    #$YRatio = .5
+    #$SrtZoom = 1.5
+    #$ZoomRate = 0
     #Calculate offsets in terms of ratio for the first frame, as this is the basis for restriction since
     #rotation rate decelerates.
     $SrtImageRatio  = (1.0/$SrtZoom)
@@ -131,26 +169,25 @@ function New-VideoZoomedOutFromPic
     if($RotDir -ne 0)
     {
         #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
-        $LTRadianAnglFromHorz = [Math]::Atan2( $SubFocusRatioX, $SubFocusRatioY)
-        $LTCornerDist = [Math]::Sqrt(`
-        ([Math]::Pow(($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth),2))+`
-        ([Math]::Pow(($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight),2))`
-        )
-        $RTRadianAnglFromHorz = [Math]::Atan2( (1-$SubFocusRatioX), $SubFocusRatioY)
-        $RTCornerDist = [Math]::Sqrt(`
-        ([Math]::Pow(((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth),2))+`
-        ([Math]::Pow(($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight),2))`
-        )
-        $LBRadianAnglFromHorz = [Math]::Atan2( ($SubFocusRatioX), (1-$SubFocusRatioY))
-        $LBCornerDist = [Math]::Sqrt(`
-        ([Math]::Pow(($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth),2))+`
-        ([Math]::Pow(((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight),2))`
-        )
-        $RBRadianAnglFromHorz = [Math]::Atan2( (1-$SubFocusRatioX), (1-$SubFocusRatioY))
-        $RBCornerDist = [Math]::Sqrt(`
-        ([Math]::Pow(((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth),2))+`
-        ([Math]::Pow(((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight),2))`
-        )
+        $LTRadianAnglFromHorz = ATan2Abs $SubFocusRatioX $SubFocusRatioY
+        $LTCornerDist = HypDistance `
+        ($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth) `
+        ($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight)
+
+        $RTRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioX) $SubFocusRatioY
+        $RTCornerDist = HypDistance `
+        ((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth) `
+        ($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight)
+
+        $LBRadianAnglFromHorz = ATan2Abs ($SubFocusRatioX) (1-$SubFocusRatioY)
+        $LBCornerDist = HypDistance `
+        ($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth) `
+        ((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight)
+
+        $RBRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioX) (1-$SubFocusRatioY)
+        $RBCornerDist = HypDistance `
+        ((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth) `
+        ((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight)
         #Figure out the max distance based on the angle of rotation:
         $TRotRadiansMax = [Math]::PI/2
         $LRotRadiansMax = [Math]::PI/2
@@ -163,36 +200,40 @@ function New-VideoZoomedOutFromPic
         if($RotDir -gt 0)
         {
             if($RTCornerDist -gt $TDist){
-                $TRotRadiansMax = [Math]::abs([Math]::acos($TDist/$RTCornerDist)) -  [Math]::abs(([Math]::PI/2 - $RTRadianAnglFromHorz))
+                $TRotRadiansMax = (ComplRad $RTRadianAnglFromHorz) - (AdjacentRadians $TDist $RTCornerDist)
             }
             if($LTCornerDist -gt $LDist){
-                $LRotRadiansMax =  [Math]::abs([Math]::acos($LDist/$LTCornerDist)) - [Math]::abs($LTRadianAnglFromHorz)
+                $LRotRadiansMax =  $LTRadianAnglFromHorz - (AdjacentRadians $LDist $LTCornerDist)
             }
             if($LBCornerDist -gt $BDist){
-                $BRotRadiansMax =  [Math]::abs([Math]::acos($BDist/$LBCornerDist)) - [Math]::abs([Math]::PI/2 - $LBRadianAnglFromHorz)
+                $BRotRadiansMax =  (ComplRad $LBRadianAnglFromHorz) - (AdjacentRadians $BDist $LBCornerDist)
             }
             if($RBCornerDist -gt $RDist){
-                $RRotRadiansMax =  [Math]::abs([Math]::acos($RDist/$RBCornerDist)) - [Math]::abs($RBRadianAnglFromHorz)
+                $RRotRadiansMax =  $RBRadianAnglFromHorz - (AdjacentRadians $RDist $RBCornerDist)
             }
         }
         #Else rotation is counter-clockwise
         else
         {
             if($RTCornerDist -gt $RDist){
-                $RRotRadiansMax =  [Math]::abs([Math]::acos($RDist/$RTCornerDist)) - [Math]::abs($RTRadianAnglFromHorz)
+                $RRotRadiansMax =  $RTRadianAnglFromHorz - (AdjacentRadians $RDist $RTCornerDist)
             }
             if($LTCornerDist -gt $TDist){
-                $TRotRadiansMax =  [Math]::abs([Math]::acos($TDist/$LTCornerDist)) - [Math]::abs([Math]::PI/2 - $LTRadianAnglFromHorz)
+                $TRotRadiansMax =  (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $TDist $LTCornerDist)
             }
             if($LBCornerDist -gt $LDist){
-                $LRotRadiansMax =  [Math]::abs([Math]::acos($LDist/$LBCornerDist)) - [Math]::abs($LBRadianAnglFromHorz)
+                $LRotRadiansMax =  $LBRadianAnglFromHorz - (AdjacentRadians $LDist $LBCornerDist)
             }
             if($RBCornerDist -gt $BDist){
-                $BRotRadiansMax =  [Math]::abs([Math]::acos($BDist/$RBCornerDist)) - [Math]::abs([Math]::PI/2 - $RBRadianAnglFromHorz)
+                $BRotRadiansMax =  (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $BDist $RBCornerDist)
             }
         }
         $RotRadianArray                = $TRotRadiansMax,$LRotRadiansMax,$BRotRadiansMax,$RRotRadiansMax,($MaxRotAngl*([Math]::PI/180))
         $MaxAllowableRotationInRadians = ($RotRadianArray | Measure-Object -Minimum).Minimum
+        if ($MaxAllowableRotationInRadians -lt 0)
+        {
+            Write-Host "WTF"
+        }
         $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/2) -Maximum $MaxAllowableRotationInRadians
         if($RotDir -gt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
         else{$SrtRotAngle = $SetSrtRotInRad*(-180 / [Math]::PI)}
