@@ -101,14 +101,6 @@ function New-VideoZoomedOutFromPic
     $YRatio = 1
     $SrtZoom = 1.5
     $ZoomRate = ($SrtZoom/$NFrames)
-    #Calculate offsets in terms of ratio for the first frame, as this is the basis for restriction since
-    #rotation rate decelerates.
-    $SrtImageRatio  = (1.0/$SrtZoom)
-    $SrtImageBuffer = (1 - $SrtImageRatio)
-    $LeftDistRatio  = $XRatio*$SrtImageBuffer
-    $TopDistRatio   = $YRatio*$SrtImageBuffer
-    $RightDistRatio = $SrtImageBuffer - $LeftDistRatio
-    $BotDistRatio   = $SrtImageBuffer - $TopDistRatio
 
     #Determine the border definitions required to meet the end output resolution.
     $whimgratio  = $InputWidth/$InputHeight
@@ -125,6 +117,8 @@ function New-VideoZoomedOutFromPic
         $borderdef = "0X"+$($border.ToString())
         $pagedef = "+0+"+$($border.ToString())
         $Orig2NewScale = $OutWidth/$InputWidth
+        #Recalc ratio so the started zoom level does not include border region.
+        $YRatio = ($pureborder+$InputHeight*$YRatio)/$PreTrimHeight
     }
     else
     {
@@ -136,7 +130,18 @@ function New-VideoZoomedOutFromPic
         $borderdef = $($border.ToString())+"X0"
         $pagedef = "+"+$($border.ToString())+"+0"
         $Orig2NewScale = $OutHeight/$InputHeight
+        $XRatio = ($pureborder+$InputWidth*$XRatio)/$PreTrimWidth
     }
+
+    #Calculate offsets in terms of ratio for the first frame, as this is the basis for restriction since
+    #rotation rate decelerates.
+    $SrtImageRatio  = (1.0/$SrtZoom)
+    $SrtImageBuffer = (1 - $SrtImageRatio)
+    $LeftDistRatio  = $XRatio*$SrtImageBuffer
+    $TopDistRatio   = $YRatio*$SrtImageBuffer
+    $RightDistRatio = $SrtImageBuffer - $LeftDistRatio
+    $BotDistRatio   = $SrtImageBuffer - $TopDistRatio
+
     $InputBorderDef = $borderdef
     $InputPageDef = $pagedef
 
@@ -241,7 +246,7 @@ function New-VideoZoomedOutFromPic
             Write-Host "WTF"
         }
         $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/2) -Maximum $MaxAllowableRotationInRadians
-        if($RotDir -lt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
+        if($RotDir -gt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
         else{$SrtRotAngle = $SetSrtRotInRad*(-180 / [Math]::PI)}
     }
 
@@ -294,6 +299,14 @@ function New-VideoZoomedOutFromPic
                 $PreZoom = 1.0
             }
             $SetZoom = $PreZoom * $Orig2NewScale
+            #Get placement definition for frame
+            $SetImageRatio  = (1.0/$PreZoom)
+            $SetImageBuffer = (1 - $SetImageRatio)
+            $RunLeftDistRatio  = $XRatio*$SetImageBuffer
+            $RunTopDistRatio   = $YRatio*$SetImageBuffer
+            $TDistSet = ($SubFocusRatioY*$SetImageRatio+$RunTopDistRatio)*$PreTrimHeight
+            $LDistSet = ($SubFocusRatioX*$SetImageRatio+$RunLeftDistRatio)*$PreTrimWidth
+
             $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".jpg"
             $RotChngInd = ($AtEndTransInd - $i)
             if($RotChngInd -lt 0)
@@ -306,8 +319,8 @@ function New-VideoZoomedOutFromPic
                 $SelRotAngl = ($DegChngRateA*[Math]::Pow($RotChngInd,2))/2
             }
             $SetRotate = $SelRotAngl
-            $XOffsetIn = $LDist
-            $YOffsetIn = $TDist
+            $XOffsetIn = $LDistSet
+            $YOffsetIn = $TDistSet
             #$XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
             #$YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
             $XOffsetOut = $SubFocusRatioY*$OutWidth
