@@ -16,7 +16,7 @@ if ($UseTestPath)
     [pscustomobject]@{
         XDim = 1440;
         YDim = 900;
-        FPS = 3;
+        FPS = 20;
         PicDispTime = 6;
         MaxSrtRot = 30;
         FadeTime = 0.7;

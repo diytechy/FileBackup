@@ -59,7 +59,7 @@ function GetZoomedImgProps
     $SubImgOrig2CentY = $SubImgTL2CenterY - $SubImgTL2OrigY
     $SubImgOrig2CentAngInRadians = [Math]::Atan2($SubImgOrig2CentY,$SubImgOrig2CentX)
     $SubImgOrig2CentDist = HypDistance $SubImgOrig2CentX $SubImgOrig2CentY
-    $PostRotOrig2CenterAngInRadians = ([Math]::Pi/180)*$SetAngle+$SubImgOrig2CentAngInRadians
+    $PostRotOrig2CenterAngInRadians = ([Math]::Pi/(180.0))*$SetAngle+$SubImgOrig2CentAngInRadians
     $PostScaleOrig2CentDist = $SubImgOrig2CentDist*$In2OutPxRatio*$RatioOfImage2Use
     $PostScaleOrig2CentDistX = ([Math]::cos($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
     $PostScaleOrig2CentDistY = ([Math]::sin($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
@@ -136,12 +136,15 @@ function New-VideoZoomedOutFromPic
     else{$RotDir = 0}
     $NFrames = $NFramesTrn*2 + $NFramesStd
     #Temp overrides
-    $TestFldr = "Test"
-    $RotDir = -1
-    $XRatio = 0
-    $YRatio = 1
-    $SrtZoom = 1.5
-    $ZoomRate = ($SrtZoom/$NFrames)
+    if(-not $null)
+    {
+        $TestFldr = "Test"
+        $RotDir = -1
+        $XRatio = 0
+        $YRatio = 1
+        $SrtZoom = 1.5
+        $ZoomRate = (($SrtZoom-1)/$NFrames)
+    }
 
     #Determine the border definitions required to meet the end output resolution.
     $whimgratio  = $InputWidth/$InputHeight
@@ -183,15 +186,15 @@ function New-VideoZoomedOutFromPic
     {
         $Orig2NewScale = $OutWidth/$InputWidth
         $CanvasHeight = $InputWidth/$whdispratio
-        $CanvasSideBorder   = ($CanvasHeight - $InputHeight)/2
-        $CanvasTopBotBorder = 0
+        $CanvasTopBotBorder   = ($CanvasHeight - $InputHeight)/2
+        $CanvasSideBorder = 0
     }
     else
     {
         $Orig2NewScale = $OutHeight/$InputHeight
         $CanvasWidth  = $InputHeight*$whdispratio
-        $CanvasTopBotBorder = ($PreTrimWidth - $InputWidth)/2
-        $CanvasSideBorder   = 0
+        $CanvasSideBorder = ($CanvasWidth - $InputWidth)/2
+        $CanvasTopBotBorder   = 0
     }
     $OutCentX = $OutWidth/2
     $OutCentY = $OutHeight/2
@@ -272,7 +275,7 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         $MaxAllowableRotationInRadians = ($RotRadianArray | Measure-Object -Minimum).Minimum
         if ($MaxAllowableRotationInRadians -lt 0)
         {
-            Write-Host "WTF"
+            $PsCmdlet.ThrowTerminatingError("WTF")
         }
         $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/2) -Maximum $MaxAllowableRotationInRadians
         if($RotDir -gt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
@@ -371,9 +374,11 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         $NLC = "`r`n"
 
         #Now create the full command and run image magic to create the pictures.
+        #if ($TestFldr -and $null)
         if ($TestFldr)
         {
-            $IMCmdMid = Join-String -InputObject $IMCmd[0,-1] -Separator $NLC
+            $MidFrame = [Math]::Ceiling($NFrames/2)
+            $IMCmdMid = Join-String -InputObject $IMCmd[0,$MidFrame,-1] -Separator $NLC
         }
         else
         {
