@@ -33,6 +33,47 @@ function ComplRad
     return([Math]::PI/2 - $AngleInRad)
 }
 
+function GetZoomedImgProps
+{
+    param (
+        [decimal] $IWidth, [decimal] $IHeight,
+        [decimal] $Xratio, [decimal] $Yratio,
+        [decimal] $SubImgOrigXRatio, [decimal] $SubImgOrigYRatio,
+        [decimal] $SetZoom,  [decimal] $SetAngle,
+        [decimal] $In2OutPxRatio, $OutCentX, $OutCentY
+    )
+    #Calculate offsets for the frame
+    $RatioOfImage2Use  = (1.0/$SetZoom)
+    $SrtImageBuffer = (1 - $RatioOfImage2Use) #Buffer region around image,
+    #Coordinates to upper left corner of unrotated subimage
+    $LeftDistToSubImg  = $XRatio*$SrtImageBuffer*$IWidth
+    $TopDistToSubImg   = $YRatio*$SrtImageBuffer*$IHeight
+    #Coordinates to subimage center (presentation anchor
+    $SubImgWidth  =  $IWidth*$RatioOfImage2Use
+    $SubImgHeight = $IHeight*$RatioOfImage2Use
+    $SubImgTL2OrigX = $SubImgOrigXRatio*$SubImgWidth
+    $SubImgTL2OrigY = $SubImgOrigYRatio*$SubImgHeight
+    $SubImgTL2CenterX = 0.5*$SubImgWidth
+    $SubImgTL2CenterY = 0.5*$SubImgHeight
+    $SubImgOrig2CentX = $SubImgTL2CenterX - $SubImgTL2OrigX
+    $SubImgOrig2CentY = $SubImgTL2CenterY - $SubImgTL2OrigY
+    $SubImgOrig2CentAngInRadians = [Math]::Atan2($SubImgOrig2CentY,$SubImgOrig2CentX)
+    $SubImgOrig2CentDist = HypDistance $SubImgOrig2CentX $SubImgOrig2CentY
+    $PostRotOrig2CenterAngInRadians = ([Math]::Pi/180)*$SetAngle+$SubImgOrig2CentAngInRadians
+    $PostScaleOrig2CentDist = $SubImgOrig2CentDist*$In2OutPxRatio*$RatioOfImage2Use
+    $PostScaleOrig2CentDistX = ([Math]::cos($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
+    $PostScaleOrig2CentDistY = ([Math]::sin($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
+
+  $retval = "" | Select-Object -Property InOrigX,InOrigY,SubImgTL2OrigX,SubImgTL2OrigY,OutCanvOrigX,OutCanvOrigY
+  $retval.InOrigX = $LeftDistToSubImg + $SubImgTL2OrigX
+  $retval.InOrigY = $TopDistToSubImg +  $SubImgTL2OrigY
+  $retval.SubImgTL2OrigX = $SubImgTL2OrigX
+  $retval.SubImgTL2OrigY = $SubImgTL2OrigY
+  $retval.OutCanvOrigX = $OutCentX - $PostScaleOrig2CentDistX
+  $retval.OutCanvOrigY = $OutCentY - $PostScaleOrig2CentDistY
+  return $retval
+}
+
 function New-VideoZoomedOutFromPic
 {
     param (
@@ -105,47 +146,14 @@ function New-VideoZoomedOutFromPic
     #Determine the border definitions required to meet the end output resolution.
     $whimgratio  = $InputWidth/$InputHeight
     $whdispratio = $OutWidth/$OutHeight
-    $HeightOffsetCenterBump = 0
-    $WidthOffsetCenterBump  = 0
-    if ($whimgratio -gt $whdispratio)
-    {
-        $PreTrimWidth  = $InputWidth
-        $PreTrimHeight = $InputWidth/$whdispratio
-        $pureborder = ($PreTrimHeight - $InputHeight)/2
-        $border = [Math]::Ceiling($pureborder)
-        $HeightOffsetCenterBump = $pureborder - $border
-        $borderdef = "0X"+$($border.ToString())
-        $pagedef = "+0+"+$($border.ToString())
-        $Orig2NewScale = $OutWidth/$InputWidth
-        #Recalc ratio so the started zoom level does not include border region.
-        $YRatio = ($pureborder+$InputHeight*$YRatio)/$PreTrimHeight
-    }
-    else
-    {
-        $PreTrimWidth  = $InputHeight*$whdispratio
-        $PreTrimHeight = $InputHeight
-        $pureborder = ($PreTrimWidth - $InputWidth)/2
-        $border = [Math]::Ceiling($pureborder)
-        $WidthOffsetCenterBump = $pureborder - $border
-        $borderdef = $($border.ToString())+"X0"
-        $pagedef = "+"+$($border.ToString())+"+0"
-        $Orig2NewScale = $OutHeight/$InputHeight
-        $XRatio = ($pureborder+$InputWidth*$XRatio)/$PreTrimWidth
-    }
 
-    #Calculate offsets in terms of ratio for the first frame, as this is the basis for restriction since
-    #rotation rate decelerates.
-    $SrtImageRatio  = (1.0/$SrtZoom)
-    $SrtImageBuffer = (1 - $SrtImageRatio)
-    $LeftDistRatio  = $XRatio*$SrtImageBuffer
-    $TopDistRatio   = $YRatio*$SrtImageBuffer
-    $RightDistRatio = $SrtImageBuffer - $LeftDistRatio
-    $BotDistRatio   = $SrtImageBuffer - $TopDistRatio
-
+    #Set border definitions, necessary so srt does not produce strange imaging artifacts.
+    $bp = 1
+    $borderdef = "$bp"+"X"+"$bp"
     $InputBorderDef = $borderdef
-    $InputPageDef = $pagedef
+    $InputPageDef = "+"+"$bp"+"+"+"$bp"
 
-    #Calculate focus point based on selected rotation direction and selected ratios:
+ #Calculate focus point based on selected rotation direction and selected ratios:
     if($RotDir -eq 0)
     {
         $SubFocusRatioX = 0.5
@@ -170,34 +178,55 @@ function New-VideoZoomedOutFromPic
             $SubFocusRatioY = 1 - $XRatio
         }
     }
-    #Get distance from subfocus origin to boundaries?
-    $TDist = ($SubFocusRatioY*$SrtImageRatio+$TopDistRatio)*$PreTrimHeight
-    $LDist = ($SubFocusRatioX*$SrtImageRatio+$LeftDistRatio)*$PreTrimWidth
-    $BDist = ((1-$SubFocusRatioY)*$SrtImageRatio+$BotDistRatio)*$PreTrimHeight
-    $RDist = ((1-$SubFocusRatioX)*$SrtImageRatio+$RightDistRatio)*$PreTrimWidth
+
+    if ($whimgratio -gt $whdispratio)
+    {
+        $Orig2NewScale = $OutWidth/$InputWidth
+        $CanvasHeight = $InputWidth/$whdispratio
+        $CanvasSideBorder   = ($CanvasHeight - $InputHeight)/2
+        $CanvasTopBotBorder = 0
+    }
+    else
+    {
+        $Orig2NewScale = $OutHeight/$InputHeight
+        $CanvasWidth  = $InputHeight*$whdispratio
+        $CanvasTopBotBorder = ($PreTrimWidth - $InputWidth)/2
+        $CanvasSideBorder   = 0
+    }
+    $OutCentX = $OutWidth/2
+    $OutCentY = $OutHeight/2
+    $OutValSet = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
+$SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
+
+    #Get distance from subfocus origin to canvas boundaries (including border)
+    $TDist = $OutValSet.InOrigY + $CanvasTopBotBorder
+    $LDist = $OutValSet.InOrigX + $CanvasSideBorder
+    $BDist = $InputHeight - $OutValSet.InOrigY + $CanvasTopBotBorder
+    $RDist = $InputWidth -  $OutValSet.InOrigX + $CanvasSideBorder
 
     if($RotDir -ne 0)
     {
+        $SubImgLeftSideOnCanvas  = $OutValSet.InOrigX - $OutValSet.SubImgTL2OrigX
+        $SubImgTopSideOnCanvas   = $OutValSet.InOrigY - $OutValSet.SubImgTL2OrigY
+        $SubImgRightSideOnCanvas = $SubImgLeftSideOnCanvas + $InputWidth*(1/$SrtZoom)
+        $SubImgBotSideOnCanvas   = $SubImgTopSideOnCanvas  + $InputHeight*(1/$SrtZoom)
+        $SubImgLeftSide2OrigDist  = $OutValSet.SubImgTL2OrigX
+        $SubImgTopSide2OrigDist   = $OutValSet.SubImgTL2OrigY
+        $SubImgRightSide2OrigDist = $InputWidth*(1/$SrtZoom)  - $OutValSet.SubImgTL2OrigX
+        $SubImgBotSide2OrigDist   = $InputHeight*(1/$SrtZoom) - $OutValSet.SubImgTL2OrigY
+
         #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
-        $LTRadianAnglFromHorz = ATan2Abs $SubFocusRatioY $SubFocusRatioX
-        $LTCornerDist = HypDistance `
-        ($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth) `
-        ($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight)
+        $LTRadianAnglFromHorz = ATan2Abs $SubImgTopSide2OrigDist $SubImgLeftSide2OrigDist
+        $LTCornerDist = HypDistance      $SubImgTopSide2OrigDist $SubImgLeftSide2OrigDist
 
-        $RTRadianAnglFromHorz = ATan2Abs $SubFocusRatioY (1-$SubFocusRatioX)
-        $RTCornerDist = HypDistance `
-        ((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth) `
-        ($SubFocusRatioY*$SrtImageRatio*$PreTrimHeight)
+        $RTRadianAnglFromHorz = ATan2Abs $SubImgTopSide2OrigDist $SubImgRightSide2OrigDist
+        $RTCornerDist = HypDistance      $SubImgTopSide2OrigDist $SubImgRightSide2OrigDist
 
-        $LBRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioY) ($SubFocusRatioX)
-        $LBCornerDist = HypDistance `
-        ($SubFocusRatioX*$SrtImageRatio*$PreTrimWidth) `
-        ((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight)
+        $LBRadianAnglFromHorz = ATan2Abs $SubImgBotSide2OrigDist $SubImgLeftSide2OrigDist
+        $LBCornerDist = HypDistance      $SubImgBotSide2OrigDist $SubImgLeftSide2OrigDist
 
-        $RBRadianAnglFromHorz = ATan2Abs (1-$SubFocusRatioY) (1-$SubFocusRatioX)
-        $RBCornerDist = HypDistance `
-        ((1-$SubFocusRatioX)*$SrtImageRatio*$PreTrimWidth) `
-        ((1-$SubFocusRatioY)*$SrtImageRatio*$PreTrimHeight)
+        $RBRadianAnglFromHorz = ATan2Abs $SubImgBotSide2OrigDist $SubImgRightSide2OrigDist
+        $RBCornerDist = HypDistance      $SubImgBotSide2OrigDist $SubImgRightSide2OrigDist
         #Figure out the max distance based on the angle of rotation:
         $TRotRadiansMax = [Math]::PI/2
         $LRotRadiansMax = [Math]::PI/2
@@ -261,7 +290,9 @@ function New-VideoZoomedOutFromPic
     }
     $BuildDir = $SetTmpPath + "\" + $TmpDirName
     $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
-    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -page $pagedef -write MPR:orig -write $BorderImg -delete 0--1 -define distort:viewport=$OutWidth"+"x"+"$OutHeight"
+    $IMViewPortDef = "-define distort:viewport=$OutWidth"+"x"+"$OutHeight"
+    #$IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -page $pagedef -write MPR:orig -write $BorderImg -delete 0--1 -define distort:viewport=$OutWidth"+"x"+"$OutHeight"
+    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
     $IMConvPrepend = "-read MPR:orig -distort SRT "
     $IMConvPreWrite = " -quality 92 -write "
     $IMConvAppend = " -delete 0--1"
@@ -298,14 +329,6 @@ function New-VideoZoomedOutFromPic
             {
                 $PreZoom = 1.0
             }
-            $SetZoom = $PreZoom * $Orig2NewScale
-            #Get placement definition for frame
-            $SetImageRatio  = (1.0/$PreZoom)
-            $SetImageBuffer = (1 - $SetImageRatio)
-            $RunLeftDistRatio  = $XRatio*$SetImageBuffer
-            $RunTopDistRatio   = $YRatio*$SetImageBuffer
-            $TDistSet = ($SubFocusRatioY*$SetImageRatio+$RunTopDistRatio)*$PreTrimHeight
-            $LDistSet = ($SubFocusRatioX*$SetImageRatio+$RunLeftDistRatio)*$PreTrimWidth
 
             $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".jpg"
             $RotChngInd = ($AtEndTransInd - $i)
@@ -318,13 +341,15 @@ function New-VideoZoomedOutFromPic
             {
                 $SelRotAngl = ($DegChngRateA*[Math]::Pow($RotChngInd,2))/2
             }
+            $OutValSet = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
+                $SubFocusRatioX $SubFocusRatioY $PreZoom $SelRotAngl $Orig2NewScale $OutCentX $OutCentY
+            #Define values for SRT to pass:
+            $SetZoom = $PreZoom * $Orig2NewScale
             $SetRotate = $SelRotAngl
-            $XOffsetIn = $LDistSet
-            $YOffsetIn = $TDistSet
-            #$XOffset = ($InputWidth*$XRatio*(1.0 - 1.0/$SetZoom))
-            #$YOffset = ($InputHeight*$YRatio*(1.0 - 1.0/$SetZoom))
-            $XOffsetOut = $SubFocusRatioY*$OutWidth
-            $YOffsetOut = $SubFocusRatioX*$OutHeight
+            $XOffsetIn = $OutValSet.InOrigX+$bp
+            $YOffsetIn = $OutValSet.InOrigY+$bp
+            $XOffsetOut = $OutValSet.OutCanvOrigX
+            $YOffsetOut = $OutValSet.OutCanvOrigY
 
             #Add image file path to array, and add image magic command to array:
             $IMCmd[$i] = $IMConvPrepend+" $XOffsetIn,$YOffsetIn,$SetZoom,$SetRotate,$XOffsetOut,$YOffsetOut "+ $IMConvPreWrite+ "`"$FPath`"" +"$IMConvAppend"
