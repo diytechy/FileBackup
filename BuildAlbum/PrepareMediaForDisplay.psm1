@@ -55,8 +55,10 @@ function GetZoomedImgProps
     $SubImgTL2OrigY = $SubImgOrigYRatio*$SubImgHeight
     $SubImgTL2CenterX = 0.5*$SubImgWidth
     $SubImgTL2CenterY = 0.5*$SubImgHeight
-    $SubImgOrig2CentX = $SubImgTL2CenterX - $SubImgTL2OrigX
-    $SubImgOrig2CentY = $SubImgTL2CenterY - $SubImgTL2OrigY
+    $SelCenterX = (($LeftDistToSubImg + $SubImgTL2CenterX) + ($IWidth/2))/2
+    $SelCenterY = (($TopDistToSubImg + $SubImgTL2CenterY) + ($IHeight/2))/2
+    $SubImgOrig2CentX = $SelCenterX - ($LeftDistToSubImg + $SubImgTL2OrigX)
+    $SubImgOrig2CentY = $SelCenterY - ($TopDistToSubImg + $SubImgTL2OrigY)
     $SubImgOrig2CentAngInRadians = [Math]::Atan2($SubImgOrig2CentY,$SubImgOrig2CentX)
     $SubImgOrig2CentDist = HypDistance $SubImgOrig2CentX $SubImgOrig2CentY
     $PostRotOrig2CenterAngInRadians = ([Math]::Pi/(180.0))*$SetAngle+$SubImgOrig2CentAngInRadians
