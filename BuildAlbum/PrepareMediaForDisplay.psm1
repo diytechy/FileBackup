@@ -61,18 +61,23 @@ function GetZoomedImgProps
     $SubImgOrig2CentY = $SelCenterY - ($TopDistToSubImg + $SubImgTL2OrigY)
     $SubImgOrig2CentAngInRadians = [Math]::Atan2($SubImgOrig2CentY,$SubImgOrig2CentX)
     $SubImgOrig2CentDist = HypDistance $SubImgOrig2CentX $SubImgOrig2CentY
-    $PostRotOrig2CenterAngInRadians = ([Math]::Pi/(180.0))*$SetAngle+$SubImgOrig2CentAngInRadians
-    $PostScaleOrig2CentDist = $SubImgOrig2CentDist*$In2OutPxRatio*$RatioOfImage2Use
+    $PostRotOrig2CenterAngInRadians = $SubImgOrig2CentAngInRadians + ([Math]::Pi/(180.0))*$SetAngle
+    $PostScaleOrig2CentDist = $SubImgOrig2CentDist*$In2OutPxRatio*$SetZoom
     $PostScaleOrig2CentDistX = ([Math]::cos($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
     $PostScaleOrig2CentDistY = ([Math]::sin($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
 
-  $retval = "" | Select-Object -Property InOrigX,InOrigY,SubImgTL2OrigX,SubImgTL2OrigY,OutCanvOrigX,OutCanvOrigY
+  $retval = "" | Select-Object -Property InOrigX,InOrigY,SubImgTL2OrigX,SubImgTL2OrigY, `
+        OutCanvOrigX,OutCanvOrigY,OutCentX,OutCentY,InCentX,InCentY
   $retval.InOrigX = $LeftDistToSubImg + $SubImgTL2OrigX
   $retval.InOrigY = $TopDistToSubImg +  $SubImgTL2OrigY
   $retval.SubImgTL2OrigX = $SubImgTL2OrigX
   $retval.SubImgTL2OrigY = $SubImgTL2OrigY
   $retval.OutCanvOrigX = $OutCentX - $PostScaleOrig2CentDistX
   $retval.OutCanvOrigY = $OutCentY - $PostScaleOrig2CentDistY
+  $retval.OutCentX = $OutCentX
+  $retval.OutCentY = $OutCentY
+  $retval.InCentX = $SelCenterX
+  $retval.InCentY = $SelCenterY
   return $retval
 }
 
@@ -96,6 +101,18 @@ function New-VideoZoomedOutFromPic
         [string]$FFMPEGCmdEndAppend,
         [string]$SetTmpPath
     )
+    $NFrames = $NFramesTrn*2 + $NFramesStd
+    #Temp overrides
+    if(-not $null)
+    {
+        $TestFldr = "Test"
+        $RotDir = -1
+        $XRatio = 0
+        $YRatio = 1
+        $SrtZoom = 1.5
+        $ZoomRate = (($SrtZoom-1)/$NFrames)
+        $MaxRotAngl = 20
+    }
     #Constant related to deceleration rate:
     #Do not exceed 180, for monotonically increasing deceleration, do not exceed 90, general 30 - 45 is  smooth.
     $RotAngSlopeSrtAngInDeg = 45
@@ -136,21 +153,17 @@ function New-VideoZoomedOutFromPic
 
     #Get calculations for rotation based on image
     #If a max rotation is defined, randomize which direction we rotate from.
-    if ($MaxRotAngl)
+    if ($TestFldr){} #Do nothing, rotation direction should be set per test config.
+    else
     {
-        $RotDir = Get-Random -Minimum -1 -Maximum 1
-    }
-    else{$RotDir = 0}
-    $NFrames = $NFramesTrn*2 + $NFramesStd
-    #Temp overrides
-    if(-not $null)
-    {
-        $TestFldr = "Test"
-        $RotDir = -1
-        $XRatio = 0
-        $YRatio = 1
-        $SrtZoom = 1.5
-        $ZoomRate = (($SrtZoom-1)/$NFrames)
+        if ($MaxRotAngl)
+        {
+            $RotDir = Get-Random -Minimum -1 -Maximum 1
+        }
+        else
+        {
+            $RotDir = 0
+        }
     }
 
     #Determine the border definitions required to meet the end output resolution.
@@ -243,9 +256,9 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         $BRotRadiansMax = [Math]::PI/2
         $RRotRadiansMax = [Math]::PI/2
         #Rotation is clockwise
-        Write-Host $SrtZoom.ToString()
-        Write-Host $XRatio.ToString()
-        Write-Host $YRatio.ToString()
+        #Write-Host $SrtZoom.ToString()
+        #Write-Host $XRatio.ToString()
+        #Write-Host $YRatio.ToString()
         $TolChk = 1E-6
         if($RotDir -gt 0)
         {
@@ -284,7 +297,14 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         {
             $PsCmdlet.ThrowTerminatingError("WTF")
         }
-        $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/2) -Maximum $MaxAllowableRotationInRadians
+        if($MaxAllowableRotationInRadians)
+        {
+            $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/2) -Maximum $MaxAllowableRotationInRadians
+        }
+        else
+        {
+            $SetSrtRotInRad = 0
+        }
         if($RotDir -gt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
         else{$SrtRotAngle = $SetSrtRotInRad*(-180 / [Math]::PI)}
     }
