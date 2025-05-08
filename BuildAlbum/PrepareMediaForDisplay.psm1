@@ -99,8 +99,8 @@ function New-VideoZoomedOutFromPic
     #Constant related to deceleration rate:
     #Do not exceed 180, for monotonically increasing deceleration, do not exceed 90, general 30 - 45 is  smooth.
     $RotAngSlopeSrtAngInDeg = 45
-    $RotAngSlopeSrtAng = ([Math]::PI/180)*RotAngSlopeSrtAngInDeg
-    $RotAngSlopeSrtY   = [Math]::cos($RotAngSlopeSrtAng)
+    $RotAngSlopeSrtAng = ([Math]::PI/180)*$RotAngSlopeSrtAngInDeg
+    $RotAngSlopeSrtX   = [Math]::cos($RotAngSlopeSrtAng)
     #Reference notes:
     # Clone ref:
     #   https://stackoverflow.com/questions/76961118/imagemagick-how-do-i-reuse-one-single-image-to-overlay-it-multiple-times
@@ -205,25 +205,25 @@ function New-VideoZoomedOutFromPic
     }
     $OutCentX = $OutWidth/2
     $OutCentY = $OutHeight/2
-    $OutValSet = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
+    $OutValSrt = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
 $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
 
     #Get distance from subfocus origin to canvas boundaries (including border)
-    $TDist = $OutValSet.InOrigY + $CanvasTopBotBorder
-    $LDist = $OutValSet.InOrigX + $CanvasSideBorder
-    $BDist = $InputHeight - $OutValSet.InOrigY + $CanvasTopBotBorder
-    $RDist = $InputWidth -  $OutValSet.InOrigX + $CanvasSideBorder
+    $TDist = $OutValSrt.InOrigY + $CanvasTopBotBorder
+    $LDist = $OutValSrt.InOrigX + $CanvasSideBorder
+    $BDist = $InputHeight - $OutValSrt.InOrigY + $CanvasTopBotBorder
+    $RDist = $InputWidth -  $OutValSrt.InOrigX + $CanvasSideBorder
 
     if($RotDir -ne 0)
     {
-        $SubImgLeftSideOnCanvas  = $OutValSet.InOrigX - $OutValSet.SubImgTL2OrigX
-        $SubImgTopSideOnCanvas   = $OutValSet.InOrigY - $OutValSet.SubImgTL2OrigY
+        $SubImgLeftSideOnCanvas  = $OutValSrt.InOrigX - $OutValSrt.SubImgTL2OrigX
+        $SubImgTopSideOnCanvas   = $OutValSrt.InOrigY - $OutValSrt.SubImgTL2OrigY
         $SubImgRightSideOnCanvas = $SubImgLeftSideOnCanvas + $InputWidth*(1/$SrtZoom)
         $SubImgBotSideOnCanvas   = $SubImgTopSideOnCanvas  + $InputHeight*(1/$SrtZoom)
-        $SubImgLeftSide2OrigDist  = $OutValSet.SubImgTL2OrigX
-        $SubImgTopSide2OrigDist   = $OutValSet.SubImgTL2OrigY
-        $SubImgRightSide2OrigDist = $InputWidth*(1/$SrtZoom)  - $OutValSet.SubImgTL2OrigX
-        $SubImgBotSide2OrigDist   = $InputHeight*(1/$SrtZoom) - $OutValSet.SubImgTL2OrigY
+        $SubImgLeftSide2OrigDist  = $OutValSrt.SubImgTL2OrigX
+        $SubImgTopSide2OrigDist   = $OutValSrt.SubImgTL2OrigY
+        $SubImgRightSide2OrigDist = $InputWidth*(1/$SrtZoom)  - $OutValSrt.SubImgTL2OrigX
+        $SubImgBotSide2OrigDist   = $InputHeight*(1/$SrtZoom) - $OutValSrt.SubImgTL2OrigY
 
         #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
         $LTRadianAnglFromHorz = ATan2Abs $SubImgTopSide2OrigDist $SubImgLeftSide2OrigDist
@@ -347,19 +347,23 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
                 $SelRotAngl = 0
             }
             $SelSlopeAng = (($RotAngSlopeSrtAng*$RotChngInd)/$AtEndTransInd)
-            $SelRotAngl = ((1-[Math]::Cos(SelSlopeAng))/$SrtRotAngle)*$SrtRotAngle
+            $SelRotAngl = ((1-[Math]::Cos($SelSlopeAng))/(1-$RotAngSlopeSrtX))*$SrtRotAngle
             $OutValSet = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
                 $SubFocusRatioX $SubFocusRatioY $PreZoom $SelRotAngl $Orig2NewScale $OutCentX $OutCentY
             #Define values for SRT to pass:
             $SetZoom = $PreZoom * $Orig2NewScale
             $SetRotate = $SelRotAngl
-            $XOffsetIn = $OutValSet.InOrigX+$bp
-            $YOffsetIn = $OutValSet.InOrigY+$bp
-            $XOffsetOut = $OutValSet.OutCanvOrigX
-            $YOffsetOut = $OutValSet.OutCanvOrigY
-
+            $TxtFrmt = "00000.0000000000"
+            $XOffsetInTxt = ($OutValSet.InOrigX+$bp).ToString($TxtFrmt)
+            $YOffsetInTxt = ($OutValSet.InOrigY+$bp).ToString($TxtFrmt)
+            $XOffsetOutTxt = ($OutValSet.OutCanvOrigX).ToString($TxtFrmt)
+            $YOffsetOutTxt = ($OutValSet.OutCanvOrigY).ToString($TxtFrmt)
+            $SetZoomTxt = $SetZoom.ToString($TxtFrmt)
+            $SetRotateTxt = $SetRotate.ToString($TxtFrmt)
             #Add image file path to array, and add image magic command to array:
-            $IMCmd[$i] = $IMConvPrepend+" $XOffsetIn,$YOffsetIn,$SetZoom,$SetRotate,$XOffsetOut,$YOffsetOut "+ $IMConvPreWrite+ "`"$FPath`"" +"$IMConvAppend"
+            $IMCmd[$i] = $IMConvPrepend+" $XOffsetInTxt,$YOffsetInTxt" + `
+            ",$SetZoomTxt,$SetRotateTxt,$XOffsetOutTxt,$YOffsetOutTxt "+ `
+            $IMConvPreWrite+ "`"$FPath`"" +"$IMConvAppend"
             #Add ffmpeg imporrt definition depending on where we're at
             $ImportStr = "file `'$FPath`'"
             if ($i -ge ($AtEndTransInd)){
