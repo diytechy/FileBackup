@@ -94,6 +94,11 @@ function New-VideoZoomedOutFromPic
         [string]$FFMPEGCmdEndAppend,
         [string]$SetTmpPath
     )
+    #Constant related to deceleration rate:
+    #Do not exceed 180, for monotonically increasing deceleration, do not exceed 90, general 30 - 45 is  smooth.
+    $RotAngSlopeSrtAngInDeg = 45
+    $RotAngSlopeSrtAng = ([Math]::PI/180)*RotAngSlopeSrtAngInDeg
+    $RotAngSlopeSrtY   = [Math]::cos($RotAngSlopeSrtAng)
     #Reference notes:
     # Clone ref:
     #   https://stackoverflow.com/questions/76961118/imagemagick-how-do-i-reuse-one-single-image-to-overlay-it-multiple-times
@@ -305,7 +310,6 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
     try
     {
         $NFrames2StopRot = [Math]::ceiling(($NFramesTrn + $NFramesStd)*(2/3))
-        $DegChngRateA = (($SrtRotAngle*2)/[Math]::Pow($NFrames2StopRot,2))
         $AtEndTransInd = $NFramesTrn+$NFramesStd
         $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
         if ($NFrameChars -lt 1)
@@ -340,10 +344,8 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
                 $RotChngInd = 0
                 $SelRotAngl = 0
             }
-            else
-            {
-                $SelRotAngl = ($DegChngRateA*[Math]::Pow($RotChngInd,2))/2
-            }
+            $SelSlopeAng = (($RotAngSlopeSrtAng*$RotChngInd)/$AtEndTransInd)
+            $SelRotAngl = ((1-[Math]::Cos(SelSlopeAng))/$SrtRotAngle)*$SrtRotAngle
             $OutValSet = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
                 $SubFocusRatioX $SubFocusRatioY $PreZoom $SelRotAngl $Orig2NewScale $OutCentX $OutCentY
             #Define values for SRT to pass:
