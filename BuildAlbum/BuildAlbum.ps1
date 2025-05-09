@@ -1,6 +1,6 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 0 #Remember- this is completed
+$ProcLvl = 2 #Remember- this is completed
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE"){$BuDrv = "Z"}
 else{$BuDrv = "D"}
@@ -67,6 +67,7 @@ else
         })
 }
 #Clean paths if applicable
+$CopyMedia = 0
 foreach ($def in $OutputDefs)
 {
     if ($def.CleanBuild)
@@ -83,6 +84,7 @@ foreach ($def in $OutputDefs)
         {
             remove-item -LiteralPath $ChkPath -Recurse -Force
         }
+        $CopyMedia = 1
     }
 }
 #Adding dependent scripts:
@@ -105,7 +107,7 @@ foreach($set in $OutputDefs)
 }
 #Run operations.
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1)){
+if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1) -or $CopyMedia){
     Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){

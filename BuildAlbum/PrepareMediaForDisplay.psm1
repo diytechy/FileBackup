@@ -103,7 +103,7 @@ function New-VideoZoomedOutFromPic
     )
     $NFrames = $NFramesTrn*2 + $NFramesStd
     #Temp overrides
-    if(-not $null)
+    if($null)
     {
         $TestFldr = "Test"
         $RotDir = -1
@@ -455,7 +455,7 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
     catch{}
     #Cleanup
     finally{
-        #(Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null
+        (Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null
     }
 }
 
@@ -1052,7 +1052,7 @@ function Update-MediaForDisplaySets
             {
                 if ($file.IsImg)
                 {
-                    $ScaleWIM = 1
+                    $ScaleWIM = 0
                     $image = New-Object -ComObject Wia.ImageFile
                     $image.loadfile($file.ConvPath)
                     $whimgratio = $image.Width/$image.Height
