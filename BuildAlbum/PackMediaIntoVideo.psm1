@@ -1,4 +1,6 @@
-Import-Module ".\BuildAlbum\ConcatVidPartsFromFileList.psm1"
+$ConcatModulePath = ".\BuildAlbum\ConcatVidPartsFromFileList.psm1"
+$DepPath = Resolve-Path $ConcatModulePath
+Import-Module $DepPath
 function Set-VideoFromMedia
 {
     param (
@@ -71,23 +73,22 @@ function Set-VideoFromMedia
             #Create file to describe what videos to append.
             $FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
-        if(0)
+        if(1)
         {
             $Groups | ForEach-Object -Parallel{
-                $FadeTime = $using:set.FadeTime
+                $DepPath = $using:DepPath
                 $Quality = $using:set.Quality
                 $ExpAud = $using:set.ExpAud
                 $GrpDef = $using:GrpDef
                 $SelGrpDef = $GrpDef[$_]
-                Import-Module ".\BuildAlbum\ConcatMediaFromFileList.psm1"
-                Join-VideosFromList $SelGrpDef $FadeTime $_.VidExpPath $Quality $ExpAud
+                Import-Module $DepPath
+                Join-VidPartsFromList $SelGrpDef $_.VidExpPath $Quality $ExpAud
             } -ThrottleLimit 1
         }
         else
         {
             foreach ($grp in $Groups)
             {
-                $FadeTime = $set.FadeTime
                 $Quality = $set.Quality
                 $ExpAud = $set.ExpAud
                 $SelGrpDef = $GrpDef[$grp]
