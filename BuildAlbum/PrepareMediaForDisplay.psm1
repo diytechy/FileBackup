@@ -1,86 +1,3 @@
-function HypDistance
-{
-    param (
-        $XDist,
-        $YDist
-    )
-    return([Math]::Sqrt(`
-    ([Math]::Pow(($XDist),2))+`
-    ([Math]::Pow(($YDist),2))`
-    ))
-}
-function ATan2Abs
-{
-    param (
-        [decimal] $XDist,
-        [decimal] $YDist
-    )
-    return([Math]::Atan2( [Math]::abs($XDist), [Math]::abs($YDist)))
-}
-function AdjacentRadians
-{
-    param (
-        $Adj,
-        $Hyp
-    )
-    return([Math]::acos([Math]::abs($Adj)/[Math]::abs($Hyp)))
-}
-function ComplRad
-{
-    param (
-        $AngleInRad
-    )
-    return([Math]::PI/2 - $AngleInRad)
-}
-
-function GetZoomedImgProps
-{
-    param (
-        [decimal] $IWidth, [decimal] $IHeight,
-        [decimal] $Xratio, [decimal] $Yratio,
-        [decimal] $SubImgOrigXRatio, [decimal] $SubImgOrigYRatio,
-        [decimal] $SetZoom,  [decimal] $SetAngle,
-        [decimal] $In2OutPxRatio, $OutCentX, $OutCentY
-    )
-    #Calculate offsets for the frame
-    $RatioOfImage2Use  = (1.0/$SetZoom)
-    $SrtImageBuffer = (1 - $RatioOfImage2Use) #Buffer region around image,
-    #Coordinates to upper left corner of unrotated subimage
-    $LeftDistToSubImg  = $XRatio*$SrtImageBuffer*$IWidth
-    $TopDistToSubImg   = $YRatio*$SrtImageBuffer*$IHeight
-    #Coordinates to subimage center (presentation anchor
-    $SubImgWidth  =  $IWidth*$RatioOfImage2Use
-    $SubImgHeight = $IHeight*$RatioOfImage2Use
-    $SubImgTL2OrigX = $SubImgOrigXRatio*$SubImgWidth
-    $SubImgTL2OrigY = $SubImgOrigYRatio*$SubImgHeight
-    $SubImgTL2CenterX = 0.5*$SubImgWidth
-    $SubImgTL2CenterY = 0.5*$SubImgHeight
-    $SelCenterX = (($LeftDistToSubImg + $SubImgTL2CenterX) + ($IWidth/2))/2
-    $SelCenterY = (($TopDistToSubImg + $SubImgTL2CenterY) + ($IHeight/2))/2
-    $SubImgOrig2CentX = $SelCenterX - ($LeftDistToSubImg + $SubImgTL2OrigX)
-    $SubImgOrig2CentY = $SelCenterY - ($TopDistToSubImg + $SubImgTL2OrigY)
-    $SubImgOrig2CentAngInRadians = [Math]::Atan2($SubImgOrig2CentY,$SubImgOrig2CentX)
-    $SubImgOrig2CentDist = HypDistance $SubImgOrig2CentX $SubImgOrig2CentY
-    $PostRotOrig2CenterAngInRadians = $SubImgOrig2CentAngInRadians + ([Math]::Pi/(180.0))*$SetAngle
-    $PostScaleOrig2CentDist = $SubImgOrig2CentDist*$In2OutPxRatio*$SetZoom
-    $PostScaleOrig2CentDistX = ([Math]::cos($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
-    $PostScaleOrig2CentDistY = ([Math]::sin($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
-
-  $retval = "" | Select-Object -Property InOrigX,InOrigY,SubImgTL2OrigX,SubImgTL2OrigY, `
-        OutCanvOrigX,OutCanvOrigY,OutCentX,OutCentY,InCentX,InCentY
-  $retval.InOrigX = $LeftDistToSubImg + $SubImgTL2OrigX
-  $retval.InOrigY = $TopDistToSubImg +  $SubImgTL2OrigY
-  $retval.SubImgTL2OrigX = $SubImgTL2OrigX
-  $retval.SubImgTL2OrigY = $SubImgTL2OrigY
-  $retval.OutCanvOrigX = $OutCentX - $PostScaleOrig2CentDistX
-  $retval.OutCanvOrigY = $OutCentY - $PostScaleOrig2CentDistY
-  $retval.OutCentX = $OutCentX
-  $retval.OutCentY = $OutCentY
-  $retval.InCentX = $SelCenterX
-  $retval.InCentY = $SelCenterY
-  return $retval
-}
-
 function New-VideoZoomedOutFromPic
 {
     param (
@@ -101,6 +18,88 @@ function New-VideoZoomedOutFromPic
         [string]$FFMPEGCmdEndAppend,
         [string]$SetTmpPath
     )
+    function HypDistance
+    {
+        param (
+            $XDist,
+            $YDist
+        )
+        return([Math]::Sqrt(`
+    ([Math]::Pow(($XDist),2))+`
+    ([Math]::Pow(($YDist),2))`
+    ))
+    }
+    function ATan2Abs
+    {
+        param (
+            [decimal] $XDist,
+            [decimal] $YDist
+        )
+        return([Math]::Atan2( [Math]::abs($XDist), [Math]::abs($YDist)))
+    }
+    function AdjacentRadians
+    {
+        param (
+            $Adj,
+            $Hyp
+        )
+        return([Math]::acos([Math]::abs($Adj)/[Math]::abs($Hyp)))
+    }
+    function ComplRad
+    {
+        param (
+            $AngleInRad
+        )
+        return([Math]::PI/2 - $AngleInRad)
+    }
+
+    function GetZoomedImgProps
+    {
+        param (
+            [decimal] $IWidth, [decimal] $IHeight,
+            [decimal] $Xratio, [decimal] $Yratio,
+            [decimal] $SubImgOrigXRatio, [decimal] $SubImgOrigYRatio,
+            [decimal] $SetZoom,  [decimal] $SetAngle,
+            [decimal] $In2OutPxRatio, $OutCentX, $OutCentY
+        )
+        #Calculate offsets for the frame
+        $RatioOfImage2Use  = (1.0/$SetZoom)
+        $SrtImageBuffer = (1 - $RatioOfImage2Use) #Buffer region around image,
+        #Coordinates to upper left corner of unrotated subimage
+        $LeftDistToSubImg  = $XRatio*$SrtImageBuffer*$IWidth
+        $TopDistToSubImg   = $YRatio*$SrtImageBuffer*$IHeight
+        #Coordinates to subimage center (presentation anchor
+        $SubImgWidth  =  $IWidth*$RatioOfImage2Use
+        $SubImgHeight = $IHeight*$RatioOfImage2Use
+        $SubImgTL2OrigX = $SubImgOrigXRatio*$SubImgWidth
+        $SubImgTL2OrigY = $SubImgOrigYRatio*$SubImgHeight
+        $SubImgTL2CenterX = 0.5*$SubImgWidth
+        $SubImgTL2CenterY = 0.5*$SubImgHeight
+        $SelCenterX = (($LeftDistToSubImg + $SubImgTL2CenterX) + ($IWidth/2))/2
+        $SelCenterY = (($TopDistToSubImg + $SubImgTL2CenterY) + ($IHeight/2))/2
+        $SubImgOrig2CentX = $SelCenterX - ($LeftDistToSubImg + $SubImgTL2OrigX)
+        $SubImgOrig2CentY = $SelCenterY - ($TopDistToSubImg + $SubImgTL2OrigY)
+        $SubImgOrig2CentAngInRadians = [Math]::Atan2($SubImgOrig2CentY,$SubImgOrig2CentX)
+        $SubImgOrig2CentDist = HypDistance $SubImgOrig2CentX $SubImgOrig2CentY
+        $PostRotOrig2CenterAngInRadians = $SubImgOrig2CentAngInRadians + ([Math]::Pi/(180.0))*$SetAngle
+        $PostScaleOrig2CentDist = $SubImgOrig2CentDist*$In2OutPxRatio*$SetZoom
+        $PostScaleOrig2CentDistX = ([Math]::cos($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
+        $PostScaleOrig2CentDistY = ([Math]::sin($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
+
+        $retval = "" | Select-Object -Property InOrigX,InOrigY,SubImgTL2OrigX,SubImgTL2OrigY, `
+        OutCanvOrigX,OutCanvOrigY,OutCentX,OutCentY,InCentX,InCentY
+        $retval.InOrigX = $LeftDistToSubImg + $SubImgTL2OrigX
+        $retval.InOrigY = $TopDistToSubImg +  $SubImgTL2OrigY
+        $retval.SubImgTL2OrigX = $SubImgTL2OrigX
+        $retval.SubImgTL2OrigY = $SubImgTL2OrigY
+        $retval.OutCanvOrigX = $OutCentX - $PostScaleOrig2CentDistX
+        $retval.OutCanvOrigY = $OutCentY - $PostScaleOrig2CentDistY
+        $retval.OutCentX = $OutCentX
+        $retval.OutCentY = $OutCentY
+        $retval.InCentX = $SelCenterX
+        $retval.InCentY = $SelCenterY
+        return $retval
+    }
     $NFrames = $NFramesTrn*2 + $NFramesStd
     #Temp overrides
     if($null)
@@ -158,7 +157,7 @@ function New-VideoZoomedOutFromPic
     {
         if ($MaxRotAngl)
         {
-            $RotDir = Get-Random -Minimum -1 -Maximum 1
+            $RotDir = Get-Random -InputObject (-1,1)
         }
         else
         {
@@ -223,10 +222,10 @@ function New-VideoZoomedOutFromPic
     $OutValSrt = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
 $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
 
-    Write-Host "**********************************************"
-    Write-Host "*********** Wait Debugger Reached ************"
-    Write-Host "**********************************************"
-    Wait-Debugger
+    #Write-Host "**********************************************"
+    #Write-Host "*********** Wait Debugger Reached ************"
+    #Write-Host "**********************************************"
+    #Wait-Debugger
 
     #Get distance from subfocus origin to canvas boundaries (including border)
     $TDist = $OutValSrt.InOrigY + $CanvasTopBotBorder
@@ -306,7 +305,7 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         }
         if($MaxAllowableRotationInRadians)
         {
-            $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/2) -Maximum $MaxAllowableRotationInRadians
+            $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/5) -Maximum $MaxAllowableRotationInRadians
         }
         else
         {
@@ -1199,7 +1198,7 @@ function Update-MediaForDisplaySets
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ImgVidPath)", $CurrDateTime)
-                        Write-Host("**************************L9****************************")
+                        #Write-Host("**************************L9****************************")
                         #Now rewrite the image again with a smaller size, to save on space.
                         $IMCmd1 = "magick `"$( $file.ConvPath )`" -auto-orient -resize $SizeOut -quality $($quality.ToString() ) -background black "
                         $IMCmdOut = "`"$( $file.ContPath )`""
@@ -1329,18 +1328,18 @@ function Update-MediaForDisplaySets
                         $ffmpegcmdend = $ffmpeginputend + $ffmpegvidcmd1 + " " + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)end`""
                         $ffmpegcmdnom = $ffmpeginputnom + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""
 
-                        write-host "T0"
+                        #write-host "T0"
                         $ffmpegcmdnom | Out-File -FilePath "$($file.ContPath)nomcmd"
                         $ffmpegcmdsrt | Out-File -FilePath "$($file.ContPath)srtcmd"
                         $ffmpegcmdend | Out-File -FilePath "$($file.ContPath)endcmd"
                         (Invoke-Expression $ffmpegcmdsrt) *> $null
                         (Invoke-Expression $ffmpegcmdend) *> $null
                         (Invoke-Expression $ffmpegcmdnom) *> $null
-                        write-host "T1"
+                        #write-host "T1"
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)srt", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)end", $CurrDateTime)
                         [System.IO.File]::SetCreationTime( "$($file.ContPath)", $CurrDateTime)
-                        write-host "T2"
+                        #write-host "T2"
 
                         #write-host "ffmpeg command for video conversion:"
                         #write-host $ffmpegcmd
@@ -1367,7 +1366,8 @@ function Update-MediaForDisplaySets
                 }
             }
         #}
-        } -ThrottleLimit 1
+        } -ThrottleLimit 8
         #4 - 3 min with 18 files, ScaleWIM disabled
+        #4 - 13 min with 18 files, ScaleWIM enabled, no prescaling
     }
 }
