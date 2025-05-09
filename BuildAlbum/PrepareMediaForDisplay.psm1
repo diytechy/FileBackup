@@ -139,7 +139,7 @@ function New-VideoZoomedOutFromPic
         #$remainingSpaceMB = ($disk.FreeSpace / 1MB)
         #Method 2
         $driveInfo = Get-PSDrive -Name $drive.Name[0]
-        $remainingSpaceMB = $driveInfo.Used / 1MB
+        $remainingSpaceMB = $driveInfo.Free / 1MB
 
         if ($remainingSpaceMB -lt 1000)
         {
@@ -218,8 +218,15 @@ function New-VideoZoomedOutFromPic
     }
     $OutCentX = $OutWidth/2
     $OutCentY = $OutHeight/2
+
+
     $OutValSrt = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
 $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
+
+    Write-Host "**********************************************"
+    Write-Host "*********** Wait Debugger Reached ************"
+    Write-Host "**********************************************"
+    Wait-Debugger
 
     #Get distance from subfocus origin to canvas boundaries (including border)
     $TDist = $OutValSrt.InOrigY + $CanvasTopBotBorder
@@ -321,7 +328,6 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
     $BuildDir = $SetTmpPath + "\" + $TmpDirName
     $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
     $IMViewPortDef = "-define distort:viewport=$OutWidth"+"x"+"$OutHeight"
-    #$IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -page $pagedef -write MPR:orig -write $BorderImg -delete 0--1 -define distort:viewport=$OutWidth"+"x"+"$OutHeight"
     $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
     $IMConvPrepend = "-read MPR:orig -distort SRT "
     $IMConvPreWrite = " -quality 92 -write "
@@ -1007,8 +1013,8 @@ function Update-MediaForDisplaySets
         $funcDef = ${function:New-VideoZoomedOutFromPic}.ToString()
         $AllFilesizeTtl = ($Files2Chk| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
-        #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
-        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
+        #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
             if ($RunSeries) {
                 $file = $_
                 $XDim = $set.XDim
@@ -1026,6 +1032,7 @@ function Update-MediaForDisplaySets
                 $CurrDateTime =  $CurrDateTime}
             else{
                 ${function:New-VideoZoomedOutFromPic} = $using:funcDef
+                $SetTmpPath                           = $using:SetTmpPath
                 $file = $_
                 $XDim = $using:set.XDim
                 $YDim = $using:set.YDim
@@ -1052,7 +1059,7 @@ function Update-MediaForDisplaySets
             {
                 if ($file.IsImg)
                 {
-                    $ScaleWIM = 0
+                    $ScaleWIM = 1
                     $image = New-Object -ComObject Wia.ImageFile
                     $image.loadfile($file.ConvPath)
                     $whimgratio = $image.Width/$image.Height
@@ -1163,7 +1170,24 @@ function Update-MediaForDisplaySets
                             $FFMPEGCmdSrtAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutSrt
                             $FFMPEGCmdNomAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutNom
                             $FFMPEGCmdEndAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutEnd
-                            write-host "About to call function..."
+                            #write-host "About to call function..."
+                            #write-host "ContPath: " + $file.ContPath
+                            #write-host "IW: " + $image.Width
+                            #write-host "IH: " + $image.Height
+                            #write-host "StartZoom: " + $SetSrtZoom
+                            #write-host "ZoomRate: " + $ZoomRate
+                            #write-host "MaxSrtRot: " + $MaxSrtRot
+                            #write-host "XRatio: " + $XRatio
+                            #write-host "YRatio: " + $YRatio
+                            #write-host "NFramesTrn: " + $NFramesTrn
+                            #write-host "NFramesStd: " + $NFramesStd
+                            #write-host "NFramesTrn: " + $XDim
+                            #write-host "NFramesStd: " + $YDim
+                            #write-host "FFMPEGCmdSrtAppend: " + $FFMPEGCmdSrtAppend
+                            #write-host "FFMPEGCmdNomAppend: " + $FFMPEGCmdNomAppend
+                            #write-host "FFMPEGCmdEndAppend: " + $FFMPEGCmdEndAppend
+                            #write-host "TmpDirName: " + $TmpDirName
+                            #Wait-Debugger
                             New-VideoZoomedOutFromPic $file.ContPath $image.Width $image.Height $SetSrtZoom $ZoomRate $MaxSrtRot $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
@@ -1342,12 +1366,8 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        }
-        #} -ThrottleLimit 4
-        #4 - 6.5 min
-        #4 - 3.3 min on Desktop
-        #1 - 5.5 min on desktop
-        #2 - 3.6 min on desktop
-        #8 - 3 min on desktop
+        #}
+        } -ThrottleLimit 1
+        #4 - 3 min with 18 files, ScaleWIM disabled
     }
 }

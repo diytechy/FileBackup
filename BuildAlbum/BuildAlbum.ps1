@@ -2,12 +2,20 @@ Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = c
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 $ProcLvl = 2 #Remember- this is completed
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
-if ((HOSTNAME) -EQ "DESKTOP-OFFICE"){$BuDrv = "Z"}
-else{$BuDrv = "D"}
+if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
+{
+    $BuDrv = "Z"
+    $SetTmpPath = "T:"
+}
+else
+{
+    $BuDrv = "D"
+    $SetTmpPath = ""
+}
 $UseTestPath = 1;
 if ($UseTestPath)
 {
-    $SetTmpPath = "D:\TestPath"
+
     $InputFileRootPath =$BuDrv+ ":\T"
     $PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
     $ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
