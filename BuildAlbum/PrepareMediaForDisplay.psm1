@@ -75,8 +75,11 @@ function New-VideoZoomedOutFromPic
         $SubImgTL2OrigY = $SubImgOrigYRatio*$SubImgHeight
         $SubImgTL2CenterX = 0.5*$SubImgWidth
         $SubImgTL2CenterY = 0.5*$SubImgHeight
-        $SelCenterX = (($LeftDistToSubImg + $SubImgTL2CenterX) + ($IWidth/2))/2
-        $SelCenterY = (($TopDistToSubImg + $SubImgTL2CenterY) + ($IHeight/2))/2
+        $SubImgCenterX = ($LeftDistToSubImg + $SubImgTL2CenterX)
+        $SubImgCenterY = ($TopDistToSubImg + $SubImgTL2CenterY)
+        $Draw2CentRatio = 0.2
+        $SelCenterX = $SubImgCenterX + (($IWidth/2)-$SubImgCenterX)*$Draw2CentRatio
+        $SelCenterY = $SubImgCenterY + (($IHeight/2)-$SubImgCenterY)*$Draw2CentRatio
         $SubImgOrig2CentX = $SelCenterX - ($LeftDistToSubImg + $SubImgTL2OrigX)
         $SubImgOrig2CentY = $SelCenterY - ($TopDistToSubImg + $SubImgTL2OrigY)
         $SubImgOrig2CentAngInRadians = [Math]::Atan2($SubImgOrig2CentY,$SubImgOrig2CentX)
@@ -101,7 +104,7 @@ function New-VideoZoomedOutFromPic
         return $retval
     }
     $NFrames = $NFramesTrn*2 + $NFramesStd
-    $Prescaler = 0 #Set to 0 to disable prescaling.  Will be ignored if less than 1 to prevent excess image definition.
+    $Prescaler = 1 #Set to 0 to disable prescaling.  Will be ignored if less than 1 to prevent excess image definition.
     #Temp overrides
     if($null)
     {
@@ -174,7 +177,6 @@ function New-VideoZoomedOutFromPic
     $bp = 1
     $borderdef = "$bp"+"X"+"$bp"
     $InputBorderDef = $borderdef
-    $InputPageDef = "+"+"$bp"+"+"+"$bp"
 
  #Calculate focus point based on selected rotation direction and selected ratios:
     if($RotDir -eq 0)
@@ -1052,6 +1054,7 @@ function Update-MediaForDisplaySets
                 $ffmpegvcdcstd = $GDefs.ffmpegvcdcstd
                 $ffmpegvcdctra = $GDefs.ffmpegvcdctra
                 $ffmpegaudcmd =  $GDefs.ffmpegaudcmd
+                $VidRateTimescale =  $GDefs.videorate
                 $CurrDateTime =  $CurrDateTime}
             else{
                 ${function:New-VideoZoomedOutFromPic} = $using:funcDef
@@ -1069,6 +1072,7 @@ function Update-MediaForDisplaySets
                 $ffmpegvcdcstd = $using:GDefs.ffmpegvcdcstd
                 $ffmpegvcdctra = $using:GDefs.ffmpegvcdctra
                 $ffmpegaudcmd = $using:GDefs.ffmpegaudcmd
+                $VidRateTimescale = $using:GDefs.videorate
                 $CurrDateTime = $using:CurrDateTime}
             $whdispratio = $XDim/$YDim
             write-host "Building content for file index: $( $file.FileIdx ) - $( $file.Name )..."
@@ -1162,6 +1166,9 @@ function Update-MediaForDisplaySets
                         $ffmpegOutSrt = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)srt`""
                         $ffmpegOutNom = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)`""
                         $ffmpegOutEnd = "-map 0:a -map 1:v -s $SizeStr2 -f 'mp4' `"$($file.ImgVidPath)end`""
+                        $ffmpegOutSrtIM = "-map 0:a -map 1:v -frames:v $NFramesTrn -f 'mp4' `"$($file.ImgVidPath)srt`""
+                        $ffmpegOutNomIM = "-map 0:a -map 1:v -frames:v $NFramesStd -f 'mp4' `"$($file.ImgVidPath)`""
+                        $ffmpegOutEndIM = "-map 0:a -map 1:v -frames:v $NFramesTrn -f 'mp4' `"$($file.ImgVidPath)end`""
                         #Write-Host("**************************L4****************************")
                         $ffmpegCmdSrt = $ffmpegCmd1 + $ffmpegCmdA + $ffmpegCmdV1 + $SrtffmpegCmdV2 `
                         + $Srtfiltercfg1 + $filtercfgX + $filtercfgY + $filtercfg2 `
@@ -1190,9 +1197,10 @@ function Update-MediaForDisplaySets
                             {
                                 $TmpDirName = $env:TEMP
                             }
-                            $FFMPEGCmdSrtAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutSrt
-                            $FFMPEGCmdNomAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutNom
-                            $FFMPEGCmdEndAppend = $ffmpegaudcmd + $ffmpegvcdctra +" -shortest "+ $ffmpegOutEnd
+                            $InputFilter = " -vf `"settb=expr=1/$VidRateTimescale,setpts=N/$frameRate/TB,fps=$frameRate`" "
+                            $FFMPEGCmdSrtAppend = $InputFilter + $ffmpegaudcmd + $ffmpegvcdctra + $ffmpegOutSrtIM
+                            $FFMPEGCmdNomAppend = $InputFilter + $ffmpegaudcmd + $ffmpegvcdcstd + $ffmpegOutNomIM
+                            $FFMPEGCmdEndAppend = $InputFilter + $ffmpegaudcmd + $ffmpegvcdctra + $ffmpegOutEndIM
                             #write-host "About to call function..."
                             #write-host "ContPath: " + $file.ContPath
                             #write-host "IW: " + $image.Width
