@@ -101,6 +101,7 @@ function New-VideoZoomedOutFromPic
         return $retval
     }
     $NFrames = $NFramesTrn*2 + $NFramesStd
+    $Prescaler = 0 #Set to 0 to disable prescaling.  Will be ignored if less than 1 to prevent excess image definition.
     #Temp overrides
     if($null)
     {
@@ -201,20 +202,43 @@ function New-VideoZoomedOutFromPic
         }
     }
 
+    if ($Prescaler -lt 1)
+    {
+        $Prescaler = 0
+    }
+    $PrescaleApply = 0
     if ($whimgratio -gt $whdispratio)
     {
-        $Orig2NewScale = $OutWidth/$InputWidth
+        $PrescaledOrig2NewScale = $OutWidth/$InputWidth
         $CanvasHeight = $InputWidth/$whdispratio
         $CanvasTopBotBorder   = ($CanvasHeight - $InputHeight)/2
         $CanvasSideBorder = 0
+        if($Prescaler){
+        $PrescaleApply = ($OutWidth*$SrtZoom*$Prescaler)/($InputWidth)}
     }
     else
     {
-        $Orig2NewScale = $OutHeight/$InputHeight
+        $PrescaledOrig2NewScale = $OutHeight/$InputHeight
         $CanvasWidth  = $InputHeight*$whdispratio
         $CanvasSideBorder = ($CanvasWidth - $InputWidth)/2
         $CanvasTopBotBorder   = 0
+        if($Prescaler){
+        $PrescaleApply = ($OutHeight*$SrtZoom*$Prescaler)/($InputHeight)}
     }
+    if (($PrescaleApply -lt 0.8) -and ($PrescaleApply -gt 0))
+    {
+        $PrescaleApplyPerc = $PrescaleApply*100
+        $PrescaleCmd = " -adaptive-resize "+$PrescaleApplyPerc.ToString("00.00000")+"%"
+        $InputWidth  = $InputWidth*$PrescaleApply
+        $InputHeight = $InputHeight*$PrescaleApply
+        $Orig2NewScale = $PrescaledOrig2NewScale/$PrescaleApply
+    }
+    else
+    {
+        $PrescaleCmd = ""
+        $Orig2NewScale = $PrescaledOrig2NewScale
+    }
+
     $OutCentX = $OutWidth/2
     $OutCentY = $OutHeight/2
 
@@ -327,7 +351,7 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
     $BuildDir = $SetTmpPath + "\" + $TmpDirName
     $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
     $IMViewPortDef = "-define distort:viewport=$OutWidth"+"x"+"$OutHeight"
-    $IMCmdSrt = "`"$( $file.ConvPath )`" -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
+    $IMCmdSrt = "`"$( $file.ConvPath )`" "+$PrescaleCmd+" -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
     $IMConvPrepend = "-read MPR:orig -distort SRT "
     $IMConvPreWrite = " -quality 92 -write "
     $IMConvAppend = " -delete 0--1"
@@ -1366,7 +1390,7 @@ function Update-MediaForDisplaySets
                 }
             }
         #}
-        } -ThrottleLimit 8
+        } -ThrottleLimit 4
         #4 - 3 min with 18 files, ScaleWIM disabled
         #4 - 13 min with 18 files, ScaleWIM enabled, no prescaling
     }
