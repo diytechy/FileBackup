@@ -261,10 +261,6 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
 
     if($RotDir -ne 0)
     {
-        $SubImgLeftSideOnCanvas  = $OutValSrt.InOrigX - $OutValSrt.SubImgTL2OrigX
-        $SubImgTopSideOnCanvas   = $OutValSrt.InOrigY - $OutValSrt.SubImgTL2OrigY
-        $SubImgRightSideOnCanvas = $SubImgLeftSideOnCanvas + $InputWidth*(1/$SrtZoom)
-        $SubImgBotSideOnCanvas   = $SubImgTopSideOnCanvas  + $InputHeight*(1/$SrtZoom)
         $SubImgLeftSide2OrigDist  = $OutValSrt.SubImgTL2OrigX
         $SubImgTopSide2OrigDist   = $OutValSrt.SubImgTL2OrigY
         $SubImgRightSide2OrigDist = $InputWidth*(1/$SrtZoom)  - $OutValSrt.SubImgTL2OrigX

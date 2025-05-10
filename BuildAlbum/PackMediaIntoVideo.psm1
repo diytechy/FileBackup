@@ -71,9 +71,9 @@ function Set-VideoFromMedia
             $grp.FileListPath = $VidPacksFileDefPath  + " Grp-" + $grp.ToString()
             $grp.VidExpPath   = $VidPacksFileDefPath  + "\Grp-" + $grp.ToString()
             #Create file to describe what videos to append.
-            $FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
+            #$FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
-        if(1)
+        if(0)
         {
             $Groups | ForEach-Object -Parallel{
                 $DepPath = $using:DepPath
