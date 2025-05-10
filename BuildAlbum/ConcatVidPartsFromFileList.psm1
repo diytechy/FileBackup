@@ -293,7 +293,7 @@ function Join-VidPartsFromList
                             #write-host "ChkHere"
                         }
                         #write-host $tname
-                        (Invoke-Expression $tcmd) *> null
+                        (Invoke-Expression $tcmd) *> $null
                         $FileL = Get-ChildItem -Path "$tname" | Select-Object Length
                         if($FileL)
                         {

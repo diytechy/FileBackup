@@ -55,24 +55,25 @@ else
             BulkVidTimeMin = 20;
             NameMethod = "FldrLvl2";
             ImgVidFldr = "\ImgInVid";
-            Quality = 36;
+            Quality = 30;
             ExpAud = 0;
             CleanBuild = 0;
         }
-        [pscustomobject]@{
-            XDim = 1920;
-            YDim = 1080;
-            FPS = 30;
-            PicDispTime = 6;
-            MaxSrtRot = 30;
-            FadeTime = 0.7;
-            BulkVidTimeMin = 30;
-            NameMethod = "FldrLvl2";
-            ImgVidFldr = "\ImgInVid";
-            Quality = 25;
-            ExpAud = 0;
-            CleanBuild = 0;
-        })
+        #[pscustomobject]@{
+        #    XDim = 1920;
+        #    YDim = 1080;
+        #    FPS = 30;
+        #    PicDispTime = 6;
+        #    MaxSrtRot = 30;
+        #    FadeTime = 0.7;
+        #    BulkVidTimeMin = 30;
+        #    NameMethod = "FldrLvl2";
+        #    ImgVidFldr = "\ImgInVid";
+        #    Quality = 22;
+        #    ExpAud = 0;
+        #    CleanBuild = 0;
+        #}
+    )
 }
 #Clean paths if applicable
 $CopyMedia = 0
