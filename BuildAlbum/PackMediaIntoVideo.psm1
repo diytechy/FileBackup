@@ -25,6 +25,7 @@ function Set-VideoFromMedia
         }
         $PrepAllInputFiles | Add-Member -MemberType NoteProperty -Name GroupN -Value $([int])
         $PrepAllInputFiles | Add-Member -MemberType NoteProperty -Name Dur -Value $([Decimal])
+        $PrepAllInputFiles | Add-Member -MemberType NoteProperty -Name FileInd -Value $([int])
         #Shift the set of input files.
         if ($PrepAllInputFiles.Count -lt 2){
             $AllInputFiles = $PrepAllInputFiles
@@ -43,6 +44,8 @@ function Set-VideoFromMedia
         {
             $file.GroupN = $SelGrpN
             $SelGrpN++
+            $SetFileInd++
+            $file.FileInd = $SetFileInd
             if($SelGrpN -gt $NGroups){
                 $SelGrpN = 1
             }
@@ -73,16 +76,24 @@ function Set-VideoFromMedia
             #Create file to describe what videos to append.
             #$FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
-        if(0)
+        if(1)
         {
             $Groups | ForEach-Object -Parallel{
                 $DepPath = $using:DepPath
-                $Quality = $using:set.Quality
-                $ExpAud = $using:set.ExpAud
+                $locset  = $using:set
                 $GrpDef = $using:GrpDef
                 $SelGrpDef = $GrpDef[$_]
+                $SelVidExpPath = $_.VidExpPath
                 Import-Module $DepPath
-                Join-VidPartsFromList $SelGrpDef $_.VidExpPath $Quality $ExpAud
+                $Quality = $locset.Quality
+                $ExpAud = $locset.ExpAud
+                $SetFPS = $locset.FPS
+                Write-Host $SelGrpDef
+                Write-Host $SelVidExpPath
+                Write-Host $Quality
+                Write-Host $ExpAud
+                #Wait-Debugger
+                Join-VidPartsFromList $SelGrpDef $_.VidExpPath $Quality $ExpAud $SetFPS
             } -ThrottleLimit 1
         }
         else
@@ -91,8 +102,14 @@ function Set-VideoFromMedia
             {
                 $Quality = $set.Quality
                 $ExpAud = $set.ExpAud
+                $SetFPS = $set.FPS
                 $SelGrpDef = $GrpDef[$grp]
                 $SelVidExpPath = $grp.VidExpPath
+                Write-Host $SelGrpDef
+                Write-Host $SelVidExpPath
+                Write-Host $Quality
+                Write-Host $ExpAud
+                Wait-Debugger
                 Join-VidPartsFromList $SelGrpDef $SelVidExpPath $Quality $ExpAud
             }
         }

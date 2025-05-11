@@ -12,7 +12,7 @@ else
     $BuDrv = "D"
     $SetTmpPath = ""
 }
-$UseTestPath = 0;
+$UseTestPath = 1;
 if ($UseTestPath)
 {
 

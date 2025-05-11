@@ -4,7 +4,8 @@ function Join-VidPartsFromList
         $FileListProps,
         [string]$outputFile = "output",
         $vidqty = [Int] 20,
-        $IncAud = [Int] 1
+        $IncAud = [Int] 1,
+        $SelFPS = [Decimal] 24
     )
     if(($FileListProps.Count -gt 1) -and ($FileListProps[0] -is [string]))
     {
@@ -220,7 +221,7 @@ function Join-VidPartsFromList
             #*********************** Perpare transitions  *************************
             #*********************************************************************
             #Only pick files with common format, since they must be concatable.
-            $EncodeDef = "-video_track_timescale $vseltimebase -vcodec $selvcodec -crf $($Set.Quality ) -colorspace $selcolorspace -preset slow -pix_fmt $selpixfmt -r $( $set.FPS ) -movflags faststart "
+            $EncodeDef = "-video_track_timescale $vseltimebase -vcodec $selvcodec -crf $vidqty -preset slow -pix_fmt $selpixfmt -colorspace $selcolorspace -r $SelFPS -movflags faststart "
             $FileList = @($GrpSets |  Select-Object -ExpandProperty Group) | Where-Object -Property Need2Conv -eq 0
             $FileList | Add-Member -MemberType NoteProperty -Name ExportSuccess -Value $([int]0)
             $NFilesExported = 0
@@ -251,8 +252,13 @@ function Join-VidPartsFromList
                         $tname = $tranprepend + "-fadein" + $postname + ".mp4"
                         $tnameNA = $tranprepend + "-fadein" + $postname + "NA.mp4"
                         $tincmd = "ffmpeg -y -f 'mp4' -i `"$VSrt`" -vf `"fade=t=in:st=0:d=$tdur`" $EncodeDef `"$tname`""
+                        write-host $tincmd
+                        #Invoke-Expression $tincmd
+                        #Wait-Debugger
                         (Invoke-Expression $tincmd) *> $null
+                        Start-Sleep -Seconds 0.2
                         $FileL = Get-ChildItem -Path "$tname" | Select-Object Length
+                        #Wait-Debugger
                         if($FileL)
                         {
                             $VidPathStr[$CurrExpIdx] = "file `'$tname`'"
@@ -271,6 +277,7 @@ function Join-VidPartsFromList
                     #Else transition from previous video
                     else
                     {
+                        #Wait-Debugger
                         $tdur = $file.srtdur
                         $CurrExpIdx = $CurrExpIdx+1
                         $tname = $tranprepend + $prename + "to" + $postname + ".mp4"
@@ -371,15 +378,21 @@ function Join-VidPartsFromList
                     $PrevVid2TransitionFrom = $file
                     $LastExpIdx = $CurrExpIdx
                     $NFilesExported++
+
+                    #Wait-Debugger
                 }
                 catch{
+
+                    #Wait-Debugger
                 }
 
             }
+            #Wait-Debugger
             $VidPathExp = $VidPathStr[0..$LastExpIdx]
             $VidPathExp| Out-File -FilePath "$appendlist" -force
             #Build list of all raw files to concat.
             $ffmpegcmd = "ffmpeg -y -safe 0 -f concat -i `"$appendlist`" -c copy `"$finfile`""
+            #Wait-Debugger
             (Invoke-Expression $ffmpegcmd) *> $null
             #Concat files.
             Write-Host "$finfile complete"
@@ -388,6 +401,7 @@ function Join-VidPartsFromList
     }
     catch{}
     finally{
+        #Wait-Debugger
         (Remove-Item -Path $grpfldr -Recurse -Force -EA SilentlyContinue -Verbose)*>null
     }
 }
