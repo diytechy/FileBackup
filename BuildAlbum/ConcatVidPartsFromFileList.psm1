@@ -15,8 +15,8 @@ function Join-VidPartsFromList
         throw "Input must be a list of strings."
     }
     $grpfldr = $outputFile
-    $tranprepend = $outputFile+"\t"
-    $appendlist = $outputFile+"\buildlist.txt"
+    $tranprepend = $grpfldr+"\t"
+    $appendlist = $grpfldr+"\buildlist.txt"
     $finfile = $outputFile+".mp4"
     if (Test-Path -Path $grpfldr -PathType Container){}
     else {(New-Item -ItemType Directory -Path $grpfldr -Force) *> $null}
@@ -382,8 +382,17 @@ function Join-VidPartsFromList
                     #Wait-Debugger
                 }
                 catch{
+                    $errorlogpath = $grpfldr+"_errorlog.txt"
+                    $errorMessage = $_.Exception.Message
+                    $errorDetails = $_.ErrorDetails
+                    $failedItem = $_.TargetObject
+                    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-                    #Wait-Debugger
+                    # Writing to a file
+                    $logEntry = "*****Failed conversion*****" + `
+                    "$timestamp - Error: $errorMessage - Details: $errorDetails - Item: $failedItem" + `
+                    " **************************** "
+                    Add-Content -Path $errorlogpath -Value $logEntry
                 }
 
             }
@@ -399,9 +408,20 @@ function Join-VidPartsFromList
         }
 
     }
-    catch{}
+    catch{
+        $errorlogpath = $grpfldr+"_errorlog.txt"
+        $errorMessage = $_.Exception.Message
+        $errorDetails = $_.ErrorDetails
+        $failedItem = $_.TargetObject
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+        # Writing to a file
+        $logEntry = "$timestamp - Error: $errorMessage - Details: $errorDetails - Item: $failedItem"
+        Add-Content -Path $errorlogpath -Value $logEntry
+    }
     finally{
         #Wait-Debugger
+        Start-Sleep -Seconds 0.2
         (Remove-Item -Path $grpfldr -Recurse -Force -EA SilentlyContinue -Verbose)*>null
     }
 }

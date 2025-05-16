@@ -76,40 +76,37 @@ function Set-VideoFromMedia
             #Create file to describe what videos to append.
             #$FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
-        if(1)
+        if(0)
         {
             $Groups | ForEach-Object -Parallel{
                 $DepPath = $using:DepPath
                 $locset  = $using:set
                 $GrpDef = $using:GrpDef
-                $SelGrpDef = $GrpDef[$_]
-                $SelVidExpPath = $_.VidExpPath
                 Import-Module $DepPath
+                $SelGrpDef = $GrpDef[$_]
                 $Quality = $locset.Quality
                 $ExpAud = $locset.ExpAud
                 $SetFPS = $locset.FPS
-                Write-Host $SelGrpDef
-                Write-Host $SelVidExpPath
-                Write-Host $Quality
-                Write-Host $ExpAud
-                #Wait-Debugger
+                #Write-Host $SelGrpDef
+                #Write-Host $SelVidExpPath
+                #Write-Host $Quality
+                #Write-Host $ExpAud
                 Join-VidPartsFromList $SelGrpDef $_.VidExpPath $Quality $ExpAud $SetFPS
-            } -ThrottleLimit 1
+            } -ThrottleLimit 4
         }
         else
         {
-            foreach ($grp in $Groups)
+            foreach ($grp in $Groups[17..21])
             {
                 $Quality = $set.Quality
                 $ExpAud = $set.ExpAud
                 $SetFPS = $set.FPS
                 $SelGrpDef = $GrpDef[$grp]
                 $SelVidExpPath = $grp.VidExpPath
-                Write-Host $SelGrpDef
-                Write-Host $SelVidExpPath
-                Write-Host $Quality
-                Write-Host $ExpAud
-                Wait-Debugger
+                #Write-Host $SelGrpDef
+                #Write-Host $SelVidExpPath
+                #Write-Host $Quality
+                #Write-Host $ExpAud
                 Join-VidPartsFromList $SelGrpDef $SelVidExpPath $Quality $ExpAud
             }
         }
