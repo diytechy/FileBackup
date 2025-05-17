@@ -115,6 +115,10 @@ function New-VideoZoomedOutFromPic
         $SrtZoom = 1.5
         $ZoomRate = (($SrtZoom-1)/$NFrames)
         $MaxRotAngl = 20
+        $SetRotAngl = 15
+    }
+    else{
+        $SetRotAngl = 0;
     }
     #Constant related to deceleration rate:
     #Do not exceed 180, for monotonically increasing deceleration, do not exceed 90, general 30 - 45 is  smooth.
@@ -154,189 +158,6 @@ function New-VideoZoomedOutFromPic
         $SetTmpPath = $env:TEMP
     }
 
-    #Get calculations for rotation based on image
-    #If a max rotation is defined, randomize which direction we rotate from.
-    if ($TestFldr){} #Do nothing, rotation direction should be set per test config.
-    else
-    {
-        if ($MaxRotAngl)
-        {
-            $RotDir = Get-Random -InputObject (-1,1)
-        }
-        else
-        {
-            $RotDir = 0
-        }
-    }
-
-    #Determine the border definitions required to meet the end output resolution.
-    $whimgratio  = $InputWidth/$InputHeight
-    $whdispratio = $OutWidth/$OutHeight
-
-    #Set border definitions, necessary so srt does not produce strange imaging artifacts.
-    $bp = 1
-    $borderdef = "$bp"+"X"+"$bp"
-    $InputBorderDef = $borderdef
-
- #Calculate focus point based on selected rotation direction and selected ratios:
-    if($RotDir -eq 0)
-    {
-        $SubFocusRatioX = 0.5
-        $SubFocusRatioY = 0.5
-        $SrtRotAngle    = 0
-        $MaxAllowableRotationInRadians = 0
-    }
-    else
-    {
-        #If rotation is being used, calculate the focus and max angle applicable
-        #If rotation is clockwise
-        #$SrtZoom
-        if ($RotDir -gt 0)
-        {
-            $SubFocusRatioX = 1 - $YRatio
-            $SubFocusRatioY = $XRatio
-        }
-        #Else rotation is counter-clockwise
-        else
-        {
-            $SubFocusRatioX = $YRatio
-            $SubFocusRatioY = 1 - $XRatio
-        }
-    }
-
-    if ($Prescaler -lt 1)
-    {
-        $Prescaler = 0
-    }
-    $PrescaleApply = 0
-    if ($whimgratio -gt $whdispratio)
-    {
-        $PrescaledOrig2NewScale = $OutWidth/$InputWidth
-        $CanvasHeight = $InputWidth/$whdispratio
-        $CanvasTopBotBorder   = ($CanvasHeight - $InputHeight)/2
-        $CanvasSideBorder = 0
-        if($Prescaler){
-        $PrescaleApply = ($OutWidth*$SrtZoom*$Prescaler)/($InputWidth)}
-    }
-    else
-    {
-        $PrescaledOrig2NewScale = $OutHeight/$InputHeight
-        $CanvasWidth  = $InputHeight*$whdispratio
-        $CanvasSideBorder = ($CanvasWidth - $InputWidth)/2
-        $CanvasTopBotBorder   = 0
-        if($Prescaler){
-        $PrescaleApply = ($OutHeight*$SrtZoom*$Prescaler)/($InputHeight)}
-    }
-    if (($PrescaleApply -lt 0.8) -and ($PrescaleApply -gt 0))
-    {
-        $PrescaleApplyPerc = $PrescaleApply*100
-        $PrescaleCmd = " -adaptive-resize "+$PrescaleApplyPerc.ToString("00.00000")+"%"
-        $InputWidth  = $InputWidth*$PrescaleApply
-        $InputHeight = $InputHeight*$PrescaleApply
-        $Orig2NewScale = $PrescaledOrig2NewScale/$PrescaleApply
-    }
-    else
-    {
-        $PrescaleCmd = ""
-        $Orig2NewScale = $PrescaledOrig2NewScale
-    }
-
-    $OutCentX = $OutWidth/2
-    $OutCentY = $OutHeight/2
-
-
-    $OutValSrt = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
-$SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
-
-    #Write-Host "**********************************************"
-    #Write-Host "*********** Wait Debugger Reached ************"
-    #Write-Host "**********************************************"
-    #Wait-Debugger
-
-    #Get distance from subfocus origin to canvas boundaries (including border)
-    $TDist = $OutValSrt.InOrigY + $CanvasTopBotBorder
-    $LDist = $OutValSrt.InOrigX + $CanvasSideBorder
-    $BDist = $InputHeight - $OutValSrt.InOrigY + $CanvasTopBotBorder
-    $RDist = $InputWidth -  $OutValSrt.InOrigX + $CanvasSideBorder
-
-    if($RotDir -ne 0)
-    {
-        $SubImgLeftSide2OrigDist  = $OutValSrt.SubImgTL2OrigX
-        $SubImgTopSide2OrigDist   = $OutValSrt.SubImgTL2OrigY
-        $SubImgRightSide2OrigDist = $InputWidth*(1/$SrtZoom)  - $OutValSrt.SubImgTL2OrigX
-        $SubImgBotSide2OrigDist   = $InputHeight*(1/$SrtZoom) - $OutValSrt.SubImgTL2OrigY
-
-        #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
-        $LTRadianAnglFromHorz = ATan2Abs $SubImgTopSide2OrigDist $SubImgLeftSide2OrigDist
-        $LTCornerDist = HypDistance      $SubImgTopSide2OrigDist $SubImgLeftSide2OrigDist
-
-        $RTRadianAnglFromHorz = ATan2Abs $SubImgTopSide2OrigDist $SubImgRightSide2OrigDist
-        $RTCornerDist = HypDistance      $SubImgTopSide2OrigDist $SubImgRightSide2OrigDist
-
-        $LBRadianAnglFromHorz = ATan2Abs $SubImgBotSide2OrigDist $SubImgLeftSide2OrigDist
-        $LBCornerDist = HypDistance      $SubImgBotSide2OrigDist $SubImgLeftSide2OrigDist
-
-        $RBRadianAnglFromHorz = ATan2Abs $SubImgBotSide2OrigDist $SubImgRightSide2OrigDist
-        $RBCornerDist = HypDistance      $SubImgBotSide2OrigDist $SubImgRightSide2OrigDist
-        #Figure out the max distance based on the angle of rotation:
-        $TRotRadiansMax = [Math]::PI/2
-        $LRotRadiansMax = [Math]::PI/2
-        $BRotRadiansMax = [Math]::PI/2
-        $RRotRadiansMax = [Math]::PI/2
-        #Rotation is clockwise
-        #Write-Host $SrtZoom.ToString()
-        #Write-Host $XRatio.ToString()
-        #Write-Host $YRatio.ToString()
-        $TolChk = 1E-6
-        if($RotDir -gt 0)
-        {
-            if($RTCornerDist -gt ($TDist+$TolChk)){
-                $TRotRadiansMax = (ComplRad $RTRadianAnglFromHorz) - (AdjacentRadians $TDist $RTCornerDist)
-            }
-            if($LTCornerDist -gt ($LDist+$TolChk)){
-                $LRotRadiansMax =  $LTRadianAnglFromHorz - (AdjacentRadians $LDist $LTCornerDist)
-            }
-            if($LBCornerDist -gt ($BDist+$TolChk)){
-                $BRotRadiansMax =  (ComplRad $LBRadianAnglFromHorz) - (AdjacentRadians $BDist $LBCornerDist)
-            }
-            if($RBCornerDist -gt ($RDist+$TolChk)){
-                $RRotRadiansMax =  $RBRadianAnglFromHorz - (AdjacentRadians $RDist $RBCornerDist)
-            }
-        }
-        #Else rotation is counter-clockwise
-        else
-        {
-            if($RTCornerDist -gt ($RDist+$TolChk)){
-                $RRotRadiansMax =  $RTRadianAnglFromHorz - (AdjacentRadians $RDist $RTCornerDist)
-            }
-            if($LTCornerDist -gt ($TDist+$TolChk)){
-                $TRotRadiansMax =  (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $TDist $LTCornerDist)
-            }
-            if($LBCornerDist -gt ($LDist+$TolChk)){
-                $LRotRadiansMax =  $LBRadianAnglFromHorz - (AdjacentRadians $LDist $LBCornerDist)
-            }
-            if($RBCornerDist -gt ($BDist+$TolChk)){
-                $BRotRadiansMax =  (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $BDist $RBCornerDist)
-            }
-        }
-        $RotRadianArray                = $TRotRadiansMax,$LRotRadiansMax,$BRotRadiansMax,$RRotRadiansMax,($MaxRotAngl*([Math]::PI/180))
-        $MaxAllowableRotationInRadians = ($RotRadianArray | Measure-Object -Minimum).Minimum
-        if ($MaxAllowableRotationInRadians -lt 0)
-        {
-            $PsCmdlet.ThrowTerminatingError("WTF")
-        }
-        if($MaxAllowableRotationInRadians)
-        {
-            $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/5) -Maximum $MaxAllowableRotationInRadians
-        }
-        else
-        {
-            $SetSrtRotInRad = 0
-        }
-        if($RotDir -gt 0){$SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)}
-        else{$SrtRotAngle = $SetSrtRotInRad*(-180 / [Math]::PI)}
-    }
-
     #Define common command definitions
     if ($TestFldr)
     {
@@ -346,30 +167,236 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
     {
         $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($InputPicPath) + (Get-Date -Format "FileDateTime")
     }
-    $BuildDir = $SetTmpPath + "\" + $TmpDirName
-    $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
-    $IMViewPortDef = "-define distort:viewport=$OutWidth"+"x"+"$OutHeight"
-    $IMCmdSrt = "`"$( $file.ConvPath )`" "+$PrescaleCmd+" -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
-    $IMConvPrepend = "-read MPR:orig -distort SRT "
-    $IMConvPreWrite = " -quality 92 -write "
-    $IMConvAppend = " -delete 0--1"
-    $IMCmdEnd = ""
-    if( -not(Test-Path $BuildDir -PathType Container))
-    {(New-Item -Path $BuildDir -ItemType "directory") *> $null}
+    $ErrLogPath = $SetTmpPath + "\" + $TmpDirName + ".txt"
     try
     {
+        #Get calculations for rotation based on image
+        #If a max rotation is defined, randomize which direction we rotate from.
+        if ($TestFldr)
+        {
+        } #Do nothing, rotation direction should be set per test config.
+        else
+        {
+            if ($MaxRotAngl)
+            {
+                $RotDir = Get-Random -InputObject (-1, 1)
+            }
+            else
+            {
+                $RotDir = 0
+            }
+        }
+
+        #Determine the border definitions required to meet the end output resolution.
+        $whimgratio = $InputWidth/$InputHeight
+        $whdispratio = $OutWidth/$OutHeight
+
+        #Set border definitions, necessary so srt does not produce strange imaging artifacts.
+        $bp = 1
+        $borderdef = "$bp" + "X" + "$bp"
+        $InputBorderDef = $borderdef
+
+        #Calculate focus point based on selected rotation direction and selected ratios:
+        if ($RotDir -eq 0)
+        {
+            $SubFocusRatioX = 0.5
+            $SubFocusRatioY = 0.5
+            $SrtRotAngle = 0
+            $MaxAllowableRotationInRadians = 0
+        }
+        else
+        {
+            #If rotation is being used, calculate the focus and max angle applicable
+            #If rotation is clockwise
+            #$SrtZoom
+            if ($RotDir -gt 0)
+            {
+                $SubFocusRatioX = 1 - $YRatio
+                $SubFocusRatioY = $XRatio
+            }
+            #Else rotation is counter-clockwise
+            else
+            {
+                $SubFocusRatioX = $YRatio
+                $SubFocusRatioY = 1 - $XRatio
+            }
+        }
+
+        if ($Prescaler -lt 1)
+        {
+            $Prescaler = 0
+        }
+        $PrescaleApply = 0
+        if ($whimgratio -gt $whdispratio)
+        {
+            $PrescaledOrig2NewScale = $OutWidth/$InputWidth
+            $CanvasHeight = $InputWidth/$whdispratio
+            $CanvasTopBotBorder = ($CanvasHeight - $InputHeight)/2
+            $CanvasSideBorder = 0
+            if ($Prescaler)
+            {
+                $PrescaleApply = ($OutWidth*$SrtZoom*$Prescaler)/($InputWidth)
+            }
+        }
+        else
+        {
+            $PrescaledOrig2NewScale = $OutHeight/$InputHeight
+            $CanvasWidth = $InputHeight*$whdispratio
+            $CanvasSideBorder = ($CanvasWidth - $InputWidth)/2
+            $CanvasTopBotBorder = 0
+            if ($Prescaler)
+            {
+                $PrescaleApply = ($OutHeight*$SrtZoom*$Prescaler)/($InputHeight)
+            }
+        }
+        if (($PrescaleApply -lt 0.8) -and ($PrescaleApply -gt 0))
+        {
+            $PrescaleApplyPerc = $PrescaleApply*100
+            $PrescaleCmd = " -adaptive-resize " + $PrescaleApplyPerc.ToString("00.00000") + "%"
+            $InputWidth = $InputWidth*$PrescaleApply
+            $InputHeight = $InputHeight*$PrescaleApply
+            $Orig2NewScale = $PrescaledOrig2NewScale/$PrescaleApply
+        }
+        else
+        {
+            $PrescaleCmd = ""
+            $Orig2NewScale = $PrescaledOrig2NewScale
+        }
+
+        $OutCentX = $OutWidth/2
+        $OutCentY = $OutHeight/2
+
+
+        $OutValSrt = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
+        $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
+
+        #Write-Host "**********************************************"
+        #Write-Host "*********** Wait Debugger Reached ************"
+        #Write-Host "**********************************************"
+        #Wait-Debugger
+
+        #Get distance from subfocus origin to canvas boundaries (including border)
+        $TDist = $OutValSrt.InOrigY + $CanvasTopBotBorder
+        $LDist = $OutValSrt.InOrigX + $CanvasSideBorder
+        $BDist = $InputHeight - $OutValSrt.InOrigY + $CanvasTopBotBorder
+        $RDist = $InputWidth - $OutValSrt.InOrigX + $CanvasSideBorder
+
+        if ($RotDir -ne 0)
+        {
+            $SubImgLeftSide2OrigDist = $OutValSrt.SubImgTL2OrigX
+            $SubImgTopSide2OrigDist = $OutValSrt.SubImgTL2OrigY
+            $SubImgRightSide2OrigDist = $InputWidth*(1/$SrtZoom) - $OutValSrt.SubImgTL2OrigX
+            $SubImgBotSide2OrigDist = $InputHeight*(1/$SrtZoom) - $OutValSrt.SubImgTL2OrigY
+
+            #Get focus to corner distances in terms of full image, to be used to determine max rotation angle.
+            $LTRadianAnglFromHorz = ATan2Abs $SubImgTopSide2OrigDist $SubImgLeftSide2OrigDist
+            $LTCornerDist = HypDistance      $SubImgTopSide2OrigDist $SubImgLeftSide2OrigDist
+
+            $RTRadianAnglFromHorz = ATan2Abs $SubImgTopSide2OrigDist $SubImgRightSide2OrigDist
+            $RTCornerDist = HypDistance      $SubImgTopSide2OrigDist $SubImgRightSide2OrigDist
+
+            $LBRadianAnglFromHorz = ATan2Abs $SubImgBotSide2OrigDist $SubImgLeftSide2OrigDist
+            $LBCornerDist = HypDistance      $SubImgBotSide2OrigDist $SubImgLeftSide2OrigDist
+
+            $RBRadianAnglFromHorz = ATan2Abs $SubImgBotSide2OrigDist $SubImgRightSide2OrigDist
+            $RBCornerDist = HypDistance      $SubImgBotSide2OrigDist $SubImgRightSide2OrigDist
+            #Figure out the max distance based on the angle of rotation:
+            $TRotRadiansMax = [Math]::PI/2
+            $LRotRadiansMax = [Math]::PI/2
+            $BRotRadiansMax = [Math]::PI/2
+            $RRotRadiansMax = [Math]::PI/2
+            #Rotation is clockwise
+            #Write-Host $SrtZoom.ToString()
+            #Write-Host $XRatio.ToString()
+            #Write-Host $YRatio.ToString()
+            $TolChk = 1E-6
+            if ($RotDir -gt 0)
+            {
+                if ($RTCornerDist -gt ($TDist + $TolChk))
+                {
+                    $TRotRadiansMax = (ComplRad $RTRadianAnglFromHorz) - (AdjacentRadians $TDist $RTCornerDist)
+                }
+                if ($LTCornerDist -gt ($LDist + $TolChk))
+                {
+                    $LRotRadiansMax = $LTRadianAnglFromHorz - (AdjacentRadians $LDist $LTCornerDist)
+                }
+                if ($LBCornerDist -gt ($BDist + $TolChk))
+                {
+                    $BRotRadiansMax = (ComplRad $LBRadianAnglFromHorz) - (AdjacentRadians $BDist $LBCornerDist)
+                }
+                if ($RBCornerDist -gt ($RDist + $TolChk))
+                {
+                    $RRotRadiansMax = $RBRadianAnglFromHorz - (AdjacentRadians $RDist $RBCornerDist)
+                }
+            }
+            #Else rotation is counter-clockwise
+            else
+            {
+                if ($RTCornerDist -gt ($RDist + $TolChk))
+                {
+                    $RRotRadiansMax = $RTRadianAnglFromHorz - (AdjacentRadians $RDist $RTCornerDist)
+                }
+                if ($LTCornerDist -gt ($TDist + $TolChk))
+                {
+                    $TRotRadiansMax = (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $TDist $LTCornerDist)
+                }
+                if ($LBCornerDist -gt ($LDist + $TolChk))
+                {
+                    $LRotRadiansMax = $LBRadianAnglFromHorz - (AdjacentRadians $LDist $LBCornerDist)
+                }
+                if ($RBCornerDist -gt ($BDist + $TolChk))
+                {
+                    $BRotRadiansMax = (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $BDist $RBCornerDist)
+                }
+            }
+            $RotRadianArray = $TRotRadiansMax, $LRotRadiansMax, $BRotRadiansMax, $RRotRadiansMax, ($MaxRotAngl*([Math]::PI/180))
+            $MaxAllowableRotationInRadians = ($RotRadianArray | Measure-Object -Minimum).Minimum
+            if ($MaxAllowableRotationInRadians -lt 0)
+            {
+                $PsCmdlet.ThrowTerminatingError("WTF")
+            }
+            if ($MaxAllowableRotationInRadians)
+            {
+                $SetSrtRotInRad = Get-Random -Minimum ($MaxAllowableRotationInRadians/5) -Maximum $MaxAllowableRotationInRadians
+            }
+            else
+            {
+                $SetSrtRotInRad = 0
+            }
+            if ($RotDir -gt 0)
+            {
+                $SrtRotAngle = $SetSrtRotInRad*(180 / [Math]::PI)
+            }
+            else
+            {
+                $SrtRotAngle = $SetSrtRotInRad*(-180 / [Math]::PI)
+            }
+        }
+        $BuildDir = $SetTmpPath + "\" + $TmpDirName
+        $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
+        $IMViewPortDef = "-define distort:viewport=$OutWidth" + "x" + "$OutHeight"
+        $IMCmdSrt = "`"$( $file.ConvPath )`" " + $PrescaleCmd + " -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
+        $IMConvPrepend = "-read MPR:orig -distort SRT "
+        $IMConvPreWrite = " -quality 92 -write "
+        $IMConvAppend = " -delete 0--1"
+        $IMCmdEnd = ""
+        if (-not (Test-Path $BuildDir -PathType Container))
+        {
+            (New-Item -Path $BuildDir -ItemType "directory") *> $null
+        }
+
         $NFrames2StopRot = [Math]::ceiling(($NFramesTrn + $NFramesStd)*(2/3))
-        $AtEndTransInd = $NFramesTrn+$NFramesStd
+        $AtEndTransInd = $NFramesTrn + $NFramesStd
         $NFrameChars = [Math]::ceiling(([Math]::Log($NFrames)/[Math]::Log(10)))
         if ($NFrameChars -lt 1)
         {
             $NFrameChars = 1
         }
-        $FDef    = [string[]]::new($NFrameChars);
-        $IMCmd   = [string[]]::new($NFrames);
-        $FFMPEGSrtVidInput   = [string[]]::new($NFramesTrn);
-        $FFMPEGNomVidInput   = [string[]]::new($NFramesStd);
-        $FFMPEGEndVidInput   = [string[]]::new($NFramesTrn);
+        $FDef = [string[]]::new($NFrameChars);
+        $IMCmd = [string[]]::new($NFrames);
+        $FFMPEGSrtVidInput = [string[]]::new($NFramesTrn);
+        $FFMPEGNomVidInput = [string[]]::new($NFramesStd);
+        $FFMPEGEndVidInput = [string[]]::new($NFramesTrn);
         for ($i = 0; $i -lt $NFrameChars; $i++) {
             $FDef[$i] = "0"
         }
@@ -380,7 +407,7 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         $NomPath = $BuildDir + "\" + "NomList.txt"
         $EndPath = $BuildDir + "\" + "EndList.txt"
         for ($i = 0; $i -lt $NFrames; $i++) {
-            $PreZoom   = $SrtZoom - ($ZoomRate*$i)
+            $PreZoom = $SrtZoom - ($ZoomRate*$i)
             if ($PreZoom -lt 1.0)
             {
                 $PreZoom = 1.0
@@ -388,30 +415,28 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
 
             $FPath = $BuildDir + "\" + $i.ToString($FFmtDef) + ".jpg"
             $RotChngInd = ($AtEndTransInd - $i)
-            if($RotChngInd -lt 0)
+            if ($RotChngInd -lt 0)
             {
                 $RotChngInd = 0
                 $SelRotAngl = 0
             }
             $SelSlopeAng = (($RotAngSlopeSrtAng*$RotChngInd)/$AtEndTransInd)
-            $SelRotAngl = ((1-[Math]::Cos($SelSlopeAng))/(1-$RotAngSlopeSrtX))*$SrtRotAngle
+            $SelRotAngl = ((1 - [Math]::Cos($SelSlopeAng))/(1 - $RotAngSlopeSrtX))*$SrtRotAngle
             $OutValSet = GetZoomedImgProps $InputWidth $InputHeight $XRatio $YRatio `
                 $SubFocusRatioX $SubFocusRatioY $PreZoom $SelRotAngl $Orig2NewScale $OutCentX $OutCentY
             #Define values for SRT to pass:
             $SetZoom = $PreZoom * $Orig2NewScale
             $SetRotate = $SelRotAngl
             $TxtFrmt = "00000.0000000000"
-            $XOffsetInTxt = ($OutValSet.InOrigX+$bp).ToString($TxtFrmt)
-            $YOffsetInTxt = ($OutValSet.InOrigY+$bp).ToString($TxtFrmt)
+            $XOffsetInTxt = ($OutValSet.InOrigX + $bp).ToString($TxtFrmt)
+            $YOffsetInTxt = ($OutValSet.InOrigY + $bp).ToString($TxtFrmt)
             $XOffsetOutTxt = ($OutValSet.OutCanvOrigX).ToString($TxtFrmt)
             $YOffsetOutTxt = ($OutValSet.OutCanvOrigY).ToString($TxtFrmt)
             $SetZoomTxt = $SetZoom.ToString($TxtFrmt)
             $SetRotateTxt = $SetRotate.ToString($TxtFrmt)
             #Add image file path to array, and add image magic command to array:
-            $IMCmd[$i] = $IMConvPrepend+" $XOffsetInTxt,$YOffsetInTxt" + `
-            ",$SetZoomTxt,$SetRotateTxt,$XOffsetOutTxt,$YOffsetOutTxt "+ `
-            $IMConvPreWrite+ "`"$FPath`"" +"$IMConvAppend"
-            #Add ffmpeg imporrt definition depending on where we're at
+            $IMCmd[$i] = $IMConvPrepend + " $XOffsetInTxt,$YOffsetInTxt" + ",$SetZoomTxt,$SetRotateTxt,$XOffsetOutTxt,$YOffsetOutTxt "+ $IMConvPreWrite+ "`"$FPath`"" +"$IMConvAppend"
+            #Ad d ffmpeg imporrt definition depending on where we're at
             $ImportStr = "file `'$FPath`'"
             if ($i -ge ($AtEndTransInd)){
                 $FFMPEGEndVidInput[$i - $AtEndTransInd] = $ImportStr
@@ -425,15 +450,16 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
                 $FFMPEGSrtVidInput[$i] = $ImportStr
             }
         }
-        $ENLC = " ```r`n"
-        $NLC = "`r`n"
 
-        #Now create the full command and run image magic to create the pictures.
-        #if ($TestFldr -and $null)
+        $ENLC = " ```r`n"
+        $NLC  = "`r`n"
+
+        #Now create command and run image magic to create the pictures.
+        #if ($TestFldull)
         if ($TestFldr)
         {
-            $MidFrame = [Math]::Ceiling($NFrames/2)
-            $IMCmdMid = Join-String -InputObject $IMCmd[0,$MidFrame,-1] -Separator $NLC
+        $MidFrame = [Math]::Ceiling($NFrames/2)
+            $IMCmdMid = Join-String -InputObject $IMCmd[0, $MidFrame, -1] -Separator $NLC
         }
         else
         {
@@ -450,12 +476,12 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         $FFMPEGSettings = " "
         $FFMPEGSrtVidInputSet = Join-String -InputObject $FFMPEGSrtVidInput -Separator $NLC
         $FFMPEGSrtVidInputSet | Out-File $SrtPath
-        $FFMPEGSrtVidArray = $FFMPEGPre, "`'",$SrtPath, "`'", $FFMPEGSettings, $FFMPEGCmdSrtAppend
+        $FFMPEGSrtVidArray = $FFMPEGPre, "`'", $SrtPath, "`'", $FFMPEGSettings, $FFMPEGCmdSrtAppend
         $FFSrtCmd = Join-String -InputObject $FFMPEGSrtVidArray -Separator $ENLC
 
         $FFMPEGNomVidInputSet = Join-String -InputObject $FFMPEGNomVidInput -Separator $NLC
         $FFMPEGNomVidInputSet | Out-File $NomPath
-        $FFMPEGNomVidArray = $FFMPEGPre, "`'",$NomPath, "`'", $FFMPEGSettings, $FFMPEGCmdNomAppend
+        $FFMPEGNomVidArray = $FFMPEGPre, "`'", $NomPath, "`'", $FFMPEGSettings, $FFMPEGCmdNomAppend
         $FFNomCmd = Join-String -InputObject $FFMPEGNomVidArray -Separator $ENLC
 
         $FFMPEGEndVidInputSet = Join-String -InputObject $FFMPEGEndVidInput -Separator $NLC
@@ -463,14 +489,14 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         $FFMPEGEndVidArray = $FFMPEGPre, "`'", $EndPath, "`'", $FFMPEGSettings, $FFMPEGCmdEndAppend
         $FFEndCmd = Join-String -InputObject $FFMPEGEndVidArray -Separator $ENLC
 
-        $AllCmdsSet  = $IMCmdRun,$FFSrtCmd,$FFNomCmd,$FFEndCmd
+        $AllCmdsSet = $IMCmdRun, $FFSrtCmd, $FFNomCmd, $FFEndCmd
         $AllCmds = Join-String -InputObject $AllCmdsSet -Separator "`r`n`r`n"
 
 
         #Preparee / Save all commands for debug if enabled
-        $FFSrtCmdExe = $FFSrtCmd -replace $ENLC,""
-        $FFNomCmdExe = $FFNomCmd -replace $ENLC,""
-        $FFEndCmdExe = $FFEndCmd -replace $ENLC,""
+        $FFSrtCmdExe = $FFSrtCmd -replace $ENLC, ""
+        $FFNomCmdExe = $FFNomCmd -replace $ENLC, ""
+        $FFEndCmdExe = $FFEndCmd -replace $ENLC, ""
         #Perform all actions
         #Measure-Command { (magick -script $MgkPath) *> $null }
         (magick -script $MgkPath) *> $null
@@ -478,8 +504,32 @@ $SubFocusRatioX $SubFocusRatioY $SrtZoom 0 $Orig2NewScale $OutCentX $OutCentY
         (Invoke-Expression $FFNomCmdExe) *> $null
         (Invoke-Expression $FFEndCmdExe) *> $null
         #Write-Host "Done"
+        }
+    catch{
+        $errorMessage = $_.Exception.Message
+        $errorDetails = $_.ErrorDetails
+        $failedItem = $_.TargetObject
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+        # Writing to a file
+        $logEntry = "*****Failed conversion*****" + `
+                    "ContPath: " + $file.ContPath + "`r`n" + `
+        "IW: " + $image.Width + "`r`n" + `
+        "IH: " + $image.Height + "`r`n" + `
+        "StartZoom: " + $SetSrtZoom + "`r`n" + `
+        "SetRotate: " + $SetRotate + "`r`n" + `
+        "ZoomRate: " + $ZoomRate + "`r`n" + `
+        "MaxSrtRot: " + $MaxSrtRot + "`r`n" + `
+        "XRatio: " + $XRatio + "`r`n" + `
+        "YRatio: " + $YRatio + "`r`n" + `
+        "NFramesTrn: " + $NFramesTrn + "`r`n" + `
+        "NFramesStd: " + $NFramesStd + "`r`n" + `
+        "NFramesTrn: " + $XDim + "`r`n" + `
+        "NFramesStd: " + $YDim + "`r`n" + `
+        "$timestamp - Error: $errorMessage - Details: $errorDetails - Item: $failedItem" + `
+                    " **************************** "
+        Add-Content -Path $ErrLogPath -Value $logEntry
     }
-    catch{}
     #Cleanup
     finally{
         (Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null
@@ -1034,8 +1084,8 @@ function Update-MediaForDisplaySets
         $funcDef = ${function:New-VideoZoomedOutFromPic}.ToString()
         $AllFilesizeTtl = ($Files2Chk| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
-        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
-        #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
+        #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
             if ($RunSeries) {
                 $file = $_
                 $XDim = $set.XDim
@@ -1380,6 +1430,26 @@ function Update-MediaForDisplaySets
             }
             catch
             {
+                if ($file.ImgVidPath.length)
+                {
+                    write-host "ContPath: " + $file.ContPath
+                    write-host "IW: " + $image.Width
+                    write-host "IH: " + $image.Height
+                    write-host "StartZoom: " + $SetSrtZoom
+                    write-host "ZoomRate: " + $ZoomRate
+                    write-host "MaxSrtRot: " + $MaxSrtRot
+                    write-host "XRatio: " + $XRatio
+                    write-host "YRatio: " + $YRatio
+                    write-host "NFramesTrn: " + $NFramesTrn
+                    write-host "NFramesStd: " + $NFramesStd
+                    write-host "NFramesTrn: " + $XDim
+                    write-host "NFramesStd: " + $YDim
+                    write-host "FFMPEGCmdSrtAppend: " + $FFMPEGCmdSrtAppend
+                    write-host "FFMPEGCmdNomAppend: " + $FFMPEGCmdNomAppend
+                    write-host "FFMPEGCmdEndAppend: " + $FFMPEGCmdEndAppend
+                    write-host "TmpDirName: " + $TmpDirName
+                }
+                Write-Host "Uhoh"
             }
             if ($ShowProg)
             {
@@ -1393,8 +1463,8 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        #}
-        } -ThrottleLimit 4
+        }
+        #} -ThrottleLimit 4
         #4 - 3 min with 18 files, ScaleWIM disabled
         #4 - 13 min with 18 files, ScaleWIM enabled, no prescaling
     }

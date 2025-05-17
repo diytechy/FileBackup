@@ -1,6 +1,6 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 3 #Remember- this is completed
+$ProcLvl = 0 #Remember- this is completed
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
 {
@@ -55,7 +55,7 @@ else
             BulkVidTimeMin = 20;
             NameMethod = "FldrLvl2";
             ImgVidFldr = "\ImgInVid";
-            Quality = 27;
+            Quality = 20;
             ExpAud = 0;
             CleanBuild = 0;
         }
