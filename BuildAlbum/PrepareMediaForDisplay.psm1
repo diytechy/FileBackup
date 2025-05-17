@@ -1,22 +1,22 @@
 function New-VideoZoomedOutFromPic
 {
     param (
-        [string]$InputPicPath,
-        [Int]$InputWidth,
-        [Int]$InputHeight,
-        [decimal] $SrtZoom,
-        [decimal] $ZoomRate,
-        [decimal] $MaxRotAngl,
-        [decimal] $XRatio,
-        [decimal] $YRatio,
-        [decimal] $NFramesTrn,
-        [decimal] $NFramesStd,
-        [Int]$OutWidth,
-        [Int]$OutHeight,
-        [string]$FFMPEGCmdSrtAppend,
-        [string]$FFMPEGCmdNomAppend,
-        [string]$FFMPEGCmdEndAppend,
-        [string]$SetTmpPath
+        [string]$InputPicPath = "",
+        [Int]$InputWidth = 0,
+        [Int]$InputHeight = 0,
+        [decimal] $SrtZoom = 0,
+        [decimal] $ZoomRate = 0,
+        [decimal] $MaxRotAngl = 0,
+        [decimal] $XRatio = 0,
+        [decimal] $YRatio = 0,
+        [decimal] $NFramesTrn = 0,
+        [decimal] $NFramesStd = 0,
+        [Int]$OutWidth = 0,
+        [Int]$OutHeight = 0,
+        [string]$FFMPEGCmdSrtAppend = "",
+        [string]$FFMPEGCmdNomAppend = "",
+        [string]$FFMPEGCmdEndAppend = "",
+        [string]$SetTmpPath = ""
     )
     function HypDistance
     {
@@ -90,11 +90,16 @@ function New-VideoZoomedOutFromPic
         $PostScaleOrig2CentDistY = ([Math]::sin($PostRotOrig2CenterAngInRadians))*$PostScaleOrig2CentDist
 
         $retval = "" | Select-Object -Property InOrigX,InOrigY,SubImgTL2OrigX,SubImgTL2OrigY, `
+        SubImgTLX,SubImgTLY,SubImgWidth,SubImgHeight, `
         OutCanvOrigX,OutCanvOrigY,OutCentX,OutCentY,InCentX,InCentY
         $retval.InOrigX = $LeftDistToSubImg + $SubImgTL2OrigX
         $retval.InOrigY = $TopDistToSubImg +  $SubImgTL2OrigY
         $retval.SubImgTL2OrigX = $SubImgTL2OrigX
         $retval.SubImgTL2OrigY = $SubImgTL2OrigY
+        $retval.SubImgTLX    = $LeftDistToSubImg
+        $retval.SubImgTLY    = $TopDistToSubImg
+        $retval.SubImgWidth  = $SubImgWidth
+        $retval.SubImgHeight = $SubImgHeight
         $retval.OutCanvOrigX = $OutCentX - $PostScaleOrig2CentDistX
         $retval.OutCanvOrigY = $OutCentY - $PostScaleOrig2CentDistY
         $retval.OutCentX = $OutCentX
@@ -103,23 +108,33 @@ function New-VideoZoomedOutFromPic
         $retval.InCentY = $SelCenterY
         return $retval
     }
-    $NFrames = $NFramesTrn*2 + $NFramesStd
-    $Prescaler = 1 #Set to 0 to disable prescaling.  Will be ignored if less than 1 to prevent excess image definition.
-    #Temp overrides
-    if($null)
+
+    if($InputPicPath -eq "")
     {
+        Write-Host "Undefined inputs, assuming test mode"
+        $InputPicPath = "Z:\AlbumConv\Family Photos and Videos\2000 - 00 - Peters Childhood and Family Photos\Peter with Bob.jpg"
+        $NFramesTrn = 21
+        $NFramesStd = 180
+        $InputWidth = 640
+        $InputHeight = 480
         $TestFldr = "Test"
+        $XRatio = 0.222570173546006
+        $YRatio = 0.057530965682832
+        $SrtZoom = 1.4576278643951
+        $ZoomRate = 0.00206138677655448
+        $OutWidth = 1440
+        $OutHeight = 900
+        #$ZoomRate = (($SrtZoom-1)/$NFrames)
+        $MaxRotAngl = 30
         $RotDir = -1
-        $XRatio = 0
-        $YRatio = 1
-        $SrtZoom = 1.5
-        $ZoomRate = (($SrtZoom-1)/$NFrames)
-        $MaxRotAngl = 20
-        $SetRotAngl = 15
     }
     else{
         $SetRotAngl = 0;
     }
+
+    $NFrames = $NFramesTrn*2 + $NFramesStd
+    $Prescaler = 1 #Set to 0 to disable prescaling.  Will be ignored if less than 1 to prevent excess image definition.
+    #Temp overrides
     #Constant related to deceleration rate:
     #Do not exceed 180, for monotonically increasing deceleration, do not exceed 90, general 30 - 45 is  smooth.
     $RotAngSlopeSrtAngInDeg = 45
@@ -166,6 +181,7 @@ function New-VideoZoomedOutFromPic
     else
     {
         $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($InputPicPath) + (Get-Date -Format "FileDateTime")
+        $TmpDirName = $TmpDirName -replace "'", ""
     }
     $ErrLogPath = $SetTmpPath + "\" + $TmpDirName + ".txt"
     try
@@ -197,11 +213,11 @@ function New-VideoZoomedOutFromPic
         $InputBorderDef = $borderdef
 
         #Calculate focus point based on selected rotation direction and selected ratios:
+        $SrtRotAngle = 0
         if ($RotDir -eq 0)
         {
             $SubFocusRatioX = 0.5
             $SubFocusRatioY = 0.5
-            $SrtRotAngle = 0
             $MaxAllowableRotationInRadians = 0
         }
         else
@@ -231,6 +247,7 @@ function New-VideoZoomedOutFromPic
         {
             $PrescaledOrig2NewScale = $OutWidth/$InputWidth
             $CanvasHeight = $InputWidth/$whdispratio
+            $CanvasWidth = $OutWidth
             $CanvasTopBotBorder = ($CanvasHeight - $InputHeight)/2
             $CanvasSideBorder = 0
             if ($Prescaler)
@@ -242,6 +259,7 @@ function New-VideoZoomedOutFromPic
         {
             $PrescaledOrig2NewScale = $OutHeight/$InputHeight
             $CanvasWidth = $InputHeight*$whdispratio
+            $CanvasHeight = $OutHeight
             $CanvasSideBorder = ($CanvasWidth - $InputWidth)/2
             $CanvasTopBotBorder = 0
             if ($Prescaler)
@@ -276,10 +294,21 @@ function New-VideoZoomedOutFromPic
         #Wait-Debugger
 
         #Get distance from subfocus origin to canvas boundaries (including border)
-        $TDist = $OutValSrt.InOrigY + $CanvasTopBotBorder
-        $LDist = $OutValSrt.InOrigX + $CanvasSideBorder
-        $BDist = $InputHeight - $OutValSrt.InOrigY + $CanvasTopBotBorder
-        $RDist = $InputWidth - $OutValSrt.InOrigX + $CanvasSideBorder
+        $RestrictRotation2Content = 1
+        if ($RestrictRotation2Content)
+        {
+            $TDist = $OutValSrt.InOrigY
+            $LDist = $OutValSrt.InOrigX
+            $BDist = $InputHeight - $OutValSrt.InOrigY
+            $RDist = $InputWidth - $OutValSrt.InOrigX
+        }
+        else
+        {
+            $TDist = $OutValSrt.InOrigY + $CanvasTopBotBorder
+            $LDist = $OutValSrt.InOrigX + $CanvasSideBorder
+            $BDist = $InputHeight - $OutValSrt.InOrigY + $CanvasTopBotBorder
+            $RDist = $InputWidth - $OutValSrt.InOrigX + $CanvasSideBorder
+        }
 
         if ($RotDir -ne 0)
         {
@@ -346,7 +375,7 @@ function New-VideoZoomedOutFromPic
                 }
                 if ($RBCornerDist -gt ($BDist + $TolChk))
                 {
-                    $BRotRadiansMax = (ComplRad $LTRadianAnglFromHorz) - (AdjacentRadians $BDist $RBCornerDist)
+                    $BRotRadiansMax = (ComplRad $RBRadianAnglFromHorz) - (AdjacentRadians $BDist $RBCornerDist)
                 }
             }
             $RotRadianArray = $TRotRadiansMax, $LRotRadiansMax, $BRotRadiansMax, $RRotRadiansMax, ($MaxRotAngl*([Math]::PI/180))
@@ -510,22 +539,30 @@ function New-VideoZoomedOutFromPic
         $errorDetails = $_.ErrorDetails
         $failedItem = $_.TargetObject
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-
+        if($SetRotate) {$RotRepTxt = "SetRotate: " + $SetRotate}
+        else {$RotRepTxt = "SetRotate: Never Defined"}
+        if($RotRadianArray) {$RadArryRepText = "RotRadianArray: " + $RotRadianArray}
+        else {$RadArryRepText = "RotRadianArray: Never Defined"}
+        if($OutValSrt) {$OutValSrtRepText = "OutValSrt: `r`n" + $OutValSrt}
+        else {$OutValSrtRepText = "OutValSrt: Never Defined"}
         # Writing to a file
         $logEntry = "*****Failed conversion*****" + `
-                    "ContPath: " + $file.ContPath + "`r`n" + `
+        "InputPicPath: " + $InputPicPath + "`r`n" + `
+        $RotRepTxt + "`r`n" + `
         "IW: " + $image.Width + "`r`n" + `
         "IH: " + $image.Height + "`r`n" + `
-        "StartZoom: " + $SetSrtZoom + "`r`n" + `
-        "SetRotate: " + $SetRotate + "`r`n" + `
+        "SrtZoom: " + $SrtZoom + "`r`n" + `
         "ZoomRate: " + $ZoomRate + "`r`n" + `
         "MaxSrtRot: " + $MaxSrtRot + "`r`n" + `
         "XRatio: " + $XRatio + "`r`n" + `
         "YRatio: " + $YRatio + "`r`n" + `
         "NFramesTrn: " + $NFramesTrn + "`r`n" + `
         "NFramesStd: " + $NFramesStd + "`r`n" + `
-        "NFramesTrn: " + $XDim + "`r`n" + `
-        "NFramesStd: " + $YDim + "`r`n" + `
+        "XDim: " + $XDim + "`r`n" + `
+        "YDim: " + $YDim + "`r`n" + `
+        "YDim: " + $YDim + "`r`n" + `
+        $OutValSrtRepText + "`r`n" + `
+        $RadArryRepText + "`r`n" + `
         "$timestamp - Error: $errorMessage - Details: $errorDetails - Item: $failedItem" + `
                     " **************************** "
         Add-Content -Path $ErrLogPath -Value $logEntry
@@ -1265,7 +1302,8 @@ function Update-MediaForDisplaySets
                             #write-host "FFMPEGCmdEndAppend: " + $FFMPEGCmdEndAppend
                             #write-host "TmpDirName: " + $TmpDirName
                             #Wait-Debugger
-                            New-VideoZoomedOutFromPic $file.ContPath $image.Width $image.Height $SetSrtZoom $ZoomRate $MaxSrtRot $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
+                            #New-VideoZoomedOutFromPic
+                            New-VideoZoomedOutFromPic $file.ConvPath $image.Width $image.Height $SetSrtZoom $ZoomRate $MaxSrtRot $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
