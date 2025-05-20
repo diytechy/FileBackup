@@ -1,4 +1,5 @@
 $ConcatModulePath = ".\BuildAlbum\ConcatVidPartsFromFileList.psm1"
+$RingShiftRatio = 0.14
 $DepPath = Resolve-Path $ConcatModulePath
 Import-Module $DepPath
 function Set-VideoFromMedia
@@ -31,7 +32,7 @@ function Set-VideoFromMedia
             $AllInputFiles = $PrepAllInputFiles
         }
         else{
-            $NFiles2Shift = [Math]::Round($PrepAllInputFiles.Count*0.07)
+            $NFiles2Shift = [Math]::Round($PrepAllInputFiles.Count*$RingShiftRatio)
             if ($NFiles2Shift -eq 0){$NFiles2Shift = 1}
             $AllInputFiles = $PrepAllInputFiles[$NFiles2Shift..$PrepAllInputFiles.Count] + $PrepAllInputFiles[0..($NFiles2Shift-1)]
         }
@@ -76,7 +77,7 @@ function Set-VideoFromMedia
             #Create file to describe what videos to append.
             #$FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
-        if(0)
+        if(1)
         {
             $Groups | ForEach-Object -Parallel{
                 $DepPath = $using:DepPath
@@ -96,7 +97,7 @@ function Set-VideoFromMedia
         }
         else
         {
-            foreach ($grp in $Groups[17..21])
+            foreach ($grp in $Groups)
             {
                 $Quality = $set.Quality
                 $ExpAud = $set.ExpAud

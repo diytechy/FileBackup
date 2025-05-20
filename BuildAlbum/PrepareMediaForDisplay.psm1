@@ -2,6 +2,7 @@ function New-VideoZoomedOutFromPic
 {
     param (
         [string]$InputPicPath = "",
+        [string]$ContPicPath = "",
         [Int]$InputWidth = 0,
         [Int]$InputHeight = 0,
         [decimal] $SrtZoom = 0,
@@ -180,10 +181,10 @@ function New-VideoZoomedOutFromPic
     }
     else
     {
-        $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($InputPicPath) + (Get-Date -Format "FileDateTime")
+        $TmpDirName =[System.IO.Path]::GetFileNameWithoutExtension($ContPicPath) + (Get-Date -Format "FileDateTime")
         $TmpDirName = $TmpDirName -replace "'", ""
     }
-    $ErrLogPath = $SetTmpPath + "\" + $TmpDirName + ".txt"
+    $ErrLogPath = $SetTmpPath + "\" + $TmpDirName + "_ErrorLog.txt"
     try
     {
         #Get calculations for rotation based on image
@@ -404,9 +405,9 @@ function New-VideoZoomedOutFromPic
         $BuildDir = $SetTmpPath + "\" + $TmpDirName
         $BorderImg = "`"" + $BuildDir + "\" + "refimg.jpg" + "`""
         $IMViewPortDef = "-define distort:viewport=$OutWidth" + "x" + "$OutHeight"
-        $IMCmdSrt = "`"$( $file.ConvPath )`" " + $PrescaleCmd + " -bordercolor black -border $InputBorderDef -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
+        $IMCmdSrt = "`"$( $file.ConvPath )`" " + $PrescaleCmd + " -bordercolor black -border $InputBorderDef -colorspace LAB -write MPR:orig -write $BorderImg -delete 0--1 $IMViewPortDef"
         $IMConvPrepend = "-read MPR:orig -distort SRT "
-        $IMConvPreWrite = " -quality 92 -write "
+        $IMConvPreWrite = " -quality 92 -colorspace sRGB -write "
         $IMConvAppend = " -delete 0--1"
         $IMCmdEnd = ""
         if (-not (Test-Path $BuildDir -PathType Container))
@@ -611,7 +612,7 @@ function Update-ConvertedMediaImagesForDisplay
     }
 
     $ImgTypes = @("jpg", "gif", "tif", "tiff", "jpeg", "png", "bmp")
-    $VidTypes = @("wmv", "mov", "m4a", "mp4", "avi", "WEBM", "mkv")
+    $VidTypes = @("wmv", "mov", "mp4", "avi", "WEBM", "mkv")
 
     #************************************************************
     #******************Step 2, convert images.*******************
@@ -1119,7 +1120,14 @@ function Update-MediaForDisplaySets
         $ShowProg = 0
         $RunSeries = 1
         $funcDef = ${function:New-VideoZoomedOutFromPic}.ToString()
+        $Files2Chk | Add-Member -MemberType NoteProperty -Name ExportStr -Value $( [string]"") -Force
         $AllFilesizeTtl = ($Files2Chk| Where-Object -Property Exp2ContPath -eq 1) | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
+        $ExpInd = 0
+        $TotalNFiles2Exp = ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString()
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
+            $ExpInd++
+            $_.ExportStr = $ExpInd.ToString() + " of " + $TotalNFiles2Exp
+        }
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
         #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
         (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
@@ -1158,7 +1166,8 @@ function Update-MediaForDisplaySets
                 $VidRateTimescale = $using:GDefs.videorate
                 $CurrDateTime = $using:CurrDateTime}
             $whdispratio = $XDim/$YDim
-            write-host "Building content for file index: $( $file.FileIdx ) - $( $file.Name )..."
+            $Outstr = "Building content for file "+$file.ExportStr+" - $( $file.Name )..."
+            write-host $Outstr
             #write-host "Codec export definition: $ffmpegvcdcstd"
             #Create common definitions.
             $SelFadeFrames = [Int]($FadeTime*$framerate)
@@ -1303,7 +1312,7 @@ function Update-MediaForDisplaySets
                             #write-host "TmpDirName: " + $TmpDirName
                             #Wait-Debugger
                             #New-VideoZoomedOutFromPic
-                            New-VideoZoomedOutFromPic $file.ConvPath $image.Width $image.Height $SetSrtZoom $ZoomRate $MaxSrtRot $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
+                            New-VideoZoomedOutFromPic $file.ConvPath $file.ContPath $image.Width $image.Height $SetSrtZoom $ZoomRate $MaxSrtRot $XRatio $YRatio $NFramesTrn  $NFramesStd $XDim  $YDim $FFMPEGCmdSrtAppend $FFMPEGCmdNomAppend $FFMPEGCmdEndAppend $TmpDirName
                         }else{
                             (Invoke-Expression $ffmpegCmdSrt) *> $null
                             (Invoke-Expression $ffmpegCmdEnd) *> $null
