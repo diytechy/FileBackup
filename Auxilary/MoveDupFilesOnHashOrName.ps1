@@ -2,15 +2,16 @@
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 
 $runvar = 0
+$AllowHash = 0
 $MoveRepPath = "D:\Files2Move.csv"
 $InvFilenameRepPath = "D:\InvalidFilenames.csv"
 $HashPaths = @(
-"A:\SharedFilesHashTable.csv"
-"A:\PrivateFilesHashTable.csv"
-"A:\NonDocsFilesHashTable.csv"
-#"D:\SharedFilesHashTable.csv"
-#"D:\PrivateFilesHashTable.csv"
-#"D:\NonDocsFilesHashTable.csv"
+#"A:\SharedFilesHashTable.csv"
+#"A:\PrivateFilesHashTable.csv"
+#"A:\NonDocsFilesHashTable.csv"
+"D:\SharedFilesHashTable.csv"
+"D:\PrivateFilesHashTable.csv"
+"D:\NonDocsFilesHashTable.csv"
 )
 $CmprPath = "D:\2Chk\"
 $DupDateMovePath = "D:\DupDateFldr\"
@@ -53,21 +54,28 @@ $datemap = @{}
 $namemap = @{}
 $hashmap = @{}
 $sizemap = @{}
+$index = 0
 foreach ($srcprop in $HashProps){
     $srcprop.Name = ($srcprop.FullName | Split-Path -Leaf)
     $srcprop.LastWriteTimeDateTime = [datetime]::ParseExact($srcprop.LastWriteTimeStr, $HashTblDateFormat, $null)
     $datekey = [System.ValueTuple[string, long, datetime]]::new(
     $srcprop.Name, $srcprop.Length, $srcprop.LastWriteTimeDateTime)
-    $namekey = [System.ValueTuple[string]]::new($srcprop.Name)
+    $namekey = [System.ValueTuple[string]]::new([System.IO.Path]::GetFileNameWithoutExtension($srcprop.Fullname))
     $sizekey = [System.ValueTuple[long]]::new($srcprop.Length)
 
     $datemap[$datekey] = 1
     $namemap[$namekey] = 1
     $sizemap[$sizekey] = 1
+
+        if ($srcprop.Name -eq "Bionic Commando.nes")
+        {
+            #Write-Host "Chk"
+        }
+    $index++
 }
 Write-Host "Data prepared."
 
-$InnerLoopProg.Activity = "Getting hash of check files..."
+$InnerLoopProg.Activity = "Getting properties of check files to compare..."
 $InnerLoopProg.Status = "Please wait..."
 $CurrInnerProgDbl[0] = 0;
 $InnerLoopProg.PercentComplete = ($CurrInnerProgDbl[0] * 100)
@@ -92,9 +100,19 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
     #$AllFiles = ($AllFiles | Where-Object -Property ValidFilename -eq 1)
     Write-Host ("Total files validated: "+$FilesChecked.ToString())
     #Write-Host ("Total files validated: "+$AllFiles.Count.ToString())
+    $index = 0
     foreach ($file in ($AllFiles | Where-Object -Property ValidFilename -eq 1))
     {
-        if($file.Length)
+        if ($file.Name -eq "Bionic Commando.nes")
+        {
+            #Write-Host "Chk"
+        }
+        $index++
+    }
+    $index = 0
+    foreach ($file in ($AllFiles | Where-Object -Property ValidFilename -eq 1))
+    {
+        if($file.Length) # -and ($index -ge 2876)
         {
             $sizekey = [System.ValueTuple[long]]::new($file.Length)
             $ExtLen = $file.FullName.Length - $SrcL
@@ -113,7 +131,7 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
                     $file.MoveFileFlag = 1
                     $file.MoveLbl = "DATE"
                 }
-                else
+                elseif($AllowHash)
                 {
                     try
                     {
@@ -148,7 +166,7 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
                     }
                 }
             }
-            $namekey = [System.ValueTuple[string]]::new($file.Name)
+            $namekey = [System.ValueTuple[string]]::new([System.IO.Path]::GetFileNameWithoutExtension($file.Fullname))
             if ($file.MoveFileFlag)
             {
                 #Already set, do nothing.
@@ -179,6 +197,7 @@ if((Test-Path -LiteralPath $CmprPath) -and ($AllFiles.Count) -and ($runvar -ne 2
                 }
             }
         }
+        $index++
     }
     $Files2Move = @($AllFiles | Where-Object{ ( $_.MoveFileFlag -eq 1) })
     $Files2Move | Select-Object -Property MoveLbl,FullName,MoveLoc | Export-Csv -LiteralPath $MoveRepPath -NoTypeInformation
@@ -218,3 +237,4 @@ if($runvar -ne 1)
         $EmptyFldrs = Get-ChildItem -Path $CmprPath  -Recurse -Directory | Where-Object { $_.GetFiles().Count -eq 0 -and $_.GetDirectories().Count -eq 0 }
     }
 }
+    Write-Host "All Complete!"
