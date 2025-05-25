@@ -570,7 +570,7 @@ function New-VideoZoomedOutFromPic
     }
     #Cleanup
     finally{
-        (Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>null
+        (Remove-Item -LiteralPath $BuildDir -Recurse -Force -EA SilentlyContinue -Verbose)*>$null
     }
 }
 
