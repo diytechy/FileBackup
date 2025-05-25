@@ -879,7 +879,7 @@ function Update-MediaForDisplaySets
             {
                 $file.ImgVidPFlg = 1
             }
-            $TenativeLbl = ""
+            $TenativeLbl = "Picture"
             if ( $set.NameMethod.StartsWith("FldrLvl"))
             {
                 $LvlIdx = [Int]$set.NameMethod.split("FldrLvl")[1]
@@ -1339,6 +1339,7 @@ function Update-MediaForDisplaySets
                     $VWidth = [Int]::0
                     $Rotation = [Int]::0
                     $Duration = 0.0
+                    $AudioSet = 0
                     if ($VPrams.Count -gt 1)
                     {
                         foreach ($Pram in $VPrams)
@@ -1358,6 +1359,14 @@ function Update-MediaForDisplaySets
                             if ( $Pram.StartsWith("duration="))
                             {
                                 $Duration = [Decimal]::Parse($Pram.split('duration=')[1])
+                            }
+                            if ( $Pram.StartsWith("codec_type="))
+                            {
+                                $CodecType = ($Pram.split('codec_type='))[1]
+                                if($CodecType -eq "audio")
+                                {
+                                    $AudioSet = 1
+                                }
                             }
                         }
                         #If video is not oriented according to it's resolution, assume  a 90 deg turn.
@@ -1441,17 +1450,26 @@ function Update-MediaForDisplaySets
                         }
                         $nomdur = $Duration - ($SelFadeTime*2)
                         $endsrt = $Duration - $SelFadeTime
+                        $NFramesNom = [math]::floor($nomdur*$framerate)
                         if ($SelFadeTime -lt ($nomdur/2)){$AFd = $SelFadeTime }
                         else{$AFd = ($nomdur/2)}
                         $AOtOf = $nomdur - $AFd
+                        $ffmpegCmdA = "-f lavfi -i anullsrc  -loop 1" #Only when audio stream needs to be created.
                         $ffmpeginputsrt = "ffmpeg -y -t $SelFadeTime -i `"$( $file.FullName )`" "
                         $ffmpeginputnom = "ffmpeg -y -ss $SelFadeTime -t $nomdur -i `"$( $file.FullName )`" "
                         $ffmpeginputend = "ffmpeg -y -ss $endsrt -t $SelFadeTime -i `"$( $file.FullName )`" "
-                        $ffmpegvidfilt = "scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt"
-                        $ffmpegvidcmd1 = "-vf "+ $ffmpegvidfilt
+                        $ffmpegvidfiltsub = "scale=$wint`:$hint`:force_original_aspect_ratio=decrease$PadOpt"
+                        $ffmpegvidfilt = "fps=fps=$framerate[vint]`;[vint]$ffmpegvidfiltsub"
+                        $ffmpegvidcmd1 = "-vf "+ $ffmpegvidfiltsub
                         $ffmpegcmdsrt = $ffmpeginputsrt + $ffmpegvidcmd1 + " " + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)srt`""
                         $ffmpegcmdend = $ffmpeginputend + $ffmpegvidcmd1 + " " + $ffmpegaudcmd + $ffmpegvcdctra + " -movflags faststart -f 'mp4' `"$( $file.ContPath)end`""
-                        $ffmpegcmdnom = $ffmpeginputnom + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""
+                        if($AudioSet)
+                        {$ffmpegcmdnom = $ffmpeginputnom + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""}
+                        else
+                        #{$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""}
+                        #{$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map 1:a -map 0:v -frames:v $NFramesNom -f 'mp4' `"$( $file.ContPath)`""}
+                        #{$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map 1:a -map 0:v -f 'mp4' `"$( $file.ContPath)`""}
+                        {$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt[vout]`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map `"[vout]`" -map 1:a -frames:v $NFramesNom -f 'mp4' `"$( $file.ContPath)`""}
 
                         #write-host "T0"
                         $ffmpegcmdnom | Out-File -FilePath "$($file.ContPath)nomcmd"
@@ -1512,7 +1530,5 @@ function Update-MediaForDisplaySets
             }
         }
         #} -ThrottleLimit 4
-        #4 - 3 min with 18 files, ScaleWIM disabled
-        #4 - 13 min with 18 files, ScaleWIM enabled, no prescaling
     }
 }

@@ -1,6 +1,8 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$ProcLvl = 3 #Remember- this is completed
+Write-Host $PSScriptRoot
+Set-Location -Path $PSScriptRoot
+$ProcLvl = 3 #Usually 0 (Process all) unless debugging.
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
 {
@@ -12,14 +14,15 @@ else
     $BuDrv = "D"
     $SetTmpPath = ""
 }
-$UseTestPath = 0;
+#For testing, note the configuration file is also
+$UseTestPath = 1;
 if ($UseTestPath)
 {
 
-    $InputFileRootPath =$BuDrv+ ":\T"
-    $PrepFileRootPath =$BuDrv+ ":\TAlbumPrep"
-    $ConvFileRootPath =$BuDrv+ ":\TAlbumConv"
-    $OutputFilePrepend = $BuDrv+ ":\TAlbum"
+    $InputFileRootPath = ".\TestInput"
+    $PrepFileRootPath  = ".\TestOut\Prep"
+    $ConvFileRootPath  = ".\TestOut\Conv"
+    $OutputFilePrepend = ".\AlbumOut"
     $OutputDefs = @(
     [pscustomobject]@{
         XDim = 1440;
@@ -97,9 +100,9 @@ foreach ($def in $OutputDefs)
     }
 }
 #Adding dependent scripts:
-Import-Module ".\BuildAlbum\CopyMediaFromNetwork2Local.psm1"
-Import-Module ".\BuildAlbum\PrepareMediaForDisplay.psm1"
-Import-Module ".\BuildAlbum\PackMediaIntoVideo.psm1"
+Import-Module ".\CopyMediaFromNetwork2Local.psm1"
+Import-Module ".\PrepareMediaForDisplay.psm1"
+Import-Module ".\PackMediaIntoVideo.psm1"
 
 #Build derived definitions
 $OutputDefs | Add-Member -MemberType NoteProperty -Name Outpath -Value $([string])
@@ -107,13 +110,27 @@ $OutputDefs | Add-Member -MemberType NoteProperty -Name OutGrp -Value $([string]
 $OutputDefs | Add-Member -MemberType NoteProperty -Name VidPack -Value $([Int])
 foreach($set in $OutputDefs)
 {
-    $Set.Outpath = ($OutputFilePrepend+$set.XDim+"x"+$set.YDim+"q"+$set.Quality)
+    $AlbumRootParts = $OutputFilePrepend.split([System.IO.Path]::DirectorySeparatorChar)
+    $RootFldr = (Resolve-Path $AlbumRootParts[0]).Path
+    $Prepend  = $RootFldr+[System.IO.Path]::DirectorySeparatorChar+$AlbumRootParts[1..($AlbumRootParts.Count-1)]
+    $Set.Outpath = ($Prepend+$set.XDim+"x"+$set.YDim+"q"+$set.Quality)
     $Set.OutGrp = ($Set.Outpath+"-Groups")
     if($Set.PicDispTime -and $Set.BulkVidTimeMin -and $Set.ImgVidFldr.Count)
     {
         $Set.VidPack = 1
     }
 }
+#Resolve paths
+if (Test-Path $InputFileRootPath)
+{
+    $InputFileRootPath = (Resolve-Path $InputFileRootPath).Path
+}
+if (Test-Path $PrepFileRootPath) {}
+else{New-Item -ItemType Directory $PrepFileRootPath}
+$PrepFileRootPath  = (Resolve-Path $PrepFileRootPath).Path
+if (Test-Path $ConvFileRootPath) {}
+else{New-Item -ItemType Directory $ConvFileRootPath}
+$ConvFileRootPath  = (Resolve-Path $ConvFileRootPath).Path
 #Run operations.
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1) -or $CopyMedia){

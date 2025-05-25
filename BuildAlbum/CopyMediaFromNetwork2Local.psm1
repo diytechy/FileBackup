@@ -4,10 +4,8 @@ function Copy-MediaFromNetwork
         [string]$inputFolder,
         [string]$outputFolder
     )
-    $InputFileRootPath = $inputFolder
-    $PrepFileRootPath  = $outputFolder
 
-    $Types2Pull = "jpg$","gif$","tif$","tiff$","jpeg$","png$","bmp$","wmv$","mov$","m4a$","mp4$","avi$"
+    $Types2Pull = "jpg$","gif$","tif$","tiff$","jpeg$","png$","bmp$","wmv$","mov$","mp4$","avi$"
     $TypeChkRegex = [string]::Join('|', $Types2Pull)
 
     $CurrInnerProgPercInt = [int32[]]::new(1);
@@ -55,6 +53,7 @@ function Copy-MediaFromNetwork
                 {
                     $ExtLen = $file.FullName.Length - $SrcL
                     $RelPth = $file.FullName.Substring($SrcL, $ExtLen)
+                    if(-not $RelPth.Count){$RelPth = ""}
                     $file.CopyPath = $PrepFileRootPath + $RelPth
                     $datekey = [System.ValueTuple[string, long, datetime]]::new(
                             $RelPth, $file.Length, $file.LastWriteTime)
@@ -72,6 +71,7 @@ function Copy-MediaFromNetwork
             {
                 $ExtLen = $file.FullName.Length - $PrpL
                 $RelPth = $file.FullName.Substring($PrpL, $ExtLen)
+                if(-not $RelPth.Count){$RelPth = ""}
                 $datekey = [System.ValueTuple[string, long, datetime]]::new(
                         $RelPth, $file.Length, $file.LastWriteTime)
                 $PrpFndFile[$datekey] = 1

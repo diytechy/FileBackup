@@ -1,4 +1,4 @@
-$ConcatModulePath = ".\BuildAlbum\ConcatVidPartsFromFileList.psm1"
+$ConcatModulePath = ".\ConcatVidPartsFromFileList.psm1"
 $RingShiftRatio = 0.14
 $DepPath = Resolve-Path $ConcatModulePath
 Import-Module $DepPath
