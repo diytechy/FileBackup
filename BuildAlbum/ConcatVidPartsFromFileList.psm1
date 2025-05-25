@@ -287,13 +287,7 @@ function Join-VidPartsFromList
 
                         $FSrt = "ffmpeg  -hide_banner -loglevel error -nostats -y -f lavfi -i"
                         $FAudIn = " anullsrc=r=$selarate`:d=$tdur"
-                        $FAudOut =  " -map 1:a"
-                        $tcmd = "-f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"xfade=offset=0.0:duration=$tdur;acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
-                        #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v:0][1:v:0]xfade=offset=0.0:duration=$tdur`" $EncodeDef `"$tname`""
-                        #$tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur[vout];[0:a]afade=t=out:st=0:d=$tdur[a1];[1:a]afade=t=in:st=0:d=$tdur[a1];[a0][a1]amix=inputs=2:dropout_transition=$tdur`:normalize=0[aout]`" -map `"[vout]`" -map `"[aout]`" $EncodeDef `"$tname`""
-
-                        $tcmd = "ffmpeg -y -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[0:v][1:v]xfade=offset=0.0:duration=$tdur;[0:a]aresample=async=1,volume=1.0[a0];[1:a]aresample=async=1,volume=1.0[a1];[a0][a1]acrossfade=duration=$tdur`" $EncodeDef `"$tname`""
-                        $tcmd = $FAudIn + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map 0:a -map `"[vfout]`" $EncodeDef `"$tname`""
+                        $FAudOut =  " -map 0:a"
                         $tcmd = $FSrt + $FAudIn + " -f 'mp4' -i `"$V1`" -f 'mp4' -i `"$VSrt`" -filter_complex `"[1:v][2:v]xfade=offset=0.0:duration=$tdur[vfout]`" -map `"[vfout]`""+$FAudOut+" $EncodeDef `"$tname`""
                         if($CurrIdx -eq 13)
                         {

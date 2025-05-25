@@ -77,7 +77,7 @@ function Set-VideoFromMedia
             #Create file to describe what videos to append.
             #$FileSet | Export-Csv -Path $grp.FileListPath -NoTypeInformation
         }
-        if(1)
+        if(0)
         {
             $Groups | ForEach-Object -Parallel{
                 $DepPath = $using:DepPath

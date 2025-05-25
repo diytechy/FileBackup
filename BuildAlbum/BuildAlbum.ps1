@@ -2,7 +2,7 @@ Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = c
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
-$ProcLvl = 3 #Usually 0 (Process all) unless debugging.
+$ProcLvl = 0 #Usually 0 (Process all) unless debugging.
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
 {
@@ -40,7 +40,9 @@ if ($UseTestPath)
     })
 
 }
-#Define output definitions:
+#************************************
+#Define standard / non-test paths
+#************************************
 else
 {
     $InputFileRootPath ="S:"

@@ -582,7 +582,7 @@ function Update-ConvertedMediaImagesForDisplay
         [string]$SetTmpPath
     )
     if (Get-Command jpegr -ErrorAction SilentlyContinue) {$RotImg = 1}
-    else {throw  "Jpeg lossless rotator not detected, images will not be converted"}
+    else {throw  "Jpeg lossless rotator not detected, images will not be automatically rotated, but this should be accomidated general conversion."}
     if (Get-Command magick -ErrorAction SilentlyContinue) {}
     else {throw  "Image Magick not detected, images will not be converted"}
 
@@ -837,9 +837,9 @@ function Update-MediaForDisplaySets
     #********************************************************************************************
     #********************************************************************************************
     #********************************************************************************************
-    $ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
-    $VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
-    $AllFiles = $ImageFiles + $VideoFiles
+    #$ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
+    #$VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
+    $AllFiles = @($AllPrepFiles | Where-Object {($_.IsImg -eq 1) -or ($_.IsVid -eq 1)})
     #$SrcFileTuple2EntryIdx = @{ }
     #Define file existance and up-to-date definitions.
     Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
@@ -879,7 +879,7 @@ function Update-MediaForDisplaySets
             {
                 $file.ImgVidPFlg = 1
             }
-            $TenativeLbl = "Picture"
+            $TenativeLbl = "File"
             if ( $set.NameMethod.StartsWith("FldrLvl"))
             {
                 $LvlIdx = [Int]$set.NameMethod.split("FldrLvl")[1]
@@ -1129,8 +1129,8 @@ function Update-MediaForDisplaySets
             $_.ExportStr = $ExpInd.ToString() + " of " + $TotalNFiles2Exp
         }
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
-        #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
-        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
+        (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
+        #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
             if ($RunSeries) {
                 $file = $_
                 $XDim = $set.XDim
@@ -1471,22 +1471,20 @@ function Update-MediaForDisplaySets
                         #{$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map 1:a -map 0:v -f 'mp4' `"$( $file.ContPath)`""}
                         {$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt[vout]`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map `"[vout]`" -map 1:a -frames:v $NFramesNom -f 'mp4' `"$( $file.ContPath)`""}
 
-                        #write-host "T0"
-                        $ffmpegcmdnom | Out-File -FilePath "$($file.ContPath)nomcmd"
-                        $ffmpegcmdsrt | Out-File -FilePath "$($file.ContPath)srtcmd"
-                        $ffmpegcmdend | Out-File -FilePath "$($file.ContPath)endcmd"
+                        #Uncomment to generate files with commands for debugging
+                        #$ffmpegcmdnom | Out-File -FilePath "$($file.ContPath)nomcmd"
+                        #$ffmpegcmdsrt | Out-File -FilePath "$($file.ContPath)srtcmd"
+                        #$ffmpegcmdend | Out-File -FilePath "$($file.ContPath)endcmd"
                         (Invoke-Expression $ffmpegcmdsrt) *> $null
                         (Invoke-Expression $ffmpegcmdend) *> $null
                         (Invoke-Expression $ffmpegcmdnom) *> $null
-                        #write-host "T1"
-                        [System.IO.File]::SetCreationTime( "$($file.ContPath)srt", $CurrDateTime)
-                        [System.IO.File]::SetCreationTime( "$($file.ContPath)end", $CurrDateTime)
-                        [System.IO.File]::SetCreationTime( "$($file.ContPath)", $CurrDateTime)
-                        #write-host "T2"
-
-                        #write-host "ffmpeg command for video conversion:"
-                        #write-host $ffmpegcmd
-                        (Invoke-Expression $ffmpegcmd) *> $null
+                        #Get file size of nominal file, if this is non-zero, update the modificatoin time so the tool knows it's up-to-date, else remove the files.
+                        if(Get-ChildItem -Path $( $file.ContPath) | Select-Object Length)
+                        {
+                            [System.IO.File]::SetCreationTime("$( $file.ContPath )srt", $CurrDateTime)
+                            [System.IO.File]::SetCreationTime("$( $file.ContPath )end", $CurrDateTime)
+                            [System.IO.File]::SetCreationTime("$( $file.ContPath )", $CurrDateTime)
+                        }
                         $file.ExpDefComplete = 1
                         $_.ExpDefComplete = 1
 
@@ -1497,6 +1495,7 @@ function Update-MediaForDisplaySets
             {
                 if ($file.ImgVidPath.length)
                 {
+                    write-host "Image conversion failed"
                     write-host "ContPath: " + $file.ContPath
                     write-host "IW: " + $image.Width
                     write-host "IH: " + $image.Height
@@ -1514,7 +1513,11 @@ function Update-MediaForDisplaySets
                     write-host "FFMPEGCmdEndAppend: " + $FFMPEGCmdEndAppend
                     write-host "TmpDirName: " + $TmpDirName
                 }
-                Write-Host "Uhoh"
+                else
+                {
+                    write-host "Video conversion failed"
+                    write-host "ContPath: " + $file.ContPath
+                }
             }
             if ($ShowProg)
             {
@@ -1528,7 +1531,7 @@ function Update-MediaForDisplaySets
                     Write-Progress @InnerLoopProg
                 }
             }
-        }
-        #} -ThrottleLimit 4
+        #}
+        } -ThrottleLimit 4
     }
 }
