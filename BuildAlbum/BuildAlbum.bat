@@ -1,0 +1,1 @@
+pwsh -executionpolicy remotesigned -File  .\BuildAlbum.ps1

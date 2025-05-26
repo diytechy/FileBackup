@@ -22,7 +22,7 @@ else
     $SetTmpPath = ""
 }
 #For testing, note the configuration file is also
-$UseTestPath = 1;
+$UseTestPath = 0;
 if ($UseTestPath)
 {
 	$Names2Ig = @("DNP") #Any full name (file path / name) that matches any element here will not be included.

@@ -64,7 +64,7 @@ function Copy-MediaFromNetwork
                             }
                         }
                         else {
-                            $false  # No number found, so filter out
+                            #$false  # No number found, so filter out
                         }
                     }
                 }
