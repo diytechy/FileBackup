@@ -42,7 +42,7 @@ function Copy-MediaFromNetwork
             $AllInputFiles | Add-Member -MemberType NoteProperty -Name CopyFlag -Value $( [int]0 )
             $AllInputFiles | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
             $SrcL = $inputFolder.Length
-            Write-Host ($AllInputFiles.Count.ToString() + " files found!")
+            #Write-Host ($AllInputFiles.Count.ToString() + " files found!")
 
             foreach ($file in $AllInputFiles)
             {
@@ -85,7 +85,7 @@ function Copy-MediaFromNetwork
                 }
             }
             $PreFiles2Copy = ($AllInputFiles | Where-Object -Property CopyFlag -eq 1)
-            Write-Host ($PreFiles2Copy.Count.ToString() + " media files found!")
+            Write-Host ($PreFiles2Copy.Count.ToString() + " of " + $AllInputFiles.Count.ToString() + " media files found that match criteria!")
             #Now, for all prep files, see remove any that don't have a tuple match
             $PrpFndFile = @{ }
             $PrpL = $outputFolder.Length
@@ -146,6 +146,10 @@ function Copy-MediaFromNetwork
                     Write-Progress @InnerLoopProg
                 }
             }
+        }
+        else
+        {
+            Write-Host "No files found in source path, tool will proceed to check prep path"
         }
     }
     #If we aren't set to process the source directory, just grab file definitoins from prep space.
