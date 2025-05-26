@@ -1,5 +1,5 @@
 $ConcatModulePath = ".\ConcatVidPartsFromFileList.psm1"
-$RingShiftRatio = 0.14
+$RingShiftRatio = 0
 $DepPath = Resolve-Path $ConcatModulePath
 Import-Module $DepPath
 function Set-VideoFromMedia
@@ -88,10 +88,7 @@ function Set-VideoFromMedia
                 $Quality = $locset.Quality
                 $ExpAud = $locset.ExpAud
                 $SetFPS = $locset.FPS
-                #Write-Host $SelGrpDef
-                #Write-Host $SelVidExpPath
-                #Write-Host $Quality
-                #Write-Host $ExpAud
+
                 Join-VidPartsFromList $SelGrpDef $_.VidExpPath $Quality $ExpAud $SetFPS
             } -ThrottleLimit 4
         }

@@ -3,6 +3,7 @@ $PSVersionFnd = $PSVersionTable.PSVersion
 if ($PSVersionFnd -lt 7.1)
 {
     Write-Host "Reported Powershell Version: $($PSVersionFnd.ToString())"
+    Write-Host "Use command `"pwsh`" to call newer versions of powershell, update / install by using `"winget install --id Microsoft.PowerShell --source winget`" "
     Throw "Powershell must be version 7.1 or greater"
 }
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
@@ -136,6 +137,10 @@ foreach($set in $OutputDefs)
 if (Test-Path $InputFileRootPath)
 {
     $InputFileRootPath = (Resolve-Path $InputFileRootPath).Path
+}
+else
+{
+    $InputFileRootPath = ""
 }
 if (Test-Path $PrepFileRootPath) {}
 else{New-Item -ItemType Directory $PrepFileRootPath}

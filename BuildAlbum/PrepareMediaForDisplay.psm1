@@ -659,7 +659,7 @@ function Update-ConvertedMediaImagesForDisplay
             #If it is an image, set the conversion source path accordingly.
             if ($IncChk)
             {
-                $file.ConvPath = ($ConvFileRootPath + $RelPath)
+                $file.ConvPath = Join-Path -Path $ConvFileRootPath -ChildPath $RelPath
             }
             if ($ConvReportTupleExists[$datekey])
             {
@@ -1449,9 +1449,6 @@ function Update-MediaForDisplaySets
                         if($AudioSet)
                         {$ffmpegcmdnom = $ffmpeginputnom + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""}
                         else
-                        #{$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt`;[0:a]afade=t=in:st=0:d=$AFd,afade=t=out:st=$AOtOf`:d=$AFd`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -f 'mp4' `"$( $file.ContPath)`""}
-                        #{$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map 1:a -map 0:v -frames:v $NFramesNom -f 'mp4' `"$( $file.ContPath)`""}
-                        #{$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map 1:a -map 0:v -f 'mp4' `"$( $file.ContPath)`""}
                         {$ffmpegcmdnom = $ffmpeginputnom + " $ffmpegCmdA " + "-filter_complex `"[0:v]$ffmpegvidfilt[vout]`" " + $ffmpegaudcmd + $ffmpegvcdcstd + " -map `"[vout]`" -map 1:a -frames:v $NFramesNom -f 'mp4' `"$( $file.ContPath)`""}
 
                         #Uncomment to generate files with commands for debugging

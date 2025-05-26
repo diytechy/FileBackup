@@ -77,7 +77,7 @@ function Copy-MediaFromNetwork
                     $ExtLen = $file.FullName.Length - $SrcL
                     $RelPth = $file.FullName.Substring($SrcL, $ExtLen)
                     if(-not $RelPth.Count){$RelPth = ""}
-                    $file.CopyPath = $outputFolder + $RelPth
+                    $file.CopyPath = Join-Path -Path $outputFolder -ChildPath $RelPth
                     $datekey = [System.ValueTuple[string, long, datetime]]::new(
                             $RelPth, $file.Length, $file.LastWriteTime)
                     $FndFile[$datekey] = 1
