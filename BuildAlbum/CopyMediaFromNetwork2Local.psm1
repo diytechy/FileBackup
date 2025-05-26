@@ -2,7 +2,8 @@ function Copy-MediaFromNetwork
 {
     param (
         [string]$inputFolder,
-        [string]$outputFolder
+        [string]$outputFolder,
+        $Names2Ig = @("DNP")
     )
 
     $Types2Pull = "jpg$","gif$","tif$","tiff$","jpeg$","png$","bmp$","wmv$","mov$","mp4$","avi$"
@@ -44,7 +45,12 @@ function Copy-MediaFromNetwork
 
             foreach ($file in $AllInputFiles)
             {
-                $IncChk = -not ($file.FullName.Contains("DNP"))
+                $IncChk = 1
+                foreach($StrChk in $Names2Ig)
+                {
+                    if($file.FullName -match $StrChk)
+                    {$IncChk = 0}
+                }
                 if ($IncChk -and ($file.Name -match $TypeChkRegex))
                 {
                     $file.CopyFlag = 1

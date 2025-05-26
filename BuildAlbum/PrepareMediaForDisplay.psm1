@@ -617,7 +617,7 @@ function Update-ConvertedMediaImagesForDisplay
     #************************************************************
     #******************Step 2, convert images.*******************
     #************************************************************
-    $AllPrepFiles = @(Get-ChildItem -LiteralPath $PrepFileRootPath -Recurse -File)
+    $AllPrepFiles = @(Get-ChildItem -LiteralPath $PrepFileRootPath -Recurse -File) | Sort-Object Name
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name RelPath -Value $( [string] )
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ConvPath -Value $( [string]"" )
     $AllPrepFiles | Add-Member -MemberType NoteProperty -Name ContExt -Value $( [string] )

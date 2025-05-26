@@ -4,6 +4,7 @@ Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
 $ProcLvl = 0 #Usually 0 (Process all) unless debugging.
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
+$Names2Ig = @("DNP") #Any full name (file path / name) that matches any element here will not be incldued.
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
 {
     $BuDrv = "Z"
@@ -136,7 +137,7 @@ $ConvFileRootPath  = (Resolve-Path $ConvFileRootPath).Path
 #Run operations.
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1) -or $CopyMedia){
-    Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath
+    Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath $Names2Ig
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
     $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath $SetTmpPath
