@@ -8,7 +8,7 @@ if ($PSVersionFnd -lt 7.1)
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
-$ProcLvl = 3 #Usually 0 (Process all) unless debugging.
+$ProcLvl = 0 #Usually 0 (Process all) unless debugging.
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
@@ -149,8 +149,8 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1) -or $CopyMedia){
     Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath $Names2Ig $ExceptionParentFldrGreaterThan
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
-    $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath $SetTmpPath
-    Update-MediaForDisplaySets $PrepMediaDef $OutputDefs
+    $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath
+    Update-MediaForDisplaySets $PrepMediaDef $OutputDefs $SetTmpPath
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
     Write-Host "***************************************"
@@ -161,10 +161,5 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
 $stopwatch.Stop()
 $elapsedTime = $stopwatch.Elapsed
 write-host "Elapsed time: $elapsedTime"
-#3 Steps:
-#1. Prepare files by copying them to local path
-#2. Prepare images by converting them to a conversion path (enhance / rotate)
-#3. Resize images into their destination path
-#4. Resize videos into their destination path
 
 

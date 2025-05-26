@@ -555,8 +555,7 @@ function Update-ConvertedMediaImagesForDisplay
 {
     param (
         [string]$PrepFileRootPath,
-        [string]$ConvFileRootPath,
-        [string]$SetTmpPath
+        [string]$ConvFileRootPath
     )
     if (Get-Command jpegr -ErrorAction SilentlyContinue) {$RotImg = 1}
     else {throw  "Jpeg lossless rotator not detected, images will not be automatically rotated, but this should be accomidated general conversion."}
@@ -572,20 +571,6 @@ function Update-ConvertedMediaImagesForDisplay
         Status = "Getting ready.  Please wait..."
         PercentComplete = 0
         CurrentOperation = 0
-    }
-    #If the temp path doesn't exist, set it to the user temp space.
-    if($SetTmpPath.Length)
-    {
-        #If it's valid, keep it as is, else change it to the user temp space.
-        if (Test-Path -Path $SetTmpPath)
-        {
-        }
-        else{
-            $SetTmpPath = $env:TEMP
-        }
-    }
-    else{
-        $SetTmpPath = $env:TEMP
     }
 
     $ImgTypes = @("jpg", "gif", "tif", "tiff", "jpeg", "png", "bmp")
@@ -773,7 +758,8 @@ function Update-MediaForDisplaySets
 {
     param (
         $AllPrepFiles,
-        $OutputSizes
+        $OutputSizes,
+        [string]$SetTmpPath = ""
     )
     if (Get-Command ffmpeg -ErrorAction SilentlyContinue)
     {
@@ -788,6 +774,21 @@ function Update-MediaForDisplaySets
     else
     {
         throw  "Image Magick not detected, videos will not be converted"
+    }
+
+    #If the temp path doesn't exist, set it to the user temp space.
+    if($SetTmpPath.Length)
+    {
+        #If it's valid, keep it as is, else change it to the user temp space.
+        if (Test-Path -Path $SetTmpPath)
+        {
+        }
+        else{
+            $SetTmpPath = $env:TEMP
+        }
+    }
+    else{
+        $SetTmpPath = $env:TEMP
     }
 
     $CurrInnerProgPercInt = [int32[]]::new(1);
