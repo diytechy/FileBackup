@@ -3,7 +3,8 @@ function Copy-MediaFromNetwork
     param (
         [string]$inputFolder,
         [string]$outputFolder,
-        $Names2Ig = @("DNP")
+        $Names2Ig = @("DNP"),
+        $ExceptionParentFldrGreaterThan = [double]::PositiveInfinity
     )
 
     $Types2Pull = "jpg$","gif$","tif$","tiff$","jpeg$","png$","bmp$","wmv$","mov$","mp4$","avi$"
@@ -20,18 +21,18 @@ function Copy-MediaFromNetwork
     }
 
     #Verify all process staging files are up-to-date.  Copy them over or delete them as needed.
-    if (Test-Path -LiteralPath $InputFileRootPath)
+    if (Test-Path -LiteralPath $inputFolder)
     {
         #Make the prep directory if it doesn't already exist.
-        if (Test-Path -LiteralPath $PrepFileRootPath)
+        if (Test-Path -LiteralPath $outputFolder)
         {
         }#do nothing
         else
         {
-            New-Item -Path "$PrepFileRootPath" -ItemType Directory
+            New-Item -Path "$outputFolder" -ItemType Directory
         }
 
-        $AllInputFiles = @(Get-ChildItem -LiteralPath $InputFileRootPath -Recurse -File)
+        $AllInputFiles = @(Get-ChildItem -LiteralPath $inputFolder -Recurse -File)
         #For all files, see if it should be copied, and if so if it already is.
         #Then create a tuple for the filename, size, and datetime.
         if ($AllInputFiles.Count)
@@ -40,7 +41,7 @@ function Copy-MediaFromNetwork
             $AllInputFiles | Add-Member -MemberType NoteProperty -Name CopyPath -Value $( [string] )
             $AllInputFiles | Add-Member -MemberType NoteProperty -Name CopyFlag -Value $( [int]0 )
             $AllInputFiles | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
-            $SrcL = $InputFileRootPath.Length
+            $SrcL = $inputFolder.Length
             Write-Host ($AllInputFiles.Count.ToString() + " files found!")
 
             foreach ($file in $AllInputFiles)
@@ -49,7 +50,23 @@ function Copy-MediaFromNetwork
                 foreach($StrChk in $Names2Ig)
                 {
                     if($file.FullName -match $StrChk)
-                    {$IncChk = 0}
+                    {
+                        $IncChk = 0
+                        #If it is set to ignore, is the folder in the exception range?  Then actually allow it
+                        #Probably more graceful ways to do this...
+                        $ParentFldrName = Split-Path -Parent $file.FullName
+                        if ($ParentFldrName -match "\d+") {
+                            # $matches[0] contains the first numeric substring found in $_
+                            [int]$number = $matches[0]
+                            if($number -ge $ExceptionParentFldrGreaterThan)
+                            {
+                                $IncChk = 1
+                            }
+                        }
+                        else {
+                            $false  # No number found, so filter out
+                        }
+                    }
                 }
                 if ($IncChk -and ($file.Name -match $TypeChkRegex))
                 {
@@ -60,7 +77,7 @@ function Copy-MediaFromNetwork
                     $ExtLen = $file.FullName.Length - $SrcL
                     $RelPth = $file.FullName.Substring($SrcL, $ExtLen)
                     if(-not $RelPth.Count){$RelPth = ""}
-                    $file.CopyPath = $PrepFileRootPath + $RelPth
+                    $file.CopyPath = $outputFolder + $RelPth
                     $datekey = [System.ValueTuple[string, long, datetime]]::new(
                             $RelPth, $file.Length, $file.LastWriteTime)
                     $FndFile[$datekey] = 1
@@ -71,8 +88,8 @@ function Copy-MediaFromNetwork
             Write-Host ($PreFiles2Copy.Count.ToString() + " media files found!")
             #Now, for all prep files, see remove any that don't have a tuple match
             $PrpFndFile = @{ }
-            $PrpL = $PrepFileRootPath.Length
-            $PrePrepFiles = @(Get-ChildItem -LiteralPath $PrepFileRootPath -Recurse -File)
+            $PrpL = $outputFolder.Length
+            $PrePrepFiles = @(Get-ChildItem -LiteralPath $outputFolder -Recurse -File)
             foreach ($file in $PrePrepFiles)
             {
                 $ExtLen = $file.FullName.Length - $PrpL
@@ -132,7 +149,7 @@ function Copy-MediaFromNetwork
         }
     }
     #If we aren't set to process the source directory, just grab file definitoins from prep space.
-    elseif(Test-Path -LiteralPath $PrepFileRootPath)
+    elseif(Test-Path -LiteralPath $outputFolder)
     {
         #Do nothing, proceed as is.
     }

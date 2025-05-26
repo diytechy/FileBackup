@@ -1,10 +1,16 @@
 Clear-Host #Process level on next line: 0 = all, 1 = move to process path, 2 = convert from process path to output
+$PSVersionFnd = $PSVersionTable.PSVersion
+if ($PSVersionFnd -lt 7.1)
+{
+    Write-Host "Reported Powershell Version: $($PSVersionFnd.ToString())"
+    Throw "Powershell must be version 7.1 or greater"
+}
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
-$ProcLvl = 0 #Usually 0 (Process all) unless debugging.
+$ProcLvl = 3 #Usually 0 (Process all) unless debugging.
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
-$Names2Ig = @("DNP") #Any full name (file path / name) that matches any element here will not be incldued.
+
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
 {
     $BuDrv = "Z"
@@ -19,7 +25,8 @@ else
 $UseTestPath = 1;
 if ($UseTestPath)
 {
-
+	$Names2Ig = @("DNP") #Any full name (file path / name) that matches any element here will not be included.
+    $ExceptionParentFldrGreaterThan = 2016
     $InputFileRootPath = ".\TestInput"
     $PrepFileRootPath  = ".\TestOut\Prep"
     $ConvFileRootPath  = ".\TestOut\Conv"
@@ -46,6 +53,8 @@ if ($UseTestPath)
 #************************************
 else
 {
+	$Names2Ig = @("DNP","JohnsonFamilySide") #Any full name (file path / name) that matches any element here will not be included.
+    $ExceptionParentFldrGreaterThan = 2015
     $InputFileRootPath ="S:"
     $PrepFileRootPath  = $BuDrv+ ":\AlbumPrep"
     $ConvFileRootPath  = $BuDrv+ ":\AlbumConv"
@@ -57,7 +66,7 @@ else
             FPS = 30;
             PicDispTime = 6;
             MaxSrtRot = 30;
-            FadeTime = 0.7;
+            FadeTime = 1;
             BulkVidTimeMin = 20;
             NameMethod = "FldrLvl2";
             ImgVidFldr = "\ImgInVid";
@@ -103,9 +112,9 @@ foreach ($def in $OutputDefs)
     }
 }
 #Adding dependent scripts:
-Import-Module ".\CopyMediaFromNetwork2Local.psm1"
-Import-Module ".\PrepareMediaForDisplay.psm1"
-Import-Module ".\PackMediaIntoVideo.psm1"
+Import-Module ".\CopyMediaFromNetwork2Local.psm1" -Force
+Import-Module ".\PrepareMediaForDisplay.psm1" -Force
+Import-Module ".\PackMediaIntoVideo.psm1" -Force
 
 #Build derived definitions
 $OutputDefs | Add-Member -MemberType NoteProperty -Name Outpath -Value $([string])
@@ -137,7 +146,7 @@ $ConvFileRootPath  = (Resolve-Path $ConvFileRootPath).Path
 #Run operations.
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1) -or $CopyMedia){
-    Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath $Names2Ig
+    Copy-MediaFromNetwork $InputFileRootPath $PrepFileRootPath $Names2Ig $ExceptionParentFldrGreaterThan
 }
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 2)){
     $PrepMediaDef = Update-ConvertedMediaImagesForDisplay $PrepFileRootPath $ConvFileRootPath $SetTmpPath

@@ -110,29 +110,6 @@ function New-VideoZoomedOutFromPic
         return $retval
     }
 
-    if($InputPicPath -eq "")
-    {
-        Write-Host "Undefined inputs, assuming test mode"
-        $InputPicPath = "Z:\AlbumConv\Family Photos and Videos\2000 - 00 - Peters Childhood and Family Photos\Peter with Bob.jpg"
-        $NFramesTrn = 21
-        $NFramesStd = 180
-        $InputWidth = 640
-        $InputHeight = 480
-        $TestFldr = "Test"
-        $XRatio = 0.222570173546006
-        $YRatio = 0.057530965682832
-        $SrtZoom = 1.4576278643951
-        $ZoomRate = 0.00206138677655448
-        $OutWidth = 1440
-        $OutHeight = 900
-        #$ZoomRate = (($SrtZoom-1)/$NFrames)
-        $MaxRotAngl = 30
-        $RotDir = -1
-    }
-    else{
-        $SetRotAngl = 0;
-    }
-
     $NFrames = $NFramesTrn*2 + $NFramesStd
     $Prescaler = 1 #Set to 0 to disable prescaling.  Will be ignored if less than 1 to prevent excess image definition.
     #Temp overrides
@@ -898,6 +875,10 @@ function Update-MediaForDisplaySets
                 $CleanedLabel = $TenativeLbl -replace "[^a-zA-Z0-9 _-]"
                 $file.SelLabelGrp = $CleanedLabel
             }
+            else
+            {
+                $file.SelLabelGrp = "File"
+            }
         }
         #Create common definitions for set.
         Write-Host ("Exporting media for set: " + $set.XDim + " by " + $set.YDim)
@@ -1129,6 +1110,7 @@ function Update-MediaForDisplaySets
             $_.ExportStr = $ExpInd.ToString() + " of " + $TotalNFiles2Exp
         }
         Write-Host ("Exporting " + ($Files2Chk | Where-Object -Property Exp2ContPath -eq 1).Count.ToString() + " files...")
+        #Wait-Debugger
         (($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object -Parallel{
         #(($Files2Chk| Where-Object -Property Exp2ContPath -eq 1)) | ForEach-Object{
             if ($RunSeries) {
