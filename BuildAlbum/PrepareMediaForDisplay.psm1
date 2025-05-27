@@ -938,7 +938,7 @@ function Update-MediaForDisplaySets
                 if ($SelProp.RelContPath.Length)
                 {
                     #If the file exists, check the creation date
-                    $FullContPath = $ContFileRootPath + "\" + $SelProp.RelContPath
+                    $FullContPath = Join-Path -Path $ContFileRootPath -ChildPath $SelProp.RelContPath
                     if (Test-Path $FullContPath -PathType Leaf)
                     {
                         $SelCreationTime = [datetime]::ParseExact($SelProp.ContCreationDateStr, $HashTblDateFormat, $null)
