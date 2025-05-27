@@ -9,7 +9,7 @@ if ($PSVersionFnd -lt 7.1)
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
-$ProcLvl = 0 #Usually 0 (Process all) unless debugging.
+$ProcLvl = 1 #Usually 0 (Process all) unless debugging.
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
@@ -121,9 +121,10 @@ Import-Module ".\PackMediaIntoVideo.psm1" -Force
 $OutputDefs | Add-Member -MemberType NoteProperty -Name Outpath -Value $([string])
 $OutputDefs | Add-Member -MemberType NoteProperty -Name OutGrp -Value $([string])
 $OutputDefs | Add-Member -MemberType NoteProperty -Name VidPack -Value $([Int])
+$DirSepChar = [System.IO.Path]::DirectorySeparatorChar
 foreach($set in $OutputDefs)
 {
-    $AlbumRootParts = $OutputFilePrepend.split([System.IO.Path]::DirectorySeparatorChar)
+    $AlbumRootParts = $OutputFilePrepend.split($DirSepChar)
     $RootFldr = (Resolve-Path $AlbumRootParts[0]).Path
     $Prepend  = $RootFldr+[System.IO.Path]::DirectorySeparatorChar+$AlbumRootParts[1..($AlbumRootParts.Count-1)]
     $Set.Outpath = ($Prepend+$set.XDim+"x"+$set.YDim+"q"+$set.Quality)
@@ -148,6 +149,13 @@ $PrepFileRootPath  = (Resolve-Path $PrepFileRootPath).Path
 if (Test-Path $ConvFileRootPath) {}
 else{New-Item -ItemType Directory $ConvFileRootPath}
 $ConvFileRootPath  = (Resolve-Path $ConvFileRootPath).Path
+#Append file seperation character if not present for consistency.
+if($InputFileRootPath[-1] -ne $DirSepChar)
+{$InputFileRootPath = $InputFileRootPath+$DirSepChar}
+if($PrepFileRootPath[-1] -ne $DirSepChar)
+{$PrepFileRootPath = $PrepFileRootPath+$DirSepChar}
+if($ConvFileRootPath[-1] -ne $DirSepChar)
+{$ConvFileRootPath = $ConvFileRootPath+$DirSepChar}
 #Run operations.
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1) -or $CopyMedia){
