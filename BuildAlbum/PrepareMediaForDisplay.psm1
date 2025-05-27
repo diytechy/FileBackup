@@ -599,30 +599,38 @@ function Update-ConvertedMediaImagesForDisplay
         #* Getting high level expectations for prep files ****
         #*****************************************************
         $PrpL = $PrepFileRootPath.Length
-        $CnvL = $ConvReportPath.Length
         $ConvReportPath = ($ConvFileRootPath + "\Report.csv")
         $ConvReportTupleExists = @{ }
         $CurrentPrepFileTupleExists = @{ }
         if (Test-Path -LiteralPath $ConvReportPath)
         {
             $ConvFldrProps = @(Get-ChildItem -LiteralPath $ConvReportPath -Recurse -File) | Sort-Object Name
-            $ConvFldrProps | Add-Member -MemberType NoteProperty -Name RelPath -Value $( [string] )
-            $ConvFldrProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeStr -Value $( [string] )
             $PrevConvProps = Import-Csv -LiteralPath $ConvReportPath
             $PrevConvProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $( [DateTime] )
             $PrevConvProps | Add-Member -MemberType NoteProperty -Name RemoveFlag -Value $( [int]0 )
             $PrevConvProps | Add-Member -MemberType NoteProperty -Name TupleVal -Value [System.ValueTuple[string, long, datetime]]
             Write-Host ($PrevConvProps.Count.ToString() + " files to check for previous properties")
-            foreach ($file in $ConvFldrProps)
+            foreach ($PrevProp in $PrevConvProps)
             {
-                $ExtLen = $file.FullName.Length - $CnvL
-                $RelPath = $file.FullName.Substring($CnvL, $ExtLen)
-                $file.RelPath = $RelPath
-                $file.LastWriteTimeStr = $file.LastWriteTime.ToString($HashTblDateFormat)
-                $datekey = [System.ValueTuple[string, long, datetime]]::new(
-                        $RelPath, $file.Length, $file.LastWriteTime)
-                #Set tuple for current conversion map, for removal reference.
-                $ConvReportTupleExists[$datekey] = 1
+                #$file.FileIdx = $FileCntr
+                #$ExtLen = $file.FullName.Length - $PrpL
+                #$RelPath = $file.FullName.Substring($PrpL, $ExtLen)
+                #$file.RelPath = $RelPath
+                #$file.LastWriteTimeStr = $file.LastWriteTime.ToString($HashTblDateFormat)
+                #$datekey = [System.ValueTuple[string, long, datetime]]::new(
+                #        $RelPath, $file.Length, $file.LastWriteTime)
+                ##Set tuple for current conversion map, for removal reference.
+                #$CurrentPrepFileTupleExists[$datekey] = 1
+
+                $PrevProp.LastWriteTimeDateTime = [datetime]::ParseExact($PrevProp.LastWriteTimeStr, $HashTblDateFormat, $null)
+                $key = [System.ValueTuple[string, long, datetime]]::new(
+                        $PrevProp.RelPath, $PrevProp.Length, $PrevProp.LastWriteTimeDateTime)
+                #If the file actually exists, set the flag so that it's not converted again.
+                if(Test-Path $PrevProp.ConvPath -PathType Leaf)
+                {
+                    $PrevProp.TupleVal = $key
+                    $ConvReportTupleExists[$key] = 1
+                }
             }
         }
         Write-Host ($AllPrepFiles.Count.ToString() + " files to get conversion attributes for...")
