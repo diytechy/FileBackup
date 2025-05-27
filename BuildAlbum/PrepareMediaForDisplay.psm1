@@ -604,6 +604,7 @@ function Update-ConvertedMediaImagesForDisplay
         $CurrentPrepFileTupleExists = @{ }
         if (Test-Path -LiteralPath $ConvReportPath)
         {
+            $ConvFldrProps = @(Get-ChildItem -LiteralPath $ConvReportPath -Recurse -File) | Sort-Object Name
             $PrevConvProps = Import-Csv -LiteralPath $ConvReportPath
             $PrevConvProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $( [DateTime] )
             $PrevConvProps | Add-Member -MemberType NoteProperty -Name RemoveFlag -Value $( [int]0 )
@@ -611,6 +612,16 @@ function Update-ConvertedMediaImagesForDisplay
             Write-Host ($PrevConvProps.Count.ToString() + " files to check for previous properties")
             foreach ($PrevProp in $PrevConvProps)
             {
+                #$file.FileIdx = $FileCntr
+                #$ExtLen = $file.FullName.Length - $PrpL
+                #$RelPath = $file.FullName.Substring($PrpL, $ExtLen)
+                #$file.RelPath = $RelPath
+                #$file.LastWriteTimeStr = $file.LastWriteTime.ToString($HashTblDateFormat)
+                #$datekey = [System.ValueTuple[string, long, datetime]]::new(
+                #        $RelPath, $file.Length, $file.LastWriteTime)
+                ##Set tuple for current conversion map, for removal reference.
+                #$CurrentPrepFileTupleExists[$datekey] = 1
+
                 $PrevProp.LastWriteTimeDateTime = [datetime]::ParseExact($PrevProp.LastWriteTimeStr, $HashTblDateFormat, $null)
                 $key = [System.ValueTuple[string, long, datetime]]::new(
                         $PrevProp.RelPath, $PrevProp.Length, $PrevProp.LastWriteTimeDateTime)
@@ -663,7 +674,7 @@ function Update-ConvertedMediaImagesForDisplay
             }
             if ($ConvReportTupleExists[$datekey])
             {
-            }#do nothing, file exists and is up-to-date.
+            }#do nothing, file exists and is already converted according to the conversion report.
             elseif($IncChk)
             {
                 $file.Need2ConvFlag = 1
@@ -690,7 +701,7 @@ function Update-ConvertedMediaImagesForDisplay
         }
         $Files2Conv = ($AllPrepFiles | Where-Object -Property Need2ConvFlag -eq 1)
         Write-Host ($Files2Conv.Count.ToString() + " media files to convert!")
-        $PrevInnerProgPercInt[0] = 0
+        $PrevInnerProgPercInt[0] = -1
         $LoopProg = 0
         $AllFilesizeTtl = $Files2Conv | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
         if ($Files2Conv.Count)
@@ -718,8 +729,8 @@ function Update-ConvertedMediaImagesForDisplay
                 $InnerLoopProg.Status = "Converting files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
                 Write-Progress @InnerLoopProg
             }
-            Write-Progress @InnerLoopProg -Completed
         }
+        Write-Progress @InnerLoopProg -Completed
         if ($RotImg -and $ConvDirs2Batch.Count)
         {
             Write-Host ($ConvDirs2Batch.Count.ToString() + " media folders to batch rotate!")
