@@ -49,12 +49,12 @@ function Copy-MediaFromNetwork
                 $IncChk = 1
                 foreach($StrChk in $Names2Ig)
                 {
-                    if($file.FullName -match $StrChk)
+                    if($file.FullName.Contains($StrChk))
                     {
                         $IncChk = 0
                         #If it is set to ignore, is the folder in the exception range?  Then actually allow it
                         #Probably more graceful ways to do this...
-                        $ParentFldrName = Split-Path -Parent $file.FullName
+                        $ParentFldrName = Split-Path (Split-Path -Parent $file.FullName) -Leaf
                         if ($ParentFldrName -match "\d+") {
                             # $matches[0] contains the first numeric substring found in $_
                             [int]$number = $matches[0]

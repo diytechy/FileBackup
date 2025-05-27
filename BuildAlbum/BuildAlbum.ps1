@@ -9,7 +9,7 @@ if ($PSVersionFnd -lt 7.1)
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
 Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
-$ProcLvl = 0 #Usually 0 (Process all) unless debugging.
+$ProcLvl = 2 #Usually 0 (Process all) unless debugging.
 $SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
@@ -58,7 +58,8 @@ else
     $ExceptionParentFldrGreaterThan = 2015
     $InputFileRootPath ="S:"
     $PrepFileRootPath  = $BuDrv+ ":\AlbumPrep"
-    $ConvFileRootPath  = $BuDrv+ ":\AlbumConv"
+    #$ConvFileRootPath  = $BuDrv+ ":\AlbumConv"
+    $ConvFileRootPath  = ""
     $OutputFilePrepend = $BuDrv+ ":\Album"
     $OutputDefs = @(
         [pscustomobject]@{
@@ -134,28 +135,50 @@ foreach($set in $OutputDefs)
         $Set.VidPack = 1
     }
 }
-#Resolve paths
+#Root path:
 if (Test-Path $InputFileRootPath)
 {
     $InputFileRootPath = (Resolve-Path $InputFileRootPath).Path
+    #Append file seperation character if not present for consistency.
+    if($InputFileRootPath[-1] -ne $DirSepChar)
+    {$InputFileRootPath = $InputFileRootPath+$DirSepChar}
 }
 else
 {
     $InputFileRootPath = ""
+    Write-Host "Root path not found or not defined, tool will consider defined prep path as source"
 }
-if (Test-Path $PrepFileRootPath) {}
-else{New-Item -ItemType Directory $PrepFileRootPath}
+#Prep path:
+if (Test-Path $PrepFileRootPath)
+{
+}
+elseif ($PrepFileRootPath.Length)
+{
+    New-Item -ItemType Directory $PrepFileRootPath
+}
+else
+{
+    Throw "Prep path not defined, no action can be taken without media content path defined"
+}
 $PrepFileRootPath  = (Resolve-Path $PrepFileRootPath).Path
-if (Test-Path $ConvFileRootPath) {}
-else{New-Item -ItemType Directory $ConvFileRootPath}
-$ConvFileRootPath  = (Resolve-Path $ConvFileRootPath).Path
-#Append file seperation character if not present for consistency.
-if($InputFileRootPath[-1] -ne $DirSepChar)
-{$InputFileRootPath = $InputFileRootPath+$DirSepChar}
 if($PrepFileRootPath[-1] -ne $DirSepChar)
-{$PrepFileRootPath = $PrepFileRootPath+$DirSepChar}
-if($ConvFileRootPath[-1] -ne $DirSepChar)
-{$ConvFileRootPath = $ConvFileRootPath+$DirSepChar}
+{
+    $PrepFileRootPath = $PrepFileRootPath+$DirSepChar
+}
+#Conversion path:
+if ($ConvFileRootPath.Length)
+{
+    if (Test-Path $ConvFileRootPath) {}
+    else{New-Item -ItemType Directory $ConvFileRootPath}
+    $ConvFileRootPath  = (Resolve-Path $ConvFileRootPath).Path
+    if($ConvFileRootPath[-1] -ne $DirSepChar)
+    {$ConvFileRootPath = $ConvFileRootPath+$DirSepChar}
+}
+else
+{
+    Write-Host "Conversion path is not defined, assuming it is not intended, no conversion will be performed, files will be converted directly from the prep path."
+    $ConvFileRootPath = ""
+}
 #Run operations.
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 if (($ProcLvl -eq 0) -or ($ProcLvl -eq 1) -or $CopyMedia){

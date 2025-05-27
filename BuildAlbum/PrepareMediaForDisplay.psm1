@@ -599,12 +599,19 @@ function Update-ConvertedMediaImagesForDisplay
         #* Getting high level expectations for prep files ****
         #*****************************************************
         $PrpL = $PrepFileRootPath.Length
-        $ConvReportPath = ($ConvFileRootPath + "\Report.csv")
-        $ConvReportTupleExists = @{ }
         $CurrentPrepFileTupleExists = @{ }
-        if (Test-Path -LiteralPath $ConvReportPath)
+        if($ConvFileRootPath.Length)
         {
-            $ConvFldrProps = @(Get-ChildItem -LiteralPath $ConvReportPath -Recurse -File) | Sort-Object Name
+            $ConvFlgSet = 1
+            $ConvReportPath = ($ConvFileRootPath + "\Report.csv")
+            $ConvReportTupleExists = @{ }
+        }
+        else
+        {
+            $ConvFlgSet = 0
+        }
+        if ($ConvFlgSet -and (Test-Path -LiteralPath $ConvReportPath))
+        {
             $PrevConvProps = Import-Csv -LiteralPath $ConvReportPath
             $PrevConvProps | Add-Member -MemberType NoteProperty -Name LastWriteTimeDateTime -Value $( [DateTime] )
             $PrevConvProps | Add-Member -MemberType NoteProperty -Name RemoveFlag -Value $( [int]0 )
@@ -612,16 +619,6 @@ function Update-ConvertedMediaImagesForDisplay
             Write-Host ($PrevConvProps.Count.ToString() + " files to check for previous properties")
             foreach ($PrevProp in $PrevConvProps)
             {
-                #$file.FileIdx = $FileCntr
-                #$ExtLen = $file.FullName.Length - $PrpL
-                #$RelPath = $file.FullName.Substring($PrpL, $ExtLen)
-                #$file.RelPath = $RelPath
-                #$file.LastWriteTimeStr = $file.LastWriteTime.ToString($HashTblDateFormat)
-                #$datekey = [System.ValueTuple[string, long, datetime]]::new(
-                #        $RelPath, $file.Length, $file.LastWriteTime)
-                ##Set tuple for current conversion map, for removal reference.
-                #$CurrentPrepFileTupleExists[$datekey] = 1
-
                 $PrevProp.LastWriteTimeDateTime = [datetime]::ParseExact($PrevProp.LastWriteTimeStr, $HashTblDateFormat, $null)
                 $key = [System.ValueTuple[string, long, datetime]]::new(
                         $PrevProp.RelPath, $PrevProp.Length, $PrevProp.LastWriteTimeDateTime)
@@ -633,7 +630,7 @@ function Update-ConvertedMediaImagesForDisplay
                 }
             }
         }
-        Write-Host ($AllPrepFiles.Count.ToString() + " files to get conversion attributes for...")
+        Write-Host ($AllPrepFiles.Count.ToString() + " files to get attributes for...")
         $FileCntr = 0
         foreach ($file in $AllPrepFiles)
         {
@@ -653,7 +650,7 @@ function Update-ConvertedMediaImagesForDisplay
             {
                 if ( $file.Name.EndsWith($type))
                 {
-                    $file.ConvExpected = 1
+                    if($ConvFlgSet){$file.ConvExpected = 1}
                     $file.IsImg = 1
                     $file.ContExt = ".jpg"
                     $IncChk = 1
@@ -670,96 +667,106 @@ function Update-ConvertedMediaImagesForDisplay
             #If it is an image, set the conversion source path accordingly.
             if ($IncChk)
             {
-                $file.ConvPath = Join-Path -Path $ConvFileRootPath -ChildPath $RelPath
-            }
-            if ($ConvReportTupleExists[$datekey])
-            {
-            }#do nothing, file exists and is already converted according to the conversion report.
-            elseif($IncChk)
-            {
-                $file.Need2ConvFlag = 1
+                if($ConvFlgSet)
+                {
+                    $file.ConvPath = Join-Path -Path $ConvFileRootPath -ChildPath $RelPath
+                    if ($ConvReportTupleExists[$datekey])
+                    {
+                    }#do nothing, file exists and is already converted according to the conversion report.
+                    elseif($IncChk)
+                    {
+                        $file.Need2ConvFlag = 1
+                    }
+                }
+                else
+                {$file.ConvPath = $file.FullName
+                }
             }
         }
         #Remove items that shouldn't be there.  Not really necessary but good to cleanup
-        Write-Host ("Checking for old converted files to remove")
-        foreach ($PrevProp in $PrevConvProps)
+        if($ConvFlgSet)
         {
-            if ($CurrentPrepFileTupleExists[$PrevProp.TupleVal])
+            Write-Host ("Checking for old converted files to remove")
+            foreach ($PrevProp in $PrevConvProps)
             {
-            } #Do nothing if file should exist.
-            #elseif(Test-Path -LiteralPath $PrevProp.ConvPath){} #Do nothing if there is no path information.
-            elseif(Test-Path -Path $PrevProp.ConvPath -PathType Leaf)
-            {
-                $PrevProp.RemoveFlag = 1
+                if ($CurrentPrepFileTupleExists[$PrevProp.TupleVal])
+                {
+                } #Do nothing if file should exist.
+                #elseif(Test-Path -LiteralPath $PrevProp.ConvPath){} #Do nothing if there is no path information.
+                elseif(Test-Path -Path $PrevProp.ConvPath -PathType Leaf)
+                {
+                    $PrevProp.RemoveFlag = 1
+                }
             }
-        }
-        $OldPrepFiles2Rem = ($AllPrepFiles | Where-Object -Property RemoveFlag -eq 1)
-        Write-Host ($OldPrepFiles2Rem.Count.ToString() + " old converted media files to remove!")
-        foreach ($PrevProp in $OldPrepFiles2Rem)
-        {
-            remove-item -LiteralPath $PrevProp.ConvPath -Force
-        }
-        $Files2Conv = ($AllPrepFiles | Where-Object -Property Need2ConvFlag -eq 1)
-        Write-Host ($Files2Conv.Count.ToString() + " media files to convert!")
-        $PrevInnerProgPercInt[0] = -1
-        $LoopProg = 0
-        $AllFilesizeTtl = $Files2Conv | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
-        if ($Files2Conv.Count)
-        {
-            $ConvDirs2Batch = (Split-Path $Files2Conv.ConvPath -Parent) | Get-Unique | Sort-Object { $_.Length }
-        }
-        foreach ($file in $Files2Conv)
-        {
-            if ( -not(Test-Path -LiteralPath $file.ConvPath -PathType Leaf))
+            $OldPrepFiles2Rem = ($PrevConvProps | Where-Object -Property RemoveFlag -eq 1)
+            Write-Host ($OldPrepFiles2Rem.Count.ToString() + " old converted media files to remove!")
+            foreach ($PrevProp in $OldPrepFiles2Rem)
             {
-                #Create file template
-                $null = New-Item -ItemType File -Path $file.ConvPath -Force
+                remove-item -LiteralPath $PrevProp.ConvPath -Force
             }
-            #Do the conversion stuff here
-            copy-item $file.FullName $file.ConvPath
-            #if($RotImg){$null = jpegr $file.ConvPath}
-            #if($MagImg){$null = magick mogrify -autocolor -autotone -enrich -autogamma $file.ConvPath}
-            $file.Exported = 1
-            $LoopProg += $file.Length
-            $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
-            if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
-            {
-                $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
-                $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
-                $InnerLoopProg.Status = "Converting files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
-                Write-Progress @InnerLoopProg
-            }
-        }
-        Write-Progress @InnerLoopProg -Completed
-        if ($RotImg -and $ConvDirs2Batch.Count)
-        {
-            Write-Host ($ConvDirs2Batch.Count.ToString() + " media folders to batch rotate!")
-            $PrevInnerProgPercInt[0] = 0
+            $Files2Conv = ($AllPrepFiles | Where-Object -Property Need2ConvFlag -eq 1)
+            Write-Host ($Files2Conv.Count.ToString() + " media files to convert!")
+            $PrevInnerProgPercInt[0] = -1
             $LoopProg = 0
-            $AllFilesizeTtl = $ConvDirs2Batch.Count
-            foreach ($fldr in $ConvDirs2Batch)
+            $AllFilesizeTtl = $Files2Conv | Measure-Object -Property Length -Sum; $AllFilesizeTtl = $AllFilesizeTtl.Sum
+            if ($Files2Conv.Count)
             {
-                $jpegrcmd = "jpegr -auto -s `"$fldr`""
-                (Invoke-Expression $jpegrcmd) *> $null
-                $LoopProg ++
+                $ConvDirs2Batch = (Split-Path $Files2Conv.ConvPath -Parent) | Get-Unique | Sort-Object { $_.Length }
+            }
+            foreach ($file in $Files2Conv)
+            {
+                if ( -not(Test-Path -LiteralPath $file.ConvPath -PathType Leaf))
+                {
+                    #Create file template
+                    $null = New-Item -ItemType File -Path $file.ConvPath -Force
+                }
+                #Do the conversion stuff here
+                copy-item $file.FullName $file.ConvPath
+                #if($RotImg){$null = jpegr $file.ConvPath}
+                #if($MagImg){$null = magick mogrify -autocolor -autotone -enrich -autogamma $file.ConvPath}
+                $file.Exported = 1
+                $LoopProg += $file.Length
                 $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
                 if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
                 {
                     $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
                     $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
-                    $InnerLoopProg.Status = "Rotating Images: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
+                    $InnerLoopProg.Status = "Converting files: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
                     Write-Progress @InnerLoopProg
                 }
             }
             Write-Progress @InnerLoopProg -Completed
+            if ($RotImg -and $ConvDirs2Batch.Count)
+            {
+                Write-Host ($ConvDirs2Batch.Count.ToString() + " media folders to batch rotate!")
+                $PrevInnerProgPercInt[0] = 0
+                $LoopProg = 0
+                $AllFilesizeTtl = $ConvDirs2Batch.Count
+                foreach ($fldr in $ConvDirs2Batch)
+                {
+                    $jpegrcmd = "jpegr -auto -s `"$fldr`""
+                    (Invoke-Expression $jpegrcmd) *> $null
+                    $LoopProg ++
+                    $CurrInnerProgPercInt[0] = ($LoopProg*100)/$AllFilesizeTtl
+                    if ($CurrInnerProgPercInt[0] -gt $PrevInnerProgPercInt[0])
+                    {
+                        $InnerLoopProg.PercentComplete = $CurrInnerProgPercInt[0]
+                        $PrevInnerProgPercInt[0] = $CurrInnerProgPercInt[0]
+                        $InnerLoopProg.Status = "Rotating Images: " + $InnerLoopProg.PercentComplete.ToString() + "% Complete"
+                        Write-Progress @InnerLoopProg
+                    }
+                }
+                Write-Progress @InnerLoopProg -Completed
+
+            }
+            $FilesConverted = @(($AllPrepFiles | Where-Object -Property ConvExpected -eq 1) | Where-Object -Property Need2ConvFlag -eq 0)
+            if ($FilesConverted.Count){
+                $FilesConverted = $FilesConverted + @($Files2Conv | Where-Object -Property Exported -eq 1)}
+            else {$FilesConverted = @($Files2Conv | Where-Object -Property Exported -eq 1)}
+            $FilesConverted | Select-Object -Property Name,RelPath,ConvPath,Length,LastWriteTimeStr|
+                    Export-Csv -LiteralPath $ConvReportPath -NoTypeInformation
 
         }
-        $FilesConverted = @(($AllPrepFiles | Where-Object -Property ConvExpected -eq 1) | Where-Object -Property Need2ConvFlag -eq 0)
-        if ($FilesConverted.Count){
-            $FilesConverted = $FilesConverted + @($Files2Conv | Where-Object -Property Exported -eq 1)}
-        else {$FilesConverted = @($Files2Conv | Where-Object -Property Exported -eq 1)}
-        $FilesConverted | Select-Object -Property Name,RelPath,ConvPath,Length,LastWriteTimeStr|
-                Export-Csv -LiteralPath $ConvReportPath -NoTypeInformation
     }
     Write-Output $AllPrepFiles
 }
@@ -826,10 +833,7 @@ function Update-MediaForDisplaySets
     #********************************************************************************************
     #********************************************************************************************
     #********************************************************************************************
-    #$ImageFiles = @($AllPrepFiles | Where-Object -Property IsImg -eq 1)
-    #$VideoFiles = @($AllPrepFiles | Where-Object -Property IsVid -eq 1)
     $AllFiles = @($AllPrepFiles | Where-Object {($_.IsImg -eq 1) -or ($_.IsVid -eq 1)})
-    #$SrcFileTuple2EntryIdx = @{ }
     #Define file existance and up-to-date definitions.
     Write-Host ($AllFiles.Count.ToString() + " media files to prepare for content presentation!")
     $idx = 0
@@ -1159,6 +1163,7 @@ function Update-MediaForDisplaySets
                 $ffmpegaudcmd = $using:GDefs.ffmpegaudcmd
                 $VidRateTimescale = $using:GDefs.videorate
                 $CurrDateTime = $using:CurrDateTime}
+            $ContDateTime = $file.ContCreationDate
             $whdispratio = $XDim/$YDim
             $Outstr = "Building content for file "+$file.ExportStr+" - $( $file.Name )..."
             write-host $Outstr
