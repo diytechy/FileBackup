@@ -7,10 +7,11 @@ if ($PSVersionFnd -lt 7.1)
     Throw "Powershell must be version 7.1 or greater"
 }
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
+$RootFldr = $PSScriptRoot
 Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
-$ProcLvl = 2 #Usually 0 (Process all) unless debugging.
-$SetTmpPath = "T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
+$ProcLvl = 0 #Usually 0 (Process all) unless debugging.
+$SetTmpPath = "" #"T" #If utalizing RAM drive for conversion (1 gb), set this to the letter of the drive that should be created.  Else keep blank.
 
 if ((HOSTNAME) -EQ "DESKTOP-OFFICE")
 {
@@ -23,14 +24,24 @@ else
     $SetTmpPath = ""
 }
 #For testing, note the configuration file is also
-$UseTestPath = 0;
+$UseTestPath = 1;
+$DemoPrepAndConvPaths = 0;
 if ($UseTestPath)
 {
 	$Names2Ig = @("DNP") #Any full name (file path / name) that matches any element here will not be included.
     $ExceptionParentFldrGreaterThan = 2016
-    $InputFileRootPath = ".\TestInput"
-    $PrepFileRootPath  = ".\TestOut\Prep"
-    $ConvFileRootPath  = ".\TestOut\Conv"
+    if($DemoPrepAndConvPaths)
+    {
+       $InputFileRootPath = ".\TestInput"
+       $PrepFileRootPath  = ".\TestOut\Prep"
+       $ConvFileRootPath  = ".\TestOut\Conv"
+    }
+    else
+    {
+       $InputFileRootPath = ""
+       $PrepFileRootPath  = ".\TestInput"
+       $ConvFileRootPath  = ""
+    }
     $OutputFilePrepend = ".\AlbumOut"
     $OutputDefs = @(
     [pscustomobject]@{
@@ -45,7 +56,7 @@ if ($UseTestPath)
         ImgVidFldr = "\ImgInVid";
         Quality = 30;
         ExpAud = 0;
-        CleanBuild = 1;
+        CleanBuild = 0;
     })
 
 }
@@ -96,7 +107,7 @@ else
 $CopyMedia = 0
 foreach ($def in $OutputDefs)
 {
-    if ($def.CleanBuild)
+    if ($def.CleanBuild -and $InputFileRootPath.Length)
     {
         $ChkPath = $PrepFileRootPath
         #$ChkPath = $def.PrepFileRootPath
