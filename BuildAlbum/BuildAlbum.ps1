@@ -136,9 +136,7 @@ $OutputDefs | Add-Member -MemberType NoteProperty -Name VidPack -Value $([Int])
 $DirSepChar = [System.IO.Path]::DirectorySeparatorChar
 foreach($set in $OutputDefs)
 {
-    #$AlbumRootParts = $OutputFilePrepend.split($DirSepChar)
-    #$RootFldr = (Resolve-Path $AlbumRootParts[0]).Path
-    $Prepend  = $OutputFilePrepend
+    $Prepend  = [System.IO.Path]::GetFullPath($OutputFilePrepend, (Get-Location).Path)
     $Set.Outpath = ($Prepend+$set.XDim+"x"+$set.YDim+"q"+$set.Quality)
     $Set.OutGrp = ($Set.Outpath+"-Groups")
     if($Set.PicDispTime -and $Set.BulkVidTimeMin -and $Set.ImgVidFldr.Count)

@@ -1224,6 +1224,7 @@ function Update-MediaForDisplaySets
                     $IMCmd = $IMCmd1 + $ExpCmd + $IMCmdOut
                     (Invoke-Expression $IMCmd) *> $null
                     [System.IO.File]::SetCreationTime( "$( $file.ContPath )", $CurrDateTime)
+                    [System.IO.File]::SetCreationTime($file.ContPath, $CurrDateTime)
                     if ($file.ImgVidPath.length)
                     {
                         #Write-Host("**************************L1****************************")
