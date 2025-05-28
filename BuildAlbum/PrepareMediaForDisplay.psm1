@@ -78,7 +78,7 @@ function New-VideoZoomedOutFromPic
         $SubImgTL2CenterY = 0.5*$SubImgHeight
         $SubImgCenterX = ($LeftDistToSubImg + $SubImgTL2CenterX)
         $SubImgCenterY = ($TopDistToSubImg + $SubImgTL2CenterY)
-        $Draw2CentRatio = 0.2
+        $Draw2CentRatio = 0
         $SelCenterX = $SubImgCenterX + (($IWidth/2)-$SubImgCenterX)*$Draw2CentRatio
         $SelCenterY = $SubImgCenterY + (($IHeight/2)-$SubImgCenterY)*$Draw2CentRatio
         $SubImgOrig2CentX = $SelCenterX - ($LeftDistToSubImg + $SubImgTL2OrigX)
@@ -1013,7 +1013,7 @@ function Update-MediaForDisplaySets
             }
         }
         $CurrContFiles2Rem = @($AllCurrContFiles| Where-Object -Property RemFlag -eq 1)
-        Write-Host ("Removing " + $CurrContFiles2Rem.Count.ToString() + " file(s) that were not expectedor out of date...")
+        Write-Host ("Removing " + $CurrContFiles2Rem.Count.ToString() + " file(s) that were not expected or out of date...")
         foreach ($ContFile in $CurrContFiles2Rem)
         {
             remove-item -LiteralPath $ContFile.FullName -Force

@@ -7,7 +7,6 @@ if ($PSVersionFnd -lt 7.1)
     Throw "Powershell must be version 7.1 or greater"
 }
 Write-Host "Powershell version: $($PSVersionTable.PSVersion)"
-$RootFldr = $PSScriptRoot
 Write-Host $PSScriptRoot
 Set-Location -Path $PSScriptRoot
 $ProcLvl = 0 #Usually 0 (Process all) unless debugging.
@@ -38,8 +37,8 @@ if ($UseTestPath)
     }
     else
     {
-       $InputFileRootPath = ""
-       $PrepFileRootPath  = ".\TestInput"
+       $InputFileRootPath = ".\TestInput"
+       $PrepFileRootPath  = ".\TestOut\Prep"
        $ConvFileRootPath  = ""
     }
     $OutputFilePrepend = ".\AlbumOut"
@@ -206,5 +205,6 @@ if (($ProcLvl -eq 0) -or ($ProcLvl -eq 3)){
 $stopwatch.Stop()
 $elapsedTime = $stopwatch.Elapsed
 write-host "Elapsed time: $elapsedTime"
+Read-Host -Prompt "Press enter to continue..."
 
 
