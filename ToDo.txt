@@ -1,3 +1,30 @@
+Nov 22, 2025: Revisiting, new goals:
+1. Option to archive backup, only backup diffs, only take full snapshot at configured intervals, and in each folder create a bat and ps1 script to rebuild the archive.  How to merge this with current functionality?
+
+Inputs:
+- Source Folder
+- Target Folder (If defined, how can diffs be built from current target folder backwards?)
+- Backup / Diff Folder (Each folder creates another folder with any added)
+- Snapshot frequency?
+
+IMPORTANT: How to switch between method including target folder vs only relying on snapshot folders?
+
+Each backup folder contains a directory file with hash values and relative file locations, could embed this in the restore script?
+
+Need to have a index in the root backup / diff folder that has a list of hash values, the file location, maybe have flag for compress or derived state?
+
+When running restore, need to figure out if we build from current back, or from snapshot forward?
+
+Restore script loops through hashs, finds the corresponding hash value in the dictionary, and always attempts to restore from the relative paths first, then tries to restore from target folder, finally from the source path?
+
+When building from 
+
+If no target folder exists, find the most recent snapshot folder and build forward?
+If target folder exists but so does snapshot frequency?
+
+Or 
+
+
 If no modification folders specified, don't need to check for 7zip.
 Add method / option to generate clonespy crc per set.
 Allow a different backup directory per set?
