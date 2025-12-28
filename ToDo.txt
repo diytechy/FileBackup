@@ -33,16 +33,16 @@ How to specify hash comparison frequency?
  
  
 Prompt:
-Goals: To have a powershell script that can be run periodically to back a folder to another folder, where modifications and removals are also tracked to allow for relatively easy reversion in the future if necessary.
+Goals: To have a powershell script that can be run periodically to back a folder to another folder, where modifications and removals are also tracked to allow for relatively easy reversion in the future if necessary.  This is to improve on the ps1 file for reference which currently performs backups.
 
 First, the script would prompt the user to install any dependencies if not already installed if they are required (like 7-zip).
 
-The configuration available for each folder to backup would be:
+The configuration available for each folder to backup would be loaded from a file as is currently performed.
 
 1. The source folder to be copied
 2. The folder where a full backup copy is to be preserved
 3. A change folder where changes over time are stored (ideally each backup creates a new child folder in this directory named by the date and time here), and where other database related files are saved.
-4. A character string that represents how often hash values should be reverified from the main backup folder. ('D' = Daily, 'W' = Weekly, 'M' = Monthly, or is there a better semantic to use here?)
+4. A character string that represents how often hash values should be recalculated from the main backup folder. ('D' = Daily, 'W' = Weekly, 'M' = Monthly, or is there a better semantic to use here?)
 5. A boolean flag that indicates if the backup folder should be compressed (if applicable) and files named by the hash and size, or if the originally file structure should be preserved with files uncompressed and not renamed.
 
 It is assumed the powershell script would at least need the following functions:
@@ -70,3 +70,12 @@ After running the script, the outcome would be the following:
 3a. A file (ideally a csv file, but perhaps there is a better approach) would act as a database storing information about how to reconstruct the source file the files the backup folder, including information such as hash, size of the file, last modification date, and relative file path.
 
 3b. A batch or ps1 file that uses the files in the backup folder and the database file to restore the source file structure as it appeared the last time the backup was performed.  Like the script in the change folder, it should decompress files if applicable.
+
+Additional requirements / considerations:
+
+1. Like the current script, an email notificatoin should be sent out when backup is successful.
+2. If the file from the source folder already exists in the backup folder and has not been modified, it should not be copied since it already exists in the backup folder.
+3. Note modification should be confirmed first via size, filename, and modification date.  Otherwise if file sizes match, the hash can be used to verify if just the filename / path has changed between the source / backup folders.  The hash must be recalculated on both the backup and source database if the configuration is set and matches the current day / week / year.
+4. Consider what hash method might be the fastest but also ensure uniqueness.
+5. A log file should be generated each run (overwrite previous) in the change folder root.
+6. As a part of a log file, consider error handling for different cases.
