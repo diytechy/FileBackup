@@ -52,9 +52,7 @@ It is assumed the powershell script would at least need the following functions:
 $HashTblDateFormat = "O"
 $srcprop.LastWriteTimeDateTime = [datetime]::ParseExact($srcprop.LastWriteTimeStr, $HashTblDateFormat, $null)
 
-2. A function that produces a valid filename from the original files hash and size.
 
-3. A function that determines if the source file should not be compressed if it likely will not compress well based on it's type (For example: mp4, mov, mkv, 7z, 7zip)
 
 After running the script, the outcome would be the following:
 
@@ -79,3 +77,54 @@ Additional requirements / considerations:
 4. Consider what hash method might be the fastest but also ensure uniqueness.
 5. A log file should be generated each run (overwrite previous) in the change folder root.
 6. As a part of a log file, consider error handling for different cases.
+
+Anticipated structure / flow:
+
+Note, the sha256 produces a 256 bit value that results in 5.7896044618658097711785492504344e+76 combination.  (2^256)
+For letter equivlants, there are 36 options per character.
+So, (36^x) = 2^256
+logx(36^x) = logx(2^256)
+36 = logx(2^256)
+x = (2^256)^(1/36)
+x=2^(64/9)  (64/9 ~ 7.12)
+2^7.12 ~ 140????
+x ~ 50
+36^50 = 6.5331862350007090609669026715806e+77
+
+If looking at xxhash with 128 bit output and utalizing all valid ascii characters, this changes more:
+92^x=2^128, x ~20.
+
+To try to break this into blocks.
+92^x=2^y?
+92^4=71639296
+92^2 = 8,464, 2^13 = 8192
+
+The printable asci set restricts this to:
+86^x = 2^128, where xis still ~20.
+86^5 (4,704,270,176) ~ 2^32 (4,294,967,296)
+
+
+Functions:
+1. A function that produces a valid filename from the original files hash and size. (Input being the file hash and size).  Filename should be "HashABC_SizeXYZ.ext" where ABC is the hash value with hexidecimal values and XYZ is the size in bytes.  Here the funciton would use the previously generated funciton Convert-HexToShortName to convert the hash hexidecimal into a ABC.
+
+2. A function that determines if the source file should not be compressed if it likely will not compress well based on it's type (For example: mp4, mov, mkv, 7z, 7zip)  (Input being the file path name or filename)
+
+3. 
+
+1. Check if source folder exists, if not produce error.
+2. Update the source database file with the following:
+2a. Get a list of all files in the source folder.
+2b. Group files by size.
+2c. For each group, if there is more than 1 file in the group, set a flag that indicates those files must be hashed to verify uniqueness if they are not already hashed.  Else if the force hash property is set and true for the current backup session, set the flag to indicate hashing must be performed.
+2d. For each file in the group, call the function to update the source database.  Such as "UpdateSourceDatabase" with the inputs being the source folder, the full file path, the size, the modification date, and the hash flag, and the loaded source database content (So that it does not need to be reloaded each time the function is called).
+2e. In the UpdateSourceDatabase funciton, calculate the relative path for the file, check if that relative path already exists in the database.
+2f. If it exists, 
+3. Check if backup folder exists, if it does not exist, the script can skip all change checks.
+4. If the backup folder does exist, first check to see if the database file exists.
+5. If the backup database exists, compare the current backup file structure against the database by looping through each file and check to see if the size, modification date
+
+
+
+***********************************
+Seperate funciton request:
+Can you make a powershell function that converts a hex string input into a shorted valid filename, by knowing a hexidecimal character represents 16 bits, and there are 95 printable ascii characters that are valid windows filepath characters excluding a space, such that 8 hexidecimal characters (32 bits, 16^8 combinations) can be represented by 5 printable ascii characters (excluding spaces and non-allowed filepath characters) as 95^5 > 16^8.
