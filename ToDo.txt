@@ -127,9 +127,13 @@ Go through each file in the change database folder and verify the following:
 7a. Run SanatizeChangeDatabase on the inputs to detect any mismatch between the database file and the folder files.
 7b. Correct / transform the backup database to match the preference of the database set.
 
-MoveToChangeFolder - Input of backup folder, change folder, backup database name, change database name,  datapath file to move.
+MoveToChangeFolder - Input of backup folder, change folder, backup database name, change database name,  datapath file to move.  This should also create the reconstruct script.
 
 RemoveDupFromChangeFolder - Input of change folder, change database name,  datapath file to remove because it is now present in the backup folder.
+
+Generate reconstruct script - can / should this be generic for backup and change folder path?  Includes both relative and absolute paths and asks user to select if not resolved.
+
+Anticipated logic flow:
 
 1. Check if source folder exists, if not produce error.
 2. Update the source database file with the following:
@@ -142,12 +146,14 @@ RemoveDupFromChangeFolder - Input of change folder, change database name,  datap
 4. If the backup folder does exist, first check to see if the database file exists.
 5. If the backup database exists, copy it's database file into the current target change folder since that defines the state before the backup was performed.
 5a. If the relative path exists in the backup but no longer exists in the source database, Process it into the change folder and update the change folder database.
-5b. If the relative path exists in the backup and exists in the source database, but the modfiication date is different, make sure both hashs exist, if they don't, run the function to update the database with the hash file as needed for the backup or source database.  If the hashes are identical, update the modification date on the file and database to match the source database.  If the hashes don't match, process it into the change folder and update the change folder database.
+5b. If the relative path exists in the backup and exists in the source database, but the modfication date is different, make sure both hashs exist, if they don't, run the function to update the database with the hash file as needed for the backup or source database.  If the hashes are identical, update the modification date on the file and database to match the source database.  If the hashes don't match, process it into the change folder and update the change folder database.
 6Pre: Go through all change folders and sanatize them while getting a full change list
 6. Now recompare the source database and the backup database.  If a file is missing from the backup folder:
-6a. Process the folder from the backup.
-7. Finally, check the backup hashes to see if any hash / size combo matches something in the change folder, and run the corresponding function to remove it from the change folder and it's database since it's now back in the database.
-8. Reload all change databases, any duplicate hash datafiles should have everything but the latest change folder removed.
+6a. If the backup folder doesn't exist, create it and add the reconstruct script.
+6b. Process the folder from the backup.
+7. Finally, check the backup hashes to see if any hash / size combo matches something in the change folder, and run the corresponding function to remove it from the change folder and blank out it's datapath entry from the database since it's now back in the database.
+8. Reload all change databases, any duplicate hash datafiles but the latest change date should have it's datapath file remove and the datapath entry blanked out since a copy should not be retained through multiple change folders.
+
 
 
 
