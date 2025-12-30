@@ -15,23 +15,39 @@
         * Renames staging to final change folder:
               Pre_<FileLabelDate>_<NNNNNN>_Changes
         * Generates RECONSTRUCT.ps1 and RECONSTRUCT.bat in backup and change folders.
-    - Avoids copying duplicates by hash+size.
+    - Avoids copying duplicates by hash+size (xxHash128).
     - Optional compression and content-addressed naming.
     - Sends email on success/failure.
 
+.CONFIG FORMAT (CLIXML)
+    Backup config file (default: $HOME\BackupConfig.xml) must contain:
+        @{ 
+            Secrets = @{
+                ToEmail     = 'you@example.com'
+                FromEmail   = 'backup@example.com'
+                SmtpServer  = 'smtp.server'
+                SmtpPort    = 587
+                Credential  = <PSCredential>  # created elsewhere
+            }
+            BackupSets = @(
+                [pscustomobject]@{
+                    Name               = 'MainData'
+                    SourcePath         = 'D:\Data'
+                    BackupPath         = 'E:\Backups\DataStore'
+                    ChangePath         = 'E:\Backups\DataChanges'
+                    HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
+                    CompressEnabled    = $true
+                    PreserveFolderTree = $false   # If $true, mirror tree instead of hash+size naming
+                }
+            )
+        } | Export-Clixml -LiteralPath "$HOME\BackupConfig.xml"
+
 .NOTES
-    - Config file: CLIXML with properties:
-        * Secrets: ToEmail, FromEmail, Credential
-        * BackupSets: array of:
-            - Name
-            - SourcePath
-            - BackupPath
-            - ChangePath
-            - HashRecalcFreq  (A/E/D/W/M/Y/N)
-            - CompressEnabled (bool)
-            - PreserveFolderTree (bool)
-    - xxHash128: this script includes a stub using SHA256.
-      Replace in CalculateFileHash() with your xxHash library.
+    Dependencies:
+        - PowerShellGet / PackageManagement working (for Install-Package).
+        - NuGet package K4os.Hash.xxHash (version 1.0.8) – script will prompt to install.
+        - 7-Zip at %ProgramFiles%\7-Zip\7z.exe if compression is enabled.
+        - ffprobe at C:\ffmpeg\bin\ffprobe.exe for media metrics (optional).
 #>
 
 param(
@@ -68,9 +84,8 @@ $NonCompressibleExtensions = @(
     '.jpg', '.jpeg', '.png', '.webp'
 )
 
-# Default paths for dependencies
 $SevenZipDefaultPath = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-$FfmpegDefaultPath   = 'ffmpeg.exe' # assume in PATH by default
+$FfprobePathDefault  = 'C:\ffmpeg\bin\ffprobe.exe'
 
 # endregion
 
@@ -82,7 +97,6 @@ function New-Logger {
         [string]$LogFile
     )
     New-Item -ItemType File -Force -Path $LogFile | Out-Null
-
     return {
         param([string]$Message, [string]$Level = 'INFO')
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
@@ -94,7 +108,7 @@ function New-Logger {
 
 # endregion
 
-# region Dependency checks
+# region Dependency loading (7z, ffprobe, xxHash via NuGet)
 
 function Ensure-Dependency {
     param(
@@ -120,42 +134,86 @@ function Ensure-Dependency {
     return $null
 }
 
-# You can extend this to check for xxHash .NET assembly etc.
+function Ensure-K4osHashLibrary {
+    param(
+        [string]$RequiredVersion = "1.0.8"
+    )
+
+    # If already loaded, nothing to do
+    if ("K4os.Hash.xxHash.XXH128" -as [type]) {
+        return $true
+    }
+
+    # Check if package is installed
+    $pkg = Get-Package -Name "K4os.Hash.xxHash" -ErrorAction SilentlyContinue
+
+    if (-not $pkg) {
+        Write-Host "K4os.Hash.xxHash $RequiredVersion is not installed."
+        $resp = Read-Host "Install it now via Install-Package K4os.Hash.xxHash -Version $RequiredVersion? (Y/N)"
+        if ($resp -match '^[Yy]') {
+            Install-Package K4os.Hash.xxHash -RequiredVersion $RequiredVersion -Force -Scope CurrentUser
+        }
+        else {
+            throw "K4os.Hash.xxHash is required for xxHash128 hashing. Aborting."
+        }
+    }
+
+    # Re-query after install
+    $pkg = Get-Package -Name "K4os.Hash.xxHash" -ErrorAction Stop
+
+    # Locate DLL inside the NuGet package directory
+    $installDir = Split-Path $pkg.Source -Parent
+
+    $dll = Get-ChildItem -Path $installDir -Recurse -Filter "K4os.Hash.xxHash.dll" |
+           Select-Object -First 1
+
+    if (-not $dll) {
+        throw "K4os.Hash.xxHash.dll not found in installed package."
+    }
+
+    # Load DLL if not already loaded
+    if (-not ("K4os.Hash.xxHash.XXH128" -as [type])) {
+        Add-Type -Path $dll.FullName
+    }
+
+    return $true
+}
+
 function Initialize-Dependencies {
     param(
         [bool]$AnyCompressionNeeded,
-        [bool]$AnyMediaMetricsNeeded
+        [bool]$AnyMediaMetricsNeeded,
+        [scriptblock]$Log
     )
 
     $deps = [ordered]@{}
 
     if ($AnyCompressionNeeded) {
         $deps['7z'] = Ensure-Dependency -Name '7-Zip' -Path $SevenZipDefaultPath -InstallHint {
-            Write-Host "Please install 7-Zip from https://www.7-zip.org/ and adjust the path if needed."
+            & $Log "Please install 7-Zip from https://www.7-zip.org/ and adjust the path if needed." 'WARN'
         }
-    }
-    else {
+    } else {
         $deps['7z'] = $null
     }
 
     if ($AnyMediaMetricsNeeded) {
-        $deps['ffmpeg'] = Ensure-Dependency -Name 'ffmpeg' -Path $FfmpegDefaultPath -InstallHint {
-            Write-Host "Please install ffmpeg and ensure 'ffmpeg.exe' is in PATH or configure FfmpegDefaultPath."
+        $deps['ffprobe'] = Ensure-Dependency -Name 'ffprobe' -Path $FfprobePathDefault -InstallHint {
+            & $Log "Please install ffmpeg/ffprobe into C:\ffmpeg\bin or adjust the path." 'WARN'
         }
-    }
-    else {
-        $deps['ffmpeg'] = $null
+    } else {
+        $deps['ffprobe'] = $null
     }
 
-    # TODO: xxHash .NET assembly check, e.g. K4os.Hash.xxHash
-    $deps['xxhash'] = $true # placeholder – assume available or fallback
+    # Load xxHash library (will prompt if package not installed)
+    Ensure-K4osHashLibrary | Out-Null
+    $deps['xxhash'] = $true
 
     return $deps
 }
 
 # endregion
 
-# region Short name encoding
+# region Short name encoding (hash/size to filename)
 
 function Convert-HexToShortName {
     param(
@@ -164,7 +222,6 @@ function Convert-HexToShortName {
         [Parameter(Mandatory)]
         [int]$OutputLength
     )
-    # Simplified: interpret hex as big integer, encode to base-$Alphabet.Length
     $base = $Alphabet.Count
     $value = [System.Numerics.BigInteger]::Parse("0$Hex", [System.Globalization.NumberStyles]::AllowHexSpecifier)
 
@@ -175,12 +232,13 @@ function Convert-HexToShortName {
         $value = $value / $base
     }
     if ($chars.Count -eq 0) { $chars.Add($Alphabet[0]) }
-    $shortName = -join ($chars.ToArray() | [array]::Reverse([array]$chars.ToArray()))
+    $array = $chars.ToArray()
+    [array]::Reverse($array)
+    $shortName = -join $array
 
     if ($shortName.Length -lt $OutputLength) {
         $shortName = $shortName.PadLeft($OutputLength, $Alphabet[0])
-    }
-    elseif ($shortName.Length -gt $OutputLength) {
+    } elseif ($shortName.Length -gt $OutputLength) {
         $shortName = $shortName.Substring($shortName.Length - $OutputLength)
     }
     return $shortName
@@ -217,36 +275,11 @@ function GetFilenameAsHashAndSize {
         [string]$Extension
     )
 
-    # Encode hash as 16-character short name, length as 10-character short name
     $hashShort = Convert-HexToShortName -Hex $HashHex -OutputLength 16
     $lenHex    = ('{0:X}' -f $Length)
     $lenShort  = Convert-HexToShortName -Hex $lenHex -OutputLength 10
 
     return "$hashShort $lenShort$Extension"
-}
-
-function GetExpHashAndSizeFromFilename {
-    param(
-        [Parameter(Mandatory)]
-        [string]$FileName
-    )
-
-    $name = [IO.Path]::GetFileNameWithoutExtension($FileName)
-    $parts = $name -split ' '
-    if ($parts.Count -lt 2) {
-        throw "Filename '$FileName' does not match expected 'ABC XYZ.ext' format."
-    }
-
-    $hashShort = $parts[0]
-    $lenShort  = $parts[1]
-
-    $hashHex = Convert-ShortNameToHex -ShortName $hashShort
-    $lenHex  = Convert-ShortNameToHex -ShortName $lenShort
-    $length  = [System.Numerics.BigInteger]::Parse("0$lenHex", [System.Globalization.NumberStyles]::AllowHexSpecifier)
-    return [pscustomobject]@{
-        HashHex = $hashHex
-        Length  = [long]$length
-    }
 }
 
 # endregion
@@ -269,10 +302,19 @@ function CalculateFileHash {
         [string]$FilePath
     )
 
-    # TODO: Replace with xxHash128 from your chosen .NET library.
-    # For now, use SHA256 as a placeholder.
-    $h = Get-FileHash -LiteralPath $FilePath -Algorithm SHA256
-    return $h.Hash
+    if (-not ("K4os.Hash.xxHash.XXH128" -as [type])) {
+        Ensure-K4osHashLibrary | Out-Null
+    }
+
+    $stream = [System.IO.File]::OpenRead($FilePath)
+    try {
+        $digest = [K4os.Hash.xxHash.XXH128]::DigestOf($stream)
+        $hex = '{0:x16}{1:x16}' -f $digest.High, $digest.Low
+        return $hex.ToUpperInvariant()
+    }
+    finally {
+        $stream.Dispose()
+    }
 }
 
 function Should-RecalculateHashes {
@@ -315,7 +357,6 @@ function Should-CompressFile {
     )
 
     if (-not $CompressEnabled) { return $false }
-
     $ext = [IO.Path]::GetExtension($FullPath).ToLowerInvariant()
     return -not ($NonCompressibleExtensions -contains $ext)
 }
@@ -324,12 +365,40 @@ function Get-MediaMBPerSec {
     param(
         [Parameter(Mandatory)]
         [string]$FilePath,
-        [string]$FfmpegPath
+        [string]$FfprobePath
     )
 
-    # TODO: Implement actual ffmpeg call, parse duration, compute MB/s.
-    # Placeholder: return $null to avoid blocking you.
-    return $null
+    if (-not $FfprobePath -or -not (Test-Path -LiteralPath $FfprobePath -PathType Leaf)) {
+        return $null
+    }
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $FfprobePath
+    $psi.Arguments = "-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 `"$FilePath`""
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.CreateNoWindow = $true
+
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $output = $p.StandardOutput.ReadToEnd().Trim()
+    $p.WaitForExit()
+
+    if ($p.ExitCode -ne 0 -or -not $output) {
+        return $null
+    }
+
+    [double]$duration = 0
+    if (-not [double]::TryParse($output, [ref]$duration)) {
+        return $null
+    }
+
+    if ($duration -le 0) { return $null }
+
+    $info = Get-Item -LiteralPath $FilePath
+    $sizeMB = $info.Length / 1MB
+    $mbPerSec = $sizeMB / $duration
+    return [Math]::Round($mbPerSec, 3)
 }
 
 function Compress-FileWithSevenZip {
@@ -352,9 +421,9 @@ function Compress-FileWithSevenZip {
     $psi.FileName = $SevenZipPath
     $psi.Arguments = $args -join ' '
     $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError  = $true
+    $psi.CreateNoWindow = $true
 
     $p = [System.Diagnostics.Process]::Start($psi)
     $p.WaitForExit()
@@ -381,8 +450,8 @@ function Read-Manifest {
 
     $rows = Import-Csv -LiteralPath $path
     foreach ($r in $rows) {
-        $r | Add-Member -NotePropertyName Length         -NotePropertyValue ([long]$r.Length) -Force
-        $r | Add-Member -NotePropertyName LastWriteTime  -NotePropertyValue (Convert-StringToLastWriteTime $r.LastWriteTimeStr) -Force
+        $r | Add-Member -NotePropertyName Length        -NotePropertyValue ([long]$r.Length) -Force
+        $r | Add-Member -NotePropertyName LastWriteTime -NotePropertyValue (Convert-StringToLastWriteTime $r.LastWriteTimeStr) -Force
     }
     return $rows
 }
@@ -426,7 +495,7 @@ function UpdateSourceDatabase {
     param(
         [Parameter(Mandatory)]
         [string]$SourcePath,
-        [string]$FfmpegPath
+        [string]$FfprobePath
     )
 
     $sourcePath = (Resolve-Path -LiteralPath $SourcePath).Path
@@ -453,52 +522,42 @@ function UpdateSourceDatabase {
         if ($prev) {
             if ($prev.Length -ne $f.Length -or $prev.LastWriteTime -ne $f.LastWriteTime) {
                 $needsHash = $true
-            }
-            else {
+            } else {
                 $hashValue = $prev.xxH2Hash
                 $mediaMB   = $prev.MediaMBPerSec
             }
-        }
-        else {
+        } else {
             $needsHash = $true
         }
 
         if ($needsHash) {
             $hashValue = CalculateFileHash -FilePath $f.FullName
-            $mediaMB   = Get-MediaMBPerSec -FilePath $f.FullName -FfmpegPath $FfmpegPath
+            $mediaMB   = Get-MediaMBPerSec -FilePath $f.FullName -FfprobePath $FfprobePath
         }
 
         $updated.Add([pscustomobject]@{
-            DataPath        = ''          # Not used at source
+            DataPath        = ''
             RelativePath    = $rel
             Length          = $f.Length
             LastWriteTime   = $f.LastWriteTime
             xxH2Hash        = $hashValue
-            Compressed      = ''          # N/A at source
-            StoredAsHashSize= ''          # N/A at source
+            Compressed      = ''
+            StoredAsHashSize= ''
             Duplicate       = 0
             MediaMBPerSec   = $mediaMB
         })
     }
 
-    # Remove entries that no longer exist: already handled by rebuilding from $files only.
-
-    # Sort from longest relative path to shortest
     $sorted = $updated | Sort-Object { $_.RelativePath.Length } -Descending
 
-    # Duplicate detection by hash+size
     $groups = $sorted | Group-Object xxH2Hash, Length
-    $nextGroupId = 1
     foreach ($grp in $groups) {
         if ($grp.Count -gt 1) {
-            # sort by shortest path first
             $gSorted = $grp.Group | Sort-Object { $_.RelativePath.Length }
-            $first   = $gSorted[0]
             $others  = $gSorted[1..($gSorted.Count-1)]
             foreach ($o in $others) {
                 $o.Duplicate = 1
             }
-            $nextGroupId++
         }
     }
 
@@ -524,8 +583,7 @@ function CopySourceFileDataToBackup {
     try {
         if ($ShouldCompress -and $SevenZipPath) {
             Compress-FileWithSevenZip -SevenZipPath $SevenZipPath -SourceFile $SourceFilePath -Destination7z $BackupFilePath
-        }
-        else {
+        } else {
             $dir = Split-Path -LiteralPath $BackupFilePath -Parent
             if (-not (Test-Path -LiteralPath $dir)) {
                 New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -541,7 +599,7 @@ function CopySourceFileDataToBackup {
 
 # endregion
 
-# region Backup DB maintenance & sanitization (skeletons)
+# region Backup DB maintenance (simplified sanitization)
 
 function CheckBackedUpDatabase {
     param(
@@ -587,10 +645,7 @@ function SanitizeChangeDatabase {
         [Parameter(Mandatory)]
         [scriptblock]$Log
     )
-
-    # For now this is a simple pass-through stub; full de-dup across all change folders
-    # is complex and can be layered on later.
-    & $Log "SanitizeChangeDatabase is currently a shallow check only." 'INFO'
+    & $Log "SanitizeChangeDatabase stub – deep cross-change-folder dedupe not implemented yet." 'INFO'
 }
 
 function SanitizeBackupDatabase {
@@ -607,12 +662,8 @@ function SanitizeBackupDatabase {
         [scriptblock]$Log
     )
 
-    # First basic consistency check
     $db = CheckBackedUpDatabase -FolderRoot $BackupRoot -Log $Log
-
-    # TODO: Implement transformation to match current flags
-    & $Log "SanitizeBackupDatabase transformation is not fully implemented yet." 'INFO'
-
+    & $Log "SanitizeBackupDatabase transformation not fully implemented; using current DB as-is." 'INFO'
     return $db
 }
 
@@ -636,35 +687,52 @@ param(
     [string]`$TargetRoot
 )
 
+`$ErrorActionPreference = 'Stop'
+
 if (-not `$TargetRoot) {
     `$TargetRoot = Read-Host 'Enter target folder to reconstruct into'
 }
 
 `$BackupRoot = '$BackupRoot'
 `$ChangeRoot = '$ChangeRoot'
+`$DatabaseFilename = '$DatabaseFilename'
+`$ReconstructLogName = '$ReconstructLogName'
 
 if (`$TargetRoot -like "`$BackupRoot*"`" -or
     `$TargetRoot -like "`$ChangeRoot*"`") {
     throw 'TargetRoot must be outside backup and change folders.'
 }
 
-`$logPath = Join-Path `$TargetRoot '$ReconstructLogName'
-New-Item -ItemType Directory -Path `$TargetRoot -Force | Out-Null
+if (-not (Test-Path -LiteralPath `$TargetRoot)) {
+    New-Item -ItemType Directory -Path `$TargetRoot -Force | Out-Null
+}
+
+`$logPath = Join-Path `$TargetRoot `$ReconstructLogName
 "`$(Get-Date -Format 'O') - Reconstruction starting" | Out-File -LiteralPath `$logPath -Encoding UTF8
 
-# TODO: full multi-folder history aggregation as per detailed design.
-# For now, reconstruct current backup MANIFEST only.
-
-`$manifestPath = Join-Path `$BackupRoot '$DatabaseFilename'
+`$manifestPath = Join-Path `$BackupRoot `$DatabaseFilename
 if (-not (Test-Path -LiteralPath `$manifestPath -PathType Leaf)) {
     throw 'MANIFEST.csv not found in backup root.'
 }
 
 `$db = Import-Csv -LiteralPath `$manifestPath
 
+`$totalBytes = 0L
+foreach (`$row in `$db) {
+    if (`$row.Length) { `$totalBytes += [long]`$row.Length }
+}
+try {
+    `$drive = Get-PSDrive -Name (Split-Path -Qualifier `$TargetRoot)
+    if (`$drive.Free -lt `$totalBytes) {
+        "Not enough free space on target drive. Required: `$totalBytes, Free: `$(`$drive.Free)" |
+            Out-File -LiteralPath `$logPath -Append
+        throw "Not enough free space on target drive."
+    }
+} catch {}
+
 foreach (`$row in `$db) {
     `$rel = `$row.RelativePath
-    `$srcData = `$row.DataPath
+    `$data = `$row.DataPath
     if ([string]::IsNullOrWhiteSpace(`$rel)) { continue }
 
     `$destFull = Join-Path `$TargetRoot `$rel
@@ -673,20 +741,23 @@ foreach (`$row in `$db) {
         New-Item -ItemType Directory -Path `$destDir -Force | Out-Null
     }
 
-    if (-not [string]::IsNullOrWhiteSpace(`$srcData)) {
-        `$srcFull = Join-Path `$BackupRoot `$srcData
-        if (-not (Test-Path -LiteralPath `$srcFull -PathType Leaf)) {
-            "`$(Get-Date -Format 'O') - Missing data file: `$srcData" | Out-File -LiteralPath `$logPath -Append
-            continue
-        }
-        Copy-Item -LiteralPath `$srcFull -Destination `$destFull -Force
+    if ([string]::IsNullOrWhiteSpace(`$data)) {
+        "`$(Get-Date -Format 'O') - No datapath for `$rel" | Out-File -LiteralPath `$logPath -Append
+        continue
     }
-    else {
-        "`$(Get-Date -Format 'O') - No data path for: `$rel" | Out-File -LiteralPath `$logPath -Append
+
+    `$srcFull = Join-Path `$BackupRoot `$data
+    if (-not (Test-Path -LiteralPath `$srcFull -PathType Leaf)) {
+        "`$(Get-Date -Format 'O') - Missing datapath `$data for `$rel" | Out-File -LiteralPath `$logPath -Append
+        continue
     }
+
+    # TODO: handle decompression if Compressed flag says so (e.g., .7z)
+    Copy-Item -LiteralPath `$srcFull -Destination `$destFull -Force
 }
 
 "`$(Get-Date -Format 'O') - Reconstruction complete" | Out-File -LiteralPath `$logPath -Append
+Write-Host "Reconstruction finished. See log: `$logPath"
 "@
 
     Set-Content -LiteralPath $ps1Path -Value $script -Encoding UTF8
@@ -716,12 +787,12 @@ function Run-BackupSet {
         [System.Collections.Generic.List[string]]$LogPaths
     )
 
-    $name   = $Set.Name
-    $src    = $Set.SourcePath
-    $bkp    = $Set.BackupPath
-    $chg    = $Set.ChangePath
-    $freq   = $Set.HashRecalcFreq
-    $compress = [bool]$Set.CompressEnabled
+    $name         = $Set.Name
+    $src          = $Set.SourcePath
+    $bkp          = $Set.BackupPath
+    $chg          = $Set.ChangePath
+    $freq         = $Set.HashRecalcFreq
+    $compress     = [bool]$Set.CompressEnabled
     $preserveTree = [bool]$Set.PreserveFolderTree
 
     if (-not (Test-Path -LiteralPath $src -PathType Container)) {
@@ -754,17 +825,14 @@ function Run-BackupSet {
     }
 
     $SevenZipPath = $Deps['7z']
-    $FfmpegPath   = $Deps['ffmpeg']
+    $FfprobePath  = $Deps['ffprobe']
 
-    # 1–2: Update source manifest
     & $log "Updating source manifest at '$srcPath'."
-    $sourceDb = UpdateSourceDatabase -SourcePath $srcPath -FfmpegPath $FfmpegPath
+    $sourceDb = UpdateSourceDatabase -SourcePath $srcPath -FfprobePath $FfprobePath
 
-    # 3: Backup folder existence + DB
     & $log "Sanitizing backup manifest at '$bkpPath'."
     $backupDb = SanitizeBackupDatabase -BackupRoot $bkpPath -PreserveFolderTree $preserveTree -CompressEnabled $compress -SevenZipPath $SevenZipPath -Log $log
 
-    # Determine last hash run (using max LastWriteTime in backup DB as heuristic)
     $lastHashRun = $null
     if ($backupDb -and $backupDb.Count -gt 0) {
         $lastHashRun = ($backupDb | ForEach-Object { $_.LastWriteTime } | Measure-Object -Maximum).Maximum
@@ -775,12 +843,9 @@ function Run-BackupSet {
 
     # 3b: Create staging folder
     New-Item -ItemType Directory -Path $BackupStagingFolder -Force | Out-Null
-
-    # Copy backup manifest into staging as pre-state
-    & $log "Saving pre-backup manifest to staging."
+    & $log "Saving pre-backup manifest to staging '$BackupStagingFolder'."
     Write-Manifest -FolderPath $BackupStagingFolder -Records $backupDb
 
-    # Map backup DB by RelativePath
     $backupMap = @{}
     foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
 
@@ -788,7 +853,7 @@ function Run-BackupSet {
     $sourceMap = @{}
     foreach ($row in $sourceDb) { $sourceMap[$row.RelativePath] = $row }
 
-    $newOrChanged = New-Object System.Collections.Generic.List[object]
+    $newOrChanged      = New-Object System.Collections.Generic.List[object]
     $removedFromSource = New-Object System.Collections.Generic.List[object]
 
     foreach ($rel in $sourceMap.Keys) {
@@ -796,8 +861,7 @@ function Run-BackupSet {
         $b = $backupMap[$rel]
         if (-not $b) {
             $newOrChanged.Add($s)
-        }
-        else {
+        } else {
             if ($s.Length -ne $b.Length -or $s.LastWriteTime -ne $b.LastWriteTime -or $s.xxH2Hash -ne $b.xxH2Hash) {
                 $newOrChanged.Add($s)
             }
@@ -823,7 +887,7 @@ function Run-BackupSet {
         $len  = $grp.Group[0].Length
         $exts = ($grp.Group | ForEach-Object { [IO.Path]::GetExtension($_.RelativePath).ToLowerInvariant() } | Select-Object -Unique)
         if ($exts.Count -gt 1) {
-            & $log "Warning: multiple extensions for hash=$hash len=$len : $($exts -join ', ')" 'WARN'
+            & $log "Multiple extensions for hash=$hash len=$len : $($exts -join ', ')" 'WARN'
         }
 
         $existingBackupWithHash = $backupDb | Where-Object { $_.xxH2Hash -eq $hash -and $_.Length -eq $len }
@@ -838,15 +902,11 @@ function Run-BackupSet {
             $dataPath = if ($storedAsHash) {
                 $baseName = GetFilenameAsHashAndSize -HashHex $hash -Length $len -Extension (if ($compressFlag) { '.7z' } else { $ext })
                 $baseName
-            }
-            else {
+            } else {
                 $rel
             }
 
-            $bRow = $backupMap[$rel]
-
             if ($existingBackupWithHash) {
-                # C: hash already exists in backup – reuse datapath, treat as move or duplicate
                 $existingDataPath = $existingBackupWithHash[0].DataPath
                 $entryForBackup = [pscustomobject]@{
                     DataPath        = $existingDataPath
@@ -860,11 +920,9 @@ function Run-BackupSet {
                     MediaMBPerSec   = $entry.MediaMBPerSec
                 }
                 $backupMap[$rel] = $entryForBackup
-            }
-            else {
-                # D/E: new content
-                $srcFull = Join-Path $srcPath $rel
-                $destDataRel = $dataPath
+            } else {
+                $srcFull      = Join-Path $srcPath $rel
+                $destDataRel  = $dataPath
                 $destDataFull = Join-Path $bkpPath $destDataRel
 
                 $result = CopySourceFileDataToBackup -SourceFilePath $srcFull -BackupFilePath $destDataFull -ShouldCompress:$compressFlag -SevenZipPath $SevenZipPath
@@ -891,7 +949,6 @@ function Run-BackupSet {
         }
     }
 
-    # F: entries in backup not in source -> move to staging
     foreach ($bk in $removedFromSource) {
         $rel   = $bk.RelativePath
         $data  = $bk.DataPath
@@ -930,9 +987,9 @@ function Run-BackupSet {
     Write-Manifest -FolderPath $BackupStagingFolder -Records $stagingDb
 
     # 5A: rename staging to final change folder
-    $label = Get-Date -Format $FileLabelDateFormat
+    $label      = Get-Date -Format $FileLabelDateFormat
     $countLabel = ('{0:D6}' -f [Math]::Min($changedCount, 999999))
-    $finalName = "Pre_$label`_${countLabel}_Changes"
+    $finalName  = "Pre_$label`_${countLabel}_Changes"
     $finalChangeFolder = Join-Path $chgPath $finalName
     Rename-Item -LiteralPath $BackupStagingFolder -NewName $finalName
 
@@ -959,13 +1016,18 @@ $cfg      = Import-Clixml -LiteralPath $ConfigPath
 $Secrets  = $cfg.Secrets
 $Sets     = $cfg.BackupSets
 
+# Temporary logger just for dependency messages
+$globalLogPath = Join-Path ([IO.Path]::GetDirectoryName($ConfigPath)) 'Backup_Global.log'
+$globalLog     = New-Logger -LogFile $globalLogPath
+
 $anyCompress = $false
 $anyMedia   = $false
 foreach ($s in $Sets) {
     if ($s.CompressEnabled) { $anyCompress = $true }
-    # if you want ffmpeg metrics always: $anyMedia = $true
+    # If you want ffprobe always active, set $anyMedia = $true
 }
-$deps = Initialize-Dependencies -AnyCompressionNeeded:$anyCompress -AnyMediaMetricsNeeded:$anyMedia
+
+$deps = Initialize-Dependencies -AnyCompressionNeeded:$anyCompress -AnyMediaMetricsNeeded:$anyMedia -Log $globalLog
 
 $overallSuccess = $true
 $logPaths = New-Object System.Collections.Generic.List[string]
@@ -974,7 +1036,6 @@ foreach ($set in $Sets) {
     Run-BackupSet -Set $set -Deps $deps -Secrets $Secrets -OverallSuccess ([ref]$overallSuccess) -LogPaths $logPaths
 }
 
-# Email notification
 $subject = if ($overallSuccess) { 'Automatic Backup Successful' } else { 'Automatic Backup Failed' }
 $body = if ($overallSuccess) {
     "All backup sets completed successfully.`r`n`r`nLogs:`r`n" + ($logPaths -join "`r`n")
