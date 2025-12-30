@@ -201,7 +201,7 @@ Anticipated logic flow of the whole backup script after setup and function defin
 4a. For each database entry in the source file that has a relative path that does not exist in the backup database:
 - A. Group each entry by unique combination of hash and size.  And then process the following logic:
 - B. Because all of the files must be added to the backup database, the array or database for these files needs to be updated so it can be added to the backup database.  If any of the files in the group have mismatching extentions, create a warning in the log indicating all the relative paths that mismatch. The following properties will need to be calculated:
-DataPath - If the backup set is intended to be stored as the hash and size, compute this using the 
+DataPath - If the backup set is intended to be stored as the hash and size, compute this using the GetFilenameAsHashAndSize function, the extention should match the original file name or be .7z if it can be compressed and compression is enabled.
 RelativePath - Same as that from the source database.
 LastWriteTimeStr - Same as that from the source database.
 xxH2Hash - Same as that from the source database.
