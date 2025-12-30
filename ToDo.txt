@@ -96,7 +96,8 @@ Getting ready:
 0a. The database names should be "MANIFEST.csv"
 0b. The reconstruct script should "RECONSTRUCT.bat" which would trigger "RECONSTRUCT.PS1" using data from the database file(s), "RECONSTRUCT.log" would be present in the reconstruct folder and give information about the triggered powershell file.
 0c. The date string format to use in the manifest file ($DatabaseDateFormat = 'O'     # ISO 8601)
-0d. The applicable character array that would be used to create shorter names from hexidecimal formatted data:
+0d. The date string format to use in the change folder description and database file (_{ChangeFolderDateFormat}) of the form "YYYY_MM_DD_HH_mm_ss±HHMM" 
+0e. The applicable character array that would be used to create shorter names from hexidecimal formatted data:
     $Alphabet = @(
         '!', '#', '$', '%', '&', '''', '(', ')', '+', ',', '-', '.', ';', '=', '@',
         '[', ']', '^', '_', '`', '{', '}', '~',
@@ -104,7 +105,7 @@ Getting ready:
         'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
         'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z'
     )
-0e. File extentions that would be considered not good candidates for compression:
+0f. File extentions that would be considered not good candidates for compression:
 $nonCompressible = @(
         '.zip', '.7z', '.rar',
         '.gz',  '.bz2', '.xz',
@@ -114,11 +115,12 @@ $nonCompressible = @(
     )
 
 
+
 1. Check for installed dependencies (7zip, .NET xxHash, and others if necessary like powershell version if applicable) and prompt the user to press enter to install them through PowerShell.
 2. Load the configuration file that contains the backup sets to be run an the email information.
 
 
-Functions:
+Functions (Started with star, followed with description):
 
 *Convert-HexToShortName - Generated before.
 
@@ -130,10 +132,12 @@ Functions:
 
 *CleanSourceDatabase - A function that removes non-existing entries from the source database and returns the latest possibly valid database values with the inputs being the source folder path and the name of the database file.  It should load the database file if it exists, compare it with the existing file structure, remove relative paths that don't exist anymore, save the updated database back to it's path, and return the database information.
 
-*UpdateSourceDatabase - A function that updates the  source database with updated information.  With the inputs being the source folder, the full file path, the size, the modification date, a flag to indicate if hashing should occur (Not required, required, or forcably rehash), the database filename, and the loaded source database content (So that it does not need to be reloaded each time the function is called).  The following properties would be maintained: RelativePath, Length, LastWriteTimeStr, Hash.
+*UpdateDatabaseHash - A function that updates a databases entry hash value.  Inputs being the database array or hash table, and the full file path of the file to hash.  The returned value would be the updated database array or hash table with the hash table.  The full file path would be used in conjunction with the xxHash -H2 method to calculate the files hash, and it would be placed in the database array where the file would be identified by finding where the relative path of the database matched the end of the full file path of the file.  The returned value would be the hash value.
+
+*UpdateSourceDatabase - A function that updates the  source database with updated information.  With the inputs being the source folder, the database filename, the full file path, the size, the modification date, a flag to indicate if hashing should occur (Not required, required, or forcably rehash), and the loaded source database content (So that it does not need to be reloaded each time the function is called).  The following properties would be maintained: RelativePath, Length, LastWriteTimeStr, Hash.
 
 If the relative path does not exist add it to the source database with the modification date and length.  Only update the hash if it is required or forcably rehashed.
-If the relative path does exist and the modification date has changed or the length is different and the hash exists, recalculate the hash.  Update the modification date, length, and hash as available.
+If the relative path does exist and the modification date has changed or the length is different and the hash exists, recalculate the hash (Could use the UpdateDatabaseHash function here).  Update the modification date, length, and hash as available.
 The function would calculate the hash using the xxHash 128 bit hash (from the .NET library).
 If the database filename is provided, forcably save the csv database to the source folder.
 
@@ -141,8 +145,19 @@ The database and reconstruct files should be ignored when comparing to the datab
 
 *CrosscheckSourceAndBackupDatabases - A function that compares the source and backup database, tags duplicates, and prepares to select the files that need to be copid from the source, and which files need to be moved to the change database.   Input of backup folder, source folder, backup database name, source database name.  Outputs would be two arrays: a list of file properties that will be used to be move files from the backup folder to the change folder since they no longer match the source folder, and a list of file properties that will be used to copy files from the source folder to the backup folder.
 
+First, determine if any hash comparisons need to be performed.  For each relative path in the source database if there is a match in both the relative path and sizes / lengths of the files against the backup database but their modification dates do NOT match and either the source or backup database do not have hash values set / are blank, the hashes need to be calculated so a comparison can be made.  Call the UpdateDatabaseHash function with the source database and source file and again with the backup database and backup database datapath.
 
 
+
+Next, for each relative path in the source database check if a corresponding relative path exists in the backup database.  If it exists and the sizes / lengths of the files do not match, add the corresponding database entries from the backup folder into an array or hash table representing the files that are changed, and add the corresponding database entries from the source folder into an array or hash table representing the files that are new or modified.
+
+Next, for each relative path in the source database check if a corresponding relative path exists in the backup database.  If it exists and the hash values do not match, add the corresponding database entries from the backup folder into an array or hash table representing the files that are changed, and add the corresponding database entries from the source folder into an array or hash table representing the files that are new or modified.
+
+Then, for each relative path in the source database, if a corresponding relative path does not exist in the backup dabase, add the database entries from the source database into an array or hash table representing the files that are new or modified.
+
+Finally, for each relative path in the backup database, if a corresponding relative path does not exist in the source dabase, add the database entries from the backup database into an array or hash table representing the files that are changed.
+
+Four outputs: $FilesThatChanged, $NewOrModifiedFiles, an updated Source Database, and an updated backup database.  Note $FilesThatChanged should have the same properties / fields as the backup database since these are entries from the backup folder, and $NewOrModifiedFiles should have the same properties / fields as the source database since those entires are from the source folder.
 
 *SanatizeChangeDatabase - A function that validates the change database. The input would be the change folder, the database file name.
 Go through each file in the change database folder and verify the following:
@@ -150,9 +165,19 @@ Go through each file in the change database folder and verify the following:
 6b. If a file exists in the change folder that does not exist in the database file (excluding the database file itself), log a warning.
 The database and reconstruct files should be ignored.
 
-*SanatizeBackupDatabase - A function that validates or transforms the backup database and returns the database.  The inputs are the backup folder, the backup database filename, and if the database is expected to be mirrored or named via hash and filesize.  Go through each file in the backup database folder and verify the following:
+*SanatizeBackupDatabase - A function that validates or transforms the backup database and returns the database.  The inputs are the backup folder, the backup database filename, if the database is expected to retain the source file structure or be named via hash and filesize, and if the backup files are supposed to be compressed if applicable.  Go through each file in the backup database folder and verify the following:
 7a. Run SanatizeChangeDatabase on the inputs to detect any mismatch between the database file and the folder files.
-7b. Correct / transform the backup database to match the preference of the database set.  For example, if the backup set calls for compression, but the file in the backup is not compressed, compress it and update the entry.  If the backup set calls for a preserved folder tree but the entry in the backup indicates it's renamed (StoredAsHashSize), restore it to the original path that's called for and make sure all datapaths with the same name are also updated to that new path name.
+7b. Correct / transform the backup database to match the preference of the database set.  For example, if the backup set calls for compression, but the file in the backup is not compressed, compress it and update the entry.  If the backup set calls for a preserved folder tree but the entry in the backup indicates it's renamed (StoredAsHashSize), restore it to the original path that's called for and make sure all datapaths with the same name are also updated to that new path name.  Note this should be able to be performed with the CopyOrUpdateBackup funciton.  After this is completed the backup database filename should be resaved if it was changed to reflect new properties.
+
+*CopyOrUpdateBackup - Input of backup folder, the backup database filename, the backup database hash table or array, the source database hash table or array if the file is getting added from the source folder, the filepath to add or modify in the backup folder, if the database is expected to retain the source file structure or be named via hash and filesize, and if the backup files are supposed to be compressed if applicable.
+
+If the source database hash table or array is provided, it will be assumed that the file is getting added from the source folder.
+
+This function will take a file path, and copy it into the backup folder with necessary compression or rename if it is getting added from the source folder.  If the file exists in the backup already (datapath entry already exists), it will be changed to meet the expected compression, naming convention.  The updated backup database will also be returned so that if anything was converted or renamed, all entries that pointed to the old datapath file will be modified to point to the new file.
+
+Any new additions that have the same file size as another file in the backup database should have both hashes calculated to verify uniqueness (UpdateDatabaseHash funciton).
+
+If the backup database was updated, it should be saved to ensure it's definition stays in sync with the actual file content.
 
 *MoveToChangeFolder - Input of backup folder, change folder, backup database name, change database name,  datapath file to move.  This would move the datapath file from the backup folder to the change folder, remove the file entry from the backup database, and add it to the change folder database.
 
@@ -181,10 +206,12 @@ Anticipated logic flow of the whole backup script after setup and function defin
 2d. For each file in the group, call the function to update the source database (UpdateSourceDatabase), if 5 seconds have passed since the last time the function was called with the database path, or this is the last file and the last group, call the function with the database path so it saves to the file.
 3. Check if backup folder exists, if it does exist:
 3a. If the backup folder does exist, first check to see if the database file exists and verify consistency (SanatizeBackupDatabase)
-4. Run CrosscheckSourceAndBackupDatabases and user the returned variables for files to move to the change folder and files to copy from the source to backup.  ($FilesThatChanged and $NewOrModifiedFiles)
-5. If there are file sthat have been removed or changed (content in $FilesThatChanged and $NewOrModifiedFiles) the changes need to be tracked in the change folder:
-5a. Copy the backup database file into the current target change folder since that defines the state before the backup was performed, but set all the datapath entries to blank values since there are no files yet in the backup folder.
-5b. ||||| If the relative path exists in the backup but no longer exists in the source database, Process it into the change folder and update the change folder database.
+4. Run CrosscheckSourceAndBackupDatabases and user the returned variables for files to move to the change folder and files to copy from the source to backup.  ($FilesThatChanged and $NewOrModifiedFiles) ||||| NEED TO DEAL WITH DUPLICATE FILE ENTRIES
+5. If there are file sthat have been removed or changed (content in $FilesThatChanged and $NewOrModifiedFiles) the changes need to be tracked in the change folder, calculate the backup folder name as "Pre_{ChangeFolderDateFormat}:
+5a. If the folder already exists, produce a warning and skip to the next backup folder set.
+5b. Copy the backup database file into the current target change folder since that defines the state before the backup was performed, but set all the datapath entries to blank values since there are no files yet in the backup folder, also note the database filename should also be appended with the {ChangeFolderDateFormat}.
+5b. Loop through each of the files that changed, for each one run the func
+|||| DUPLICATE FILE ENTRIES TO CONSIDER
 5c. ||||| If the relative path exists in the backup and exists in the source database, but the modfication date is different, make sure both hashs exist, if they don't, run the function to update the database with the hash file as needed for the backup or source database.  If the hashes are identical, update the modification date on the file and database to match the source database.  If the hashes don't match, process it into the change folder and update the change folder database.
 6: Go through all change folders and sanatize them while getting a full change list (combination of all the change folder databases.) by using the function SanatizeChangeDatabase, this will be used to ensure any file reversions are removed from the change history so the same file does not get backed up more than once.
 7. Go through the source database, and any files with a non-blank hash that occurs more than once should have all but the first entries tagged as duplicate.
