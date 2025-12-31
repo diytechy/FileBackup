@@ -645,7 +645,147 @@ function SanitizeChangeDatabase {
         [Parameter(Mandatory)]
         [scriptblock]$Log
     )
-    & $Log "SanitizeChangeDatabase stub – deep cross-change-folder dedupe not implemented yet." 'INFO'
+
+    if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) {
+        & $Log "Change root '$ChangeRoot' does not exist. Skipping sanitize." 'INFO'
+        return
+    }
+
+    & $Log "Starting SanitizeChangeDatabase for '$ChangeRoot' and backup '$BackupRoot'." 'INFO'
+
+    $changeFolderRegex = '^Pre_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}_.*_Changes$'
+
+    # 1. Discover all change folders
+    $changeDirs = Get-ChildItem -LiteralPath $ChangeRoot -Directory |
+                  Where-Object { $_.Name -match $changeFolderRegex } |
+                  Sort-Object Name  # oldest -> newest
+
+    if (-not $changeDirs -or $changeDirs.Count -eq 0) {
+        & $Log "No change folders found under '$ChangeRoot'." 'INFO'
+        return
+    }
+
+    # 2. Build global index of datapaths by (hash,length)
+    $globalMap = @{}  # key: "<hash>|<length>" → list of [pscustomobject]{LocationType, Folder, DataPath, FullPath, IsBackup, FolderOrder}
+
+    $folderOrder = 0
+    $backupManifest = @()
+
+    # Helper to add entries to global map
+    function Add-ToGlobalMap {
+        param(
+            [string]$LocationType,  # 'Backup' or 'Change'
+            [string]$Folder,
+            [object]$Row,
+            [int]$FolderOrder
+        )
+        if ([string]::IsNullOrWhiteSpace($Row.DataPath)) { return }
+        if ([string]::IsNullOrWhiteSpace($Row.xxH2Hash)) { return }
+
+        $key = "$($Row.xxH2Hash)|$($Row.Length)"
+        $full = Join-Path $Folder $Row.DataPath
+
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+            return
+        }
+
+        if (-not $globalMap.ContainsKey($key)) {
+            $globalMap[$key] = New-Object System.Collections.Generic.List[object]
+        }
+
+        $globalMap[$key].Add([pscustomobject]@{
+            LocationType = $LocationType
+            Folder       = $Folder
+            DataPath     = $Row.DataPath
+            FullPath     = $full
+            IsBackup     = ($LocationType -eq 'Backup')
+            FolderOrder  = $FolderOrder
+        })
+    }
+
+    # 2a. Load backup manifest (if any) and index its datapaths
+    if (Test-Path -LiteralPath (Join-Path $BackupRoot $DatabaseFilename) -PathType Leaf) {
+        $backupManifest = Read-Manifest -FolderPath $BackupRoot
+        foreach ($row in $backupManifest) {
+            Add-ToGlobalMap -LocationType 'Backup' -Folder $BackupRoot -Row $row -FolderOrder -1
+        }
+    }
+
+    # 2b. Load each change folder manifest and index datapaths
+    $changeManifests = @()
+    foreach ($dir in $changeDirs) {
+        $folderOrder++
+        $manifest = Read-Manifest -FolderPath $dir.FullName
+        $changeManifests += [pscustomobject]@{
+            Folder   = $dir.FullName
+            Name     = $dir.Name
+            Order    = $folderOrder     # increasing → newer
+            Manifest = $manifest
+        }
+        foreach ($row in $manifest) {
+            Add-ToGlobalMap -LocationType 'Change' -Folder $dir.FullName -Row $row -FolderOrder $folderOrder
+        }
+    }
+
+    # 3. For each (hash,length) group, select datapath to keep
+    foreach ($key in $globalMap.Keys) {
+        $entries = $globalMap[$key]
+
+        if ($entries.Count -le 1) {
+            continue
+        }
+
+        # Prefer backup copy if present
+        $backupEntry = $entries | Where-Object { $_.IsBackup } | Select-Object -First 1
+        if ($backupEntry) {
+            $keeper = $backupEntry
+        }
+        else {
+            # Else keep the newest change-folder copy (highest FolderOrder)
+            $keeper = $entries | Where-Object { -not $_.IsBackup } | Sort-Object FolderOrder -Descending | Select-Object -First 1
+        }
+
+        # All others are redundant and should be deleted from change folders
+        $toDelete = $entries | Where-Object {
+            # Never delete the chosen keeper
+            $_.FullPath -ne $keeper.FullPath -and -not $_.IsBackup
+        }
+
+        foreach ($del in $toDelete) {
+            if (Test-Path -LiteralPath $del.FullPath -PathType Leaf) {
+                try {
+                    Remove-Item -LiteralPath $del.FullPath -Force
+                    & $Log "Removed duplicate datapath '$($del.DataPath)' from change folder '$($del.Folder)' (hash/len: $key)." 'INFO'
+                }
+                catch {
+                    & $Log "Failed to remove duplicate datapath '$($del.DataPath)' from '$($del.Folder)': $($_.Exception.Message)" 'ERROR'
+                }
+            }
+        }
+    }
+
+    # 4. For each change folder manifest, blank DataPath if file no longer exists in that folder
+    foreach ($cm in $changeManifests) {
+        $folder   = $cm.Folder
+        $manifest = $cm.Manifest
+        $changed  = $false
+
+        foreach ($row in $manifest) {
+            if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+            $full = Join-Path $folder $row.DataPath
+            if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                $row.DataPath = ''   # It exists either in backup folder or newer change folder - reconstruct will use hash
+                $changed = $true
+            }
+        }
+
+        if ($changed) {
+            & $Log "Updating MANIFEST in change folder '$folder' after datapath cleanup." 'INFO'
+            Write-Manifest -FolderPath $folder -Records $manifest
+        }
+    }
+
+    & $Log "SanitizeChangeDatabase completed for '$ChangeRoot'." 'INFO'
 }
 
 function SanitizeBackupDatabase {
@@ -998,10 +1138,14 @@ function Run-BackupSet {
     GenerateReconstructScript -BackupRoot $bkpPath -ChangeRoot $chgPath
     Copy-Item -LiteralPath (Join-Path $bkpPath $ReconstructPs1Name) -Destination $finalChangeFolder -Force
     Copy-Item -LiteralPath (Join-Path $bkpPath $ReconstructBatName) -Destination $finalChangeFolder -Force
+    
+    # After we’ve created the change folder and updated backup manifest, sanitize change databases
+    SanitizeChangeDatabase -ChangeRoot $chgPath -BackupRoot $bkpPath -Log $log
 
     & $log "Changed files count = $changedCount"
     & $log "Change folder created: $finalChangeFolder"
     & $log "----- Backup set '$name' completed -----"
+}
 }
 
 # endregion

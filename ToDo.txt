@@ -107,3 +107,78 @@ function Convert-ShortNameToHex {
     # Convert back to 8-char hex
     return ('{0:X8}' -f $Value)
 }
+
+
+Aux outputs:
+
+function Ensure-K4osHashLibrary {
+    param(
+        [string]$RequiredVersion = "1.0.8"
+    )
+
+    # Check if package is installed
+    $pkg = Get-Package -Name "K4os.Hash.xxHash" -ErrorAction SilentlyContinue
+
+    if (-not $pkg) {
+        Write-Host "K4os.Hash.xxHash $RequiredVersion is not installed."
+        $resp = Read-Host "Install it now? (Y/N)"
+        if ($resp -match '^[Yy]') {
+            Install-Package K4os.Hash.xxHash -RequiredVersion $RequiredVersion -Force -Scope CurrentUser
+        }
+        else {
+            throw "K4os.Hash.xxHash is required for xxHash128 hashing."
+        }
+    }
+
+    # Re-query after install
+    $pkg = Get-Package -Name "K4os.Hash.xxHash" -ErrorAction Stop
+
+    # Locate DLL inside the NuGet package directory
+    $installDir = Split-Path $pkg.Source -Parent
+
+    $dll = Get-ChildItem -Path $installDir -Recurse -Filter "K4os.Hash.xxHash.dll" |
+           Select-Object -First 1
+
+    if (-not $dll) {
+        throw "K4os.Hash.xxHash.dll not found in installed package."
+    }
+
+    # Load DLL if not already loaded
+    if (-not ("K4os.Hash.xxHash.XXH128" -as [type])) {
+        Add-Type -Path $dll.FullName
+    }
+
+    return $dll.FullName
+}
+
+
+function CalculateFileHash {
+    param(
+        [Parameter(Mandatory)]
+        [string]$FilePath
+    )
+
+    # Ensure library is loaded
+    if (-not ("K4os.Hash.xxHash.XXH128" -as [type])) {
+        Ensure-K4osHashLibrary | Out-Null
+    }
+
+    $stream = [System.IO.File]::OpenRead($FilePath)
+    try {
+        $digest = [K4os.Hash.xxHash.XXH128]::DigestOf($stream)
+        $hex = '{0:x16}{1:x16}' -f $digest.High, $digest.Low
+        return $hex.ToUpperInvariant()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+
+$xxHashDll = Ensure-K4osHashLibrary
+Write-Host "Loaded xxHash from: $xxHashDll"
+
+
+
+Install-Package K4os.Hash.xxHash -Version 1.0.8 -Scope CurrentUser
+
