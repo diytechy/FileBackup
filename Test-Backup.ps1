@@ -41,18 +41,18 @@ $TestResults = New-Object System.Collections.Generic.List[object]
 
 function Mount-TestDrives {
     New-Item -ItemType Directory -Force -Path $SrcPhys, $BkpPhys, $ChgPhys, $ReconPhys | Out-Null
-    subst "${DriveSrc}:" $SrcPhys
-    subst "${DriveBkp}:" $BkpPhys
-    subst "${DriveChg}:" $ChgPhys
-    subst "${DriveRecon}:" $ReconPhys
+    cmd /c "subst ${DriveSrc}: `"$SrcPhys`""
+    cmd /c "subst ${DriveBkp}: `"$BkpPhys`""
+    cmd /c "subst ${DriveChg}: `"$ChgPhys`""
+    cmd /c "subst ${DriveRecon}: `"$ReconPhys`""
     Write-Host "Mounted test drives: ${DriveSrc}:\ ${DriveBkp}:\ ${DriveChg}:\ ${DriveRecon}:\"
 }
 
 function Dismount-TestDrives {
-    subst "${DriveSrc}: /d" 2>$null
-    subst "${DriveBkp}: /d" 2>$null
-    subst "${DriveChg}: /d" 2>$null
-    subst "${DriveRecon}: /d" 2>$null
+    cmd /c "subst ${DriveSrc}: /d 2>nul"
+    cmd /c "subst ${DriveBkp}: /d 2>nul"
+    cmd /c "subst ${DriveChg}: /d 2>nul"
+    cmd /c "subst ${DriveRecon}: /d 2>nul"
     Write-Host "Dismounted test drives"
 }
 
@@ -66,7 +66,7 @@ function Assert-DrivesAvailable {
 
 function New-TestFile {
     param([string]$Path, [string]$Content)
-    $dir = Split-Path -LiteralPath $Path -Parent
+    $dir = Split-Path -Path $Path -Parent
     if (-not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
@@ -149,14 +149,14 @@ function Assert-True {
         $result = & $Condition
         if ($result) {
             Add-TestResult $Suite $Group $TestName 'PASS' ''
-            Write-Host "  ✓ $TestName" -ForegroundColor Green
+            Write-Host "  [OK] $TestName" -ForegroundColor Green
         } else {
             Add-TestResult $Suite $Group $TestName 'FAIL' 'Condition returned false'
-            Write-Host "  ✗ $TestName (condition false)" -ForegroundColor Red
+            Write-Host "  [FAIL] $TestName (condition false)" -ForegroundColor Red
         }
     } catch {
         Add-TestResult $Suite $Group $TestName 'FAIL' $_.Exception.Message
-        Write-Host "  ✗ $TestName : $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  [FAIL] $TestName : $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
@@ -172,7 +172,7 @@ function Assert-ManifestRow {
     try {
         if (-not (Test-Path -LiteralPath $ManifestPath)) {
             Add-TestResult $Suite $Group $TestName 'FAIL' "Manifest not found at $ManifestPath"
-            Write-Host "  ✗ $TestName (manifest missing)" -ForegroundColor Red
+            Write-Host "  [FAIL] $TestName (manifest missing)" -ForegroundColor Red
             return
         }
         $db = Import-Csv -LiteralPath $ManifestPath
@@ -180,15 +180,15 @@ function Assert-ManifestRow {
         $exists = $null -ne $row
         if ($exists -eq $ShouldExist) {
             Add-TestResult $Suite $Group $TestName 'PASS' ''
-            Write-Host "  ✓ $TestName" -ForegroundColor Green
+            Write-Host "  [OK] $TestName" -ForegroundColor Green
         } else {
             $msg = if ($ShouldExist) { "Row not found: $RelativePath" } else { "Row should not exist: $RelativePath" }
             Add-TestResult $Suite $Group $TestName 'FAIL' $msg
-            Write-Host "  ✗ $TestName ($msg)" -ForegroundColor Red
+            Write-Host "  [FAIL] $TestName ($msg)" -ForegroundColor Red
         }
     } catch {
         Add-TestResult $Suite $Group $TestName 'FAIL' $_.Exception.Message
-        Write-Host "  ✗ $TestName : $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  [FAIL] $TestName : $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
@@ -282,10 +282,10 @@ function Test-EdgeCases {
     try {
         & $BackupScriptPath -ConfigPath $ConfigPath 2>&1 | Out-Null
         Add-TestResult $Suite 'EdgeCases' 'EmptySource_completes' 'PASS' ''
-        Write-Host "  ✓ Empty source handled gracefully" -ForegroundColor Green
+        Write-Host "  [OK] Empty source handled gracefully" -ForegroundColor Green
     } catch {
         Add-TestResult $Suite 'EdgeCases' 'EmptySource_completes' 'FAIL' $_.Exception.Message
-        Write-Host "  ✗ Empty source caused error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  [FAIL] Empty source caused error: $($_.Exception.Message)" -ForegroundColor Red
     }
 
     # Test 2: Files with spaces
@@ -313,7 +313,8 @@ function Test-EdgeCases {
 function Run-TestSuite {
     param([string]$ModeName, [bool]$Compress, [bool]$CA)
 
-    Write-Header "TEST SUITE: $ModeName (Compress=$Compress, CA=$CA)"
+    $header = "TEST SUITE: $ModeName (Compress=$Compress, CA=$($CA))"
+    Write-Header $header
 
     # Reset test folders
     Reset-TestFolders
