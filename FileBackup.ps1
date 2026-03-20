@@ -433,6 +433,50 @@ function Compress-FileWithSevenZip {
     }
 }
 
+function Expand-FileWithSevenZip {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SevenZipPath,
+        [Parameter(Mandatory)]
+        [string]$Archive,
+        [Parameter(Mandatory)]
+        [string]$DestinationFile
+    )
+
+    $tempDir = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $SevenZipPath
+        $psi.Arguments = "e `"$Archive`" -o`"$tempDir`" -y"
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.WaitForExit()
+        if ($p.ExitCode -ne 0) {
+            $err = $p.StandardError.ReadToEnd()
+            throw "7-Zip extraction failed for '$Archive'. Error: $err"
+        }
+
+        $extracted = Get-ChildItem -LiteralPath $tempDir -File | Select-Object -First 1
+        if (-not $extracted) {
+            throw "No file extracted from archive '$Archive'"
+        }
+
+        $destDir = Split-Path -LiteralPath $DestinationFile -Parent
+        if (-not (Test-Path -LiteralPath $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        }
+
+        Move-Item -LiteralPath $extracted.FullName -Destination $DestinationFile -Force
+    } finally {
+        Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # endregion
 
 # region Manifest I/O
@@ -803,7 +847,113 @@ function SanitizeBackupDatabase {
     )
 
     $db = CheckBackedUpDatabase -FolderRoot $BackupRoot -Log $Log
-    & $Log "SanitizeBackupDatabase transformation not fully implemented; using current DB as-is." 'INFO'
+
+    # Step 2: Identify rows needing transformation
+    $expectedStoredAs = if ($PreserveFolderTree) { 'Original' } else { 'Hash' }
+    $rowsNeedingTransform = @()
+
+    foreach ($row in $db) {
+        if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+
+        $shouldCompress = Should-CompressFile -FullPath (Join-Path $BackupRoot $row.RelativePath) -CompressEnabled $CompressEnabled
+        $needsTransform = ($row.StoredAsHashSize -ne $expectedStoredAs) -or (($row.Compressed -eq 'Yes') -ne $shouldCompress)
+
+        if ($needsTransform) {
+            $rowsNeedingTransform += $row
+        }
+    }
+
+    # Step 3: Transform each mismatched row
+    foreach ($row in $rowsNeedingTransform) {
+        $currentDataFull = Join-Path $BackupRoot $row.DataPath
+        $shouldCompress = Should-CompressFile -FullPath (Join-Path $BackupRoot $row.RelativePath) -CompressEnabled $CompressEnabled
+
+        # Decompress if currently compressed but should not be
+        $workingFile = $currentDataFull
+        if ($row.Compressed -eq 'Yes' -and -not $shouldCompress) {
+            if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
+                & $Log "Cannot decompress '$($row.DataPath)': 7-Zip not found. Skipping transformation." 'WARN'
+                continue
+            }
+            $tempDecompressed = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+            try {
+                Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $currentDataFull -DestinationFile $tempDecompressed
+                $workingFile = $tempDecompressed
+            } catch {
+                & $Log "Failed to decompress '$($row.DataPath)': $($_.Exception.Message)" 'ERROR'
+                continue
+            }
+        }
+
+        # Compute new DataPath
+        if ($expectedStoredAs -eq 'Hash') {
+            $ext = if ($shouldCompress) { '.7z' } else { [IO.Path]::GetExtension($row.RelativePath) }
+            $newDataPath = GetFilenameAsHashAndSize -HashHex $row.xxH2Hash -Length $row.Length -Extension $ext
+        } else {
+            $newDataPath = $row.RelativePath
+            if ($shouldCompress) { $newDataPath = $row.RelativePath + '.7z' }
+        }
+
+        $newDataFull = Join-Path $BackupRoot $newDataPath
+
+        # Skip if already at correct path
+        if ($newDataFull -eq $currentDataFull) {
+            & $Log "Row '$($row.RelativePath)' already at correct path '$newDataPath'." 'DEBUG'
+            continue
+        }
+
+        # Copy/compress to new location
+        try {
+            if ($shouldCompress -and $row.Compressed -ne 'Yes') {
+                & $Log "Compressing '$($row.DataPath)' -> '$newDataPath'" 'INFO'
+                Compress-FileWithSevenZip -SevenZipPath $SevenZipPath -SourceFile $workingFile -Destination7z $newDataFull
+            } else {
+                & $Log "Copying '$($row.DataPath)' -> '$newDataPath'" 'INFO'
+                $newDir = Split-Path -LiteralPath $newDataFull -Parent
+                if (-not (Test-Path -LiteralPath $newDir)) {
+                    New-Item -ItemType Directory -Path $newDir -Force | Out-Null
+                }
+                Copy-Item -LiteralPath $workingFile -Destination $newDataFull -Force
+            }
+
+            # Remove old file
+            Remove-Item -LiteralPath $currentDataFull -Force
+            & $Log "Removed old datapath '$($row.DataPath)' after transformation." 'INFO'
+
+            # Remove temp decompressed file if it was created
+            if ($workingFile -ne $currentDataFull) {
+                Remove-Item -LiteralPath $workingFile -Force -ErrorAction SilentlyContinue
+            }
+
+            # Update row metadata
+            $row.DataPath = $newDataPath
+            $row.Compressed = if ($shouldCompress) { 'Yes' } else { 'No' }
+            $row.StoredAsHashSize = $expectedStoredAs
+        } catch {
+            & $Log "Failed to transform '$($row.RelativePath)': $($_.Exception.Message)" 'ERROR'
+        }
+    }
+
+    # Step 4: Log warnings for orphaned data files
+    $referencedPaths = @{}
+    foreach ($row in $db) {
+        if ($row.DataPath) { $referencedPaths[$row.DataPath] = $true }
+    }
+
+    $allDataFiles = Get-ChildItem -LiteralPath $BackupRoot -File -Recurse |
+        Where-Object { $_.Name -ne $DatabaseFilename -and $_.Name -notmatch '^RECONSTRUCT' }
+
+    foreach ($dataFile in $allDataFiles) {
+        $rel = $dataFile.FullName.Substring($BackupRoot.Length).TrimStart('\','/')
+        if (-not $referencedPaths[$rel]) {
+            & $Log "Orphaned datapath file found (not referenced by manifest): '$rel'" 'WARN'
+        }
+    }
+
+    # Step 5: Write updated manifest
+    Write-Manifest -FolderPath $BackupRoot -Records $db
+
+    & $Log "SanitizeBackupDatabase completed. Transformed $($rowsNeedingTransform.Count) rows." 'INFO'
     return $db
 }
 
@@ -819,181 +969,99 @@ function GenerateReconstructScript {
         [string]$ChangeRoot
     )
 
+    # Locate Reconstruct.ps1 alongside FileBackup.ps1
+    $templatePs1 = Join-Path $PSScriptRoot 'Reconstruct.ps1'
+    if (-not (Test-Path -LiteralPath $templatePs1 -PathType Leaf)) {
+        throw "Reconstruct.ps1 not found at '$PSScriptRoot'"
+    }
+
+    # Prepend hardcoded path bindings to the copy
+    $overrides = @(
+        "# Auto-generated path bindings (do not edit manually)",
+        "`$BackupRootOverride = '$BackupRoot'",
+        "`$ChangeRootOverride  = '$ChangeRoot'"
+    ) -join "`r`n"
+
+    $content = $overrides + "`r`n`r`n" + (Get-Content -LiteralPath $templatePs1 -Raw)
+
     $ps1Path = Join-Path $BackupRoot $ReconstructPs1Name
-    $batPath = Join-Path $BackupRoot $ReconstructBatName
+    Set-Content -LiteralPath $ps1Path -Value $content -Encoding UTF8
 
-    $script = @"
-param(
-    [string]`$TargetRoot
-)
-
-`$ErrorActionPreference = 'Stop'
-
-if (-not `$TargetRoot) {
-    `$TargetRoot = Read-Host 'Enter target folder to reconstruct into'
-}
-
-`$BackupRoot = '$BackupRoot'
-`$ChangeRoot = '$ChangeRoot'
-`$DatabaseFilename = '$DatabaseFilename'
-`$ReconstructLogName = '$ReconstructLogName'
-
-if (`$TargetRoot -like "`$BackupRoot*"`" -or
-    `$TargetRoot -like "`$ChangeRoot*"`") {
-    throw 'TargetRoot must be outside backup and change folders.'
-}
-
-if (-not (Test-Path -LiteralPath `$TargetRoot)) {
-    New-Item -ItemType Directory -Path `$TargetRoot -Force | Out-Null
-}
-
-`$logPath = Join-Path `$TargetRoot `$ReconstructLogName
-"`$(Get-Date -Format 'O') - Reconstruction starting" | Out-File -LiteralPath `$logPath -Encoding UTF8
-
-`$manifestPath = Join-Path `$BackupRoot `$DatabaseFilename
-if (-not (Test-Path -LiteralPath `$manifestPath -PathType Leaf)) {
-    throw 'MANIFEST.csv not found in backup root.'
-}
-
-`$db = Import-Csv -LiteralPath `$manifestPath
-
-`$totalBytes = 0L
-foreach (`$row in `$db) {
-    if (`$row.Length) { `$totalBytes += [long]`$row.Length }
-}
-try {
-    `$drive = Get-PSDrive -Name (Split-Path -Qualifier `$TargetRoot)
-    if (`$drive.Free -lt `$totalBytes) {
-        "Not enough free space on target drive. Required: `$totalBytes, Free: `$(`$drive.Free)" |
-            Out-File -LiteralPath `$logPath -Append
-        throw "Not enough free space on target drive."
-    }
-} catch {}
-
-foreach (`$row in `$db) {
-    `$rel = `$row.RelativePath
-    `$data = `$row.DataPath
-    if ([string]::IsNullOrWhiteSpace(`$rel)) { continue }
-
-    `$destFull = Join-Path `$TargetRoot `$rel
-    `$destDir  = Split-Path -LiteralPath `$destFull -Parent
-    if (-not (Test-Path -LiteralPath `$destDir)) {
-        New-Item -ItemType Directory -Path `$destDir -Force | Out-Null
-    }
-
-    if ([string]::IsNullOrWhiteSpace(`$data)) {
-        "`$(Get-Date -Format 'O') - No datapath for `$rel" | Out-File -LiteralPath `$logPath -Append
-        continue
-    }
-
-    `$srcFull = Join-Path `$BackupRoot `$data
-    if (-not (Test-Path -LiteralPath `$srcFull -PathType Leaf)) {
-        "`$(Get-Date -Format 'O') - Missing datapath `$data for `$rel" | Out-File -LiteralPath `$logPath -Append
-        continue
-    }
-
-    # TODO: handle decompression if Compressed flag says so (e.g., .7z)
-    Copy-Item -LiteralPath `$srcFull -Destination `$destFull -Force
-}
-
-"`$(Get-Date -Format 'O') - Reconstruction complete" | Out-File -LiteralPath `$logPath -Append
-Write-Host "Reconstruction finished. See log: `$logPath"
-"@
-
-    Set-Content -LiteralPath $ps1Path -Value $script -Encoding UTF8
-
-    $bat = @"
-@echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0$ReconstructPs1Name" %*
-"@
-    Set-Content -LiteralPath $batPath -Value $bat -Encoding ASCII
+    $bat = "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$ReconstructPs1Name`" %*"
+    Set-Content -LiteralPath (Join-Path $BackupRoot $ReconstructBatName) -Value $bat -Encoding ASCII
 }
 
 # endregion
 
 # region Core backup routine per set
 
-function Run-BackupSet {
+function Resolve-BackupSetPaths {
     param(
         [Parameter(Mandatory)]
-        [pscustomobject]$Set,
-        [Parameter(Mandatory)]
-        [hashtable]$Deps,
-        [Parameter(Mandatory)]
-        [pscustomobject]$Secrets,
-        [Parameter(Mandatory)]
-        [ref]$OverallSuccess,
-        [Parameter(Mandatory)]
-        [System.Collections.Generic.List[string]]$LogPaths
+        [pscustomobject]$Set
     )
 
-    $name         = $Set.Name
-    $src          = $Set.SourcePath
-    $bkp          = $Set.BackupPath
-    $chg          = $Set.ChangePath
-    $freq         = $Set.HashRecalcFreq
-    $compress     = [bool]$Set.CompressEnabled
-    $preserveTree = [bool]$Set.PreserveFolderTree
-
-    if (-not (Test-Path -LiteralPath $src -PathType Container)) {
-        Write-Warning "Source path '$src' for set '$name' does not exist. Skipping."
-        return
+    if (-not (Test-Path -LiteralPath $Set.SourcePath -PathType Container)) {
+        throw "Source path '$($Set.SourcePath)' for set '$($Set.Name)' does not exist."
     }
 
-    $srcPath = (Resolve-Path -LiteralPath $src).Path
-    $bkpPath = (Resolve-Path -LiteralPath $bkp).Path
-    $chgPath = (Resolve-Path -LiteralPath $chg).Path
-
-    if (-not (Test-Path -LiteralPath $bkpPath)) {
-        New-Item -ItemType Directory -Path $bkpPath -Force | Out-Null
-    }
-    if (-not (Test-Path -LiteralPath $chgPath)) {
-        New-Item -ItemType Directory -Path $chgPath -Force | Out-Null
+    $srcPath = (Resolve-Path -LiteralPath $Set.SourcePath).Path
+    $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath -ErrorAction SilentlyContinue).Path
+    if (-not $bkpPath) {
+        New-Item -ItemType Directory -Path $Set.BackupPath -Force | Out-Null
+        $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath).Path
     }
 
-    $logPath = Join-Path $chgPath 'backup.log'
-    $log = New-Logger -LogFile $logPath
-    $LogPaths.Add($logPath)
-
-    & $log "----- Backup set '$name' starting -----"
-
-    $BackupStagingFolder = Join-Path $chgPath 'Temp'
-    if (Test-Path -LiteralPath $BackupStagingFolder) {
-        & $log "Staging folder '$BackupStagingFolder' already exists. Previous run may have failed. Skipping set." 'ERROR'
-        $OverallSuccess.Value = $false
-        return
+    $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath -ErrorAction SilentlyContinue).Path
+    if (-not $chgPath) {
+        New-Item -ItemType Directory -Path $Set.ChangePath -Force | Out-Null
+        $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath).Path
     }
 
-    $SevenZipPath = $Deps['7z']
-    $FfprobePath  = $Deps['ffprobe']
+    return [pscustomobject]@{
+        SrcPath = $srcPath
+        BkpPath = $bkpPath
+        ChgPath = $chgPath
+    }
+}
 
-    & $log "Updating source manifest at '$srcPath'."
-    $sourceDb = UpdateSourceDatabase -SourcePath $srcPath -FfprobePath $FfprobePath
+function Initialize-StagingFolder {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ChgPath,
+        [Parameter(Mandatory)]
+        [scriptblock]$Log
+    )
 
-    & $log "Sanitizing backup manifest at '$bkpPath'."
-    $backupDb = SanitizeBackupDatabase -BackupRoot $bkpPath -PreserveFolderTree $preserveTree -CompressEnabled $compress -SevenZipPath $SevenZipPath -Log $log
-
-    $lastHashRun = $null
-    if ($backupDb -and $backupDb.Count -gt 0) {
-        $lastHashRun = ($backupDb | ForEach-Object { $_.LastWriteTime } | Measure-Object -Maximum).Maximum
+    $stagingFolder = Join-Path $ChgPath 'Temp'
+    if (Test-Path -LiteralPath $stagingFolder -PathType Container) {
+        & $Log "Staging folder '$stagingFolder' already exists. Previous run may have failed." 'ERROR'
+        throw "Cannot initialize staging folder; Temp already exists at '$stagingFolder'"
     }
 
-    $recalc = Should-RecalculateHashes -FreqCode $freq -LastHashRun $lastHashRun
-    & $log "HashRecalcFreq=$freq, LastHashRun=$lastHashRun, Recalculate=$recalc"
+    New-Item -ItemType Directory -Path $stagingFolder -Force | Out-Null
+    return $stagingFolder
+}
 
-    # 3b: Create staging folder
-    New-Item -ItemType Directory -Path $BackupStagingFolder -Force | Out-Null
-    & $log "Saving pre-backup manifest to staging '$BackupStagingFolder'."
-    Write-Manifest -FolderPath $BackupStagingFolder -Records $backupDb
+function Compare-SourceToBackup {
+    param(
+        [Parameter(Mandatory)]
+        [object[]]$SourceDb,
+        [Parameter(Mandatory)]
+        [object[]]$BackupDb
+    )
+
+    $sourceMap = @{}
+    foreach ($row in $SourceDb) {
+        $sourceMap[$row.RelativePath] = $row
+    }
 
     $backupMap = @{}
-    foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
+    foreach ($row in $BackupDb) {
+        $backupMap[$row.RelativePath] = $row
+    }
 
-    # 4: Find new/changed files in source relative to backup
-    $sourceMap = @{}
-    foreach ($row in $sourceDb) { $sourceMap[$row.RelativePath] = $row }
-
-    $newOrChanged      = New-Object System.Collections.Generic.List[object]
+    $newOrChanged = New-Object System.Collections.Generic.List[object]
     $removedFromSource = New-Object System.Collections.Generic.List[object]
 
     foreach ($rel in $sourceMap.Keys) {
@@ -1014,138 +1082,294 @@ function Run-BackupSet {
         }
     }
 
-    & $log "New or changed files: $($newOrChanged.Count)"
-    & $log "Removed files: $($removedFromSource.Count)"
+    return [pscustomobject]@{
+        NewOrChanged = $newOrChanged
+        RemovedFromSource = $removedFromSource
+    }
+}
 
-    $changedCount = 0
+function Invoke-BackupFileGroup {
+    param(
+        [Parameter(Mandatory)]
+        [object[]]$Group,
+        [Parameter(Mandatory)]
+        [string]$SrcPath,
+        [Parameter(Mandatory)]
+        [string]$BkpPath,
+        [Parameter(Mandatory)]
+        [bool]$PreserveFolderTree,
+        [Parameter(Mandatory)]
+        [bool]$CompressEnabled,
+        [string]$SevenZipPath,
+        [Parameter(Mandatory)]
+        [object[]]$BackupDb,
+        [Parameter(Mandatory)]
+        [ref]$BackupMap,
+        [Parameter(Mandatory)]
+        [ref]$ChangedCount,
+        [Parameter(Mandatory)]
+        [scriptblock]$Log,
+        [Parameter(Mandatory)]
+        [ref]$OverallSuccess
+    )
 
-    # 4a: Group new/changed by hash+size
-    $groups = $newOrChanged | Group-Object xxH2Hash, Length
-
-    foreach ($grp in $groups) {
-        $hash = $grp.Group[0].xxH2Hash
-        $len  = $grp.Group[0].Length
-        $exts = ($grp.Group | ForEach-Object { [IO.Path]::GetExtension($_.RelativePath).ToLowerInvariant() } | Select-Object -Unique)
-        if ($exts.Count -gt 1) {
-            & $log "Multiple extensions for hash=$hash len=$len : $($exts -join ', ')" 'WARN'
-        }
-
-        $existingBackupWithHash = $backupDb | Where-Object { $_.xxH2Hash -eq $hash -and $_.Length -eq $len }
-
-        foreach ($entry in $grp.Group) {
-            $rel = $entry.RelativePath
-            $ext = [IO.Path]::GetExtension($rel)
-
-            $storedAsHash = -not $preserveTree
-            $compressFlag = Should-CompressFile -FullPath (Join-Path $srcPath $rel) -CompressEnabled $compress
-
-            $dataPath = if ($storedAsHash) {
-                $baseName = GetFilenameAsHashAndSize -HashHex $hash -Length $len -Extension (if ($compressFlag) { '.7z' } else { $ext })
-                $baseName
-            } else {
-                $rel
-            }
-
-            if ($existingBackupWithHash) {
-                $existingDataPath = $existingBackupWithHash[0].DataPath
-                $entryForBackup = [pscustomobject]@{
-                    DataPath        = $existingDataPath
-                    RelativePath    = $rel
-                    Length          = $len
-                    LastWriteTime   = $entry.LastWriteTime
-                    xxH2Hash        = $hash
-                    Compressed      = $existingBackupWithHash[0].Compressed
-                    StoredAsHashSize= $existingBackupWithHash[0].StoredAsHashSize
-                    Duplicate       = $entry.Duplicate
-                    MediaMBPerSec   = $entry.MediaMBPerSec
-                }
-                $backupMap[$rel] = $entryForBackup
-            } else {
-                $srcFull      = Join-Path $srcPath $rel
-                $destDataRel  = $dataPath
-                $destDataFull = Join-Path $bkpPath $destDataRel
-
-                $result = CopySourceFileDataToBackup -SourceFilePath $srcFull -BackupFilePath $destDataFull -ShouldCompress:$compressFlag -SevenZipPath $SevenZipPath
-                if ($result -is [string]) {
-                    & $log "Failed to copy/compress '$rel' -> '$destDataRel' : $result" 'ERROR'
-                    $OverallSuccess.Value = $false
-                    continue
-                }
-
-                $entryForBackup = [pscustomobject]@{
-                    DataPath        = $destDataRel
-                    RelativePath    = $rel
-                    Length          = $len
-                    LastWriteTime   = $entry.LastWriteTime
-                    xxH2Hash        = $hash
-                    Compressed      = if ($compressFlag) { 'Yes' } else { 'No' }
-                    StoredAsHashSize= if ($storedAsHash) { 'Hash' } else { 'Original' }
-                    Duplicate       = $entry.Duplicate
-                    MediaMBPerSec   = $entry.MediaMBPerSec
-                }
-                $backupMap[$rel] = $entryForBackup
-                $changedCount++
-            }
-        }
+    $hash = $Group[0].xxH2Hash
+    $len = $Group[0].Length
+    $exts = ($Group | ForEach-Object { [IO.Path]::GetExtension($_.RelativePath).ToLowerInvariant() } | Select-Object -Unique)
+    if ($exts.Count -gt 1) {
+        & $Log "Multiple extensions for hash=$hash len=$len : $($exts -join ', ')" 'WARN'
     }
 
-    foreach ($bk in $removedFromSource) {
-        $rel   = $bk.RelativePath
-        $data  = $bk.DataPath
-        $entry = $backupMap[$rel]
+    $existingBackupWithHash = $BackupDb | Where-Object { $_.xxH2Hash -eq $hash -and $_.Length -eq $len }
+
+    foreach ($entry in $Group) {
+        $rel = $entry.RelativePath
+        $ext = [IO.Path]::GetExtension($rel)
+
+        $storedAsHash = -not $PreserveFolderTree
+        $compressFlag = Should-CompressFile -FullPath (Join-Path $SrcPath $rel) -CompressEnabled $CompressEnabled
+
+        $dataPath = if ($storedAsHash) {
+            $baseName = GetFilenameAsHashAndSize -HashHex $hash -Length $len -Extension (if ($compressFlag) { '.7z' } else { $ext })
+            $baseName
+        } else {
+            $rel
+        }
+
+        if ($existingBackupWithHash) {
+            $existingDataPath = $existingBackupWithHash[0].DataPath
+            $entryForBackup = [pscustomobject]@{
+                DataPath = $existingDataPath
+                RelativePath = $rel
+                Length = $len
+                LastWriteTime = $entry.LastWriteTime
+                xxH2Hash = $hash
+                Compressed = $existingBackupWithHash[0].Compressed
+                StoredAsHashSize = $existingBackupWithHash[0].StoredAsHashSize
+                Duplicate = $entry.Duplicate
+                MediaMBPerSec = $entry.MediaMBPerSec
+            }
+            $BackupMap.Value[$rel] = $entryForBackup
+        } else {
+            $srcFull = Join-Path $SrcPath $rel
+            $destDataRel = $dataPath
+            $destDataFull = Join-Path $BkpPath $destDataRel
+
+            $result = CopySourceFileDataToBackup -SourceFilePath $srcFull -BackupFilePath $destDataFull -ShouldCompress:$compressFlag -SevenZipPath $SevenZipPath
+            if ($result -is [string]) {
+                & $Log "Failed to copy/compress '$rel' -> '$destDataRel' : $result" 'ERROR'
+                $OverallSuccess.Value = $false
+                continue
+            }
+
+            $entryForBackup = [pscustomobject]@{
+                DataPath = $destDataRel
+                RelativePath = $rel
+                Length = $len
+                LastWriteTime = $entry.LastWriteTime
+                xxH2Hash = $hash
+                Compressed = if ($compressFlag) { 'Yes' } else { 'No' }
+                StoredAsHashSize = if ($storedAsHash) { 'Hash' } else { 'Original' }
+                Duplicate = $entry.Duplicate
+                MediaMBPerSec = $entry.MediaMBPerSec
+            }
+            $BackupMap.Value[$rel] = $entryForBackup
+            $ChangedCount.Value++
+        }
+    }
+}
+
+function Move-RemovedFilesToStaging {
+    param(
+        [Parameter(Mandatory)]
+        [object[]]$RemovedFromSource,
+        [Parameter(Mandatory)]
+        [string]$BkpPath,
+        [Parameter(Mandatory)]
+        [string]$StagingFolder,
+        [Parameter(Mandatory)]
+        [ref]$BackupMap,
+        [Parameter(Mandatory)]
+        [ref]$ChangedCount,
+        [Parameter(Mandatory)]
+        [scriptblock]$Log
+    )
+
+    foreach ($bk in $RemovedFromSource) {
+        $rel = $bk.RelativePath
+        $data = $bk.DataPath
+        $entry = $BackupMap.Value[$rel]
         if ($entry) {
-            $backupMap.Remove($rel)
+            $BackupMap.Value.Remove($rel)
         }
 
         if (-not [string]::IsNullOrWhiteSpace($data)) {
-            $srcDataFull = Join-Path $bkpPath $data
+            $srcDataFull = Join-Path $BkpPath $data
             if (Test-Path -LiteralPath $srcDataFull -PathType Leaf) {
-                $destDataFull = Join-Path $BackupStagingFolder $data
+                $destDataFull = Join-Path $StagingFolder $data
                 $destDir = Split-Path -LiteralPath $destDataFull -Parent
                 if (-not (Test-Path -LiteralPath $destDir)) {
                     New-Item -ItemType Directory -Path $destDir -Force | Out-Null
                 }
                 Move-Item -LiteralPath $srcDataFull -Destination $destDataFull -Force
-                $changedCount++
+                $ChangedCount.Value++
             }
         }
     }
+}
 
-    # G: sort backup DB and save
-    $backupDbFinal = $backupMap.Values | Sort-Object { $_.RelativePath.Length } -Descending
-    Write-Manifest -FolderPath $bkpPath -Records $backupDbFinal
+function Finalize-ChangeFolder {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ChgPath,
+        [Parameter(Mandatory)]
+        [string]$StagingFolder,
+        [Parameter(Mandatory)]
+        [string]$BkpPath,
+        [Parameter(Mandatory)]
+        [int]$ChangedCount,
+        [Parameter(Mandatory)]
+        [scriptblock]$Log
+    )
 
-    # 5: Clean change folder – blank datapaths if files are not in staging
-    $stagingDb = Read-Manifest -FolderPath $BackupStagingFolder
+    # Blank DataPaths for files no longer in staging
+    $stagingDb = Read-Manifest -FolderPath $StagingFolder
     foreach ($row in $stagingDb) {
         if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
-        $full = Join-Path $BackupStagingFolder $row.DataPath
+        $full = Join-Path $StagingFolder $row.DataPath
         if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
             $row.DataPath = ''
         }
     }
-    Write-Manifest -FolderPath $BackupStagingFolder -Records $stagingDb
+    Write-Manifest -FolderPath $StagingFolder -Records $stagingDb
 
-    # 5A: rename staging to final change folder
-    $label      = Get-Date -Format $FileLabelDateFormat
-    $countLabel = ('{0:D6}' -f [Math]::Min($changedCount, 999999))
-    $finalName  = "Pre_$label`_${countLabel}_Changes"
-    $finalChangeFolder = Join-Path $chgPath $finalName
-    Rename-Item -LiteralPath $BackupStagingFolder -NewName $finalName
+    # Rename staging to final change folder
+    $label = Get-Date -Format $FileLabelDateFormat
+    $countLabel = ('{0:D6}' -f [Math]::Min($ChangedCount, 999999))
+    $finalName = "Pre_$label`_${countLabel}_Changes"
+    $finalChangeFolder = Join-Path $ChgPath $finalName
+    Rename-Item -LiteralPath $StagingFolder -NewName $finalName
 
-    # 5B: manifest file already has consistent name (MANIFEST.csv).
-    # 5C: generate reconstruct script in backup root and copy into new change folder
-    GenerateReconstructScript -BackupRoot $bkpPath -ChangeRoot $chgPath
-    Copy-Item -LiteralPath (Join-Path $bkpPath $ReconstructPs1Name) -Destination $finalChangeFolder -Force
-    Copy-Item -LiteralPath (Join-Path $bkpPath $ReconstructBatName) -Destination $finalChangeFolder -Force
-    
-    # After we’ve created the change folder and updated backup manifest, sanitize change databases
-    SanitizeChangeDatabase -ChangeRoot $chgPath -BackupRoot $bkpPath -Log $log
+    # Copy reconstruct scripts to change folder
+    Copy-Item -LiteralPath (Join-Path $BkpPath $ReconstructPs1Name) -Destination $finalChangeFolder -Force
+    Copy-Item -LiteralPath (Join-Path $BkpPath $ReconstructBatName) -Destination $finalChangeFolder -Force
+
+    & $Log "Change folder finalized: $finalChangeFolder"
+    return $finalChangeFolder
+}
+
+function Run-BackupSet {
+    param(
+        [Parameter(Mandatory)]
+        [pscustomobject]$Set,
+        [Parameter(Mandatory)]
+        [hashtable]$Deps,
+        [Parameter(Mandatory)]
+        [pscustomobject]$Secrets,
+        [Parameter(Mandatory)]
+        [ref]$OverallSuccess,
+        [Parameter(Mandatory)]
+        [System.Collections.Generic.List[string]]$LogPaths
+    )
+
+    # 1. Resolve paths
+    try {
+        $paths = Resolve-BackupSetPaths -Set $Set
+    } catch {
+        Write-Warning $_.Exception.Message
+        return
+    }
+
+    # 2. Create logger
+    $logPath = Join-Path $paths.ChgPath ‘backup.log’
+    $log = New-Logger -LogFile $logPath
+    $LogPaths.Add($logPath)
+
+    & $log "----- Backup set ‘$($Set.Name)’ starting -----"
+
+    # 3. Guard staging folder
+    try {
+        $stagingFolder = Initialize-StagingFolder -ChgPath $paths.ChgPath -Log $log
+    } catch {
+        & $log "Failed to initialize staging folder: $($_.Exception.Message)" ‘ERROR’
+        $OverallSuccess.Value = $false
+        return
+    }
+
+    # 4. Update source manifest
+    & $log "Updating source manifest at ‘$($paths.SrcPath)’."
+    $sourceDb = UpdateSourceDatabase -SourcePath $paths.SrcPath -FfprobePath $Deps[‘ffprobe’]
+
+    # 5. Sanitize backup manifest
+    & $log "Sanitizing backup manifest at ‘$($paths.BkpPath)’."
+    $backupDb = SanitizeBackupDatabase -BackupRoot $paths.BkpPath -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) -SevenZipPath $Deps[‘7z’] -Log $log
+
+    # 6. Hash recalc decision
+    $lastHashRun = $null
+    if ($backupDb -and $backupDb.Count -gt 0) {
+        $lastHashRun = ($backupDb | ForEach-Object { $_.LastWriteTime } | Measure-Object -Maximum).Maximum
+    }
+    $recalc = Should-RecalculateHashes -FreqCode $Set.HashRecalcFreq -LastHashRun $lastHashRun
+    & $log "HashRecalcFreq=$($Set.HashRecalcFreq), LastHashRun=$lastHashRun, Recalculate=$recalc"
+
+    # 7. Write pre-backup manifest to staging
+    & $log "Saving pre-backup manifest to staging ‘$stagingFolder’."
+    Write-Manifest -FolderPath $stagingFolder -Records $backupDb
+
+    # 8. Diff
+    $diff = Compare-SourceToBackup -SourceDb $sourceDb -BackupDb $backupDb
+    & $log "New or changed files: $($diff.NewOrChanged.Count)"
+    & $log "Removed files: $($diff.RemovedFromSource.Count)"
+
+    # 9. Build working backup map
+    $backupMap = @{}
+    foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
+    $changedCount = 0
+
+    # 10. Copy new/changed files
+    $groups = $diff.NewOrChanged | Group-Object xxH2Hash, Length
+    foreach ($grp in $groups) {
+        Invoke-BackupFileGroup `
+            -Group $grp.Group `
+            -SrcPath $paths.SrcPath `
+            -BkpPath $paths.BkpPath `
+            -PreserveFolderTree ([bool]$Set.PreserveFolderTree) `
+            -CompressEnabled ([bool]$Set.CompressEnabled) `
+            -SevenZipPath $Deps[‘7z’] `
+            -BackupDb $backupDb `
+            -BackupMap ([ref]$backupMap) `
+            -ChangedCount ([ref]$changedCount) `
+            -Log $log `
+            -OverallSuccess $OverallSuccess
+    }
+
+    # 11. Move removed files to staging
+    Move-RemovedFilesToStaging `
+        -RemovedFromSource $diff.RemovedFromSource `
+        -BkpPath $paths.BkpPath `
+        -StagingFolder $stagingFolder `
+        -BackupMap ([ref]$backupMap) `
+        -ChangedCount ([ref]$changedCount) `
+        -Log $log
+
+    # 12. Save updated backup manifest
+    $backupDbFinal = $backupMap.Values | Sort-Object { $_.RelativePath.Length } -Descending
+    Write-Manifest -FolderPath $paths.BkpPath -Records $backupDbFinal
+
+    # 13. Finalize change folder
+    GenerateReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
+    $finalChangeFolder = Finalize-ChangeFolder `
+        -ChgPath $paths.ChgPath `
+        -StagingFolder $stagingFolder `
+        -BkpPath $paths.BkpPath `
+        -ChangedCount $changedCount `
+        -Log $log
+
+    # 14. Sanitize change databases
+    SanitizeChangeDatabase -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log
 
     & $log "Changed files count = $changedCount"
-    & $log "Change folder created: $finalChangeFolder"
-    & $log "----- Backup set '$name' completed -----"
-}
+    & $log "----- Backup set ‘$($Set.Name)’ completed -----"
 }
 
 # endregion

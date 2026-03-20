@@ -17,7 +17,9 @@
 #>
 
 param(
-    [string]$TargetRoot
+    [string]$TargetRoot,
+    [string]$BackupRootOverride,
+    [string]$ChangeRootOverride
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,6 +38,76 @@ function Read-Manifest {
     Import-Csv -LiteralPath $path
 }
 
+function Ensure-K4osHashLibrary {
+    param(
+        [string]$RequiredVersion = "1.0.8"
+    )
+
+    if ("K4os.Hash.xxHash.XXH128" -as [type]) {
+        return $true
+    }
+
+    $pkg = Get-Package -Name "K4os.Hash.xxHash" -ErrorAction SilentlyContinue
+
+    if (-not $pkg) {
+        Write-Host "K4os.Hash.xxHash $RequiredVersion is not installed."
+        $resp = Read-Host "Install it now via Install-Package K4os.Hash.xxHash -Version $RequiredVersion? (Y/N)"
+        if ($resp -match '^[Yy]') {
+            Install-Package K4os.Hash.xxHash -RequiredVersion $RequiredVersion -Force -Scope CurrentUser
+        }
+        else {
+            throw "K4os.Hash.xxHash is required for xxHash128 hashing. Aborting."
+        }
+    }
+
+    $pkg = Get-Package -Name "K4os.Hash.xxHash" -ErrorAction Stop
+    $installDir = Split-Path $pkg.Source -Parent
+    $dll = Get-ChildItem -Path $installDir -Recurse -Filter "K4os.Hash.xxHash.dll" | Select-Object -First 1
+
+    if (-not $dll) {
+        throw "K4os.Hash.xxHash.dll not found in installed package."
+    }
+
+    if (-not ("K4os.Hash.xxHash.XXH128" -as [type])) {
+        Add-Type -Path $dll.FullName
+    }
+
+    return $true
+}
+
+function CalculateFileHash {
+    param(
+        [Parameter(Mandatory)]
+        [string]$FilePath
+    )
+
+    if (-not ("K4os.Hash.xxHash.XXH128" -as [type])) {
+        Ensure-K4osHashLibrary | Out-Null
+    }
+
+    $stream = [System.IO.File]::OpenRead($FilePath)
+    try {
+        $digest = [K4os.Hash.xxHash.XXH128]::DigestOf($stream)
+        $hex = '{0:x16}{1:x16}' -f $digest.High, $digest.Low
+        return $hex.ToUpperInvariant()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Find-DataFileByHash {
+    param([string]$Hash, [long]$Length, [string[]]$SearchFolders)
+    foreach ($folder in $SearchFolders) {
+        Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Length -eq $Length -and $_.Name -notmatch '^(MANIFEST|RECONSTRUCT)' } |
+            ForEach-Object {
+                if ((CalculateFileHash $_.FullName) -eq $Hash) { return $_.FullName }
+            }
+    }
+    return $null
+}
+
 # Detect if we are in backup root or change folder
 $isChangeFolder = $folderName -match $ChangeFolderPattern
 
@@ -47,6 +119,10 @@ if ($isChangeFolder) {
     $backupRoot = $here
     $changeRoot = Join-Path $backupRoot 'CHANGES' # or adjust if you keep same root
 }
+
+# Override with auto-generated path bindings if provided
+if ($BackupRootOverride) { $backupRoot = $BackupRootOverride }
+if ($ChangeRootOverride)  { $changeRoot = $ChangeRootOverride }
 
 if (-not $TargetRoot) {
     $TargetRoot = Read-Host 'Enter target folder to reconstruct into'
@@ -125,6 +201,15 @@ try {
     # Non-critical; continue if we can't determine
 }
 
+# Build search folders for hash-based recovery
+$searchFolders = @()
+if ($isChangeFolder -and (Test-Path -LiteralPath $changeRoot)) {
+    $searchFolders += (Get-ChildItem -LiteralPath $changeRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match $ChangeFolderPattern } |
+        Sort-Object Name -Descending).FullName   # newest first
+}
+$searchFolders += $backupRoot
+
 # Reconstruct
 foreach ($rel in $main.Keys) {
     $row = $main[$rel]
@@ -136,18 +221,74 @@ foreach ($rel in $main.Keys) {
 
     $srcFolder = $row.SourceFolder
     $dataPath  = $row.DataPath
+
+    # Handle missing or blank DataPath with hash-based recovery
     if ([string]::IsNullOrWhiteSpace($dataPath)) {
-        "$(Get-Date -Format 'O') - No datapath for $rel" | Out-File -LiteralPath $logPath -Append
-        continue
+        if ($row.xxH2Hash -and $row.Length) {
+            "$(Get-Date -Format 'O') - No datapath for $rel; attempting hash scan..." |
+                Out-File -LiteralPath $logPath -Append
+            $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders
+            if ($found) {
+                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$found'" |
+                    Out-File -LiteralPath $logPath -Append
+                $srcFull   = $found
+                $dataPath  = $found
+            } else {
+                "$(Get-Date -Format 'O') - WARN: cannot recover $rel by hash; skipping." |
+                    Out-File -LiteralPath $logPath -Append
+                continue
+            }
+        } else {
+            "$(Get-Date -Format 'O') - No datapath or hash for $rel; skipping." |
+                Out-File -LiteralPath $logPath -Append
+            continue
+        }
+    } else {
+        $srcFull = Join-Path $srcFolder $dataPath
     }
-    $srcFull = Join-Path $srcFolder $dataPath
+
     if (-not (Test-Path -LiteralPath $srcFull -PathType Leaf)) {
-        "$(Get-Date -Format 'O') - Missing datapath $dataPath for $rel" | Out-File -LiteralPath $logPath -Append
+        "$(Get-Date -Format 'O') - Missing datapath $dataPath for $rel" |
+            Out-File -LiteralPath $logPath -Append
         continue
     }
 
-    # TODO: handle decompression if Compressed flag says so (7z)
-    Copy-Item -LiteralPath $srcFull -Destination $destFull -Force
+    # Handle decompression if needed
+    $sevenZipPath = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+
+    if ($row.Compressed -eq 'Yes' -and (Test-Path -LiteralPath $sevenZipPath -PathType Leaf)) {
+        # Decompress .7z archive
+        $tempDir = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        try {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $sevenZipPath
+            $psi.Arguments = "e `"$srcFull`" -o`"$tempDir`" -y"
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.CreateNoWindow = $true
+            $p = [System.Diagnostics.Process]::Start($psi)
+            $p.WaitForExit()
+            if ($p.ExitCode -ne 0) {
+                $err = $p.StandardError.ReadToEnd()
+                "$(Get-Date -Format 'O') - 7-Zip extraction failed for $rel : $err" |
+                    Out-File -LiteralPath $logPath -Append
+                continue
+            }
+            $extracted = Get-ChildItem -LiteralPath $tempDir -File | Select-Object -First 1
+            if (-not $extracted) {
+                "$(Get-Date -Format 'O') - No file extracted from archive for $rel" |
+                    Out-File -LiteralPath $logPath -Append
+                continue
+            }
+            Move-Item -LiteralPath $extracted.FullName -Destination $destFull -Force
+        } finally {
+            Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        Copy-Item -LiteralPath $srcFull -Destination $destFull -Force
+    }
 }
 
 "$(Get-Date -Format 'O') - Reconstruction complete" | Out-File -LiteralPath $logPath -Append
