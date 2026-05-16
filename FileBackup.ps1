@@ -64,7 +64,7 @@ $ReconstructBatName     = 'RECONSTRUCT.bat'
 $ReconstructLogName     = 'RECONSTRUCT.log'
 
 $CSVDateFormat          = 'O'    # ISO 8601 round-trip
-$FileLabelDateFormat    = "yyyy_MM_dd_HH_mm_ssK" # label in folder and manifest names
+$FileLabelDateFormat    = 'yyyy_MM_dd_HH_mm_ss'  # label in folder and manifest names (no zone — Windows paths can't contain ':')
 $ChangeFolderDateMask   = 'yyyy_MM_dd_HH_mm_ss'  # pattern we look for in change folder names
 
 # Alphabet for short name encoding (base-N over this alphabet)
@@ -1281,28 +1281,28 @@ function Run-BackupSet {
     }
 
     # 2. Create logger
-    $logPath = Join-Path $paths.ChgPath ‘backup.log’
+    $logPath = Join-Path $paths.ChgPath 'backup.log'
     $log = New-Logger -LogFile $logPath
     $LogPaths.Add($logPath)
 
-    & $log "----- Backup set ‘$($Set.Name)’ starting -----"
+    & $log "----- Backup set '$($Set.Name)' starting -----"
 
     # 3. Guard staging folder
     try {
         $stagingFolder = Initialize-StagingFolder -ChgPath $paths.ChgPath -Log $log
     } catch {
-        & $log "Failed to initialize staging folder: $($_.Exception.Message)" ‘ERROR’
+        & $log "Failed to initialize staging folder: $($_.Exception.Message)" 'ERROR'
         $OverallSuccess.Value = $false
         return
     }
 
     # 4. Update source manifest
-    & $log "Updating source manifest at ‘$($paths.SrcPath)’."
-    $sourceDb = UpdateSourceDatabase -SourcePath $paths.SrcPath -FfprobePath $Deps[‘ffprobe’]
+    & $log "Updating source manifest at '$($paths.SrcPath)'."
+    $sourceDb = UpdateSourceDatabase -SourcePath $paths.SrcPath -FfprobePath $Deps['ffprobe']
 
     # 5. Sanitize backup manifest
-    & $log "Sanitizing backup manifest at ‘$($paths.BkpPath)’."
-    $backupDb = SanitizeBackupDatabase -BackupRoot $paths.BkpPath -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) -SevenZipPath $Deps[‘7z’] -Log $log
+    & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."
+    $backupDb = SanitizeBackupDatabase -BackupRoot $paths.BkpPath -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) -SevenZipPath $Deps['7z'] -Log $log
 
     # 6. Hash recalc decision
     $lastHashRun = $null
@@ -1313,7 +1313,7 @@ function Run-BackupSet {
     & $log "HashRecalcFreq=$($Set.HashRecalcFreq), LastHashRun=$lastHashRun, Recalculate=$recalc"
 
     # 7. Write pre-backup manifest to staging
-    & $log "Saving pre-backup manifest to staging ‘$stagingFolder’."
+    & $log "Saving pre-backup manifest to staging '$stagingFolder'."
     Write-Manifest -FolderPath $stagingFolder -Records $backupDb
 
     # 8. Diff
@@ -1335,7 +1335,7 @@ function Run-BackupSet {
             -BkpPath $paths.BkpPath `
             -PreserveFolderTree ([bool]$Set.PreserveFolderTree) `
             -CompressEnabled ([bool]$Set.CompressEnabled) `
-            -SevenZipPath $Deps[‘7z’] `
+            -SevenZipPath $Deps['7z'] `
             -BackupDb $backupDb `
             -BackupMap ([ref]$backupMap) `
             -ChangedCount ([ref]$changedCount) `
@@ -1369,7 +1369,7 @@ function Run-BackupSet {
     SanitizeChangeDatabase -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log
 
     & $log "Changed files count = $changedCount"
-    & $log "----- Backup set ‘$($Set.Name)’ completed -----"
+    & $log "----- Backup set '$($Set.Name)' completed -----"
 }
 
 # endregion

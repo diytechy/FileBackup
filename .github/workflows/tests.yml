@@ -1,0 +1,76 @@
+name: tests
+
+on:
+  push:
+    branches: [main, working, Claude]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  subst-backend:
+    name: Tests (Subst backend, windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache K4os.Hash.xxHash
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\PackageManagement\NuGet\Packages\K4os.Hash.xxHash.1.0.8
+          key: k4os-xxhash-1.0.8-${{ runner.os }}
+
+      - name: Install deps (non-interactive)
+        shell: pwsh
+        run: |
+          .\tests\Setup.ps1 -InstallDeps -NonInteractive
+
+      - name: Verify 7-Zip
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files\7-Zip\7z.exe')) {
+              throw "7-Zip missing on runner"
+          }
+
+      - name: Run tests (Subst backend)
+        shell: pwsh
+        run: |
+          .\tests\Run-All.ps1 `
+              -Backend Subst `
+              -ResultRoot $env:RUNNER_TEMP\fbtest `
+              -EmitJUnit `
+              -NonInteractive
+
+      - name: Upload raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-subst
+          path: ${{ runner.temp }}\fbtest\**
+
+      - name: Publish JUnit
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: FileBackup (Subst)
+          path: ${{ runner.temp }}\fbtest\**\results.xml
+          reporter: java-junit
+          fail-on-error: false
+
+  vhdx-backend:
+    name: Tests (VHDX backend, self-hosted)
+    runs-on: [self-hosted, windows, hyper-v]
+    if: ${{ vars.HAS_SELF_HOSTED_HYPERV == 'true' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: |
+          .\tests\Setup.ps1 -InstallDeps -NonInteractive
+          .\tests\Run-All.ps1 -Backend VHDX `
+              -ResultRoot $env:RUNNER_TEMP\fbtest -EmitJUnit -NonInteractive
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-vhdx
+          path: ${{ runner.temp }}\fbtest\**
