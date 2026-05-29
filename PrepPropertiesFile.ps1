@@ -1,4 +1,13 @@
-﻿#If using gmail, you must setup gmail to accept low security application smtp reqeusts.
+﻿# =============================================================================
+# LEGACY (B17): This script writes an older config schema ($PropsInfoPath /
+# FileBackupProps.xml with $PriVolLbl/$BkpVolLbl/...) that FileBackup.ps1 no
+# longer consumes. The current entry point reads the CLIXML schema documented in
+# FileBackup.ps1 / README.md. Use CredSetEx.ps1 to generate a working config:
+#     .\CredSetEx.ps1   # writes $HOME\BackupConfig.xml
+# Kept for reference only; not wired into the current pipeline.
+# =============================================================================
+
+#If using gmail, you must setup gmail to accept low security application smtp reqeusts.
 #This will only work if 2FA is turned on!
 #As of the time of this writing:
 #1. Go to your Google Account.

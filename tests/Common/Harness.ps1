@@ -103,7 +103,7 @@ function Assert-ManifestRow {
 
 function New-TestFile {
     param([string]$Path, [string]$Content = '')
-    $dir = Split-Path -LiteralPath $Path -Parent
+    $dir = [System.IO.Path]::GetDirectoryName($Path)
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
@@ -112,7 +112,7 @@ function New-TestFile {
 
 function New-RandomBinaryFile {
     param([string]$Path, [int]$SizeBytes)
-    $dir = Split-Path -LiteralPath $Path -Parent
+    $dir = [System.IO.Path]::GetDirectoryName($Path)
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
@@ -124,7 +124,7 @@ function New-RandomBinaryFile {
 
 function New-HugeSparseFile {
     param([string]$Path, [long]$SizeBytes)
-    $dir = Split-Path -LiteralPath $Path -Parent
+    $dir = [System.IO.Path]::GetDirectoryName($Path)
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }

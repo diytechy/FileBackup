@@ -26,13 +26,19 @@ function New-TestEnvironment {
 
 function New-SubstEnv {
     param([string]$Root)
-    $letters = @{ Src='X'; Bkp='Y'; Chg='Z'; Recon='W' }
 
-    foreach ($l in $letters.Values) {
-        if (Test-Path "${l}:\") {
-            throw "Drive ${l}: already in use; cannot create Subst test environment."
-        }
+    # Pick four free drive letters (high letters first) instead of hardcoding
+    # X/Y/Z/W, which can collide with real drives on a dev machine.
+    $candidates = 'X','Y','W','V','U','T','S','R','Q','P','N','M','K','J','H','G','F','E'
+    $free = @()
+    foreach ($c in $candidates) {
+        if (-not (Test-Path "${c}:\")) { $free += $c }
+        if ($free.Count -eq 4) { break }
     }
+    if ($free.Count -lt 4) {
+        throw "Need 4 free drive letters for the Subst backend; found only $($free.Count) ($($free -join ',')). Free up some drive letters and retry."
+    }
+    $letters = @{ Src=$free[0]; Bkp=$free[1]; Chg=$free[2]; Recon=$free[3] }
 
     $phys = @{
         Src   = Join-Path $Root 'Source'
@@ -60,8 +66,9 @@ function New-SubstEnv {
         PhysBkp   = $phys.Bkp
         PhysChg   = $phys.Chg
         PhysRecon = $phys.Recon
+        UsedLetters = @($letters.Src, $letters.Bkp, $letters.Chg, $letters.Recon)
         Dispose   = {
-            foreach ($l in @('X','Y','Z','W')) {
+            foreach ($l in @($letters.Src, $letters.Bkp, $letters.Chg, $letters.Recon)) {
                 cmd /c "subst ${l}: /d" 2>&1 | Out-Null
             }
         }.GetNewClosure()
@@ -112,7 +119,7 @@ function New-VhdxEnv {
         Dispose   = {
             param($self)
             foreach ($m in $self.Mounted) {
-                try { Dismount-VHD -Path $m.Path -ErrorAction Stop } catch {}
+                try { Dismount-VHD -Path $m.Path -ErrorAction Stop } catch { Write-Verbose "Dismount-VHD failed for $($m.Path): $($_.Exception.Message)" }
             }
         }
     }

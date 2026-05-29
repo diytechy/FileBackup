@@ -1,14 +1,20 @@
 # FileBackup
 
-Periodic, content-aware backup with change tracking and self-contained reconstruction
-scripts. Written in PowerShell for Windows.
+Periodic, content-aware backup with change tracking and self-contained
+reconstruction scripts. Written in PowerShell for Windows (**PowerShell 7+**).
 
 `FileBackup.ps1` keeps a manifest (`MANIFEST.csv`) of every file it has seen, hashes
-content with **xxHash128**, deduplicates by `(hash, size)`, optionally compresses with
-7-Zip, and writes a `Pre_<timestamp>_NNNNNN_Changes` folder on every run that captures
-the *previous* state of any file that was changed or removed. Each backup folder gets a
-`RECONSTRUCT.ps1` / `RECONSTRUCT.bat` pair that can rebuild the source tree from the
-data files alone — no external tooling required at restore time.
+content with **xxHash128** (`System.IO.Hashing`), deduplicates by `(hash, size)`,
+optionally compresses with 7-Zip, and writes a `Pre_<timestamp>_NNNNNN_Changes` folder
+on every run that captures the *previous* state of any file that was changed or removed.
+Each backup folder gets a self-contained `RECONSTRUCT.ps1` / `RECONSTRUCT.bat` pair —
+plus the bundled hashing module and DLL — that can rebuild the source tree from the data
+files alone, with no repository or NuGet install needed at restore time.
+
+> **Status:** the engine is functional and gated by a green test suite (160 integration
+> assertions across 4 storage modes + 27 Pester unit tests). See [CHANGELOG.md](CHANGELOG.md)
+> for the history, including the dependency and correctness fixes that made the tool run
+> for the first time.
 
 ---
 
@@ -16,43 +22,37 @@ data files alone — no external tooling required at restore time.
 
 ```
 FileBackup/
-├── FileBackup.ps1            Main backup engine (config-driven)
-├── Reconstruct.ps1           Restore template — copied into each backup with paths injected
-├── CredSetEx.ps1             Example credential / config builder
-├── PrepPropertiesFile.ps1    Older config builder (legacy schema)
+├── FileBackup.ps1            Thin entry point (parses config, runs each backup set)
+├── Reconstruct.ps1           Restore script — deployed standalone into each backup folder
+├── Modules/
+│   ├── FileBackup.Common.psm1    Restore-safe primitives (hashing, manifest I/O, 7-Zip,
+│   │                             short-name encoding, logging). Bundled into backups.
+│   └── FileBackup.Engine.psm1    Backup engine (source walk, diff, dedup copy, storage
+│                                 migration, change folders, reconstruct generation)
+│
+├── CredSetEx.ps1             Example config builder (writes $HOME\BackupConfig.xml)
+├── PrepPropertiesFile.ps1    Legacy/alternate config builder (see header note)
 │
 ├── RunAllTests.bat           One-click test runner (default backend: Subst)
 ├── Setup-USB.bat             Elevates → invokes tests\Setup-USB.ps1
-├── RunTests.bat              Legacy runner for Test-Backup.ps1
-├── Test-Backup.ps1           Legacy single-file test harness
 │
-├── tests/                    New modular test harness
+├── tests/                    Test harness (see tests/README.md)
 │   ├── Run-All.ps1               Master driver — sweeps modes × suites
 │   ├── Setup.ps1                 Idempotent dependency installer
 │   ├── Setup-USB.ps1             Partition + label a USB stick for the RealUSB backend
-│   ├── Report.ps1                Console summary
-│   ├── Report-JUnit.ps1          JUnit XML emitter (CI)
-│   ├── Common/
-│   │   ├── Harness.ps1           Result tracking, asserts, file generators
-│   │   └── VolumeBackend.ps1     Subst / VHDX / RealUSB backends (same surface)
-│   ├── Suites/
-│   │   ├── G1-InitialBackup.ps1
-│   │   ├── G2-Incremental.ps1
-│   │   ├── G3-Reconstruction.ps1
-│   │   ├── G4-Sanitization.ps1
-│   │   ├── G5-EdgeCases.ps1
-│   │   ├── G6-HashFrequency.ps1
-│   │   ├── G7-Determinism.ps1
-│   │   └── G8-RealVolume.ps1
-│   └── Config/
-│       └── real-volumes.json.example
+│   ├── Report.ps1 / Report-JUnit.ps1
+│   ├── PSScriptAnalyzerSettings.psd1  Lint configuration
+│   ├── Common/Harness.ps1, Common/VolumeBackend.ps1
+│   ├── Suites/G1..G8-*.ps1        Integration suites
+│   └── Unit/*.Tests.ps1          Pester 5 unit tests (pure functions)
 │
-├── Auxilary/                 Misc utilities (7z multi-archive, dedupe, etc.)
-├── DatabaseDuplicateDeletion/  Ad-hoc dedup scripts against the manifest CSV
-├── TestRelated/              Legacy test reset helpers (kept for reference)
-├── .github/workflows/tests.yml CI: runs Subst backend on every push/PR
-└── CHANGES.md / IMPLEMENTATION_SUMMARY.md / RUN_TESTS_README.md   Older docs
+├── Auxilary/, DatabaseDuplicateDeletion/   Misc utilities
+├── .github/workflows/tests.yml             CI: lint + unit + Subst integration
+└── AGENTS.md · CHANGELOG.md · TEST_MATRIX.md · README.md
 ```
+
+Legacy `Test-Backup.ps1` / `RunTests.bat` are superseded by `tests/` and kept only for
+reference (see [AGENTS.md](AGENTS.md)).
 
 ---
 
@@ -64,29 +64,34 @@ FileBackup/
    ```powershell
    .\CredSetEx.ps1     # prompts for SMTP creds and writes $HOME\BackupConfig.xml
    ```
-2. Invoke the script:
+2. Invoke the script (under **pwsh**):
    ```powershell
-   .\FileBackup.ps1                      # uses $HOME\BackupConfig.xml
-   .\FileBackup.ps1 -ConfigPath C:\my-config.xml
+   pwsh -File .\FileBackup.ps1                      # uses $HOME\BackupConfig.xml
+   pwsh -File .\FileBackup.ps1 -ConfigPath C:\my-config.xml
+   pwsh -File .\FileBackup.ps1 -NoMail              # skip the notification email
    ```
+
+On first use the script installs the `System.IO.Hashing` NuGet package per-user (prompts
+unless already present).
 
 ### Restore from a backup
 
 Open the backup folder and run `RECONSTRUCT.bat`. It prompts for a target directory and
 writes `RECONSTRUCT.log` next to the reconstructed tree. Run from a specific
 `Pre_*_Changes` folder to restore the *historical* snapshot represented by that change
-folder.
+folder. The backup folder is self-contained — it carries `RECONSTRUCT.ps1`,
+`FileBackup.Common.psm1`, `System.IO.Hashing.dll`, and a `RECONSTRUCT.paths.json` sidecar.
 
-### Run the test suite
+### Run the tests
 
 ```powershell
 .\RunAllTests.bat                       # Subst backend (no admin, no USB)
 .\RunAllTests.bat VHDX                  # mounts VHDX disks (admin, Hyper-V module)
-.\RunAllTests.bat RealUSB               # uses physical USB partitioned by Setup-USB
+.\RunAllTests.bat RealUSB               # uses a physical USB partitioned by Setup-USB
 ```
 
-First run prompts once to install the `K4os.Hash.xxHash` NuGet package; subsequent runs
-are silent.
+See [tests/README.md](tests/README.md) for the unit suite, lint, and backend details, and
+[TEST_MATRIX.md](TEST_MATRIX.md) for the full permutation map.
 
 ---
 
@@ -99,7 +104,7 @@ are silent.
         FromEmail  = 'backup@example.com'
         SmtpServer = 'smtp.example.com'
         SmtpPort   = 587
-        Credential = $cred           # PSCredential, e.g. from Get-Credential
+        Credential = $cred           # PSCredential (optional; mail is skipped if absent)
     }
     BackupSets = @(
         [pscustomobject]@{
@@ -109,7 +114,7 @@ are silent.
             ChangePath         = 'E:\Backups\DataChanges'
             HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
             CompressEnabled    = $true
-            PreserveFolderTree = $false   # $true = mirror tree, $false = <hash>_<size> filenames
+            PreserveFolderTree = $false   # $true = mirror tree, $false = "<hash> <size>" filenames
         }
     )
 } | Export-Clixml -Path $HOME\BackupConfig.xml
@@ -117,9 +122,9 @@ are silent.
 
 | Field | Meaning |
 |---|---|
-| `HashRecalcFreq` | When to recompute hash for an unchanged file. `A`=always, `E`=every run, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
+| `HashRecalcFreq` | When to recompute the hash of an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
 | `CompressEnabled` | If `$true`, files are stored as `.7z` archives (already-compressed extensions are exempt). |
-| `PreserveFolderTree` | `$true` mirrors source folder structure under the backup root; `$false` stores data files as `<hashShort>_<sizeShort>.<ext>` and references them via the manifest's `DataPath` column. |
+| `PreserveFolderTree` | `$true` mirrors the source tree under the backup root; `$false` stores data files as `<hashShort> <sizeShort>.<ext>` referenced via the manifest's `DataPath`. |
 
 ---
 
@@ -128,30 +133,33 @@ are silent.
 ```
 SOURCE                            BACKUP                              CHANGES
 ------                            ------                              -------
-D:\Data\report.docx       -hash-> E:\Backups\Data\Ab92Cd_5K.7z        E:\Backups\DataChanges\
-D:\Data\photo.jpg         -hash-> E:\Backups\Data\Xy7Ko_3M.jpg          Pre_2026_03_19_22_50_06_000003_Changes\
-                                  MANIFEST.csv  ← (RelativePath, DataPath,                  ← previous data files
-                                                  Length, hash, mtime, flags)                that were modified/removed
-                                  RECONSTRUCT.ps1, RECONSTRUCT.bat                            on this run, plus a
-                                                                                              pre-backup MANIFEST.csv
+D:\Data\report.docx       -hash-> E:\Backups\Data\Ab92Cd 5K.7z       E:\Backups\DataChanges\
+D:\Data\photo.jpg         -hash-> E:\Backups\Data\Xy7Ko 3M.jpg         Pre_2026_03_19_22_50_06_000003_Changes\
+                                  MANIFEST.csv                          ← previous data files
+                                  RECONSTRUCT.ps1/.bat                    modified/removed this run,
+                                  FileBackup.Common.psm1                  plus a pre-backup MANIFEST.csv
+                                  System.IO.Hashing.dll
+                                  FileBackupState.json (last hash run)
 ```
 
-Per run, `FileBackup.ps1` performs **14 ordered steps** (see `Run-BackupSet`):
+Per run, for each set, `Invoke-BackupSet` (in `FileBackup.Engine.psm1`) performs an
+ordered pipeline:
 
-1. Resolve `SourcePath`, `BackupPath`, `ChangePath`
-2. Open `backup.log` in the change root
-3. Guard against a stale `Temp` staging folder
-4. `UpdateSourceDatabase` — walk source, recompute hashes for new/changed files
-5. `SanitizeBackupDatabase` — migrate backup files if config (compress/tree-mode) changed
-6. Decide whether `HashRecalcFreq` requires re-hashing untouched files
-7. Snapshot pre-backup manifest into the staging folder
-8. `Compare-SourceToBackup` — pure diff into `NewOrChanged` + `RemovedFromSource`
-9. Build the in-memory updated backup map
-10. `Invoke-BackupFileGroup` per `(hash,size)` group — copy/compress new data
-11. `Move-RemovedFilesToStaging` — orphan ex-files into the staging folder
-12. Write the final backup manifest
-13. `GenerateReconstructScript` + `Finalize-ChangeFolder`
-14. `SanitizeChangeDatabase` — collapse cross-change duplicates
+1. Resolve `SourcePath` / `BackupPath` / `ChangePath`.
+2. Open `backup.log` in the change root.
+3. Guard against a stale `Temp` staging folder.
+4. Read the persisted last-hash-run time and decide if a scheduled rehash is due.
+5. `Update-SourceManifest` — walk source, (re)hash new/changed/scheduled files.
+6. `Sync-BackupStorageLayout` — migrate backup files when compress/tree mode changed.
+7. Snapshot the pre-backup manifest into staging.
+8. `Compare-SourceToBackup` — pure diff into `NewOrChanged` + `RemovedFromSource`.
+9. Build the in-memory updated backup map.
+10. `Invoke-BackupFileGroup` per `(hash,size)` group — copy/compress new data once.
+11. `Move-RemovedFilesToStaging` — evict removed files' data (refcount-aware).
+12. Write the final backup manifest.
+13. `New-ReconstructScript` + `Complete-ChangeFolder` (collision-safe naming).
+14. `Optimize-ChangeFolders` — collapse cross-change duplicates.
+15. Persist the last-hash-run timestamp if a rehash ran.
 
 ---
 
@@ -159,118 +167,15 @@ Per run, `FileBackup.ps1` performs **14 ordered steps** (see `Run-BackupSet`):
 
 | Column | Meaning |
 |---|---|
-| `DataPath`           | Path of the actual data file, relative to its parent folder (backup root or change folder). Blank means "look up by hash" — `Reconstruct.ps1` handles this. |
-| `RelativePath`       | Path of the original file under the source root. The "logical name". |
-| `Length`             | Byte length of the original. |
-| `LastWriteTimeStr`   | ISO 8601 (`'O'` format). |
-| `xxH2Hash`           | xxHash128 hex (16 + 16 hex chars). |
-| `Compressed`         | `Yes` / `No` — does the data file have `.7z`? |
-| `StoredAsHashSize`   | `Hash` or `Original` — naming convention used for `DataPath`. |
-| `Duplicate`          | `1` if another row shares the same `(hash, length)` and was chosen as the keeper. |
-| `MediaMBPerSec`      | Optional, from `ffprobe`. Useful for bandwidth/storage reports. |
-
----
-
-## Test plan
-
-The harness sweeps **storage mode × compression × suite group**, with a backend axis
-for *where* the volumes live:
-
-| Mode | PreserveFolderTree | Compression |
-|---|---|---|
-| `Mirror`                  | true  | false |
-| `Mirror+Compress`         | true  | true  |
-| `HashAddressed`           | false | false |
-| `HashAddressed+Compress`  | false | true  |
-
-Each combination runs 8 suite groups:
-
-| Group | What it covers |
-|---|---|
-| **G1 InitialBackup** | Empty source, single file, 200-file bulk, Unicode names, nested `MANIFEST.csv` regression (bug B6), bracketed paths. |
-| **G2 Incremental**   | Rename, move, modify, delete, re-add identical, re-add different, duplicate detection. |
-| **G3 Reconstruction**| Roundtrip from backup root, hash-fallback when `DataPath` is blanked, target inside backup-root rejected. |
-| **G4 Sanitization**  | Mirror → HashAddressed migration; manifest `StoredAsHashSize` flips correctly. |
-| **G5 EdgeCases**     | Stale `Temp` aborts cleanly, read-only source files, idempotent second run. |
-| **G6 HashFrequency** | Unit checks against `Should-RecalculateHashes` for all 7 freq codes × bounded date deltas. |
-| **G7 Determinism**   | Identical re-runs produce identical manifest rows; SHA-256 spot check. |
-| **G8 RealVolume**    | USB-only: presence/labeling sanity, real-disk single-pass backup. SKIPs under Subst/VHDX. |
-
-### Backends
-
-| Backend | How it provisions volumes | Admin? | Available in CI? | Use it when |
-|---|---|---|---|---|
-| **Subst**   | `subst X: Y: Z: W:` over `%TEMP%` directories | no  | yes | default; fastest; CI runner. |
-| **VHDX**    | Dynamic VHDX files mounted as letters         | yes | self-hosted only | capacity / free-space tests; real NTFS semantics. |
-| **RealUSB** | Reads `tests\Config\real-volumes.json` and resolves the four `FBTEST-*` labels via `Get-Volume` | no\* | no | catches real-hardware bugs (FAT32 size limits, slow seek). \* The *initial* partition step needs admin; running tests after doesn't. |
-
-### Real-hardware setup
-
-```cmd
-Setup-USB.bat            REM elevates, then runs tests\Setup-USB.ps1
-```
-
-Wipes the chosen USB device, creates four GPT/NTFS partitions, labels them
-`FBTEST-SRC` / `FBTEST-BKP` / `FBTEST-CHG` / `FBTEST-RCN`, and copies
-`real-volumes.json.example` → `real-volumes.json`. The harness refuses any label that
-does not match the `FBTEST-*` prefix — a safety net so you can't accidentally point it
-at a labeled production volume.
-
-After that, plug in the stick and run:
-
-```cmd
-RunAllTests.bat RealUSB
-```
-
-### Continuous integration
-
-`.github/workflows/tests.yml` runs the **Subst** backend on `windows-latest` for every
-push to `main` / `working` / `Claude` and every PR. Results are uploaded as artifacts
-and surfaced as a JUnit report via `dorny/test-reporter`. The **VHDX** job only fires
-on a self-hosted runner that exposes the `hyper-v` label and where the repo variable
-`HAS_SELF_HOSTED_HYPERV == 'true'`. Real USB is not supported on hosted runners.
-
-### Results
-
-Every run drops:
-
-```
-%TEMP%\FileBackupTests\run_YYYYMMDD_HHMMSS\
-├── results.csv         Structured rows: Suite, Group, ScenarioId, TestName, Status, Detail, Timestamp
-├── results.xml         JUnit (when -EmitJUnit is passed; CI does this automatically)
-└── env\                Per-run scratch folders (Source / Backup / Changes / Recon)
-```
-
-The console emitter at the end prints a coloured PASS / FAIL / SKIP summary plus a
-table of failures.
-
----
-
-## Known issues & roadmap
-
-Bugs identified in the current review (still open after the syntax + date-format fixes
-already applied on this branch):
-
-| ID | Severity | Description |
-|---|---|---|
-| B2 | low    | `Should-RecalculateHashes` coerces `$null` to `DateTime.MinValue`; guard is partially unreachable. |
-| B3 | medium | "Last hash run" derived from manifest `LastWriteTime` — conflated with source mtimes. |
-| B4 | low    | `$recalc` computed but unused — `UpdateSourceDatabase` already rehashes on mtime change. |
-| B5 | low    | `[IEnumerable[object]]` type accelerator is non-generic; should be `[System.Collections.IEnumerable]`. |
-| B6 | medium | `MANIFEST.csv` exclusion is by name only — silently drops any nested user file with that exact name. G1.5 exercises this. |
-| B7 | medium | Sanitize step deletes duplicate data files before re-saving manifest; out-of-space mid-step can lose pointers. |
-| B8 | low    | `$existingBackupWithHash[0]` not wrapped in `@(...)`; relies on PowerShell array leniency. |
-| B9 | medium | `Move-RemovedFilesToStaging` doesn't refcount shared `DataPath`s; can orphan a still-needed data file. |
-| B10 | low   | `Reconstruct.ps1` without overrides assumes `CHANGES\` sibling; mismatched with main script's behavior. |
-| B11 | low   | Capacity pre-check sums uncompressed lengths even on compressed backups (conservative on big archives, optimistic on temp-decompress headroom). |
-| B12 | low   | Subst drives leak on parse failures (legacy `Test-Backup.ps1`). The new harness disposes via `try/finally` *and* an explicit `Dispose` scriptblock per backend. |
-| B13 | low   | Legacy `Test-Backup.ps1` EdgeCases group depends on prior-group state. New harness resets between groups. |
-| B14 | medium | Legacy harness coverage was thin (~28 assertions, never hit Mirror+Compress, freq codes, or sanitize migration). New harness fills this in. |
-| B15 | low   | `Send-MailMessage` is obsoleted in PS 7+. Tests already swallow mail errors. |
-| B16 | trivial | `Should-CompressFile`'s `$FullPath` only used for extension; rename for clarity. |
-| B17 | trivial | Docs drift: `PrepPropertiesFile.ps1` writes a different schema than `FileBackup.ps1` consumes. |
-
-Use these as issue seeds — fix incrementally with the test suite as the gate.
+| `DataPath`         | Path of the data file relative to its parent folder. Blank means "recover by hash". |
+| `RelativePath`     | Path of the original file under the source root (the logical name). |
+| `Length`           | Byte length of the original. |
+| `LastWriteTimeStr` | ISO 8601 (`'O'`). |
+| `xxH2Hash`         | xxHash128, 32 uppercase hex chars. |
+| `Compressed`       | `Yes` / `No` — is the data file a `.7z`? |
+| `StoredAsHashSize` | `Hash` or `Original` — naming convention used for `DataPath`. |
+| `Duplicate`        | `1` if another row shares the same `(hash, length)` and was the chosen keeper. |
+| `MediaMBPerSec`    | Optional, from `ffprobe`. |
 
 ---
 
@@ -278,8 +183,29 @@ Use these as issue seeds — fix incrementally with the test suite as the gate.
 
 | What | Where / how | Required? |
 |---|---|---|
-| PowerShell 5.1 or 7+    | Windows built-in / `winget install Microsoft.PowerShell` | yes |
-| K4os.Hash.xxHash 1.0.8  | `Install-Package K4os.Hash.xxHash -RequiredVersion 1.0.8 -Scope CurrentUser` (auto by Setup) | yes |
-| 7-Zip                   | `winget install 7zip.7zip` | only when `CompressEnabled = $true` |
-| ffmpeg/ffprobe          | `C:\ffmpeg\bin\ffprobe.exe` | optional — populates `MediaMBPerSec` |
-| Hyper-V PowerShell      | `Enable-WindowsOptionalFeature -FeatureName Microsoft-Hyper-V-Tools-All` | only for `VHDX` test backend |
+| PowerShell 7+          | `winget install Microsoft.PowerShell` | yes |
+| System.IO.Hashing 8.0  | `Install-Package System.IO.Hashing -RequiredVersion 8.0.0 -Scope CurrentUser` (auto on first use / `tests\Setup.ps1`) | yes (xxHash128) |
+| 7-Zip                  | `winget install 7zip.7zip` | only when `CompressEnabled = $true` |
+| ffmpeg/ffprobe         | `C:\ffmpeg\bin\ffprobe.exe` | optional — populates `MediaMBPerSec` |
+| Pester 5, PSScriptAnalyzer | `tests\Setup.ps1 -InstallTestTools` | tests/lint only |
+
+> **Windows PowerShell 5.1 is not supported.** The hashing library's Desktop build pulls
+> transitive `System.Memory` assemblies that aren't present in a stock 5.1 session; the
+> tool targets `pwsh` 7+, which is also what CI runs.
+
+---
+
+## Known issues & roadmap
+
+The correctness bugs catalogued in earlier reviews (B2–B11, B15–B17) and the dependency /
+parser defects discovered during the modularization have been fixed and are gated by the
+test suite — see [CHANGELOG.md](CHANGELOG.md). Remaining ideas:
+
+- Hash-based recovery decompresses every `.7z` candidate when scanning; fine as a rare
+  fallback, but could be indexed for large compressed stores.
+- `Send-MailMessage` is obsolete in PS 7+; it still works for a local notifier but a
+  modern transport (e.g. MailKit) would be more future-proof.
+- A self-hosted VHDX CI lane and the RealUSB hardware lane are documented runbooks rather
+  than automated gates (see [TEST_MATRIX.md](TEST_MATRIX.md)).
+
+Contributing conventions and invariants live in [AGENTS.md](AGENTS.md).

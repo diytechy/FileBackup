@@ -5,14 +5,16 @@ REM Usage: RunAllTests.bat [Backend] [extra Run-All.ps1 args]
 REM   Backend = Subst (default) | VHDX | RealUSB
 REM
 REM First run: runs tests\Setup.ps1 which may prompt to install
-REM K4os.Hash.xxHash. Subsequent runs: silent.
+REM System.IO.Hashing. Subsequent runs: silent.
+REM Requires PowerShell 7+ (pwsh).
 REM ============================================================
 
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-REM Pick PowerShell flavor
-where pwsh >nul 2>&1 && (set PS=pwsh) || (set PS=powershell)
+REM PowerShell 7+ is required (Windows PowerShell 5.1 is not supported).
+where pwsh >nul 2>&1 || (echo [ERR] pwsh ^(PowerShell 7+^) not found. Install: winget install Microsoft.PowerShell & exit /b 1)
+set PS=pwsh
 
 REM ---------- pre-flight ----------
 if not exist "FileBackup.ps1"   (echo [ERR] FileBackup.ps1 missing & exit /b 1)

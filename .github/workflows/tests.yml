@@ -2,44 +2,100 @@ name: tests
 
 on:
   push:
-    branches: [main, working, Claude]
+    branches: [main, working, Claude, refactor/modularize-docs-tests]
   pull_request:
   workflow_dispatch:
 
 jobs:
-  subst-backend:
-    name: Tests (Subst backend, windows-latest)
+  lint:
+    name: Lint (PSScriptAnalyzer)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $settings = 'tests/PSScriptAnalyzerSettings.psd1'
+          $targets = Get-ChildItem -Recurse -Include *.ps1,*.psm1 `
+                       -Path FileBackup.ps1,Reconstruct.ps1,Modules,tests
+          $findings = foreach ($t in $targets) {
+              Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings
+          }
+          $findings | Format-Table Severity,RuleName,ScriptName,Line,Message -Auto | Out-String | Write-Host
+          if ($findings | Where-Object Severity -in 'Error','Warning') {
+              throw "PSScriptAnalyzer reported $($findings.Count) finding(s)."
+          }
+          Write-Host "Lint clean."
+
+  unit:
+    name: Unit (Pester 5)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache System.IO.Hashing
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\PackageManagement\NuGet\Packages\System.IO.Hashing.8.0.0
+          key: sysiohashing-8.0.0-${{ runner.os }}
+
+      - name: Install deps + Pester
+        shell: pwsh
+        run: .\tests\Setup.ps1 -InstallDeps -InstallTestTools -NonInteractive
+
+      - name: Run Pester
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.0
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = 'tests/Unit'
+          $cfg.TestResult.Enabled = $true
+          $cfg.TestResult.OutputPath = "$env:RUNNER_TEMP/pester.xml"
+          $cfg.TestResult.OutputFormat = 'NUnitXml'
+          $cfg.Output.Verbosity = 'Detailed'
+          $cfg.Run.Exit = $true
+          Invoke-Pester -Configuration $cfg
+
+      - name: Publish Pester results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: FileBackup unit (Pester)
+          path: ${{ runner.temp }}/pester.xml
+          reporter: dotnet-nunit
+          fail-on-error: false
+
+  integration-subst:
+    name: Integration (Subst backend)
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache K4os.Hash.xxHash
+      - name: Cache System.IO.Hashing
         uses: actions/cache@v4
         with:
-          path: ~\AppData\Local\PackageManagement\NuGet\Packages\K4os.Hash.xxHash.1.0.8
-          key: k4os-xxhash-1.0.8-${{ runner.os }}
+          path: ~\AppData\Local\PackageManagement\NuGet\Packages\System.IO.Hashing.8.0.0
+          key: sysiohashing-8.0.0-${{ runner.os }}
 
       - name: Install deps (non-interactive)
         shell: pwsh
-        run: |
-          .\tests\Setup.ps1 -InstallDeps -NonInteractive
+        run: .\tests\Setup.ps1 -InstallDeps -NonInteractive
 
       - name: Verify 7-Zip
         shell: pwsh
-        run: |
-          if (-not (Test-Path 'C:\Program Files\7-Zip\7z.exe')) {
-              throw "7-Zip missing on runner"
-          }
+        run: if (-not (Test-Path 'C:\Program Files\7-Zip\7z.exe')) { throw "7-Zip missing on runner" }
 
-      - name: Run tests (Subst backend)
+      - name: Run integration tests (Subst)
         shell: pwsh
         run: |
-          .\tests\Run-All.ps1 `
-              -Backend Subst `
-              -ResultRoot $env:RUNNER_TEMP\fbtest `
-              -EmitJUnit `
-              -NonInteractive
+          .\tests\Run-All.ps1 -Backend Subst `
+              -ResultRoot $env:RUNNER_TEMP\fbtest -EmitJUnit -NonInteractive
 
       - name: Upload raw results
         if: always()
@@ -52,13 +108,13 @@ jobs:
         if: always()
         uses: dorny/test-reporter@v1
         with:
-          name: FileBackup (Subst)
+          name: FileBackup integration (Subst)
           path: ${{ runner.temp }}\fbtest\**\results.xml
           reporter: java-junit
           fail-on-error: false
 
-  vhdx-backend:
-    name: Tests (VHDX backend, self-hosted)
+  integration-vhdx:
+    name: Integration (VHDX backend, self-hosted)
     runs-on: [self-hosted, windows, hyper-v]
     if: ${{ vars.HAS_SELF_HOSTED_HYPERV == 'true' }}
     timeout-minutes: 60

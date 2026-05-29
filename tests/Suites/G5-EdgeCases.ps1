@@ -37,11 +37,7 @@ function Invoke-G5 {
     Reset-TestEnvironment $Env
     New-TestFile (Join-Path $Env.SrcPath 'stable.txt') 'unchanging'
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
-    $changeFoldersBefore = @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory -ErrorAction SilentlyContinue |
-                             Where-Object { $_.Name -like 'Pre_*_Changes' }).Count
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
-    $changeFoldersAfter  = @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory -ErrorAction SilentlyContinue |
-                             Where-Object { $_.Name -like 'Pre_*_Changes' }).Count
     Assert-True $suite $group 'G5.7' 'Idempotent_secondRun' {
         # An incremental run may still create an empty Pre_*_Changes folder, but the manifest row count must be stable.
         $rows = @(Import-Csv -LiteralPath (Join-Path $Env.BkpPath 'MANIFEST.csv'))

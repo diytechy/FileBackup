@@ -32,8 +32,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$here = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent
-$repo = Split-Path -LiteralPath $here -Parent
+$here = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)
+$repo = [System.IO.Path]::GetDirectoryName($here)
 $BackupScript = Join-Path $repo 'FileBackup.ps1'
 
 if (-not (Test-Path -LiteralPath $BackupScript)) {

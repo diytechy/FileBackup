@@ -23,7 +23,8 @@ function Invoke-G2 {
     Assert-ManifestRow $suite $group 'G2.1' 'Rename_newPresent' $manifest 'a_renamed.txt' $true
     Assert-ManifestRow $suite $group 'G2.1' 'Rename_oldAbsent'  $manifest 'a.txt' $false
 
-    # G2.2 move
+    # G2.2 move (Move-Item won't create the destination folder, so make it first)
+    New-Item -ItemType Directory -Path (Join-Path $Env.SrcPath 'folderB') -Force | Out-Null
     Move-Item (Join-Path $Env.SrcPath 'folderA\b.txt') (Join-Path $Env.SrcPath 'folderB\b.txt')
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
     Assert-ManifestRow $suite $group 'G2.2' 'Move_newPath' $manifest 'folderB\b.txt' $true

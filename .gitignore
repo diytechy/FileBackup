@@ -1,2 +1,5 @@
 ﻿BuildAlbum/AlbumOut*
 BuildAlbum/TestOut
+
+# Test harness setup marker (created by tests/Setup.ps1)
+tests/.setup-complete
