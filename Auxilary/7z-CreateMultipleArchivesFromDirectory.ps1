@@ -1,4 +1,16 @@
-﻿
+﻿<#
+.SYNOPSIS
+    Auxiliary (standalone): split a directory tree into ~equal-size groups and
+    write one .7z archive per group, with a manifest .txt of each group's files.
+
+.DESCRIPTION
+    NOT part of the FileBackup engine — a one-off snapshot-archiver. Edit the
+    hardcoded paths below ($BkpFldrPath, $7zOutputDir, $ArchivePrepPath) and the
+    target pre-compression group size ($IdealPreCompSize, bytes). Requires 7-Zip.
+    Files are bucketed in directory order until the running size crosses the
+    threshold; there is no content-aware grouping.
+#>
+
 #First clean out variables (for clean run)
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 

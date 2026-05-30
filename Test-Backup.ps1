@@ -1,6 +1,15 @@
 <#
 .SYNOPSIS
-    Comprehensive test suite for FileBackup.ps1 including:
+    LEGACY single-file test harness — SUPERSEDED by the tests/ suite.
+
+.NOTES
+    Replaced by tests/Run-All.ps1 (modular Subst/VHDX/RealUSB backends, G1-G8
+    suites, Pester unit tests, JUnit output). This file predates the module split
+    and the System.IO.Hashing switch, references the old function names, and is
+    NOT run by CI or RunAllTests.bat. Kept for reference only; add new coverage in
+    tests/, not here. See AGENTS.md.
+
+    Original description: comprehensive test suite for FileBackup.ps1 including:
     - Mirror mode (PreserveFolderTree)
     - Content-addressed mode (Hash+Size naming)
     - Compression mode

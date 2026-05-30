@@ -1,3 +1,17 @@
+<#
+.SYNOPSIS
+    Auxiliary (standalone) — STEP 2 of 3 of the database-driven dedup pipeline:
+    from the size/hash candidates, pick which copy of each duplicate to delete.
+
+.DESCRIPTION
+    NOT part of the FileBackup engine. Reads $ReportPath (STEP 1 output), limits
+    to media extensions, groups by SHA256 Hash, and within each duplicate group
+    marks copies for deletion when their path contains a key from $DupRemKeys
+    (lowest-priority/last-kept location wins), always leaving at least one copy.
+    Writes a review list ($DupReport) and a delete list ($DelReport) consumed by
+    STEP 3 (RemoveAllFilesFromList.ps1). REVIEW $DelReport before running STEP 3.
+#>
+
 $ReportPath = "A:\AllDatabaseFiles.csv"
 
 $DelReport = "A:\AllDuplicatesToRemove.csv"

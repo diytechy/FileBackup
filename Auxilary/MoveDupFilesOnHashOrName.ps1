@@ -1,3 +1,21 @@
+<#
+.SYNOPSIS
+    Auxiliary (standalone): quarantine likely-duplicate files out of a folder by
+    matching them against pre-built "*HashTable.csv" databases.
+
+.DESCRIPTION
+    NOT part of the FileBackup engine and unrelated to its MANIFEST.csv schema.
+    Reads one or more legacy hash-table CSVs (FullName/Length/LastWriteTimeStr/
+    Hash columns) listed in $HashPaths, then scans $CmprPath and flags each file
+    that matches a database entry by, in order: (name+size+date), SHA256 hash
+    (only when $AllowHash), or base name. Flagged files are moved under the
+    corresponding Dup* folder, preserving relative paths; empty source folders
+    are pruned. Hashing uses Get-FileHash (SHA256), NOT xxHash128.
+
+    Controls: $runvar (0=plan+move, 1=plan only, 2=move from existing CSV only),
+    $AllowHash (enable the expensive hash pass). Edit all hardcoded paths first.
+#>
+
 #First clean out variables (for clean run)
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 

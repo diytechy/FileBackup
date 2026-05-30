@@ -1,4 +1,10 @@
 @echo off
+REM ============================================================
+REM LEGACY runner for Test-Backup.ps1 - SUPERSEDED by RunAllTests.bat
+REM (which drives the modular tests/ harness). Kept for reference only;
+REM Test-Backup.ps1 predates the module split and is not maintained.
+REM Use RunAllTests.bat instead.
+REM ============================================================
 REM FileBackup Test Suite Runner
 REM Kicks off comprehensive test harness and reports results
 

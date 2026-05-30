@@ -1,3 +1,16 @@
+<#
+.SYNOPSIS
+    Auxiliary (standalone) — STEP 1 of 3 of the database-driven dedup pipeline:
+    find candidate duplicates by size and fill in missing SHA256 hashes.
+
+.DESCRIPTION
+    NOT part of the FileBackup engine (separate "*HashTable.csv" schema, SHA256).
+    Imports the hash tables in $HashPaths, groups rows by Length, and for any
+    size with >1 file computes Get-FileHash where the Hash column is empty. Rows
+    in a size-collision group are exported to $ReportPath for STEP 2
+    (CreateDelListFromDupDatabase.ps1). Edit the hardcoded A:\ paths first.
+#>
+
 #First clean out variables (for clean run)
 Get-Variable -Exclude PWD,*Preference | Remove-Variable -EA 0
 

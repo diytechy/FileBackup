@@ -1,5 +1,12 @@
-﻿# NOTE: Below function copied from stack-overflow:
-#https://stackoverflow.com/questions/43728173/looping-through-all-subfolders-zipping-each-folder-in-powershell
+﻿<#
+.SYNOPSIS
+    Auxiliary (standalone): create one .7z per immediate subfolder of a directory.
+
+.DESCRIPTION
+    NOT part of the FileBackup engine. Edit $Fldrs2Comp (parent whose subfolders
+    are zipped) and $OutputFldr (where the .7z files land). Requires 7-Zip.
+    Source: https://stackoverflow.com/questions/43728173
+#>
 
 $Fldrs2Comp = "D:\2Chk"
 $OutputFldr = "D:\DupFldrComp"
