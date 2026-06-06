@@ -48,6 +48,15 @@
 .PARAMETER NoMail
     Skip the success/failure email even if SMTP details are present.
 
+.PARAMETER NonInteractive
+    Never prompt — for scheduled/unattended runs. Missing optional tools degrade
+    silently; a missing required hashing package fails loudly (non-zero exit)
+    unless -AutoInstallDeps is set. Implements: SR-016.
+
+.PARAMETER AutoInstallDeps
+    With -NonInteractive, install the missing System.IO.Hashing package
+    automatically instead of failing.
+
 .NOTES
     Requires PowerShell 7+ (pwsh). Dependencies:
         - System.IO.Hashing (NuGet) for xxHash128  - installed on first use / by tests\Setup.ps1.
@@ -58,7 +67,9 @@
 [CmdletBinding()]
 param(
     [string]$ConfigPath = "$HOME\BackupConfig.xml",
-    [switch]$NoMail
+    [switch]$NoMail,
+    [switch]$NonInteractive,
+    [switch]$AutoInstallDeps
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,13 +96,21 @@ foreach ($s in $Sets) {
     # Set $anyMedia = $true here if you want ffprobe metrics for every set.
 }
 
-$deps = Initialize-Dependencies -AnyCompressionNeeded:$anyCompress -AnyMediaMetricsNeeded:$anyMedia -Log $globalLog
+$deps = Initialize-Dependencies -AnyCompressionNeeded:$anyCompress -AnyMediaMetricsNeeded:$anyMedia -Log $globalLog `
+    -NonInteractive:$NonInteractive -AutoInstall:$AutoInstallDeps
 
 $overallSuccess = $true
 $logPaths = New-Object System.Collections.Generic.List[string]
 
+# SR-014: process each set independently — one set's failure marks the run failed
+# but must not abort the remaining sets.
 foreach ($set in $Sets) {
-    Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$overallSuccess) -LogPaths $logPaths
+    try {
+        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$overallSuccess) -LogPaths $logPaths
+    } catch {
+        & $globalLog ("Backup set '{0}' failed: {1}" -f $set.Name, $_.Exception.Message) 'ERROR'
+        $overallSuccess = $false
+    }
 }
 
 # region Notification (B15: optional; Send-MailMessage only when configured)

@@ -119,6 +119,7 @@ $script:XxHashPackageVersion = '8.0.0'
 $script:XxHashDllName        = 'System.IO.Hashing.dll'
 
 function Initialize-XxHashLibrary {
+    # Implements: SR-002, SR-019, LLR-002
     <#
     .SYNOPSIS
         Ensures System.IO.Hashing.XxHash128 is loaded. Prefers a DLL bundled next
@@ -127,11 +128,20 @@ function Initialize-XxHashLibrary {
     .PARAMETER BundledDllDir
         Directory to probe for a bundled System.IO.Hashing.dll. Defaults to the
         module's own folder.
+    .PARAMETER NonInteractive
+        Never prompt (scheduled/unattended runs). If the package is missing and
+        -AutoInstall is not set, throw with remediation guidance instead of
+        blocking on a Read-Host. Implements: SR-016, SR-019.
+    .PARAMETER AutoInstall
+        With -NonInteractive, install the missing package automatically rather
+        than failing.
     #>
     [CmdletBinding()]
     param(
         [string]$BundledDllDir = $PSScriptRoot,
-        [string]$RequiredVersion = $script:XxHashPackageVersion
+        [string]$RequiredVersion = $script:XxHashPackageVersion,
+        [switch]$NonInteractive,
+        [switch]$AutoInstall
     )
 
     if ('System.IO.Hashing.XxHash128' -as [type]) {
@@ -150,13 +160,28 @@ function Initialize-XxHashLibrary {
     # 2. NuGet package cache (install on first use if absent).
     $pkg = Get-Package -Name $script:XxHashPackageName -ErrorAction SilentlyContinue
     if (-not $pkg) {
-        Write-Host "$($script:XxHashPackageName) $RequiredVersion is not installed."
-        $resp = Read-Host "Install it now via Install-Package $($script:XxHashPackageName) -Version $RequiredVersion? (Y/N)"
-        if ($resp -match '^[Yy]') {
-            Install-Package $script:XxHashPackageName -RequiredVersion $RequiredVersion -Force -Scope CurrentUser | Out-Null
+        $installCmd = "Install-Package $($script:XxHashPackageName) -RequiredVersion $RequiredVersion -Scope CurrentUser"
+        if ($NonInteractive) {
+            # SR-016: an unattended run must never block on an interactive prompt.
+            if ($AutoInstall) {
+                Write-Host "$($script:XxHashPackageName) $RequiredVersion not installed; auto-installing (non-interactive)."
+                Install-Package $script:XxHashPackageName -RequiredVersion $RequiredVersion -Force -Scope CurrentUser | Out-Null
+            }
+            else {
+                throw ("$($script:XxHashPackageName) $RequiredVersion is required for xxHash128 hashing and is not " +
+                    "installed. Run '$installCmd' (or tests\Setup.ps1 -InstallDeps -NonInteractive), bundle " +
+                    "$($script:XxHashDllName) next to the module, or re-run with -AutoInstall.")
+            }
         }
         else {
-            throw "$($script:XxHashPackageName) is required for xxHash128 hashing. Aborting."
+            Write-Host "$($script:XxHashPackageName) $RequiredVersion is not installed."
+            $resp = Read-Host "Install it now via $installCmd ? (Y/N)"
+            if ($resp -match '^[Yy]') {
+                Install-Package $script:XxHashPackageName -RequiredVersion $RequiredVersion -Force -Scope CurrentUser | Out-Null
+            }
+            else {
+                throw "$($script:XxHashPackageName) is required for xxHash128 hashing. Aborting."
+            }
         }
     }
 
@@ -178,6 +203,7 @@ function Initialize-XxHashLibrary {
 }
 
 function Get-XxHashDllPath {
+    # Implements: SR-007, LLR-007
     <#
     .SYNOPSIS
         Resolves the path to a System.IO.Hashing.dll to bundle into a backup
@@ -203,6 +229,7 @@ function Get-XxHashDllPath {
 }
 
 function Get-FileXxHash {
+    # Implements: SR-002, LLR-002
     <#
     .SYNOPSIS
         Computes the xxHash128 of a file as a 32-char uppercase hex string
@@ -235,6 +262,7 @@ function Get-FileXxHash {
 # region Manifest date (de)serialization
 
 function ConvertTo-ManifestDateString {
+    # Implements: SR-025, LLR-025
     [CmdletBinding()]
     param([datetime]$LastWriteTime)
     return $LastWriteTime.ToString($script:CSVDateFormat)
@@ -251,6 +279,7 @@ function ConvertFrom-ManifestDateString {
 # region Short-name encoding (hash/size <-> filename)
 
 function Convert-HexToShortName {
+    # Implements: SR-003, LLR-003
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Hex,
@@ -293,6 +322,7 @@ function Convert-ShortNameToHex {
 }
 
 function Get-HashSizeFileName {
+    # Implements: SR-003, SR-021, LLR-003, LLR-021
     <#
     .SYNOPSIS
         Builds the content-addressed data filename "<hashShort> <lenShort><ext>".
@@ -314,6 +344,7 @@ function Get-HashSizeFileName {
 # region Compression + expansion
 
 function Test-ShouldCompress {
+    # Implements: SR-004, LLR-004
     <#
     .SYNOPSIS
         True when compression is enabled and the file's extension is not already
@@ -330,6 +361,7 @@ function Test-ShouldCompress {
 }
 
 function Compress-FileWithSevenZip {
+    # Implements: SR-004, LLR-004
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SevenZipPath,
@@ -359,6 +391,7 @@ function Compress-FileWithSevenZip {
 }
 
 function Expand-FileWithSevenZip {
+    # Implements: SR-008, LLR-008
     <#
     .SYNOPSIS
         Extracts the single payload file from a .7z archive to -DestinationFile.
@@ -407,6 +440,7 @@ function Expand-FileWithSevenZip {
 # region Manifest I/O
 
 function Read-Manifest {
+    # Implements: SR-025, LLR-025
     <#
     .SYNOPSIS
         Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
@@ -430,6 +464,7 @@ function Read-Manifest {
 }
 
 function Write-Manifest {
+    # Implements: SR-025, LLR-025
     <#
     .SYNOPSIS
         Writes the canonical 9-column MANIFEST.csv to a folder.

@@ -157,8 +157,16 @@ foreach ($rel in $main.Keys) {
     if ($row.Compressed -eq 'Yes') { $anyCompressed = $true; continue }
     if ($row.Length) { $totalBytes += [long]$row.Length }
 }
+# Resolve the drive separately so a resolution failure is non-fatal, but an
+# actual insufficient-space verdict still aborts (previously the throw was
+# swallowed by the same catch that handled drive resolution — SR-023 / B11).
+$drive = $null
 try {
     $drive = Get-PSDrive -Name (Split-Path -Qualifier $TargetRoot).TrimEnd(':')
+} catch {
+    Write-Verbose "Capacity pre-check skipped (could not resolve target drive): $($_.Exception.Message)"
+}
+if ($drive) {
     if ($drive.Free -lt $totalBytes) {
         $msg = "Not enough free space on target drive. Required (uncompressed rows only): $totalBytes, Free: $($drive.Free)"
         $msg | Out-File -LiteralPath $logPath -Append
@@ -168,8 +176,6 @@ try {
         "$(Get-Date -Format 'O') - NOTE: backup contains compressed rows; capacity check excluded them (true need is higher)." |
             Out-File -LiteralPath $logPath -Append
     }
-} catch {
-    Write-Verbose "Capacity pre-check skipped (could not resolve target drive): $($_.Exception.Message)"
 }
 
 # ---- Search folders for hash-based recovery (newest change folders first) ----

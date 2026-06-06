@@ -56,6 +56,11 @@ Therefore:
 - **Dedup key is `(xxH2Hash, Length)`** — one physical data file per key.
 - **Change-folder name** matches `^Pre_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}_.*_Changes$`
   (the `.*` tail absorbs the change count + a same-second disambiguator).
+  > **Migration in progress (SR-005/SR-010/SR-028):** this `Pre_*_Changes` model
+  > is being replaced by **dated `Snapshot_<date>` point-in-time folders** with a
+  > clean cutover — see `docs/status.md` "Design note: dated snapshots". This
+  > section describes *current* behavior until that lands at G3; do not code to
+  > the new model yet without the gated change.
 - **Reconstruct stays standalone** — no repo, no NuGet install at restore time.
 - **Infrastructure files are root-level only** (`Test-IsInfrastructureFile`): a *nested*
   user file named `MANIFEST.csv`/`RECONSTRUCT.ps1`/etc. is real data (regression B6).

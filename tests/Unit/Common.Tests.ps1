@@ -92,3 +92,20 @@ Describe 'Read/Write-Manifest' {
         @(Read-Manifest -FolderPath $folder).Count | Should -Be 0
     }
 }
+
+Describe 'Common does not depend on Engine (SR-007)' {
+    # Load-bearing split: the restore kit bundles only Common, so Common must
+    # never import or load Engine (AGENTS.md sec.2). AST guard over real import
+    # statements only — doc comments that mention Engine by name are fine.
+    It 'FileBackup.Common.psm1 imports no Engine module (SR-007)' {
+        $common = Join-Path $repo 'Modules\FileBackup.Common.psm1'
+        $tokens = $errs = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($common, [ref]$tokens, [ref]$errs)
+        $imports = $ast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -in 'Import-Module','Add-Type' }, $true)
+        $offenders = $imports | Where-Object { $_.Extent.Text -match 'Engine' }
+        $usingEngine = $ast.UsingStatements | Where-Object { $_.Name.Value -match 'Engine' }
+        @($offenders).Count + @($usingEngine).Count | Should -Be 0
+    }
+}

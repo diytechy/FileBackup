@@ -91,3 +91,24 @@ Describe 'Test-IsInfrastructureFile' {
         Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeFalse
     }
 }
+
+Describe 'Resolve-OptionalTool non-interactive (SR-016, SR-020)' {
+    # If -NonInteractive blocked on Read-Host these tests would hang, never pass.
+    It 'returns null for a missing tool without prompting (SR-016)' {
+        Resolve-OptionalTool -Name 'Bogus' -Path 'Z:\does\not\exist\bogus.exe' -NonInteractive 3>$null |
+            Should -BeNullOrEmpty
+    }
+    It 'returns the path when the tool exists (SR-020)' {
+        $f = New-TemporaryFile
+        try { Resolve-OptionalTool -Name 'Present' -Path $f.FullName -NonInteractive | Should -Be $f.FullName }
+        finally { Remove-Item -LiteralPath $f.FullName -Force }
+    }
+}
+
+Describe 'FileBackup.ps1 entry point (SR-018)' {
+    It 'throws a clear error when the config file does not exist (SR-018)' {
+        $entry = Join-Path $repo 'FileBackup.ps1'
+        { & $entry -ConfigPath (Join-Path $TestDrive 'no-such-config.xml') -NoMail -NonInteractive } |
+            Should -Throw -ExpectedMessage '*not found*'
+    }
+}

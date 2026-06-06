@@ -21,7 +21,7 @@ jobs:
         run: |
           $settings = 'tests/PSScriptAnalyzerSettings.psd1'
           $targets = Get-ChildItem -Recurse -Include *.ps1,*.psm1 `
-                       -Path FileBackup.ps1,Reconstruct.ps1,Modules,tests
+                       -Path FileBackup.ps1,Reconstruct.ps1,Modules,tests,scripts
           $findings = foreach ($t in $targets) {
               Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings
           }
@@ -30,6 +30,25 @@ jobs:
               throw "PSScriptAnalyzer reported $($findings.Count) finding(s)."
           }
           Write-Host "Lint clean."
+
+  traceability:
+    name: Traceability (UN->SR->LLR->TC) + arch map
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trace registries (strict, 0 orphans for the active gate)
+        shell: pwsh
+        run: python scripts/trace.py --strict
+      - name: Architecture map is current (not stale)
+        shell: pwsh
+        run: pwsh -File scripts/gen_arch_map.ps1 -Check
+      - name: Upload traceability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traceability-report
+          path: docs/test/report.md
 
   unit:
     name: Unit (Pester 5)

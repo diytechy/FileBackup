@@ -28,6 +28,7 @@ $script:Def = Get-FileBackupDefaults
 # region Infrastructure-file filtering
 
 function Test-IsInfrastructureFile {
+    # Implements: SR-022, LLR-022
     <#
     .SYNOPSIS
         True when a file is a FileBackup-managed artifact sitting at the *root* of
@@ -73,6 +74,7 @@ function Get-DataFile {
 # region Last-hash-run state (B3)
 
 function Get-LastHashRun {
+    # Implements: SR-011, LLR-011
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$BackupRoot)
     $statePath = Join-Path $BackupRoot 'FileBackupState.json'
@@ -87,6 +89,7 @@ function Get-LastHashRun {
 }
 
 function Set-LastHashRun {
+    # Implements: SR-011, LLR-011
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -101,33 +104,43 @@ function Set-LastHashRun {
 # region Dependency loading (7z, ffprobe, xxHash)
 
 function Resolve-OptionalTool {
+    # Implements: SR-020 (optional-dependency degradation), SR-016 (non-blocking).
     [CmdletBinding()]
     param(
         [string]$Name,
         [string]$Path,
-        [scriptblock]$InstallHint
+        [scriptblock]$InstallHint,
+        [switch]$NonInteractive
     )
     if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
     if (Test-Path -LiteralPath $Path -PathType Leaf) { return $Path }
 
     Write-Warning "$Name not found at '$Path'."
     if ($InstallHint) { & $InstallHint }
+    # SR-016: under -NonInteractive degrade silently to "absent" rather than block.
+    if ($NonInteractive) {
+        Write-Warning "Continuing without $Name (non-interactive)."
+        return $null
+    }
     Write-Host "Press Enter to continue without $Name, or Ctrl+C to abort."
     [void](Read-Host)
     return $null
 }
 
 function Initialize-Dependencies {
+    # Implements: SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking).
     [CmdletBinding()]
     param(
         [bool]$AnyCompressionNeeded,
         [bool]$AnyMediaMetricsNeeded,
-        [scriptblock]$Log
+        [scriptblock]$Log,
+        [switch]$NonInteractive,
+        [switch]$AutoInstall
     )
     $deps = [ordered]@{}
 
     if ($AnyCompressionNeeded) {
-        $deps['7z'] = Resolve-OptionalTool -Name '7-Zip' -Path $script:Def.SevenZipDefaultPath -InstallHint {
+        $deps['7z'] = Resolve-OptionalTool -Name '7-Zip' -Path $script:Def.SevenZipDefaultPath -NonInteractive:$NonInteractive -InstallHint {
             & $Log 'Please install 7-Zip from https://www.7-zip.org/ and adjust the path if needed.' 'WARN'
         }
     } else {
@@ -135,14 +148,14 @@ function Initialize-Dependencies {
     }
 
     if ($AnyMediaMetricsNeeded) {
-        $deps['ffprobe'] = Resolve-OptionalTool -Name 'ffprobe' -Path $script:Def.FfprobePathDefault -InstallHint {
+        $deps['ffprobe'] = Resolve-OptionalTool -Name 'ffprobe' -Path $script:Def.FfprobePathDefault -NonInteractive:$NonInteractive -InstallHint {
             & $Log 'Please install ffmpeg/ffprobe into C:\ffmpeg\bin or adjust the path.' 'WARN'
         }
     } else {
         $deps['ffprobe'] = $null
     }
 
-    Initialize-XxHashLibrary | Out-Null
+    Initialize-XxHashLibrary -NonInteractive:$NonInteractive -AutoInstall:$AutoInstall | Out-Null
     $deps['xxhash'] = $true
     return $deps
 }
@@ -152,6 +165,7 @@ function Initialize-Dependencies {
 # region Media metrics
 
 function Get-MediaMBPerSec {
+    # Implements: SR-020, LLR-020
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FilePath,
@@ -189,6 +203,7 @@ function Get-MediaMBPerSec {
 # region Hash-recalc schedule
 
 function Test-HashRecalcDue {
+    # Implements: SR-011, LLR-011
     <#
     .SYNOPSIS
         Decides whether untouched files should be re-hashed this run, given the
@@ -227,6 +242,7 @@ function Test-HashRecalcDue {
 # region Source manifest
 
 function Update-SourceManifest {
+    # Implements: SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024
     <#
     .SYNOPSIS
         Walks the source tree, (re)hashes new/changed files (and all files when
@@ -307,6 +323,7 @@ function Update-SourceManifest {
 # region Backup copy
 
 function Copy-SourceFileToBackup {
+    # Implements: SR-003, LLR-003
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourceFilePath,
@@ -372,6 +389,7 @@ function Test-BackupManifest {
 }
 
 function Sync-BackupStorageLayout {
+    # Implements: SR-012, SR-013, LLR-012, LLR-013
     <#
     .SYNOPSIS
         Migrates backup data files to match the current PreserveFolderTree /
@@ -497,6 +515,7 @@ function Sync-BackupStorageLayout {
 # region Change-folder de-duplication
 
 function Optimize-ChangeFolders {
+    # Implements: SR-026, LLR-026
     <#
     .SYNOPSIS
         Collapses duplicate (hash,length) data files across change folders,
@@ -610,6 +629,7 @@ function Optimize-ChangeFolders {
 # region Reconstruct-script generator
 
 function New-ReconstructScript {
+    # Implements: SR-007, LLR-007
     <#
     .SYNOPSIS
         Copies RECONSTRUCT.ps1/.bat into the backup root, writes a path sidecar,
@@ -656,6 +676,7 @@ function New-ReconstructScript {
 # region Per-set orchestration helpers
 
 function Resolve-BackupSetPaths {
+    # Implements: SR-014, LLR-014
     [CmdletBinding()]
     param([Parameter(Mandatory)][pscustomobject]$Set)
 
@@ -680,6 +701,7 @@ function Resolve-BackupSetPaths {
 }
 
 function Initialize-StagingFolder {
+    # Implements: SR-005, SR-017, LLR-005, LLR-017
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ChgPath,
@@ -695,6 +717,7 @@ function Initialize-StagingFolder {
 }
 
 function Compare-SourceToBackup {
+    # Implements: SR-001, LLR-001
     <#
     .SYNOPSIS
         Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
@@ -728,6 +751,7 @@ function Compare-SourceToBackup {
 }
 
 function Invoke-BackupFileGroup {
+    # Implements: SR-003, LLR-003
     <#
     .SYNOPSIS
         Backs up one (hash,length) group: reuses an existing backup data file if
@@ -816,6 +840,7 @@ function Invoke-BackupFileGroup {
 }
 
 function Move-RemovedFilesToStaging {
+    # Implements: SR-006, LLR-006
     <#
     .SYNOPSIS
         Evicts data files for source-removed entries into the staging folder.
@@ -865,6 +890,7 @@ function Move-RemovedFilesToStaging {
 }
 
 function Complete-ChangeFolder {
+    # Implements: SR-005, LLR-005
     <#
     .SYNOPSIS
         Blanks stale staging DataPaths, renames the staging folder to its final
@@ -918,6 +944,7 @@ function Complete-ChangeFolder {
 # region Per-set orchestrator
 
 function Invoke-BackupSet {
+    # Implements: SR-014, SR-017, LLR-014, LLR-017
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,
@@ -926,8 +953,12 @@ function Invoke-BackupSet {
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$LogPaths
     )
 
-    # 1. Resolve paths
-    try { $paths = Resolve-BackupSetPaths -Set $Set } catch { Write-Warning $_.Exception.Message; return }
+    # 1. Resolve paths (SR-014: a set that can't even resolve still counts as a failure)
+    try { $paths = Resolve-BackupSetPaths -Set $Set } catch {
+        Write-Warning $_.Exception.Message
+        $OverallSuccess.Value = $false
+        return
+    }
 
     # 2. Logger
     $logPath = Join-Path $paths.ChgPath 'backup.log'
