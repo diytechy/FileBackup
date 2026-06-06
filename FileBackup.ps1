@@ -16,7 +16,8 @@
         * Migrates backup storage to the current compress / tree-mode config.
         * Diffs source vs backup, copies new data (deduped by xxHash128 + length),
           and evicts removed files' previous data into a staging folder.
-        * Renames staging to  Pre_<FileLabelDate>_<NNNNNN>_Changes  and drops a
+        * Renames staging to a dated  Snapshot_<date>  point-in-time folder (only
+          when something was superseded; the latest state is the live backup) and drops a
           self-contained RECONSTRUCT.ps1 / .bat (plus the Common module + xxHash
           DLL) into the backup and change folders.
         * Optionally emails success/failure.
@@ -69,7 +70,10 @@ param(
     [string]$ConfigPath = "$HOME\BackupConfig.xml",
     [switch]$NoMail,
     [switch]$NonInteractive,
-    [switch]$AutoInstallDeps
+    [switch]$AutoInstallDeps,
+    # Testing/automation seam (SR-005): pins this run's completion date, which dates
+    # the NEXT run's snapshot. Omit in normal use to date by the real clock.
+    [datetime]$BackupTime
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,9 +108,11 @@ $logPaths = New-Object System.Collections.Generic.List[string]
 
 # SR-014: process each set independently — one set's failure marks the run failed
 # but must not abort the remaining sets.
+$setExtra = @{}
+if ($PSBoundParameters.ContainsKey('BackupTime')) { $setExtra['BackupTime'] = $BackupTime }
 foreach ($set in $Sets) {
     try {
-        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$overallSuccess) -LogPaths $logPaths
+        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$overallSuccess) -LogPaths $logPaths @setExtra
     } catch {
         & $globalLog ("Backup set '{0}' failed: {1}" -f $set.Name, $_.Exception.Message) 'ERROR'
         $overallSuccess = $false

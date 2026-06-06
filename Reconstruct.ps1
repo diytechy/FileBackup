@@ -8,8 +8,9 @@
     RECONSTRUCT.paths.json sidecar. Runs standalone — no repository required.
 
         * From the backup root: uses that folder's MANIFEST.csv only.
-        * From a change folder (name starts with "Pre_"): aggregates that change
-          folder, all newer change folders, and the backup root (newest wins).
+        * From a dated snapshot folder (name starts with "Snapshot_"): that
+          snapshot's own manifest is the authoritative point-in-time state, with
+          bytes resolved by hash from the backup root + sibling snapshots.
 
     When a row's DataPath is blank/missing, the file is recovered by scanning the
     search folders for a file whose length and xxHash128 match.
@@ -37,7 +38,7 @@ $Def = Get-FileBackupDefaults
 
 $DatabaseFilename    = $Def.DatabaseFilename
 $ReconstructLogName  = $Def.ReconstructLogName
-$ChangeFolderPattern = '^Pre_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
+$ChangeFolderPattern = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
 
 $folderName = [System.IO.Path]::GetFileName($here)
 
@@ -125,27 +126,18 @@ function Read-RawManifest {
     Import-Csv -LiteralPath $path
 }
 
-# ---- Build main dictionary: RelativePath -> best row (newest source wins) ----
+# ---- Build main dictionary (SR-010 authority rule) ----
+# From a dated snapshot folder, that snapshot's OWN manifest is the sole
+# point-in-time authority (no newer manifest is overlaid). From the backup root,
+# the live backup manifest is the latest state. In both cases the bytes are
+# resolved later from the data pool by hash where a DataPath is blank.
 $main = @{}
-$haveChangeTree = $isChangeFolder -and $changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container)
+$haveSnapshotTree = $changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container)
+$authorityFolder  = if ($isChangeFolder) { $here } else { $backupRoot }
 
-if ($haveChangeTree) {
-    $changeDirs = Get-ChildItem -LiteralPath $changeRoot -Directory |
-                  Where-Object { $_.Name -match $ChangeFolderPattern } |
-                  Sort-Object Name   # oldest -> newest
-    foreach ($dir in $changeDirs) {
-        foreach ($row in (Read-RawManifest -Folder $dir.FullName)) {
-            if (-not $row.RelativePath) { continue }
-            $row | Add-Member -NotePropertyName SourceFolder -NotePropertyValue $dir.FullName -Force
-            $main[$row.RelativePath] = $row
-        }
-    }
-}
-
-# Overlay with backup-root manifest (newest authority).
-foreach ($row in (Read-RawManifest -Folder $backupRoot)) {
+foreach ($row in (Read-RawManifest -Folder $authorityFolder)) {
     if (-not $row.RelativePath) { continue }
-    $row | Add-Member -NotePropertyName SourceFolder -NotePropertyValue $backupRoot -Force
+    $row | Add-Member -NotePropertyName SourceFolder -NotePropertyValue $authorityFolder -Force
     $main[$row.RelativePath] = $row
 }
 
@@ -178,14 +170,19 @@ if ($drive) {
     }
 }
 
-# ---- Search folders for hash-based recovery (newest change folders first) ----
-$searchFolders = @()
-if ($haveChangeTree) {
-    $searchFolders += (Get-ChildItem -LiteralPath $changeRoot -Directory -ErrorAction SilentlyContinue |
+# ---- Data pool for hash recovery (SR-010): backup root + every snapshot ----
+# A blank/relocated DataPath resolves its bytes by (hash,length) wherever they
+# survived: unchanged files from the live backup, superseded versions from the
+# snapshot that retained them. Built as a list so an empty snapshot set never
+# injects a $null folder.
+$searchFolders = New-Object System.Collections.Generic.List[string]
+if ($haveSnapshotTree) {
+    Get-ChildItem -LiteralPath $changeRoot -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match $ChangeFolderPattern } |
-        Sort-Object Name -Descending).FullName
+        Sort-Object Name -Descending |
+        ForEach-Object { $searchFolders.Add($_.FullName) }
 }
-$searchFolders += $backupRoot
+$searchFolders.Add($backupRoot)
 
 $sevenZipPath = $Def.SevenZipDefaultPath
 

@@ -32,8 +32,12 @@ $script:CommonModuleName      = 'FileBackup.Common.psm1'
 
 $script:CSVDateFormat         = 'O'                       # ISO 8601 round-trip
 $script:FileLabelDateFormat   = 'yyyy_MM_dd_HH_mm_ss'     # label in folder/manifest names (no ':' — invalid in Windows paths)
-$script:ChangeFolderDateMask  = 'yyyy_MM_dd_HH_mm_ss'     # pattern used in change-folder names
-$script:ChangeFolderRegex     = '^Pre_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}_.*_Changes$'
+$script:ChangeFolderDateMask  = 'yyyy_MM_dd_HH_mm_ss'     # pattern used in snapshot-folder names
+# Dated point-in-time snapshots (SR-005/SR-028): a folder Snapshot_<date> preserves
+# the state of the backup whose completion date it is named for. The latest state
+# is the live backup root (no snapshot folder). Replaces the previous change-folder model.
+$script:SnapshotPrefix        = 'Snapshot_'
+$script:ChangeFolderRegex     = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
 
 # Alphabet for short-name encoding (base-N over these glyphs)
 $script:Alphabet = @(
@@ -73,6 +77,7 @@ function Get-FileBackupDefaults {
         FileLabelDateFormat      = $script:FileLabelDateFormat
         ChangeFolderDateMask     = $script:ChangeFolderDateMask
         ChangeFolderRegex        = $script:ChangeFolderRegex
+        SnapshotPrefix           = $script:SnapshotPrefix
         Alphabet                 = $script:Alphabet
         NonCompressibleExtensions= $script:NonCompressibleExtensions
         SevenZipDefaultPath      = $script:SevenZipDefaultPath

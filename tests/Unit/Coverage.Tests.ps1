@@ -21,8 +21,8 @@ BeforeAll {
     function Invoke-FB { param([string]$Cfg) & $entry -ConfigPath $Cfg -NoMail -NonInteractive *>&1 | Out-Null }
 }
 
-Describe 'Atomic change folder (SR-005)' {
-    It 'creates a Pre_*_Changes folder carrying its own MANIFEST.csv (SR-005)' {
+Describe 'Dated point-in-time snapshot (SR-005)' {
+    It 'creates a Snapshot_<date> folder carrying its own MANIFEST.csv (SR-005)' {
         $src = Join-Path $TestDrive 's5\src'; $bkp = Join-Path $TestDrive 's5\bkp'; $chg = Join-Path $TestDrive 's5\chg'
         $cfg = Join-Path $TestDrive 's5\c.xml'
         New-Item -ItemType Directory -Path $src, (Split-Path $cfg) -Force | Out-Null
@@ -31,7 +31,7 @@ Describe 'Atomic change folder (SR-005)' {
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v2'); Invoke-FB $cfg
 
         $cf = Get-ChildItem -LiteralPath $chg -Directory |
-              Where-Object { $_.Name -match '^Pre_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}_.*_Changes$' }
+              Where-Object { $_.Name -match '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}' }
         $cf | Should -Not -BeNullOrEmpty
         @($cf | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'MANIFEST.csv') }).Count |
             Should -BeGreaterThan 0
@@ -200,7 +200,7 @@ Describe 'Cross-change duplicate collapse (SR-026)' {
         Write-Manifest -FolderPath $bkpRoot -Records @()   # backup not a keeper here
 
         $bytes = [byte[]](1,2,3,4,5,6,7,8)
-        foreach ($name in 'Pre_2024_01_01_00_00_01_000001_Changes','Pre_2024_01_01_00_00_02_000001_Changes') {
+        foreach ($name in 'Snapshot_2024_01_01_00_00_01','Snapshot_2024_01_01_00_00_02') {
             $d = Join-Path $chgRoot $name
             New-Item -ItemType Directory -Path $d -Force | Out-Null
             [IO.File]::WriteAllBytes((Join-Path $d 'd.bin'), $bytes)
@@ -215,5 +215,44 @@ Describe 'Cross-change duplicate collapse (SR-026)' {
         Optimize-ChangeFolders -ChangeRoot $chgRoot -BackupRoot $bkpRoot -Log { param($m, $lvl) }
 
         @(Get-ChildItem -LiteralPath $chgRoot -Recurse -Filter 'd.bin').Count | Should -Be 1
+    }
+}
+
+Describe 'Clean cutover from Pre_*_Changes (SR-028)' {
+    It 'engine, common and reconstruct contain no Pre_*_Changes logic (SR-028)' {
+        foreach ($f in 'Modules\FileBackup.Engine.psm1','Modules\FileBackup.Common.psm1','Reconstruct.ps1') {
+            (Get-Content -LiteralPath (Join-Path $repo $f) -Raw) | Should -Not -Match 'Pre_'
+        }
+    }
+}
+
+Describe 'Point-in-time restore from a dated snapshot (SR-010)' {
+    It 'restores a modified file at its OLD version from the snapshot, latest from the root (<Mode>)' -ForEach @(
+        @{ Mode = 'Mirror';              Compress = $false; CA = $false }
+        @{ Mode = 'Mirror+Compress';     Compress = $true;  CA = $false }
+        @{ Mode = 'HashAddressed';       Compress = $false; CA = $true  }
+        @{ Mode = 'HashAddressed+Comp';  Compress = $true;  CA = $true  }
+    ) {
+        $root = Join-Path $TestDrive ("pit\" + ($Mode -replace '\W', ''))
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src, $root -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $CA
+
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'VERSION-ONE'); Invoke-FB $cfg   # run1 (no snapshot)
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'VERSION-TWO'); Invoke-FB $cfg   # run2 ⇒ Snapshot of state-1
+
+        $snap = Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' } | Select-Object -First 1
+        $snap | Should -Not -BeNullOrEmpty
+
+        # Restoring the dated snapshot reproduces the OLD content (the SR-010 fix).
+        $tSnap = Join-Path $root 'restore-snap'
+        & (Join-Path $snap.FullName 'RECONSTRUCT.ps1') -TargetRoot $tSnap *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $tSnap 'f.txt')) | Should -Be 'VERSION-ONE'
+
+        # Restoring the backup root reproduces the latest content.
+        $tRoot = Join-Path $root 'restore-root'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $tRoot *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $tRoot 'f.txt')) | Should -Be 'VERSION-TWO'
     }
 }

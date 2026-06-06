@@ -158,13 +158,15 @@ function Write-TestConfig {
 }
 
 function Invoke-Backup {
-    param([string]$BackupScriptPath, [string]$ConfigPath, [switch]$SuppressMail)
+    param([string]$BackupScriptPath, [string]$ConfigPath, [switch]$SuppressMail, [Nullable[datetime]]$BackupTime)
     # NOTE: FileBackup.ps1 currently calls Send-MailMessage at the end.
     # In test mode we wrap with try/catch and ignore mail failures so tests can run offline.
     $oldErr = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    $extra = @{}
+    if ($BackupTime) { $extra['BackupTime'] = [datetime]$BackupTime }   # deterministic snapshot dating (SR-005)
     try {
-        & $BackupScriptPath -ConfigPath $ConfigPath *>&1 | Tee-Object -Variable bkOut | Out-Null
+        & $BackupScriptPath -ConfigPath $ConfigPath -NoMail @extra *>&1 | Tee-Object -Variable bkOut | Out-Null
         return $bkOut
     } finally {
         $ErrorActionPreference = $oldErr

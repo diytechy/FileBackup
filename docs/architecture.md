@@ -60,9 +60,10 @@ run the generator. Back-links come from `Implements:` comments in each function.
 | Function | Exported | Implements |
 |---|:---:|---|
 | `Compare-SourceToBackup` | yes | SR-001, LLR-001 |
-| `Complete-ChangeFolder` | yes | SR-005, LLR-005 |
+| `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
 | `Get-DataFile` | yes | — |
+| `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
@@ -72,8 +73,12 @@ run the generator. Back-links come from `Implements:` comments in each function.
 | `Move-RemovedFilesToStaging` | yes | SR-006, LLR-006 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
+| `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
+| `Save-SupersededData` | yes | SR-010, SR-028, LLR-010, LLR-028 |
+| `Set-BackupStateField` | no | — |
+| `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
 | `Sync-BackupStorageLayout` | yes | SR-012, SR-013, LLR-012, LLR-013 |
 | `Test-BackupManifest` | yes | — |

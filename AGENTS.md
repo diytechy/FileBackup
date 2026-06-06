@@ -38,15 +38,18 @@ Therefore:
 4. Read persisted last-hash-run time; decide if a scheduled rehash is due.
 5. `Update-SourceManifest` — walk source, (re)hash new/changed/scheduled files.
 6. `Sync-BackupStorageLayout` — migrate data files if compress/tree mode changed.
-7. Snapshot the pre-run manifest into staging.
+7. Snapshot the pre-run manifest into staging (the point-in-time index).
 8. `Compare-SourceToBackup` — pure diff (`NewOrChanged` + `RemovedFromSource`).
 9. Build the working backup map.
+9.5 `Save-SupersededData` — move superseded prior bytes into staging *before*
+    `Invoke-BackupFileGroup` overwrites (Mirror) or orphans (HashAddressed) them.
 10. `Invoke-BackupFileGroup` per `(hash,size)` — copy/compress new data once.
 11. `Move-RemovedFilesToStaging` — evict removed files' data (refcount-aware).
 12. Write the final backup manifest.
-13. `New-ReconstructScript` + `Complete-ChangeFolder` (collision-safe naming).
-14. `Optimize-ChangeFolders` — collapse cross-change duplicates.
-15. Persist the last-hash-run timestamp if a rehash ran.
+13. `New-ReconstructScript` + `Complete-ChangeFolder` — finalize the staging into a
+    dated `Snapshot_<prior-backup-date>`, or discard it when nothing was superseded.
+14. `Optimize-ChangeFolders` — collapse data shared across snapshots.
+15. Persist `LastHashRun` (if a rehash ran) + `LastBackupRun` (this run's date).
 
 ## 3. Invariants — do not break
 
@@ -54,13 +57,16 @@ Therefore:
   xxH2Hash, Compressed, StoredAsHashSize, Duplicate, MediaMBPerSec`. Round-trip only via
   `Read-Manifest`/`Write-Manifest`.
 - **Dedup key is `(xxH2Hash, Length)`** — one physical data file per key.
-- **Change-folder name** matches `^Pre_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}_.*_Changes$`
-  (the `.*` tail absorbs the change count + a same-second disambiguator).
-  > **Migration in progress (SR-005/SR-010/SR-028):** this `Pre_*_Changes` model
-  > is being replaced by **dated `Snapshot_<date>` point-in-time folders** with a
-  > clean cutover — see `docs/status.md` "Design note: dated snapshots". This
-  > section describes *current* behavior until that lands at G3; do not code to
-  > the new model yet without the gated change.
+- **Dated snapshots** (`Snapshot_<date>`, matching `^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}`):
+  one per *superseded* backup, named by that backup's completion date (persisted
+  in `FileBackupState.json` as `LastBackupRun`). The **latest state has no
+  snapshot** — the live backup root is it; a **no-op run creates none**. A snapshot
+  holds the full point-in-time manifest plus only the bytes superseded at the next
+  run (`Save-SupersededData` preserves them *before* they're overwritten/orphaned).
+  **Restore authority (SR-010):** reconstruct from a snapshot uses *that snapshot's
+  own manifest* as the sole authority and resolves bytes by `(hash,length)` from
+  the data pool (backup root + all snapshots) — it never overlays a newer manifest.
+  Clean cutover: no `Pre_*_Changes` reading/writing remains (SR-005/SR-010/SR-028).
 - **Reconstruct stays standalone** — no repo, no NuGet install at restore time.
 - **Infrastructure files are root-level only** (`Test-IsInfrastructureFile`): a *nested*
   user file named `MANIFEST.csv`/`RECONSTRUCT.ps1`/etc. is real data (regression B6).
@@ -131,8 +137,8 @@ green and lint clean**, and add/adjust a test alongside any behavior change.
 ¹ `RECONSTRUCT.ps1` runs from the backup folder using only bundled files; a "copy backup
 elsewhere, restore, byte-compare" check is part of the hardware runbook.
 
-**Current automated total:** 160 integration assertions (4 modes × G1–G7, G8 SKIP) + 27
-Pester unit tests, all green; lint clean.
+**Current automated total:** 212 integration assertions (4 modes × G1–G7 = 160, plus
+G9 Rollback = 52; G8 SKIP under Subst) + 42 Pester unit/coverage tests, all green; lint clean.
 
 ### Suite groups
 | Group | Covers |
@@ -145,6 +151,7 @@ Pester unit tests, all green; lint clean.
 | G6 HashFrequency  | `Test-HashRecalcDue` over all 7 codes (deterministic via `-Now`). |
 | G7 Determinism    | Identical re-runs ⇒ identical manifest rows; SHA-256 spot check. |
 | G8 RealVolume     | USB-only sanity; SKIPs under Subst/VHDX. |
+| G9 Rollback       | Dated-snapshot timeline (injected `-BackupTime`): modify/delete/add/no-op over D1–D4; restore as-of each snapshot + latest, byte-exact; mixed content (text/binary/dup/already-compressed); no snapshot for the no-op/latest run. SR-005/SR-010/SR-028. |
 
 ### Backends
 | Backend | Provisioning | Admin? | CI? |

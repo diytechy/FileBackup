@@ -25,7 +25,7 @@
 param(
     [ValidateSet('Subst','VHDX','RealUSB')][string]$Backend = 'Subst',
     [string]$ResultRoot = (Join-Path $env:TEMP "FileBackupTests"),
-    [string]$Groups = 'G1,G2,G3,G4,G5,G6,G7,G8',
+    [string]$Groups = 'G1,G2,G3,G4,G5,G6,G7,G8,G9',
     [string]$Modes  = 'Mirror,Mirror+Compress,HashAddressed,HashAddressed+Compress',
     [switch]$EmitJUnit,
     [switch]$NonInteractive
@@ -43,7 +43,7 @@ if (-not (Test-Path -LiteralPath $BackupScript)) {
 # ---------- dot-source harness + backend + suites ----------
 . (Join-Path $here 'Common\Harness.ps1')
 . (Join-Path $here 'Common\VolumeBackend.ps1')
-foreach ($id in @('G1','G2','G3','G4','G5','G6','G7','G8')) {
+foreach ($id in @('G1','G2','G3','G4','G5','G6','G7','G8','G9')) {
     $suiteFile = Get-ChildItem -LiteralPath (Join-Path $here 'Suites') -Filter "$id-*.ps1" |
                  Select-Object -First 1
     if ($suiteFile) { . $suiteFile.FullName }

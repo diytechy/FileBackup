@@ -39,10 +39,10 @@ last) — it is the record, not required reading for every pass.
   2. **SR-010 → SNAPSHOT-MODEL REDESIGN (human-initiated).** Not a quick fix —
      see "Design note: dated snapshots" below. Needs its own requirements/design
      pass before implementation.
-- **Next action:** Snapshot redesign — **G1 & G2 human-APPROVED; now in G3
-  implementation** (dated-snapshot model). G3 is the high-risk restore-path
-  change (independent review per process.md §6). The main G3 (25 non-snapshot
-  SRs) remains complete and signable in parallel.
+- **Next action:** Snapshot redesign — **G3 implemented + validated** (212
+  integration / 42 unit green; SR-005/010/028 Verified). Recommended:
+  **independent restore-path review** (high-risk), then human G3 sign-off. The
+  main G3 (25 non-snapshot SRs) also stands complete and signable.
 
 ### Design note: dated snapshots (supersedes the Pre_*_Changes model) — proposed
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -356,3 +356,41 @@ change → independent review per process.md §6.)
 
 ### HUMAN — SNAPSHOT REDESIGN G2 — 2026-06-06
 Verdict: APPROVE. Proceed to G3 implementation. (Checkpoint committed.)
+
+### DRIVER (Software + Test + Data-integrity hats) — SNAPSHOT REDESIGN G3 — Round 1 — 2026-06-06
+Verdict: implemented + validated; **recommend an independent restore-path review
+before final human sign-off** (high-risk surface, process.md §6).
+
+Implemented the dated-snapshot model (clean cutover):
+- Common: `^Snapshot_` regex + `SnapshotPrefix`; merged state file.
+- Engine: `Read-BackupState`/`Set-BackupStateField` (merge), `Get/Set-LastBackupRun`;
+  **`Save-SupersededData`** (the crux — preserves prior bytes BEFORE Mirror
+  overwrite / HashAddressed orphaning, refcount-safe via new-source survival
+  check); `Complete-ChangeFolder` → dated naming, skip-empty, copies the path
+  sidecar; `Invoke-BackupSet` → `-BackupTime` seam, prior-date snapshot, persists
+  `LastBackupRun`.
+- `Reconstruct.ps1`: snapshot's own manifest is sole authority (no overlay); data
+  pool = backup root + all snapshots (null-safe); `^Snapshot_` pattern.
+- FileBackup.ps1 + harness `Invoke-Backup`: `-BackupTime` passthrough.
+
+Scope note: the plan assumed storage "barely changes," but writing the tests
+revealed modified-file/Mirror-overwrite byte loss — `Save-SupersededData` (new
+pipeline step 9.5) was required for correct point-in-time restore. Flagged + done.
+
+Tests (all green): clean-cutover AST (TC-044), point-in-time restore × 4 modes
+(TC-033), new **G9-Rollback** suite (TC-045/046/047) — dated timeline with
+modify/delete/add/no-op, restore-as-of-each + latest byte-exact, mixed content.
+
+Evidence (real, local): `pwsh scripts/check.ps1 -Tier Full` → lint PASS · trace
+PASS (**0 orphans**, UN=21 SR=28 LLR=27 TC=46) · arch-map PASS · Pester **42/42** ·
+integration **212 PASS / 0 FAIL / 4 SKIP** → "All steps passed."
+SR truth-up: **SR-005/SR-010/SR-028 → Verified.**
+
+Self-review (data-integrity): superseded bytes preserved before overwrite in all
+4 modes ✓; shared/surviving data never evicted (survival check) ✓; no-op &
+first-run create no snapshot ✓; snapshot self-contained via copied sidecar ✓;
+state-file merge keeps LastHashRun+LastBackupRun ✓; reconstruct null-safe ✓.
+Residual gaps for the reviewer: explicit **rename** rollback assertion (covered
+indirectly by add/delete) and many-snapshot Optimize interaction (2 in G9).
+
+**Open:** independent reviewer pass, then human G3 sign-off.

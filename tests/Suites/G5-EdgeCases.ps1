@@ -39,7 +39,7 @@ function Invoke-G5 {
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
     Assert-True $suite $group 'G5.7' 'Idempotent_secondRun' {
-        # An incremental run may still create an empty Pre_*_Changes folder, but the manifest row count must be stable.
+        # A no-op second run creates no snapshot now; the manifest row count must be stable.
         $rows = @(Import-Csv -LiteralPath (Join-Path $Env.BkpPath 'MANIFEST.csv'))
         $rows.Count -eq 1
     }

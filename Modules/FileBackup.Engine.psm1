@@ -71,20 +71,47 @@ function Get-DataFile {
 
 # endregion
 
-# region Last-hash-run state (B3)
+# region Backup state file (B3 + dated snapshots)
+
+function Read-BackupState {
+    # Implements: SR-011, SR-028, LLR-011, LLR-028
+    # Reads FileBackupState.json as a hashtable, tolerating a missing/corrupt file.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$BackupRoot)
+    $statePath = Join-Path $BackupRoot 'FileBackupState.json'
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { return @{} }
+    try {
+        $obj = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        $h = @{}
+        foreach ($p in $obj.PSObject.Properties) { $h[$p.Name] = $p.Value }
+        return $h
+    } catch {
+        Write-Verbose "Could not parse state file '$statePath': $($_.Exception.Message)"
+        return @{}
+    }
+}
+
+function Set-BackupStateField {
+    # Merges a single field into FileBackupState.json (so LastHashRun and
+    # LastBackupRun coexist instead of clobbering each other).
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][AllowNull()]$Value
+    )
+    $state = Read-BackupState -BackupRoot $BackupRoot
+    $state[$Name] = $Value
+    $statePath = Join-Path $BackupRoot 'FileBackupState.json'
+    $state | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
+}
 
 function Get-LastHashRun {
     # Implements: SR-011, LLR-011
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$BackupRoot)
-    $statePath = Join-Path $BackupRoot 'FileBackupState.json'
-    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { return $null }
-    try {
-        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-        if ($state.LastHashRun) { return [datetime]::Parse($state.LastHashRun) }
-    } catch {
-        Write-Verbose "Could not parse state file '$statePath': $($_.Exception.Message)"
-    }
+    $v = (Read-BackupState -BackupRoot $BackupRoot)['LastHashRun']
+    if ($v) { return [datetime]::Parse($v) }
     return $null
 }
 
@@ -95,8 +122,28 @@ function Set-LastHashRun {
         [Parameter(Mandatory)][string]$BackupRoot,
         [datetime]$When = (Get-Date)
     )
-    $statePath = Join-Path $BackupRoot 'FileBackupState.json'
-    @{ LastHashRun = $When.ToString('O') } | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
+    Set-BackupStateField -BackupRoot $BackupRoot -Name 'LastHashRun' -Value $When.ToString('O')
+}
+
+function Get-LastBackupRun {
+    # Implements: SR-005, SR-028, LLR-005, LLR-028
+    # The completion date of the most recent backup; used to date the *next*
+    # run's point-in-time snapshot. $null until the first backup has run.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$BackupRoot)
+    $v = (Read-BackupState -BackupRoot $BackupRoot)['LastBackupRun']
+    if ($v) { return [datetime]::Parse($v) }
+    return $null
+}
+
+function Set-LastBackupRun {
+    # Implements: SR-005, SR-028, LLR-005, LLR-028
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [datetime]$When = (Get-Date)
+    )
+    Set-BackupStateField -BackupRoot $BackupRoot -Name 'LastBackupRun' -Value $When.ToString('O')
 }
 
 # endregion
@@ -889,12 +936,72 @@ function Move-RemovedFilesToStaging {
     }
 }
 
-function Complete-ChangeFolder {
-    # Implements: SR-005, LLR-005
+function Save-SupersededData {
+    # Implements: SR-010, SR-028, LLR-010, LLR-028
     <#
     .SYNOPSIS
-        Blanks stale staging DataPaths, renames the staging folder to its final
-        Pre_<date>_<NNNNNN>_Changes name, and copies the reconstruct artifacts in.
+        Preserves the prior bytes of files whose content is being replaced this
+        run, into the staging snapshot, BEFORE Invoke-BackupFileGroup overwrites
+        (Mirror) or orphans (HashAddressed) them.
+    .DESCRIPTION
+        For each changed file that already existed in the backup with different
+        content, the old data file is moved into staging IF that exact content
+        ((hash,length)) is not present anywhere in the new source state. When the
+        old content still exists elsewhere (e.g. a surviving duplicate), it stays
+        in the backup and the snapshot recovers it by hash. This is what makes a
+        point-in-time restore reproduce old content in every storage mode.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$NewOrChanged,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
+        [Parameter(Mandatory)][string]$BkpPath,
+        [Parameter(Mandatory)][string]$StagingFolder,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    if (-not $NewOrChanged) { return }
+    $backupByRel = @{}; foreach ($b in $BackupDb) { if ($b.RelativePath) { $backupByRel[$b.RelativePath] = $b } }
+    # Content (hash|length) present in the NEW source state survives in the backup.
+    $survivingContent = @{}; foreach ($s in $SourceDb) { $survivingContent["$($s.xxH2Hash)|$($s.Length)"] = $true }
+
+    foreach ($chg in $NewOrChanged) {
+        $old = $backupByRel[$chg.RelativePath]
+        if (-not $old) { continue }                                  # brand-new file: nothing superseded
+        if ($old.xxH2Hash -eq $chg.xxH2Hash -and $old.Length -eq $chg.Length) { continue }  # same content
+        if ([string]::IsNullOrWhiteSpace($old.DataPath)) { continue }
+        if ($survivingContent["$($old.xxH2Hash)|$($old.Length)"]) { continue }  # old content still live elsewhere
+        $srcDataFull = Join-Path $BkpPath $old.DataPath
+        if (-not (Test-Path -LiteralPath $srcDataFull -PathType Leaf)) { continue }  # already moved / shared
+        $destFull = Join-Path $StagingFolder $old.DataPath
+        $destDir  = [System.IO.Path]::GetDirectoryName($destFull)
+        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+        Move-Item -LiteralPath $srcDataFull -Destination $destFull -Force
+        & $Log "Preserved superseded data for '$($chg.RelativePath)' into the snapshot."
+    }
+}
+
+function Complete-ChangeFolder {
+    # Implements: SR-005, SR-028, LLR-005, LLR-028
+    <#
+    .SYNOPSIS
+        Finalizes the staging folder into a dated point-in-time snapshot, or
+        discards it when nothing was superseded.
+    .DESCRIPTION
+        When this run superseded earlier content ($ChangedCount > 0) and a prior
+        backup date is known ($SnapshotDate), the staging folder becomes
+        Snapshot_<SnapshotDate> — the state of the superseded backup, named by
+        that backup's completion date (SR-005). Otherwise (a no-op run, or the
+        very first backup) the staging folder is discarded: the live backup root
+        is itself the latest state, so it needs no snapshot.
+
+        On finalize, stale DataPaths are blanked (the bytes live in the backup
+        root or a sibling snapshot and are recovered by hash at restore), and the
+        full reconstruct kit — including the RECONSTRUCT.paths.json sidecar — is
+        copied in so a snapshot restore can locate the data pool.
+    .PARAMETER SnapshotDate
+        Completion date of the backup whose state this snapshot preserves (the
+        previous run). $null on the first backup ⇒ no snapshot.
     #>
     [CmdletBinding()]
     param(
@@ -902,8 +1009,15 @@ function Complete-ChangeFolder {
         [Parameter(Mandatory)][string]$StagingFolder,
         [Parameter(Mandatory)][string]$BkpPath,
         [Parameter(Mandatory)][int]$ChangedCount,
-        [Parameter(Mandatory)][scriptblock]$Log
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [AllowNull()][Nullable[datetime]]$SnapshotDate
     )
+    if ($ChangedCount -le 0 -or $null -eq $SnapshotDate) {
+        Remove-Item -LiteralPath $StagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+        & $Log "No prior state superseded; no snapshot created (the live backup is the latest state)."
+        return $null
+    }
+
     $stagingDb = Read-Manifest -FolderPath $StagingFolder
     foreach ($row in $stagingDb) {
         if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
@@ -912,31 +1026,30 @@ function Complete-ChangeFolder {
     }
     Write-Manifest -FolderPath $StagingFolder -Records $stagingDb
 
-    $label      = Get-Date -Format $script:Def.FileLabelDateFormat
-    $countLabel = ('{0:D6}' -f [Math]::Min($ChangedCount, 999999))
-    # The timestamp has second precision, so two runs in the same second would
-    # collide. Append a disambiguator when needed (still matches the change-folder
-    # regex, whose ".*_Changes" tail absorbs the extra segment).
-    $base       = "Pre_$label`_$countLabel"
-    $finalName  = "${base}_Changes"
+    $label = ([datetime]$SnapshotDate).ToString($script:Def.FileLabelDateFormat)
+    # Second precision ⇒ two snapshots dated the same second would collide; append
+    # a numeric disambiguator (still matches the ^Snapshot_<date> regex prefix).
+    $base      = "$($script:Def.SnapshotPrefix)$label"
+    $finalName = $base
     $n = 1
     while (Test-Path -LiteralPath (Join-Path $ChgPath $finalName)) {
-        $finalName = "${base}_$('{0:D3}' -f $n)_Changes"
+        $finalName = "${base}_$('{0:D3}' -f $n)"
         $n++
     }
-    $finalChangeFolder = Join-Path $ChgPath $finalName
+    $finalSnapshot = Join-Path $ChgPath $finalName
     Rename-Item -LiteralPath $StagingFolder -NewName $finalName
 
-    # Copy all reconstruct artifacts so the change folder restores standalone too.
-    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll')) {
+    # Copy the full reconstruct kit (incl. the path sidecar) so a snapshot restore
+    # is self-contained and can resolve unchanged bytes by hash from the backup root.
+    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
         $src = Join-Path $BkpPath $artifact
         if (Test-Path -LiteralPath $src -PathType Leaf) {
-            Copy-Item -LiteralPath $src -Destination $finalChangeFolder -Force
+            Copy-Item -LiteralPath $src -Destination $finalSnapshot -Force
         }
     }
 
-    & $Log "Change folder finalized: $finalChangeFolder"
-    return $finalChangeFolder
+    & $Log "Snapshot finalized: $finalSnapshot"
+    return $finalSnapshot
 }
 
 # endregion
@@ -950,7 +1063,10 @@ function Invoke-BackupSet {
         [Parameter(Mandatory)][pscustomobject]$Set,
         [Parameter(Mandatory)][hashtable]$Deps,
         [Parameter(Mandatory)][ref]$OverallSuccess,
-        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$LogPaths
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$LogPaths,
+        # SR-005/SR-028 test seam: pins this run's completion date (which dates the
+        # NEXT run's snapshot). Defaults to now in production.
+        [AllowNull()][Nullable[datetime]]$BackupTime
     )
 
     # 1. Resolve paths (SR-014: a set that can't even resolve still counts as a failure)
@@ -959,6 +1075,11 @@ function Invoke-BackupSet {
         $OverallSuccess.Value = $false
         return
     }
+
+    # Completion date of the PREVIOUS backup names this run's snapshot (SR-005);
+    # $null on the first backup ⇒ no snapshot. Read before we overwrite state.
+    $priorBackupDate = Get-LastBackupRun -BackupRoot $paths.BkpPath
+    $thisBackupDate  = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
 
     # 2. Logger
     $logPath = Join-Path $paths.ChgPath 'backup.log'
@@ -1006,6 +1127,11 @@ function Invoke-BackupSet {
     foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
     $changedCount = 0
 
+    # 9.5 Preserve superseded bytes into the snapshot BEFORE they are overwritten
+    # (Mirror) or orphaned (HashAddressed) — required for point-in-time restore.
+    Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb -SourceDb $sourceDb `
+        -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log
+
     # 10. Copy new/changed files
     foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
         Invoke-BackupFileGroup `
@@ -1027,15 +1153,16 @@ function Invoke-BackupSet {
     $backupDbFinal = $backupMap.Values | Sort-Object { $_.RelativePath.Length } -Descending
     Write-Manifest -FolderPath $paths.BkpPath -Records $backupDbFinal
 
-    # 13. Finalize change folder + reconstruct scripts
+    # 13. Finalize the dated snapshot (of the PRIOR state) + reconstruct scripts
     New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
-    [void](Complete-ChangeFolder -ChgPath $paths.ChgPath -StagingFolder $stagingFolder -BkpPath $paths.BkpPath -ChangedCount $changedCount -Log $log)
+    [void](Complete-ChangeFolder -ChgPath $paths.ChgPath -StagingFolder $stagingFolder -BkpPath $paths.BkpPath -ChangedCount $changedCount -Log $log -SnapshotDate $priorBackupDate)
 
-    # 14. De-duplicate change folders
+    # 14. De-duplicate data shared across snapshots
     Optimize-ChangeFolders -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log
 
-    # 15. Record that hashes ran (B3)
-    if ($recalc) { Set-LastHashRun -BackupRoot $paths.BkpPath -When (Get-Date) }
+    # 15. Record state: hashes ran (B3) + this backup's completion date (dates the next snapshot)
+    if ($recalc) { Set-LastHashRun -BackupRoot $paths.BkpPath -When $thisBackupDate }
+    Set-LastBackupRun -BackupRoot $paths.BkpPath -When $thisBackupDate
 
     & $log "Changed files count = $changedCount"
     & $log "----- Backup set '$($Set.Name)' completed -----"
@@ -1046,10 +1173,11 @@ function Invoke-BackupSet {
 Export-ModuleMember -Function @(
     'Test-IsInfrastructureFile', 'Get-DataFile',
     'Get-LastHashRun', 'Set-LastHashRun',
+    'Get-LastBackupRun', 'Set-LastBackupRun',
     'Resolve-OptionalTool', 'Initialize-Dependencies', 'Get-MediaMBPerSec',
     'Test-HashRecalcDue', 'Update-SourceManifest', 'Copy-SourceFileToBackup',
     'Test-BackupManifest', 'Sync-BackupStorageLayout', 'Optimize-ChangeFolders',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
-    'Complete-ChangeFolder', 'Invoke-BackupSet'
+    'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet'
 )
