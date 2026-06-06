@@ -151,7 +151,7 @@ G9 Rollback = 52; G8 SKIP under Subst) + 42 Pester unit/coverage tests, all gree
 | G6 HashFrequency  | `Test-HashRecalcDue` over all 7 codes (deterministic via `-Now`). |
 | G7 Determinism    | Identical re-runs ⇒ identical manifest rows; SHA-256 spot check. |
 | G8 RealVolume     | USB-only sanity; SKIPs under Subst/VHDX. |
-| G9 Rollback       | Dated-snapshot timeline (injected `-BackupTime`): modify/delete/add/no-op over D1–D4; restore as-of each snapshot + latest, byte-exact; mixed content (text/binary/dup/already-compressed); no snapshot for the no-op/latest run. SR-005/SR-010/SR-028. |
+| G9 Rollback       | Dated-snapshot timeline (injected `-BackupTime`): modify/delete/add/rename/no-op over D1–D4; restore as-of each snapshot + latest, byte-exact; mixed content (text/binary/dup/already-compressed); no snapshot for the no-op/latest run. SR-005/SR-010/SR-028. |
 
 ### Backends
 | Backend | Provisioning | Admin? | CI? |

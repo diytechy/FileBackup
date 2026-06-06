@@ -27,6 +27,7 @@ function Invoke-G9 {
     New-TestFile (Join-Path $S 'dup2.txt') 'SHARED'          # duplicate content
     New-RandomBinaryFile (Join-Path $S 'keep.bin') 2048
     New-TestFile (Join-Path $S 'pic.jpg') 'pretend-jpeg'     # already-compressed extension
+    New-TestFile (Join-Path $S 'orig.txt') 'RENAMEME'        # will be renamed at run3
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D1 | Out-Null
     $keepHash = (Get-FileHash -LiteralPath (Join-Path $S 'keep.bin') -Algorithm SHA256).Hash
 
@@ -36,8 +37,9 @@ function Invoke-G9 {
     New-TestFile (Join-Path $S 'new.txt') 'NEW'
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D2 | Out-Null
 
-    # ---- run3 @D3 : modify a.txt again (state3) ⇒ Snapshot(D2) ----
+    # ---- run3 @D3 : modify a.txt again + rename orig.txt -> renamed.txt (state3) ⇒ Snapshot(D2) ----
     New-TestFile (Join-Path $S 'a.txt') 'A3'
+    Move-Item -LiteralPath (Join-Path $S 'orig.txt') -Destination (Join-Path $S 'renamed.txt')
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D3 | Out-Null
 
     # ---- run4 @D4 : no-op (state4 == state3) ⇒ NO snapshot ----
@@ -72,15 +74,22 @@ function Invoke-G9 {
         (Get-FileHash -LiteralPath (Join-Path $r1 'keep.bin') -Algorithm SHA256).Hash -eq $keepHash
     }
     Assert-True $suite $group 'G9.3' 'State1_pic_present'     { TextEq (Join-Path $r1 'pic.jpg') 'pretend-jpeg' }
+    Assert-True $suite $group 'G9.3' 'State1_orig_present'    { TextEq (Join-Path $r1 'orig.txt') 'RENAMEME' }
+    Assert-True $suite $group 'G9.3' 'State1_renamed_absent'  { -not (Test-Path -LiteralPath (Join-Path $r1 'renamed.txt')) }
 
     # ---- Rollback to state2 (Snapshot D2): a=A2, dup2 deleted, new.txt present ----
     $r2 = Restore $snapD2 'g9-r2'
     Assert-True $suite $group 'G9.4' 'State2_a_is_A2'      { TextEq (Join-Path $r2 'a.txt') 'A2' }
     Assert-True $suite $group 'G9.4' 'State2_dup2_absent'  { -not (Test-Path -LiteralPath (Join-Path $r2 'dup2.txt')) }
     Assert-True $suite $group 'G9.4' 'State2_new_present'  { TextEq (Join-Path $r2 'new.txt') 'NEW' }
+    # Rename happens at run3, so state2 still has the pre-rename path.
+    Assert-True $suite $group 'G9.4' 'State2_orig_present'   { TextEq (Join-Path $r2 'orig.txt') 'RENAMEME' }
+    Assert-True $suite $group 'G9.4' 'State2_renamed_absent' { -not (Test-Path -LiteralPath (Join-Path $r2 'renamed.txt')) }
 
-    # ---- Latest from the backup root: a=A3 (state3/4) ----
+    # ---- Latest from the backup root: a=A3, rename applied (state3/4) ----
     $r0 = Restore $Env.BkpPath 'g9-r0'
-    Assert-True $suite $group 'G9.5' 'Latest_a_is_A3'      { TextEq (Join-Path $r0 'a.txt') 'A3' }
-    Assert-True $suite $group 'G9.5' 'Latest_dup1_present' { TextEq (Join-Path $r0 'dup1.txt') 'SHARED' }
+    Assert-True $suite $group 'G9.5' 'Latest_a_is_A3'        { TextEq (Join-Path $r0 'a.txt') 'A3' }
+    Assert-True $suite $group 'G9.5' 'Latest_dup1_present'   { TextEq (Join-Path $r0 'dup1.txt') 'SHARED' }
+    Assert-True $suite $group 'G9.5' 'Latest_renamed_present'{ TextEq (Join-Path $r0 'renamed.txt') 'RENAMEME' }
+    Assert-True $suite $group 'G9.5' 'Latest_orig_absent'    { -not (Test-Path -LiteralPath (Join-Path $r0 'orig.txt')) }
 }
