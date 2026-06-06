@@ -107,8 +107,18 @@ if (-not $TargetRoot) {
     $TargetRoot = Read-Host 'Enter target folder to reconstruct into'
 }
 
-if ($TargetRoot -like "$backupRoot*") { throw 'TargetRoot must be outside the backup root.' }
-if ($changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container) -and ($TargetRoot -like "$changeRoot*")) {
+# Reject a target inside the backup/change root (SR-009). Compare normalized full
+# paths with a trailing separator so a prefix-sharing sibling (e.g. 'bkp' vs
+# 'bkp-restore') is allowed and bracket/wildcard chars are treated literally —
+# '-like' would mishandle both.
+function Test-PathIsInside {
+    param([string]$Child, [string]$Parent)
+    $c = [System.IO.Path]::GetFullPath($Child).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $p = [System.IO.Path]::GetFullPath($Parent).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    return $c.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase)
+}
+if (Test-PathIsInside -Child $TargetRoot -Parent $backupRoot) { throw 'TargetRoot must be outside the backup root.' }
+if ($changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container) -and (Test-PathIsInside -Child $TargetRoot -Parent $changeRoot)) {
     throw 'TargetRoot must be outside the change folder root.'
 }
 

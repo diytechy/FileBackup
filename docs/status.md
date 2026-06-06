@@ -394,3 +394,26 @@ Residual gaps for the reviewer: explicit **rename** rollback assertion (covered
 indirectly by add/delete) and many-snapshot Optimize interaction (2 in G9).
 
 **Open:** independent reviewer pass, then human G3 sign-off.
+
+### INDEPENDENT REVIEWER — SNAPSHOT REDESIGN G3 — 2026-06-06
+Verdict: **APPROVE** (2 MINOR). Fresh-context defect hunt on the restore/data-
+integrity surface; ran `check.ps1 -Tier Full` (236/0/4) and 4 adversarial probe
+timelines across all 4 modes (delete→re-add-different, 4-version history,
+duplicate-modify, dedup-both-modified) — **no data loss**. Confirmed: superseded
+bytes preserved before overwrite; survival check correct; refcount-aware eviction;
+Optimize never removes a byte a snapshot still needs; reconstruct authority +
+data-pool correct; clean cutover.
+Findings:
+- [MINOR→FIXED] `Reconstruct.ps1` target guard used `-like "$root*"` →
+  false-rejected prefix-sharing siblings (`bk` vs `bk-restore`) and mishandled
+  bracket/wildcard chars. Replaced with normalized full-path `StartsWith` +
+  trailing separator (`Test-PathIsInside`); added Pester test 'Restore target
+  guard (SR-009)'. Strengthens SR-009. Full tier re-run green (236/0/4, 43 unit).
+- [MINOR→BACKLOG] Crash mid-run can leave an orphaned `Temp` with a transient
+  manifest/data mismatch; next run aborts loudly (SR-017 guard) — recovery is
+  manual. Inherent to staging; current behavior matches UN-013 (fail loudly).
+  Future hardening: auto-roll-back a stale `Temp` instead of only refusing.
+
+### DRIVER — SNAPSHOT REDESIGN G3 — 2026-06-06
+Independent review APPROVED; sole actionable finding fixed + tested. **Awaiting
+human G3 sign-off** to close the dated-snapshot redesign.

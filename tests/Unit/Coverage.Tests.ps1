@@ -256,3 +256,22 @@ Describe 'Point-in-time restore from a dated snapshot (SR-010)' {
         [IO.File]::ReadAllText((Join-Path $tRoot 'f.txt')) | Should -Be 'VERSION-TWO'
     }
 }
+
+Describe 'Restore target guard (SR-009)' {
+    # Independent-review finding: the old '-like' guard falsely rejected a sibling
+    # whose name shares the backup-root prefix (e.g. bk vs bk-restore).
+    It 'rejects a target inside the backup but allows a prefix-sharing sibling' {
+        $root = Join-Path $TestDrive 's9'
+        $src = Join-Path $root 'src'; $bk = Join-Path $root 'bk'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src, $root -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bk -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'data'); Invoke-FB $cfg
+        $recon = Join-Path $bk 'RECONSTRUCT.ps1'
+
+        { & $recon -TargetRoot (Join-Path $bk 'inside') } | Should -Throw   # inside backup ⇒ rejected
+        $sib = Join-Path $root 'bk-restore'                                 # prefix-sharing sibling ⇒ allowed
+        { & $recon -TargetRoot $sib } | Should -Not -Throw
+        Test-Path -LiteralPath (Join-Path $sib 'f.txt') | Should -BeTrue
+    }
+}
