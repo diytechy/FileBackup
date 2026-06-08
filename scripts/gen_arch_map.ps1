@@ -1,43 +1,55 @@
 <#
 .SYNOPSIS
-    Regenerate the module/function map in docs/architecture.md from the real
-    modules, so the map cannot drift. PowerShell counterpart of the kit's
-    Python gen_arch_map.py (which only parses Python).
+    Regenerate the code map from the real modules' AST, so it cannot drift.
+    PowerShell counterpart of the kit's Python gen_arch_map.py (which parses
+    Python). Routes the same generated block into both docs/architecture.md and
+    AGENTS.md.
 
 .DESCRIPTION
-    Parses Modules/*.psm1 with the PowerShell AST, lists each module's functions
-    and whether they are exported (Export-ModuleMember), and surfaces any
-    'Implements: SR-/LLR-' back-link comment found in the function body. Rewrites
-    the region between the BEGIN/END GENERATED MODULE MAP markers in
-    docs/architecture.md.
+    Parses Modules/*.psm1 with the PowerShell AST and emits, per module:
+      - the module's one-line summary (its comment-based-help .SYNOPSIS),
+      - internal coupling: which OTHER in-tree modules it calls into (cross-module
+        function calls) — this makes the load-bearing invariant auditable
+        (Common must never depend on Engine) and shows a change's blast radius,
+      - each function, whether it is exported (Export-ModuleMember), and any
+        'Implements: SR-/LLR-' back-link comment in the function body.
+    Rewrites the region between the BEGIN/END GENERATED MODULE MAP markers in
+    every target doc.
+
+.PARAMETER Doc
+    Target file(s) to update (each must contain the marker pair). Default:
+    docs/architecture.md and AGENTS.md.
 
 .PARAMETER Check
-    Do not write; exit 1 if the generated map differs from what's on disk
-    (so CI / check.ps1 can fail when the doc is stale).
+    Do not write; exit 1 if any target's generated map differs from disk
+    (so CI / check.ps1 can fail when a doc is stale).
 
 .NOTES
     Implements: (tooling — supports the traceability harness, not an SR/LLR.)
 #>
 [CmdletBinding()]
-param([switch]$Check)
+param(
+    [string[]]$Doc,
+    [switch]$Check
+)
 
 $ErrorActionPreference = 'Stop'
 $repo    = [System.IO.Path]::GetDirectoryName($PSScriptRoot)
-$archDoc = Join-Path $repo 'docs\architecture.md'
 $modules = Get-ChildItem -LiteralPath (Join-Path $repo 'Modules') -Filter '*.psm1' | Sort-Object Name
 
+if (-not $Doc) {
+    $Doc = @((Join-Path $repo 'docs\architecture.md'), (Join-Path $repo 'AGENTS.md'))
+}
+
 function Get-ExportedNames {
-    param([string]$Path)
-    $names = [System.Collections.Generic.HashSet[string]]::new()
-    $tokens = $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errs)
-    $calls = $ast.FindAll({ param($n)
+    param([System.Management.Automation.Language.Ast]$Ast)
+    $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $calls = $Ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.CommandAst] -and
         $n.GetCommandName() -eq 'Export-ModuleMember' }, $true)
     foreach ($c in $calls) {
-        # Collect every nested string constant (handles both bareword lists and
-        # `-Function @( 'A', 'B' )` array literals), minus the command name and
-        # the parameter name itself.
+        # Every nested string constant (handles bareword lists and
+        # `-Function @( 'A', 'B' )` array literals), minus the keywords.
         $strings = $c.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true)
         foreach ($s in $strings) {
@@ -48,57 +60,92 @@ function Get-ExportedNames {
     return $names
 }
 
-function Get-FunctionInfo {
-    param([string]$Path)
+# --- Pass 1: parse every module; index function name -> module ----------------
+$parsed = @{}
+$funcToModule = @{}   # lower-case function name -> module short name
+foreach ($mod in $modules) {
     $tokens = $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errs)
-    $exported = Get-ExportedNames -Path $Path
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($mod.FullName, [ref]$tokens, [ref]$errs)
+    $short = $mod.BaseName -replace '^FileBackup\.', ''   # e.g. "Common", "Engine"
     $fns = $ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false)
-    foreach ($fn in $fns) {
-        $impl = ''
-        $m = [regex]::Match($fn.Extent.Text, 'Implements:\s*([^\r\n#]+)')
-        if ($m.Success) { $impl = $m.Groups[1].Value.Trim().TrimEnd('.') }
-        [pscustomobject]@{
-            Name     = $fn.Name
-            Exported = ($exported.Count -eq 0) -or $exported.Contains($fn.Name)
-            Implements = $impl
-        }
+    foreach ($fn in $fns) { $funcToModule[$fn.Name.ToLowerInvariant()] = $short }
+    $parsed[$mod.Name] = [pscustomobject]@{
+        Ast      = $ast
+        Short    = $short
+        Synopsis = ($ast.GetHelpContent().Synopsis -split "`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+        Exported = Get-ExportedNames -Ast $ast
+        Fns      = $fns
     }
 }
 
+# --- Pass 2: build the generated block ----------------------------------------
 $sb = [System.Text.StringBuilder]::new()
 [void]$sb.AppendLine('<!-- BEGIN GENERATED MODULE MAP -->')
 [void]$sb.AppendLine("_Generated by ``scripts/gen_arch_map.ps1`` from the modules' AST. Do not edit by hand;")
-[void]$sb.AppendLine('run the generator. Back-links come from `Implements:` comments in each function._')
+[void]$sb.AppendLine('run the generator. Summary = the module''s .SYNOPSIS; back-links come from `Implements:` comments._')
 foreach ($mod in $modules) {
+    $info = $parsed[$mod.Name]
+
+    # Internal coupling: OTHER modules this one calls into.
+    $deps = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $cmds = $info.Ast.FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+    foreach ($c in $cmds) {
+        $name = $c.GetCommandName()
+        if (-not $name) { continue }
+        $owner = $funcToModule[$name.ToLowerInvariant()]
+        if ($owner -and $owner -ne $info.Short) { [void]$deps.Add($owner) }
+    }
+
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine("### ``Modules/$($mod.Name)``")
     [void]$sb.AppendLine('')
+    if ($info.Synopsis) { [void]$sb.AppendLine("_$($info.Synopsis.Trim())_") }
+    if ($deps.Count) {
+        $depList = ($deps | ForEach-Object { '`' + $_ + '`' }) -join ', '
+        [void]$sb.AppendLine("Imports (internal): $depList")
+    } else {
+        [void]$sb.AppendLine('Imports (internal): _none_')
+    }
+    [void]$sb.AppendLine('')
     [void]$sb.AppendLine('| Function | Exported | Implements |')
     [void]$sb.AppendLine('|---|:---:|---|')
-    foreach ($f in Get-FunctionInfo -Path $mod.FullName | Sort-Object Name) {
-        $exp = if ($f.Exported) { 'yes' } else { 'no' }
-        $imp = if ($f.Implements) { $f.Implements } else { '—' }
-        [void]$sb.AppendLine("| ``$($f.Name)`` | $exp | $imp |")
+    foreach ($fn in $info.Fns | Sort-Object Name) {
+        $impl = ''
+        $m = [regex]::Match($fn.Extent.Text, 'Implements:\s*([^\r\n#]+)')
+        if ($m.Success) { $impl = $m.Groups[1].Value.Trim().TrimEnd('.') }
+        $exp = if (($info.Exported.Count -eq 0) -or $info.Exported.Contains($fn.Name)) { 'yes' } else { 'no' }
+        $imp = if ($impl) { $impl } else { '—' }
+        [void]$sb.AppendLine("| ``$($fn.Name)`` | $exp | $imp |")
     }
 }
 [void]$sb.Append('<!-- END GENERATED MODULE MAP -->')
 $generated = $sb.ToString() -replace "`r`n", "`n"
 
-$doc = (Get-Content -LiteralPath $archDoc -Raw) -replace "`r`n", "`n"
+# --- Splice into every target doc ---------------------------------------------
 $pattern = '(?s)<!-- BEGIN GENERATED MODULE MAP -->.*?<!-- END GENERATED MODULE MAP -->'
-if ($doc -notmatch $pattern) { throw "Markers not found in $archDoc" }
-$updated = [regex]::Replace($doc, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $generated })
+$stale = $false
+foreach ($target in $Doc) {
+    if (-not (Test-Path -LiteralPath $target)) { throw "Target doc not found: $target" }
+    $doc = (Get-Content -LiteralPath $target -Raw) -replace "`r`n", "`n"
+    if ($doc -notmatch $pattern) { throw "GENERATED MODULE MAP markers not found in $target" }
+    $updated = [regex]::Replace($doc, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $generated })
 
-if ($Check) {
-    if ($updated -ne $doc) {
-        Write-Error "architecture.md module map is stale. Run: pwsh -File scripts/gen_arch_map.ps1"
-        exit 1
+    if ($Check) {
+        if ($updated -ne $doc) {
+            Write-Error "Code map is stale in $target. Run: pwsh -File scripts/gen_arch_map.ps1"
+            $stale = $true
+        } else {
+            Write-Host "[OK]  Code map current in $target"
+        }
+    } elseif ($updated -ne $doc) {
+        Set-Content -LiteralPath $target -Value $updated -NoNewline -Encoding utf8
+        Write-Host "Updated code map in $target"
+    } else {
+        Write-Host "[OK]  Code map already current in $target"
     }
-    Write-Host "[OK]  architecture.md module map is current."
-    exit 0
 }
 
-Set-Content -LiteralPath $archDoc -Value $updated -NoNewline -Encoding utf8
-Write-Host "Updated module map in $archDoc"
+if ($Check -and $stale) { exit 1 }
+exit 0
