@@ -108,4 +108,31 @@ Describe 'Common does not depend on Engine (SR-007)' {
         $usingEngine = $ast.UsingStatements | Where-Object { $_.Name.Value -match 'Engine' }
         @($offenders).Count + @($usingEngine).Count | Should -Be 0
     }
+
+    # The sibling invariant: Reconstruct.ps1 runs from a backup folder where only
+    # the bundled Common module exists, so any call into an Engine function would
+    # break standalone restore (AGENTS.md sec.2 "anything Reconstruct.ps1 calls
+    # must live in Common").
+    It 'Reconstruct.ps1 calls no Engine function and imports no Engine module (SR-007)' {
+        $tokens = $errs = $null
+        $engineAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $repo 'Modules\FileBackup.Engine.psm1'), [ref]$tokens, [ref]$errs)
+        $engineFns = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($fn in $engineAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false)) {
+            [void]$engineFns.Add($fn.Name)
+        }
+
+        $recAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $repo 'Reconstruct.ps1'), [ref]$tokens, [ref]$errs)
+        $calls = $recAst.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+        $engineCalls = $calls | Where-Object {
+            $n = $_.GetCommandName(); $n -and $engineFns.Contains($n)
+        }
+        $engineImports = $calls | Where-Object {
+            $_.GetCommandName() -eq 'Import-Module' -and $_.Extent.Text -match 'Engine'
+        }
+        @($engineCalls).Count + @($engineImports).Count | Should -Be 0
+    }
 }

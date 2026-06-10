@@ -28,7 +28,6 @@ $script:Def = Get-FileBackupDefaults
 # region Infrastructure-file filtering
 
 function Test-IsInfrastructureFile {
-    # Implements: SR-022, LLR-022
     <#
     .SYNOPSIS
         True when a file is a FileBackup-managed artifact sitting at the *root* of
@@ -36,6 +35,7 @@ function Test-IsInfrastructureFile {
         state file). Nested user files that happen to share those names are NOT
         treated as infrastructure — that is the B6 fix.
     #>
+    # Implements: SR-022, LLR-022
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Root,
@@ -107,6 +107,11 @@ function Set-BackupStateField {
 }
 
 function Get-LastHashRun {
+    <#
+    .SYNOPSIS
+        Reads the persisted time of the last scheduled re-hash sweep
+        ($null if one has never run).
+    #>
     # Implements: SR-011, LLR-011
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$BackupRoot)
@@ -116,6 +121,10 @@ function Get-LastHashRun {
 }
 
 function Set-LastHashRun {
+    <#
+    .SYNOPSIS
+        Persists the time of the completed re-hash sweep to FileBackupState.json.
+    #>
     # Implements: SR-011, LLR-011
     [CmdletBinding()]
     param(
@@ -126,9 +135,12 @@ function Set-LastHashRun {
 }
 
 function Get-LastBackupRun {
+    <#
+    .SYNOPSIS
+        Reads the completion date of the most recent backup — it dates the *next*
+        run's point-in-time snapshot. $null until the first backup has run.
+    #>
     # Implements: SR-005, SR-028, LLR-005, LLR-028
-    # The completion date of the most recent backup; used to date the *next*
-    # run's point-in-time snapshot. $null until the first backup has run.
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$BackupRoot)
     $v = (Read-BackupState -BackupRoot $BackupRoot)['LastBackupRun']
@@ -137,6 +149,11 @@ function Get-LastBackupRun {
 }
 
 function Set-LastBackupRun {
+    <#
+    .SYNOPSIS
+        Persists this run's completion date to FileBackupState.json
+        (-When is the deterministic test seam).
+    #>
     # Implements: SR-005, SR-028, LLR-005, LLR-028
     [CmdletBinding()]
     param(
@@ -250,7 +267,6 @@ function Get-MediaMBPerSec {
 # region Hash-recalc schedule
 
 function Test-HashRecalcDue {
-    # Implements: SR-011, LLR-011
     <#
     .SYNOPSIS
         Decides whether untouched files should be re-hashed this run, given the
@@ -258,6 +274,7 @@ function Test-HashRecalcDue {
     .NOTES
         B2: DateTime.MinValue (the unbound default) means "never run" -> recalc.
     #>
+    # Implements: SR-011, LLR-011
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FreqCode,
@@ -289,13 +306,13 @@ function Test-HashRecalcDue {
 # region Source manifest
 
 function Update-SourceManifest {
-    # Implements: SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024
     <#
     .SYNOPSIS
         Walks the source tree, (re)hashes new/changed files (and all files when
         -ForceRehash), marks (hash,length) duplicates, and writes the source
         MANIFEST.csv. Returns the rows.
     #>
+    # Implements: SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourcePath,
@@ -436,7 +453,6 @@ function Test-BackupManifest {
 }
 
 function Sync-BackupStorageLayout {
-    # Implements: SR-012, SR-013, LLR-012, LLR-013
     <#
     .SYNOPSIS
         Migrates backup data files to match the current PreserveFolderTree /
@@ -447,6 +463,7 @@ function Sync-BackupStorageLayout {
         manifest BEFORE deleting any old file, so an interruption can never leave
         the manifest pointing at a deleted path.
     #>
+    # Implements: SR-012, SR-013, LLR-012, LLR-013
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -562,13 +579,13 @@ function Sync-BackupStorageLayout {
 # region Change-folder de-duplication
 
 function Optimize-ChangeFolders {
-    # Implements: SR-026, LLR-026
     <#
     .SYNOPSIS
         Collapses duplicate (hash,length) data files across change folders,
         preferring the backup copy then the newest change folder, and blanks
         DataPaths whose files were removed (reconstruct recovers them by hash).
     #>
+    # Implements: SR-026, LLR-026
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ChangeRoot,
@@ -676,7 +693,6 @@ function Optimize-ChangeFolders {
 # region Reconstruct-script generator
 
 function New-ReconstructScript {
-    # Implements: SR-007, LLR-007
     <#
     .SYNOPSIS
         Copies RECONSTRUCT.ps1/.bat into the backup root, writes a path sidecar,
@@ -687,6 +703,7 @@ function New-ReconstructScript {
         script's param() block, which is invalid PowerShell. Paths are now passed
         via a JSON sidecar that Reconstruct.ps1 reads from its own folder.
     #>
+    # Implements: SR-007, LLR-007
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -723,6 +740,11 @@ function New-ReconstructScript {
 # region Per-set orchestration helpers
 
 function Resolve-BackupSetPaths {
+    <#
+    .SYNOPSIS
+        Validates the set's SourcePath and resolves (creating if needed) the
+        Backup/Change paths to absolute form.
+    #>
     # Implements: SR-014, LLR-014
     [CmdletBinding()]
     param([Parameter(Mandatory)][pscustomobject]$Set)
@@ -748,6 +770,11 @@ function Resolve-BackupSetPaths {
 }
 
 function Initialize-StagingFolder {
+    <#
+    .SYNOPSIS
+        Creates the run's Temp staging folder in the change root; aborts loudly
+        if a stale Temp from a failed prior run is still present.
+    #>
     # Implements: SR-005, SR-017, LLR-005, LLR-017
     [CmdletBinding()]
     param(
@@ -764,12 +791,12 @@ function Initialize-StagingFolder {
 }
 
 function Compare-SourceToBackup {
-    # Implements: SR-001, LLR-001
     <#
     .SYNOPSIS
         Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
         (backup rows) by RelativePath. No I/O — unit-testable.
     #>
+    # Implements: SR-001, LLR-001
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
@@ -798,13 +825,13 @@ function Compare-SourceToBackup {
 }
 
 function Invoke-BackupFileGroup {
-    # Implements: SR-003, LLR-003
     <#
     .SYNOPSIS
         Backs up one (hash,length) group: reuses an existing backup data file if
         present, otherwise copies/compresses once and points every logical name
         at it.
     #>
+    # Implements: SR-003, LLR-003
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Group,
@@ -887,7 +914,6 @@ function Invoke-BackupFileGroup {
 }
 
 function Move-RemovedFilesToStaging {
-    # Implements: SR-006, LLR-006
     <#
     .SYNOPSIS
         Evicts data files for source-removed entries into the staging folder.
@@ -897,6 +923,7 @@ function Move-RemovedFilesToStaging {
         file is left in the backup root and the change manifest blanks the
         DataPath (reconstruct recovers it by hash).
     #>
+    # Implements: SR-006, LLR-006
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$RemovedFromSource,
@@ -937,7 +964,6 @@ function Move-RemovedFilesToStaging {
 }
 
 function Save-SupersededData {
-    # Implements: SR-010, SR-028, LLR-010, LLR-028
     <#
     .SYNOPSIS
         Preserves the prior bytes of files whose content is being replaced this
@@ -951,6 +977,7 @@ function Save-SupersededData {
         in the backup and the snapshot recovers it by hash. This is what makes a
         point-in-time restore reproduce old content in every storage mode.
     #>
+    # Implements: SR-010, SR-028, LLR-010, LLR-028
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$NewOrChanged,
@@ -982,7 +1009,6 @@ function Save-SupersededData {
 }
 
 function Complete-ChangeFolder {
-    # Implements: SR-005, SR-028, LLR-005, LLR-028
     <#
     .SYNOPSIS
         Finalizes the staging folder into a dated point-in-time snapshot, or
@@ -1003,6 +1029,7 @@ function Complete-ChangeFolder {
         Completion date of the backup whose state this snapshot preserves (the
         previous run). $null on the first backup ⇒ no snapshot.
     #>
+    # Implements: SR-005, SR-028, LLR-005, LLR-028
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ChgPath,
@@ -1057,6 +1084,12 @@ function Complete-ChangeFolder {
 # region Per-set orchestrator
 
 function Invoke-BackupSet {
+    <#
+    .SYNOPSIS
+        Orchestrates the full backup pipeline for one set (AGENTS.md §2): walk +
+        hash the source, sync storage layout, preserve superseded bytes, copy new
+        data, evict removed files, finalize the dated snapshot, persist run state.
+    #>
     # Implements: SR-014, SR-017, LLR-014, LLR-017
     [CmdletBinding()]
     param(

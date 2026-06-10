@@ -124,7 +124,6 @@ $script:XxHashPackageVersion = '8.0.0'
 $script:XxHashDllName        = 'System.IO.Hashing.dll'
 
 function Initialize-XxHashLibrary {
-    # Implements: SR-002, SR-019, LLR-002
     <#
     .SYNOPSIS
         Ensures System.IO.Hashing.XxHash128 is loaded. Prefers a DLL bundled next
@@ -141,6 +140,7 @@ function Initialize-XxHashLibrary {
         With -NonInteractive, install the missing package automatically rather
         than failing.
     #>
+    # Implements: SR-002, SR-019, LLR-002
     [CmdletBinding()]
     param(
         [string]$BundledDllDir = $PSScriptRoot,
@@ -208,12 +208,12 @@ function Initialize-XxHashLibrary {
 }
 
 function Get-XxHashDllPath {
-    # Implements: SR-007, LLR-007
     <#
     .SYNOPSIS
         Resolves the path to a System.IO.Hashing.dll to bundle into a backup
         folder for standalone restore. Returns $null if it cannot be located.
     #>
+    # Implements: SR-007, LLR-007
     [CmdletBinding()]
     param()
 
@@ -234,12 +234,12 @@ function Get-XxHashDllPath {
 }
 
 function Get-FileXxHash {
-    # Implements: SR-002, LLR-002
     <#
     .SYNOPSIS
         Computes the xxHash128 of a file as a 32-char uppercase hex string
         (big-endian, matching System.IO.Hashing's canonical output).
     #>
+    # Implements: SR-002, LLR-002
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -327,11 +327,11 @@ function Convert-ShortNameToHex {
 }
 
 function Get-HashSizeFileName {
-    # Implements: SR-003, SR-021, LLR-003, LLR-021
     <#
     .SYNOPSIS
         Builds the content-addressed data filename "<hashShort> <lenShort><ext>".
     #>
+    # Implements: SR-003, SR-021, LLR-003, LLR-021
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$HashHex,
@@ -349,12 +349,12 @@ function Get-HashSizeFileName {
 # region Compression + expansion
 
 function Test-ShouldCompress {
-    # Implements: SR-004, LLR-004
     <#
     .SYNOPSIS
         True when compression is enabled and the file's extension is not already
         a compressed/opaque format. Only the extension of -FileName is inspected.
     #>
+    # Implements: SR-004, LLR-004
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FileName,
@@ -396,11 +396,11 @@ function Compress-FileWithSevenZip {
 }
 
 function Expand-FileWithSevenZip {
-    # Implements: SR-008, LLR-008
     <#
     .SYNOPSIS
         Extracts the single payload file from a .7z archive to -DestinationFile.
     #>
+    # Implements: SR-008, LLR-008
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SevenZipPath,
@@ -445,12 +445,12 @@ function Expand-FileWithSevenZip {
 # region Manifest I/O
 
 function Read-Manifest {
-    # Implements: SR-025, LLR-025
     <#
     .SYNOPSIS
         Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
         parsed [datetime] LastWriteTime member. Returns @() when absent.
     #>
+    # Implements: SR-025, LLR-025
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderPath
@@ -469,11 +469,11 @@ function Read-Manifest {
 }
 
 function Write-Manifest {
-    # Implements: SR-025, LLR-025
     <#
     .SYNOPSIS
         Writes the canonical 9-column MANIFEST.csv to a folder.
     #>
+    # Implements: SR-025, LLR-025
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderPath,
