@@ -28,7 +28,11 @@ pause for human approval — **without breaking the working tool.**
   using the verdict protocol (process.md §5). Never report a green you didn't run.
 
 > **Gates vs. groups:** process gates are `G1, G2, G3, G-Release, G-Final`. The
-> test harness's `G1…G8` are storage-mode *suites* — a different namespace.
+> test harness's `G1…G9` are storage-mode *suites* — a different namespace.
+
+> **Live state:** this file is the session kickoff brief; the retrofit has since
+> progressed through G1/G2 into G3 — always read the *Current State* header of
+> [docs/status.md](docs/status.md) for the active gate and next action.
 
 ## What's already scaffolded (don't recreate)
 
@@ -45,7 +49,8 @@ pause for human approval — **without breaking the working tool.**
 
 - **Goal:** Periodic, content-aware backup with change tracking and
   self-contained reconstruction (xxHash128 dedup by `(hash,size)`, optional
-  7-Zip, `MANIFEST.csv`, per-run `Pre_*_Changes` snapshots, bundled restore kit).
+  7-Zip, `MANIFEST.csv`, dated `Snapshot_<date>` point-in-time snapshots,
+  bundled restore kit).
 - **Primary users:** technical Windows users / the author (scheduled + ad-hoc
   `pwsh` runs); agents modifying the tool.
 - **Must-have outcomes:** correct backup + **bit-exact restore from the backup
@@ -103,15 +108,14 @@ pause for human approval — **without breaking the working tool.**
 End every working turn with: current gate, what changed, gate status (criteria +
 sign-offs), and the exact next action awaiting human approval.
 
-## Deferred wiring tasks (intentionally not done yet)
+## Formerly deferred wiring tasks — now done (don't recreate)
 
-These were left for this session to do against the real code, rather than
-guessing now:
-
-- `scripts/check.ps1` harness wired to Pester + PSScriptAnalyzer (+ trace + map).
-- PowerShell **module-map generator** to fill `docs/architecture.md`.
-- `.github/workflows` entry running the harness (smoke on push, full on PR,
-  release sweep on tag).
-- Decide `COVERAGE_THRESHOLD` and the Smoke/Full/Release split of the test matrix.
-- Optional: model the **restore-kit/manifest format** as an `IF-###` contract in
-  `docs/interfaces.md` if other tools consume `MANIFEST.csv`.
+- `scripts/check.ps1` — wired (lint + trace + generated-docs freshness + Pester;
+  `-Tier Smoke|Full|Release`, `-Gate G2|G3|all`).
+- `scripts/gen_arch_map.ps1` — generates the module map, the Mermaid dependency
+  diagram, and the `Invoke-BackupSet` flow into `docs/architecture.md` + `AGENTS.md`.
+- `.github/workflows/tests.yml` — lint / traceability / unit / Subst integration.
+- `COVERAGE_THRESHOLD` = 80% (78.1% accepted with documented exclusions,
+  human 2026-06-05); TC `Tier` column carries the Smoke/Full/Release split.
+- Still optional: model the **restore-kit/manifest format** as an `IF-###`
+  contract in `docs/interfaces.md` if other tools ever consume `MANIFEST.csv`.

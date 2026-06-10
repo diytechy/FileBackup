@@ -10,7 +10,7 @@ last) — it is the record, not required reading for every pass.
 > [AGENTS.md](../AGENTS.md), close traceability gaps, then keep new work gated.
 
 > **Naming caution.** The kit's **gates** are `G1, G2, G3, G-Release, G-Final`.
-> FileBackup's existing test **groups** are `G1…G8` (storage-mode suites in
+> FileBackup's existing test **groups** are `G1…G9` (storage-mode suites in
 > `tests/Run-All.ps1`) — a *different* namespace. Don't conflate them.
 
 ---
@@ -18,33 +18,33 @@ last) — it is the record, not required reading for every pass.
 ## Current State
 
 - **Active gate:** G3 — Implementation truth-up (G2 human-APPROVED 2026-06-05)
-- **Round:** 2 complete — **35/35 unit, 160/0 integration, lint clean, 0 orphans;
-  coverage 69.6%; two items still need a human decision**
-- **`COVERAGE_THRESHOLD` = 80%** line coverage on the modules (working value).
-- **SR tally:** 22 Verified · 1 Open (SR-010) · 3 Demonstration · 1 Inspection.
-- **TWO ITEMS PENDING (human):**
-  1. **Coverage pushed to 78.1%** (664/850) with 16 new unit tests (was 22%).
-     The remaining ~2% to a literal 80% is **structurally gated**, not missing
-     tests: `Initialize-XxHashLibrary`'s install branch (25 cmds) can't run when
-     the hashing type is already loaded in-session; `Get-MediaMBPerSec`'s ffprobe
-     body (21 cmds) needs ffprobe installed + a media fixture; a few
-     `Expand-FileWithSevenZip` edge branches. These are covered by integration /
-     Demonstration. **RESOLVED (human 2026-06-05): accept 78.1%** with documented
-     exclusions. Rationale: compression is already extension-based
-     (`Test-ShouldCompress` over `NonCompressibleExtensions`); `Get-MediaMBPerSec`
-     /ffprobe is an optional, currently-dormant info column (`FileBackup.ps1`
-     hardcodes `$anyMedia = $false`) and drives no decision — so covering it adds
-     no real assurance. [Cleanup candidate: retire or wire up the dormant
-     MediaMBPerSec metric.] G3 coverage criterion: **met (78.1% + exclusions).**
-  2. **SR-010 → SNAPSHOT-MODEL REDESIGN (human-initiated).** Not a quick fix —
-     see "Design note: dated snapshots" below. Needs its own requirements/design
-     pass before implementation.
-- **Next action:** Snapshot redesign — **G3 implemented + validated** (212
-  integration / 42 unit green; SR-005/010/028 Verified). Recommended:
-  **independent restore-path review** (high-risk), then human G3 sign-off. The
-  main G3 (25 non-snapshot SRs) also stands complete and signable.
+- **Latest full run (2026-06-09):** **48/48 unit, 236/0/4 integration, lint
+  clean, 0 orphans, 0 status findings** (`check.ps1 -Tier Full` — gate `all`
+  now also machine-checks `--require-verified`).
+- **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
+  (human 2026-06-05) — G3 coverage criterion met.
+- **SR tally:** 24 Test/Verified · 3 Demonstration · 1 Inspection · 0 Open —
+  every `Verification=Test` SR is Verified (machine-checked by
+  `trace.py --require-verified`).
+- **2026-06-09 — template re-sync (ai-template HEAD):** process.md updated
+  (thin orchestrators, interface contracts at the code, Mermaid convention,
+  tier semantics, method rules); trace.py/--require-verified wired into
+  check.ps1 + CI; gen_cases.py added; gen_arch_map.ps1 now also generates the
+  Mermaid dependency diagram (architecture.md + AGENTS.md) and the
+  `Invoke-BackupSet` flow (architecture.md). Gap remediation: comment-based
+  help ordering fixed module-wide (a leading `# Implements:` comment was
+  silently breaking `Get-Help`); new Reconstruct⊥Engine AST guard (TC-048);
+  stale doc totals/sections refreshed (AGENTS §1/§5/§6, START_HERE).
+- **Resolved decisions (detail in the audit log):** coverage accepted at 78.1%
+  with documented structural exclusions (human 2026-06-05; cleanup candidate:
+  retire or wire up the dormant MediaMBPerSec metric); snapshot-model redesign
+  taken through its own G1→G2→G3 and **independently review-APPROVED 2026-06-06**
+  (SR-005/010/028 Verified).
+- **Next action (human):** **G3 sign-off** — both the main implementation
+  truth-up and the snapshot redesign stand complete, validated, and
+  reviewer-approved; the Gate Sign-offs table awaits the human row.
 
-### Design note: dated snapshots (supersedes the Pre_*_Changes model) — proposed
+### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
 date OF the backup that produced them (drop the `Pre_` marker)**; each snapshot
 **fully reconstructs the state as of that backup**; the **latest run has no
@@ -417,3 +417,39 @@ Findings:
 ### DRIVER — SNAPSHOT REDESIGN G3 — 2026-06-06
 Independent review APPROVED; sole actionable finding fixed + tested. **Awaiting
 human G3 sign-off** to close the dated-snapshot redesign.
+
+### DRIVER (Software + Test Engineer hats) — template re-sync + gap sweep — 2026-06-09
+Verdict: APPROVE (driver) — process-tooling + docs change; no engine/restore
+behavior touched (module edits are comment-only).
+
+Applied the four ai-template commits newer than the last sync (2e32d0b flow +
+interface contracts; e7fa050 harness/tier/trace fixes + --require-verified;
+0418812 kit restyle; 05c50ab Mermaid convention + dependency diagram):
+- docs/process.md, scripts/trace.py, scripts/gen_release_checklist.py replaced
+  with template HEAD (all three were verbatim kit copies); scripts/gen_cases.py
+  added (the SR Permutations cells already use its grammar).
+- scripts/gen_arch_map.ps1 ported the two new generators: a Mermaid dependency
+  diagram (modules + entry scripts, so Common⊥Engine AND Reconstruct→Common-only
+  are visible) and the ordered `Invoke-BackupSet` flow; duplicated-marker guard;
+  `Implements:` harvesting now anchored to the comment line (a help-block prose
+  mention had produced a wrong back-link). Markers added to architecture.md
+  (flow + diagram) and AGENTS.md (diagram).
+- check.ps1 gained -Gate (G2|G3|all); G3/all add `trace.py --require-verified`
+  (the machine half of the G3 "every Test SR Verified" criterion). CI now runs
+  --require-verified and triggers on every branch push.
+
+Gap sweep findings (fixed):
+- [MAJOR] Comment-based help placed *after* the `# Implements:` line in 19
+  module functions silently broke `Get-Help` and summary harvesting → order
+  swapped module-wide; 7 orchestration functions lacking any .SYNOPSIS got one.
+  Convention recorded in AGENTS.md §4 + CLAUDE.md.
+- [MINOR] No AST guard for "Reconstruct.ps1 calls only Common" (the sibling of
+  the Common⊥Engine guard) → added (TC-048, SR-007).
+- [MINOR] Stale docs: AGENTS §1 still described the Pre_*_Changes model; §5/§6
+  carried outdated test totals; suite-group axes said G1–G8; START_HERE listed
+  the already-done wiring as deferred → all refreshed.
+
+Evidence (real output, local): `check.ps1 -Tier Full` → lint PASS · trace PASS
+(UN=21 SR=28 LLR=27 TC=47, 0 orphans, 0 status findings) · generated docs fresh ·
+Pester unit **48/48** · integration **236 PASS / 0 FAIL / 4 SKIP** →
+"All steps passed."
