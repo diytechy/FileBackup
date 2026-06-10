@@ -18,18 +18,23 @@ This file is the thin bridge between them.
 
 - **PowerShell 7+ (`pwsh`) on Windows only.** Windows PowerShell 5.1 is not
   supported. Entry point `FileBackup.ps1`; standalone restore `Reconstruct.ps1`.
-- **Tests are Pester**, driven by [tests/Run-All.ps1](tests/Run-All.ps1) (storage-
-  mode groups G1–G8 × four Mirror/HashAddressed ± Compress modes; `-EmitJUnit`
+- **Tests are Pester**, driven by [tests/Run-All.ps1](tests/Run-All.ps1) (suite
+  groups G1–G9 × four Mirror/HashAddressed ± Compress modes; `-EmitJUnit`
   for CI, `-NonInteractive` for unattended). Lint config:
   `tests/PSScriptAnalyzerSettings.psd1`.
 - **Traceability tooling is Python** (stdlib, no pip): `python scripts/trace.py
-  --strict` joins the registries and reports orphans;
-  `python scripts/gen_release_checklist.py` builds the release checklist. These
-  read `docs/` CSVs only — they don't touch the PowerShell code.
+  --strict` joins the registries and reports orphans (`--require-verified` adds
+  the G3 status criterion); `python scripts/gen_release_checklist.py` builds the
+  release checklist; `python scripts/gen_cases.py --spec "<Permutations cell>"`
+  expands a requirement's input dimensions into test combinations. These read
+  `docs/` CSVs only — they don't touch the PowerShell code.
+- **The harness is `pwsh scripts/check.ps1`** (`-Tier Smoke|Full|Release`,
+  `-Gate G2|G3|all`) — lint, traceability, generated-docs freshness, Pester.
+  CI runs the same steps.
 
 > **Gates vs. test groups — don't conflate.** Process **gates** are
 > `G1, G2, G3, G-Release, G-Final` (docs/process.md §4). The test harness's
-> **groups** `G1…G8` are storage-mode suites — a different namespace.
+> **groups** `G1…G9` are storage-mode suites — a different namespace.
 
 ## The process, in brief (see docs/process.md for the full method)
 
@@ -54,10 +59,23 @@ This file is the thin bridge between them.
   `It 'dedups identical content (SR-003)'`). Registry columns are authoritative.
 - **Automation-safe:** anything interactive needs a `-NonInteractive` path that
   fails loudly with a non-zero exit (CI/scheduled runs must never block).
+- **Entry points orchestrate, they don't compute.** A top-level routine reads as
+  a short, ordered list of well-named step calls; push logic into the steps.
+  `scripts/gen_arch_map.ps1 -Flow <fn>` renders the call sequence into
+  docs/architecture.md — a short or vague flow means the routine inlines too much.
+- **Define the interface (contract) at the code.** Each public function carries
+  comment-based help (`<# .SYNOPSIS / .PARAMETER / .OUTPUTS #>`) as the **first**
+  thing in its body — a plain comment before it breaks `Get-Help` and the
+  generated map — followed by the `# Implements: SR-###, LLR-###` back-link line.
+  Reference SR ids for input ranges/sets instead of restating them
+  (process.md §3 "Interface contracts live at the code").
+- **Diagrams are Mermaid fenced blocks** in the Markdown docs; the dependency
+  diagram, module map, and `Invoke-BackupSet` flow are **generated** — never edit
+  between `GENERATED` markers; `check.ps1` fails when they're stale.
 - Match the surrounding PowerShell style; small functions; comments explain *why*.
 
 ## First task for a new session
 
-Open **[START_HERE.md](START_HERE.md)** — it has the filled project brief and the
-exact next steps (including wiring `check.ps1` to Pester/PSScriptAnalyzer, which
-is intentionally deferred).
+Open **[START_HERE.md](START_HERE.md)** — it has the filled project brief — then
+read the *Current State* header of [docs/status.md](docs/status.md) for the
+active gate and the exact next action awaiting approval.

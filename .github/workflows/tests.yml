@@ -2,7 +2,7 @@ name: tests
 
 on:
   push:
-    branches: [main, working, Claude, refactor/modularize-docs-tests]
+    branches: ['**']   # every branch — feature branches get CI without a PR
   pull_request:
   workflow_dispatch:
 
@@ -37,10 +37,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Trace registries (strict, 0 orphans for the active gate)
+      - name: Trace registries (strict, 0 orphans + Test SRs Verified)
         shell: pwsh
-        run: python scripts/trace.py --strict
-      - name: Architecture map is current (not stale)
+        run: python scripts/trace.py --strict --require-verified
+      - name: Generated docs are current (map + flow + dependency diagram)
         shell: pwsh
         run: pwsh -File scripts/gen_arch_map.ps1 -Check
       - name: Upload traceability report

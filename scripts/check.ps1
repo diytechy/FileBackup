@@ -5,8 +5,11 @@
 .DESCRIPTION
     Runs, and fails nonzero on any failure:
         1. PSScriptAnalyzer (tests/PSScriptAnalyzerSettings.psd1; any diagnostic = fail)
-        2. python scripts/trace.py --strict        (0 traceability orphans)
-        3. scripts/gen_arch_map.ps1 -Check         (architecture.md map not stale)
+        2. python scripts/trace.py --strict        (0 traceability orphans; at
+           -Gate G3/all also --require-verified: every Verification=Test SR is
+           Status=Verified — the machine half of the G3 exit criteria)
+        3. scripts/gen_arch_map.ps1 -Check         (generated module map, flow,
+           and dependency diagram not stale in architecture.md / AGENTS.md)
         4. Pester unit suite                        (tests/Unit)
         5. Integration sweep via tests/Run-All.ps1  (Full/Release tiers only)
 
@@ -18,6 +21,11 @@
 .PARAMETER Tier
     Smoke (default) | Full | Release.
 
+.PARAMETER Gate
+    G2 | G3 | all (default). G3/all add the --require-verified status criterion
+    to the traceability step; run -Gate G2 while a change is mid-decomposition
+    (Draft SRs are expected then and must not fail the harness).
+
 .PARAMETER Modes
     Integration storage-mode combos (forwarded to Run-All.ps1). Default: all four.
 
@@ -28,6 +36,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Smoke','Full','Release')][string]$Tier = 'Smoke',
+    [ValidateSet('G2','G3','all')][string]$Gate = 'all',
     [string]$Modes = 'Mirror,Mirror+Compress,HashAddressed,HashAddressed+Compress'
 )
 
@@ -69,10 +78,12 @@ Invoke-Step 'PSScriptAnalyzer' {
 
 # 2. Traceability ---------------------------------------------------------
 Invoke-Step 'Traceability (trace.py --strict)' {
-    python (Join-Path $repo 'scripts\trace.py') --strict --docs (Join-Path $repo 'docs')
+    $traceArgs = @('--strict', '--docs', (Join-Path $repo 'docs'))
+    if ($Gate -in 'G3','all') { $traceArgs += '--require-verified' }
+    python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 
-# 3. Architecture map freshness ------------------------------------------
+# 3. Generated-docs freshness (module map + flow + dependency diagram) -----
 Invoke-Step 'Architecture map freshness' {
     pwsh -NoProfile -File (Join-Path $repo 'scripts\gen_arch_map.ps1') -Check
 }
@@ -98,7 +109,7 @@ if ($Tier -in 'Full','Release') {
 
 # Summary -----------------------------------------------------------------
 Write-Host ""
-Write-Host "================ check.ps1 ($Tier) ================" -ForegroundColor Cyan
+Write-Host "================ check.ps1 (tier $Tier, gate $Gate) ================" -ForegroundColor Cyan
 if ($failures.Count -gt 0) {
     Write-Host "FAILED: $($failures -join ', ')" -ForegroundColor Red
     exit 1
