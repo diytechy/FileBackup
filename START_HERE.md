@@ -39,7 +39,7 @@ pause for human approval — **without breaking the working tool.**
 - `docs/process.md` (the method), `docs/status.md` (live blackboard, scope
   pre-filled), `docs/architecture.md` (overview → AGENTS.md; generated map TBD),
   `docs/interfaces.md`.
-- Empty registries: `docs/requirements/{user-needs.md, system-requirements.csv,
+- Empty registries: `docs/requirements/{stakeholder-needs.md, system-requirements.csv,
   low-level-requirements.csv, interfaces.csv}`, `docs/test/test-cases.csv`
   (placeholder `-000` rows the tooling ignores).
 - `scripts/trace.py` (traceability, `--strict`), `scripts/gen_release_checklist.py`.

@@ -64,13 +64,13 @@ is an authoritative point-in-time, self-sufficient for full restore.
   search-folder aggregation, the `Pre_`-based `$ChangeFolderPattern`.
 - `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging` — what data a snapshot
   must retain to stand alone vs. share with the backup root.
-- Requirements: UN-004 (recover older copy), UN-006 (historical restore),
+- Requirements: SN-004 (recover older copy), SN-006 (historical restore),
   SR-005 (change-folder contract), SR-010 (historical restore) — all revised.
 - Tests: every G2/G3 suite + Coverage.Tests assertion that references `Pre_*`.
 - Docs: README "how it works" diagram + AGENTS pipeline steps 7/13/14.
 
 **Proposed handling:** treat as a scoped change through the gate — (G1) revise
-UN-004/006 + SR-005/010 to the new model and a migration/compat stance for
+SN-004/006 + SR-005/010 to the new model and a migration/compat stance for
 existing `Pre_*` backups; (G2) decompose to LLRs + tests; (G3) implement with an
 independent review of the restore-path change. **Do not implement until the human
 approves this framing.**
@@ -136,8 +136,8 @@ Baseline before writing: tool green (Pester Unit 27/27), deps present
 `trace.py` clean.
 
 What changed:
-- `requirements/user-needs.md`: 12 core needs (UN-001..012) + 9 edge-case
-  expectations (UN-013..021), each with priority + acceptance intent.
+- `requirements/stakeholder-needs.md`: 12 core needs (SN-001..012) + 9 edge-case
+  expectations (SN-013..021), each with priority + acceptance intent.
 - `requirements/system-requirements.csv`: 27 measurable SRs (SR-001..027), each
   linked to ≥1 UN, with AcceptanceCriteria, Permutations (storage modes /
   compression / hash-freq), Priority, and Verification method. Test-verifiable
@@ -147,7 +147,7 @@ What changed:
   the expected SR→LLR/TC gaps that G2 will close (not G1 blockers).
 
 Findings:
-- [MINOR] UN-012 (first-run setup/docs) had no SR on first pass → added SR-027
+- [MINOR] SN-012 (first-run setup/docs) had no SR on first pass → added SR-027
   (Demonstration). Resolved.
 - [MINOR] Non-goals + `COVERAGE_THRESHOLD` assumed from the brief, not yet
   human-ratified → see Open items.
@@ -270,7 +270,7 @@ surface (fixed) and one restore-semantics question (escalated):
 - [QUESTION] **SR-010 historical restore** overlays the backup-root manifest as
   newest authority, so restoring from a change folder yields the *current*
   version of a modified file, not the captured prior version (contradicts
-  UN-004). Left SR-010 **Open** pending the human's intended semantics; did not
+  SN-004). Left SR-010 **Open** pending the human's intended semantics; did not
   guess at a fix on the restore-correctness path.
 
 New tests (tests/Unit/Coverage.Tests.ps1, +4 → 35 unit total, all green):
@@ -294,8 +294,8 @@ Approved plan: `~/.claude/plans/refactored-jingling-panda.md` (dated-snapshot
 model; delta + hash-pull storage; clean cutover). Stepped back to requirements.
 
 What changed (docs only — no code touched; suite still green):
-- `user-needs.md`: UN-004 (point-in-time snapshots, each fully restorable) +
-  UN-006 (restore a dated snapshot byte-exact) revised to the new model.
+- `stakeholder-needs.md`: SN-004 (point-in-time snapshots, each fully restorable) +
+  SN-006 (restore a dated snapshot byte-exact) revised to the new model.
 - `system-requirements.csv`: SR-005 rewritten (dated `Snapshot_<date>` naming,
   no snapshot for the latest/no-op run, atomic completion) → Draft; SR-010
   rewritten (snapshot's own manifest authoritative, bytes resolved by hash from
@@ -411,7 +411,7 @@ Findings:
   guard (SR-009)'. Strengthens SR-009. Full tier re-run green (236/0/4, 43 unit).
 - [MINOR→BACKLOG] Crash mid-run can leave an orphaned `Temp` with a transient
   manifest/data mismatch; next run aborts loudly (SR-017 guard) — recovery is
-  manual. Inherent to staging; current behavior matches UN-013 (fail loudly).
+  manual. Inherent to staging; current behavior matches SN-013 (fail loudly).
   Future hardening: auto-roll-back a stale `Temp` instead of only refusing.
 
 ### DRIVER — SNAPSHOT REDESIGN G3 — 2026-06-06

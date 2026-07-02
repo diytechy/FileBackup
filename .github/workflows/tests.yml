@@ -32,7 +32,7 @@ jobs:
           Write-Host "Lint clean."
 
   traceability:
-    name: Traceability (UN->SR->LLR->TC) + arch map
+    name: Traceability (SN->SR->LLR->TC) + arch map
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
