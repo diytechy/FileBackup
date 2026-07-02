@@ -170,6 +170,36 @@ cheap), and a query-time semantic index (§7 map-vs-index note) can help chase
 references across a large tree — but both are optional, downstream, and orthogonal
 to the promote rule.
 
+## §8 purchased parts
+
+*Referenced from PROCESS.md §8.* **Applies when** the product incorporates
+**purchased/external parts** it buys rather than builds (motors, arms, cameras,
+compute boards) and wants their status and source tracked in-repo.
+
+**One row per bought part, owned by an interface row.** A purchased part that *no
+repo builds* still has a contract of record — its datasheet, vendor, pinned
+version — and §8's rule already places that: a **coordinator/repo-held `IF-###`
+row is the owner-of-record** for such a part (MULTI_REPO.md §3.3). The
+`procurement.csv` registry (`PART-###`) sits **alongside** that, adding only the
+**acquisition** facts the interface row doesn't carry: `PART-ID, Name, IF-Ref,
+Vendor, Cost, Status, Quantity, Notes`, where `IF-Ref` back-links the owning
+`IF-###` and `Status ∈ {needed, ordered, on-hand, backordered, obsolete}`. Off
+the `SN→SR→LLR→TC` spine and optional like `interfaces.csv`/`PB-###`: a project
+that buys nothing ignores the file; a leftover `PART-000` never blocks a gate.
+
+- **What `trace.py` checks (integrity only).** It flags a malformed/duplicate
+  `PART-` id, the always-on floor. It does **not** resolve `IF-Ref` against
+  `interfaces.csv`, because trace.py never reads the `IF-###` tier (it is off the
+  joined spine, §8); keeping PART integrity-only holds the "no more than PB"
+  minimal line and avoids teaching trace.py the interface registry. Cross-checking
+  `IF-Ref` against a real interface row is a natural first extension if it earns
+  its keep.
+- **Deliberately minimal — deferred extensions.** This is a flat parts list, not a
+  bill of materials. **Full BOM tracking** — alternates/second-sources,
+  per-module allocation and quantity roll-ups, assembly trees, lead-time/reorder
+  logic — is **explicitly deferred**; add it only when a project demonstrably
+  needs it, extending this registry rather than replacing it.
+
 ## §9 NFR checklist
 
 *Referenced from PROCESS.md §9.* **Applies when** deciding which non-functional

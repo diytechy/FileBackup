@@ -31,6 +31,19 @@ last) — it is the record, not required reading for every pass.
 - **SR tally:** 24 Test/Verified · 3 Demonstration · 1 Inspection · 0 Open —
   every `Verification=Test` SR is Verified (machine-checked by
   `trace.py --require-verified`).
+- **2026-07-01 — kit re-sync (ai-template @ e4bcfb1):** process docs split into
+  the §1–§7 core ([process.md](process.md)) + opt-in expansions
+  ([process-options.md](process-options.md)); this standalone repo runs the
+  kit's **minimum profile** (spine hats, ids, §3 discipline, G1→G3+G-Final,
+  §5/§6, harness) and skips §8/§9/§10 until scope forces them. Top spine layer
+  renamed `UN-###`→`SN-###` (ids keep numbers). Harness gained doc-navigability
+  (check_docs.py), the §9 perf comparator (check_perf.py, inert placeholder),
+  a machine-readable [gate file](gate) that check.ps1/CI read, and the
+  `.githooks/pre-commit` process floor. **Not adopted (deliberate):**
+  check_flows.py (this repo's reviewable flow surface is the generated
+  `Invoke-BackupSet` flow + AGENTS.md §2 pipeline, which predate that
+  convention) and check_stubs.py (Python-only product tooling; no PowerShell
+  port shipped — adopting it would pass vacuously). Full audit entry below.
 - **2026-06-09 — template re-sync (ai-template HEAD):** process.md updated
   (thin orchestrators, interface contracts at the code, Mermaid convention,
   tier semantics, method rules); trace.py/--require-verified wired into
@@ -458,3 +471,45 @@ Evidence (real output, local): `check.ps1 -Tier Full` → lint PASS · trace PAS
 (UN=21 SR=28 LLR=27 TC=47, 0 orphans, 0 status findings) · generated docs fresh ·
 Pester unit **48/48** · integration **236 PASS / 0 FAIL / 4 SKIP** →
 "All steps passed."
+
+### DRIVER (System + Test Engineer hats) — kit re-sync 2026-07 — 2026-07-01
+Verdict: APPROVE (driver) — process-tooling + docs change; no engine/restore
+behavior touched (the only .ps1 edited is scripts/check.ps1). Pilot adoption
+for the kit's Thread-27 core/optional split; friction fed back to ai-template.
+
+Applied ai-template @ e4bcfb1 (Threads 24–28 + WI-1.3 since the 2026-06-09
+sync), on branch `kit-resync-2026-07`:
+- **Process split:** docs/process.md replaced with the current core (§1–§7 +
+  applies-when summaries); new docs/process-options.md carries the expansions.
+  This repo runs the stated **minimum profile** (rung 1, standalone).
+- **Spine rename:** `user-needs.md`/UN-### → `stakeholder-needs.md`/SN-###
+  (kit Thread 7); ids keep their numbers so older entries in this log still
+  resolve. `SN-Refs` column renamed; CI job title updated. Historical evidence
+  quotes ("UN=21…") left verbatim — they record what the tool printed then.
+- **Harness:** trace.py/gen_release_checklist.py/gen_cases.py re-synced
+  (verbatim kit copies); check_docs.py + check_perf.py adopted and wired into
+  check.ps1 (steps 3 and 6) and CI; docs/gate (G3) is now the default -Gate
+  source; .githooks/pre-commit added (map freshness + id integrity; opt-in via
+  core.hooksPath); .gitattributes pins the hook to LF. Inert optional
+  registries scaffolded: performance-budgets.csv (PB-000), procurement.csv
+  (PART-000).
+- **Not adopted, deliberately:** check_flows.py (would demand a hand-authored
+  "Runtime flows" section; the generated Invoke-BackupSet flow + AGENTS.md §2
+  pipeline already serve reviewable-flow duty — revisit if a concurrency-heavy
+  change lands) and check_stubs.py (Python-only; would pass vacuously on a
+  PowerShell tree). check.ps1 (not the kit's check.py) stays the single gate
+  command: it is the one definition of passing this Windows/Pester repo runs
+  locally and in CI.
+
+Evidence (real output, local, post-upgrade):
+- `pwsh scripts/check.ps1 -Tier Full` → lint PASS · trace PASS (SN=21 SR=28
+  LLR=27 TC=47, orphans=0, integrity=0, status-findings=0) · doc navigability
+  PASS (0 broken links) · generated docs fresh · Pester unit **48/48** ·
+  perf-budgets PASS (inert) · integration **236 PASS / 0 FAIL / 4 SKIP** →
+  "All steps passed." (identical totals to the pre-upgrade baseline).
+- `sh .githooks/pre-commit` → exit 0.
+
+**Open:** the pre-existing item stands — human G3 sign-off on the
+implementation truth-up + snapshot redesign (this re-sync does not change that
+scope). New minor: consider a PowerShell check_stubs equivalent and a
+"Runtime flows" section as future hardening, not gate blockers.

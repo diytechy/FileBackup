@@ -7,8 +7,11 @@ Two standing references govern work here. Read both:
    matrix, conventions, and history. **Always defer to it for code facts; never
    duplicate them elsewhere.**
 2. **[docs/process.md](docs/process.md)** — *how we evolve it*: the gated,
-   requirement-traced process now being retrofitted onto this repo. Live state is
-   in [docs/status.md](docs/status.md).
+   requirement-traced process (the load-bearing core, §1–§7; opt-in layers are
+   summarized there and expanded in
+   [docs/process-options.md](docs/process-options.md) — this standalone repo
+   runs the minimum profile and skips them). Live state is in
+   [docs/status.md](docs/status.md).
 
 This file is the thin bridge between them.
 
@@ -28,9 +31,12 @@ This file is the thin bridge between them.
   release checklist; `python scripts/gen_cases.py --spec "<Permutations cell>"`
   expands a requirement's input dimensions into test combinations. These read
   `docs/` CSVs only — they don't touch the PowerShell code.
-- **The harness is `pwsh scripts/check.ps1`** (`-Tier Smoke|Full|Release`,
-  `-Gate G2|G3|all`) — lint, traceability, generated-docs freshness, Pester.
-  CI runs the same steps.
+- **The harness is `pwsh scripts/check.ps1`** (`-Tier Smoke|Full|Release`;
+  `-Gate G1|G2|G3|all`, defaulting to the active gate in `docs/gate`) — lint,
+  traceability, doc navigability, generated-docs freshness, Pester, perf
+  budgets (inert until real `PB-###` rows exist). CI runs the same steps.
+  Optional local floor: `git config core.hooksPath .githooks` (map freshness +
+  id integrity on every commit).
 
 > **Gates vs. test groups — don't conflate.** Process **gates** are
 > `G1, G2, G3, G-Release, G-Final` (docs/process.md §4). The test harness's
@@ -38,15 +44,20 @@ This file is the thin bridge between them.
 
 ## The process, in brief (see docs/process.md for the full method)
 
-- This is a **retrofit**: back-fill `UN → SR → LLR → TC` from existing behavior
+- This is a **retrofit**: back-fill `SN → SR → LLR → TC` from existing behavior
   (README + AGENTS.md + the test matrix), drive traceability orphans to **0**,
   then keep new work gated. Registries under `docs/requirements/` + `docs/test/`
-  are the machine source of truth.
+  are the machine source of truth. (The top layer was `UN-###`/`user-needs.md`
+  before the 2026-07 kit re-sync; ids kept their numbers.)
 - **One driver wears the role hats** in sequence; spawn a separate reviewer only
   for an independent pre-gate audit of high-risk changes (hashing, dedup,
   atomic writes, restore correctness — the data-integrity surface).
 - **Gates pause for human approval.** Record decisions in docs/status.md.
 - **Never report a green you didn't run.** Paste the real Pester / trace output.
+- **Repo text is the project's memory; yours is scratch.** Durable facts — a
+  decision, constraint, or gotcha — belong in `docs/` (status.md, registries,
+  AGENTS.md), not in agent-private memory. Promote them before closing a
+  session (process.md §7 "durable agent memory layer").
 
 ## Code conventions (reinforcing AGENTS.md)
 

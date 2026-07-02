@@ -594,6 +594,13 @@ pins the version. Every interface is backed by an SR and a contract/fixture test
 This keeps interlinked projects from silently drifting apart without imposing a
 multi-repo build system. Standalone projects skip this section.
 
+A **purchased/external part** the product buys rather than builds (a motor, board,
+camera) is owned the same way — a repo/coordinator-held `IF-###` is its
+owner-of-record (MULTI_REPO.md §3.3) — with acquisition facts (vendor, cost,
+status, quantity) in the optional `requirements/procurement.csv` (`PART-###`).
+Minimal by design; full BOM tracking is deferred. See
+[`process-options.md`](process-options.md#8-purchased-parts).
+
 ## 9. Non-functional requirements & performance budgets *(opt-in)*
 
 *Applies when* the product has resource, performance, or other quality costs
