@@ -513,3 +513,29 @@ Evidence (real output, local, post-upgrade):
 implementation truth-up + snapshot redesign (this re-sync does not change that
 scope). New minor: consider a PowerShell check_stubs equivalent and a
 "Runtime flows" section as future hardening, not gate blockers.
+
+<!-- agent-setup --> Agent setup (2026-07-02): agents=`claude`; skills materialized: downstream-resync, gate-advance, registry-hygiene. AGENTS.md remains the canonical, agent-neutral guide (skills are opt-in accelerators, not a process gate).
+
+### Kit re-sync — 2026-07-02 — (prev: kit e4bcfb1, unstamped) → 9b697cc (WI-1.6..WI-1.12)
+
+Kit-owned overwrites: docs/process.md (+ meta strip), docs/process-options.md,
+scripts/trace.py (Attest vocabulary + assets.csv integrity). docs/kit-version
+now exists (the pilot predated the stamp feature — first stamped state).
+New: docs/requirements/assets.csv (inert), .claude/skills (3) + inert
+settings.json.example, GEMINI.md stub, run.cmd.
+Decisions (dial: recorded, reversible):
+- run.cmd wired to `pwsh -NoProfile -File FileBackup.ps1` (README Quick-start
+  flow; args pass through). POSIX run.sh/run.command not shipped (PS7/Windows
+  product). RECONSTRUCT.bat remains the restore entry, unchanged.
+- Bootstrap over-scaffold pruned to honor this repo's recorded "not adopted
+  (deliberate)" stance: removed check.py/check.sh (check.ps1 stays the single
+  gate), check_flows.py/check_stubs.py (recorded not-adopted), gen_arch_map.py
+  (the .ps1 port is this repo's generator — bootstrap's initializer had
+  clobbered the generated diagram with Python-AST output; reverted),
+  pytest.ini, kit check.yml (tests.yml is this repo's CI), setup/dev-setup/
+  onboard scripts (minimal-adoption stance), src/tests .gitkeep noise.
+- .githooks/pre-commit kept as this repo's local adaptation (drives
+  gen_arch_map.ps1); the kit's Scripts/-case fix is moot here (lowercase).
+- CLAUDE.md gains decision dial (= HIGH: data-safety product — surface often;
+  autonomous only for trivially-reversible non-engine work, recorded),
+  commit-cadence rule, and the deliberate-subagent bullet.

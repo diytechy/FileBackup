@@ -49,10 +49,19 @@ This file is the thin bridge between them.
   then keep new work gated. Registries under `docs/requirements/` + `docs/test/`
   are the machine source of truth. (The top layer was `UN-###`/`user-needs.md`
   before the 2026-07 kit re-sync; ids kept their numbers.)
-- **One driver wears the role hats** in sequence; spawn a separate reviewer only
-  for an independent pre-gate audit of high-risk changes (hashing, dedup,
-  atomic writes, restore correctness — the data-integrity surface).
+- **One driver wears the role hats** in sequence. Spawn subagents deliberately
+  (process.md §6): an independent reviewer for pre-gate audits of high-risk
+  changes (hashing, dedup, atomic writes, restore correctness — the
+  data-integrity surface); a cheaper-tier agent for mechanical, well-specced
+  subtasks; a fresh-context peer for bulk content.
 - **Gates pause for human approval.** Record decisions in docs/status.md.
+- **Decision dial (process.md §6, set for this repo): HIGH.** This product's
+  whole value is data safety — surface decisions to the human often, including
+  medium ones; decide autonomously only for trivially-reversible, non-engine
+  work (docs wording, test scaffolding), and record even those in status.md.
+- **Commit early and often** — a small, green commit per logical step; readable
+  change only exists once committed. End sessions with a clean tree
+  (process.md §3 "Commit cadence").
 - **Never report a green you didn't run.** Paste the real Pester / trace output.
 - **Repo text is the project's memory; yours is scratch.** Durable facts — a
   decision, constraint, or gotcha — belong in `docs/` (status.md, registries,
