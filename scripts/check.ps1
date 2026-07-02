@@ -8,12 +8,17 @@
         2. python scripts/trace.py --strict        (0 traceability orphans; at
            -Gate G3/all also --require-verified: every Verification=Test SR is
            Status=Verified — the machine half of the G3 exit criteria)
-        3. scripts/gen_arch_map.ps1 -Check         (generated module map, flow,
+        3. python scripts/check_docs.py            (doc navigability: 0 broken
+           intra-repo links; generated composites ignored)
+        4. scripts/gen_arch_map.ps1 -Check         (generated module map, flow,
            and dependency diagram not stale in architecture.md / AGENTS.md)
-        4. Pester unit suite                        (tests/Unit)
-        5. Integration sweep via tests/Run-All.ps1  (Full/Release tiers only)
+        5. Pester unit suite                        (tests/Unit)
+        6. python scripts/check_perf.py            (-Gate G3/all: performance
+           budgets vs docs/test/perf-metrics.json; inert while the PB registry
+           holds only the placeholder — process.md SS9)
+        7. Integration sweep via tests/Run-All.ps1  (Full/Release tiers only)
 
-    Tiers (cumulative): Smoke = steps 1-4 (fast, every push); Full = + Subst
+    Tiers (cumulative): Smoke = steps 1-6 (fast, every push); Full = + Subst
     integration sweep (PRs); Release = + the same sweep flagged for the slow/
     hardware runbook (the harness still drives the Subst sweep here; hardware
     VHDX/RealUSB are run out-of-band per AGENTS.md sec.6).
@@ -22,9 +27,11 @@
     Smoke (default) | Full | Release.
 
 .PARAMETER Gate
-    G2 | G3 | all (default). G3/all add the --require-verified status criterion
-    to the traceability step; run -Gate G2 while a change is mid-decomposition
-    (Draft SRs are expected then and must not fail the harness).
+    G1 | G2 | G3 | all. Default: the first line of docs/gate (the kit's
+    machine-readable active gate; falls back to 'all' if the file is absent).
+    G3/all add the --require-verified status criterion to the traceability
+    step; run -Gate G2 while a change is mid-decomposition (Draft SRs are
+    expected then and must not fail the harness).
 
 .PARAMETER Modes
     Integration storage-mode combos (forwarded to Run-All.ps1). Default: all four.
@@ -36,13 +43,25 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Smoke','Full','Release')][string]$Tier = 'Smoke',
-    [ValidateSet('G2','G3','all')][string]$Gate = 'all',
+    [ValidateSet('','G1','G2','G3','all')][string]$Gate = '',
     [string]$Modes = 'Mirror,Mirror+Compress,HashAddressed,HashAddressed+Compress'
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = [System.IO.Path]::GetDirectoryName($PSScriptRoot)
 $failures = New-Object System.Collections.Generic.List[string]
+
+# Default gate: read docs/gate (one line, e.g. "G3") so local runs and CI
+# enforce the same bar the project is actually at (process.md SS7).
+if (-not $Gate) {
+    $gateFile = Join-Path $repo 'docs\gate'
+    $Gate = if (Test-Path -LiteralPath $gateFile) {
+        (Get-Content -LiteralPath $gateFile -TotalCount 1).Trim()
+    } else { 'all' }
+    if ($Gate -notin 'G1','G2','G3','all') {
+        throw "docs/gate contains '$Gate' - expected G1|G2|G3|all"
+    }
+}
 
 function Invoke-Step {
     param([string]$Name, [scriptblock]$Body)
@@ -83,12 +102,18 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 
-# 3. Generated-docs freshness (module map + flow + dependency diagram) -----
+# 3. Doc navigability (broken intra-repo links; generated composites ignored)
+Invoke-Step 'Doc navigability (check_docs.py)' {
+    python (Join-Path $repo 'scripts\check_docs.py') --root $repo `
+        --ignore 'docs/test/report.md' --ignore 'docs/releases/*'
+}
+
+# 4. Generated-docs freshness (module map + flow + dependency diagram) -----
 Invoke-Step 'Architecture map freshness' {
     pwsh -NoProfile -File (Join-Path $repo 'scripts\gen_arch_map.ps1') -Check
 }
 
-# 4. Unit tests -----------------------------------------------------------
+# 5. Unit tests -----------------------------------------------------------
 Invoke-Step 'Pester unit' {
     $cfg = New-PesterConfiguration
     $cfg.Run.Path = (Join-Path $repo 'tests\Unit')
@@ -99,7 +124,19 @@ Invoke-Step 'Pester unit' {
     if ($r.FailedCount -gt 0) { throw "$($r.FailedCount) unit test(s) failed" }
 }
 
-# 5. Integration sweep (Full / Release) ----------------------------------
+# 6. Performance budgets (G3+: comparator over docs/test/perf-metrics.json;
+#    inert while performance-budgets.csv holds only the PB-000 placeholder) --
+if ($Gate -in 'G3','all') {
+    Invoke-Step 'Performance budgets (check_perf.py)' {
+        # check_perf's default artifact paths are cwd-relative (no --docs flag),
+        # so run it from the repo root.
+        Push-Location $repo
+        try { python (Join-Path $repo 'scripts\check_perf.py') --tier ($Tier.ToLower()) }
+        finally { Pop-Location }
+    }
+}
+
+# 7. Integration sweep (Full / Release) ----------------------------------
 if ($Tier -in 'Full','Release') {
     Invoke-Step "Integration sweep ($Tier)" {
         pwsh -NoProfile -File (Join-Path $repo 'tests\Run-All.ps1') `

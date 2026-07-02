@@ -6,8 +6,13 @@ last) — it is the record, not required reading for every pass.
 
 > **Retrofit, not greenfield.** FileBackup already works and ships a green Pester
 > suite. We are layering the requirement-traced process *onto existing code*:
-> back-fill UN/SR/LLR/TC from what the tool already does and from
+> back-fill SN/SR/LLR/TC from what the tool already does and from
 > [AGENTS.md](../AGENTS.md), close traceability gaps, then keep new work gated.
+> The spine's top layer is
+> [requirements/stakeholder-needs.md](requirements/stakeholder-needs.md)
+> (formerly `user-needs.md`/UN-###; ids kept their numbers, so audit entries
+> below still resolve). Cross-project contracts would go in
+> [interfaces.md](interfaces.md) — none yet; standalone repo (process.md §8).
 
 > **Naming caution.** The kit's **gates** are `G1, G2, G3, G-Release, G-Final`.
 > FileBackup's existing test **groups** are `G1…G9` (storage-mode suites in
@@ -86,8 +91,8 @@ support, any GUI, cloud/remote backup targets, and encryption-at-rest.
   per-run change snapshots, standalone restore kit).
 - **End user(s):** Technical Windows users / the author running scheduled or
   ad-hoc backups via `pwsh`; agents modifying the tool.
-- **Active hats:** End User, UX/Docs, System Engineer, Software Engineer, Test
-  Engineer. _Domain hat to consider: **Data-integrity/Storage** (hashing,
+- **Active hats:** Stakeholder (the kit's current name for End User), UX/Docs,
+  System Engineer, Software Engineer, Test Engineer. _Domain hat to consider: **Data-integrity/Storage** (hashing,
   dedup, atomicity, restore correctness) — the load-bearing risk area._
 - **Supported platforms:** Windows + **PowerShell 7+** (`pwsh`) only (Windows
   PowerShell 5.1 is explicitly unsupported). Launchers/harness are PowerShell.
@@ -99,7 +104,7 @@ support, any GUI, cloud/remote backup targets, and encryption-at-rest.
 - **Non-goals:** _(confirm with human — e.g. non-Windows support, GUI, cloud
   targets, encryption-at-rest)._
 - **Definition of done (for the retrofit):** Every existing capability and
-  invariant is traced UN→SR→LLR→TC with **0 orphans**; the check harness is
+  invariant is traced SN→SR→LLR→TC with **0 orphans**; the check harness is
   wired to Pester + PSScriptAnalyzer and runs green locally and in CI; the
   architecture map reflects the real module/function layout.
 

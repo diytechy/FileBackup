@@ -40,6 +40,9 @@ jobs:
       - name: Trace registries (strict, 0 orphans + Test SRs Verified)
         shell: pwsh
         run: python scripts/trace.py --strict --require-verified
+      - name: Doc navigability (0 broken intra-repo links)
+        shell: pwsh
+        run: python scripts/check_docs.py --ignore docs/test/report.md --ignore "docs/releases/*"
       - name: Generated docs are current (map + flow + dependency diagram)
         shell: pwsh
         run: pwsh -File scripts/gen_arch_map.ps1 -Check

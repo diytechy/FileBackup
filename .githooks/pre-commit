@@ -1,0 +1,45 @@
+#!/bin/sh
+# Pre-commit hook — the agent-neutral *process floor* (kit hook, adapted).
+#
+# Runs only the fast, always-valid kit checks so a stale code map or a
+# duplicated/malformed requirement id never lands in a commit — regardless of
+# which agent (or human) made it. The full gate bar (orphans, tests, coverage)
+# is gate-scoped and lives in scripts/check.ps1 / CI. See process.md §7.
+#
+# Adapted from the kit's hooks/pre-commit for this repo's PowerShell stack:
+# step 1 drives gen_arch_map.ps1 (the PS port) instead of gen_arch_map.py; the
+# kit's ruff step is dropped (the only Python here is the kit's own stdlib
+# tooling — there is no Python product code to format-gate).
+#
+# Enable:  git config core.hooksPath .githooks
+# Disable: git config --unset core.hooksPath
+#
+# One POSIX hook covers every platform: Git for Windows runs hooks through its
+# bundled sh, so this same file works on Windows, Linux, and macOS.
+set -e
+
+# Find a Python 3 interpreter (probe by running, not just resolving: on Windows
+# `python3` is often the Store's app-execution alias that exits nonzero).
+PY=""
+for cand in python3 python; do
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" -c "" >/dev/null 2>&1; then
+    PY="$cand"; break
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "pre-commit: Python 3 not found on PATH; skipping process checks." >&2
+  exit 0
+fi
+
+# 1. Code map must be fresh — protects the GENERATED regions from hand-edits
+#    and catches a map that has drifted from the source.
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File scripts/gen_arch_map.ps1 -Check
+else
+  echo "pre-commit: pwsh not found on PATH; skipping arch-map freshness." >&2
+fi
+
+# 2. Traceability *integrity*: no duplicate / malformed ids — wrong at any
+#    stage, so safe to enforce on every commit. Deliberately NOT the full
+#    --strict orphan check: orphans are a G2+ gate criterion.
+"$PY" scripts/trace.py --strict-integrity
