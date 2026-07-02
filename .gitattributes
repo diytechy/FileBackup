@@ -1,0 +1,3 @@
+# The git hook is an extensionless sh script — LF required on every platform
+# (a CRLF shebang breaks `#!/bin/sh`, including Git Bash on Windows).
+.githooks/pre-commit text eol=lf
