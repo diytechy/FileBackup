@@ -98,7 +98,11 @@ Invoke-Step 'PSScriptAnalyzer' {
 # 2. Traceability ---------------------------------------------------------
 Invoke-Step 'Traceability (trace.py --strict)' {
     $traceArgs = @('--strict', '--docs', (Join-Path $repo 'docs'))
-    if ($Gate -in 'G3','all') { $traceArgs += '--require-verified' }
+    # Phase scope (process.md §4 "Phased delivery"): untagged SRs are always in
+    # scope; SRs tagged with a not-yet-delivered phase (e.g. bash-v1) are
+    # exempted EXPLICITLY and reported as phase-deferred. When a phase ships,
+    # append it here (e.g. 'core,bash-v1') so its SRs must be Verified.
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 
