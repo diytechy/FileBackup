@@ -53,14 +53,28 @@ last) — it is the record, not required reading for every pass.
   help ordering fixed module-wide (a leading `# Implements:` comment was
   silently breaking `Get-Help`); new Reconstruct⊥Engine AST guard (TC-048);
   stale doc totals/sections refreshed (AGENTS §1/§5/§6, START_HERE).
+- **2026-07-02 — adversarial dedup/snapshot review (subagent + driver-verified):**
+  primary property **CONFIRMED** in all 4 modes — delete → reintroduce-identical →
+  delete stores the content's bytes exactly once across backup root + snapshots,
+  every dated state restorable; pinned as TC-049 (commit c930f4f). **THREE
+  VERIFIED FINDINGS AWAIT HUMAN DIRECTION** (engine/restore surface — dial HIGH):
+  (1) MAJOR: a run whose only change is a duplicate-content add or shared-content
+  removal creates **no snapshot** (ChangedCount gates on byte I/O, not manifest
+  diff) — the prior state becomes unrestorable; (2) MAJOR: `Reconstruct.ps1`
+  exits 0 when a file cannot be recovered (WARN + skip) — silent incomplete
+  restore; (3) MINOR: `RECONSTRUCT.paths.json` missing from the
+  `Test-IsInfrastructureFile` allowlist → false orphan WARNs every run.
+  Details + repros in the audit entry below. **No engine code changed.**
 - **Resolved decisions (detail in the audit log):** coverage accepted at 78.1%
   with documented structural exclusions (human 2026-06-05; cleanup candidate:
   retire or wire up the dormant MediaMBPerSec metric); snapshot-model redesign
   taken through its own G1→G2→G3 and **independently review-APPROVED 2026-06-06**
   (SR-005/010/028 Verified).
-- **Next action (human):** **G3 sign-off** — both the main implementation
-  truth-up and the snapshot redesign stand complete, validated, and
-  reviewer-approved; the Gate Sign-offs table awaits the human row.
+- **Next action (human):** (a) **G3 sign-off** — the main truth-up and the
+  snapshot redesign stand complete, validated, and reviewer-approved; (b)
+  **direction on the three 2026-07-02 review findings** — recommend treating
+  the two MAJORs as a scoped change through the gate (they are requirement-
+  level: snapshot-on-manifest-change semantics, restore fail-loudly contract).
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -539,3 +553,52 @@ Decisions (dial: recorded, reversible):
 - CLAUDE.md gains decision dial (= HIGH: data-safety product — surface often;
   autonomous only for trivially-reversible non-engine work, recorded),
   commit-cadence rule, and the deliberate-subagent bullet.
+
+### INDEPENDENT REVIEWER (sonnet subagent) + DRIVER verification — adversarial dedup/snapshot review — 2026-07-02
+Verdict: CHANGES-REQUESTED (3 findings, all driver-reverified) — while the
+primary adversarial question is APPROVED/confirmed.
+
+Primary question (user-posed): file deleted → reintroduced identical → deleted
+again ⇒ bytes stored exactly ONCE across backup root + Snapshot_* folders, all
+dated states restorable. **CONFIRMED** twice independently: driver probe
+(4 modes × 4-run timeline; copies=1 at every stage; 16/16 restore checks) and
+reviewer probe (4 modes × 5-run timeline incl. second reintroduce; copies=1 at
+every stage; 16/16 restores). Mechanism: reintroduce briefly makes a transient
+second copy (Invoke-BackupFileGroup checks only the live manifest for reuse) but
+Optimize-ChangeFolders collapses to one copy in the same pipeline pass, blanking
+the losing DataPath rows, which recover by (hash,length) — verified two levels
+deep. Pinned as TC-049 / Coverage.Tests "Re-deleted content stored once across
+snapshots" (commit c930f4f). Adjacent probes also clean: shared-content paths
+deleted at different times (refcount correct), same path returning with a
+different size (distinct group, no cross-contamination).
+
+Findings (per §5; owners to act only after human direction — engine surface):
+- [MAJOR] SR-005 area → a run whose ONLY manifest change is a duplicate-content
+  add or a shared-content removal produces NO snapshot: `Complete-ChangeFolder`
+  gates on `$ChangedCount`, which increments only on physical copy/evict I/O
+  (Invoke-BackupFileGroup new-copy branch; Move-RemovedFilesToStaging eviction),
+  not on manifest-only changes (dedup reuse branch; still-referenced skip). The
+  preceding state is then permanently unrestorable, logged misleadingly as "No
+  prior state superseded". Repro: probe6 (add B.txt duplicating A.txt ⇒ no
+  Snapshot_D0). G9 misses it because its dup-delete co-occurs with a content
+  modify. → Suggested: gate snapshot creation on a real manifest diff, not byte
+  I/O; extend G9/TC with a manifest-only-change run. → @SoftwareEngineer
+- [MAJOR] SN-013/SR-009 area → `Reconstruct.ps1` completes with exit 0 when a
+  row''s bytes cannot be recovered (logs "WARN: cannot recover … skipping").
+  A scripted/CI restore checking the exit code sees success on an incomplete
+  tree — violates the fail-loudly principle. Repro: probe4 (delete the snapshot
+  holding the sole physical copy; restore of the older snapshot exits 0 with the
+  file silently missing). → Suggested: aggregate unrecovered-row count ⇒ nonzero
+  exit (+ summary line), document snapshot folders as load-bearing. → @SoftwareEngineer
+- [MINOR] SR-022 area → `Test-IsInfrastructureFile` allowlist omits the
+  `RECONSTRUCT.paths.json` sidecar that New-ReconstructScript writes ⇒ two false
+  [WARN]s per run in backup.log (orphan/unreferenced). Confirmed in probe logs.
+  → Suggested: add the sidecar name to the `$infra` list + TC for no-WARN run.
+  → @SoftwareEngineer
+
+Evidence: reviewer probes probe1/2/4/5/6 (scratchpad, repo untouched) re-run by
+driver for findings 1–2; finding 3 confirmed in code (`$infra` list) and driver
+probe backup.log. New TC-049 test PASS; `check.ps1 -Tier Smoke` green after
+pinning (49 unit); trace: SN=21 SR=28 LLR=27 TC=48, 0 orphans, 0 findings.
+**Next action (human):** approve the three fixes as a scoped change through the
+gate (SR/LLR/TC revisions for findings 1–2 are requirement-level, not patches).
