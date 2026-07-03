@@ -154,3 +154,63 @@ jobs:
         with:
           name: test-results-vhdx
           path: ${{ runner.temp }}\fbtest\**
+
+  # ---- bash restore variant (bash-v1) --------------------------------------
+  bash-restore:
+    name: Bash restore (Linux, bats) - reconstruct.sh
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash restore toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xxhash p7zip-full gawk shellcheck bats
+      - name: ShellCheck (warnings are errors, same bar as PSScriptAnalyzer)
+        # Scope to real shell scripts; .bats files use bats syntax ShellCheck
+        # cannot parse. helpers.bash carries its own SC2034 disable.
+        run: shellcheck -x bash/reconstruct.sh tests/bash/helpers.bash tests/bash/verify_restores.sh
+      - name: Run bats suites (hash conformance, manifest parse, restore, fail-loudly)
+        run: bats --print-output-on-failure tests/bash/
+
+  bash-interop-make:
+    name: Bash interop - make fresh backups (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache System.IO.Hashing
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\PackageManagement\NuGet\Packages\System.IO.Hashing.8.0.0
+          key: sysiohashing-8.0.0-${{ runner.os }}
+      - name: Install deps (non-interactive)
+        shell: pwsh
+        run: .\tests\Setup.ps1 -InstallDeps -NonInteractive
+      - name: Generate FRESH backups (all 4 modes, kit intact) via the real engine
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot "$env:RUNNER_TEMP/fresh"
+      - name: Upload fresh backup set
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-backups
+          path: ${{ runner.temp }}/fresh/bash-restore/**
+
+  bash-interop-restore:
+    name: Bash interop - restore fresh backups (Linux)
+    runs-on: ubuntu-latest
+    needs: bash-interop-make
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash restore toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xxhash p7zip-full gawk
+      - name: Download the Windows-made backups
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-backups
+          path: fresh/bash-restore
+      - name: Restore every origin of every mode + byte-compare (windows->ubuntu proof)
+        run: bash tests/bash/verify_restores.sh fresh
