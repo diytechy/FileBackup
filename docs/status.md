@@ -656,3 +656,17 @@ RECONSTRUCT.bat (clean=0, tampered=1, multi-failure message accurate, partial
 tree preserved); PS 7.5 @()-on-List workaround independently reproduced. Ran
 52/52 unit, Mirror full-group sweep 59/0/1, lint 0, trace 0/0/0, Smoke tier all
 green. Nit: test-cases.csv trailing newline — restored by driver.
+
+### DRIVER (UX/Docs hat) — demonstration tooling — 2026-07-03
+Autonomous (trivially-reversible, non-engine; recorded per the HIGH dial):
+added `scripts/demo_timeline.ps1` — a narrative Demonstration artifact that
+drives a create/modify/remove/re-add/no-op timeline and emits a legible,
+timestamped Markdown report (source events → backup outcome → restore +
+xxHash128 byte-compare verification → point-in-time reconstruction of every
+snapshot). Human-requested ("see that timestep in motion"). Not a gate test;
+the gated suites remain authoritative. First run: Overall PASS (5 runs,
+3 snapshots). Lint clean.
+
+**Open scope question (human):** a bash/Linux variant (restore-first) was
+discussed 2026-07-03 — would reverse the recorded "non-Windows" non-goal, so
+it needs a G1 scope revision before any code. Awaiting explicit go-ahead.
