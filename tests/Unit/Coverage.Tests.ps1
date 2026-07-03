@@ -308,6 +308,92 @@ Describe 'Re-deleted content stored once across snapshots (SR-028, SR-010)' {
     }
 }
 
+Describe 'Manifest-only change creates a snapshot (SR-005)' {
+    # 2026-07-02 review finding: the old gate counted physical byte I/O, so a run
+    # whose only change was a dedup-served duplicate add or a shared-content
+    # removal produced NO snapshot and the prior state was lost forever.
+    It 'snapshots on dup-add and shared-removal runs; none on a true no-op' {
+        $root = Join-Path $TestDrive 'mfc'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        function RunAt([datetime]$d) { & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'X-CONTENT')
+        RunAt ([datetime]'2024-01-01 00:00:01')                       # D0: A only
+        [IO.File]::WriteAllText((Join-Path $src 'b.txt'), 'X-CONTENT')
+        RunAt ([datetime]'2024-02-02 00:00:02')                       # D1: dup-content add (no byte copied)
+        Remove-Item -LiteralPath (Join-Path $src 'b.txt')
+        RunAt ([datetime]'2024-03-03 00:00:03')                       # D2: shared-content removal (no byte evicted)
+        RunAt ([datetime]'2024-04-04 00:00:04')                       # D3: true no-op
+
+        $snapD0 = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        $snapD1 = Join-Path $chg 'Snapshot_2024_02_02_00_00_02'
+        Test-Path -LiteralPath (Join-Path $snapD0 'MANIFEST.csv') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $snapD1 'MANIFEST.csv') | Should -BeTrue
+        # The manifest-identical run must still create none.
+        Test-Path -LiteralPath (Join-Path $chg 'Snapshot_2024_03_03_00_00_03') | Should -BeFalse
+
+        # Each preserved state restores byte-exact: D0 = a only; D1 = a + b.
+        $t0 = Join-Path $root 'r-d0'
+        & (Join-Path $snapD0 'RECONSTRUCT.ps1') -TargetRoot $t0 *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t0 'a.txt')) | Should -Be 'X-CONTENT'
+        Test-Path -LiteralPath (Join-Path $t0 'b.txt') | Should -BeFalse
+        $t1 = Join-Path $root 'r-d1'
+        & (Join-Path $snapD1 'RECONSTRUCT.ps1') -TargetRoot $t1 *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t1 'a.txt')) | Should -Be 'X-CONTENT'
+        [IO.File]::ReadAllText((Join-Path $t1 'b.txt')) | Should -Be 'X-CONTENT'
+    }
+}
+
+Describe 'Restore fails loudly when content is unrecoverable (SR-029)' {
+    # 2026-07-02 review finding: an unrecoverable row was logged as WARN and
+    # skipped, and the restore exited 0 — a scripted caller saw a clean success
+    # on an incomplete tree.
+    It 'restores everything recoverable, then throws naming the unrestored count' {
+        $root = Join-Path $TestDrive 's29'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'good.txt'), 'GOOD')
+        [IO.File]::WriteAllText((Join-Path $src 'doomed.txt'), 'DOOMED')
+        Invoke-FB $cfg
+
+        $recon = Join-Path $bkp 'RECONSTRUCT.ps1'
+        $tOk = Join-Path $root 'r-ok'                       # untampered ⇒ clean
+        { & $recon -TargetRoot $tOk } | Should -Not -Throw
+        [IO.File]::ReadAllText((Join-Path $tOk 'doomed.txt')) | Should -Be 'DOOMED'
+
+        # Destroy doomed.txt's only data source (Mirror mode: the mirrored file).
+        Remove-Item -LiteralPath (Join-Path $bkp 'doomed.txt') -Force
+        $tBad = Join-Path $root 'r-bad'
+        { & $recon -TargetRoot $tBad } | Should -Throw -ExpectedMessage '*1 file(s) could not be restored*'
+        # The recoverable row was still restored before the failure surfaced.
+        [IO.File]::ReadAllText((Join-Path $tBad 'good.txt')) | Should -Be 'GOOD'
+        Test-Path -LiteralPath (Join-Path $tBad 'doomed.txt') | Should -BeFalse
+    }
+}
+
+Describe 'Reconstruct sidecar is infrastructure (SR-022)' {
+    # 2026-07-02 review finding: RECONSTRUCT.paths.json was missing from the
+    # Test-IsInfrastructureFile allowlist, producing false orphan WARNs each run.
+    It 'logs no orphan/not-in-DB warning for RECONSTRUCT.paths.json' {
+        $root = Join-Path $TestDrive 's22s'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'data')
+        Invoke-FB $cfg
+        Invoke-FB $cfg   # warnings (if any) surface on the run AFTER the sidecar exists
+
+        (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) |
+            Should -Not -Match 'RECONSTRUCT\.paths\.json'
+    }
+}
+
 Describe 'Restore target guard (SR-009)' {
     # Independent-review finding: the old '-like' guard falsely rejected a sibling
     # whose name shares the backup-root prefix (e.g. bk vs bk-restore).

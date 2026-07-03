@@ -52,7 +52,10 @@ function Test-IsInfrastructureFile {
         $script:Def.CommonModuleName,
         'System.IO.Hashing.dll',
         'FileBackupState.json',
-        'backup.log'
+        'backup.log',
+        # New-ReconstructScript's path sidecar — omitting it produced false
+        # orphan/not-in-DB WARNs every run (SR-022, 2026-07-02 review).
+        'RECONSTRUCT.paths.json'
     )
     return ($infra -contains $rel)
 }
@@ -1012,19 +1015,27 @@ function Complete-ChangeFolder {
     <#
     .SYNOPSIS
         Finalizes the staging folder into a dated point-in-time snapshot, or
-        discards it when nothing was superseded.
+        discards it when the manifest state did not change.
     .DESCRIPTION
-        When this run superseded earlier content ($ChangedCount > 0) and a prior
-        backup date is known ($SnapshotDate), the staging folder becomes
+        When this run changed the manifest state ($ManifestChanged — any row
+        added, removed, or changed, per the SR-005 supersession criterion) and a
+        prior backup date is known ($SnapshotDate), the staging folder becomes
         Snapshot_<SnapshotDate> — the state of the superseded backup, named by
-        that backup's completion date (SR-005). Otherwise (a no-op run, or the
-        very first backup) the staging folder is discarded: the live backup root
-        is itself the latest state, so it needs no snapshot.
+        that backup's completion date (SR-005). Otherwise (a manifest-identical
+        no-op run, or the very first backup) the staging folder is discarded:
+        the live backup root is itself the latest state, so it needs no snapshot.
+
+        The gate is deliberately the manifest diff, NOT the physical-copy count:
+        a duplicate-content add (served by dedup reuse) or a shared-content
+        removal (no byte evicted) moves no data yet still supersedes the prior
+        state, which must stay restorable (2026-07-02 review finding).
 
         On finalize, stale DataPaths are blanked (the bytes live in the backup
         root or a sibling snapshot and are recovered by hash at restore), and the
         full reconstruct kit — including the RECONSTRUCT.paths.json sidecar — is
         copied in so a snapshot restore can locate the data pool.
+    .PARAMETER ManifestChanged
+        True when the run's Compare-SourceToBackup diff was non-empty (SR-005).
     .PARAMETER SnapshotDate
         Completion date of the backup whose state this snapshot preserves (the
         previous run). $null on the first backup ⇒ no snapshot.
@@ -1035,13 +1046,14 @@ function Complete-ChangeFolder {
         [Parameter(Mandatory)][string]$ChgPath,
         [Parameter(Mandatory)][string]$StagingFolder,
         [Parameter(Mandatory)][string]$BkpPath,
-        [Parameter(Mandatory)][int]$ChangedCount,
+        [Parameter(Mandatory)][bool]$ManifestChanged,
         [Parameter(Mandatory)][scriptblock]$Log,
         [AllowNull()][Nullable[datetime]]$SnapshotDate
     )
-    if ($ChangedCount -le 0 -or $null -eq $SnapshotDate) {
+    if (-not $ManifestChanged -or $null -eq $SnapshotDate) {
         Remove-Item -LiteralPath $StagingFolder -Recurse -Force -ErrorAction SilentlyContinue
-        & $Log "No prior state superseded; no snapshot created (the live backup is the latest state)."
+        $why = if ($null -eq $SnapshotDate) { 'first backup' } else { 'manifest unchanged (no-op run)' }
+        & $Log "No prior state superseded ($why); no snapshot created (the live backup is the latest state)."
         return $null
     }
 
@@ -1154,6 +1166,11 @@ function Invoke-BackupSet {
     $diff = Compare-SourceToBackup -SourceDb $sourceDb -BackupDb $backupDb
     & $log "New or changed files: $($diff.NewOrChanged.Count)"
     & $log "Removed files: $($diff.RemovedFromSource.Count)"
+    # SR-005 supersession criterion: the manifest state changed. A dedup-served
+    # add or shared-content removal moves no bytes but still changes the state.
+    # (.Count direct — Compare-SourceToBackup always returns real lists, and
+    # @() around a List reached via a PSObject property throws on PS 7.5.)
+    $manifestChanged = ($diff.NewOrChanged.Count -gt 0) -or ($diff.RemovedFromSource.Count -gt 0)
 
     # 9. Working backup map
     $backupMap = @{}
@@ -1188,7 +1205,7 @@ function Invoke-BackupSet {
 
     # 13. Finalize the dated snapshot (of the PRIOR state) + reconstruct scripts
     New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
-    [void](Complete-ChangeFolder -ChgPath $paths.ChgPath -StagingFolder $stagingFolder -BkpPath $paths.BkpPath -ChangedCount $changedCount -Log $log -SnapshotDate $priorBackupDate)
+    [void](Complete-ChangeFolder -ChgPath $paths.ChgPath -StagingFolder $stagingFolder -BkpPath $paths.BkpPath -ManifestChanged $manifestChanged -Log $log -SnapshotDate $priorBackupDate)
 
     # 14. De-duplicate data shared across snapshots
     Optimize-ChangeFolders -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log

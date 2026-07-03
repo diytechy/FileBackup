@@ -17,6 +17,8 @@
 
 .NOTES
     Requires PowerShell 7+ (pwsh). Logs to RECONSTRUCT.log in the target root.
+    Fails loudly (terminating error / non-zero exit) when any manifest row
+    cannot be restored, after restoring everything recoverable (SR-029).
 #>
 
 param(
@@ -197,6 +199,12 @@ $searchFolders.Add($backupRoot)
 $sevenZipPath = $Def.SevenZipDefaultPath
 
 # ---- Reconstruct ----
+# Every row that cannot be restored is recorded; a partial restore must FAIL
+# LOUDLY at the end (SR-029) — a scripted caller checking the exit code must
+# never mistake an incomplete tree for success. Recoverable rows are still
+# restored first so the caller salvages everything salvageable.
+# Implements: SR-029, LLR-029
+$unrestored = New-Object System.Collections.Generic.List[string]
 foreach ($rel in $main.Keys) {
     $row     = $main[$rel]
     $destFull = Join-Path $TargetRoot $rel
@@ -216,11 +224,13 @@ foreach ($rel in $main.Keys) {
                 "$(Get-Date -Format 'O') - Hash-recovered $rel from '$found'" | Out-File -LiteralPath $logPath -Append
                 $srcFull = $found
             } else {
-                "$(Get-Date -Format 'O') - WARN: cannot recover $rel by hash; skipping." | Out-File -LiteralPath $logPath -Append
+                "$(Get-Date -Format 'O') - WARN: cannot recover $rel by hash." | Out-File -LiteralPath $logPath -Append
+                $unrestored.Add($rel)
                 continue
             }
         } else {
-            "$(Get-Date -Format 'O') - No datapath or hash for $rel; skipping." | Out-File -LiteralPath $logPath -Append
+            "$(Get-Date -Format 'O') - WARN: no datapath or hash for $rel." | Out-File -LiteralPath $logPath -Append
+            $unrestored.Add($rel)
             continue
         }
     } else {
@@ -228,7 +238,8 @@ foreach ($rel in $main.Keys) {
     }
 
     if (-not (Test-Path -LiteralPath $srcFull -PathType Leaf)) {
-        "$(Get-Date -Format 'O') - Missing datapath $dataPath for $rel" | Out-File -LiteralPath $logPath -Append
+        "$(Get-Date -Format 'O') - WARN: missing datapath $dataPath for $rel" | Out-File -LiteralPath $logPath -Append
+        $unrestored.Add($rel)
         continue
     }
 
@@ -236,7 +247,8 @@ foreach ($rel in $main.Keys) {
         try {
             Expand-FileWithSevenZip -SevenZipPath $sevenZipPath -Archive $srcFull -DestinationFile $destFull
         } catch {
-            "$(Get-Date -Format 'O') - 7-Zip extraction failed for $rel : $($_.Exception.Message)" | Out-File -LiteralPath $logPath -Append
+            "$(Get-Date -Format 'O') - WARN: 7-Zip extraction failed for $rel : $($_.Exception.Message)" | Out-File -LiteralPath $logPath -Append
+            $unrestored.Add($rel)
             continue
         }
     } else {
@@ -244,5 +256,10 @@ foreach ($rel in $main.Keys) {
     }
 }
 
+if ($unrestored.Count -gt 0) {
+    $msg = "Reconstruction INCOMPLETE: $($unrestored.Count) file(s) could not be restored: $($unrestored -join ', '). See log: $logPath"
+    "$(Get-Date -Format 'O') - ERROR: $msg" | Out-File -LiteralPath $logPath -Append
+    throw $msg
+}
 "$(Get-Date -Format 'O') - Reconstruction complete" | Out-File -LiteralPath $logPath -Append
 Write-Host "Reconstruction finished. See log: $logPath"
