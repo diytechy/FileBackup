@@ -43,3 +43,32 @@ setup() {
     [ -f "$BATS_TEST_TMPDIR/hu/hello.txt" ]        # superseded bytes preserved in the snapshot
     [ -f "$BATS_TEST_TMPDIR/hu/data.bin" ]
 }
+
+@test "refuses a path-traversal RelativePath and exits non-zero (TC-055, SR-031)" {
+    # A foreign/tampered manifest whose row escapes the target must NOT write
+    # outside it and must fail loudly (defense in depth; the PS restorer shares
+    # this gap and is left for the human per the plan).
+    local bad="$BATS_TEST_TMPDIR/bad"
+    mkdir -p "$bad"
+    printf 'x\n' > "$bad/payload.txt"
+    local h len
+    h="$(hash_upper "$bad/payload.txt")"; len="$(stat -c '%s' "$bad/payload.txt")"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      printf '"payload.txt","..\\..\\ESCAPED.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+    } > "$bad/MANIFEST.csv"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/nest/target" --from "$bad"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"path traversal"* || "$output" == *"INCOMPLETE"* ]]
+    [ ! -f "$BATS_TEST_TMPDIR/ESCAPED.txt" ]       # nothing written above the target
+}
+
+@test "a corrupt (non-manifest) MANIFEST.csv fails loudly, not an empty exit-0 restore (SR-031)" {
+    local bad="$BATS_TEST_TMPDIR/corrupt"
+    mkdir -p "$bad"
+    printf 'this is not a backup manifest at all\n' > "$bad/MANIFEST.csv"
+    printf 'realdata\n' > "$bad/somefile.bin"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/corruptout" --from "$bad"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not a FileBackup manifest"* ]]
+}

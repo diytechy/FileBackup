@@ -318,6 +318,17 @@ main() {
     local authority="$origin/$MANIFEST_NAME"
     [[ -f "$authority" ]] || die "no $MANIFEST_NAME in origin '$origin'. Point --from at a backup root or a Snapshot_<date> folder."
 
+    # A non-empty but unparseable manifest must fail loudly, not silently restore
+    # an empty tree (a scripted caller checks only the exit code). Validate the
+    # header carries the schema's key columns — a legitimately empty backup still
+    # has the full header row, so this only rejects a corrupt/wrong file.
+    local hdr
+    hdr="$(head -n1 -- "$authority" | tr -d '\r')"
+    hdr="${hdr#$'\xef\xbb\xbf'}"
+    if [[ "$hdr" != *RelativePath* || "$hdr" != *xxH2Hash* ]]; then
+        die "'$authority' is not a FileBackup manifest (unexpected header). Corrupt or wrong file."
+    fi
+
     # --- Safety: refuse a target inside the backup or change root (SR-009) ---
     if is_inside "$TARGET_ROOT" "$backup_root"; then die "target '$TARGET_ROOT' is inside the backup root '$backup_root'."; fi
     if [[ -n "$change_root" && -d "$change_root" ]] && is_inside "$TARGET_ROOT" "$change_root"; then
@@ -378,6 +389,13 @@ main() {
         rel="$(to_posix "${d_rel[i]}")"
         [[ -n "$rel" ]] || continue
         dest="$TARGET_ROOT/$rel"
+        # Refuse a RelativePath that escapes the target root (e.g. '..\..\x') — a
+        # foreign/tampered manifest must not write outside where the user aimed.
+        # Count it as unrestored so the run still fails loudly (defense in depth).
+        if ! is_inside "$dest" "$TARGET_ROOT"; then
+            log "WARN: '$rel' escapes the target root (path traversal); refusing."
+            unrestored+=("$rel"); continue
+        fi
         destdir="$(dirname -- "$dest")"
         mkdir -p -- "$destdir" 2>/dev/null
 

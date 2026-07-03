@@ -848,3 +848,37 @@ Nothing from the plan's "explicitly out" list was started (no kit bundling of
 reconstruct.sh, no bash-v2 engine, no engine-behavior change — the one PS defect
 found is recorded above, not fixed). **Open:** independent review (below), then
 human final review + cross-check against the plan §7 checklist.
+
+### INDEPENDENT REVIEWER (fresh-context subagent) — BASH-VARIANT bash-v1 — 2026-07-03
+Verdict: **APPROVE** (2 MINOR + 2 NIT; both MINORs are shared with Reconstruct.ps1).
+Ran on WSL Fedora 40 (real Linux): reproduced 22/22 bats + shellcheck clean, then
+~20 adversarial scenarios. **Could not reach any silent wrong-bytes restore, nor
+any exit-0-incomplete case for an uncorrupted manifest** — the load-bearing safety
+property holds. Confirmed sound: the empty-leading-DataPath `\x1f` parser fix (16
+blank-DataPath rows recover end-to-end), the 7z multi-entry dir-extract fix (the
+shared dedup archive genuinely holds 2 entries / 26 bytes → 13-byte payload
+written, both dups byte-exact), and the root-level-only infra skip in BOTH
+directions (root-level `FileBackupState.json` skipped; nested `sub/MANIFEST.csv`
+used as data). A same-length/wrong-hash pool file is correctly rejected, not
+grabbed. All exit codes correct; special-glyph HashAddressed short-names and
+leading-dash names restore byte-exact across 4 modes × root+2 snapshots.
+
+Findings + driver disposition:
+- [MINOR] a `..`-escaping RelativePath wrote above the target and exited 0;
+  [MINOR] a corrupt (non-CSV) but non-empty manifest restored nothing yet exited
+  0. Both are fail-loudly/defense-in-depth gaps that **Reconstruct.ps1 shares**
+  (not bash regressions). **Driver FIXED both on the bash side** (non-engine,
+  trivially-reversible; the traversal guard matters for the "restore a foreign
+  backup on a rescue USB" threat model): reconstruct.sh now (a) refuses any row
+  whose destination canonicalizes outside `--target-root` (counted unrestored ⇒
+  exit 1) and (b) validates the manifest header carries `RelativePath`+`xxH2Hash`
+  (a legitimately empty backup still has the header) ⇒ exit 2 on a corrupt file.
+  New bats: "refuses a path-traversal RelativePath", "corrupt MANIFEST.csv fails
+  loudly" (now **24/24** green, shellcheck clean). **For the human:** the SAME two
+  gaps exist in `Reconstruct.ps1` — left unfixed per plan §6 (no unilateral engine
+  change); recommend tracking them against the Windows restorer too.
+- [NIT] non-blank-DataPath rows are copied without re-hashing (authoritative per
+  the contract; matches PS) and [NIT] blank-vs-whitespace DataPath handling
+  (engine never emits whitespace-only) — noted, no change.
+
+**bash-v1 is complete and green; awaiting the human's final review + cross-check.**
