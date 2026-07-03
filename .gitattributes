@@ -5,6 +5,7 @@
 # Bash restore variant (bash-v1): shell scripts and bats suites must be LF on
 # every platform even when authored on Windows — a CRLF shebang breaks bash.
 *.sh   text eol=lf
+*.bash text eol=lf
 *.bats text eol=lf
 
 # Golden fixtures are byte-exact engine output (CRLF manifests, binary data,
