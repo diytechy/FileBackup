@@ -55,8 +55,16 @@ function Find-DataFileByHash {
     param([string]$Hash, [long]$Length, [string[]]$SearchFolders, [string]$SevenZipPath)
     $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
     foreach ($folder in $SearchFolders) {
+        # Infra-name skip is ROOT-LEVEL ONLY (SR-022 / AGENTS.md §3): a nested user
+        # file named like infrastructure is data (B6) and, in Mirror mode, may be
+        # the only physical copy of a blanked snapshot row. The skip is a scan
+        # optimization, never a correctness gate — matching is by (hash, length).
+        $folderNorm = [System.IO.Path]::GetFullPath($folder).TrimEnd('\', '/')
         $candidates = Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notmatch $skip }
+            Where-Object {
+                -not ($_.Name -match $skip -and
+                      [System.IO.Path]::GetDirectoryName($_.FullName) -eq $folderNorm)
+            }
         foreach ($f in $candidates) {
             if ($f.Extension -ieq '.7z') {
                 if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) { continue }

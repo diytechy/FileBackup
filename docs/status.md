@@ -97,9 +97,10 @@ last) — it is the record, not required reading for every pass.
   2026-06-06), and the 2026-07-02 review-findings scoped change (implemented,
   full tier green, independent reviewer APPROVE); (b) **bash-v1 final review +
   cross-check** against the plan's §7 acceptance checklist (all boxes met
-  locally; the two CI bash jobs confirm on push); (c) decide on the recorded
-  PS-side finding (Find-DataFileByHash recursive over-skip) and the deferred
-  bundling of `reconstruct.sh` into the kit.
+  locally; the two CI bash jobs confirm on push); (c) decide on the deferred
+  bundling of `reconstruct.sh` into the kit. (The PS-side
+  Find-DataFileByHash over-skip finding was **fixed 2026-07-03 with human
+  approval** — TC-058, audit entry below.)
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -882,3 +883,42 @@ Findings + driver disposition:
   (engine never emits whitespace-only) — noted, no change.
 
 **bash-v1 is complete and green; awaiting the human's final review + cross-check.**
+
+### HUMAN — Find-DataFileByHash root-level-only fix — 2026-07-03
+Verdict: APPROVE — "You can proceed with option a right now." Confirmed the
+`MANIFEST.csv` naming convention itself is fine and needs no change: the
+requirement (SR-022, root-level-only) was already correct; the defect was the
+restore-path scanner re-implementing the skip recursively. Also clarified the
+manifest-as-source-of-truth stance: on a standard restore no re-hashing/
+extraction-to-verify is wanted — restore-time hashing is legitimate only as
+*lookup* on the blank-DataPath recovery path (the hash is the address, not a
+check). Consequence recorded for the option-(c) design sketch (manifest-built
+recovery index): its "verify-on-hit" re-hash should be a **configurable**
+integrity option (like the legacy stability cross-check provision), off by
+default — not mandatory as the driver first proposed. Option (c) itself remains
+a future, gated candidate — not scheduled.
+
+### DRIVER (Software + Test + Data-integrity hats) — Find-DataFileByHash fix (SR-022/SR-010) — 2026-07-03
+Verdict: implemented + validated (human-approved scope, above). One-line-class
+fix on the restore surface, test-first:
+- **Red first:** new Pester test (TC-058) written before the fix and run against
+  the unfixed code — failed with exactly the predicted defect: "Reconstruction
+  INCOMPLETE: 1 file(s) could not be restored: sub\MANIFEST.csv".
+- **Fix:** `Find-DataFileByHash` (Reconstruct.ps1) now applies the infra-name
+  skip only to files directly in each search folder's root (normalized-path
+  parent comparison), matching SR-022/AGENTS.md §3 and `reconstruct.sh`. The
+  skip is documented in-code as a scan optimization, never a correctness gate
+  (matching is by (hash,length)).
+- **Registry:** TC-058 added (Verifies SR-022;SR-010;LLR-010, Pass); LLR-010
+  detail + TestRefs extended. Stale "deliberate divergence" notes retired in
+  AGENTS.md §4, bash/reconstruct.sh header, and restore.bats (both restorers now
+  match the contract identically).
+Evidence (real output, local): red-first fail pasted above; post-fix
+`check.ps1 -Tier Full` → lint PASS · trace **SN=23 SR=33 LLR=32 TC=57,
+0 orphans / 0 integrity / 0 status-findings / 1 phase-deferred** · docs PASS ·
+arch-map PASS · Pester **53/53** · perf PASS · integration **236 PASS / 0 FAIL /
+4 SKIP** → "All steps passed." Linux side re-validated: shellcheck clean,
+bats **24/24** (WSL Fedora 40). Note: Reconstruct.ps1 is engine-deployed — the
+fix ships in every new backup's kit; existing backups restore correctly by
+re-running restore from an updated kit copy if they ever hit the nested-infra
+case.

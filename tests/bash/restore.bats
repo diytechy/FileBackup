@@ -50,8 +50,8 @@ restore_mode_autodetect() {
 
 @test "a nested infra-named file (sub/MANIFEST.csv) is recovered by hash from a Mirror snapshot (B6, SR-022/SR-031)" {
     # Regression B6 + the contract's root-level-only infra skip: the blanked
-    # nested sub/MANIFEST.csv row recovers from the backup-root copy (which the
-    # PS restorer's recursive skip would wrongly exclude — see docs/status.md).
+    # nested sub/MANIFEST.csv row recovers from the backup-root copy. The PS
+    # restorer's twin is TC-058 (its recursive over-skip was fixed 2026-07-03).
     local out="$BATS_TEST_TMPDIR/b6"
     run bash "$RS" --target-root "$out" --from "$FIXTURES/bash-restore/Mirror/backup/changes/Snapshot_2024_01_01_09_00_00"
     [ "$status" -eq 0 ]

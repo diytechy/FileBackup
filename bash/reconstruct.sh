@@ -24,13 +24,12 @@
 #     and FAILS LOUDLY: it restores everything recoverable, then exits non-zero
 #     naming the count of rows it could not restore (a clean restore exits 0).
 #
-# DELIBERATE, DOCUMENTED DIVERGENCE from the current Reconstruct.ps1: the
-# infrastructure-name skip used during hash recovery is applied ROOT-LEVEL ONLY
-# (per the pinned contract / AGENTS.md sec.3 "Infrastructure files are root-level
-# only" — a nested user file named MANIFEST.csv is data, regression B6). The
-# PowerShell Find-DataFileByHash currently applies that skip recursively, which
-# makes a nested infra-named file unrecoverable from a Mirror-mode snapshot; this
-# script follows the contract, not that bug (recorded in docs/status.md).
+# The infrastructure-name skip used during hash recovery is applied ROOT-LEVEL
+# ONLY (per the contract / AGENTS.md sec.3 "Infrastructure files are root-level
+# only" — a nested user file named MANIFEST.csv is data, regression B6). The skip
+# is a scan optimization, never a correctness gate: matching is by (hash,length).
+# Reconstruct.ps1 originally over-skipped recursively; that was fixed 2026-07-03
+# (TC-058), so both implementations now match the contract identically.
 #
 # Because reconstruct.sh is one self-contained external file (it is NOT copied
 # into each snapshot the way Reconstruct.ps1 is), the restore ORIGIN is named by

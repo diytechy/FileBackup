@@ -195,10 +195,10 @@ Imports (internal): `Common`
   rows. The script checks these up front and fails loudly with remediation
   (SN-015 pattern), degrading only where the PS restorer degrades. It stays
   `shellcheck`-clean (warnings-as-errors, same bar as PSScriptAnalyzer) and is
-  LF-only (`.gitattributes` pins `*.sh`/`*.bash`/`*.bats`). **Deliberate,
-  documented divergence:** its hash-recovery infrastructure-name skip is
-  root-level only (the contract / §3), where the current `Find-DataFileByHash`
-  over-skips recursively — see docs/status.md.
+  LF-only (`.gitattributes` pins `*.sh`/`*.bash`/`*.bats`). Both restorers apply
+  the hash-recovery infrastructure-name skip **root-level only** (the contract /
+  §3, B6) — `Find-DataFileByHash`'s recursive over-skip was a bug the bash work
+  surfaced, fixed 2026-07-03 (TC-058).
 
 ## 5. Build / verify
 

@@ -412,3 +412,37 @@ Describe 'Restore target guard (SR-009)' {
         Test-Path -LiteralPath (Join-Path $sib 'f.txt') | Should -BeTrue
     }
 }
+
+Describe 'Hash recovery of a nested infra-named row (SR-022, SR-010)' {
+    # 2026-07-03 bash-v1 finding (human-approved fix): Find-DataFileByHash applied
+    # the infrastructure-name skip RECURSIVELY, so a nested user file named like
+    # infrastructure (B6: sub\MANIFEST.csv) was unrecoverable from a Mirror-mode
+    # snapshot — its only surviving copy is the Mirror data file of the same name.
+    # The contract (AGENTS.md §3) is root-level-only. The skip is an optimization,
+    # not a correctness mechanism: recovery matches on (xxH2Hash, Length).
+    It 'restores a Mirror snapshot whose blanked sub\MANIFEST.csv row recovers from the backup root (B6, TC-058)' {
+        $root = Join-Path $TestDrive 'nestedinfra'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg    # Mirror, no compress
+
+        [IO.File]::WriteAllText((Join-Path $src 'sub\MANIFEST.csv'), 'NESTED-USER-DATA')
+        [IO.File]::WriteAllText((Join-Path $src 'other.txt'), 'v1')
+        Invoke-FB $cfg                                            # run1 (no snapshot)
+        [IO.File]::WriteAllText((Join-Path $src 'other.txt'), 'v2')
+        Invoke-FB $cfg                                            # run2 ⇒ Snapshot of state-1
+
+        # In the snapshot, the unchanged sub\MANIFEST.csv row is blanked (bytes
+        # live only as the backup root's Mirror data file bkp\sub\MANIFEST.csv).
+        $snap = Get-ChildItem -LiteralPath $chg -Directory |
+                Where-Object { $_.Name -match '^Snapshot_' } | Select-Object -First 1
+        $snap | Should -Not -BeNullOrEmpty
+
+        $t = Join-Path $root 'restore-snap'
+        { & (Join-Path $snap.FullName 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null } |
+            Should -Not -Throw                                    # would throw INCOMPLETE pre-fix (SR-029)
+        [IO.File]::ReadAllText((Join-Path $t 'sub\MANIFEST.csv')) | Should -Be 'NESTED-USER-DATA'
+        [IO.File]::ReadAllText((Join-Path $t 'other.txt'))        | Should -Be 'v1'
+    }
+}
