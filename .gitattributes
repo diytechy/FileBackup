@@ -8,6 +8,10 @@
 *.bash text eol=lf
 *.bats text eol=lf
 
+# Windows batch launchers stay CRLF (LF-only batch can break cmd.exe parsing).
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
 # Golden fixtures are byte-exact engine output (CRLF manifests, binary data,
 # .7z archives) — never let git normalize them or the conformance check drifts.
 tests/fixtures/** -text

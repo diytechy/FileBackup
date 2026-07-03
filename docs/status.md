@@ -958,3 +958,32 @@ check.ps1 lint comment updated; `.gitignore` gains `.idea/` and simplifies the
 (23 MB personal photos/videos in the working folder — unrecoverable if deleted,
 so left in place and kept gitignored; human to move/delete it manually if
 stale).
+
+### HUMAN — evaluator launchers (run.cmd / run.sh) — 2026-07-03
+Verdict: APPROVE (direction) — make the repo ai-template compatible: ship BOTH
+`run.cmd` and `run.sh`, and have them "trigger the standard test run on a
+virtual / created run, instead of attempting to run a formal defined backup."
+**Reverses two 2026-07-02 kit re-sync decisions** (run.cmd → FileBackup.ps1;
+POSIX run.sh not shipped).
+
+### DRIVER (UX/Docs hat) — evaluator launchers rewired — 2026-07-03
+Per the kit's evaluator-rung convention (process.md §7: one readable command per
+launcher, zero recall required):
+- **run.cmd** → `pwsh -NoProfile -File scripts\demo_timeline.ps1`: the
+  self-contained demonstration — scratch source tree under `%TEMP%\FileBackupDemo`,
+  a create/modify/remove/re-add/no-op timeline through the REAL engine, restore
+  of the latest state + every dated snapshot, xxHash128 byte-verification, and a
+  narrative TimelineReport.md. No config file; nothing outside temp touched.
+  Args pass through (`-Mode HashAddressed -Compress`).
+- **run.sh** (new) → `bash tests/bash/verify_restores.sh tests/fixtures`: the
+  Linux product surface (the engine is Windows-only) — restores every origin of
+  the four committed real-engine fixture backups into a mktemp dir and
+  byte-compares each file; friendly tool preflight with install remediation.
+  Executable bit set (100755); shellcheck clean.
+- README gains a "Run it (no setup)" section documenting both underlying
+  commands; repo-layout block lists the launchers; `.gitattributes` pins
+  `*.cmd`/`*.bat` to CRLF (LF-only batch can break cmd.exe).
+Evidence (real runs): demo_timeline → "**Overall: PASS** — 5 runs, 3 snapshots,
+every state restored and byte-compared", exit 0 (Windows). run.sh → "verified
+12 origin(s); 0 failing", exit 0 (WSL Fedora 40). check_docs → 44 links,
+0 broken.

@@ -29,6 +29,28 @@ nothing but that folder. No repository, no installs.
 
 ---
 
+## Run it (no setup, nothing touched outside temp)
+
+Double-click **`run.cmd`** (Windows) or run **`./run.sh`** (Linux) to see the
+product work without configuring anything:
+
+- `run.cmd` runs the self-contained demonstration: it builds a scratch source
+  tree under `%TEMP%\FileBackupDemo`, drives a create/modify/remove/re-add/no-op
+  backup timeline with the real engine, restores the latest state **and every
+  dated snapshot**, byte-verifies everything (xxHash128), and writes a narrative
+  `TimelineReport.md`. (Underlying command:
+  `pwsh -NoProfile -File scripts\demo_timeline.ps1`; try
+  `-Mode HashAddressed -Compress` for the other layout.)
+- `run.sh` exercises the Linux restore surface: it restores every origin of the
+  four committed real-engine fixture backups into a temp dir and byte-compares
+  each file. (Underlying command:
+  `bash tests/bash/verify_restores.sh tests/fixtures`; the fuller Linux suite is
+  `bats tests/bash/`.)
+
+A **formal backup** of your own data is the Quick start below.
+
+---
+
 ## Quick start
 
 ### 1. Create a config
@@ -162,6 +184,7 @@ Modules/
   FileBackup.Common.psm1   Restore-safe primitives (hashing, manifest I/O, 7-Zip, …)
   FileBackup.Engine.psm1   Backup engine (walk, diff, dedup, migrate, snapshots)
 bash/reconstruct.sh      Linux restore — same backups, no PowerShell (see "Restore on Linux")
+run.cmd · run.sh         Zero-setup launchers: demo timeline (Win) / fixture restores (Linux)
 CredSetEx.ps1            Example config builder
 RunAllTests.bat          Test runner  ·  Setup-USB.bat  (RealUSB provisioning)
 tests/                   Test harness — Run-All.ps1, Suites/G1..G9, Unit/, bash/ (bats), fixtures/
