@@ -69,10 +69,23 @@ last) — it is the record, not required reading for every pass.
   retire or wire up the dormant MediaMBPerSec metric); snapshot-model redesign
   taken through its own G1→G2→G3 and **independently review-APPROVED 2026-06-06**
   (SR-005/010/028 Verified).
-- **Next action (human):** **G3 sign-off / ratification** covering (a) the main
-  implementation truth-up, (b) the snapshot redesign (reviewer-approved
-  2026-06-06), and (c) the 2026-07-02 review-findings scoped change (framing
-  human-approved, implemented, full tier green, independent reviewer APPROVE).
+- **2026-07-03 — bash/Linux variant: G1 DONE, handed to the executing agent.**
+  Human reversed the non-Windows non-goal (restore-first). Registered: SN-022/
+  SN-023; SR-030 (hash conformance), SR-031 (standalone bash restore), SR-032
+  (manifest portability) tagged `Phase=bash-v1`; SR-033 (bash backup engine)
+  tagged `bash-v2` — **deferred, needs its own go**. Skeleton LLR-030..033 +
+  TC-053..057 keep trace at 0 orphans; the harness + CI now run
+  `--require-verified --phase core`, which exempts the deferred phases
+  *explicitly* (reported as phase-deferred, currently 4). Work order for the
+  executing agent: **[plans/bash-variant-plan.md](plans/bash-variant-plan.md)**
+  (pinned contract, deliverables, CI plan, acceptance checklist). Human
+  performs the final review + cross-check when it returns.
+- **Next action (human):** (a) **G3 sign-off / ratification** covering the main
+  implementation truth-up, the snapshot redesign (reviewer-approved
+  2026-06-06), and the 2026-07-02 review-findings scoped change (implemented,
+  full tier green, independent reviewer APPROVE); (b) after the executing
+  agent completes `bash-v1`: **final review + cross-check** against the plan's
+  §7 acceptance checklist.
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -106,8 +119,12 @@ independent review of the restore-path change. **Do not implement until the huma
 approves this framing.**
 
 ### Non-goals (assumed — confirm at G1)
-Out of scope unless the human says otherwise: non-Windows / PowerShell 5.1
-support, any GUI, cloud/remote backup targets, and encryption-at-rest.
+Out of scope unless the human says otherwise: PowerShell 5.1 support, any GUI,
+cloud/remote backup targets, and encryption-at-rest. **Revised 2026-07-03
+(human):** *non-Windows* is no longer a blanket non-goal — a **bash/Linux
+restore** variant is in scope as phase `bash-v1` (SN-022), and a bash backup
+engine is registered-but-deferred as `bash-v2` (SN-023). The backup *engine's*
+Windows/pwsh-only stance is unchanged until bash-v2 gets its own go-ahead.
 
 ## Scope (restated from the brief)
 
@@ -670,3 +687,38 @@ the gated suites remain authoritative. First run: Overall PASS (5 runs,
 **Open scope question (human):** a bash/Linux variant (restore-first) was
 discussed 2026-07-03 — would reverse the recorded "non-Windows" non-goal, so
 it needs a G1 scope revision before any code. Awaiting explicit go-ahead.
+
+### HUMAN — bash/Linux variant — 2026-07-03
+Verdict: APPROVE — "Yes run the G1 pass, and then create a detailed plan file
+for restructuring that I can hook Opus into to perform the convert, then I''ll
+come back here to perform the final review and cross-check." Reverses the
+non-Windows non-goal for the restore path.
+
+### DRIVER (Stakeholder + System Engineer hats) — BASH-VARIANT G1 (+G2 skeleton) — 2026-07-03
+Verdict: APPROVE (driver) — G1 artifacts registered; executing-agent handoff
+plan written; awaiting the converted implementation, then human cross-check.
+
+What changed (docs/registries only — no engine code):
+- stakeholder-needs.md: SN-022 (restore on Linux from the backup folder alone,
+  bash-v1) + SN-023 (Linux-produced interoperable backups, bash-v2, deferred).
+- system-requirements.csv: new optional **Phase** column (blank = always in
+  scope, per trace.py "Phased delivery"); SR-030 hash conformance, SR-031
+  standalone bash restore (full SR-008/010/009/023/029 semantics), SR-032
+  manifest portability — Draft, Phase=bash-v1; SR-033 bash backup-engine
+  parity — Draft, Phase=bash-v2.
+- Skeleton decomposition so the tree stays green between now and the convert:
+  LLR-030..033, TC-053..057 (Draft; the executing agent refines at its G2).
+- check.ps1 + CI trace step: `--require-verified --phase core` — deferred-phase
+  SRs are exempted EXPLICITLY and counted (phase-deferred=4), so the G3 ratchet
+  stays armed for everything already shipped. When bash-v1 lands, the phase
+  list becomes `core,bash-v1`.
+- **docs/plans/bash-variant-plan.md** — the executing-agent work order: pinned
+  on-disk contract (manifest dialect, ''O'' dates, hash canonical form, snapshot
+  regex, authority/pool rules, sidecar caveat, layout-detection + single-file
+  decisions), deliverables/layout, fixtures strategy, bats + ubuntu +
+  cross-artifact CI plan, commit-ordered work items, out-of-scope fence, and
+  the §7 acceptance checklist the human will cross-check against.
+
+Evidence (real output, local): `trace.py --strict --require-verified --phase
+core` → SN=23 SR=33 LLR=32 TC=56, **0 orphans / 0 integrity / 0 status
+findings / 4 phase-deferred**, exit 0.
