@@ -285,27 +285,16 @@ label not matching `FBTEST-*`, so it can't touch a production volume.
   the >4 GB single-file limit surfaces cleanly. Finally copy a produced backup folder to a
   machine without this repo, run `RECONSTRUCT.bat`, and byte-compare.
 
-## 7. Auxiliary & legacy scripts — standalone, don't fold into the engine
+## 7. Removed auxiliary & legacy scripts (2026-07-03 cleanup)
 
-These are **personal/ad-hoc utilities, not part of the FileBackup engine**. They use
-hardcoded drive paths, **SHA256 `Get-FileHash`** (not xxHash128), and a separate
-`*HashTable.csv` schema. They were deliberately **not** modularized into
-`FileBackup.Common`: doing so would change their hash algorithm and break their existing
-data for no real benefit. Comment/extend them in place; do not couple them to the engine.
-
-| Path | What it does |
-|---|---|
-| `Auxilary/7z-CreateMultipleArchivesFromDirectory.ps1` | Split a tree into ~equal-size groups, one `.7z` + report per group. |
-| `Auxilary/CompressAllSubfolders.ps1` | One `.7z` per immediate subfolder. |
-| `Auxilary/MoveDupFilesOnHashOrName.ps1` | Quarantine likely-dupes by date/hash/name against hash-table CSVs. |
-| `Auxilary/RenameInvalidFiles.ps1` | Strip `% #`, turn `_`→space in names (in place, no preview). |
-| `DatabaseDuplicateDeletion/ListPotDupFilesFromDatabase.ps1` | Step 1: size-collide + SHA256 the candidates. |
-| `DatabaseDuplicateDeletion/CreateDelListFromDupDatabase.ps1` | Step 2: choose which dup copies to delete. |
-| `DatabaseDuplicateDeletion/RemoveAllFilesFromList.ps1` | Step 3: **DESTRUCTIVE** — delete every file in the list. |
-
-**Legacy (superseded, kept for reference — do not extend):** `Test-Backup.ps1`,
-`RunTests.bat`, `TestRelated/FileBackupTestReset.ps1`, `PrepPropertiesFile.ps1`. Add test
-coverage in `tests/`, and build configs with `CredSetEx.ps1`.
+The repo used to carry standalone personal utilities (`Auxilary/`,
+`DatabaseDuplicateDeletion/` — SHA-256/`*HashTable.csv`-based ad-hoc tools,
+unrelated to the engine) and superseded pre-modularization artifacts
+(`Test-Backup.ps1`, `RunTests.bat`, `TestRelated/`, `PrepPropertiesFile.ps1`,
+plus old scratch/prompt notes). All were **deleted 2026-07-03 with human
+approval** — recover any of them from git history if ever needed
+(`git log --diff-filter=D --summary`). Nothing in the maintained tree references
+them. Add test coverage in `tests/`, and build configs with `CredSetEx.ps1`.
 
 ## 8. History
 

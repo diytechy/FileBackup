@@ -1,5 +1,8 @@
-﻿BuildAlbum/AlbumOut*
-BuildAlbum/TestOut
+﻿# Personal media build output living in the working folder — never commit.
+BuildAlbum/
+
+# IDE-private config (removed from tracking 2026-07-03)
+.idea/
 
 # Test harness setup marker (created by tests/Setup.ps1)
 tests/.setup-complete

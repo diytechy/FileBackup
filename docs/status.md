@@ -922,3 +922,39 @@ bats **24/24** (WSL Fedora 40). Note: Reconstruct.ps1 is engine-deployed — the
 fix ships in every new backup's kit; existing backups restore correctly by
 re-running restore from an updated kit copy if they ever hit the nested-infra
 case.
+
+### HUMAN — repo cleanup: legacy artifacts — 2026-07-03
+Verdict: APPROVE (all three scopes, via AskUserQuestion): (1) delete the
+superseded engine artifacts + pre-history notes; (2) delete BOTH standalone
+personal-utility folders (`Auxilary/`, `DatabaseDuplicateDeletion/` — no longer
+in use); (3) delete tracked `.idea/` and gitignore it. Context: the human's own
+memory of which old scripts were still live was unclear and the leftovers were
+creating confusion.
+
+### DRIVER (UX/Docs hat) — repo cleanup executed — 2026-07-03
+Deleted (all recoverable from git history — `git log --diff-filter=D --summary`):
+- Superseded pre-modularization: `Test-Backup.ps1`, `RunTests.bat`,
+  `TestRelated/` (FileBackupTestReset.ps1, Tests.xlsx), `PrepPropertiesFile.ps1`.
+- Pre-history notes for the OLD SHA-256/HashTable.csv system: `FullPrompt.txt`
+  (the original generation prompt), root + Auxilary `ScratchPad.txt`/`ToDo.txt`,
+  `Auxilary/BackupMethodBreakdown.txt`, `Auxilary/BackupTestCases`.
+- Personal utilities (human confirmed no longer used): `Auxilary/*.ps1` ×4,
+  `DatabaseDuplicateDeletion/*.ps1` ×3.
+- `.idea/` (IDE-private; now gitignored).
+
+**Backlog preserved from the deleted root ToDo.txt (Nov 2025)** — the only two
+ideas not already realized by the current implementation:
+1. *Archive option:* optionally store a backup as `.7z` archive sets (full
+   snapshot at a configured interval, diffs between), with a rebuild script per
+   folder. (The dated-snapshot model realized the diff/point-in-time half.)
+2. *CloneSpy CRC export:* an option to emit a CloneSpy-compatible CRC list per
+   backup set.
+
+Docs refreshed: AGENTS.md §7 rewritten as a removal record (§ numbering kept);
+README repo-layout block updated to the current tree (adds `bash/`, `scripts/`,
+`docs/`; drops deleted entries) and the stale personal-tools note removed;
+check.ps1 lint comment updated; `.gitignore` gains `.idea/` and simplifies the
+`BuildAlbum/` rule. **NOT deleted (flagged to human):** untracked `BuildAlbum/`
+(23 MB personal photos/videos in the working folder — unrecoverable if deleted,
+so left in place and kept gitignored; human to move/delete it manually if
+stale).

@@ -160,13 +160,14 @@ FileBackup.ps1            Entry point (reads config, runs each backup set)
 Reconstruct.ps1          Restore script (deployed standalone into each backup folder)
 Modules/
   FileBackup.Common.psm1   Restore-safe primitives (hashing, manifest I/O, 7-Zip, …)
-  FileBackup.Engine.psm1   Backup engine (walk, diff, dedup, migrate, change folders)
-CredSetEx.ps1            Example config builder  ·  PrepPropertiesFile.ps1 (legacy)
+  FileBackup.Engine.psm1   Backup engine (walk, diff, dedup, migrate, snapshots)
+bash/reconstruct.sh      Linux restore — same backups, no PowerShell (see "Restore on Linux")
+CredSetEx.ps1            Example config builder
 RunAllTests.bat          Test runner  ·  Setup-USB.bat  (RealUSB provisioning)
-tests/                   Test harness — Run-All.ps1, Suites/G1..G9, Unit/*.Tests.ps1
-Auxilary/                Standalone personal utilities (see AGENTS.md)
-DatabaseDuplicateDeletion/  Standalone ad-hoc dedup pipeline (see AGENTS.md)
-.github/workflows/tests.yml CI: lint + unit + Subst integration
+tests/                   Test harness — Run-All.ps1, Suites/G1..G9, Unit/, bash/ (bats), fixtures/
+scripts/                 Check harness (check.ps1), traceability + doc generators
+docs/                    Gated-process docs: status.md, requirements/, test/, plans/
+.github/workflows/tests.yml CI: lint + unit + Subst integration + Linux restore/interop
 AGENTS.md                Contributor/agent guide (architecture, invariants, tests, history)
 ```
 
@@ -193,5 +194,3 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   are logged, never fatal.
 - **Stale `Temp` folder error.** A prior run aborted mid-flight; remove the leftover `Temp`
   folder under your `ChangePath` and re-run.
-- The **Auxilary/** and **DatabaseDuplicateDeletion/** scripts are standalone personal
-  tools with hardcoded paths — not part of the backup engine. See [AGENTS.md](AGENTS.md).

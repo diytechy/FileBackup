@@ -80,9 +80,9 @@ function Invoke-Step {
 # 1. Lint -----------------------------------------------------------------
 Invoke-Step 'PSScriptAnalyzer' {
     $settings = Join-Path $repo 'tests\PSScriptAnalyzerSettings.psd1'
-    # Authoritative maintained lint surface (AGENTS.md sec.5). Legacy root scripts
-    # (Test-Backup.ps1, PrepPropertiesFile.ps1) and the standalone Auxilary/
-    # DatabaseDuplicateDeletion utilities are intentionally excluded.
+    # Authoritative maintained lint surface (AGENTS.md sec.5). The legacy root
+    # scripts and standalone Auxilary/DatabaseDuplicateDeletion utilities this
+    # list once excluded were deleted 2026-07-03 (AGENTS.md sec.7).
     $roots = @('FileBackup.ps1','Reconstruct.ps1','Modules','tests','scripts') |
         ForEach-Object { Join-Path $repo $_ } | Where-Object { Test-Path -LiteralPath $_ }
     $targets = Get-ChildItem -Path $roots -Recurse -Include *.ps1,*.psm1
