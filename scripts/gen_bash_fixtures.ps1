@@ -117,7 +117,7 @@ function Invoke-FixtureBackup {
     } finally { $ErrorActionPreference = $old }
 }
 
-function Build-SourceTimeline {
+function Set-SourceTimelineStep {
     param([string]$Src, [int]$Step)
     # Step 1: the full initial tree. Steps 2/3 mutate it in place.
     switch ($Step) {
@@ -200,9 +200,9 @@ try {
         $cfg = Join-Path $work "$modeSafe\config.xml"
         Write-FixtureConfig -ConfigPath $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $flags.Compress -ContentAddressed $flags.ContentAddressed
 
-        Build-SourceTimeline -Src $src -Step 1; Invoke-FixtureBackup -ConfigPath $cfg -When $T1
-        Build-SourceTimeline -Src $src -Step 2; Invoke-FixtureBackup -ConfigPath $cfg -When $T2
-        Build-SourceTimeline -Src $src -Step 3; Invoke-FixtureBackup -ConfigPath $cfg -When $T3
+        Set-SourceTimelineStep -Src $src -Step 1; Invoke-FixtureBackup -ConfigPath $cfg -When $T1
+        Set-SourceTimelineStep -Src $src -Step 2; Invoke-FixtureBackup -ConfigPath $cfg -When $T2
+        Set-SourceTimelineStep -Src $src -Step 3; Invoke-FixtureBackup -ConfigPath $cfg -When $T3
 
         # Publish backup + changes into the fixture output tree.
         $destMode = Join-Path $OutRoot "bash-restore\$modeSafe"

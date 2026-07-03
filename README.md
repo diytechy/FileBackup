@@ -59,6 +59,33 @@ folder is self-contained — it carries `RECONSTRUCT.ps1`, the hashing module, t
 `System.IO.Hashing.dll`, and a path sidecar — so restore works on a machine without this
 repo.
 
+### Restore on Linux (no PowerShell)
+
+The same backup folders also restore on a stock Linux box — a NAS, a rescue
+live-USB — with **`bash/reconstruct.sh`**, a single self-contained script that
+reads the *same* `MANIFEST.csv` and data files. It needs only commodity tools:
+`bash` 4+, GNU coreutils, **gawk**, **xxhsum** (xxHash ≥ 0.8), and **7z** (p7zip,
+only if the backup used compression). Install them with e.g.
+`apt-get install xxhash p7zip-full gawk` or `dnf install xxhash p7zip gawk`.
+
+```bash
+# Restore the latest state from a backup root:
+bash reconstruct.sh --target-root /tmp/restore --from /path/to/backup
+
+# Restore a historical point in time from a dated snapshot:
+bash reconstruct.sh --target-root /tmp/asof --from /path/to/backup/changes/Snapshot_2024_01_01_09_00_00
+```
+
+`--from` names the restore origin (a backup root or a `Snapshot_<date>` folder;
+default: the current directory). The backup root and the snapshot folder are
+auto-detected from that location; pass `--backup-root` / `--change-root` to
+override (needed when the backup and change folders are not nested — the sidecar's
+Windows paths are ignored on Linux). Like the Windows restorer it **fails loudly**:
+it restores everything recoverable, then exits non-zero naming any file it could
+not restore (a clean restore exits 0). Copying `bash/reconstruct.sh` into each
+backup folder is a planned convenience — for now run it from a checkout of this
+repo. See `bash reconstruct.sh --help`.
+
 ---
 
 ## Config format

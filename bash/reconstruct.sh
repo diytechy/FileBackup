@@ -266,7 +266,14 @@ main() {
     (( BASH_VERSINFO[0] >= 4 )) || die "bash 4+ required (found ${BASH_VERSION}); install a newer bash."
     have gawk || die "gawk is required (RFC-4180 manifest parsing). Install: apt-get install gawk / dnf install gawk."
     { have xxh128sum || have xxhsum; } || die "xxhsum (xxHash >= 0.8) is required. Install: apt-get install xxhash / dnf install xxhash."
-    if [[ -n "$seven_zip_opt" ]]; then SEVEN_ZIP="$seven_zip_opt"; else find_seven_zip || true; fi
+    if [[ -n "$seven_zip_opt" ]]; then
+        # An explicit --seven-zip that is not a runnable command is treated as
+        # absent, so a compressed backup dies up front with remediation (below)
+        # rather than failing every .7z row one by one.
+        if have "$seven_zip_opt" || [[ -x "$seven_zip_opt" ]]; then SEVEN_ZIP="$seven_zip_opt"; else SEVEN_ZIP=''; fi
+    else
+        find_seven_zip || true
+    fi
 
     # --- Resolve the restore origin and the backup/change roots ---
     local origin

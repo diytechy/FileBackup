@@ -102,7 +102,7 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # scope; SRs tagged with a not-yet-delivered phase (e.g. bash-v1) are
     # exempted EXPLICITLY and reported as phase-deferred. When a phase ships,
     # append it here (e.g. 'core,bash-v1') so its SRs must be Verified.
-    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core') }
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 

@@ -24,6 +24,7 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 | `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, … | No |
 | `FileBackup.ps1` | Thin entry point: import modules, read config, loop `Invoke-BackupSet`, optional mail. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
+| `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | no (bundling deferred) |
 
 **The Common/Engine split is load-bearing.** `New-ReconstructScript` copies
 `Reconstruct.ps1`, `FileBackup.Common.psm1`, `System.IO.Hashing.dll`, and a
@@ -187,6 +188,17 @@ Imports (internal): `Common`
   first, then the `# Implements: SR-###, LLR-###` back-link line. Reference SR
   ids for input ranges instead of restating them (docs/process.md §3).
 - `Write-Host` is fine (this is a CLI/automation tool) — excluded in lint settings.
+- **Linux restore tooling floor (`bash/reconstruct.sh`, phase `bash-v1`):** bash
+  ≥ 4, GNU coreutils, **gawk** (FPAT-based RFC-4180 parsing — plain `awk`/mawk is
+  not enough), **xxhsum** (xxHash ≥ 0.8, provides `xxh128sum`), and **7z**
+  (`7z`/`7za`/`7zz`, p7zip) — the last needed only when the backup has compressed
+  rows. The script checks these up front and fails loudly with remediation
+  (SN-015 pattern), degrading only where the PS restorer degrades. It stays
+  `shellcheck`-clean (warnings-as-errors, same bar as PSScriptAnalyzer) and is
+  LF-only (`.gitattributes` pins `*.sh`/`*.bash`/`*.bats`). **Deliberate,
+  documented divergence:** its hash-recovery infrastructure-name skip is
+  root-level only (the contract / §3), where the current `Find-DataFileByHash`
+  over-skips recursively — see docs/status.md.
 
 ## 5. Build / verify
 

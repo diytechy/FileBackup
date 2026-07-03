@@ -39,9 +39,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Trace registries (strict, 0 orphans + Test SRs Verified)
         shell: pwsh
-        # --phase mirrors check.ps1: bash-v1/bash-v2 SRs are phase-deferred
-        # until those phases ship (then append them here and in check.ps1).
-        run: python scripts/trace.py --strict --require-verified --phase core
+        # --phase mirrors check.ps1: bash-v1 has shipped (SR-030/031/032 Verified);
+        # bash-v2 (SR-033) stays phase-deferred until it ships.
+        run: python scripts/trace.py --strict --require-verified --phase core,bash-v1
       - name: Doc navigability (0 broken intra-repo links)
         shell: pwsh
         run: python scripts/check_docs.py --ignore docs/test/report.md --ignore "docs/releases/*"

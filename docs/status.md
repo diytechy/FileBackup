@@ -80,12 +80,26 @@ last) — it is the record, not required reading for every pass.
   executing agent: **[plans/bash-variant-plan.md](plans/bash-variant-plan.md)**
   (pinned contract, deliverables, CI plan, acceptance checklist). Human
   performs the final review + cross-check when it returns.
+- **2026-07-03 — bash/Linux variant `bash-v1` DELIVERED (driver + independent
+  review); awaiting human final review + cross-check.** `bash/reconstruct.sh`
+  (one self-contained file) restores byte-exact on Linux from the same backup
+  folders, mirroring `Reconstruct.ps1`. **Real-Linux evidence (WSL Fedora 40):**
+  22/22 bats green (hash conformance TC-053, manifest parse TC-056, restore
+  TC-054 all 4 modes × root+2 snapshots, fail-loudly TC-055), shellcheck clean.
+  SR-030/031/032 → **Verified**; the harness ratchet re-armed to
+  `--phase core,bash-v1` (only bash-v2/SR-033 stays deferred). Existing Windows
+  suite untouched: `check.ps1 -Tier Full` → 52/52 unit, 236/0/4 integration,
+  0/0/0 trace. CI gained a ubuntu `bash-restore` (bats) job and a
+  windows→ubuntu `bash-interop` job (fresh backups restored + byte-compared) —
+  those run on push; the human's final review is the acceptance gate.
 - **Next action (human):** (a) **G3 sign-off / ratification** covering the main
   implementation truth-up, the snapshot redesign (reviewer-approved
   2026-06-06), and the 2026-07-02 review-findings scoped change (implemented,
-  full tier green, independent reviewer APPROVE); (b) after the executing
-  agent completes `bash-v1`: **final review + cross-check** against the plan's
-  §7 acceptance checklist.
+  full tier green, independent reviewer APPROVE); (b) **bash-v1 final review +
+  cross-check** against the plan's §7 acceptance checklist (all boxes met
+  locally; the two CI bash jobs confirm on push); (c) decide on the recorded
+  PS-side finding (Find-DataFileByHash recursive over-skip) and the deferred
+  bundling of `reconstruct.sh` into the kit.
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -792,3 +806,45 @@ the committed golden fixtures under `tests/fixtures/`:
   Windows-path sidecar (proves reconstruct.sh ignores it on Linux). Total ~1.2 MB
   (≈1 MB is the conformance binary); `-Fresh` keeps everything for the CI interop
   job. Fixtures regenerate deterministically (EXIT=0, all 4 modes, 2 snapshots each).
+
+### DRIVER (Software + Test + Data-integrity hats) — BASH-VARIANT bash-v1 G3 — 2026-07-03
+Verdict: implemented + validated on real Linux; independent review below.
+Delivered `bash/reconstruct.sh` — one self-contained POSIX-shell restorer
+mirroring `Reconstruct.ps1` against the same MANIFEST.csv contract:
+- `hash_file` (xxhsum/xxh128sum → 32-char UPPER hex), `parse_manifest` (gawk
+  FPAT RFC-4180; \x1f-delimited output so an empty leading DataPath is NOT
+  trimmed — the key parse bug found + fixed), `to_posix` (`\`→`/`).
+- folder-name authority/layout detection (origin = `--from`, default PWD; a
+  Windows-path sidecar is ignored when it doesn't resolve; explicit
+  `--backup-root`/`--change-root` > sidecar > auto-detect); data-pool hash
+  recovery over snapshots+backup-root; 7z **dir-extract + first-file** (a shared
+  dedup archive can hold >1 identical-content entry — `-so` streaming would
+  concatenate them, the second bug found + fixed); capacity + target-inside
+  guards; **fail-loudly** non-zero exit naming the unrestored count.
+- **Contract-faithful divergence:** root-level-only infra skip (recovers the
+  nested B6 `sub/MANIFEST.csv` that the PS recursive skip drops — see the FINDING
+  above).
+
+Evidence (REAL runs):
+- **WSL Fedora 40 (real Linux, plan's accepted env):** `bats tests/bash/` →
+  **22/22 ok**; `shellcheck` clean on reconstruct.sh + helpers + verify_restores.
+- Adversarial probes (driver): root restore with `changes/` deleted → 0;
+  snapshot restore with a sibling snapshot deleted → 0; bad origin → 2; bogus
+  `--seven-zip` on a compressed backup → dies with remediation (2); leading-dash
+  filename → restored; `--help` → 0; unknown arg → 2.
+- **Windows suite untouched:** `pwsh scripts/check.ps1 -Tier Full` → lint PASS ·
+  trace **SN=23 SR=33 LLR=32 TC=56, 0 orphans / 0 integrity / 0 status-findings /
+  1 phase-deferred** (`--phase core,bash-v1`) · docs PASS · arch-map PASS ·
+  Pester **52/52** · perf PASS · integration **236 PASS / 0 FAIL / 4 SKIP** →
+  "All steps passed."
+- SR-030/031/032 → **Verified**; TC-053..056 → **Pass**; LLR-030..032 →
+  **Verified**. Ratchet re-armed in `check.ps1` + CI (`--phase core,bash-v1`).
+- CI: new `bash-restore` (ubuntu bats + shellcheck) and `bash-interop-make/
+  -restore` (windows makes fresh 4-mode backups → ubuntu restores every origin
+  and byte-compares) jobs added; they run on push (the human's final review is
+  the acceptance gate).
+
+Nothing from the plan's "explicitly out" list was started (no kit bundling of
+reconstruct.sh, no bash-v2 engine, no engine-behavior change — the one PS defect
+found is recorded above, not fixed). **Open:** independent review (below), then
+human final review + cross-check against the plan §7 checklist.
