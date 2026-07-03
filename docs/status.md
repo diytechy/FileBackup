@@ -748,3 +748,47 @@ Evidence (real output, local): `python scripts/trace.py --strict --require-verif
 --phase core` → SN=23 SR=33 LLR=32 TC=56, **0 orphans / 0 integrity / 0 status
 findings / 4 phase-deferred**, exit 0. SR-030/031/032 remain Draft (flip at G3
 with the real green Linux run). Next: fixtures + `reconstruct.sh` (plan §6 2–5).
+
+### FINDING (surfaced by bash-v1, PS-side — recorded, NOT fixed per plan §6) — SR-010/SR-022 — 2026-07-03
+[MAJOR — for the human] **`Reconstruct.ps1`'s `Find-DataFileByHash` over-skips
+infra-named files recursively, so a nested user file named like an infrastructure
+file (regression B6) becomes UNRECOVERABLE from a Mirror-mode snapshot.** The
+pinned contract (plan §2; AGENTS.md §3 "Infrastructure files are root-level only")
+says the infra-name skip is **root-level only** — a nested `sub\MANIFEST.csv` is
+data. But `Find-DataFileByHash` applies its `^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)`
+skip to **every** file in a `-Recurse` scan. When such a file is unchanged across
+runs, `Optimize-ChangeFolders` blanks its DataPath in each snapshot (bytes recover
+by hash) — but the only surviving copy is the Mirror-layout data file named
+`sub\MANIFEST.csv`, which the recursive skip excludes ⇒ the row is reported
+unrestorable and the snapshot restore FAILS LOUDLY (SR-029 exit 1). Reproduced on
+the bash-v1 fixture timeline (Mirror + Mirror+Compress; HashAddressed is immune —
+its data files carry short-names, not `MANIFEST.csv`). Driver-verified: with a
+**root-level-only** skip (the contract) the same row recovers cleanly.
+- **Scope call:** engine/restore surface → per plan §6 "record it in status.md and
+  **stop** on that item rather than fixing the Windows side unilaterally." Not
+  fixed here. Suggested PS fix (for the human): make the recovery skip root-level
+  only (parent == search-folder root), matching the contract; add a G9 assertion
+  that restores a Mirror snapshot holding a blanked nested-infra-named row.
+- **bash-v1 stance:** `reconstruct.sh` implements the **contract** (root-level-only
+  skip), so it restores these fixtures correctly. This is a deliberate,
+  documented divergence from the current PS code (which has the bug), not from the
+  contract — recorded in LLR-031 and the README.
+
+### DRIVER (Test Engineer hat) — BASH-VARIANT bash-v1 fixtures — 2026-07-03
+Autonomous (test-scaffolding, non-engine; recorded per the HIGH dial). Added
+`scripts/gen_bash_fixtures.ps1` — drives the **real engine** over a fixed,
+deterministic 3-run timeline (pinned `-BackupTime`, fixed bytes + mtimes) to emit
+the committed golden fixtures under `tests/fixtures/`:
+- `hash-conformance/` — empty / one-byte / text / unicode-named / >1 MiB binary +
+  `expected-hashes.csv` (golden `Get-FileXxHash`). The 1 MiB binary is SR-030's
+  explicit "binary >1 MiB" multi-buffer case (regenerable, so drift is reviewable).
+- `bash-restore/<mode>/` (all 4 modes) — `backup/` + nested `changes/Snapshot_*` +
+  `expected/<origin>.tsv` (posix-relpath⇢content-hash from each origin's own
+  manifest = the independent restore oracle). Timeline covers dedup, a modified
+  file (v1↔v2 point-in-time), delete→identical-re-add (⇒ 16 blank-DataPath rows
+  recovered by hash), a 0-byte file, unicode / bracketed / comma-bearing names,
+  and a nested `sub/MANIFEST.csv` (B6). Committed copies are stripped of the
+  large/churny Windows kit (DLL/psm1/RECONSTRUCT.*) + logs and carry a stabilized
+  Windows-path sidecar (proves reconstruct.sh ignores it on Linux). Total ~1.2 MB
+  (≈1 MB is the conformance binary); `-Fresh` keeps everything for the CI interop
+  job. Fixtures regenerate deterministically (EXIT=0, all 4 modes, 2 snapshots each).
