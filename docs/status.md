@@ -722,3 +722,29 @@ What changed (docs/registries only — no engine code):
 Evidence (real output, local): `trace.py --strict --require-verified --phase
 core` → SN=23 SR=33 LLR=32 TC=56, **0 orphans / 0 integrity / 0 status
 findings / 4 phase-deferred**, exit 0.
+
+### DRIVER (System + Test Engineer hats) — BASH-VARIANT bash-v1 G2 refinement — 2026-07-03
+Verdict: APPROVE (driver) — registry-only refinement; no engine code touched.
+Executing [plans/bash-variant-plan.md](plans/bash-variant-plan.md) end-to-end.
+
+**De-risking (plan §6 step 3) done FIRST — hash conformance CONFIRMED.** Acceptance
+environment is **WSL Fedora 40** (`podman-machine-default`; `dnf`-installed xxhash
+0.8.3 / p7zip / bats / shellcheck; gawk present) — a real Linux run, not Git Bash.
+Probed empty / one-byte / 20-byte-text / 100 KB-random inputs: `xxh128sum <f> |
+cut -d' ' -f1` uppercased **equals `Get-FileXxHash` byte-for-byte** in every case.
+The whole phase's pivot risk is retired before any implementation.
+
+What changed (registries only):
+- LLR-030/031/032 refined off their skeletons to honor the plan's **pinned
+  self-containment decision**: the hasher (`hash_file`), CSV parser
+  (`parse_manifest`), and path mapper (`to_posix_path`) are functions **inside the
+  single `bash/reconstruct.sh`** (no `source`d runtime libs); a bottom-of-file
+  `main` guard lets bats source the script to unit-test those functions. The prior
+  skeleton wrongly located them in a `bash/lib/common.sh` — corrected (ids kept).
+- TC-053..056 already carried dimensional Parameters/Expected from G1 skeleton;
+  left as-is (they match the deliverables).
+
+Evidence (real output, local): `python scripts/trace.py --strict --require-verified
+--phase core` → SN=23 SR=33 LLR=32 TC=56, **0 orphans / 0 integrity / 0 status
+findings / 4 phase-deferred**, exit 0. SR-030/031/032 remain Draft (flip at G3
+with the real green Linux run). Next: fixtures + `reconstruct.sh` (plan §6 2–5).
