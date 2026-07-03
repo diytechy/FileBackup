@@ -23,12 +23,12 @@ last) — it is the record, not required reading for every pass.
 ## Current State
 
 - **Active gate:** G3 — Implementation truth-up (G2 human-APPROVED 2026-06-05)
-- **Latest full run (2026-06-09):** **48/48 unit, 236/0/4 integration, lint
-  clean, 0 orphans, 0 status findings** (`check.ps1 -Tier Full` — gate `all`
-  now also machine-checks `--require-verified`).
+- **Latest full run (2026-07-02):** **52/52 unit, 236/0/4 integration, lint
+  clean, trace SN=21 SR=29 LLR=28 TC=51 with 0 orphans / 0 integrity /
+  0 status findings** (`check.ps1 -Tier Full`, `--require-verified` active).
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
-- **SR tally:** 24 Test/Verified · 3 Demonstration · 1 Inspection · 0 Open —
+- **SR tally:** 25 Test/Verified · 3 Demonstration · 1 Inspection · 0 Open —
   every `Verification=Test` SR is Verified (machine-checked by
   `trace.py --require-verified`).
 - **2026-07-01 — kit re-sync (ai-template @ e4bcfb1):** process docs split into
@@ -56,25 +56,23 @@ last) — it is the record, not required reading for every pass.
 - **2026-07-02 — adversarial dedup/snapshot review (subagent + driver-verified):**
   primary property **CONFIRMED** in all 4 modes — delete → reintroduce-identical →
   delete stores the content's bytes exactly once across backup root + snapshots,
-  every dated state restorable; pinned as TC-049 (commit c930f4f). **THREE
-  VERIFIED FINDINGS AWAIT HUMAN DIRECTION** (engine/restore surface — dial HIGH):
-  (1) MAJOR: a run whose only change is a duplicate-content add or shared-content
-  removal creates **no snapshot** (ChangedCount gates on byte I/O, not manifest
-  diff) — the prior state becomes unrestorable; (2) MAJOR: `Reconstruct.ps1`
-  exits 0 when a file cannot be recovered (WARN + skip) — silent incomplete
-  restore; (3) MINOR: `RECONSTRUCT.paths.json` missing from the
-  `Test-IsInfrastructureFile` allowlist → false orphan WARNs every run.
-  Details + repros in the audit entry below. **No engine code changed.**
+  every dated state restorable; pinned as TC-049 (commit c930f4f). Three
+  verified findings recorded; **human approved the scoped-change framing
+  ("please proceed") and all three are now FIXED through the gate** — SR-005
+  supersession criterion rewritten (manifest diff, not byte I/O), new SR-029
+  (restore fails loudly, non-zero exit on unrestorable rows), sidecar added to
+  the infrastructure allowlist — validated by TC-050/051/052, the full tier,
+  and an **independent reviewer APPROVE** (audit entries below). Awaiting human
+  ratification.
 - **Resolved decisions (detail in the audit log):** coverage accepted at 78.1%
   with documented structural exclusions (human 2026-06-05; cleanup candidate:
   retire or wire up the dormant MediaMBPerSec metric); snapshot-model redesign
   taken through its own G1→G2→G3 and **independently review-APPROVED 2026-06-06**
   (SR-005/010/028 Verified).
-- **Next action (human):** (a) **G3 sign-off** — the main truth-up and the
-  snapshot redesign stand complete, validated, and reviewer-approved; (b)
-  **direction on the three 2026-07-02 review findings** — recommend treating
-  the two MAJORs as a scoped change through the gate (they are requirement-
-  level: snapshot-on-manifest-change semantics, restore fail-loudly contract).
+- **Next action (human):** **G3 sign-off / ratification** covering (a) the main
+  implementation truth-up, (b) the snapshot redesign (reviewer-approved
+  2026-06-06), and (c) the 2026-07-02 review-findings scoped change (framing
+  human-approved, implemented, full tier green, independent reviewer APPROVE).
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -602,3 +600,59 @@ probe backup.log. New TC-049 test PASS; `check.ps1 -Tier Smoke` green after
 pinning (49 unit); trace: SN=21 SR=28 LLR=27 TC=48, 0 orphans, 0 findings.
 **Next action (human):** approve the three fixes as a scoped change through the
 gate (SR/LLR/TC revisions for findings 1–2 are requirement-level, not patches).
+
+### HUMAN — review-findings scoped change — 2026-07-02
+Verdict: APPROVE ("That all sounds appropriate, please proceed") — fix the three
+2026-07-02 review findings as a scoped change through the gate.
+
+### DRIVER (System + Software + Test + Data-integrity hats) — REVIEW-FINDINGS G1→G3 — 2026-07-02
+Verdict: implemented + validated; independent review APPROVE (below). Awaiting
+human ratification.
+
+G1 (requirements): SR-005 rewritten — the supersession criterion is a **manifest
+diff** (any added/removed/changed row, incl. dedup-served adds and shared-content
+removals), not physical byte I/O; permutations extended with
+change=set{content,dup-add,shared-removal,noop}. New **SR-029** (SN-013):
+Reconstruct restores everything recoverable, then fails loudly (non-zero exit)
+naming the unrestored count; clean restores exit 0. Finding 3 needed no SR change
+(SR-022 already covers it — implementation gap only).
+
+G2 (decomposition): LLR-005 revised (gate = Compare-SourceToBackup diff
+non-empty); new LLR-029 (unrestored-row accounting + terminal throw); LLR-022
+extended (allowlist covers every deployed kit artifact). New TC-050 (manifest-only
+change ⇒ snapshot; no-op ⇒ none), TC-051 (fail-loudly restore), TC-052 (no false
+sidecar WARNs). Trace: SN=21 SR=29 LLR=28 TC=51, 0 orphans / 0 integrity.
+
+G3 (implementation):
+- Engine: Invoke-BackupSet computes $manifestChanged from the diff and passes
+  -ManifestChanged to Complete-ChangeFolder (replaces the -ChangedCount gate;
+  the byte counter remains for logging). Skip log now states why (first backup
+  vs manifest-identical no-op). Gotcha hit + documented in code: `@()` around a
+  List reached via a PSObject property throws "Argument types do not match" on
+  PS 7.5 — use .Count directly.
+- Reconstruct.ps1: $unrestored list collects every skip (hash-recovery failure,
+  missing DataPath, extraction failure); after restoring all recoverable rows a
+  non-empty list logs ERROR and throws "Reconstruction INCOMPLETE: N file(s)…"
+  (⇒ exit 1 via pwsh -File and RECONSTRUCT.bat).
+- Engine: RECONSTRUCT.paths.json added to the Test-IsInfrastructureFile allowlist.
+
+Evidence (real output, local): both original repros re-run — dup-add now creates
+Snapshot_<D0> with both states individually restorable; tampered restore exits 1
+with the INCOMPLETE error. Driver edge probe: 0-byte files through
+shared-removal/delete/re-add cycles — all snapshots + latest restore correctly,
+no spurious throw. `check.ps1 -Tier Full` → lint PASS · trace 0/0/0 ·
+docs fresh · Pester **52/52** · integration **236 PASS / 0 FAIL / 4 SKIP**.
+
+### INDEPENDENT REVIEWER (sonnet subagent) — REVIEW-FINDINGS G3 — 2026-07-02
+Verdict: **APPROVE** (0 defects; 1 cosmetic nit, fixed). Fresh-context probing of
+the three fixes: no false-positive snapshot from layout migration (3-run
+Mirror→HashAddressed+Compress→Mirror cycle ⇒ 0 snapshots; Sync-BackupStorageLayout
+mutates only DataPath/Compressed/StoredAsHashSize, never the diffed fields) or
+forced rehash (freq=A rehash leaves hash/mtime identical); no false-negative
+escape constructed; hypothesized [long]0 empty-file throw does not occur
+(Import-Csv yields string "0" — truthy; end-to-end blank-DataPath 0-byte rows
+hash-recover cleanly); throw semantics verified via pwsh -File AND the generated
+RECONSTRUCT.bat (clean=0, tampered=1, multi-failure message accurate, partial
+tree preserved); PS 7.5 @()-on-List workaround independently reproduced. Ran
+52/52 unit, Mirror full-group sweep 59/0/1, lint 0, trace 0/0/0, Smoke tier all
+green. Nit: test-cases.csv trailing newline — restored by driver.
