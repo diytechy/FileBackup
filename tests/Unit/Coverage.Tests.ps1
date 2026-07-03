@@ -257,6 +257,57 @@ Describe 'Point-in-time restore from a dated snapshot (SR-010)' {
     }
 }
 
+Describe 'Re-deleted content stored once across snapshots (SR-028, SR-010)' {
+    # Adversarial-review scenario: delete -> reintroduce identical bytes -> delete
+    # again. The content's physical data must exist exactly ONCE across the backup
+    # root + all snapshots, while each dated state stays restorable (older
+    # snapshot rows resolve the hash from wherever the single copy lives).
+    It 'keeps one physical copy through a delete/re-add/delete cycle and restores each state' {
+        $root = Join-Path $TestDrive 'cycle'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        function RunAt([datetime]$d) { & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+        $C = 'CYCLE-CONTENT ' + ('data ' * 50)
+        [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), $C)
+        RunAt ([datetime]'2024-01-01 00:00:01')                       # f present
+        Remove-Item -LiteralPath (Join-Path $src 'f.txt')
+        RunAt ([datetime]'2024-02-02 00:00:02')                       # f deleted
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), $C)
+        RunAt ([datetime]'2024-03-03 00:00:03')                       # f reintroduced, identical
+        Remove-Item -LiteralPath (Join-Path $src 'f.txt')
+        RunAt ([datetime]'2024-04-04 00:00:04')                       # f deleted again
+
+        # Exactly one physical copy of C's bytes across backup root + snapshots.
+        $tmp = Join-Path $root 'c.tmp'
+        [IO.File]::WriteAllText($tmp, $C)
+        $h = Get-FileXxHash -FilePath $tmp
+        $len = (Get-Item -LiteralPath $tmp).Length
+        Remove-Item -LiteralPath $tmp
+        $skip = '^(MANIFEST\.csv|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState|backup\.log)'
+        $copies = @(Get-ChildItem -LiteralPath $bkp, $chg -File -Recurse |
+            Where-Object { $_.Name -notmatch $skip -and $_.Length -eq $len -and
+                           (Get-FileXxHash -FilePath $_.FullName) -eq $h })
+        $copies.Count | Should -Be 1
+
+        # Each dated state still restores correctly from that single copy.
+        $snapD1 = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        $snapD3 = Join-Path $chg 'Snapshot_2024_03_03_00_00_03'
+        foreach ($snap in $snapD1, $snapD3) {                          # f existed at D1/D3
+            $t = Join-Path $root ('r-' + [IO.Path]::GetFileName($snap))
+            & (Join-Path $snap 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+            [IO.File]::ReadAllText((Join-Path $t 'f.txt')) | Should -Be $C
+        }
+        $tRoot = Join-Path $root 'r-latest'                            # latest: f absent
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $tRoot *>&1 | Out-Null
+        Test-Path -LiteralPath (Join-Path $tRoot 'f.txt') | Should -BeFalse
+        [IO.File]::ReadAllText((Join-Path $tRoot 'steady.txt')) | Should -Be 'STEADY'
+    }
+}
+
 Describe 'Restore target guard (SR-009)' {
     # Independent-review finding: the old '-like' guard falsely rejected a sibling
     # whose name shares the backup-root prefix (e.g. bk vs bk-restore).
