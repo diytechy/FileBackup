@@ -176,11 +176,18 @@ because the backup and the restore can be decoupled:
   FAT-family filesystem returns EPERM and aborts the whole compose. HomeHub hit
   exactly this. **Pre-create every bind-mount path before starting the
   container.**
-- **The policy question is the Owner's, not this document's.**
-  `HOMELAB_TOPOLOGY.md` item 3 states "No `.bat`/`.ps1` anywhere in the
-  pipeline". A container arguably honours the intent — nothing on the host is
-  PowerShell — while contradicting the letter. That ruling needs revisiting
-  explicitly rather than being quietly worked around.
+- **The policy question is settled — the container is allowed.** When this
+  document was first written, `HOMELAB_TOPOLOGY.md` item 3 read "No `.bat`/`.ps1`
+  anywhere in the pipeline", which a PowerShell container contradicts on the
+  letter while meeting the intent. **The Owner softened it on 2026-08-09**: they
+  are now "avoided in the pipeline where possible". The rule existed to stop the
+  hub depending on Windows-shaped tooling — and a runner that is PowerShell only
+  *inside the image*, with nothing on the host being PowerShell, satisfies that.
+  **The constraints that did not move**, and which this integration must still
+  meet: the hub grows no PowerShell dependency on the host; bash stays the
+  default; every failure posts `ok=false` and exits non-zero; and the backup must
+  remain restorable **without its own runtime** — which is exactly what
+  `bash/reconstruct.sh` provides, and why it should not be allowed to rot.
 
 ---
 
