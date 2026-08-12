@@ -38,6 +38,7 @@
                 [pscustomobject]@{
                     Name               = 'MainData'
                     SourcePath         = 'D:\Data'
+                    SourceStatePath    = 'E:\Backups\SourceState' # optional; required for read-only container sources
                     BackupPath         = 'E:\Backups\DataStore'
                     ChangePath         = 'E:\Backups\DataChanges'
                     HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N

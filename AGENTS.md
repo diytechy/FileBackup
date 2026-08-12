@@ -25,6 +25,7 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 | `FileBackup.ps1` | Thin entry point: import modules, read config, loop `Invoke-BackupSet`, optional mail. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
+| `Dockerfile`, `container/`, `scripts/Invoke-Container.ps1` | **Linux container runtime and lifecycle** (phase `container-v1`): digest-pinned non-root image, JSON configuration entrypoint, compressed build/restore smoke test, offline tar export, and optional OCI registry publish/pull. | n/a |
 
 **The Common/Engine split is load-bearing.** `New-ReconstructScript` copies
 `Reconstruct.ps1`, `reconstruct.sh`, `FileBackup.Common.psm1`,
@@ -216,6 +217,9 @@ Invoke-Pester -Path tests\Unit -Output Detailed
 
 # integration (Subst backend; no admin)
 .\RunAllTests.bat
+
+# container build + compressed byte-exact roundtrip (Docker required)
+pwsh -File scripts\Invoke-Container.ps1 -Action BuildAndTest
 ```
 
 A change to engine/restore code must keep the **whole suite green and lint clean**
@@ -244,9 +248,13 @@ alongside any behavior change. `pwsh scripts/check.ps1 -Tier Full` runs it all.
 | NTFS free-space / capacity   | — | 🟡 | 🟡 |
 | exFAT / FAT32 + >4 GB file   | — | — | 🟡 |
 | Standalone restore (no repo) | ✅¹ | 🟡 | 🟡 |
+| Container build + roundtrip   | ✅² | — | — |
 
 ¹ `RECONSTRUCT.ps1` runs from the backup folder using only bundled files; a "copy backup
 elsewhere, restore, byte-compare" check is part of the hardware runbook.
+
+² Linux CI builds the pinned image and drives a real compressed backup plus restore through
+`scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
 **Current automated total:** 236 integration assertions (4 modes × G1–G7 = 160, plus
 G9 Rollback = 76; G8 SKIP under Subst) + 63 Pester unit/coverage tests; lint clean.
@@ -278,6 +286,8 @@ label not matching `FBTEST-*`, so it can't touch a production volume.
 - **GitHub `windows-latest` (pwsh)** — `.github/workflows/tests.yml`: `lint` →
   PSScriptAnalyzer; `unit` → Pester (NUnit published); `integration-subst` → all 4 modes,
   JUnit published. 7-Zip ships on the runner; `System.IO.Hashing` is installed + cached.
+- **GitHub `ubuntu-latest` (Docker)** — builds the container and verifies a compressed
+  two-file backup, complete six-artifact restore kit, and byte-exact containerized restore.
 - **Self-hosted VHDX** — gated by repo var `HAS_SELF_HOSTED_HYPERV == 'true'` on a
   `[self-hosted, windows, hyper-v]` runner. `RunAllTests.bat VHDX`.
 - **Hardware (RealUSB) runbook** — `Setup-USB.bat` (wipes a USB, makes four GPT/NTFS

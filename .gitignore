@@ -15,3 +15,6 @@ __pycache__/
 
 # Pester code-coverage output
 coverage.xml
+
+# Local OCI image exports from scripts/Invoke-Container.ps1 -Action Export
+.artifacts/

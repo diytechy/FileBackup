@@ -6,6 +6,7 @@
     {
       "Name": "HomeHub",
       "SourcePath": "/source",
+      "SourceStatePath": "/state",
       "BackupPath": "/backup",
       "ChangePath": "/changes",
       "HashRecalcFreq": "W",

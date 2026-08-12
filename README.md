@@ -151,6 +151,7 @@ The equivalent container-oriented JSON is:
   "BackupSets": [{
     "Name": "MainData",
     "SourcePath": "/source",
+    "SourceStatePath": "/state",
     "BackupPath": "/backup",
     "ChangePath": "/changes",
     "HashRecalcFreq": "W",
@@ -169,6 +170,7 @@ before backup processing instead of writing raw bytes described as compressed.
 | Field | Meaning |
 |---|---|
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
+| `SourceStatePath` | Optional writable folder for the source hash-cache `MANIFEST.csv`. Omit for legacy in-source storage; containers should set a unique path outside the read-only source, backup, and change trees. |
 | `CompressEnabled` | `$true` stores data files as `.7z` (already-compressed extensions are exempt). |
 | `PreserveFolderTree` | `$true` mirrors the source tree under the backup root; `$false` stores content-addressed `<hashShort> <sizeShort>.<ext>` files referenced via the manifest. |
 | `AllowEmptySource` | Defaults to `$false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `$true` only for an intentional delete-all. |
@@ -186,13 +188,14 @@ host bind-mount directory (especially on NTFS/exFAT mounts):
 
 ```bash
 cp container/FileBackup.example.json /srv/homehub/filebackup.json
-mkdir -p /srv/backups/current /srv/backups/changes /srv/backups/logs
+mkdir -p /srv/backups/source-state /srv/backups/current /srv/backups/changes /srv/backups/logs
 docker build -t filebackup:local .
 docker run --rm --network none --read-only \
   --security-opt no-new-privileges --cap-drop ALL \
   --tmpfs /tmp:rw,noexec,nosuid,nodev \
   -v /srv/homehub/filebackup.json:/config/FileBackup.json:ro \
   -v /srv/library:/source:ro \
+  -v /srv/backups/source-state:/state \
   -v /srv/backups/current:/backup \
   -v /srv/backups/changes:/changes \
   -v /srv/backups/logs:/logs \
@@ -200,11 +203,62 @@ docker run --rm --network none --read-only \
 ```
 
 `compose.example.yaml` expresses the same boundary using
-`FILEBACKUP_SOURCE`, `FILEBACKUP_DESTINATION`, `FILEBACKUP_CHANGES`, and
-`FILEBACKUP_LOGS`. The source and config are read-only; backup, change, and log
-mounts must be writable by the selected `FILEBACKUP_UID`/`FILEBACKUP_GID`.
+`FILEBACKUP_SOURCE`, `FILEBACKUP_STATE`, `FILEBACKUP_DESTINATION`,
+`FILEBACKUP_CHANGES`, and `FILEBACKUP_LOGS`. The source and config are read-only;
+source-state, backup, change, and log mounts must be writable by the selected
+`FILEBACKUP_UID`/`FILEBACKUP_GID`. Give each backup set its own state folder.
 The entrypoint preserves FileBackup's exit code, so HomeHub can wrap the job and
 post its own NagLight result without coupling this project to that service.
+
+### Build, verify, and move the image
+
+The checked-in helper uses the same commands locally and in CI. Its test creates
+a real compressed backup in the container, checks the six-file recovery kit,
+restores it in a second container, and compares every file byte-for-byte:
+
+```powershell
+pwsh -File scripts/Invoke-Container.ps1 -Action BuildAndTest
+```
+
+The helper auto-detects Docker or Podman; use `-Runtime Docker` or
+`-Runtime Podman` to pin one. A locally installed Podman CLI also needs its
+machine/socket running (`podman machine start` on Windows).
+
+For an offline HomeHub, export and later load the OCI image tar:
+
+```powershell
+pwsh -File scripts/Invoke-Container.ps1 -Action Export `
+  -OutputPath .artifacts/filebackup-image.tar
+docker load --input .artifacts/filebackup-image.tar
+```
+
+NuGet is only a **build dependency source** here: the Dockerfile downloads the
+pinned `System.IO.Hashing` package, verifies its SHA-256, and extracts the DLL
+into the image. NuGet does not publish, activate, or fetch the container.
+
+To use Repsy later, create a Docker repository there, authenticate without
+putting the token on a command line, then publish a fully-qualified image tag:
+
+```powershell
+docker login docker.repsy.io                         # username + API token
+$remote = 'docker.repsy.io/YOUR_USER/YOUR_REPOSITORY/filebackup:1.0.0'
+pwsh -File scripts/Invoke-Container.ps1 -Action Publish -RegistryImage $remote
+```
+
+The same flow works with Podman by adding `-Runtime Podman` and using
+`podman login docker.repsy.io`.
+
+Another machine fetches and gives the image its local name with:
+
+```powershell
+pwsh -File scripts/Invoke-Container.ps1 -Action Pull `
+  -RegistryImage docker.repsy.io/YOUR_USER/YOUR_REPOSITORY/filebackup:1.0.0
+```
+
+Alternatively set `FILEBACKUP_IMAGE` to the remote tag when using
+`compose.example.yaml`; Compose will pull it when it is not already local.
+Registry publication is optional—the local build and exported tar are complete
+consumption paths on their own.
 
 ---
 

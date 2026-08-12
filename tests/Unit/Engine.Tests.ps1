@@ -92,6 +92,39 @@ Describe 'Test-IsInfrastructureFile' {
     }
 }
 
+Describe 'External source state' {
+    It 'keeps the cache outside the source and treats a root MANIFEST.csv as user data' {
+        $source = Join-Path $TestDrive 'external-state-source'
+        $state = Join-Path $TestDrive 'external-state-cache'
+        New-Item -ItemType Directory -Path $source,$state | Out-Null
+        Set-Content -LiteralPath (Join-Path $source 'sample.txt') -Value 'sample'
+        Set-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Value 'user-owned data'
+
+        $rows = @(Update-SourceManifest -SourcePath $source -ManifestFolderPath $state)
+
+        $rows.Count | Should -Be 2
+        $rows.RelativePath | Should -Contain 'MANIFEST.csv'
+        Test-Path -LiteralPath (Join-Path $state 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Raw).Trim() | Should -Be 'user-owned data'
+    }
+
+    It 'rejects a state cache nested inside the source tree' {
+        $source = Join-Path $TestDrive 'nested-state-source'
+        $backup = Join-Path $TestDrive 'nested-state-backup'
+        $changes = Join-Path $TestDrive 'nested-state-changes'
+        New-Item -ItemType Directory -Path $source | Out-Null
+        $set = [pscustomobject]@{
+            Name = 'UnsafeState'
+            SourcePath = $source
+            SourceStatePath = (Join-Path $source '.state')
+            BackupPath = $backup
+            ChangePath = $changes
+        }
+
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage '*must not be inside SourcePath*'
+    }
+}
+
 Describe 'Resolve-OptionalTool non-interactive (SR-016, SR-020)' {
     # If -NonInteractive blocked on Read-Host these tests would hang, never pass.
     It 'returns null for a missing tool without prompting (SR-016)' {

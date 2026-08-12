@@ -332,23 +332,39 @@ function Update-SourceManifest {
     .SYNOPSIS
         Walks the source tree, (re)hashes new/changed files (and all files when
         -ForceRehash), marks (hash,length) duplicates, and writes the source
-        MANIFEST.csv. Returns the rows.
+        MANIFEST.csv. ManifestFolderPath may place that mutable hash cache
+        outside a read-only source tree. Returns the rows.
     #>
     # Implements: SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourcePath,
+        [string]$ManifestFolderPath,
         [string]$FfprobePath,
         [switch]$ForceRehash
     )
     $sourcePath = (Resolve-Path -LiteralPath $SourcePath).Path
-    $existing   = Read-Manifest -FolderPath $sourcePath
+    if ([string]::IsNullOrWhiteSpace($ManifestFolderPath)) {
+        $manifestFolder = $sourcePath
+    } else {
+        if (-not (Test-Path -LiteralPath $ManifestFolderPath -PathType Container)) {
+            New-Item -ItemType Directory -Path $ManifestFolderPath -Force | Out-Null
+        }
+        $manifestFolder = (Resolve-Path -LiteralPath $ManifestFolderPath).Path
+    }
+    $existing = Read-Manifest -FolderPath $manifestFolder
 
     $existingMap = @{}
     foreach ($row in $existing) { $existingMap[$row.RelativePath] = $row }
 
-    # B6: skip only the root manifest, keep nested files named MANIFEST.csv.
-    $files = Get-DataFile -Root $sourcePath
+    # With the legacy in-source cache, skip only root-level infrastructure and
+    # keep nested files with those names. With an external cache every source
+    # file is user data, including a root-level MANIFEST.csv.
+    $files = if ($manifestFolder -eq $sourcePath) {
+        Get-DataFile -Root $sourcePath
+    } else {
+        Get-ChildItem -LiteralPath $sourcePath -Recurse -File
+    }
 
     $updated = New-Object System.Collections.Generic.List[object]
     foreach ($f in $files) {
@@ -400,7 +416,7 @@ function Update-SourceManifest {
         }
     }
 
-    Write-Manifest -FolderPath $sourcePath -Records $sorted
+    Write-Manifest -FolderPath $manifestFolder -Records $sorted
     return $sorted
 }
 
@@ -732,9 +748,14 @@ function New-ReconstructScript {
         [Parameter(Mandatory)][string]$BackupRoot,
         [Parameter(Mandatory)][string]$ChangeRoot
     )
-    $templatePs1 = Join-Path (Split-Path $PSScriptRoot -Parent) $script:Def.ReconstructPs1Name
-    if (-not (Test-Path -LiteralPath $templatePs1 -PathType Leaf)) {
-        throw "Reconstruct.ps1 not found at '$(Split-Path $PSScriptRoot -Parent)'"
+    $templateRoot = Split-Path $PSScriptRoot -Parent
+    $templatePs1 = @($script:Def.ReconstructPs1Name, 'Reconstruct.ps1') |
+        Select-Object -Unique |
+        ForEach-Object { Join-Path $templateRoot $_ } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+        Select-Object -First 1
+    if (-not $templatePs1) {
+        throw "Reconstruct.ps1 not found at '$templateRoot'"
     }
 
     # Copy the reconstruct script verbatim.
@@ -798,7 +819,43 @@ function Resolve-BackupSetPaths {
         $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath).Path
     }
 
-    return [pscustomobject]@{ SrcPath = $srcPath; BkpPath = $bkpPath; ChgPath = $chgPath }
+    $srcStatePath = $srcPath
+    if (-not [string]::IsNullOrWhiteSpace([string]$Set.SourceStatePath)) {
+        $srcStatePath = (Resolve-Path -LiteralPath $Set.SourceStatePath -ErrorAction SilentlyContinue).Path
+        if (-not $srcStatePath) {
+            New-Item -ItemType Directory -Path $Set.SourceStatePath -Force | Out-Null
+            $srcStatePath = (Resolve-Path -LiteralPath $Set.SourceStatePath).Path
+        }
+    }
+
+    if ($srcStatePath -ne $srcPath) {
+        $comparison = if ($IsWindows) {
+            [System.StringComparison]::OrdinalIgnoreCase
+        } else {
+            [System.StringComparison]::Ordinal
+        }
+        $separator = [System.IO.Path]::DirectorySeparatorChar
+        $isWithin = {
+            param([string]$Candidate, [string]$Root)
+            $prefix = $Root.TrimEnd('\','/') + $separator
+            return $Candidate.StartsWith($prefix, $comparison)
+        }
+        if (& $isWithin $srcStatePath $srcPath) {
+            throw "SourceStatePath '$srcStatePath' must not be inside SourcePath '$srcPath' because its cache would be backed up as source data."
+        }
+        foreach ($ownedPath in @($bkpPath, $chgPath)) {
+            if ($srcStatePath -eq $ownedPath -or (& $isWithin $srcStatePath $ownedPath)) {
+                throw "SourceStatePath '$srcStatePath' must be separate from backup/change storage '$ownedPath'."
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        SrcPath = $srcPath
+        SrcStatePath = $srcStatePath
+        BkpPath = $bkpPath
+        ChgPath = $chgPath
+    }
 }
 
 function Initialize-StagingFolder {
@@ -1187,8 +1244,9 @@ function Invoke-BackupSet {
     & $log "HashRecalcFreq=$($Set.HashRecalcFreq), LastHashRun=$lastHashRun, Recalculate=$recalc"
 
     # 5. Update source manifest (B4: forced rehash when scheduled)
-    & $log "Updating source manifest at '$($paths.SrcPath)'."
-    $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc
+    & $log "Updating source manifest cache at '$($paths.SrcStatePath)'."
+    $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -ManifestFolderPath $paths.SrcStatePath `
+        -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc
 
     # A previously populated source becoming completely empty is commonly an
     # unavailable/mis-mounted share. Treat it as unsafe before any backup bytes

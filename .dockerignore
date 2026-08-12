@@ -7,6 +7,7 @@ docs
 scripts
 tests
 coverage.xml
+.artifacts
 BuildAlbum
 *.log
 *.xml
