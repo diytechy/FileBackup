@@ -14,7 +14,7 @@
         * MANIFEST.csv read / write
         * Shared defaults (filenames, alphabet, date formats, tool paths)
 
-    It must stay dependency-free beyond the K4os.Hash.xxHash NuGet package and
+    It must stay dependency-free beyond the System.IO.Hashing NuGet package and
     7-Zip, because New-ReconstructScript (in FileBackup.Engine.psm1) copies this
     file alongside Reconstruct.ps1 into every backup/change folder so that a
     restore works with nothing but the backup folder present.
@@ -27,6 +27,7 @@
 $script:DatabaseFilename      = 'MANIFEST.csv'
 $script:ReconstructPs1Name    = 'RECONSTRUCT.ps1'
 $script:ReconstructBatName    = 'RECONSTRUCT.bat'
+$script:ReconstructShName     = 'reconstruct.sh'
 $script:ReconstructLogName    = 'RECONSTRUCT.log'
 $script:CommonModuleName      = 'FileBackup.Common.psm1'
 
@@ -56,8 +57,30 @@ $script:NonCompressibleExtensions = @(
     '.jpg', '.jpeg', '.png', '.webp'
 )
 
-$script:SevenZipDefaultPath = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-$script:FfprobePathDefault  = 'C:\ffmpeg\bin\ffprobe.exe'
+# Tool defaults are intentionally resolved at import time so callers receive one
+# stable value for the run. Environment overrides are the container-friendly
+# contract; platform defaults and PATH discovery keep local use zero-config.
+$script:SevenZipDefaultPath = $env:FILEBACKUP_7ZIP_PATH
+if ([string]::IsNullOrWhiteSpace($script:SevenZipDefaultPath) -and $IsWindows -and $env:ProgramFiles) {
+    $script:SevenZipDefaultPath = [System.IO.Path]::Combine($env:ProgramFiles, '7-Zip', '7z.exe')
+}
+if ([string]::IsNullOrWhiteSpace($script:SevenZipDefaultPath) -or
+    -not (Test-Path -LiteralPath $script:SevenZipDefaultPath -PathType Leaf)) {
+    $sevenZipCommand = Get-Command -Name '7z','7zz','7za' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($sevenZipCommand) { $script:SevenZipDefaultPath = $sevenZipCommand.Path }
+}
+
+$script:FfprobePathDefault = $env:FILEBACKUP_FFPROBE_PATH
+if ([string]::IsNullOrWhiteSpace($script:FfprobePathDefault) -and $IsWindows) {
+    $script:FfprobePathDefault = 'C:\ffmpeg\bin\ffprobe.exe'
+}
+if ([string]::IsNullOrWhiteSpace($script:FfprobePathDefault) -or
+    -not (Test-Path -LiteralPath $script:FfprobePathDefault -PathType Leaf)) {
+    $ffprobeCommand = Get-Command -Name 'ffprobe' -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($ffprobeCommand) { $script:FfprobePathDefault = $ffprobeCommand.Path }
+}
 
 function Get-FileBackupDefaults {
     <#
@@ -71,6 +94,7 @@ function Get-FileBackupDefaults {
         DatabaseFilename         = $script:DatabaseFilename
         ReconstructPs1Name       = $script:ReconstructPs1Name
         ReconstructBatName       = $script:ReconstructBatName
+        ReconstructShName        = $script:ReconstructShName
         ReconstructLogName       = $script:ReconstructLogName
         CommonModuleName         = $script:CommonModuleName
         CSVDateFormat            = $script:CSVDateFormat

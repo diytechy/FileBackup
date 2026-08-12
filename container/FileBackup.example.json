@@ -1,0 +1,16 @@
+{
+  "Tools": {
+    "SevenZipPath": "/usr/bin/7z"
+  },
+  "BackupSets": [
+    {
+      "Name": "HomeHub",
+      "SourcePath": "/source",
+      "BackupPath": "/backup",
+      "ChangePath": "/changes",
+      "HashRecalcFreq": "W",
+      "CompressEnabled": true,
+      "PreserveFolderTree": false
+    }
+  ]
+}

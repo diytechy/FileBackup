@@ -31,9 +31,10 @@
 # Reconstruct.ps1 originally over-skipped recursively; that was fixed 2026-07-03
 # (TC-058), so both implementations now match the contract identically.
 #
-# Because reconstruct.sh is one self-contained external file (it is NOT copied
-# into each snapshot the way Reconstruct.ps1 is), the restore ORIGIN is named by
-# --from (default: the current directory) rather than the script's own location.
+# reconstruct.sh is copied into the live backup and each snapshot. The restore
+# ORIGIN is still named by --from (default: the current directory), rather than
+# the script's location, so callers may also keep one external rescue copy and
+# point it at any compatible backup.
 #
 # Exit codes: 0 = complete; 1 = restore INCOMPLETE (unrestored rows); 2 = usage
 # or precondition failure (bad args, missing manifest, target inside backup,

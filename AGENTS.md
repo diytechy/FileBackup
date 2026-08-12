@@ -24,11 +24,12 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 | `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, … | No |
 | `FileBackup.ps1` | Thin entry point: import modules, read config, loop `Invoke-BackupSet`, optional mail. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
-| `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | no (bundling deferred) |
+| `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
 
 **The Common/Engine split is load-bearing.** `New-ReconstructScript` copies
-`Reconstruct.ps1`, `FileBackup.Common.psm1`, `System.IO.Hashing.dll`, and a
-`RECONSTRUCT.paths.json` sidecar into each backup folder so a restore needs nothing else.
+`Reconstruct.ps1`, `reconstruct.sh`, `FileBackup.Common.psm1`,
+`System.IO.Hashing.dll`, and a `RECONSTRUCT.paths.json` sidecar into each backup
+folder so a restore needs nothing else.
 Therefore:
 
 - Anything `Reconstruct.ps1` calls **must live in Common**, not Engine.
@@ -248,7 +249,7 @@ alongside any behavior change. `pwsh scripts/check.ps1 -Tier Full` runs it all.
 elsewhere, restore, byte-compare" check is part of the hardware runbook.
 
 **Current automated total:** 236 integration assertions (4 modes × G1–G7 = 160, plus
-G9 Rollback = 76; G8 SKIP under Subst) + 48 Pester unit/coverage tests, all green; lint clean.
+G9 Rollback = 76; G8 SKIP under Subst) + 63 Pester unit/coverage tests; lint clean.
 
 ### Suite groups
 | Group | Covers |
@@ -335,6 +336,7 @@ B16 (`Test-ShouldCompress` param rename), B17 (`PrepPropertiesFile.ps1` marked l
   and CI lanes (lint + unit + Subst integration).
 
 ### Docs
-Consolidated into exactly two files — `README.md` (setup & use) and this `AGENTS.md`
-(architecture, invariants, tests, history). The earlier `IMPLEMENTATION_SUMMARY.md`,
+Consolidated the legacy overview into `README.md` (setup & use) and this `AGENTS.md`
+(architecture, invariants, tests, history); gated process and integration material now
+lives under `docs/`. The earlier `IMPLEMENTATION_SUMMARY.md`,
 `CHANGES.md`, `CHANGELOG.md`, `TEST_MATRIX.md`, and `tests/README.md` were folded in here.

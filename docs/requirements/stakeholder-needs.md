@@ -42,7 +42,7 @@ specific; the System Engineer turns each into measurable SRs).
 | SN-013 | Interruption / power loss / killed mid-operation | The next run detects the leftover `Temp` staging folder and aborts with a clear message rather than proceeding on a half-written state; a completed change folder is only ever produced atomically (rename after its manifest is written). |
 | SN-014 | Invalid input — config file missing | Fail immediately with a clear "config not found" message and a non-zero exit; do nothing destructive. |
 | SN-015 | Missing **required** dependency / wrong runtime (PowerShell 5.1, no `System.IO.Hashing`) | Fail loudly with remediation guidance; never run hashing against a bogus/absent library. |
-| SN-016 | Missing **optional** dependency (7-Zip when compressing, ffprobe for media metrics) | Degrade gracefully: skip compression/media metrics, log it, keep going — not fatal. |
+| SN-016 | Missing external tool (7-Zip when compression is selected, ffprobe for media metrics) | Fail before backup mutation when a selected storage feature cannot be honored; degrade only optional media metrics, with a clear log message. |
 | SN-017 | Awkward file names (Unicode, `[brackets]`, `(parens)`, spaces) | Backed up and restored correctly; path handling never mis-parses bracketed/Unicode names. |
 | SN-018 | A *nested* user file happens to be named like infrastructure (e.g. `MANIFEST.csv`) | Treated as real user data and preserved — only true root-level infrastructure files are filtered (regression B6). |
 | SN-019 | Restore target too small / unwritable | The restore surfaces an insufficient-capacity/space problem (accounting for compressed data) rather than silently producing a partial tree. |

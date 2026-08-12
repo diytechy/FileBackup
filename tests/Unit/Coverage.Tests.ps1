@@ -38,6 +38,31 @@ Describe 'Dated point-in-time snapshot (SR-005)' {
     }
 }
 
+Describe 'Cross-platform restore kit deposition (SR-007, SR-031)' {
+    It 'bundles Windows and POSIX restore entry points in the live backup and snapshot' {
+        $src = Join-Path $TestDrive 'kit\src'; $bkp = Join-Path $TestDrive 'kit\bkp'; $chg = Join-Path $TestDrive 'kit\chg'
+        $cfg = Join-Path $TestDrive 'kit\c.xml'
+        New-Item -ItemType Directory -Path $src, (Split-Path $cfg) -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v1'); Invoke-FB $cfg
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v2'); Invoke-FB $cfg
+
+        $snap = Get-ChildItem -LiteralPath $chg -Directory |
+                Where-Object { $_.Name -match '^Snapshot_' } | Select-Object -First 1
+        $snap | Should -Not -BeNullOrEmpty
+        foreach ($folder in $bkp, $snap.FullName) {
+            foreach ($entryPoint in 'RECONSTRUCT.bat', 'RECONSTRUCT.ps1', 'reconstruct.sh') {
+                Test-Path -LiteralPath (Join-Path $folder $entryPoint) -PathType Leaf | Should -BeTrue
+            }
+        }
+
+        # The deployed POSIX entry point must be the tested repository artifact,
+        # not a generated or stale variant.
+        (Get-FileHash -LiteralPath (Join-Path $bkp 'reconstruct.sh') -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath (Join-Path $repo 'bash\reconstruct.sh') -Algorithm SHA256).Hash
+    }
+}
+
 Describe 'Independent multi-set processing (SR-014)' {
     It 'runs the good set and exits non-zero when another set fails (SR-014)' {
         $good = Join-Path $TestDrive 's14\good'; $bkp = Join-Path $TestDrive 's14\bkp'; $chg = Join-Path $TestDrive 's14\chg'
@@ -376,6 +401,43 @@ Describe 'Restore fails loudly when content is unrecoverable (SR-029)' {
     }
 }
 
+Describe 'Restore dependency preflight (SR-008, SR-029)' {
+    It 'refuses a restore origin whose MANIFEST.csv is missing' {
+        $root = Join-Path $TestDrive 'missing-manifest'
+        $origin = Join-Path $root 'backup'; $target = Join-Path $root 'restore'
+        New-Item -ItemType Directory -Path $origin -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repo 'Reconstruct.ps1') -Destination $origin
+        Copy-Item -LiteralPath (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Destination $origin
+
+        { & (Join-Path $origin 'Reconstruct.ps1') -TargetRoot $target } |
+            Should -Throw -ExpectedMessage '*MANIFEST.csv not found*'
+    }
+
+    It 'refuses compressed rows when 7-Zip is unavailable instead of copying archive bytes as the file' {
+        $root = Join-Path $TestDrive 'missing7z'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'not-an-archive')
+        Invoke-FB $cfg
+
+        # Model a compressed row without depending on whether 7-Zip is installed
+        # on the test host. Before the guard, this copied the source bytes and
+        # reported a successful restore.
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+        $rows = Import-Csv -LiteralPath $manifest
+        $rows[0].Compressed = 'Yes'
+        $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+
+        $target = Join-Path $root 'restore'
+        $missingTool = Join-Path $root 'does-not-exist\7z.exe'
+        { & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target -SevenZipPath $missingTool } |
+            Should -Throw -ExpectedMessage '*7-Zip is required*'
+        Test-Path -LiteralPath (Join-Path $target 'f.txt') | Should -BeFalse
+    }
+}
+
 Describe 'Reconstruct sidecar is infrastructure (SR-022)' {
     # 2026-07-02 review finding: RECONSTRUCT.paths.json was missing from the
     # Test-IsInfrastructureFile allowlist, producing false orphan WARNs each run.
@@ -410,6 +472,25 @@ Describe 'Restore target guard (SR-009)' {
         $sib = Join-Path $root 'bk-restore'                                 # prefix-sharing sibling ⇒ allowed
         { & $recon -TargetRoot $sib } | Should -Not -Throw
         Test-Path -LiteralPath (Join-Path $sib 'f.txt') | Should -BeTrue
+    }
+
+    It 'refuses a manifest RelativePath that escapes the target root' {
+        $root = Join-Path $TestDrive 's9-traversal'
+        $src = Join-Path $root 'src'; $bk = Join-Path $root 'bk'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bk -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'payload.txt'), 'payload'); Invoke-FB $cfg
+
+        $manifest = Join-Path $bk 'MANIFEST.csv'
+        $rows = Import-Csv -LiteralPath $manifest
+        $rows[0].RelativePath = '..\ESCAPED.txt'
+        $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+
+        $target = Join-Path $root 'restore'
+        { & (Join-Path $bk 'RECONSTRUCT.ps1') -TargetRoot $target } |
+            Should -Throw -ExpectedMessage '*1 file(s) could not be restored*'
+        Test-Path -LiteralPath (Join-Path $root 'ESCAPED.txt') | Should -BeFalse
     }
 }
 

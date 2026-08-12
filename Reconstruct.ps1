@@ -24,7 +24,8 @@
 param(
     [string]$TargetRoot,
     [string]$BackupRootOverride,
-    [string]$ChangeRootOverride
+    [string]$ChangeRootOverride,
+    [string]$SevenZipPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -142,7 +143,9 @@ $logPath = Join-Path $TargetRoot $ReconstructLogName
 function Read-RawManifest {
     param([string]$Folder)
     $path = Join-Path $Folder $DatabaseFilename
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @() }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "MANIFEST.csv not found in restore origin '$Folder'. The backup folder is incomplete."
+    }
     Import-Csv -LiteralPath $path
 }
 
@@ -204,7 +207,16 @@ if ($haveSnapshotTree) {
 }
 $searchFolders.Add($backupRoot)
 
-$sevenZipPath = $Def.SevenZipDefaultPath
+if ([string]::IsNullOrWhiteSpace($SevenZipPath)) {
+    $SevenZipPath = $Def.SevenZipDefaultPath
+}
+if ($anyCompressed -and
+    ([string]::IsNullOrWhiteSpace($SevenZipPath) -or
+     -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf))) {
+    $msg = "7-Zip is required to restore compressed rows, but was not found at '$SevenZipPath'. Install 7-Zip or pass -SevenZipPath."
+    "$(Get-Date -Format 'O') - ERROR: $msg" | Out-File -LiteralPath $logPath -Append
+    throw $msg
+}
 
 # ---- Reconstruct ----
 # Every row that cannot be restored is recorded; a partial restore must FAIL
@@ -216,6 +228,12 @@ $unrestored = New-Object System.Collections.Generic.List[string]
 foreach ($rel in $main.Keys) {
     $row     = $main[$rel]
     $destFull = Join-Path $TargetRoot $rel
+    if (-not (Test-PathIsInside -Child $destFull -Parent $TargetRoot)) {
+        "$(Get-Date -Format 'O') - WARN: '$rel' escapes the target root (path traversal); refusing." |
+            Out-File -LiteralPath $logPath -Append
+        $unrestored.Add($rel)
+        continue
+    }
     $destDir  = [System.IO.Path]::GetDirectoryName($destFull)
     if (-not (Test-Path -LiteralPath $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
@@ -227,7 +245,7 @@ foreach ($rel in $main.Keys) {
     if ([string]::IsNullOrWhiteSpace($dataPath)) {
         if ($row.xxH2Hash -and $row.Length) {
             "$(Get-Date -Format 'O') - No datapath for $rel; attempting hash scan..." | Out-File -LiteralPath $logPath -Append
-            $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $sevenZipPath
+            $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
             if ($found) {
                 "$(Get-Date -Format 'O') - Hash-recovered $rel from '$found'" | Out-File -LiteralPath $logPath -Append
                 $srcFull = $found
@@ -251,9 +269,9 @@ foreach ($rel in $main.Keys) {
         continue
     }
 
-    if ($row.Compressed -eq 'Yes' -and (Test-Path -LiteralPath $sevenZipPath -PathType Leaf)) {
+    if ($row.Compressed -eq 'Yes') {
         try {
-            Expand-FileWithSevenZip -SevenZipPath $sevenZipPath -Archive $srcFull -DestinationFile $destFull
+            Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $srcFull -DestinationFile $destFull
         } catch {
             "$(Get-Date -Format 'O') - WARN: 7-Zip extraction failed for $rel : $($_.Exception.Message)" | Out-File -LiteralPath $logPath -Append
             $unrestored.Add($rel)

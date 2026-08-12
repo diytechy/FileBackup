@@ -48,6 +48,7 @@ function Test-IsInfrastructureFile {
         $script:Def.DatabaseFilename,
         $script:Def.ReconstructPs1Name,
         $script:Def.ReconstructBatName,
+        $script:Def.ReconstructShName,
         $script:Def.ReconstructLogName,
         $script:Def.CommonModuleName,
         'System.IO.Hashing.dll',
@@ -77,8 +78,17 @@ function Get-DataFile {
 # region Backup state file (B3 + dated snapshots)
 
 function Read-BackupState {
+    <#
+    .SYNOPSIS
+        Reads FileBackupState.json, returning an empty state only when the file
+        does not exist.
+    .DESCRIPTION
+        A malformed state file is a safety failure, not an absent first-run
+        state. Callers use LastBackupRun to name the snapshot that preserves the
+        current backup; silently treating corrupt JSON as empty can cause that
+        staging snapshot to be discarded.
+    #>
     # Implements: SR-011, SR-028, LLR-011, LLR-028
-    # Reads FileBackupState.json as a hashtable, tolerating a missing/corrupt file.
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$BackupRoot)
     $statePath = Join-Path $BackupRoot 'FileBackupState.json'
@@ -89,8 +99,7 @@ function Read-BackupState {
         foreach ($p in $obj.PSObject.Properties) { $h[$p.Name] = $p.Value }
         return $h
     } catch {
-        Write-Verbose "Could not parse state file '$statePath': $($_.Exception.Message)"
-        return @{}
+        throw "Could not parse backup state '$statePath'. Refusing to continue because snapshot history cannot be dated safely. $($_.Exception.Message)"
     }
 }
 
@@ -177,13 +186,21 @@ function Resolve-OptionalTool {
         [string]$Name,
         [string]$Path,
         [scriptblock]$InstallHint,
-        [switch]$NonInteractive
+        [switch]$NonInteractive,
+        [switch]$Required
     )
-    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        if ($InstallHint) { & $InstallHint }
+        if ($Required) { throw "$Name is required by the selected configuration but no executable path was resolved." }
+        return $null
+    }
     if (Test-Path -LiteralPath $Path -PathType Leaf) { return $Path }
 
     Write-Warning "$Name not found at '$Path'."
     if ($InstallHint) { & $InstallHint }
+    if ($Required) {
+        throw "$Name is required by the selected configuration but was not found at '$Path'."
+    }
     # SR-016: under -NonInteractive degrade silently to "absent" rather than block.
     if ($NonInteractive) {
         Write-Warning "Continuing without $Name (non-interactive)."
@@ -202,21 +219,23 @@ function Initialize-Dependencies {
         [bool]$AnyMediaMetricsNeeded,
         [scriptblock]$Log,
         [switch]$NonInteractive,
-        [switch]$AutoInstall
+        [switch]$AutoInstall,
+        [AllowNull()][string]$SevenZipPath = $script:Def.SevenZipDefaultPath,
+        [AllowNull()][string]$FfprobePath = $script:Def.FfprobePathDefault
     )
     $deps = [ordered]@{}
 
     if ($AnyCompressionNeeded) {
-        $deps['7z'] = Resolve-OptionalTool -Name '7-Zip' -Path $script:Def.SevenZipDefaultPath -NonInteractive:$NonInteractive -InstallHint {
-            & $Log 'Please install 7-Zip from https://www.7-zip.org/ and adjust the path if needed.' 'WARN'
+        $deps['7z'] = Resolve-OptionalTool -Name '7-Zip' -Path $SevenZipPath -Required -NonInteractive:$NonInteractive -InstallHint {
+            & $Log 'Install 7-Zip or set Tools.SevenZipPath / FILEBACKUP_7ZIP_PATH.' 'ERROR'
         }
     } else {
         $deps['7z'] = $null
     }
 
     if ($AnyMediaMetricsNeeded) {
-        $deps['ffprobe'] = Resolve-OptionalTool -Name 'ffprobe' -Path $script:Def.FfprobePathDefault -NonInteractive:$NonInteractive -InstallHint {
-            & $Log 'Please install ffmpeg/ffprobe into C:\ffmpeg\bin or adjust the path.' 'WARN'
+        $deps['ffprobe'] = Resolve-OptionalTool -Name 'ffprobe' -Path $FfprobePath -NonInteractive:$NonInteractive -InstallHint {
+            & $Log 'Install ffmpeg/ffprobe or set Tools.FfprobePath / FILEBACKUP_FFPROBE_PATH.' 'WARN'
         }
     } else {
         $deps['ffprobe'] = $null
@@ -698,9 +717,10 @@ function Optimize-ChangeFolders {
 function New-ReconstructScript {
     <#
     .SYNOPSIS
-        Copies RECONSTRUCT.ps1/.bat into the backup root, writes a path sidecar,
-        and bundles the runtime dependencies (FileBackup.Common.psm1 +
-        System.IO.Hashing.dll) so a restore works from the backup folder alone.
+        Copies the Windows and POSIX restore entry points into the backup root,
+        writes a path sidecar, and bundles the PowerShell runtime dependencies
+        (FileBackup.Common.psm1 + System.IO.Hashing.dll) so a restore works from
+        the backup folder alone.
     .NOTES
         Earlier versions prepended "$BackupRootOverride = ..." lines ahead of the
         script's param() block, which is invalid PowerShell. Paths are now passed
@@ -719,6 +739,15 @@ function New-ReconstructScript {
 
     # Copy the reconstruct script verbatim.
     Copy-Item -LiteralPath $templatePs1 -Destination (Join-Path $BackupRoot $script:Def.ReconstructPs1Name) -Force
+
+    # The bash restorer is deliberately self-contained and needs no PowerShell.
+    # Deposit it beside the Windows kit so a copied backup remains recoverable on
+    # POSIX hosts without access to this repository.
+    $templateSh = Join-Path (Split-Path $PSScriptRoot -Parent) (Join-Path 'bash' $script:Def.ReconstructShName)
+    if (-not (Test-Path -LiteralPath $templateSh -PathType Leaf)) {
+        throw "reconstruct.sh not found at '$templateSh'"
+    }
+    Copy-Item -LiteralPath $templateSh -Destination (Join-Path $BackupRoot $script:Def.ReconstructShName) -Force
 
     # Path bindings as a sidecar (read by Reconstruct.ps1 from $PSScriptRoot).
     @{ BackupRoot = $BackupRoot; ChangeRoot = $ChangeRoot } |
@@ -1080,7 +1109,7 @@ function Complete-ChangeFolder {
 
     # Copy the full reconstruct kit (incl. the path sidecar) so a snapshot restore
     # is self-contained and can resolve unchanged bytes by hash from the backup root.
-    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
+    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.ReconstructShName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
         $src = Join-Path $BkpPath $artifact
         if (Test-Path -LiteralPath $src -PathType Leaf) {
             Copy-Item -LiteralPath $src -Destination $finalSnapshot -Force
@@ -1124,6 +1153,13 @@ function Invoke-BackupSet {
     # Completion date of the PREVIOUS backup names this run's snapshot (SR-005);
     # $null on the first backup ⇒ no snapshot. Read before we overwrite state.
     $priorBackupDate = Get-LastBackupRun -BackupRoot $paths.BkpPath
+    $existingManifest = Join-Path $paths.BkpPath $script:Def.DatabaseFilename
+    if ($null -eq $priorBackupDate -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
+        $existingRows = @(Read-Manifest -FolderPath $paths.BkpPath)
+        if ($existingRows.Count -gt 0) {
+            throw "Backup state at '$($paths.BkpPath)' has no LastBackupRun, but its existing MANIFEST.csv contains $($existingRows.Count) row(s). Refusing to mutate it because the prior state could not be snapshotted safely."
+        }
+    }
     $thisBackupDate  = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
 
     # 2. Logger
@@ -1153,6 +1189,19 @@ function Invoke-BackupSet {
     # 5. Update source manifest (B4: forced rehash when scheduled)
     & $log "Updating source manifest at '$($paths.SrcPath)'."
     $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc
+
+    # A previously populated source becoming completely empty is commonly an
+    # unavailable/mis-mounted share. Treat it as unsafe before any backup bytes
+    # are migrated or staged. Operators performing an intentional delete-all can
+    # opt in per set with AllowEmptySource = $true; an initially empty source is
+    # still valid.
+    if ($sourceDb.Count -eq 0 -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
+        $priorRows = @(Read-Manifest -FolderPath $paths.BkpPath)
+        if ($priorRows.Count -gt 0 -and -not ([bool]$Set.AllowEmptySource)) {
+            Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+            throw "Source '$($paths.SrcPath)' is empty while the existing backup contains $($priorRows.Count) manifest row(s). Refusing delete-all; set AllowEmptySource = `$true for an intentional empty-source backup."
+        }
+    }
 
     # 6. Sanitize / migrate backup storage layout
     & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."

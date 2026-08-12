@@ -1,7 +1,8 @@
 # FileBackup
 
 Periodic, content-aware backup with change tracking and self-contained
-reconstruction scripts. PowerShell **7+**, Windows.
+reconstruction scripts. PowerShell **7+** on Windows, or the provided Linux
+container for unattended backup runs.
 
 FileBackup walks a source tree, hashes every file with **xxHash128**, deduplicates
 identical content by `(hash, size)`, optionally compresses with 7-Zip, and records
@@ -9,10 +10,12 @@ everything in a `MANIFEST.csv`. When a run supersedes earlier content it preserv
 **dated point-in-time snapshot** (`Snapshot_<date>`) of the prior state, and drops a
 **self-contained restore kit** into the backup so you can rebuild *any* point in time —
 the latest from the backup folder, or an earlier state from its dated snapshot — with
-nothing but that folder. No repository, no installs.
+nothing but that folder and the documented restore tools. No repository or NuGet
+download is needed at restore time.
 
-> **Status:** functional and covered by a green test suite — 212 integration assertions
-> across all four storage modes (incl. the G9 rollback matrix) plus 42 unit tests.
+> **Status:** functional and covered across all four storage modes, including the
+> G9 rollback matrix. Current suite totals and the full test matrix live in
+> **[AGENTS.md](AGENTS.md)**.
 > Contributors and agents modifying the tool should read **[AGENTS.md](AGENTS.md)**
 > (architecture, invariants, test matrix, history).
 
@@ -76,10 +79,10 @@ First run installs `System.IO.Hashing` per-user (prompts unless already present)
 Open the backup folder and run **`RECONSTRUCT.bat`**. It asks for a target directory and
 writes a `RECONSTRUCT.log` next to the restored tree. To restore a *historical* state,
 run the `RECONSTRUCT.bat` inside a specific dated `Snapshot_<date>` folder instead — it
-reproduces exactly the state as of that backup. The backup
-folder is self-contained — it carries `RECONSTRUCT.ps1`, the hashing module, the
-`System.IO.Hashing.dll`, and a path sidecar — so restore works on a machine without this
-repo.
+reproduces exactly the state as of that backup. The backup folder is self-contained —
+it carries `RECONSTRUCT.bat`, `RECONSTRUCT.ps1`, `reconstruct.sh`, the hashing module,
+`System.IO.Hashing.dll`, and a path sidecar — so restore works on a machine without
+this repo.
 
 ### Restore on Linux (no PowerShell)
 
@@ -104,13 +107,17 @@ auto-detected from that location; pass `--backup-root` / `--change-root` to
 override (needed when the backup and change folders are not nested — the sidecar's
 Windows paths are ignored on Linux). Like the Windows restorer it **fails loudly**:
 it restores everything recoverable, then exits non-zero naming any file it could
-not restore (a clean restore exits 0). Copying `bash/reconstruct.sh` into each
-backup folder is a planned convenience — for now run it from a checkout of this
-repo. See `bash reconstruct.sh --help`.
+not restore (a clean restore exits 0). New backups carry the tested script as
+`reconstruct.sh` in the live root and each snapshot; an external rescue copy of
+the same script also works. See `bash reconstruct.sh --help`.
 
 ---
 
 ## Config format
+
+`FileBackup.ps1 -ConfigPath` accepts CLIXML (`.xml`) and JSON (`.json`). CLIXML
+remains useful for a Windows-only SMTP `PSCredential`; JSON is the portable,
+secret-free format intended for containers and HomeHub.
 
 ```powershell
 @{
@@ -130,18 +137,74 @@ repo. See `bash reconstruct.sh --help`.
             HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
             CompressEnabled    = $true
             PreserveFolderTree = $false   # $true = mirror tree; $false = "<hash> <size>" names
+            AllowEmptySource   = $false   # true only for an intentional delete-all
         }
     )
 } | Export-Clixml -Path $HOME\BackupConfig.xml
 ```
+
+The equivalent container-oriented JSON is:
+
+```json
+{
+  "Tools": { "SevenZipPath": "/usr/bin/7z" },
+  "BackupSets": [{
+    "Name": "MainData",
+    "SourcePath": "/source",
+    "BackupPath": "/backup",
+    "ChangePath": "/changes",
+    "HashRecalcFreq": "W",
+    "CompressEnabled": true,
+    "PreserveFolderTree": false
+  }]
+}
+```
+
+`Tools.SevenZipPath` and `Tools.FfprobePath` are optional overrides. The same
+values can be supplied as `FILEBACKUP_7ZIP_PATH` and
+`FILEBACKUP_FFPROBE_PATH`; otherwise FileBackup checks platform defaults and
+`PATH`. If a set requests compression and 7-Zip is unavailable, the run fails
+before backup processing instead of writing raw bytes described as compressed.
 
 | Field | Meaning |
 |---|---|
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
 | `CompressEnabled` | `$true` stores data files as `.7z` (already-compressed extensions are exempt). |
 | `PreserveFolderTree` | `$true` mirrors the source tree under the backup root; `$false` stores content-addressed `<hashShort> <sizeShort>.<ext>` files referenced via the manifest. |
+| `AllowEmptySource` | Defaults to `$false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `$true` only for an intentional delete-all. |
 
 You can list multiple `BackupSets`; each is processed independently.
+
+---
+
+## Run as a Linux container
+
+The image bakes PowerShell, `System.IO.Hashing`, and 7-Zip at build time, runs as
+a non-root user, and performs no runtime package installation. Copy
+`container/FileBackup.example.json` before editing it, then pre-create every
+host bind-mount directory (especially on NTFS/exFAT mounts):
+
+```bash
+cp container/FileBackup.example.json /srv/homehub/filebackup.json
+mkdir -p /srv/backups/current /srv/backups/changes /srv/backups/logs
+docker build -t filebackup:local .
+docker run --rm --network none --read-only \
+  --security-opt no-new-privileges --cap-drop ALL \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev \
+  -v /srv/homehub/filebackup.json:/config/FileBackup.json:ro \
+  -v /srv/library:/source:ro \
+  -v /srv/backups/current:/backup \
+  -v /srv/backups/changes:/changes \
+  -v /srv/backups/logs:/logs \
+  filebackup:local
+```
+
+`compose.example.yaml` expresses the same boundary using
+`FILEBACKUP_SOURCE`, `FILEBACKUP_DESTINATION`, `FILEBACKUP_CHANGES`, and
+`FILEBACKUP_LOGS`. The source and config are read-only; backup, change, and log
+mounts must be writable by the selected `FILEBACKUP_UID`/`FILEBACKUP_GID`.
+The entrypoint preserves FileBackup's exit code, so HomeHub can wrap the job and
+post its own NagLight result without coupling this project to that service.
 
 ---
 
@@ -153,7 +216,7 @@ SOURCE                      BACKUP (latest state)                 SNAPSHOTS (old
 D:\Data\report.docx  -hash→ E:\…\DataStore\Ab92Cd 5K.7z          E:\…\DataChanges\
 D:\Data\photo.jpg    -hash→ E:\…\DataStore\Xy7Ko 3M.jpg            Snapshot_2026_03_19_22_50_06\
                             MANIFEST.csv                            ← full point-in-time MANIFEST.csv
-                            RECONSTRUCT.ps1/.bat                       + only the superseded bytes
+                            RECONSTRUCT.ps1/.bat/.sh                   + only the superseded bytes
                             FileBackup.Common.psm1                     + a restore kit
                             System.IO.Hashing.dll                  Snapshot_2026_02_10_08_00_00\  …
                             FileBackupState.json
@@ -194,6 +257,9 @@ docs/                    Gated-process docs: status.md, requirements/, test/, pl
 AGENTS.md                Contributor/agent guide (architecture, invariants, tests, history)
 ```
 
+For the current HomeHub/container gap analysis and its explicitly unverified
+findings, see [docs/homehub-integration.md](docs/homehub-integration.md).
+
 ---
 
 ## Testing
@@ -217,3 +283,6 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   are logged, never fatal.
 - **Stale `Temp` folder error.** A prior run aborted mid-flight; remove the leftover `Temp`
   folder under your `ChangePath` and re-run.
+- **Unexpected empty source.** A previously populated set fails before mutating the backup
+  when its source becomes empty (often an unavailable share). Set `AllowEmptySource = $true`
+  on that set only when deleting every backed-up file is intentional.

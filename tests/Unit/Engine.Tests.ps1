@@ -75,7 +75,7 @@ Describe 'Compare-SourceToBackup' {
 Describe 'Test-IsInfrastructureFile' {
     It 'flags root-level infrastructure files' {
         $root = Join-Path $TestDrive 'bk'; New-Item -ItemType Directory -Path $root | Out-Null
-        foreach ($n in 'MANIFEST.csv','RECONSTRUCT.ps1','FileBackup.Common.psm1','System.IO.Hashing.dll') {
+        foreach ($n in 'MANIFEST.csv','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll') {
             $p = Join-Path $root $n; Set-Content -LiteralPath $p -Value 'x'
             Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeTrue
         }
@@ -103,6 +103,10 @@ Describe 'Resolve-OptionalTool non-interactive (SR-016, SR-020)' {
         try { Resolve-OptionalTool -Name 'Present' -Path $f.FullName -NonInteractive | Should -Be $f.FullName }
         finally { Remove-Item -LiteralPath $f.FullName -Force }
     }
+    It 'fails closed when a selected feature requires the missing tool (SR-020)' {
+        { Resolve-OptionalTool -Name 'RequiredBogus' -Path 'Z:\does\not\exist\bogus.exe' -Required -NonInteractive 3>$null } |
+            Should -Throw -ExpectedMessage '*required*not found*'
+    }
 }
 
 Describe 'FileBackup.ps1 entry point (SR-018)' {
@@ -110,5 +114,36 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
         $entry = Join-Path $repo 'FileBackup.ps1'
         { & $entry -ConfigPath (Join-Path $TestDrive 'no-such-config.xml') -NoMail -NonInteractive } |
             Should -Throw -ExpectedMessage '*not found*'
+    }
+
+    It 'accepts the JSON configuration format used by the container' {
+        $entry = Join-Path $repo 'FileBackup.ps1'
+        $source = Join-Path $TestDrive 'json-source'
+        $backup = Join-Path $TestDrive 'json-backup'
+        $changes = Join-Path $TestDrive 'json-changes'
+        $config = Join-Path $TestDrive 'FileBackup.json'
+        $log = Join-Path $TestDrive 'logs\global.log'
+        New-Item -ItemType Directory -Path $source | Out-Null
+        Set-Content -LiteralPath (Join-Path $source 'sample.txt') -Value 'container config'
+        @{
+            BackupSets = @(@{
+                Name = 'JSON'; SourcePath = $source; BackupPath = $backup; ChangePath = $changes
+                HashRecalcFreq = 'N'; CompressEnabled = $false; PreserveFolderTree = $false
+            })
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $config -Encoding UTF8
+
+        { & $entry -ConfigPath $config -GlobalLogPath $log -NoMail -NonInteractive *>&1 | Out-Null } |
+            Should -Not -Throw
+        Test-Path -LiteralPath (Join-Path $backup 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath $log -PathType Leaf | Should -BeTrue
+    }
+
+    It 'rejects a JSON configuration with no backup sets' {
+        $entry = Join-Path $repo 'FileBackup.ps1'
+        $config = Join-Path $TestDrive 'empty.json'
+        '{}' | Set-Content -LiteralPath $config -Encoding UTF8
+
+        { & $entry -ConfigPath $config -NoMail -NonInteractive } |
+            Should -Throw -ExpectedMessage '*at least one BackupSets entry*'
     }
 }

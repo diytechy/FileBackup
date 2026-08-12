@@ -30,9 +30,11 @@ pause for human approval — **without breaking the working tool.**
 > **Gates vs. groups:** process gates are `G1, G2, G3, G-Release, G-Final`. The
 > test harness's `G1…G9` are storage-mode *suites* — a different namespace.
 
-> **Live state:** this file is the session kickoff brief; the retrofit has since
-> progressed through G1/G2 into G3 — always read the *Current State* header of
-> [docs/status.md](docs/status.md) for the active gate and next action.
+> **Live state:** this file preserves the original retrofit kickoff sequence; its
+> pre-filled scope and test counts are historical. The retrofit has since
+> progressed through G1/G2 into G3 and added a standalone Linux restore path.
+> Always read [AGENTS.md](AGENTS.md) and the *Current State* header of
+> [docs/status.md](docs/status.md) for the current platform, kit, and gate truth.
 
 ## What's already scaffolded (don't recreate)
 
@@ -52,21 +54,23 @@ pause for human approval — **without breaking the working tool.**
   7-Zip, `MANIFEST.csv`, dated `Snapshot_<date>` point-in-time snapshots,
   bundled restore kit).
 - **Primary users:** technical Windows users / the author (scheduled + ad-hoc
-  `pwsh` runs); agents modifying the tool.
+  `pwsh` runs), Linux recovery users, and agents modifying the tool.
 - **Must-have outcomes:** correct backup + **bit-exact restore from the backup
   folder alone**; dedup; the four storage modes; change-folder history; mail
   (optional).
-- **Hard constraints:** Windows + PowerShell 7+ only; **Common module must never
-  depend on Engine**; restore kit self-contained (Common + `System.IO.Hashing.dll`
-  + `Reconstruct.ps1` + `RECONSTRUCT.paths.json`); fixed **9-column manifest
-  schema**; `System.IO.Hashing` 8.0.0; 7-Zip/ffprobe optional.
-- **Supported platforms:** Windows / `pwsh` 7+ (no 5.1, no non-Windows).
+- **Hard constraints:** the backup engine currently requires PowerShell 7+;
+  **Common module must never depend on Engine**; restore kit self-contained
+  (Windows and POSIX entry points plus their documented runtime dependencies);
+  fixed **9-column manifest schema**; `System.IO.Hashing` 8.0.0; 7-Zip/ffprobe
+  optional for backup, with 7-Zip required to restore compressed rows.
+- **Supported platforms:** Windows / `pwsh` 7+ for backup; Windows and Linux for
+  standalone recovery. A containerized Linux backup runtime is active work.
 - **Domain hats needed:** Data-integrity/Storage. (No network/mechanical.)
 - **Release cadence:** versioned releases → keep G-Release + the release checklist.
-- **Non-goals (CONFIRM):** non-Windows, GUI, cloud/remote targets, encryption-at-
-  rest — assumed out of scope unless the human says otherwise.
-- **Coverage / quality bar:** existing suite is green (≈160 integration + 27 unit
-  assertions); set `COVERAGE_THRESHOLD` with the human (line coverage on the
+- **Non-goals (CONFIRM):** GUI, cloud/remote targets, encryption-at-rest —
+  assumed out of scope unless the human says otherwise.
+- **Coverage / quality bar:** current totals live in AGENTS.md; set
+  `COVERAGE_THRESHOLD` with the human (line coverage on the
   modules is the target; integration suites count as Demonstration where pure
   coverage doesn't apply).
 - **Definition of done (retrofit):** UN→SR→LLR→TC with **0 orphans**; harness

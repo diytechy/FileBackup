@@ -39,24 +39,26 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 
 1. `Resolve-BackupSetPaths` — Validates the set's SourcePath and resolves (creating if needed) the
 2. `Get-LastBackupRun` — Reads the completion date of the most recent backup — it dates the *next*
-3. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
-4. `Initialize-StagingFolder` — Creates the run's Temp staging folder in the change root; aborts loudly
-5. `Get-LastHashRun` — Reads the persisted time of the last scheduled re-hash sweep
-6. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
+3. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
+4. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
+5. `Initialize-StagingFolder` — Creates the run's Temp staging folder in the change root; aborts loudly
+6. `Get-LastHashRun` — Reads the persisted time of the last scheduled re-hash sweep
 7. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
-8. `Update-SourceManifest` — Walks the source tree, (re)hashes new/changed files (and all files when
-9. `Sync-BackupStorageLayout` — Migrates backup data files to match the current PreserveFolderTree /
-10. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder.
-11. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
-12. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
-13. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
-14. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
-15. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder.
-16. `New-ReconstructScript` — Copies RECONSTRUCT.ps1/.bat into the backup root, writes a path sidecar,
-17. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-18. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-19. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-20. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+8. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
+9. `Update-SourceManifest` — Walks the source tree, (re)hashes new/changed files (and all files when
+10. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
+11. `Sync-BackupStorageLayout` — Migrates backup data files to match the current PreserveFolderTree /
+12. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder.
+13. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
+14. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
+15. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
+16. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
+17. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder.
+18. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+19. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
+20. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
+21. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+22. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities

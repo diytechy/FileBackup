@@ -1,5 +1,20 @@
 # HomeHub integration — findings against FileBackup, and whether it can ship as a container
 
+> **Implementation update (2026-08-12).** This document began as a read-only
+> review, so the detailed findings below preserve that review's evidence and
+> wording. The repository now includes a runnable container boundary:
+> [`Dockerfile`](../Dockerfile), [`compose.example.yaml`](../compose.example.yaml),
+> a non-root [`container/entrypoint.sh`](../container/entrypoint.sh), and a
+> portable JSON configuration example. Finding 0 is fixed by cross-platform tool
+> discovery plus `FILEBACKUP_7ZIP_PATH` / `Tools.SevenZipPath`; finding B is
+> closed fail-safe by refusing a compression-enabled run when 7-Zip is absent.
+> `System.IO.Hashing.dll` and 7-Zip are baked into the image, and the entrypoint
+> keeps email/runtime installation disabled and propagates the process exit
+> status. Docker was not installed in the review workstation, so the image still
+> needs a real Linux build/run in CI before container support should be called
+> release-verified. NagLight posting remains intentionally outside this repo: a
+> HomeHub wrapper should translate the preserved exit status into its feed event.
+
 **Written 2026-08-09 from the HomeHub side.** Nothing in this repo was changed to
 produce it. It exists because the Owner has directed that FileBackup be brought
 back and folded into the HomeHub backup flow, and a cross-check was run first.
@@ -8,11 +23,12 @@ back and folded into the HomeHub backup flow, and a cross-check was run first.
 > this repo**, cross-checking it against defects found and fixed the same day in
 > HomeHub's bash reimplementation (`MiniPC-Deployer/stack/backup/*`). Each
 > finding was then attacked by an independent adversarial pass whose instruction
-> was to refute it at a specific line. **FileBackup itself was never executed.**
-> So: the code paths are real and cited, but no failure here has been
-> *reproduced*. Treat every row as "verified by reading, needs a reproducing
-> test" — which is also the fastest way to close them, since `tests/` covers
-> none of them today.
+> was to refute it at a specific line. **FileBackup itself was never executed for
+> the original review.** So: the cited code paths were real at the time, but each
+> finding remains "verified by reading, needs a reproducing test" until a later
+> disposition explicitly names its test evidence. Line numbers are historical
+> review coordinates and may move as fixes land; function names and requirement
+> IDs are the stable references.
 
 ---
 
@@ -57,18 +73,138 @@ image exists.
 
 Severity is about consequence, not effort.
 
-| # | finding | where | consequence |
-|---|---|---|---|
-| **A** | **Missing 7-Zip is treated as "do not compress", not as an error.** `Reconstruct.ps1:254` gates the decompress branch on `Compressed -eq 'Yes'` **AND** `Test-Path $sevenZipPath`. With 7-Zip absent that falls through to the plain-copy `else` at `:262-264`, which writes the **`.7z` container bytes to the destination under the original filename** (`holiday.jpg` containing 7z bytes). The row never enters `$unrestored`, `:267` passes, `:272-273` print "Reconstruction finished", exit 0. Nothing re-hashes what was written. | `Reconstruct.ps1:254,262-264,267,272` | **Silent data corruption on restore.** Combined with finding 0, this is the *default* behaviour on Linux. |
-| **B** | **The same absence corrupts the backup side, permanently.** `$compressFlag` is computed from config + extension only (`Engine.psm1:866`) and never consults tool availability; it drives both the stored filename (`.7z` at `:883`/`:889`) and the manifest's `Compressed` column (`:909`). The actual compression is gated separately at `Engine.psm1:402` on `$ShouldCompress -and $SevenZipPath`. So raw bytes get stored under a `.7z` name while the manifest records `Compressed='Yes'`. | `Engine.psm1:402,866,883,889,909` | The manifest states something false about the bytes. |
-| **C** | **…and the migration engine cannot see the lie, because it asks the manifest.** `Sync-BackupStorageLayout` decides "needs transform" at `Engine.psm1:486` by comparing the manifest's own `Compressed`/`StoredAsHashSize` bookkeeping against the current configuration — never the actual stored form. Once a row is written wrong, a later run on a machine that *does* have 7-Zip evaluates `needsTransform = false` and skips it forever. | `Engine.psm1:486` | **A guard that tests its own output.** The component whose entire job is reconciling stored form against configuration is structurally unable to notice its own error. |
-| **D** | **`Find-DataFileByHash` returns one `$null` for four different causes**: nothing matched; the search folder was unreadable/offline/deleted (`:63` enumerates with `-ErrorAction SilentlyContinue`); 7-Zip absent so every `.7z` candidate was skipped (`:70`); or the lookup threw (`:77-78` catches every exception type into a `Write-Verbose`). The caller logs one WARN, "cannot recover `<rel>` by hash". | `Reconstruct.ps1:63,70,77-78,87` | One message for four causes — the shape that cost HomeHub three hours on `cifs-utils`. |
-| **E** | **Reconstruct verifies only what its manifest lists.** `$main` is built purely from `MANIFEST.csv` rows (`:158-162` via `Read-RawManifest` at `:142-147`, a bare `Import-Csv`), iterates exactly those keys (`:216`), and reaches its verdict by counting only `$unrestored` (`:267-272`). Nothing counts what *should* have been there, so a truncated manifest makes the job **smaller** and it still prints "Reconstruction finished". | `Reconstruct.ps1:142-147,158-162,216,267-272` | A partial restore reports success. HomeHub hit the identical defect in `restore.sh` and fixed it — see §3. |
-| **F** | **A missing or unparseable `FileBackupState.json` destroys superseded history.** `Read-BackupState` returns an empty hashtable both when the file is absent (`Engine.psm1:85`) and when parsing fails (`:91-94`, `catch → return @{}`), so `$priorBackupDate` is `$null` (`:1126`). The run then proceeds: `Save-SupersededData` **moves** the old bytes of every changed file into staging (`:1009`) and `Move-RemovedFilesToStaging` moves the last reference of every removed file (`:963`) — physically out of the live backup root. `Complete-ChangeFolder` is reached with `$ManifestChanged=$true` and `$SnapshotDate=$null`, and its first branch (`:1054`) **deletes staging**, while logging "first backup". | `Engine.psm1:85,91-94,963,1009,1054,1126` | **Irreversible loss of the only surviving copies**, reported as a normal first run. |
-| **G** | **An existing-but-empty source is read as "everything was deleted."** `RemovedFromSource` covers every row, staging takes all the bytes, and the live backup is emptied in one run. There is no plausibility gate. | backup-side diff path | HomeHub's reimplementation **has** this guard (`INGEST_ALLOW_EMPTY` refuses to mirror-delete from a share that came up empty) and the spec it was written from does not. |
-| **H** | **No destination preflight.** Nothing checks that the backup destination is a real mounted volume rather than an empty directory of the same name on the system disk. | — | HomeHub's step 0 exists precisely for this; a `nofail` mount that did not mount otherwise produces a green backup onto the wrong disk. |
-| **I** | **No retention of any kind.** Nothing prunes, rotates or ages out a snapshot — verified by enumerating every `Remove-Item` in the product: `Engine.psm1:527/551` (temp files during layout migration), `:561` (an old data file, only after the manifest points at its new location), `:666` (a duplicate data file during cross-snapshot dedup, with `:681` blanking `DataPath` so restore still recovers by hash), `:1054` (the current run's staging), `Common.psm1:439` (a 7-Zip temp dir). None touches a `Snapshot_*` folder. | whole product | **Not a bug — a design gap for this use.** Growth is bounded by deduplication alone. Adopting this model does not remove "the drive fills"; it changes it from *loudly, in a few nights* to *silently, eventually, with no knob*. |
-| **J** | **Backup-side failures stop at the first one.** Two `Move-Item` loops abort on their first failure and there is no failure count. (The restore side is fine — `$unrestored` is the right shape.) | backup-side move loops | One error line can hide many. |
+### A — Missing 7-Zip silently corrupts PowerShell restores
+
+**Where:** `Reconstruct.ps1:254,262-264,267,272` (historical coordinates).
+
+`Reconstruct.ps1` gates decompression on `Compressed -eq 'Yes'` **and** a
+present 7-Zip executable. With 7-Zip absent, it falls through to the plain-copy
+branch and writes `.7z` container bytes under the original filename. The row is
+not marked unrestored, so the script reports success.
+
+**Consequence:** silent data corruption on restore.
+
+### B — Missing 7-Zip can make the backup manifest lie
+
+**Where:** `Copy-SourceFileToBackup` and `Invoke-BackupFileGroup` in
+`FileBackup.Engine.psm1` (historically lines 402, 866, 883, 889, and 909).
+
+The compression flag controls the `.7z` filename and `Compressed='Yes'`
+manifest value, while the actual compression call is separately gated on a
+non-empty 7-Zip path. Raw bytes can therefore be stored under a `.7z` name while
+the manifest says they are compressed.
+
+**Consequence:** the manifest states something false about the stored bytes.
+
+### C — Layout migration trusts the same potentially false metadata
+
+**Where:** `Sync-BackupStorageLayout` in `FileBackup.Engine.psm1` (historically
+line 486).
+
+The migration decision compares the manifest's `Compressed` and
+`StoredAsHashSize` values with current configuration, not the physical file
+form. A later run with 7-Zip available can therefore consider a malformed row
+already correct and leave it unrepaired.
+
+**Consequence:** the reconciliation guard can validate its own bad output.
+
+### D — Hash recovery collapses distinct failures into one message
+
+**Where:** `Find-DataFileByHash` in `Reconstruct.ps1` (historically lines 63,
+70, 77-78, and 87).
+
+The function returns `$null` when nothing matches, a search folder is
+unreadable or absent, 7-Zip is unavailable for archive candidates, or lookup
+throws. The caller emits the same "cannot recover by hash" warning for all four.
+
+**Consequence:** operators cannot distinguish missing content from a missing
+dependency or inaccessible storage.
+
+### E — Restore can only verify the rows its manifest still contains
+
+**Where:** `Read-RawManifest` and the reconstruction loop in `Reconstruct.ps1`
+(historically lines 142-147, 158-162, 216, and 267-272).
+
+The restore dictionary comes only from `MANIFEST.csv`, and success counts only
+rows that failed during that loop. Truncating the manifest makes the job
+smaller, so an incomplete restore can still report success. Counting physical
+data files cannot close this by itself because dedup means logical rows and
+stored files are not one-to-one.
+
+**Consequence:** a partial restore can report success.
+
+### F — Missing backup state can discard superseded history
+
+**Where:** `Read-BackupState`, `Save-SupersededData`,
+`Move-RemovedFilesToStaging`, and `Complete-ChangeFolder` in
+`FileBackup.Engine.psm1` (historically lines 85, 91-94, 963, 1009, 1054, and
+1126).
+
+A missing or unparseable `FileBackupState.json` becomes an empty state, so the
+prior backup date is `$null`. Changed and removed bytes are moved into staging,
+but `Complete-ChangeFolder` treats a null snapshot date as "first backup" and
+deletes that staging folder.
+
+**Consequence:** the only superseded copies can be deleted during an otherwise
+normal-looking run. This finding especially needs a reproducing test.
+
+### G — An empty source is interpreted as deleting everything
+
+**Where:** the backup diff and removal path.
+
+When an existing source enumerates zero files, every prior row is
+`RemovedFromSource`; no plausibility gate distinguishes an intentionally empty
+source from an unavailable or mis-mounted one.
+
+**Consequence:** the live backup can be emptied. HomeHub has an explicit
+`INGEST_ALLOW_EMPTY` override for this case.
+
+### H — The backup destination has no mount-identity preflight
+
+**Where:** backup-set path resolution and orchestration.
+
+Nothing establishes that the destination is the intended mounted volume rather
+than an ordinary directory created at the expected mount point.
+
+**Consequence:** a failed `nofail` mount can produce a green backup on the wrong
+disk.
+
+### I — Snapshot retention is unbounded
+
+**Where:** the whole product; no removal path prunes a `Snapshot_*` folder.
+
+Nothing rotates or ages out snapshots. Deduplication slows growth but does not
+bound it.
+
+**Consequence:** this is a design gap, not a defect; the backup volume will
+eventually fill without an external retention policy.
+
+### J — Backup-side move loops stop at the first failure
+
+**Where:** `Move-RemovedFilesToStaging` and `Save-SupersededData`.
+
+The move loops abort on the first error and do not aggregate failures as the
+restore side does with `$unrestored`.
+
+**Consequence:** one visible error can hide the remaining failures.
+
+### Disposition from the 2026-08-12 review
+
+- **A — fixed and regression-tested.** The PowerShell restorer now preflights
+  7-Zip whenever the authoritative manifest contains compressed rows and fails
+  before writing archive bytes as restored content.
+- **B — fixed and regression-tested.** A backup configured for compression now
+  fails dependency initialization when 7-Zip is unavailable, before processing
+  any set; it can no longer write raw bytes under a `.7z` name.
+- **F — fixed and regression-tested.** A non-initial backup no longer treats
+  missing/corrupt run state as a first run and discards staged history.
+- **G — fixed and regression-tested.** An empty-source transition is refused by
+  default and requires an explicit opt-in.
+- **Recovery-kit gap — fixed and regression-tested.** New live backups and dated
+  snapshots carry `RECONSTRUCT.bat`, `RECONSTRUCT.ps1`, and `reconstruct.sh`;
+  the POSIX script remains self-contained and does not require PowerShell.
+- **C, D, E, H, I, and J — open** unless a later status entry records a
+  reproducing test and disposition. Containerization is tracked separately.
 
 ### A false parity claim, worth deleting on sight
 
@@ -102,8 +238,8 @@ This is not a one-way list, and the integration should keep these.
   a blank one is recovered by content hash. This is why a 20 KB
   `bash/reconstruct.sh` can exist at all, and it is the strongest argument for
   this model over an opaque-repo tool.
-- **Complete traceability.** `scripts/trace.py --strict` reports
-  `UN=21 SR=27 LLR=26 TC=41 orphans=0`.
+- **Complete traceability.** `scripts/trace.py --strict` is part of the Smoke
+  gate and currently reports zero traceability orphans.
 
 ---
 
@@ -115,7 +251,7 @@ transferable:
 
 | HomeHub fix | relevance here |
 |---|---|
-| **Restore reconciles three witnesses** — manifest count, table count, and an independent census of the archive — because the manifest count is *not* independent (it is written by the same loop). | Directly addresses finding **E**. **The fix does not port as-is**: it uses `tar -t` on a container archive, and FileBackup writes a file-per-file tree with no container to census. FileBackup needs a *different* independent witness — the obvious candidate is a count of data files actually present in the pool. **This is the main open design question.** |
+| **Restore reconciles three witnesses** — manifest count, table count, and an independent census of the archive — because the manifest count is *not* independent (it is written by the same loop). | Directly addresses finding **E**. **The fix does not port as-is**: it uses `tar -t` on a container archive, while FileBackup writes a deduplicated file pool. Counting pool files cannot prove how many logical paths belonged in a manifest. FileBackup needs a separately persisted witness, such as atomically written manifest metadata carrying a row count and digest. The exact witness and trust model remain an open design question. |
 | **Distinct exit codes per cause** (skipped set / unknown set / damaged run / not trustworthy) instead of one status. | Addresses finding **D**. |
 | **Capacity preflight before writing anything**, refusing loudly. | Addresses finding **H**. Note this repo already found and fixed its own version — `docs/status.md` records `[BLOCKER→FIXED] SR-023 capacity check was a no-op` (the `throw` sat inside a `try/catch` that swallowed it). Worth checking the backup side has the same guard the restore side now does. |
 | **Empty-source refusal with an explicit override.** | Addresses finding **G**. |
@@ -124,8 +260,15 @@ transferable:
 
 ## 4. Can it ship as a container HomeHub imports and hands a config to?
 
-**Yes, and it is a good fit — with four things to settle first.** The shape works
+**Yes, and it is a good fit.** The shape works
 because the backup and the restore can be decoupled:
+
+> **2026-08-12 implementation update:** this repository now includes a non-root
+> one-shot `Dockerfile`, `compose.example.yaml`, a POSIX entrypoint, portable JSON
+> configuration, Linux-safe tool discovery, and the hashing DLL baked into the
+> image. The remaining HomeHub boundary work is mount/sentinel validation,
+> NagLight status translation, retention policy, container CI, and supply-chain
+> pinning. The original four-item analysis below is retained as review history.
 
 > **Back up inside the container; restore without it.** `bash/reconstruct.sh` is
 > a standalone 20 KB bash restore needing only coreutils, `xxhsum` and `7z`. So
@@ -191,7 +334,11 @@ because the backup and the restore can be decoupled:
 
 ---
 
-## 5. The double-check list
+## 5. Original double-check list
+
+This was the reproduction agenda from the 2026-08-09 reading pass. The current
+dispositions above supersede completed items; the list remains useful context for
+the still-open findings.
 
 In priority order. None of these needs HomeHub — they are all local to this repo.
 

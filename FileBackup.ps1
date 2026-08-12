@@ -18,12 +18,13 @@
           and evicts removed files' previous data into a staging folder.
         * Renames staging to a dated  Snapshot_<date>  point-in-time folder (only
           when something was superseded; the latest state is the live backup) and drops a
-          self-contained RECONSTRUCT.ps1 / .bat (plus the Common module + xxHash
+          self-contained RECONSTRUCT.ps1 / .bat and reconstruct.sh (plus the Common module + xxHash
           DLL) into the backup and change folders.
         * Optionally emails success/failure.
 
 .PARAMETER ConfigPath
-    CLIXML config (default: $HOME\BackupConfig.xml). Schema:
+    CLIXML or JSON config (default: $HOME\BackupConfig.xml). The format is
+    selected from the .xml/.json extension. Schema:
 
         @{
             Secrets = @{
@@ -42,9 +43,15 @@
                     HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
                     CompressEnabled    = $true
                     PreserveFolderTree = $false   # $true mirrors the tree; $false uses <hash> <size> names
+                    AllowEmptySource   = $false   # opt in to an intentional delete-all
                 }
             )
         } | Export-Clixml -LiteralPath "$HOME\BackupConfig.xml"
+
+.PARAMETER GlobalLogPath
+    Optional path for dependency and cross-set messages. Defaults to
+    FILEBACKUP_LOG_PATH when set, otherwise Backup_Global.log beside the config.
+    Containers should mount a writable log directory and pass this explicitly.
 
 .PARAMETER NoMail
     Skip the success/failure email even if SMTP details are present.
@@ -61,13 +68,16 @@
 .NOTES
     Requires PowerShell 7+ (pwsh). Dependencies:
         - System.IO.Hashing (NuGet) for xxHash128  - installed on first use / by tests\Setup.ps1.
-        - 7-Zip at %ProgramFiles%\7-Zip\7z.exe when compression is enabled.
-        - ffprobe at C:\ffmpeg\bin\ffprobe.exe for media metrics (optional).
+        - 7-Zip on PATH, at %ProgramFiles%\7-Zip\7z.exe, or configured through
+          Tools.SevenZipPath / FILEBACKUP_7ZIP_PATH when compression is enabled.
+        - ffprobe on PATH or configured through Tools.FfprobePath /
+          FILEBACKUP_FFPROBE_PATH for media metrics (optional).
 #>
 
 [CmdletBinding()]
 param(
     [string]$ConfigPath = "$HOME\BackupConfig.xml",
+    [string]$GlobalLogPath = $env:FILEBACKUP_LOG_PATH,
     [switch]$NoMail,
     [switch]$NonInteractive,
     [switch]$AutoInstallDeps,
@@ -85,12 +95,44 @@ if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
     throw "Config file '$ConfigPath' not found."
 }
 
-$cfg     = Import-Clixml -LiteralPath $ConfigPath
+$ConfigPath = (Resolve-Path -LiteralPath $ConfigPath).Path
+$extension = [System.IO.Path]::GetExtension($ConfigPath)
+$cfg = switch ($extension.ToLowerInvariant()) {
+    '.json' { Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json }
+    '.xml'  { Import-Clixml -LiteralPath $ConfigPath }
+    default { throw "Unsupported config format '$extension'. Use a .xml (CLIXML) or .json file." }
+}
 $Secrets = $cfg.Secrets
-$Sets    = $cfg.BackupSets
+$Sets    = @($cfg.BackupSets | Where-Object { $null -ne $_ })
+if ($Sets.Count -eq 0) {
+    throw "Configuration must define at least one BackupSets entry."
+}
+foreach ($set in $Sets) {
+    foreach ($field in 'Name','SourcePath','BackupPath','ChangePath','HashRecalcFreq') {
+        if ([string]::IsNullOrWhiteSpace([string]$set.$field)) {
+            throw "Every backup set must define a non-empty '$field'."
+        }
+    }
+    foreach ($field in 'CompressEnabled','PreserveFolderTree') {
+        if ($set.PSObject.Properties.Name -notcontains $field) {
+            throw "Backup set '$($set.Name)' must define '$field' as true or false."
+        }
+    }
+    if ([string]$set.HashRecalcFreq -notin 'A','E','D','W','M','Y','N') {
+        throw "Backup set '$($set.Name)' has invalid HashRecalcFreq '$($set.HashRecalcFreq)'. Expected A, E, D, W, M, Y, or N."
+    }
+}
 
 # Temporary logger for dependency messages.
-$globalLogPath = Join-Path ([IO.Path]::GetDirectoryName($ConfigPath)) 'Backup_Global.log'
+$globalLogPath = if ($GlobalLogPath) {
+    $GlobalLogPath
+} else {
+    Join-Path ([IO.Path]::GetDirectoryName($ConfigPath)) 'Backup_Global.log'
+}
+$globalLogDirectory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($globalLogPath))
+if (-not (Test-Path -LiteralPath $globalLogDirectory -PathType Container)) {
+    New-Item -ItemType Directory -Path $globalLogDirectory -Force | Out-Null
+}
 $globalLog     = New-Logger -LogFile $globalLogPath
 
 $anyCompress = $false
@@ -100,8 +142,20 @@ foreach ($s in $Sets) {
     # Set $anyMedia = $true here if you want ffprobe metrics for every set.
 }
 
-$deps = Initialize-Dependencies -AnyCompressionNeeded:$anyCompress -AnyMediaMetricsNeeded:$anyMedia -Log $globalLog `
-    -NonInteractive:$NonInteractive -AutoInstall:$AutoInstallDeps
+$dependencyParams = @{
+    AnyCompressionNeeded  = $anyCompress
+    AnyMediaMetricsNeeded = $anyMedia
+    Log                   = $globalLog
+    NonInteractive        = $NonInteractive
+    AutoInstall           = $AutoInstallDeps
+}
+if ($cfg.Tools -and $null -ne $cfg.Tools.SevenZipPath) {
+    $dependencyParams['SevenZipPath'] = [string]$cfg.Tools.SevenZipPath
+}
+if ($cfg.Tools -and $null -ne $cfg.Tools.FfprobePath) {
+    $dependencyParams['FfprobePath'] = [string]$cfg.Tools.FfprobePath
+}
+$deps = Initialize-Dependencies @dependencyParams
 
 $overallSuccess = $true
 $logPaths = New-Object System.Collections.Generic.List[string]

@@ -1,0 +1,35 @@
+ARG POWERSHELL_IMAGE=mcr.microsoft.com/powershell:7.5-ubuntu-24.04
+FROM ${POWERSHELL_IMAGE}
+
+ARG SYSTEM_IO_HASHING_VERSION=8.0.0
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl p7zip-full unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/filebackup
+
+COPY FileBackup.ps1 Reconstruct.ps1 ./
+COPY Modules/ ./Modules/
+COPY bash/reconstruct.sh ./bash/reconstruct.sh
+COPY container/entrypoint.sh ./container/entrypoint.sh
+
+# Bake the required hashing assembly into the image. Production runs never use
+# FileBackup's interactive/online package installation path.
+RUN curl --fail --location --silent --show-error \
+        "https://api.nuget.org/v3-flatcontainer/system.io.hashing/${SYSTEM_IO_HASHING_VERSION}/system.io.hashing.${SYSTEM_IO_HASHING_VERSION}.nupkg" \
+        --output /tmp/system.io.hashing.zip \
+    && unzip -j /tmp/system.io.hashing.zip 'lib/net8.0/System.IO.Hashing.dll' -d /opt/filebackup/Modules \
+    && rm /tmp/system.io.hashing.zip \
+    && chmod 0555 /opt/filebackup/container/entrypoint.sh \
+    && groupadd --gid 65532 filebackup \
+    && useradd --uid 65532 --gid 65532 --no-create-home --home-dir /tmp/filebackup-home filebackup
+
+ENV FILEBACKUP_CONFIG_PATH=/config/FileBackup.json \
+    FILEBACKUP_LOG_PATH=/logs/Backup_Global.log \
+    FILEBACKUP_7ZIP_PATH=/usr/bin/7z \
+    HOME=/tmp/filebackup-home
+
+USER 65532:65532
+
+ENTRYPOINT ["/opt/filebackup/container/entrypoint.sh"]

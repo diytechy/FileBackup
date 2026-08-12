@@ -31,8 +31,9 @@
     names, a nested user file named MANIFEST.csv (B6), and — in the +Compress
     modes — .7z-stored rows.
 
-    Committed fixtures are STRIPPED of the large/churny Windows-only kit artifacts
-    (RECONSTRUCT.ps1/.bat, FileBackup.Common.psm1, System.IO.Hashing.dll) and the
+    Committed fixtures are STRIPPED of the deployed restore-kit artifacts
+    (RECONSTRUCT.ps1/.bat, reconstruct.sh, FileBackup.Common.psm1,
+    System.IO.Hashing.dll) and the
     per-run backup.log, keeping only MANIFEST.csv + data + Snapshot_* + the tiny
     RECONSTRUCT.paths.json sidecar (kept so the "ignore an unresolvable Windows-path
     sidecar on Linux" path is exercised locally). -Fresh keeps everything — that is
@@ -158,11 +159,11 @@ function Write-ExpectedTsv {
     [System.IO.File]::WriteAllText($OutFile, (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 }
 
-$KitArtifacts = @('RECONSTRUCT.ps1', 'RECONSTRUCT.bat', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
+$KitArtifacts = @('RECONSTRUCT.ps1', 'RECONSTRUCT.bat', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
 
 function Remove-KitBloat {
     param([string]$Folder)
-    # Strip the large/churny Windows-only kit + logs from a committed fixture,
+    # Strip the deployed restore kit + logs from a committed fixture,
     # keeping MANIFEST.csv, data files, Snapshot_* and the tiny path sidecar.
     Get-ChildItem -LiteralPath $Folder -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -in $KitArtifacts -or $_.Name -eq 'backup.log' } |
