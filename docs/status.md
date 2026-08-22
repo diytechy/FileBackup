@@ -136,31 +136,38 @@ last) — it is the record, not required reading for every pass.
 Tracked open work, minted 2026-08-21 from the HomeHub cross-check
 ([homehub-integration.md](homehub-integration.md) §1/§3/§5) and prior review
 carry-overs. Ids are the cross-check's finding letters until each is promoted
-to an SR through the gate.
+to an SR through the gate. **Dispositions human-approved 2026-08-21** ("Yes
+that sounds good — proceed"); each row carries its agreed answer, and the
+work-package order follows the table.
 
-| Item | What | Depends on / blocks | State |
+| Item | What | Disposition (human-approved 2026-08-21) | State |
 |---|---|---|---|
-| **E** | Restore can only verify rows its manifest still contains — a truncated manifest shrinks the job and still reports success. Needs an independently persisted witness (row count + digest); HomeHub's archive census does not port because of dedup. | **Blocks any "restore is trustworthy" claim**; design question → needs its own SN/SR through G1. Partial mitigation shipped: missing-MANIFEST refusal (TC-063). | Open (design) |
-| **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself and never be repaired. | Repro test needed (double-check §5.3). Related to B's fix (SR-020) but not closed by it. | Open |
-| **D** | `Find-DataFileByHash` collapses 4 failure causes into one `$null`/warning. HomeHub's distinct-exit-codes pattern is the porting candidate. | Independent; improves E/A diagnosability. | Open |
-| **H** | No destination mount-identity preflight — a failed mount can produce a green backup on the wrong disk. | **Delegated to HomeHub via IF-001** ("HomeHub owns mount-identity preflight"); revisit if FileBackup runs outside that wrapper. | Open (boundary) |
-| **I** | Snapshot retention is unbounded. | Design decision; **delegated to the HomeHub boundary** (retention policy listed as remaining HomeHub work). | Open (boundary) |
-| **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | Independent, small. | Open |
-| corrupt-manifest guard | The 2026-07-03 reviewer's second MINOR: a corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1`. Fixed in bash (header validation, exit 2); PS side has only the missing-file guard (TC-063). | Sibling of E. | Open |
-| ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`'s list; keep per-file granularity. | Trivial; touches SR-004 acceptance set. | Open |
-| backup-side capacity | Verify the backup side has the same capacity preflight the restore side gained (SR-023 was restore-only). | Repro/check first. | Open |
-| container release-verify | SR-034/TC-060 are `Implemented`/`Draft`: release-verified only after the Docker CI job (`tests.yml`) proves BuildAndTest + Export/Publish/Pull on a real Linux runner. CI currently runs **BuildAndTest only** — Export/Publish/Pull (and a `docker load` roundtrip) are never exercised, and no local `check.ps1` tier runs the container step. | **Blocks calling container-v1 released**; when it ships, re-arm the ratchet to `--phase core,bash-v1,container-v1` (bash-v1 got this on ship; container-v1 has not). | In CI (partial) |
-| config contract | The HomeHub import half of IF-001 is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` with **no schema, no version field, no validation, no test** (a typo'd key degrades silently, violating the fail-loudly contract), and `container/FileBackup.example.json` — the file HomeHub is told to copy — is never executed by any test (TC-060 generates its own config). Needs an SR + validating loader + TC. | Blocks IF-001 moving past `Experimental`. | Open |
-| multi-set mounts | IF-001/compose hard-wire exactly one set (`/source`,`/state`,…); how HomeHub maps N host directories (per-set state mounts, compose generation) is unspecified despite README's "list multiple BackupSets". | Extends IF-001 with the config contract above. | Open |
-| exit-code table | IF-001 promises HomeHub a translatable exit status, but `Reconstruct.ps1` throws one generic failure for every cause (bash now has a distinct exit 2). Documented exit-code table + distinct causes = the implementation of finding **D**. | Merged into D. | Open |
-| container smoke depth | `Invoke-Container.ps1` smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` (the sidecar TC-052 exists for) and runs one single-set, no-snapshot, no-rerun backup — none of the 2026-08-12 engine changes are exercised in-container. | Deepen with/after TC-060 verify. | Open |
-| release checklist | `docs/releases/checklist-vNEXT-dryrun.md` is stale (2026-06-09, UN-### vocabulary, no SR-029+, points at nonexistent `scripts/check.py`, gitignored). G-Release has no usable gate artifact; needs regeneration incl. container rows. | Blocks G-Release. | Open |
-| interfaces.md boilerplate | `docs/interfaces.md` is still unmodified kit boilerplate (fictional billing-api example reusing IF/SR ids); the real IF-001 lives only in `requirements/interfaces.csv`. Replace or delete + repoint links. | Docs-only. | Open |
-| doc drift | AGENTS.md's "63 Pester tests" and container ✅ predate any recorded run; kit-version stamp still `9b697cc 2026-07-02`; homehub-integration.md §5.8 false-parity comment cleanup unrecorded (comment at `bash/reconstruct.sh:380` is now arguably true post-A-fix — verify and close). | Docs truth-up. | Open |
-| ToDo backlog (2026-07-03) | Archive-option storage mode; CloneSpy CRC export. | Unscheduled ideas. | Parked |
+| **E** | Restore can only verify rows its manifest still contains — a truncated manifest shrinks the job and still reports success. HomeHub's archive census does not port because of dedup. Partial mitigation shipped: missing-MANIFEST refusal (TC-063). | **WP1 (restore trust & diagnostics bundle).** Witness = a sidecar (e.g. `MANIFEST.csv.meta`) written atomically alongside the manifest carrying row count + xxHash128 of the manifest bytes, duplicated into each snapshot; both restorers verify it before restoring. Independent of the restore loop; portable to bash with tools already required; **subsumes the corrupt-manifest guard** (garbage manifest fails the digest). Adds an artifact to the SR-022 infrastructure allowlist — mind regression B6/TC-052. Needs its own SN/SR through G1; **blocks any "restore is trustworthy" claim.** | Open → WP1 |
+| corrupt-manifest guard | Corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1` (2026-07-03 reviewer MINOR; bash validates the header, exit 2). | **WP1**, implemented *inside* the witness change — a lone interim header check would burn a kit revision for something the witness replaces. | Open → WP1 |
+| **D** + exit-code table | `Find-DataFileByHash` collapses 4 failure causes into one warning; IF-001 promises HomeHub a translatable exit status but `Reconstruct.ps1` throws one generic failure for every cause. | **WP1.** One documented exit-code table shared by both restorers — adopt bash's existing exit 2 as the baseline, don't invent a competing scheme. Prerequisite for IF-001 leaving `Experimental` (NagLight translation needs something to translate). | Open → WP1 |
+| **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Open → WP1 |
+| config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Open → WP2 |
+| multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Ruled — document in WP2 |
+| container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | In CI (partial) → WP3 |
+| container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Open → WP3 |
+| **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Open → WP4 |
+| **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself. | **WP5.** With B fixed, new malformed rows can't be created — C matters for pre-fix backups and for migrations the ext-list merge triggers. Repro test first (double-check §5.3); repair via an opt-in `-VerifyStorage` mode, **not** a physical verify inside every migration (would fight SR-024 idempotence/perf). | Open → WP5 |
+| ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Open → WP5 |
+| backup-side capacity | Does the backup side have the capacity preflight the restore side gained (SR-023 is restore-only)? | **WP5.** Verify first, then a small SR mirroring SR-023. Importance rises with the container (target is a HomeHub-controlled bind mount). | Open → WP5 |
+| **H** | No destination mount-identity preflight. | **Stays delegated to HomeHub (IF-001)** — HomeHub genuinely owns mounts and the container can't see the host mount table. Optional later hardening: an `ExpectedSentinel` config key (refuse if a named file is absent at the destination). Low priority; revisit only if FileBackup runs outside the wrapper. | Delegated |
+| release checklist | `checklist-vNEXT-dryrun.md` is stale (UN-### vocabulary, no SR-029+, points at nonexistent `scripts/check.py`, gitignored). | **WP6 (docs batch).** Regenerate from the registries via `gen_release_checklist.py` (also verifies the generator survived the UN→SN rename); include container rows. Blocks G-Release. | Open → WP6 |
+| interfaces.md boilerplate | `docs/interfaces.md` is unmodified kit boilerplate; the real IF-001 lives in `requirements/interfaces.csv`. | **WP6.** Rewrite as a thin IF-001 pointer + prose contract. | Open → WP6 |
+| doc drift | Kit-version stamp still `9b697cc 2026-07-02`; homehub-integration.md §5.8 false-parity comment (bash/reconstruct.sh:380) unverified post-A-fix. (AGENTS.md test count fixed 2026-08-21.) | **WP6.** Re-stamp only on a real kit resync; verify + close §5.8. | Open → WP6 |
+| Archive-option storage mode (ex-ToDo) | Store backups as `.7z` archive sets with per-folder rebuild scripts. | **REJECTED 2026-08-21** — opaque archive sets contradict the model's core strength (plain files on disk, restorable by a 20 KB bash script with no runtime). Moved to Non-goals. | Rejected |
+| CloneSpy CRC export (ex-ToDo) | Emit a CloneSpy-compatible CRC list per backup set. | Harmless C-priority idea; stays parked, unscheduled. | Parked |
 
-*(Rows below "container release-verify" were minted 2026-08-21 from the
-adversarial frontier review — audit entry below.)*
+**Agreed work-package order (after Next-action items (a)–(c) are ratified):**
+**WP1** restore trust & diagnostics (E + corrupt-manifest + D/exit codes + J —
+one G1→G3 pass, one independent review, one kit revision, PS + bash + kit
+copies together) → **WP2** config contract (+ record the one-set-per-invocation
+ruling) → **WP3** container release-verify + smoke depth + ratchet re-arm →
+**WP4** retention mechanism (`Prune-Snapshot`) → **WP5** C repro test, then
+ext-list merge; backup-capacity check → **WP6** docs batch.
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -195,7 +202,11 @@ approves this framing.**
 
 ### Non-goals (assumed — confirm at G1)
 Out of scope unless the human says otherwise: PowerShell 5.1 support, any GUI,
-cloud/remote backup targets, and encryption-at-rest. **Revised 2026-07-03
+cloud/remote backup targets, and encryption-at-rest. **Added 2026-08-21
+(human-approved):** opaque `.7z` archive-set storage (the old ToDo
+"archive option") — rejected because it contradicts the model's core strength:
+bytes stay ordinary files on disk, restorable by the self-contained bash kit
+with no runtime. **Revised 2026-07-03
 (human):** *non-Windows* is no longer a blanket non-goal — a **bash/Linux
 restore** variant is in scope as phase `bash-v1` (SN-022), and a bash backup
 engine is registered-but-deferred as `bash-v2` (SN-023). **Revised 2026-08-12:**
@@ -1096,3 +1107,38 @@ here).
 implemented without an approval record — and prioritize the Open-items table;
 **E** (independent restore witness) is the standing design question.
 Evidence of the post-back-fill green is recorded in the Current State header.
+
+### HUMAN — frontier dispositions approved — 2026-08-21
+Verdict: APPROVE ("Yes that sounds good, feel free to proceed to fill the
+frontier with these decisions") for the driver's per-item review of the Open
+items against the queued work and the project vision (data safety is the
+product; HomeHub consumes the engine via container/IF-001; restore must never
+need a runtime). Approved substance, now recorded in the Open-items table:
+- **Two conflicts found and resolved.** (1) Item **I**: pure delegation of
+  retention to HomeHub was unsafe — external pruning of a `Snapshot_*` folder
+  can delete the only physical copy of bytes other snapshots recover by hash
+  from the shared pool. Split: HomeHub owns retention *policy*, FileBackup owns
+  the *mechanism* (planned `Prune-Snapshot` verb, WP4, own SR); IF-001 now
+  forbids direct snapshot-folder deletion. (2) **Ext-list merge** is not a
+  drive-by: it flips existing `.7z` rows "wrong" under
+  `Sync-BackupStorageLayout`'s config comparison, exercising the untested
+  migration path finding **C** covers — sequenced after C's repro test (WP5).
+- **WP1 bundling:** E (manifest witness sidecar: row count + xxHash128 of
+  manifest bytes, atomic, per-snapshot, verified by BOTH restorers) +
+  corrupt-manifest guard (subsumed by the witness) + D/exit-code table
+  (baseline = bash's existing exit 2) + J — one gated pass, one independent
+  review, one kit revision instead of four.
+- **Rulings:** one BackupSet per container invocation (recorded in IF-001;
+  multi-set stays a native-Windows convenience); archive-option storage
+  REJECTED into Non-goals; H stays delegated (optional `ExpectedSentinel`
+  hardening later); CloneSpy export stays parked.
+- **Order:** WP1 restore trust → WP2 config contract → WP3 container
+  release-verify + ratchet re-arm → WP4 retention mechanism → WP5 C/ext-list/
+  capacity → WP6 docs batch — all after Next-action (a)–(c) ratification.
+
+### DRIVER (UX/Docs hat) — frontier dispositions recorded — 2026-08-21
+Open-items table rewritten with per-item dispositions + WP1–WP6 order; IF-001
+contract text extended (one-set-per-invocation; no direct snapshot deletion;
+retention policy/mechanism split); Non-goals gains the archive-option
+rejection. Registry/doc-only change — no engine code touched; WP1's SN/SR
+minting still goes through its own G1 when scheduled.
