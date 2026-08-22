@@ -144,7 +144,7 @@ Imports (internal): `Common`
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
 | `Invoke-BackupFileGroup` | yes | SR-003, LLR-003 |
-| `Invoke-BackupSet` | yes | SR-014, SR-017, LLR-014, LLR-017 |
+| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, LLR-014, LLR-017, LLR-035, LLR-036 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, LLR-006 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |

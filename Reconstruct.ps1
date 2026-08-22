@@ -223,7 +223,7 @@ if ($anyCompressed -and
 # LOUDLY at the end (SR-029) — a scripted caller checking the exit code must
 # never mistake an incomplete tree for success. Recoverable rows are still
 # restored first so the caller salvages everything salvageable.
-# Implements: SR-029, LLR-029
+# Implements: SR-009, SR-029, LLR-009, LLR-029
 $unrestored = New-Object System.Collections.Generic.List[string]
 foreach ($rel in $main.Keys) {
     $row     = $main[$rel]

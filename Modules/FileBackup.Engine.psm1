@@ -1188,7 +1188,7 @@ function Invoke-BackupSet {
         hash the source, sync storage layout, preserve superseded bytes, copy new
         data, evict removed files, finalize the dated snapshot, persist run state.
     #>
-    # Implements: SR-014, SR-017, LLR-014, LLR-017
+    # Implements: SR-014, SR-017, SR-035, SR-036, LLR-014, LLR-017, LLR-035, LLR-036
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,

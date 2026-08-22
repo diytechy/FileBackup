@@ -11,8 +11,10 @@ last) — it is the record, not required reading for every pass.
 > The spine's top layer is
 > [requirements/stakeholder-needs.md](requirements/stakeholder-needs.md)
 > (formerly `user-needs.md`/UN-###; ids kept their numbers, so audit entries
-> below still resolve). Cross-project contracts would go in
-> [interfaces.md](interfaces.md) — none yet; standalone repo (process.md §8).
+> below still resolve). Cross-project contracts live in
+> [requirements/interfaces.csv](requirements/interfaces.csv) — IF-001 (the
+> HomeHub OCI image contract) since 2026-08-12. [interfaces.md](interfaces.md)
+> is still unadapted kit boilerplate — tracked in *Open items*.
 
 > **Naming caution.** The kit's **gates** are `G1, G2, G3, G-Release, G-Final`.
 > FileBackup's existing test **groups** are `G1…G9` (storage-mode suites in
@@ -23,14 +25,19 @@ last) — it is the record, not required reading for every pass.
 ## Current State
 
 - **Active gate:** G3 — Implementation truth-up (G2 human-APPROVED 2026-06-05)
-- **Latest full run (2026-07-02):** **52/52 unit, 236/0/4 integration, lint
-  clean, trace SN=21 SR=29 LLR=28 TC=51 with 0 orphans / 0 integrity /
-  0 status findings** (`check.ps1 -Tier Full`, `--require-verified` active).
+- **Latest verified run (2026-08-21, Smoke tier):** **65/65 Pester unit, lint
+  clean, trace SN=24 SR=37 LLR=36 TC=64 with 0 orphans / 0 integrity /
+  0 status-findings / 2 phase-deferred (bash-v2, container-v1)**
+  (`check.ps1 -Tier Smoke` → "All steps passed"). **A post-2026-08-12 Full
+  tier (236 integration assertions) has not been run** — the last Full-tier
+  green predates the hardening commits (2026-07-03: 53/53 unit, 236/0/4
+  integration); run it before G3 sign-off.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
-- **SR tally:** 25 Test/Verified · 3 Demonstration · 1 Inspection · 0 Open —
-  every `Verification=Test` SR is Verified (machine-checked by
-  `trace.py --require-verified`).
+- **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
+  (machine-checked: `trace.py --require-verified --phase core,bash-v1` →
+  0 status-findings); the two phase-deferred SRs are SR-033 (bash-v2, Draft)
+  and SR-034 (container-v1, Implemented — see *Open items*).
 - **2026-07-01 — kit re-sync (ai-template @ e4bcfb1):** process docs split into
   the §1–§7 core ([process.md](process.md)) + opt-in expansions
   ([process-options.md](process-options.md)); this standalone repo runs the
@@ -92,15 +99,68 @@ last) — it is the record, not required reading for every pass.
   0/0/0 trace. CI gained a ubuntu `bash-restore` (bats) job and a
   windows→ubuntu `bash-interop` job (fresh backups restored + byte-compared) —
   those run on push; the human's final review is the acceptance gate.
+- **2026-08-09/12 — HomeHub cross-check + cross-platform hardening + container
+  runtime (commits ec43711/6b1484c/bf2ccd0/d5f8894).** A read-only review from
+  the HomeHub side ([homehub-integration.md](homehub-integration.md)) produced
+  findings 0/A–J. Implemented since: cross-platform tool discovery (finding 0),
+  restore dependency preflight (A), fail-before-mutation on missing 7-Zip (B —
+  SR-020/LLR-020/TC-039 rewritten), run-state integrity gate (F), empty-source
+  refusal with `AllowEmptySource` opt-in (G), the PS-side traversal guard (one
+  of the two 2026-07-03 reviewer MINORs), `reconstruct.sh` kit bundling
+  (SR-007/TC-059), and a non-root Linux container boundary (SN-024/SR-034/
+  LLR-034/TC-060/IF-001, phase `container-v1`, Docker CI job added). **These
+  commits did not update this blackboard or the registries for F/G/0/A/
+  traversal; that back-fill landed 2026-08-21 (audit entry below) and awaits
+  ratification.** Findings C/D/E/H/I/J remain open — see *Open items* below.
+- **2026-08-21 — registry back-fill of the 2026-08-12 hardening (driver;
+  awaiting human ratification):** new SR-035 (run-state integrity gate, F),
+  SR-036 (empty-source refusal, G), SR-037 (cross-platform tool discovery, 0,
+  Inspection) + LLR-035..037; SR-009/LLR-009 extended to the traversal guard;
+  new TC-061..065 pinning the already-shipped `Safety.Tests.ps1` /
+  `Coverage.Tests.ps1` tests; SR back-links and test names annotated.
 - **Next action (human):** (a) **G3 sign-off / ratification** covering the main
   implementation truth-up, the snapshot redesign (reviewer-approved
   2026-06-06), and the 2026-07-02 review-findings scoped change (implemented,
   full tier green, independent reviewer APPROVE); (b) **bash-v1 final review +
   cross-check** against the plan's §7 acceptance checklist (all boxes met
-  locally; the two CI bash jobs confirm on push); (c) decide on the deferred
-  bundling of `reconstruct.sh` into the kit. (The PS-side
-  Find-DataFileByHash over-skip finding was **fixed 2026-07-03 with human
-  approval** — TC-058, audit entry below.)
+  locally; the two CI bash jobs confirm on push); (c) **ratify the 2026-08-12
+  hardening + container work and its 2026-08-21 registry back-fill** (the
+  `reconstruct.sh` bundling decision was implemented 2026-08-12 — SR-007/TC-059
+  — but carries no human-approval record; ratify or revert); (d) **prioritize
+  the open HomeHub findings C/D/E/H/I/J** (below) — E is the standing design
+  question. (The PS-side Find-DataFileByHash over-skip finding was **fixed
+  2026-07-03 with human approval** — TC-058, audit entry below.)
+
+## Open items (frontier)
+
+Tracked open work, minted 2026-08-21 from the HomeHub cross-check
+([homehub-integration.md](homehub-integration.md) §1/§3/§5) and prior review
+carry-overs. Ids are the cross-check's finding letters until each is promoted
+to an SR through the gate.
+
+| Item | What | Depends on / blocks | State |
+|---|---|---|---|
+| **E** | Restore can only verify rows its manifest still contains — a truncated manifest shrinks the job and still reports success. Needs an independently persisted witness (row count + digest); HomeHub's archive census does not port because of dedup. | **Blocks any "restore is trustworthy" claim**; design question → needs its own SN/SR through G1. Partial mitigation shipped: missing-MANIFEST refusal (TC-063). | Open (design) |
+| **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself and never be repaired. | Repro test needed (double-check §5.3). Related to B's fix (SR-020) but not closed by it. | Open |
+| **D** | `Find-DataFileByHash` collapses 4 failure causes into one `$null`/warning. HomeHub's distinct-exit-codes pattern is the porting candidate. | Independent; improves E/A diagnosability. | Open |
+| **H** | No destination mount-identity preflight — a failed mount can produce a green backup on the wrong disk. | **Delegated to HomeHub via IF-001** ("HomeHub owns mount-identity preflight"); revisit if FileBackup runs outside that wrapper. | Open (boundary) |
+| **I** | Snapshot retention is unbounded. | Design decision; **delegated to the HomeHub boundary** (retention policy listed as remaining HomeHub work). | Open (boundary) |
+| **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | Independent, small. | Open |
+| corrupt-manifest guard | The 2026-07-03 reviewer's second MINOR: a corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1`. Fixed in bash (header validation, exit 2); PS side has only the missing-file guard (TC-063). | Sibling of E. | Open |
+| ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`'s list; keep per-file granularity. | Trivial; touches SR-004 acceptance set. | Open |
+| backup-side capacity | Verify the backup side has the same capacity preflight the restore side gained (SR-023 was restore-only). | Repro/check first. | Open |
+| container release-verify | SR-034/TC-060 are `Implemented`/`Draft`: release-verified only after the Docker CI job (`tests.yml`) proves BuildAndTest + Export/Publish/Pull on a real Linux runner. CI currently runs **BuildAndTest only** — Export/Publish/Pull (and a `docker load` roundtrip) are never exercised, and no local `check.ps1` tier runs the container step. | **Blocks calling container-v1 released**; when it ships, re-arm the ratchet to `--phase core,bash-v1,container-v1` (bash-v1 got this on ship; container-v1 has not). | In CI (partial) |
+| config contract | The HomeHub import half of IF-001 is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` with **no schema, no version field, no validation, no test** (a typo'd key degrades silently, violating the fail-loudly contract), and `container/FileBackup.example.json` — the file HomeHub is told to copy — is never executed by any test (TC-060 generates its own config). Needs an SR + validating loader + TC. | Blocks IF-001 moving past `Experimental`. | Open |
+| multi-set mounts | IF-001/compose hard-wire exactly one set (`/source`,`/state`,…); how HomeHub maps N host directories (per-set state mounts, compose generation) is unspecified despite README's "list multiple BackupSets". | Extends IF-001 with the config contract above. | Open |
+| exit-code table | IF-001 promises HomeHub a translatable exit status, but `Reconstruct.ps1` throws one generic failure for every cause (bash now has a distinct exit 2). Documented exit-code table + distinct causes = the implementation of finding **D**. | Merged into D. | Open |
+| container smoke depth | `Invoke-Container.ps1` smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` (the sidecar TC-052 exists for) and runs one single-set, no-snapshot, no-rerun backup — none of the 2026-08-12 engine changes are exercised in-container. | Deepen with/after TC-060 verify. | Open |
+| release checklist | `docs/releases/checklist-vNEXT-dryrun.md` is stale (2026-06-09, UN-### vocabulary, no SR-029+, points at nonexistent `scripts/check.py`, gitignored). G-Release has no usable gate artifact; needs regeneration incl. container rows. | Blocks G-Release. | Open |
+| interfaces.md boilerplate | `docs/interfaces.md` is still unmodified kit boilerplate (fictional billing-api example reusing IF/SR ids); the real IF-001 lives only in `requirements/interfaces.csv`. Replace or delete + repoint links. | Docs-only. | Open |
+| doc drift | AGENTS.md's "63 Pester tests" and container ✅ predate any recorded run; kit-version stamp still `9b697cc 2026-07-02`; homehub-integration.md §5.8 false-parity comment cleanup unrecorded (comment at `bash/reconstruct.sh:380` is now arguably true post-A-fix — verify and close). | Docs truth-up. | Open |
+| ToDo backlog (2026-07-03) | Archive-option storage mode; CloneSpy CRC export. | Unscheduled ideas. | Parked |
+
+*(Rows below "container release-verify" were minted 2026-08-21 from the
+adversarial frontier review — audit entry below.)*
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -138,8 +198,10 @@ Out of scope unless the human says otherwise: PowerShell 5.1 support, any GUI,
 cloud/remote backup targets, and encryption-at-rest. **Revised 2026-07-03
 (human):** *non-Windows* is no longer a blanket non-goal — a **bash/Linux
 restore** variant is in scope as phase `bash-v1` (SN-022), and a bash backup
-engine is registered-but-deferred as `bash-v2` (SN-023). The backup *engine's*
-Windows/pwsh-only stance is unchanged until bash-v2 gets its own go-ahead.
+engine is registered-but-deferred as `bash-v2` (SN-023). **Revised 2026-08-12:**
+the engine stays *PowerShell*-only, but no longer Windows-only — it now also
+runs on Linux inside the `container-v1` image (SN-024/SR-034); a *bash* backup
+engine still awaits its own bash-v2 go-ahead.
 
 ## Scope (restated from the brief)
 
@@ -987,3 +1049,50 @@ Evidence (real runs): demo_timeline → "**Overall: PASS** — 5 runs, 3 snapsho
 every state restored and byte-compared", exit 0 (Windows). run.sh → "verified
 12 origin(s); 0 failing", exit 0 (WSL Fedora 40). check_docs → 44 links,
 0 broken.
+
+### DRIVER (System + Test hats, subagent-assisted audits) — frontier truth-up & registry back-fill — 2026-08-21
+**Trigger:** human asked whether the frontier of work is properly documented
+after the 2026-08-12 commits (ec43711/6b1484c/bf2ccd0/d5f8894). Two independent
+audits (an Opus documentation audit + an adversarial frontier review) confirmed
+those four commits changed the engine/restore surface and shipped a container
+runtime **without touching this blackboard, without gate records, and with new
+engine behavior carrying no requirement rows** — under the HIGH decision dial.
+
+**Back-fill performed (registry + code annotations, awaiting human
+ratification):**
+- New **SR-035** (run-state integrity gate — HomeHub finding F), **SR-036**
+  (empty-source delete-all refusal + `AllowEmptySource` — finding G),
+  **SR-037** (cross-platform tool discovery — finding 0, Verification=
+  Inspection), with **LLR-035..037**.
+- **SR-009/LLR-009 extended** to the path-traversal refusal (the first of the
+  two 2026-07-03 reviewer MINORs, silently fixed in `Reconstruct.ps1`
+  2026-08-12); its sibling — **corrupt non-CSV MANIFEST.csv still restores
+  nothing and exits 0 on the PS side** — remains OPEN and is now tracked in
+  *Open items* (bash validates the header and exits 2; live divergence).
+- New **TC-061..065** pinning the already-shipped `Safety.Tests.ps1` and
+  `Coverage.Tests.ps1` tests (state gate ×2, empty source, dependency
+  preflight, traversal) + the SR-037 inspection.
+- `Safety.Tests.ps1` Describe/It names annotated with SR ids;
+  `# Implements:` back-links added in Engine (`Invoke-BackupSet`),
+  `Reconstruct.ps1` (restore loop), and `Common.psm1` (tool discovery).
+- Current State header updated (2026-08-12 block, revised Non-goals wording,
+  corrected interfaces claim); new **"Open items (frontier)"** section minting
+  C/D/E/H/I/J, the corrupt-manifest guard, ext-list merge, backup-side
+  capacity check, container release-verification (CI runs BuildAndTest only —
+  Export/Publish/Pull unexercised), the IF-001 config-contract gap (no JSON
+  schema/validation/test; single-set-only mounts), release-checklist staleness,
+  interfaces.md boilerplate, and doc drift — each with dependency/blocking
+  notes.
+
+**On the remembered "codex" adversarial review:** no artifact, commit, or log
+entry named codex exists (`grep -ri codex`, `git log -S/--grep` all empty). The
+memory maps to the recorded adversarial passes (2026-07-02 dedup/snapshot —
+closed; 2026-07-03 bash-v1 reviewer — one finding still open, the
+corrupt-manifest gap above; 2026-08-09 HomeHub cross-check — findings tracked
+here).
+
+**For the human:** ratify (or amend) this back-fill plus the unratified
+2026-08-12 work — including the `reconstruct.sh` bundling decision that was
+implemented without an approval record — and prioritize the Open-items table;
+**E** (independent restore witness) is the standing design question.
+Evidence of the post-back-fill green is recorded in the Current State header.

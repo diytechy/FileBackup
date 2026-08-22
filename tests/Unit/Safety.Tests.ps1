@@ -30,8 +30,8 @@ BeforeAll {
     }
 }
 
-Describe 'Backup history safety gates' {
-    It 'refuses to mutate an initialized backup when LastBackupRun state is missing' {
+Describe 'Backup history safety gates (SR-035, SR-036)' {
+    It 'refuses to mutate an initialized backup when LastBackupRun state is missing (SR-035)' {
         $root = Join-Path $TestDrive 'missing-state'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'config.xml'
@@ -50,7 +50,7 @@ Describe 'Backup history safety gates' {
         @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_').Count | Should -Be 0
     }
 
-    It 'refuses malformed state instead of treating it as a first backup' {
+    It 'refuses malformed state instead of treating it as a first backup (SR-035)' {
         $root = Join-Path $TestDrive 'bad-state'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'config.xml'
@@ -65,7 +65,7 @@ Describe 'Backup history safety gates' {
         [IO.File]::ReadAllText((Join-Path $bkp 'f.txt')) | Should -Be 'OLD'
     }
 
-    It 'blocks an unexpected empty source and permits an explicit delete-all override' {
+    It 'blocks an unexpected empty source and permits an explicit delete-all override (SR-036)' {
         $root = Join-Path $TestDrive 'empty-source'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'config.xml'

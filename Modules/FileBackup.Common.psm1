@@ -60,6 +60,7 @@ $script:NonCompressibleExtensions = @(
 # Tool defaults are intentionally resolved at import time so callers receive one
 # stable value for the run. Environment overrides are the container-friendly
 # contract; platform defaults and PATH discovery keep local use zero-config.
+# Implements: SR-037, LLR-037 (guarded — never throws on a non-Windows host)
 $script:SevenZipDefaultPath = $env:FILEBACKUP_7ZIP_PATH
 if ([string]::IsNullOrWhiteSpace($script:SevenZipDefaultPath) -and $IsWindows -and $env:ProgramFiles) {
     $script:SevenZipDefaultPath = [System.IO.Path]::Combine($env:ProgramFiles, '7-Zip', '7z.exe')
