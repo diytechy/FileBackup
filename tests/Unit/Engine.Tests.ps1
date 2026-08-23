@@ -161,6 +161,7 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
         New-Item -ItemType Directory -Path $source | Out-Null
         Set-Content -LiteralPath (Join-Path $source 'sample.txt') -Value 'container config'
         @{
+            ConfigVersion = 1
             BackupSets = @(@{
                 Name = 'JSON'; SourcePath = $source; BackupPath = $backup; ChangePath = $changes
                 HashRecalcFreq = 'N'; CompressEnabled = $false; PreserveFolderTree = $false
@@ -176,10 +177,19 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
     It 'rejects a JSON configuration with no backup sets' {
         $entry = Join-Path $repo 'FileBackup.ps1'
         $config = Join-Path $TestDrive 'empty.json'
-        '{}' | Set-Content -LiteralPath $config -Encoding UTF8
+        '{"ConfigVersion":1}' | Set-Content -LiteralPath $config -Encoding UTF8
 
         { & $entry -ConfigPath $config -NoMail -NonInteractive } |
             Should -Throw -ExpectedMessage '*at least one BackupSets entry*'
+    }
+
+    It 'rejects a JSON configuration with no ConfigVersion (SR-042; the version check runs before the BackupSets check, first in document order)' {
+        $entry = Join-Path $repo 'FileBackup.ps1'
+        $config = Join-Path $TestDrive 'no-version.json'
+        '{}' | Set-Content -LiteralPath $config -Encoding UTF8
+
+        { & $entry -ConfigPath $config -NoMail -NonInteractive } |
+            Should -Throw -ExpectedMessage '*ConfigVersion*missing*'
     }
 }
 

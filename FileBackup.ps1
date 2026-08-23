@@ -84,7 +84,13 @@ param(
     [switch]$AutoInstallDeps,
     # Testing/automation seam (SR-005): pins this run's completion date, which dates
     # the NEXT run's snapshot. Omit in normal use to date by the real clock.
-    [datetime]$BackupTime
+    [datetime]$BackupTime,
+    # Report outcome as a process exit code (SR-043): 0 complete, 1 a backup set
+    # failed, 2 the configuration could not be loaded / violates SR-042 -- the
+    # same usage/precondition class the restorers use. Only process entry points
+    # (container/entrypoint.sh) should pass this; in-process callers keep the
+    # terminating-error behavior below.
+    [switch]$ExitCode
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,34 +103,10 @@ if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
 }
 
 $ConfigPath = (Resolve-Path -LiteralPath $ConfigPath).Path
-$extension = [System.IO.Path]::GetExtension($ConfigPath)
-$cfg = switch ($extension.ToLowerInvariant()) {
-    '.json' { Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json }
-    '.xml'  { Import-Clixml -LiteralPath $ConfigPath }
-    default { throw "Unsupported config format '$extension'. Use a .xml (CLIXML) or .json file." }
-}
-$Secrets = $cfg.Secrets
-$Sets    = @($cfg.BackupSets | Where-Object { $null -ne $_ })
-if ($Sets.Count -eq 0) {
-    throw "Configuration must define at least one BackupSets entry."
-}
-foreach ($set in $Sets) {
-    foreach ($field in 'Name','SourcePath','BackupPath','ChangePath','HashRecalcFreq') {
-        if ([string]::IsNullOrWhiteSpace([string]$set.$field)) {
-            throw "Every backup set must define a non-empty '$field'."
-        }
-    }
-    foreach ($field in 'CompressEnabled','PreserveFolderTree') {
-        if ($set.PSObject.Properties.Name -notcontains $field) {
-            throw "Backup set '$($set.Name)' must define '$field' as true or false."
-        }
-    }
-    if ([string]$set.HashRecalcFreq -notin 'A','E','D','W','M','Y','N') {
-        throw "Backup set '$($set.Name)' has invalid HashRecalcFreq '$($set.HashRecalcFreq)'. Expected A, E, D, W, M, Y, or N."
-    }
-}
 
-# Temporary logger for dependency messages.
+# Temporary logger for configuration and dependency messages. Built before the
+# config is loaded (it needs only $ConfigPath/$GlobalLogPath) so a config-load
+# failure can still be logged (SR-043).
 $globalLogPath = if ($GlobalLogPath) {
     $GlobalLogPath
 } else {
@@ -135,6 +117,39 @@ if (-not (Test-Path -LiteralPath $globalLogDirectory -PathType Container)) {
     New-Item -ItemType Directory -Path $globalLogDirectory -Force | Out-Null
 }
 $globalLog     = New-Logger -LogFile $globalLogPath
+
+function Exit-ConfigFailure {
+    <#
+    .SYNOPSIS
+        Reports an Import-BackupConfiguration failure at the FileBackup.ps1
+        process boundary.
+    .DESCRIPTION
+        Writes the failure message to stderr and to the global log, then either
+        exits the process with 2 (SR-043's usage/precondition class) when
+        -ExitCode was passed, or rethrows -- preserving the terminating-error
+        behavior that tests/Unit/Engine.Tests.ps1 and the test harness rely on.
+    .PARAMETER Message
+        The operator-facing reason. SR-042's loader already names the
+        offending key/JSON path; wording is otherwise unchanged from before
+        WP2 for the checks it preserves verbatim.
+    #>
+    # Implements: SR-043, LLR-043
+    param([Parameter(Mandatory)][string]$Message)
+    [Console]::Error.WriteLine("FileBackup: $Message")
+    & $globalLog $Message 'ERROR'
+    if ($ExitCode) {
+        exit 2
+    }
+    throw $Message
+}
+
+try {
+    $cfgResult = Import-BackupConfiguration -Path $ConfigPath -Log $globalLog
+} catch {
+    Exit-ConfigFailure -Message $_.Exception.Message
+}
+$Secrets = $cfgResult.Secrets
+$Sets    = $cfgResult.Sets
 
 $anyCompress = $false
 $anyMedia    = $false
@@ -150,11 +165,11 @@ $dependencyParams = @{
     NonInteractive        = $NonInteractive
     AutoInstall           = $AutoInstallDeps
 }
-if ($cfg.Tools -and $null -ne $cfg.Tools.SevenZipPath) {
-    $dependencyParams['SevenZipPath'] = [string]$cfg.Tools.SevenZipPath
+if ($cfgResult.Tools -and $null -ne $cfgResult.Tools.SevenZipPath) {
+    $dependencyParams['SevenZipPath'] = [string]$cfgResult.Tools.SevenZipPath
 }
-if ($cfg.Tools -and $null -ne $cfg.Tools.FfprobePath) {
-    $dependencyParams['FfprobePath'] = [string]$cfg.Tools.FfprobePath
+if ($cfgResult.Tools -and $null -ne $cfgResult.Tools.FfprobePath) {
+    $dependencyParams['FfprobePath'] = [string]$cfgResult.Tools.FfprobePath
 }
 $deps = Initialize-Dependencies @dependencyParams
 
