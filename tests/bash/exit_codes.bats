@@ -1,0 +1,124 @@
+#!/usr/bin/env bats
+# TC-071 / SR-040 (with SR-031) — reconstruct.sh reports outcome through the one
+# documented exit-code table, returning the SAME five codes as Reconstruct.ps1
+# -ExitCode for the same five induced conditions (TC-070 is the PowerShell
+# twin). The pre-existing TC-055 expectations in fail_loudly.bats are unchanged
+# by design: only NEW conditions get 3 and 4.
+#
+#   0 complete | 1 incomplete, content | 2 usage/precondition
+#   3 witness verification failed | 4 incomplete, host
+#   Precedence: 2 > 3 > 4 > 1.
+
+setup() {
+    load helpers
+    WORK="$BATS_TEST_TMPDIR/work"
+    cp -r "$FIXTURES/bash-restore/Mirror/backup" "$WORK"
+    BK="$WORK"; CH="$WORK/changes"
+    MANIFEST="$BK/MANIFEST.csv"
+}
+
+restamp_witness() {
+    local manifest="$1" witness="${1}.meta" rows bytes hash
+    rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"
+    bytes="$(stat -c '%s' -- "$manifest")"
+    hash="$(xxh128sum -- "$manifest" | awk '{print $1}' | tr 'a-f' 'A-F')"
+    printf 'Version=1\nRows=%s\nBytes=%s\nXxH128=%s\nWritten=%s\n' \
+        "$rows" "$bytes" "$hash" "$(date --iso-8601=seconds)" > "$witness"
+}
+
+@test "0: a clean restore (SR-040)" {
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t0" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 0 ]
+}
+
+@test "1: content class — a row's only data source is gone (SR-040)" {
+    rm -f "$BK/hello.txt"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t1" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"INCOMPLETE"* ]]
+    [[ "$output" == *"content-missing"* ]]
+}
+
+@test "2: precondition — bad arguments (SR-040)" {
+    run bash "$RS" --no-such-flag
+    [ "$status" -eq 2 ]
+}
+
+@test "2: precondition — no manifest in the origin (SR-040)" {
+    local empty="$BATS_TEST_TMPDIR/empty"
+    mkdir -p "$empty"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t2b" --from "$empty"
+    [ "$status" -eq 2 ]
+}
+
+@test "2: precondition — target inside the backup root (SR-040)" {
+    run bash "$RS" --target-root "$BK/inside" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 2 ]
+}
+
+@test "2 outranks 3: a bad target with a damaged index still reports the usage failure (SR-040)" {
+    # Precedence 2 > 3 — the invocation is wrong, so the index never gets a say.
+    truncate -s -40 "$MANIFEST"
+    run bash "$RS" --target-root "$BK/inside" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 2 ]
+}
+
+@test "3: the manifest disagrees with its witness (SR-040)" {
+    truncate -s -40 "$MANIFEST"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t3" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 3 ]
+}
+
+@test "4: host class — hash recovery meets an archive candidate with no 7z (SR-040)" {
+    # The row itself stays Compressed=No, so the up-front 7z precondition (exit
+    # 2) does not fire: the missing dependency is discovered DURING recovery,
+    # which is a host problem (retriable), not lost data.
+    local bad="$BATS_TEST_TMPDIR/hostcase"
+    mkdir -p "$bad"
+    printf 'payload-bytes\n' > "$bad/orig.txt"
+    local h len
+    h="$(hash_upper "$bad/orig.txt")"; len="$(stat -c '%s' "$bad/orig.txt")"
+    # Blank DataPath => must be hash-recovered; the only pool candidate is a .7z.
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+    } > "$bad/MANIFEST.csv"
+    mv -f "$bad/orig.txt" "$bad/candidate.7z"
+    restamp_witness "$bad/MANIFEST.csv"
+
+    # --seven-zip pointing at a non-command is treated as absent (see main()).
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t4" --from "$bad" --seven-zip "$BATS_TEST_TMPDIR/no-such-7z"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"DependencyMissing"* ]]
+    [[ "$output" == *"host"* ]]
+}
+
+@test "4 outranks 1: a host failure alongside a content failure reports the actionable one (SR-040)" {
+    # A wrapper should retry rather than alarm the user about lost data.
+    local bad="$BATS_TEST_TMPDIR/mixed"
+    mkdir -p "$bad"
+    printf 'payload-bytes\n' > "$bad/orig.txt"
+    local h len
+    h="$(hash_upper "$bad/orig.txt")"; len="$(stat -c '%s' "$bad/orig.txt")"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      # row 1: host class (archive candidate, no 7z)
+      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+      # row 2: content class (a DataPath that simply is not there)
+      printf '"missing.bin","gone.txt","4","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","No","Original","0",""\r\n'
+    } > "$bad/MANIFEST.csv"
+    mv -f "$bad/orig.txt" "$bad/candidate.7z"
+    restamp_witness "$bad/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tmix" --from "$bad" --seven-zip "$BATS_TEST_TMPDIR/no-such-7z"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"1 content-missing, 1 host"* ]]
+}
+
+@test "the usage text documents the whole table (SR-040)" {
+    run bash "$RS" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"3 manifest-witness verification failed"* ]]
+    [[ "$output" == *"4 incomplete"* ]]
+    [[ "$output" == *"2 > 3 > 4 > 1"* ]]
+}

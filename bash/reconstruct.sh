@@ -36,15 +36,31 @@
 # the script's location, so callers may also keep one external rescue copy and
 # point it at any compatible backup.
 #
-# Exit codes: 0 = complete; 1 = restore INCOMPLETE (unrestored rows); 2 = usage
-# or precondition failure (bad args, missing manifest, target inside backup,
-# missing tool, insufficient capacity).
+# Exit codes (SR-040 — the normative table lives in README "Restore exit codes";
+# Reconstruct.ps1 -ExitCode returns the same numbers):
 #
-# Implements: SR-030, SR-031, SR-032 (LLR-030, LLR-031, LLR-032)
+#   0  complete — every manifest row restored.
+#   1  INCOMPLETE, CONTENT — the remaining rows' bytes are not in the data pool.
+#   2  usage or precondition failure (bad args, missing or unrecognizable
+#      manifest, target inside backup, missing tool, insufficient capacity).
+#   3  manifest-witness verification failed — the index itself is untrustworthy;
+#      NO file is written to the target (SR-039).
+#   4  INCOMPLETE, HOST — rows failed for reasons on this machine, not in the
+#      backup (unreadable search folder, 7z unavailable for an archive
+#      candidate, extraction/copy I/O error). Retry after fixing the host.
+#
+# Precedence when several apply: 2 > 3 > 4 > 1.
+#
+# Implements: SR-030, SR-031, SR-032, SR-039, SR-040 (LLR-030, LLR-031, LLR-032,
+#             LLR-039, LLR-040)
 
 set -uo pipefail
 
 readonly MANIFEST_NAME='MANIFEST.csv'
+# Witness sidecar written by Write-Manifest (SR-038): five Key=Value lines,
+# UTF-8 without BOM, LF-terminated — deliberately not JSON so this reader stays
+# a grep/cut with no new tool on the Linux floor.
+readonly WITNESS_NAME='MANIFEST.csv.meta'
 readonly SIDECAR_NAME='RECONSTRUCT.paths.json'
 readonly LOG_NAME='RECONSTRUCT.log'
 readonly SNAPSHOT_RE='^Snapshot_[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}'
@@ -70,9 +86,16 @@ log() {
 
 die() {
     # Precondition/usage failure: message to stderr, exit 2.
-    printf 'reconstruct.sh: %s\n' "$1" >&2
-    [[ -n "$LOG_PATH" ]] && printf 'ERROR: %s\n' "$1" >>"$LOG_PATH" 2>/dev/null
-    exit 2
+    die_code 2 "$1"
+}
+
+die_code() {
+    # Abort with an explicit SR-040 code: message to stderr and (if open) the log.
+    # Used for 3 (witness verification failed) as well as die()'s 2.
+    local code="$1" msg="$2"
+    printf 'reconstruct.sh: %s\n' "$msg" >&2
+    [[ -n "$LOG_PATH" ]] && printf 'ERROR: %s\n' "$msg" >>"$LOG_PATH" 2>/dev/null
+    exit "$code"
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -174,36 +197,61 @@ infra_skip() {
     return $m
 }
 
-# find_by_hash <hash> <length> : echo the path of a pool file whose content
-# matches (hash,length). Plain candidates are filtered by size then hashed; .7z
+# find_by_hash <hash> <length> : locate a pool file whose content matches
+# (hash,length). Plain candidates are filtered by size then hashed; .7z
 # candidates are decompressed to a temp file and their PAYLOAD checked (their
-# on-disk size/hash differ), and the ARCHIVE path is echoed so the caller extracts
-# it. Empty output = not found. Mirrors Find-DataFileByHash.
+# on-disk size/hash differ), and the ARCHIVE path is reported so the caller
+# extracts it. Mirrors Find-DataFileByHash.
+#
+# Echoes ONE line:  <cause>\037<detail>\037<path>   where cause is
+#   Found | ContentMissing | DependencyMissing | StorageUnreadable | CandidateError
+# so the caller can tell "your bytes are gone" (exit 1) from "fix this host and
+# retry" (exit 4) — SR-040. The cause travels in the OUTPUT rather than a global
+# because callers use command substitution, which runs this in a subshell where
+# any global assignment would be discarded. The three host causes are only
+# reported when nothing matched: a successful recovery must never be downgraded
+# by an unrelated bad folder.
 find_by_hash() {
     local want_hash="$1" want_len="$2" folder f sz tmp h
+    local host_dep='' host_storage='' host_candidate=''
     for folder in "${SEARCH_FOLDERS[@]}"; do
-        [[ -d "$folder" ]] || continue
+        if [[ ! -d "$folder" || ! -r "$folder" ]]; then
+            host_storage="search folder '$folder' is absent or unreadable"
+            continue
+        fi
         while IFS= read -r -d '' f; do
             infra_skip "$f" "$folder" && continue
             if [[ "${f,,}" == *.7z ]]; then
-                [[ -n "$SEVEN_ZIP" ]] || continue
+                if [[ -z "$SEVEN_ZIP" ]]; then
+                    host_dep="archive candidate '$f' needs 7z, which is not installed"
+                    continue
+                fi
                 tmp="$(mktemp)"
                 if sevenzip_to_file "$f" "$tmp"; then
                     sz="$(stat -c '%s' -- "$tmp" 2>/dev/null || echo -1)"
                     if [[ "$sz" == "$want_len" ]]; then
                         h="$(hash_file "$tmp")"
-                        if [[ "$h" == "$want_hash" ]]; then rm -f "$tmp"; printf '%s' "$f"; return 0; fi
+                        if [[ "$h" == "$want_hash" ]]; then rm -f "$tmp"; printf 'Found\037\037%s' "$f"; return 0; fi
                     fi
+                else
+                    host_candidate="archive candidate '$f' could not be expanded"
                 fi
                 rm -f "$tmp"
             else
                 sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
                 [[ "$sz" == "$want_len" ]] || continue
                 h="$(hash_file "$f")"
-                if [[ "$h" == "$want_hash" ]]; then printf '%s' "$f"; return 0; fi
+                if [[ "$h" == "$want_hash" ]]; then printf 'Found\037\037%s' "$f"; return 0; fi
             fi
         done < <(find "$folder" -type f -print0 2>/dev/null)
     done
+    # A missing dependency outranks the others: it is the one with a precise
+    # remediation. Mirrors Find-DataFileByHash's ordering.
+    if   [[ -n "$host_dep"       ]]; then printf 'DependencyMissing\037%s\037' "$host_dep"
+    elif [[ -n "$host_storage"   ]]; then printf 'StorageUnreadable\037%s\037' "$host_storage"
+    elif [[ -n "$host_candidate" ]]; then printf 'CandidateError\037%s\037'    "$host_candidate"
+    else printf 'ContentMissing\037no file with (hash=%s, len=%s) survives in the data pool\037' "$want_hash" "$want_len"
+    fi
     return 1
 }
 
@@ -224,10 +272,85 @@ is_inside() {
     [[ "$c" == "$p"* ]]
 }
 
+# ---------------------------------------------------------------------------
+# Manifest witness verification — SR-039 / LLR-039
+# ---------------------------------------------------------------------------
+
+# witness_value <file> <key> : echo the value of a Key=Value line, or empty.
+# Tolerates a stray CR so a witness that survived a CRLF-mangling transfer still
+# reads, and takes the first occurrence.
+witness_value() {
+    local f="$1" key="$2" line
+    line="$(grep -m1 -E "^${key}=" -- "$f" 2>/dev/null)" || return 1
+    printf '%s' "${line#*=}" | tr -d '\r'
+}
+
+# verify_manifest_witness <manifest> <require>
+#   Compares the manifest on disk against its MANIFEST.csv.meta sidecar (Bytes,
+#   Rows, XxH128). A mismatch or an unparseable sidecar aborts with exit 3
+#   BEFORE anything is written to the target. An ABSENT sidecar is a backup
+#   written before the witness contract: warn 'unverified index' and continue,
+#   unless <require> is 1 (--require-witness), which makes absence an abort.
+#   A sidecar whose Version is newer than this build verifies only the keys it
+#   understands and warns — a witness from the future must never condemn a good
+#   manifest.
+# Implements: SR-039, LLR-039
+verify_manifest_witness() {
+    local manifest="$1" require="$2"
+    local witness="${manifest%/*}/$WITNESS_NAME"
+    local version want_bytes want_rows want_hash have_bytes have_rows have_hash
+
+    if [[ ! -f "$witness" ]]; then
+        if (( require )); then
+            die_code 3 "no $WITNESS_NAME beside '$manifest' and --require-witness was given: the index cannot be verified."
+        fi
+        log "WARN: no $WITNESS_NAME beside the manifest — restoring against an UNVERIFIED index (backup predates the witness contract)."
+        return 0
+    fi
+
+    version="$(witness_value "$witness" 'Version')"
+    [[ "$version" =~ ^[0-9]+$ ]] || die_code 3 "'$witness' has no readable Version line; it is not a manifest witness."
+    (( version > 1 )) && log "WARN: $WITNESS_NAME declares format version $version (newer than this build understands); verifying the known fields only."
+
+    want_bytes="$(witness_value "$witness" 'Bytes')"
+    want_rows="$(witness_value "$witness" 'Rows')"
+    want_hash="$(witness_value "$witness" 'XxH128')"
+    if [[ -z "$want_bytes" && -z "$want_rows" && -z "$want_hash" ]]; then
+        die_code 3 "'$witness' carries none of Bytes, Rows or XxH128 — nothing to verify the manifest against."
+    fi
+
+    # Bytes is the cheap pre-check that names truncation precisely.
+    if [[ "$want_bytes" =~ ^[0-9]+$ ]]; then
+        have_bytes="$(stat -c '%s' -- "$manifest" 2>/dev/null || echo -1)"
+        if [[ "$have_bytes" != "$want_bytes" ]]; then
+            die_code 3 "manifest byte length disagrees with its witness: expected $want_bytes, found $have_bytes. The index is damaged; nothing was restored."
+        fi
+    fi
+
+    # Rows is the operator-legible number ("expected 412 rows, found 118").
+    if [[ "$want_rows" =~ ^[0-9]+$ ]]; then
+        have_rows="$(parse_manifest "$manifest" | wc -l | tr -d ' ')"
+        if [[ "$have_rows" != "$want_rows" ]]; then
+            die_code 3 "manifest row count disagrees with its witness: expected $want_rows row(s), found $have_rows. The index is damaged; nothing was restored."
+        fi
+    fi
+
+    # XxH128 is the authoritative check.
+    if [[ -n "$want_hash" ]]; then
+        have_hash="$(hash_file "$manifest")" || die_code 3 "could not hash '$manifest' to verify it against its witness."
+        want_hash="$(printf '%s' "$want_hash" | tr '[:lower:]' '[:upper:]')"
+        if [[ "$have_hash" != "$want_hash" ]]; then
+            die_code 3 "manifest digest disagrees with its witness: expected $want_hash, found $have_hash. The index is damaged; nothing was restored."
+        fi
+    fi
+
+    log "Manifest verified against its witness (version $version, rows=${want_rows:-?}, bytes=${want_bytes:-?})."
+}
+
 usage() {
     cat >&2 <<'EOF'
 Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
-                      [--change-root DIR] [--seven-zip PATH]
+                      [--change-root DIR] [--seven-zip PATH] [--require-witness]
 
   --target-root DIR   Where to rebuild the tree (must be OUTSIDE the backup).
   --from DIR          Restore origin: a backup root or a Snapshot_<date> folder.
@@ -236,9 +359,13 @@ Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
   --change-root DIR   Override the folder that holds the Snapshot_<date> siblings.
   --seven-zip PATH    Explicit 7z/7za binary (else auto-probed; needed only when
                       the backup has compressed rows).
+  --require-witness   Refuse an origin with no MANIFEST.csv.meta witness instead
+                      of restoring it with an 'unverified index' warning.
   -h, --help          This help.
 
-Exit: 0 complete; 1 restore incomplete (unrestored rows named); 2 usage/precondition.
+Exit: 0 complete; 1 incomplete, content unrecoverable; 2 usage/precondition;
+      3 manifest-witness verification failed (nothing written); 4 incomplete,
+      host problem (retry after fixing this machine). Precedence: 2 > 3 > 4 > 1.
 EOF
 }
 
@@ -246,10 +373,11 @@ EOF
 # Main
 # ---------------------------------------------------------------------------
 main() {
-    local from='' backup_root='' change_root='' seven_zip_opt=''
+    local from='' backup_root='' change_root='' seven_zip_opt='' require_witness=0
     TARGET_ROOT=''
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --require-witness) require_witness=1; shift ;;
             --target-root) TARGET_ROOT="${2:?--target-root needs a value}"; shift 2 ;;
             --from)        from="${2:?--from needs a value}"; shift 2 ;;
             --backup-root) backup_root="${2:?--backup-root needs a value}"; shift 2 ;;
@@ -335,6 +463,12 @@ main() {
         die "target '$TARGET_ROOT' is inside the change root '$change_root'."
     fi
 
+    # --- Verify the index itself before touching the target (SR-039) ---
+    # Placed AFTER the exit-2 precondition checks (precedence 2 > 3) and BEFORE
+    # the target is created, so a damaged index writes nothing at all — not even
+    # the log — into the target.
+    verify_manifest_witness "$authority" "$require_witness"
+
     mkdir -p -- "$TARGET_ROOT" || die "cannot create target '$TARGET_ROOT'."
     TARGET_ROOT="$(canon "$TARGET_ROOT")"
     LOG_PATH="$TARGET_ROOT/$LOG_NAME"
@@ -383,8 +517,10 @@ main() {
     fi
 
     # --- Restore loop: salvage everything, record every failure (SR-029/SR-031) ---
-    local -a unrestored=()
-    local rel dest destdir src found
+    # Failures are split by class so the exit code separates "your bytes are
+    # gone" (1) from "fix this host and retry" (4) — SR-040.
+    local -a unrestored=() unrestored_host=()
+    local rel dest destdir src found fcause frest fdetail fpath
     for (( i=0; i<nrows; i++ )); do
         rel="$(to_posix "${d_rel[i]}")"
         [[ -n "$rel" ]] || continue
@@ -401,13 +537,23 @@ main() {
 
         if [[ -z "${d_data[i]}" ]]; then
             if [[ -n "${d_hash[i]}" && "${d_len[i]}" =~ ^[0-9]+$ ]]; then
+                # <cause>\037<detail>\037<path> — see find_by_hash.
                 found="$(find_by_hash "${d_hash[i]}" "${d_len[i]}")"
-                if [[ -n "$found" ]]; then
-                    log "Hash-recovered '$rel' from '$found'"
-                    src="$found"
+                fcause="${found%%$'\037'*}"
+                frest="${found#*$'\037'}"
+                fdetail="${frest%%$'\037'*}"
+                fpath="${frest#*$'\037'}"
+                if [[ "$fcause" == 'Found' ]]; then
+                    log "Hash-recovered '$rel' from '$fpath'"
+                    src="$fpath"
                 else
-                    log "WARN: cannot recover '$rel' by hash (hash=${d_hash[i]}, len=${d_len[i]})."
-                    unrestored+=("$rel"); continue
+                    # One message per CAUSE, not one warning for all four (SR-040).
+                    log "WARN: [$fcause] '$rel' — $fdetail"
+                    case "$fcause" in
+                        DependencyMissing|StorageUnreadable|CandidateError) unrestored_host+=("$rel") ;;
+                        *) unrestored+=("$rel") ;;
+                    esac
+                    continue
                 fi
             else
                 log "WARN: no DataPath or hash for '$rel'."
@@ -424,22 +570,32 @@ main() {
 
         if [[ "${d_comp[i]}" == "Yes" ]]; then
             if ! sevenzip_to_file "$src" "$dest"; then
-                log "WARN: 7z extraction failed for '$rel' (from '$src')."
+                # An extraction failure is a HOST problem: the archive is in the
+                # backup, this machine could not open it (SR-040).
+                log "WARN: [CandidateError] '$rel' — 7z extraction failed (from '$src')."
                 rm -f -- "$dest" 2>/dev/null
-                unrestored+=("$rel"); continue
+                unrestored_host+=("$rel"); continue
             fi
         else
             if ! cp -f -- "$src" "$dest" 2>/dev/null; then
-                log "WARN: copy failed for '$rel' (from '$src')."
-                unrestored+=("$rel"); continue
+                log "WARN: [CandidateError] '$rel' — copy failed (from '$src')."
+                unrestored_host+=("$rel"); continue
             fi
         fi
     done
 
-    # --- Fail loudly on any unrestored row (SR-029 / SR-031) ---
-    if (( ${#unrestored[@]} > 0 )); then
-        log "ERROR: Reconstruction INCOMPLETE: ${#unrestored[@]} file(s) could not be restored: ${unrestored[*]}"
-        printf 'Reconstruction INCOMPLETE: %d file(s) could not be restored.\n' "${#unrestored[@]}" >&2
+    # --- Fail loudly on any unrestored row (SR-029 / SR-031 / SR-040) ---
+    # 4 outranks 1: the host class is the actionable one, so a wrapper retries
+    # rather than alarming the user about lost data.
+    local n_content=${#unrestored[@]} n_host=${#unrestored_host[@]} n_all
+    n_all=$(( n_content + n_host ))
+    if (( n_all > 0 )); then
+        # ${a[@]+...} guards the empty-array expansion under `set -u` on bash 4.3.
+        local all=(${unrestored[@]+"${unrestored[@]}"} ${unrestored_host[@]+"${unrestored_host[@]}"})
+        log "ERROR: Reconstruction INCOMPLETE: $n_all file(s) could not be restored ($n_content content-missing, $n_host host): ${all[*]}"
+        printf 'Reconstruction INCOMPLETE: %d file(s) could not be restored (%d content-missing, %d host).\n' \
+            "$n_all" "$n_content" "$n_host" >&2
+        if (( n_host > 0 )); then exit 4; fi
         exit 1
     fi
     log "Reconstruction complete: $nrows file(s)."

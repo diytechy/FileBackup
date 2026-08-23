@@ -41,6 +41,10 @@ if (-not (Test-Path -LiteralPath $BackupScript)) {
 }
 
 # ---------- dot-source harness + backend + suites ----------
+# Common is imported so suites that deliberately tamper with a MANIFEST.csv can
+# re-stamp its witness (Write-ManifestWitness, SR-038) and keep exercising the
+# failure they mean to, rather than tripping witness verification.
+Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
 . (Join-Path $here 'Common\Harness.ps1')
 . (Join-Path $here 'Common\VolumeBackend.ps1')
 foreach ($id in @('G1','G2','G3','G4','G5','G6','G7','G8','G9')) {

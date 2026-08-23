@@ -19,22 +19,92 @@
     Requires PowerShell 7+ (pwsh). Logs to RECONSTRUCT.log in the target root.
     Fails loudly (terminating error / non-zero exit) when any manifest row
     cannot be restored, after restoring everything recoverable (SR-029).
+
+    Restore exit codes (SR-040 — the normative table lives in README
+    "Restore exit codes"; reconstruct.sh returns the same numbers):
+
+        0  Complete — every manifest row restored.
+        1  Incomplete, CONTENT — the remaining rows' bytes are not in the pool.
+        2  Precondition / usage — nothing attempted (bad arguments, missing or
+           unrecognizable manifest, target inside the backup, missing required
+           tool, insufficient capacity).
+        3  Manifest-witness verification failed — the index is untrustworthy;
+           NO file is written to the target (SR-039).
+        4  Incomplete, HOST — rows failed for reasons on this machine, not in
+           the backup (unreadable search folder, 7-Zip unavailable for an
+           archive candidate, extraction/copy I/O error). Retry after fixing
+           the host.
+
+    Precedence when several apply: 2 > 3 > 4 > 1.
+
+    Delivery: by default every failure is a TERMINATING ERROR (throw), which is
+    what in-process callers and the test harness rely on. Pass -ExitCode (as
+    RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
 param(
     [string]$TargetRoot,
     [string]$BackupRootOverride,
     [string]$ChangeRootOverride,
-    [string]$SevenZipPath
+    [string]$SevenZipPath,
+    # Report the SR-040 exit code as a process exit status instead of throwing.
+    # Only process entry points pass this; in-process callers keep the throw.
+    [switch]$ExitCode,
+    # Strict mode (SR-039): a MISSING manifest witness becomes an abort instead
+    # of an 'unverified index' warning. Off by default so backups written before
+    # the witness contract still restore.
+    [switch]$RequireWitness
 )
 
 $ErrorActionPreference = 'Stop'
 $here = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)
 
+# Exit-code constants (SR-040). Named so the call sites read as classifications.
+$EXIT_COMPLETE    = 0
+$EXIT_CONTENT     = 1
+$EXIT_PRECONDITION= 2
+$EXIT_WITNESS     = 3
+$EXIT_HOST        = 4
+
+$logPath = $null
+
+function Exit-Reconstruct {
+    <#
+    .SYNOPSIS
+        Ends the restore with one of the SR-040 exit codes, logging the reason.
+
+    .DESCRIPTION
+        The single failure exit of this script. Under -ExitCode it exits the
+        process with the classified code; otherwise it throws, preserving the
+        exact message wording that in-process callers assert on (see the
+        "wording that must not change" list in the WP1 plan).
+
+    .PARAMETER Code
+        One of the SR-040 codes (see the script .NOTES).
+
+    .PARAMETER Message
+        The operator-facing reason. Wording is load-bearing — existing tests
+        match on substrings of it.
+    #>
+    # Implements: SR-040, LLR-040
+    param(
+        [Parameter(Mandatory)][int]$Code,
+        [Parameter(Mandatory)][string]$Message
+    )
+    if ($logPath) {
+        "$(Get-Date -Format 'O') - ERROR: $Message" | Out-File -LiteralPath $logPath -Append
+    }
+    if ($ExitCode) {
+        [Console]::Error.WriteLine("reconstruct: $Message")
+        exit $Code
+    }
+    throw $Message
+}
+
 # ---- Load shared primitives (hashing, manifest I/O, 7-Zip, defaults) ----
 $commonModule = Join-Path $here 'FileBackup.Common.psm1'
 if (-not (Test-Path -LiteralPath $commonModule -PathType Leaf)) {
-    throw "FileBackup.Common.psm1 not found next to Reconstruct.ps1 at '$here'. The backup folder is incomplete."
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "FileBackup.Common.psm1 not found next to Reconstruct.ps1 at '$here'. The backup folder is incomplete."
 }
 Import-Module $commonModule -Force
 $Def = Get-FileBackupDefaults
@@ -47,45 +117,105 @@ $folderName = [System.IO.Path]::GetFileName($here)
 
 function Find-DataFileByHash {
     <#
-        Locates a data file matching the original (hash,length). Uncompressed
-        candidates are filtered by length then hashed; .7z candidates are
-        decompressed to a temp file and hashed (their on-disk size/hash differ
-        from the original), so recovery works for compressed backups too.
-        Returns the path to use as the data source (the archive path for .7z).
+    .SYNOPSIS
+        Locates a data file matching the original (hash,length) and reports WHY
+        it could not, so the caller can tell "your bytes are gone" from "fix this
+        host and retry" (SR-040).
+
+    .DESCRIPTION
+        Uncompressed candidates are filtered by length then hashed; .7z
+        candidates are decompressed to a temp file and hashed (their on-disk
+        size/hash differ from the original), so recovery works for compressed
+        backups too. The path returned for an archive is the ARCHIVE path — the
+        caller extracts it.
+
+        The infra-name skip is ROOT-LEVEL ONLY (SR-022 / AGENTS.md §3): a nested
+        user file named like infrastructure is data (B6) and, in Mirror mode, may
+        be the only physical copy of a blanked snapshot row. The skip is a scan
+        optimization, never a correctness gate — matching is by (hash, length).
+
+    .OUTPUTS
+        [pscustomobject] Path / Cause / Detail, where Cause is one of:
+          Found              — Path holds the data source.
+          ContentMissing     — the pool was searched cleanly; the bytes are gone.
+          DependencyMissing  — an archive candidate was met with no usable 7-Zip.
+          StorageUnreadable  — a search folder is absent or could not be read.
+          CandidateError     — a candidate failed to extract (I/O or archive error).
+
+        The three non-ContentMissing causes are HOST problems (exit 4): the
+        backup may still hold the bytes, so a wrapper should retry rather than
+        report data loss. They are only reported when the scan found nothing.
     #>
+    # Implements: SR-040, LLR-040
     param([string]$Hash, [long]$Length, [string[]]$SearchFolders, [string]$SevenZipPath)
+
     $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    # Host-class problems met along the way, reported only if nothing matched — a
+    # successful recovery must never be downgraded by an unrelated bad folder.
+    $hostIssues = New-Object System.Collections.Generic.List[pscustomobject]
+
     foreach ($folder in $SearchFolders) {
-        # Infra-name skip is ROOT-LEVEL ONLY (SR-022 / AGENTS.md §3): a nested user
-        # file named like infrastructure is data (B6) and, in Mirror mode, may be
-        # the only physical copy of a blanked snapshot row. The skip is a scan
-        # optimization, never a correctness gate — matching is by (hash, length).
+        if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
+            $hostIssues.Add([pscustomobject]@{ Cause = 'StorageUnreadable'
+                Detail = "Search folder '$folder' does not exist or is not a directory." })
+            continue
+        }
         $folderNorm = [System.IO.Path]::GetFullPath($folder).TrimEnd('\', '/')
-        $candidates = Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction SilentlyContinue |
+        $enumErrors = $null
+        $candidates = Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction SilentlyContinue -ErrorVariable enumErrors |
             Where-Object {
                 -not ($_.Name -match $skip -and
                       [System.IO.Path]::GetDirectoryName($_.FullName) -eq $folderNorm)
             }
+        if ($enumErrors) {
+            $hostIssues.Add([pscustomobject]@{ Cause = 'StorageUnreadable'
+                Detail = "Search folder '$folder' could not be fully read: $($enumErrors[0].Exception.Message)" })
+        }
         foreach ($f in $candidates) {
             if ($f.Extension -ieq '.7z') {
-                if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) { continue }
+                if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
+                    $hostIssues.Add([pscustomobject]@{ Cause = 'DependencyMissing'
+                        Detail = "An archive candidate '$($f.FullName)' needs 7-Zip, which was not found at '$SevenZipPath'." })
+                    continue
+                }
                 $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
                 try {
                     Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $f.FullName -DestinationFile $tmp
                     if ((Get-Item -LiteralPath $tmp).Length -eq $Length -and (Get-FileXxHash -FilePath $tmp) -eq $Hash) {
-                        return $f.FullName
+                        return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Detail = '' }
                     }
                 } catch {
-                    Write-Verbose "Skipping archive candidate '$($f.FullName)': $($_.Exception.Message)"
+                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                        Detail = "Archive candidate '$($f.FullName)' could not be expanded: $($_.Exception.Message)" })
                 } finally {
                     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
                 }
             } elseif ($f.Length -eq $Length) {
-                if ((Get-FileXxHash -FilePath $f.FullName) -eq $Hash) { return $f.FullName }
+                try {
+                    if ((Get-FileXxHash -FilePath $f.FullName) -eq $Hash) {
+                        return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Detail = '' }
+                    }
+                } catch {
+                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                        Detail = "Candidate '$($f.FullName)' could not be read: $($_.Exception.Message)" })
+                }
             }
         }
     }
-    return $null
+
+    # A missing dependency outranks the others: it is the one with a precise
+    # remediation ("install 7-Zip"), so it is what the operator should be told.
+    foreach ($preferred in 'DependencyMissing', 'StorageUnreadable', 'CandidateError') {
+        $issue = $hostIssues | Where-Object { $_.Cause -eq $preferred } | Select-Object -First 1
+        if ($issue) {
+            return [pscustomobject]@{ Path = $null; Cause = $issue.Cause; Detail = $issue.Detail }
+        }
+    }
+    return [pscustomobject]@{
+        Path   = $null
+        Cause  = 'ContentMissing'
+        Detail = "No file with (hash=$Hash, length=$Length) survives anywhere in the data pool."
+    }
 }
 
 # ---- Resolve backup/change roots ----
@@ -128,9 +258,11 @@ function Test-PathIsInside {
     $p = [System.IO.Path]::GetFullPath($Parent).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
     return $c.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase)
 }
-if (Test-PathIsInside -Child $TargetRoot -Parent $backupRoot) { throw 'TargetRoot must be outside the backup root.' }
+if (Test-PathIsInside -Child $TargetRoot -Parent $backupRoot) {
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message 'TargetRoot must be outside the backup root.'
+}
 if ($changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container) -and (Test-PathIsInside -Child $TargetRoot -Parent $changeRoot)) {
-    throw 'TargetRoot must be outside the change folder root.'
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message 'TargetRoot must be outside the change folder root.'
 }
 
 if (-not (Test-Path -LiteralPath $TargetRoot)) {
@@ -141,11 +273,65 @@ $logPath = Join-Path $TargetRoot $ReconstructLogName
 "$(Get-Date -Format 'O') - Reconstruction starting" | Out-File -LiteralPath $logPath -Encoding UTF8
 
 function Read-RawManifest {
+    <#
+    .SYNOPSIS
+        Reads the restore origin's MANIFEST.csv after proving it is trustworthy:
+        it exists, its header is a FileBackup manifest header, and (when a
+        witness sidecar is present) its bytes/rows/digest match that witness.
+
+    .DESCRIPTION
+        Runs BEFORE the capacity pre-check and before any file is written, so a
+        damaged index refuses the restore rather than "succeeding" against a
+        shrunken job (SR-039). Three outcomes:
+
+          * header unrecognizable  -> exit 2 (this is not a manifest at all —
+            the legacy corrupt-file guard, matching reconstruct.sh's wording)
+          * witness disagrees / unparseable, or absent under -RequireWitness
+            -> exit 3
+          * witness absent          -> WARN 'unverified index' and continue, so
+            backups written before the witness contract still restore.
+
+    .PARAMETER Folder
+        The restore origin (backup root or Snapshot_<date> folder).
+    #>
+    # Implements: SR-039, SR-040, LLR-039, LLR-040
     param([string]$Folder)
+
     $path = Join-Path $Folder $DatabaseFilename
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        throw "MANIFEST.csv not found in restore origin '$Folder'. The backup folder is incomplete."
+        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "MANIFEST.csv not found in restore origin '$Folder'. The backup folder is incomplete."
     }
+
+    # Header-shape guard (mirrors reconstruct.sh): a legitimately empty backup
+    # still carries the full header row, so this only rejects a corrupt or
+    # wrong file — including a legacy one that has no witness to check.
+    $header = ("$(Get-Content -LiteralPath $path -TotalCount 1)").TrimStart([char]0xFEFF)
+    if ($header -notmatch 'RelativePath' -or $header -notmatch 'xxH2Hash') {
+        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "'$path' is not a FileBackup manifest (unexpected header). Corrupt or wrong file."
+    }
+
+    $verdict = Test-ManifestWitness -FolderPath $Folder
+    switch ($verdict.Status) {
+        'Verified' {
+            if ($verdict.VersionUnknown) {
+                "$(Get-Date -Format 'O') - WARN: manifest witness declares format version $($verdict.Version) (newer than this build understands); verified the known fields only." |
+                    Out-File -LiteralPath $logPath -Append
+            }
+            "$(Get-Date -Format 'O') - $($verdict.Detail)" | Out-File -LiteralPath $logPath -Append
+        }
+        'Absent' {
+            if ($RequireWitness) {
+                Exit-Reconstruct -Code $EXIT_WITNESS -Message "No manifest witness beside '$path' and -RequireWitness was given: the index cannot be verified."
+            }
+            "$(Get-Date -Format 'O') - WARN: $($verdict.Detail) Restoring against an UNVERIFIED index (backup predates the witness contract)." |
+                Out-File -LiteralPath $logPath -Append
+            Write-Warning "Restoring against an unverified index: $($verdict.Detail)"
+        }
+        default {
+            Exit-Reconstruct -Code $EXIT_WITNESS -Message "Manifest witness verification failed for '$path'. $($verdict.Detail) The index is damaged; nothing was restored."
+        }
+    }
+
     Import-Csv -LiteralPath $path
 }
 
@@ -183,9 +369,7 @@ try {
 }
 if ($drive) {
     if ($drive.Free -lt $totalBytes) {
-        $msg = "Not enough free space on target drive. Required (uncompressed rows only): $totalBytes, Free: $($drive.Free)"
-        $msg | Out-File -LiteralPath $logPath -Append
-        throw $msg
+        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "Not enough free space on target drive. Required (uncompressed rows only): $totalBytes, Free: $($drive.Free)"
     }
     if ($anyCompressed) {
         "$(Get-Date -Format 'O') - NOTE: backup contains compressed rows; capacity check excluded them (true need is higher)." |
@@ -213,9 +397,7 @@ if ([string]::IsNullOrWhiteSpace($SevenZipPath)) {
 if ($anyCompressed -and
     ([string]::IsNullOrWhiteSpace($SevenZipPath) -or
      -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf))) {
-    $msg = "7-Zip is required to restore compressed rows, but was not found at '$SevenZipPath'. Install 7-Zip or pass -SevenZipPath."
-    "$(Get-Date -Format 'O') - ERROR: $msg" | Out-File -LiteralPath $logPath -Append
-    throw $msg
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "7-Zip is required to restore compressed rows, but was not found at '$SevenZipPath'. Install 7-Zip or pass -SevenZipPath."
 }
 
 # ---- Reconstruct ----
@@ -223,15 +405,32 @@ if ($anyCompressed -and
 # LOUDLY at the end (SR-029) — a scripted caller checking the exit code must
 # never mistake an incomplete tree for success. Recoverable rows are still
 # restored first so the caller salvages everything salvageable.
-# Implements: SR-009, SR-029, LLR-009, LLR-029
-$unrestored = New-Object System.Collections.Generic.List[string]
+# Each failure carries its CAUSE so the summary can separate "your bytes are
+# gone" (exit 1) from "fix this host and retry" (exit 4) — SR-040.
+# Implements: SR-009, SR-029, SR-040, LLR-009, LLR-029, LLR-040
+$unrestored = New-Object System.Collections.Generic.List[pscustomobject]
+function Add-Unrestored {
+    <#
+    .SYNOPSIS
+        Records one unrestorable manifest row with the cause that classifies it
+        into the content class (exit 1) or the host class (exit 4).
+    #>
+    # Implements: SR-040, LLR-040
+    param(
+        [Parameter(Mandatory)][string]$RelativePath,
+        [Parameter(Mandatory)][string]$Cause,
+        [Parameter(Mandatory)][string]$Detail
+    )
+    "$(Get-Date -Format 'O') - WARN: [$Cause] $RelativePath — $Detail" | Out-File -LiteralPath $logPath -Append
+    $unrestored.Add([pscustomobject]@{ RelativePath = $RelativePath; Cause = $Cause; Detail = $Detail })
+}
+
 foreach ($rel in $main.Keys) {
     $row     = $main[$rel]
     $destFull = Join-Path $TargetRoot $rel
     if (-not (Test-PathIsInside -Child $destFull -Parent $TargetRoot)) {
-        "$(Get-Date -Format 'O') - WARN: '$rel' escapes the target root (path traversal); refusing." |
-            Out-File -LiteralPath $logPath -Append
-        $unrestored.Add($rel)
+        Add-Unrestored -RelativePath $rel -Cause 'PathTraversal' `
+            -Detail "'$rel' escapes the target root (path traversal); refusing."
         continue
     }
     $destDir  = [System.IO.Path]::GetDirectoryName($destFull)
@@ -246,17 +445,17 @@ foreach ($rel in $main.Keys) {
         if ($row.xxH2Hash -and $row.Length) {
             "$(Get-Date -Format 'O') - No datapath for $rel; attempting hash scan..." | Out-File -LiteralPath $logPath -Append
             $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
-            if ($found) {
-                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$found'" | Out-File -LiteralPath $logPath -Append
-                $srcFull = $found
+            if ($found.Cause -eq 'Found') {
+                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$($found.Path)'" | Out-File -LiteralPath $logPath -Append
+                $srcFull = $found.Path
             } else {
-                "$(Get-Date -Format 'O') - WARN: cannot recover $rel by hash." | Out-File -LiteralPath $logPath -Append
-                $unrestored.Add($rel)
+                # One message per CAUSE, not one warning for all four (SR-040).
+                Add-Unrestored -RelativePath $rel -Cause $found.Cause -Detail $found.Detail
                 continue
             }
         } else {
-            "$(Get-Date -Format 'O') - WARN: no datapath or hash for $rel." | Out-File -LiteralPath $logPath -Append
-            $unrestored.Add($rel)
+            Add-Unrestored -RelativePath $rel -Cause 'NoDataPathOrHash' `
+                -Detail "The manifest row carries neither a DataPath nor a (hash,length) to recover by."
             continue
         }
     } else {
@@ -264,8 +463,8 @@ foreach ($rel in $main.Keys) {
     }
 
     if (-not (Test-Path -LiteralPath $srcFull -PathType Leaf)) {
-        "$(Get-Date -Format 'O') - WARN: missing datapath $dataPath for $rel" | Out-File -LiteralPath $logPath -Append
-        $unrestored.Add($rel)
+        Add-Unrestored -RelativePath $rel -Cause 'MissingDataFile' `
+            -Detail "The row's data file '$dataPath' is not present in the restore origin."
         continue
     }
 
@@ -273,19 +472,33 @@ foreach ($rel in $main.Keys) {
         try {
             Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $srcFull -DestinationFile $destFull
         } catch {
-            "$(Get-Date -Format 'O') - WARN: 7-Zip extraction failed for $rel : $($_.Exception.Message)" | Out-File -LiteralPath $logPath -Append
-            $unrestored.Add($rel)
+            Add-Unrestored -RelativePath $rel -Cause 'CandidateError' `
+                -Detail "7-Zip extraction failed from '$srcFull': $($_.Exception.Message)"
             continue
         }
     } else {
-        Copy-Item -LiteralPath $srcFull -Destination $destFull -Force
+        try {
+            Copy-Item -LiteralPath $srcFull -Destination $destFull -Force
+        } catch {
+            Add-Unrestored -RelativePath $rel -Cause 'CandidateError' `
+                -Detail "Copy from '$srcFull' failed: $($_.Exception.Message)"
+            continue
+        }
     }
 }
 
 if ($unrestored.Count -gt 0) {
-    $msg = "Reconstruction INCOMPLETE: $($unrestored.Count) file(s) could not be restored: $($unrestored -join ', '). See log: $logPath"
-    "$(Get-Date -Format 'O') - ERROR: $msg" | Out-File -LiteralPath $logPath -Append
-    throw $msg
+    # Classify: content-class rows mean the bytes are gone (exit 1); host-class
+    # rows mean this machine is the problem (exit 4) and a wrapper should retry.
+    # 4 outranks 1 because it is the actionable one (SR-040 precedence).
+    $hostCauses = @('DependencyMissing', 'StorageUnreadable', 'CandidateError')
+    $hostRows    = @($unrestored | Where-Object { $_.Cause -in $hostCauses })
+    $contentRows = @($unrestored | Where-Object { $_.Cause -notin $hostCauses })
+    $code = if ($hostRows.Count -gt 0) { $EXIT_HOST } else { $EXIT_CONTENT }
+    $names = ($unrestored | ForEach-Object { $_.RelativePath }) -join ', '
+    Exit-Reconstruct -Code $code -Message ("Reconstruction INCOMPLETE: $($unrestored.Count) file(s) could not be restored " +
+        "($($contentRows.Count) content-missing, $($hostRows.Count) host): $names. See log: $logPath")
 }
 "$(Get-Date -Format 'O') - Reconstruction complete" | Out-File -LiteralPath $logPath -Append
 Write-Host "Reconstruction finished. See log: $logPath"
+if ($ExitCode) { exit $EXIT_COMPLETE }

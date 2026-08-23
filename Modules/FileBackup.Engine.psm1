@@ -778,7 +778,10 @@ function New-ReconstructScript {
     @{ BackupRoot = $BackupRoot; ChangeRoot = $ChangeRoot } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $BackupRoot 'RECONSTRUCT.paths.json') -Encoding UTF8
 
-    $bat = "@echo off`r`npwsh -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$($script:Def.ReconstructPs1Name)`" %*"
+    # -ExitCode makes the process entry point report the SR-040 exit-code table
+    # (0/1/2/3/4) instead of throwing; in-process callers omit it and keep the
+    # terminating-error behavior they assert on.
+    $bat = "@echo off`r`npwsh -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$($script:Def.ReconstructPs1Name)`" -ExitCode %*"
     Set-Content -LiteralPath (Join-Path $BackupRoot $script:Def.ReconstructBatName) -Value $bat -Encoding ASCII
 
     # Bundle the shared module so the deployed reconstruct script is self-contained.

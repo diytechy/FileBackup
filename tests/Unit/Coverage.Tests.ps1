@@ -103,6 +103,9 @@ Describe 'Restore capacity check (SR-023)' {
         $rows = Import-Csv -LiteralPath $bm
         $rows[0].Length = '9000000000000000'   # 9 PB
         $rows | Export-Csv -LiteralPath $bm -NoTypeInformation
+        # Deliberate tampering: re-stamp the witness so the failure this test
+        # observes is the capacity refusal (exit 2), not witness mismatch (3).
+        Write-ManifestWitness -FolderPath $bkp | Out-Null
 
         $recon  = Join-Path $bkp 'RECONSTRUCT.ps1'
         $target = Join-Path $TestDrive 's23-restore'   # outside the backup root
@@ -429,6 +432,9 @@ Describe 'Restore dependency preflight (SR-008, SR-029)' {
         $rows = Import-Csv -LiteralPath $manifest
         $rows[0].Compressed = 'Yes'
         $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+        # Deliberate tampering: re-stamp the witness so the failure this test
+        # observes is the 7-Zip precondition (exit 2), not witness mismatch (3).
+        Write-ManifestWitness -FolderPath $bkp | Out-Null
 
         $target = Join-Path $root 'restore'
         $missingTool = Join-Path $root 'does-not-exist\7z.exe'
@@ -541,6 +547,9 @@ Describe 'Restore target guard (SR-009)' {
         $rows = Import-Csv -LiteralPath $manifest
         $rows[0].RelativePath = '..\ESCAPED.txt'
         $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+        # Deliberate tampering: re-stamp the witness so the failure this test
+        # observes is the traversal refusal (exit 1), not witness mismatch (3).
+        Write-ManifestWitness -FolderPath $bk | Out-Null
 
         $target = Join-Path $root 'restore'
         { & (Join-Path $bk 'RECONSTRUCT.ps1') -TargetRoot $target } |
@@ -580,5 +589,262 @@ Describe 'Hash recovery of a nested infra-named row (SR-022, SR-010)' {
             Should -Not -Throw                                    # would throw INCOMPLETE pre-fix (SR-029)
         [IO.File]::ReadAllText((Join-Path $t 'sub\MANIFEST.csv')) | Should -Be 'NESTED-USER-DATA'
         [IO.File]::ReadAllText((Join-Path $t 'other.txt'))        | Should -Be 'v1'
+    }
+}
+
+Describe 'Manifest witness verification on restore (SR-039)' {
+    # TC-068. A damaged index must refuse the restore rather than "succeed"
+    # against a shrunken job (HomeHub cross-check finding E). Legacy backups
+    # written before the witness contract must still restore, with a warning.
+    BeforeAll {
+        function New-WitnessOrigin {
+            param([string]$Root)
+            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $cfg = Join-Path $Root 'c.xml'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+            [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'AAA')
+            [IO.File]::WriteAllText((Join-Path $src 'b.txt'), 'BBB')
+            Invoke-FB $cfg
+            return $bkp
+        }
+        # Files the restorer itself creates in the target (its own log) are not
+        # "restored files" — the contract is that no manifest ROW is written.
+        function Get-RestoredNames {
+            param([string]$Target)
+            if (-not (Test-Path -LiteralPath $Target)) { return @() }
+            @(Get-ChildItem -LiteralPath $Target -Recurse -File |
+                Where-Object { $_.Name -ne 'RECONSTRUCT.log' } | ForEach-Object { $_.Name })
+        }
+    }
+
+    It 'refuses a truncated, byte-edited or garbage manifest without restoring a row (SR-039)' {
+        $root = Join-Path $TestDrive 'w39-damage'
+        $bkp = New-WitnessOrigin $root
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+        $recon = Join-Path $bkp 'RECONSTRUCT.ps1'
+        $pristine = [IO.File]::ReadAllBytes($manifest)
+
+        # 1. Truncated (a half-written manifest) — caught by Bytes.
+        [IO.File]::WriteAllBytes($manifest, $pristine[0..($pristine.Length - 30)])
+        $t1 = Join-Path $root 'r-trunc'
+        { & $recon -TargetRoot $t1 } | Should -Throw -ExpectedMessage '*witness verification failed*'
+        Get-RestoredNames $t1 | Should -BeNullOrEmpty
+
+        # 2. Byte-edited at the same length — slips past Bytes/Rows, caught by the digest.
+        $edited = [byte[]]::new($pristine.Length)
+        [Array]::Copy($pristine, $edited, $pristine.Length)
+        $edited[$edited.Length - 6] = [byte]0x51
+        [IO.File]::WriteAllBytes($manifest, $edited)
+        $t2 = Join-Path $root 'r-edit'
+        { & $recon -TargetRoot $t2 } | Should -Throw -ExpectedMessage '*witness verification failed*'
+        Get-RestoredNames $t2 | Should -BeNullOrEmpty
+
+        # 3. Replaced by unrelated text — the header guard catches it first
+        #    (exit 2 class), which is the legacy corrupt-file path.
+        [IO.File]::WriteAllText($manifest, "hello, this is not a manifest at all`r`n")
+        $t3 = Join-Path $root 'r-garbage'
+        { & $recon -TargetRoot $t3 } | Should -Throw -ExpectedMessage '*not a FileBackup manifest*'
+        Get-RestoredNames $t3 | Should -BeNullOrEmpty
+
+        # 4. Re-stamping the witness makes the SAME (restored) manifest verify.
+        [IO.File]::WriteAllBytes($manifest, $pristine)
+        Write-ManifestWitness -FolderPath $bkp | Out-Null
+        $t4 = Join-Path $root 'r-ok'
+        { & $recon -TargetRoot $t4 *>&1 | Out-Null } | Should -Not -Throw
+        [IO.File]::ReadAllText((Join-Path $t4 'a.txt')) | Should -Be 'AAA'
+    }
+
+    It 'restores a sidecar-less legacy origin with an unverified warning, and refuses it under -RequireWitness (SR-039)' {
+        $root = Join-Path $TestDrive 'w39-legacy'
+        $bkp = New-WitnessOrigin $root
+        $recon = Join-Path $bkp 'RECONSTRUCT.ps1'
+        # Model a backup written before the witness contract.
+        Remove-Item -LiteralPath (Join-Path $bkp (Get-FileBackupDefaults).WitnessFilename) -Force
+
+        $t = Join-Path $root 'r-legacy'
+        & $recon -TargetRoot $t *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t 'a.txt')) | Should -Be 'AAA'
+        [IO.File]::ReadAllText((Join-Path $t 'b.txt')) | Should -Be 'BBB'
+        (Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw) | Should -Match 'UNVERIFIED'
+
+        # Opt-in strict mode turns that absence into the same abort.
+        $tStrict = Join-Path $root 'r-strict'
+        { & $recon -TargetRoot $tStrict -RequireWitness } |
+            Should -Throw -ExpectedMessage '*RequireWitness*'
+        Get-RestoredNames $tStrict | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Hash-recovery failure causes are distinguishable (SR-040)' {
+    # TC-072. Find-DataFileByHash used to collapse four causes into one warning
+    # (HomeHub cross-check finding D), so a wrapper could not tell "your bytes
+    # are gone" from "this host is broken; retry".
+    BeforeAll {
+        $script:reconSource = Join-Path $repo 'Reconstruct.ps1'
+        # Bind to the function AS SHIPPED: lift it out of the real script's AST
+        # rather than copying it into the test.
+        function Import-FindDataFileByHash {
+            $tokens = $errs = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                $script:reconSource, [ref]$tokens, [ref]$errs)
+            $fn = $ast.FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $n.Name -eq 'Find-DataFileByHash' }, $true) | Select-Object -First 1
+            $fn | Should -Not -BeNullOrEmpty
+            return [scriptblock]::Create($fn.Extent.Text)
+        }
+    }
+
+    It 'reports ContentMissing, StorageUnreadable and DependencyMissing distinctly (SR-040)' {
+        . (Import-FindDataFileByHash)
+        $root = Join-Path $TestDrive 'cause'
+        $pool = Join-Path $root 'pool'
+        New-Item -ItemType Directory -Path $pool -Force | Out-Null
+
+        # ContentMissing: the pool is readable, the bytes simply are not there.
+        [IO.File]::WriteAllText((Join-Path $pool 'unrelated.txt'), 'nope')
+        $r = Find-DataFileByHash -Hash 'F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0' -Length 4 `
+                -SearchFolders @($pool) -SevenZipPath $null
+        $r.Cause | Should -Be 'ContentMissing'
+        $r.Path  | Should -BeNullOrEmpty
+
+        # StorageUnreadable: a search folder that is not there at all.
+        $r = Find-DataFileByHash -Hash 'F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0' -Length 4 `
+                -SearchFolders @((Join-Path $root 'gone')) -SevenZipPath $null
+        $r.Cause | Should -Be 'StorageUnreadable'
+
+        # DependencyMissing: an archive candidate met with no usable 7-Zip.
+        # Outranks StorageUnreadable — it is the one with a precise remediation.
+        [IO.File]::WriteAllText((Join-Path $pool 'data.7z'), 'PK-not-really')
+        $r = Find-DataFileByHash -Hash 'F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0' -Length 4 `
+                -SearchFolders @($pool, (Join-Path $root 'gone')) `
+                -SevenZipPath (Join-Path $root 'no-such-7z.exe')
+        $r.Cause  | Should -Be 'DependencyMissing'
+        $r.Detail | Should -Match '7-Zip'
+
+        # Found still wins over any host issue met along the way.
+        $hit = Join-Path $pool 'hit.bin'
+        [IO.File]::WriteAllText($hit, 'FINDME')
+        $h = Get-FileXxHash -FilePath $hit
+        $r = Find-DataFileByHash -Hash $h -Length ([IO.FileInfo]$hit).Length `
+                -SearchFolders @((Join-Path $root 'gone'), $pool) -SevenZipPath $null
+        $r.Cause | Should -Be 'Found'
+        $r.Path  | Should -Be $hit
+    }
+
+    It 'names the count per class in the terminating summary (SR-040)' {
+        $root = Join-Path $TestDrive 'summary'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'keep.txt'), 'KEEP')
+        [IO.File]::WriteAllText((Join-Path $src 'lost.txt'), 'LOST')
+        Invoke-FB $cfg
+
+        # Destroy one row's only data source (Mirror mode).
+        Remove-Item -LiteralPath (Join-Path $bkp 'lost.txt') -Force
+        $t = Join-Path $root 'r'
+        { & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t } |
+            Should -Throw -ExpectedMessage '*1 file(s) could not be restored (1 content-missing, 0 host)*'
+        # The salvageable row was still restored first.
+        [IO.File]::ReadAllText((Join-Path $t 'keep.txt')) | Should -Be 'KEEP'
+        # ...and the log carries a per-cause message, not one generic warning.
+        (Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw) | Should -Match '\[MissingDataFile\]'
+    }
+}
+
+Describe 'Restore exit-code table (SR-040)' {
+    # TC-070. The whole point of SR-040: a wrapper (HomeHub/NagLight) decides
+    # between "your bytes are gone", "fix this host and retry" and "you pointed
+    # me at the wrong folder" from the exit STATUS alone. Driven as a child
+    # process, because in-process callers keep the terminating-error behavior.
+    BeforeAll {
+        $script:pwshPath = (Get-Process -Id $PID).Path
+        function Invoke-ReconProcess {
+            param([string]$Script, [string[]]$Arguments)
+            & $script:pwshPath -NoProfile -File $Script -ExitCode @Arguments *>&1 | Out-Null
+            return $LASTEXITCODE
+        }
+        function New-ExitCodeOrigin {
+            param([string]$Root)
+            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $cfg = Join-Path $Root 'c.xml'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+            [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'AAA')
+            Invoke-FB $cfg
+            return $bkp
+        }
+    }
+
+    It 'returns 0 for a clean restore (SR-040)' {
+        $root = Join-Path $TestDrive 'x0'
+        $bkp = New-ExitCodeOrigin $root
+        Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', (Join-Path $root 'r')) |
+            Should -Be 0
+    }
+
+    It 'returns 1 when a row only data source is gone (content class) (SR-040)' {
+        $root = Join-Path $TestDrive 'x1'
+        $bkp = New-ExitCodeOrigin $root
+        Remove-Item -LiteralPath (Join-Path $bkp 'a.txt') -Force
+        Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', (Join-Path $root 'r')) |
+            Should -Be 1
+    }
+
+    It 'returns 2 for a target inside the backup and for a missing manifest (SR-040)' {
+        $root = Join-Path $TestDrive 'x2'
+        $bkp = New-ExitCodeOrigin $root
+        $recon = Join-Path $bkp 'RECONSTRUCT.ps1'
+        Invoke-ReconProcess $recon @('-TargetRoot', (Join-Path $bkp 'inside')) | Should -Be 2
+
+        Remove-Item -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -Force
+        Remove-Item -LiteralPath (Join-Path $bkp (Get-FileBackupDefaults).WitnessFilename) -Force
+        Invoke-ReconProcess $recon @('-TargetRoot', (Join-Path $root 'r')) | Should -Be 2
+    }
+
+    It 'returns 3 when the manifest disagrees with its witness (SR-040)' {
+        $root = Join-Path $TestDrive 'x3'
+        $bkp = New-ExitCodeOrigin $root
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+        $bytes = [IO.File]::ReadAllBytes($manifest)
+        [IO.File]::WriteAllBytes($manifest, $bytes[0..($bytes.Length - 25)])
+        $t = Join-Path $root 'r'
+        Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $t) | Should -Be 3
+        # 3 means the index is untrustworthy: no manifest row reached the target.
+        @(Get-ChildItem -LiteralPath $t -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'RECONSTRUCT.log' }) | Should -BeNullOrEmpty
+    }
+
+    It 'returns 4 when hash recovery needs a 7-Zip this host lacks (host class) (SR-040)' {
+        $root = Join-Path $TestDrive 'x4'
+        $bkp = New-ExitCodeOrigin $root
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+
+        # Blank the DataPath so the row must be hash-recovered, and leave only an
+        # ARCHIVE candidate in the pool. The row itself stays Compressed=No, so
+        # the up-front 7-Zip precondition (exit 2) does not fire — the dependency
+        # is discovered during recovery, which is a HOST problem, not lost data.
+        $rows = Import-Csv -LiteralPath $manifest
+        $rows[0].DataPath = ''
+        $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+        Write-ManifestWitness -FolderPath $bkp | Out-Null
+        Move-Item -LiteralPath (Join-Path $bkp 'a.txt') -Destination (Join-Path $bkp 'a.7z') -Force
+
+        Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') `
+            @('-TargetRoot', (Join-Path $root 'r'), '-SevenZipPath', (Join-Path $root 'no-7z.exe')) |
+            Should -Be 4
+    }
+
+    It 'still THROWS with the existing wording when called in-process (SR-040)' {
+        # The -ExitCode switch is opt-in precisely so every in-process caller and
+        # the six Should -Throw assertions keep working unchanged.
+        $root = Join-Path $TestDrive 'x-inproc'
+        $bkp = New-ExitCodeOrigin $root
+        Remove-Item -LiteralPath (Join-Path $bkp 'a.txt') -Force
+        { & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot (Join-Path $root 'r') } |
+            Should -Throw -ExpectedMessage '*1 file(s) could not be restored*'
     }
 }

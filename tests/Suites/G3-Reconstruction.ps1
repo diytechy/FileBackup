@@ -41,6 +41,9 @@ function Invoke-G3 {
             $origDataPath = $target.DataPath
             $target.DataPath = ''
             $rows | Export-Csv -LiteralPath $bkpManifest -NoTypeInformation
+            # Deliberate tampering: re-stamp the witness (SR-038) so the restore
+            # exercises hash fallback, not witness verification failure.
+            Write-ManifestWitness -FolderPath $Env.BkpPath | Out-Null
 
             Get-ChildItem -LiteralPath $Env.ReconPath -Force -ErrorAction SilentlyContinue |
                 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -53,6 +56,7 @@ function Invoke-G3 {
             # restore
             $target.DataPath = $origDataPath
             $rows | Export-Csv -LiteralPath $bkpManifest -NoTypeInformation
+            Write-ManifestWitness -FolderPath $Env.BkpPath | Out-Null
         }
     }
 

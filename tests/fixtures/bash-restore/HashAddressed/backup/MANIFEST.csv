@@ -1,11 +1,11 @@
 "DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"
 "+h'{CQaL$Iz,&Wcw !!!!!!!!!^.csv","sub\MANIFEST.csv","17","2024-01-01T08:00:00.0000000-06:00","513FD27E67B7DD1103A86A1CBCA66566","No","Hash","0",""
-"4Ssq@R`c)OfZ8Ft} !!!!!!!!!=.txt","café-naïve.txt","13","2024-01-01T08:00:00.0000000-06:00","C79694DE408E702ACCA5A08B39AFB0A1","No","Hash","0",""
 "ItLmF#!#B4.XVP=+ !!!!!!!!!..txt","with,comma.txt","11","2024-01-01T08:00:00.0000000-06:00","46710161DF0FA1467AA6EC05B466880B","No","Hash","0",""
+"4Ssq@R`c)OfZ8Ft} !!!!!!!!!=.txt","café-naïve.txt","13","2024-01-01T08:00:00.0000000-06:00","C79694DE408E702ACCA5A08B39AFB0A1","No","Hash","0",""
 "eSv1M7=wS@n5~;O} !!!!!!!!!=.txt","dir\dup_b.txt","13","2024-01-01T08:00:00.0000000-06:00","C1D57AECF282CD1AD5721EF01CD8EE7D","No","Hash","1",""
 "eSv1M7=wS@n5~;O} !!!!!!!!!=.txt","dir\dup_a.txt","13","2024-01-01T08:00:00.0000000-06:00","C1D57AECF282CD1AD5721EF01CD8EE7D","No","Hash","0",""
-"m2d0H$%.xhV'K6p) !!!!!!!!!-.txt","newfile.txt","10","2024-01-03T08:00:00.0000000-06:00","FB4148467279A7A512CE3EBC6D6D0FE6","No","Hash","0",
 "eL=jmp'y(#YFOYw6 !!!!!!!!!@.txt","[b] (p).txt","14","2024-01-01T08:00:00.0000000-06:00","CE474A506A530A5732097AF947ED987A","No","Hash","0",""
+"m2d0H$%.xhV'K6p) !!!!!!!!!-.txt","newfile.txt","10","2024-01-03T08:00:00.0000000-06:00","FB4148467279A7A512CE3EBC6D6D0FE6","No","Hash","0",
+"eB)$E$Ee.1%rXzuJ !!!!!!!!![.txt","hello.txt","15","2024-01-02T08:00:00.0000000-06:00","3F6A2320F4D75810986789940FF30339","No","Hash","0",""
 "Vgm;o@w';+z4_$A- !!!!!!!!!_.txt","recur.txt","18","2024-01-01T08:00:00.0000000-06:00","5A414C897B0F00C263112AB617472022","No","Hash","0",
 "br#Sw+H3A._#9+E` !!!!!!!!!!.dat","empty.dat","0","2024-01-01T08:00:00.0000000-06:00","99AA06D3014798D86001C324468D497F","No","Hash","0",""
-"eB)$E$Ee.1%rXzuJ !!!!!!!!![.txt","hello.txt","15","2024-01-02T08:00:00.0000000-06:00","3F6A2320F4D75810986789940FF30339","No","Hash","0",""
