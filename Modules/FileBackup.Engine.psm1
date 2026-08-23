@@ -1018,6 +1018,54 @@ function Get-SnapshotPrunePlan {
     return $plan
 }
 
+function Test-StorageFormAgreement {
+    <#
+    .SYNOPSIS
+        True when a manifest row's Compressed column agrees with the storage form
+        of a named data file — the ONE predicate prune (SR-046) and storage-form
+        verification (SR-049) both ask, so they cannot drift.
+
+    .DESCRIPTION
+        The form of a stored file is carried by its extension: '.7z' means an
+        archive, anything else means raw bytes (the SR-021 invariant that a
+        content-addressed name carries the storage extension in BOTH tree modes).
+        A row claiming Compressed='Yes' must therefore name a '.7z' file, and a
+        row claiming 'No' must not.
+
+        ONE deliberate exemption: a row whose own RelativePath ends in '.7z' is a
+        legitimately stored already-compressed SOURCE file (SR-004 declines to
+        re-compress it), so its data file is a '.7z' regardless of the column.
+        Such a row is never a disagreement.
+
+    .PARAMETER Compressed
+        The row's Compressed column ('Yes' / 'No').
+
+    .PARAMETER RelativePath
+        The row's RelativePath — the source file's name, which drives the
+        already-compressed exemption above.
+
+    .PARAMETER DataPath
+        The stored file being judged. For a non-blank-DataPath row this is the
+        row's own DataPath; for a blank row it is the DataPath of the copy hash
+        recovery would locate elsewhere in the pool.
+
+    .OUTPUTS
+        [bool] True when the column and the file's form agree (or the row is
+        exempt); false for a genuine disagreement.
+    #>
+    # Implements: SR-046, SR-049, LLR-046, LLR-049
+    [CmdletBinding()]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Compressed,
+        [AllowNull()][AllowEmptyString()][string]$RelativePath,
+        [AllowNull()][AllowEmptyString()][string]$DataPath
+    )
+    if ([IO.Path]::GetExtension([string]$RelativePath) -ieq '.7z') { return $true }
+    $wantsArchive = ($Compressed -eq 'Yes')
+    $isArchive    = ([IO.Path]::GetExtension([string]$DataPath) -ieq '.7z')
+    return ($wantsArchive -eq $isArchive)
+}
+
 function Test-PoolResolves {
     <#
     .SYNOPSIS
@@ -1065,12 +1113,9 @@ function Test-PoolResolves {
                    Where-Object { $_.FullName -ne $ExcludeFolder })
     $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
 
-    $isArchiveName = { param([string]$Path) [IO.Path]::GetExtension($Path) -ieq '.7z' }
-
     foreach ($f in $index.Folders) {
         if ($f.Folder -eq $ExcludeFolder) { continue }
         foreach ($row in $f.Manifest) {
-            $wantsArchive = ($row.Compressed -eq 'Yes')
             if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) {
                 $full = Join-Path $f.Folder $row.DataPath
                 if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
@@ -1078,7 +1123,7 @@ function Test-PoolResolves {
                         Message = "'$($f.Name)': row '$($row.RelativePath)' points at '$($row.DataPath)', which is not in that folder." })
                     continue
                 }
-                if ($wantsArchive -ne (& $isArchiveName $row.DataPath) -and -not (& $isArchiveName $row.RelativePath)) {
+                if (-not (Test-StorageFormAgreement -Compressed $row.Compressed -RelativePath $row.RelativePath -DataPath $row.DataPath)) {
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'form-mismatch'
                         Message = "'$($f.Name)': row '$($row.RelativePath)' is Compressed=$($row.Compressed) but its data file '$($row.DataPath)' has the opposite form." })
                 }
@@ -1092,7 +1137,7 @@ function Test-PoolResolves {
                 continue
             }
             foreach ($location in $index.Map[$key].ToArray()) {
-                if ($wantsArchive -ne (& $isArchiveName $location.DataPath) -and -not (& $isArchiveName $row.RelativePath)) {
+                if (-not (Test-StorageFormAgreement -Compressed $row.Compressed -RelativePath $row.RelativePath -DataPath $location.DataPath)) {
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'form-mismatch'
                         Message = "'$($f.Name)': row '$($row.RelativePath)' is Compressed=$($row.Compressed) but the copy hash recovery would find, '$($location.DataPath)' in '$([IO.Path]::GetFileName($location.Folder))', has the opposite form." })
                     break
@@ -2637,7 +2682,7 @@ Export-ModuleMember -Function @(
     'Test-BackupManifest', 'Sync-BackupStorageLayout',
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
     'Get-SnapshotPrunePlan', 'Get-BackupSnapshot', 'Get-PoolSnapshotFolder',
-    'Test-PoolResolves', 'Assert-PrunePrecondition',
+    'Test-StorageFormAgreement', 'Test-PoolResolves', 'Assert-PrunePrecondition',
     'Invoke-PruneEntrySweep', 'Copy-ReHomedDataFile', 'Publish-PruneManifest',
     'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
