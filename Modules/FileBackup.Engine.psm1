@@ -1292,7 +1292,8 @@ function Get-StorageFormFinding {
 
           DanglingDataPath          a non-blank DataPath naming no file.
           FlagOverRaw               Compressed='Yes' over bytes that are raw.
-          FlagOverArchive           Compressed='No' over bytes that are a 7z archive.
+          FlagOverArchive           Compressed='No' over bytes that are a 7z
+                                    archive AND are not the row's own payload.
           NameLies                  flag and bytes agree, but the DataPath's
                                     extension claims the other form.
           PayloadMismatch           -Deep only: the stored bytes do not reproduce
@@ -1307,9 +1308,23 @@ function Get-StorageFormFinding {
                                     pre-revision-2 kit is still exposed.
           Unreferenced              a data file in the folder that no row names.
 
-        A row whose own RelativePath ends in '.7z' is exempt from the flag checks
-        through Test-StorageFormAgreement — a legitimately stored
-        already-compressed source file is not a disagreement.
+        The exemption is keyed on the PAYLOAD, not on the file's name. An
+        already-compressed SOURCE file (SR-004 declines to re-compress it) is
+        stored raw, so its stored bytes are a 7z archive while its row correctly
+        says Compressed='No' — and such a source can be called anything
+        ('archive.7z.bak', a '.pack' file, an installer payload), so keying the
+        exemption on a '.7z' extension alone mis-classified an UNTAMPERED store as
+        FlagOverArchive and let repair set Compressed='Yes', after which restore
+        expanded the user's own archive (WP5 re-review residual). A '.7z'
+        RelativePath is kept only as the cheap fast path; otherwise, when the
+        bytes are an archive and the row says 'No', the file's OWN bytes are
+        hashed against the row's (xxH2Hash,Length): a match is correct raw storage
+        and yields no finding, and only a mismatch is a genuine FlagOverArchive.
+
+        That confirming hash runs ONLY for archive-shaped bytes under a
+        Compressed='No' row — rare — so the default (non-Deep) scan stays a
+        six-byte read per row. -Deep uses the same answer, so it never expands a
+        file whose own bytes already reproduce the row.
 
     .PARAMETER Folder
         The pool folder being audited (backup root or one Snapshot_* folder).
@@ -1381,12 +1396,25 @@ function Get-StorageFormFinding {
             continue
         }
 
-        # THE exemption (the same one Test-StorageFormAgreement applies): a row
-        # whose own RelativePath ends in '.7z' is an already-compressed SOURCE
-        # file. Its data file is named '.7z' because the SOURCE was, and its
-        # bytes are whatever the user's file held — which this check cannot
-        # second-guess. Neither the flag nor the name is a disagreement.
+        # THE exemption: a row whose stored bytes ARE the source file's own bytes
+        # is correct even when those bytes look like an archive — the user's own
+        # file happened to be one (SR-004 declines to re-compress it). The
+        # exemption is keyed on the PAYLOAD, not on the name: a '.7z' extension is
+        # only the cheap fast path for the common case, because an
+        # already-compressed source can be called anything ('archive.7z.bak', a
+        # '.pack' file, an installer payload).
+        #
+        # Cost: the confirming hash runs ONLY for a file whose bytes are an
+        # archive while its row says Compressed='No' — rare — so the default
+        # (non-Deep) scan stays a six-byte read per row.
+        $rawArchiveOk = $null      # $null = not asked; $true/$false = own bytes (mis)match the row
         $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z')
+        if (-not $exempt -and $observed -eq 'Archive' -and $row.Compressed -ne 'Yes' -and
+            -not [string]::IsNullOrWhiteSpace($row.xxH2Hash)) {
+            $rawArchiveOk = ((Get-Item -LiteralPath $full).Length -eq [long]$row.Length -and
+                             (Get-FileXxHash -FilePath $full) -eq $row.xxH2Hash)
+            if ($rawArchiveOk) { $exempt = $true }
+        }
         if (-not $exempt) {
             $claimed  = if ($row.Compressed -eq 'Yes') { 'Archive' } else { 'Raw' }
             $nameForm = if ([IO.Path]::GetExtension([string]$row.DataPath) -ieq '.7z') { 'Archive' } else { 'Raw' }
@@ -1403,15 +1431,29 @@ function Get-StorageFormFinding {
         if ($Deep) {
             $payloadOk = $false
             if ($observed -eq 'Archive') {
-                $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
-                try {
-                    Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $full -DestinationFile $tmp
-                    $payloadOk = ((Get-Item -LiteralPath $tmp).Length -eq [long]$row.Length -and
-                                  (Get-FileXxHash -FilePath $tmp) -eq $row.xxH2Hash)
-                } catch {
-                    $payloadOk = $false
-                } finally {
-                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                # Archive-shaped bytes that ARE the row's payload (an
+                # already-compressed source stored raw) prove themselves without
+                # 7-Zip — and must not be expanded, which would compare the
+                # user's archive against its own inner file. Only bytes that do
+                # NOT reproduce the row are worth expanding.
+                if ($null -eq $rawArchiveOk -and $row.Compressed -ne 'Yes' -and
+                    -not [string]::IsNullOrWhiteSpace($row.xxH2Hash)) {
+                    $rawArchiveOk = ((Get-Item -LiteralPath $full).Length -eq [long]$row.Length -and
+                                     (Get-FileXxHash -FilePath $full) -eq $row.xxH2Hash)
+                }
+                if ($rawArchiveOk -eq $true) {
+                    $payloadOk = $true
+                } else {
+                    $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                    try {
+                        Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $full -DestinationFile $tmp
+                        $payloadOk = ((Get-Item -LiteralPath $tmp).Length -eq [long]$row.Length -and
+                                      (Get-FileXxHash -FilePath $tmp) -eq $row.xxH2Hash)
+                    } catch {
+                        $payloadOk = $false
+                    } finally {
+                        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                    }
                 }
             } else {
                 $payloadOk = ((Get-Item -LiteralPath $full).Length -eq [long]$row.Length -and
@@ -1625,6 +1667,16 @@ function Repair-BackupStorageForm {
             $observed = Get-StoredFileForm -Path $full
             if ($observed -eq 'Missing') { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
 
+            # The row loop below rewrites Compressed for EVERY row naming this
+            # file, including rows that produced no finding — so it needs the
+            # SAME payload-keyed exemption Get-StorageFormFinding applies. Read
+            # the bytes' identity ONCE, and BEFORE any rename moves them.
+            $ownHash = $null; $ownLength = ''
+            if ($observed -eq 'Archive') {
+                $ownLength = [string](Get-Item -LiteralPath $full).Length
+                $ownHash   = Get-FileXxHash -FilePath $full
+            }
+
             # The bytes decide both columns. Rename only when the name's claim
             # differs from what the bytes are.
             $newCompressed = if ($observed -eq 'Archive') { 'Yes' } else { 'No' }
@@ -1649,12 +1701,14 @@ function Repair-BackupStorageForm {
             }
 
             foreach ($row in $rows) {
-                # A row whose own RelativePath is '.7z' is an already-compressed
-                # SOURCE file (the Test-StorageFormAgreement exemption): its
-                # Compressed column is not a disagreement and rewriting it from
-                # the bytes would make the restorer expand the user's archive.
-                # It still follows the file through the rename.
-                $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z')
+                # A row whose stored bytes ARE its own payload is an
+                # already-compressed SOURCE file: its Compressed column is not a
+                # disagreement, and rewriting it from the bytes would make the
+                # restorer expand the user's archive. Keyed on the payload, with
+                # a '.7z' RelativePath as the fast path — the source can be named
+                # anything. Such a row still follows the file through the rename.
+                $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z') -or
+                          ($null -ne $ownHash -and $ownHash -eq $row.xxH2Hash -and $ownLength -eq [string]$row.Length)
                 & $Log ("Repaired '$([IO.Path]::GetFileName($folder))' row '$($row.RelativePath)': " +
                         "Compressed $($row.Compressed) -> $(if ($exempt) { $row.Compressed } else { $newCompressed }), " +
                         "DataPath '$dataPath' -> '$newDataPath'.") 'INFO'

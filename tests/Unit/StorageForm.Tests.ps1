@@ -78,6 +78,27 @@ BeforeAll {
         Write-ManifestWitness -FolderPath $Folder | Out-Null
     }
 
+    function New-ArchiveShapedFile {
+        <#
+        .SYNOPSIS
+            Writes a REAL 7z archive (7-Zip's own bytes, so the first six are the
+            37 7A BC AF 27 1C signature) to $Path, whatever $Path is called.
+
+            Used for the already-compressed SOURCE fixtures: a literal string
+            like 'pretend-archive-source' is Raw to Get-StoredFileForm, so a
+            fixture built from one asserts nothing about archive-shaped content.
+        #>
+        param([string]$Path, [string]$Content = 'INNER-PAYLOAD ')
+        $work = Join-Path ([IO.Path]::GetDirectoryName($Path)) ([IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $work -Force | Out-Null
+        $inner = Join-Path $work 'inner.txt'
+        [IO.File]::WriteAllText($inner, ($Content * 50))
+        Compress-FileWithSevenZip -SevenZipPath $script:sevenZip -SourceFile $inner `
+            -Destination7z (Join-Path $work 'made.7z')
+        Move-Item -LiteralPath (Join-Path $work 'made.7z') -Destination $Path -Force
+        Remove-Item -LiteralPath $work -Recurse -Force
+    }
+
     function New-MalformedStore {
         <#
         .SYNOPSIS
@@ -544,7 +565,12 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
         [IO.File]::WriteAllText((Join-Path $src 'text.txt'), ('COMPRESSIBLE ' * 200))
-        [IO.File]::WriteAllText((Join-Path $src 'already.7z'), 'pretend-archive-source')
+        # REAL 7z bytes, under a '.7z' name and under a name that hides it: both
+        # are already-compressed SOURCE files stored raw, and a clean-store
+        # assertion built on a plain string would pass vacuously (Get-StoredFileForm
+        # would call it Raw and never reach the exemption at all).
+        New-ArchiveShapedFile -Path (Join-Path $src 'already.7z')
+        New-ArchiveShapedFile -Path (Join-Path $src 'archive.7z.bak') -Content 'HIDDEN-ARCHIVE '
         # B6: a NESTED infrastructure-named file is user data and must not be
         # mistaken for infrastructure or reported as unreferenced.
         [IO.File]::WriteAllText((Join-Path $src 'sub\MANIFEST.csv'), 'nested,not,infrastructure')
@@ -556,6 +582,81 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
             Should -BeGreaterThan 0
         @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
         Invoke-VerifyExitCode -Cfg $cfg | Should -Be 0
+    }
+
+    It 'leaves an already-compressed source under a non-.7z name alone, in mode <Mode> (SR-049, SR-004)' -ForEach @(
+        @{ Mode = 'Mirror';                 Compress = $false; ContentAddressed = $false }
+        @{ Mode = 'Mirror+Compress';        Compress = $true;  ContentAddressed = $false }
+        @{ Mode = 'HashAddressed';          Compress = $false; ContentAddressed = $true  }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  ContentAddressed = $true  }
+    ) {
+        # WP5 re-review, residual HIGH. The exemption used to be keyed on the
+        # RelativePath ending in '.7z', while the observed form comes from the
+        # BYTES: an UNTAMPERED store holding a source file that IS a 7z archive
+        # under any other name ('archive.7z.bak', a '.pack' file, an installer
+        # payload) was reported FlagOverArchive, and -RepairStorage then set
+        # Compressed=Yes so the next restore expanded the user's own archive and
+        # wrote its inner file under the original name — exit 0, silent
+        # corruption of a store that had been correct.
+        $root = Join-Path $TestDrive "tc093-hidden-$Mode"
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        New-ArchiveShapedFile -Path (Join-Path $src 'archive.7z.bak')
+        [IO.File]::WriteAllText((Join-Path $src 'plain.txt'), ('PLAIN ' * 200))
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+
+        # The fixture is only meaningful if the stored bytes really are archive
+        # bytes under a row that says Compressed=No.
+        $row = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                 Where-Object RelativePath -eq 'archive.7z.bak')[0]
+        Get-StoredFileForm -Path (Join-Path $bkp $row.DataPath) | Should -Be 'Archive'
+        if (-not $Compress) { $row.Compressed | Should -Be 'No' -Because 'SR-004 declines to re-compress it' }
+
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) |
+            Should -BeNullOrEmpty -Because 'an untampered store has no findings, whatever the source file was named'
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg -Deep -SevenZipPath $script:sevenZip) |
+            Should -BeNullOrEmpty -Because '-Deep must not expand a file whose OWN bytes reproduce the row'
+        Invoke-VerifyExitCode -Cfg $cfg | Should -Be 0
+
+        # Restore before repair...
+        $before = Join-Path $root 'out-before'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $before *>&1 | Out-Null
+        (Get-FileHash -LiteralPath (Join-Path $before 'archive.7z.bak') -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath (Join-Path $src 'archive.7z.bak') -Algorithm SHA256).Hash
+
+        # ...repair touches nothing at all...
+        $fingerprint = Get-TreeFingerprint -Folder $bkp
+        $result = Repair-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg -Log { param($m, $l) }
+        $result.Repaired | Should -Be 0
+        Assert-TreeUnchanged -Before $fingerprint -Folder $bkp
+
+        # ...and the restore is still byte-exact afterwards.
+        $after = Join-Path $root 'out-after'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $after *>&1 | Out-Null
+        foreach ($rel in 'archive.7z.bak', 'plain.txt') {
+            (Get-FileHash -LiteralPath (Join-Path $after $rel) -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath (Join-Path $src $rel) -Algorithm SHA256).Hash
+        }
+    }
+
+    It 'still finds a genuine FlagOverArchive, whose payload and not whose file matches the row (SR-049)' {
+        # The other side of the payload-keyed exemption: shape b of the malformed
+        # store is a REAL archive parked under a Compressed=No row, and the row's
+        # (hash,length) describe the archive's CONTENT, not the archive. Its own
+        # bytes therefore do not reproduce the row, so it stays a finding.
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-genuine')
+        $findings = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        @($findings | Where-Object { $_.RelativePath -eq 'b.txt' -and $_.Class -eq 'FlagOverArchive' }).Count |
+            Should -Be 1
+
+        Repair-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Log { param($m, $l) } | Out-Null
+        $row = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'b.txt')[0]
+        $row.Compressed | Should -Be 'Yes' -Because 'the bytes are an archive of the row content, so the flag was wrong'
+        [IO.Path]::GetExtension($row.DataPath) | Should -Be '.7z'
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg |
+          Where-Object RelativePath -eq 'b.txt') | Should -BeNullOrEmpty
     }
 
     It 'audits every snapshot as well as the backup root, and covers the root alone under -BackupRootOnly (SR-049)' {
