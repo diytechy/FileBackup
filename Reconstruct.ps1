@@ -49,7 +49,7 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 3
+# KitRevision: 4
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -57,8 +57,13 @@
 # stamped revision and the first to decide a hash-recovered row's form from the
 # FILE it located rather than the row's Compressed column (SR-050). Revision 3
 # additionally tests every non-matching '.7z' candidate as RAW bytes, so a
-# blank row for a genuine '.7z' SOURCE file is recoverable. Restoring a snapshot
-# with its OWN older kit still carries the defects fixed after it.
+# blank row for a genuine '.7z' SOURCE file is recoverable. Revision 4 honors
+# the path sidecar only while the kit folder still lives inside the roots it
+# records (a copied/moved store auto-detects instead of reading the original),
+# falls back to (hash,length) pool recovery when a row's named data file is
+# missing, maps '\' separators on non-Windows hosts, and keys the manifest
+# dictionary case-sensitively there. Restoring a snapshot with its OWN older
+# kit still carries the defects fixed after it.
 
 param(
     [string]$TargetRoot,
@@ -320,13 +325,30 @@ function Find-DataFileByHash {
 # ---- Resolve backup/change roots ----
 $isChangeFolder = $folderName -match $ChangeFolderPattern
 
-# Sidecar written by New-ReconstructScript takes precedence over auto-detection (B10).
+# Sidecar written by New-ReconstructScript takes precedence over auto-detection
+# (B10) — but ONLY while this folder still lives inside the roots it records.
+# The recorded absolute paths are meaningless for a store that was copied or
+# moved (USB, another machine, a drive-letter change), and honoring them there
+# either fails against a dead path or, worse, silently restores from the
+# still-live ORIGINAL store instead of this copy. reconstruct.sh applies the
+# same containment rule.
 $sidecar = Join-Path $here 'RECONSTRUCT.paths.json'
 if (-not $BackupRootOverride -and (Test-Path -LiteralPath $sidecar -PathType Leaf)) {
     try {
         $paths = Get-Content -LiteralPath $sidecar -Raw | ConvertFrom-Json
-        if (-not $BackupRootOverride) { $BackupRootOverride = $paths.BackupRoot }
-        if (-not $ChangeRootOverride) { $ChangeRootOverride = $paths.ChangeRoot }
+        $hereIsInsideRecorded = foreach ($root in @($paths.BackupRoot, $paths.ChangeRoot)) {
+            if ($root -and (Test-Path -LiteralPath $root -PathType Container)) {
+                $r = [System.IO.Path]::GetFullPath($root).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+                $h = [System.IO.Path]::GetFullPath($here).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+                if ($h.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $true; break }
+            }
+        }
+        if ($hereIsInsideRecorded) {
+            if (-not $BackupRootOverride) { $BackupRootOverride = $paths.BackupRoot }
+            if (-not $ChangeRootOverride) { $ChangeRootOverride = $paths.ChangeRoot }
+        } else {
+            Write-Warning "Path sidecar '$sidecar' records roots this folder no longer lives in (the store was likely copied or moved); using auto-detection."
+        }
     } catch {
         Write-Warning "Could not read path sidecar '$sidecar'; falling back to auto-detection. $($_.Exception.Message)"
     }
@@ -440,7 +462,9 @@ function Read-RawManifest {
 # point-in-time authority (no newer manifest is overlaid). From the backup root,
 # the live backup manifest is the latest state. In both cases the bytes are
 # resolved later from the data pool by hash where a DataPath is blank.
-$main = @{}
+# New-RelativePathMap: case-sensitive keys on Linux, where case-differing
+# manifest rows are distinct ordinary files (SR-034).
+$main = New-RelativePathMap
 $haveSnapshotTree = $changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container)
 $authorityFolder  = if ($isChangeFolder) { $here } else { $backupRoot }
 
@@ -552,9 +576,19 @@ function Add-Unrestored {
     $unrestored.Add([pscustomobject]@{ RelativePath = $RelativePath; Cause = $Cause; Detail = $Detail })
 }
 
+# Manifest paths use the separator of the machine that WROTE the backup. On a
+# non-Windows restore host, map '\' to '/' (reconstruct.sh's to_posix does the
+# same) — otherwise a Windows-made 'sub\file.txt' is written as one root-level
+# file literally named 'sub\file.txt', a structurally wrong tree with exit 0.
+function ConvertTo-LocalRelativePath {
+    param([string]$Path)
+    if ($IsWindows) { return $Path }
+    return $Path.Replace('\', '/')
+}
+
 foreach ($rel in $main.Keys) {
     $row     = $main[$rel]
-    $destFull = Join-Path $TargetRoot $rel
+    $destFull = Join-Path $TargetRoot (ConvertTo-LocalRelativePath $rel)
     if (-not (Test-PathIsInside -Child $destFull -Parent $TargetRoot)) {
         Add-Unrestored -RelativePath $rel -Cause 'PathTraversal' `
             -Detail "'$rel' escapes the target root (path traversal); refusing."
@@ -591,13 +625,31 @@ foreach ($rel in $main.Keys) {
             continue
         }
     } else {
-        $srcFull = Join-Path $srcFolder $dataPath
+        $srcFull = Join-Path $srcFolder (ConvertTo-LocalRelativePath $dataPath)
     }
 
     if (-not (Test-Path -LiteralPath $srcFull -PathType Leaf)) {
-        Add-Unrestored -RelativePath $rel -Cause 'MissingDataFile' `
-            -Detail "The row's data file '$dataPath' is not present in the restore origin."
-        continue
+        # A non-blank DataPath is a locator HINT, not the content authority: a
+        # run killed between Optimize-ChangeFolders' duplicate deletion and its
+        # manifest rewrite leaves rows naming deleted files while the keeper
+        # copy still sits in the pool. Try (hash,length) recovery — the same
+        # machinery blank rows use — before declaring the content missing.
+        $recovered = $false
+        if ($row.xxH2Hash -and $row.Length) {
+            "$(Get-Date -Format 'O') - Data file '$dataPath' missing for $rel; attempting hash scan..." | Out-File -LiteralPath $logPath -Append
+            $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
+            if ($found.Cause -eq 'Found') {
+                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$($found.Path)' (form: $($found.Form))" | Out-File -LiteralPath $logPath -Append
+                $srcFull     = $found.Path
+                $locatedForm = $found.Form
+                $recovered   = $true
+            }
+        }
+        if (-not $recovered) {
+            Add-Unrestored -RelativePath $rel -Cause 'MissingDataFile' `
+                -Detail "The row's data file '$dataPath' is not present in the restore origin, and no pool file matches its (hash,length)."
+            continue
+        }
     }
 
     # SR-050: a hash-recovered file is decided by the form the locator PROVED;

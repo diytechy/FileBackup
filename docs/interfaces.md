@@ -56,7 +56,13 @@ bytes, bytes-reclaimable-if-pruned — a figure only FileBackup can compute) and
 `prune` (`Remove-BackupSnapshot`; `Prune-` is not an approved PowerShell verb),
 which re-homes still-referenced bytes into the surviving pool and proves every
 surviving manifest still resolves before it deletes anything. Pruning needs the
-`backup` mount writable in addition to `change`. `verify` (optionally with
+`backup` mount writable in addition to `change`.
+
+**JSON framing.** The `snapshots` inventory and `verify` findings documents are
+printed to stdout, which also carries timestamped log lines. A consumer must
+extract the document by LINE: it is either the single line `[]`, or the block
+from the line that is exactly `[` through the line that is exactly `]`. (The
+repo's own harness does exactly this — `scripts/Invoke-Container.ps1`.) `verify` (optionally with
 `FILEBACKUP_REPAIR=1`) audits storage form across the live backup and every
 snapshot without mutating anything unless repair is requested.
 

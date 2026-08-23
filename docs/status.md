@@ -122,6 +122,21 @@ last) — it is the record, not required reading for every pass.
   rail row is relabeled **WP6-or-later** since relaxing a Verified prune rail
   is a code change, out of this docs-only batch's surface. Kit-version stamp
   deliberately left untouched. See the audit entry below.
+- **Adversarial review round (2026-08-23, human-directed) is done and its fix
+  batch has landed — awaiting the same batch ratification.** Two independent
+  fresh-context reviews (whole-repo medium + adversarial data-integrity,
+  triage rule: realistic operational scenarios only) produced 19 findings;
+  **12 fixed same-day** (backup-side witness gate with exit 3, atomic staging
+  lock, non-destructive stale-Temp recovery + early-abort cleanup, state-file
+  publish-by-rename, Mirror infra-name collision refusal, Linux case-sensitive
+  RelativePath keying, sidecar containment, missing-DataPath hash fallback,
+  PS separator mapping, two doc fixes), **restore kit revision 3 → 4**, five
+  recorded as new/widened Open items (R5-widening, R6, R7, R10, F8), one
+  dismissed malicious-only. Evidence: **Pester unit 330/330** (7 new pins),
+  **bats 55/55 + shellcheck clean** on WSL after the reconstruct.sh changes,
+  **lint clean**, trace `SN=30 SR=52 LLR=51 TC=101, 0 orphans / 0 integrity`,
+  and the rebuilt container's full smoke + TC-102 check passing under Podman.
+  See the audit entry below.
 - **CI-gated (need a real green CI run on `resync_v2` after the push, not
   locally achievable — Docker is unavailable on this host):** SR-034 and
   SR-044 flip `Implemented`→`Verified`, the `--phase` ratchet re-arms to
@@ -252,7 +267,7 @@ work-package order follows the table.
 | ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review of the fixes in flight — awaiting batch ratification |
 | backup-side capacity | Does the backup side have the capacity preflight the restore side gained (SR-023 is restore-only)? | **WP5.** Verify first, then a small SR mirroring SR-023. Importance rises with the container (target is a HomeHub-controlled bind mount). | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review in flight — SR-052 stays `Implemented` until TC-101's Linux half runs in the Docker CI job; awaiting batch ratification |
 | prune form-mismatch rail (new, WP5) | `Test-PoolResolves` refuses a prune with code 2 on a blank-DataPath `form-mismatch`, a rail WP4 justified by "the restorers branch on the ROW". **SR-050 removed that premise**, so prune now refuses a store a revision-2 kit restores correctly — reproducible by any compression flip. | **WP6-or-later.** Left unchanged deliberately by WP5: a pre-revision-2 snapshot restored by its OWN kit IS still exposed, and relaxing a Verified prune rail is not WP5's call. **A code change, so out of this docs-only WP6 batch's scope** — confirmed still open, unchanged since WP5. Likely resolution: downgrade the BLANK-row half to informational once `-RefreshKits` (or a kit-revision check) proves the pool's kits are current. | Open → WP6-or-later |
-| dangling DataPath becomes unrestorable (new, WP5) | A row whose data file is missing is dropped by `Test-BackupManifest`; if the SOURCE file is unchanged the diff never re-copies it, and `Optimize-ChangeFolders` blanks the `DataPath` — leaving a row whose bytes are nowhere in the pool while the run reports success. `Test-PoolResolves` detects it (`broken-pool`); no backup run does, and SR-049's audit deliberately does not (it is not a FORM finding). Pre-existing, observed while writing TC-094. Severity: **pre-existing MEDIUM** (silent-success data-loss risk, not confirmed reachable at scale). | Needs its own SR: either heal the row (force a re-copy from source) or fail the set. **Not decided by WP6** (a docs-only batch) — **awaiting human prioritization in the batch ratification.** | Open |
+| dangling DataPath becomes unrestorable (new, WP5) | A row whose data file is missing is dropped by `Test-BackupManifest`; if the SOURCE file is unchanged the diff never re-copies it, and `Optimize-ChangeFolders` blanks the `DataPath` — leaving a row whose bytes are nowhere in the pool while the run reports success. `Test-PoolResolves` detects it (`broken-pool`); no backup run does, and SR-049's audit deliberately does not (it is not a FORM finding). Pre-existing, observed while writing TC-094. Severity: **pre-existing MEDIUM** (silent-success data-loss risk, not confirmed reachable at scale). **2026-08-23 review round corroborated and WIDENED it (R5):** `Invoke-BackupFileGroup` picks `$existingBackupWithHash[0]` without checking the `DataPath` is non-blank, so a NEWLY ADDED file with matching (hash,length) adopts the blank `DataPath` and its bytes are never copied either; and since `Compare-SourceToBackup` diffs metadata only, an unchanged source file never re-enters the diff to heal its row. Partial mitigation shipped 2026-08-23: kit revision 4's restorers fall back to (hash,length) recovery for MISSING named files, but a truly blank row with no pool copy remains silent-success data loss. | Needs its own SR: either heal the row (force a re-copy from source when the source still has the bytes, and never adopt a blank `DataPath` as "existing") or fail the set. **Not decided by WP6** (a docs-only batch) — **awaiting human prioritization in the batch ratification.** | Open |
 | manifest row order (new, WP5) | Consecutive no-op runs can emit manifest ROWS in a different ORDER with identical content (the final manifest is enumerated from a hashtable). SR-024 holds on row content; G7-Determinism does not catch the ordering. TC-094/TC-097 compare rows sorted by `RelativePath`. | **WP6**, low priority. Either sort deterministically before `Write-Manifest`, or state explicitly that row order is not part of the contract. | Open → WP6 |
 | snapshot inventory cost (new, WP4 review L3) | `Get-BackupSnapshot` runs one `Get-SnapshotPrunePlan` per snapshot and each rebuilds the whole pool index — O(n^2) in snapshot count — and the plan hashes candidate files (the destination-collision check) during what is advertised as a read-only inventory. Correctness is unaffected; on a large store `-Action Snapshots` is far more expensive than it looks. | **Perf follow-up, unscheduled.** The obvious fix is to build the pool index ONCE and thread it through `Get-SnapshotPrunePlan`; that is not a trivial edit to a data-integrity function, so the WP4 review fixes deliberately did not attempt it. | Recorded 2026-08-23 (WP4 review, accepted as-is) |
 | **-RepairFromPruned** (deferred from WP4 §5.4) | Materializing bytes back into a pool that lost them. WP5 landed the DIAGNOSIS half (SR-049's R3/R4/R5 findings say exactly what is missing and where); the byte-materialization half stays deferred. | **WP6 or later.** Build on WP4's plan/copy/prove primitives once they are Verified. SR-050 removed the correctness motive, so this is convenience, not safety. No SN/SR yet. | Deferred → WP6-or-later |
@@ -263,6 +278,11 @@ work-package order follows the table.
 | Get-StoreFingerprint nit (new, WP4 review) | `Get-StoreFingerprint` excludes `*.fbprune.tmp` wholesale — a future test combining `-SuffixNamedUserFiles` with `Assert-StoreUnchanged` would be blind to the H1 class (missing/renamed-file corruption on that suffix). Not a defect on any test that exists today; a test-authoring blind spot. | **Accepted 2026-08-23 (WP4 review, recorded as-is, no action taken)** — flagged here so a future `-SuffixNamedUserFiles` × `Assert-StoreUnchanged` combination test doesn't silently miss the H1 class. Revisit only if that combination is added. | Accepted, recorded — no action taken |
 | Archive-option storage mode (ex-ToDo) | Store backups as `.7z` archive sets with per-folder rebuild scripts. | **REJECTED 2026-08-21** — opaque archive sets contradict the model's core strength (plain files on disk, restorable by a 20 KB bash script with no runtime). Moved to Non-goals. | Rejected |
 | CloneSpy CRC export (ex-ToDo) | Emit a CloneSpy-compatible CRC list per backup set. | Harmless C-priority idea; stays parked, unscheduled. | Parked |
+| **2026-08-23 review round (fixed batch)** | Two independent fresh-context reviews (whole-repo medium + adversarial data-integrity, human-directed triage: realistic operational scenarios only, malicious-only excluded) surfaced 19 findings, several REPRODUCED by throwaway scripts. Twelve landed same-day: backup-side manifest-witness gate refusing with exit 3 before any mutation (F2, reproduced silent-laundering of a torn index); atomic staging-lock take (R3); non-destructive stale-Temp recovery guidance in guard + README, and early-abort staging cleanup so a locked source file no longer wedges every later run (F1 reproduced/R4); `FileBackupState.json` publish-by-rename (F7); Mirror-mode refusal of a root-level infrastructure-named data path instead of silent corruption (R2); filesystem-faithful RelativePath keying via `New-RelativePathMap` (F3, reproduced on Linux semantics); sidecar containment rule — a copied/moved store restores from ITSELF (F4, reproduced, both reviewers); missing-DataPath (hash,length) fallback in both restorers (F5); `\`-separator mapping in the PS restorer on Linux (F6); README Verify-repairs wording (R9); IF-001 JSON framing note (R8). **Restore kit is now revision 4.** | Fixed, tested (6 new Pester pins + bats 55/55 + shellcheck clean), audit entry below. | Landed — awaiting batch ratification |
+| 7-Zip argument quoting (new, R6) | `Compress-`/`Expand-FileWithSevenZip` and `Get-MediaMBPerSec` hand-join quoted arguments into `ProcessStartInfo.Arguments`; a filename containing `"` (legal on Linux) mis-splits the 7-Zip command line. Failure is loud (set fails / exit 4). | Move to `ProcessStartInfo.ArgumentList` (per-argument, no quoting). Touches the kit module, so batch with the NEXT kit-revision bump rather than spending revision 5 on it alone. | Open |
+| bash newline-in-filename rows (new, R7) | `reconstruct.sh`'s line-based FPAT parser cannot parse an RFC-4180 quoted field containing a newline — a legal Linux filename the engine can now write from a container backup; `Import-Csv` handles it, so the twin restorers diverge on the same manifest. Loud-ish (exit 1/4), not silent. | bash-v2 scope: refuse such rows with a clear message in bash, or refuse the filename at backup time on Linux. | Open → bash-v2 |
+| no-7-Zip raw-candidate skip (new, R10) | Both restorers `continue` past a `.7z`-named hash-recovery candidate when 7-Zip is absent, never testing its raw bytes — which needs no 7-Zip and is exactly the revision-3 exemption shape. A restore needing no actual decompression can exit 4 "install 7-Zip" unnecessarily. | Low impact (a genuinely compressed store dies earlier anyway). Fold into the next kit-revision batch with R6. | Open |
+| kit-less snapshot window (new, F8) | A crash inside `Complete-ChangeFolder` between the `Temp`→`Snapshot_*` rename and the kit-artifact copy loop yields a valid snapshot (manifest + witness) carrying NO restore kit (`Get-BackupKitRevision` = 0) — breaks the "every snapshot is self-contained" expectation; no byte loss. | Recoverable today via `-Action Verify -RefreshKits`. Candidate cheap fix: copy the kit into staging BEFORE the rename so the rename publishes a complete snapshot. Unscheduled. | Open |
 
 **Agreed work-package order (after Next-action items (a)–(c) are ratified):**
 **WP1** restore trust & diagnostics (E + corrupt-manifest + D/exit codes + J —
@@ -2841,4 +2861,130 @@ promotion criterion; the local Podman pass is corroborating evidence only).
 **Scope note.** The restore kit is untouched (revision stays 3 — neither
 restorer changed); no SR/LLR text changed; the `--phase` ratchet stays at
 `core,bash-v1`. Rolled into WP5's batch-ratification package.
+
+---
+
+### DRIVER (Software + Test Engineer, Data-integrity hat) — Adversarial review round & hardening batch — 2026-08-23
+
+**What ran.** At the human's direction, two independent fresh-context reviews
+of the whole repository: a medium-effort general review and an adversarial
+data-integrity review (crash windows, dedup refcounting, restore edge stores,
+container boundary), both bound by the human's triage rule — *realistic
+operational scenarios only; malicious-tampering-only scenarios out of scope by
+design*. The adversarial reviewer validated claims with throwaway repro scripts
+(scratchpad only); four findings were REPRODUCED, the rest traced to specific
+code paths. 19 findings total; 12 fixed same-day, 5 recorded as Open items
+(R5-widening, R6, R7, R10, F8), 1 dismissed as malicious-only (R11), 1 already
+fixed earlier the same day (R#8's parse bug, WP5 residual #2).
+
+**Fixed — engine (`FileBackup.Engine.psm1`, `FileBackup.ps1`).**
+
+- **F2 (HIGH, reproduced): the backup pipeline never consulted the witness it
+  makes everyone else check.** A torn (crash-truncated) root manifest was read
+  unchecked, then step 12 re-stamped a FRESH witness over state derived from
+  the truncated index — laundering the damage; with a source deletion in the
+  window, content vanished with exit 0 and no snapshot. Now a
+  Mismatch/Malformed witness refuses the set BEFORE staging or mutation, and
+  the entry point maps the distinct ErrorId onto **exit 3** (IF-001's table
+  applies to backup). Absent stays legal — a pre-SR-038 store still backs up.
+- **R3: staging-lock take was look-then-create.** `Test-Path` + `New-Item
+  -Force` let two overlapping scheduled runs both pass; the create (without
+  `-Force`) is now itself the lock, the same discipline `Remove-BackupSnapshot`
+  already had.
+- **F1 (HIGH, reproduced) / R4: the stale-Temp story was destructive.**
+  README's remediation ("remove the leftover Temp and re-run") permanently
+  destroyed the only physical copy of snapshot-demanded bytes after a
+  mid-window crash (reproduced: snapshot restore exit 0 before, exit 1
+  `ContentMissing` forever after, with the intervening backup reporting 0).
+  Guard message + README now prescribe the non-destructive recovery
+  (move-aside → re-run → verify → discard-or-reintroduce, never delete). And a
+  step-5/step-6 abort (e.g. a source file locked by AV — routine) now removes
+  the still-empty Temp instead of wedging every later run on the SR-017 guard.
+- **F7: `FileBackupState.json` torn-write wedge.** Written in place; a torn
+  write threw on every later run, and deleting the file walked into the SR-035
+  refusal with no documented way out. Now published by write-then-rename like
+  the witness.
+- **R2: Mirror-mode root infrastructure-name collision.** With an external
+  `SourceStatePath` (the container default), a source file legitimately named
+  `MANIFEST.csv` at the source root was copied to the backup root and then
+  OVERWRITTEN by the real index in step 12 — the manifest row pointed at index
+  bytes; default verify called it clean. Prune and repair already refused this
+  collision; the copy path now refuses it too (set fails, store intact).
+- **F3 (HIGH for container-v1, reproduced at function level): case-insensitive
+  hashtables silently drop case-differing files on Linux.** Every
+  RelativePath-keyed map was a literal `@{}` (always case-insensitive):
+  `Readme.txt`/`readme.txt` — two ordinary distinct Linux files — merged to one
+  row through diff, backup map, source cache, and the PS restorer dictionary
+  (`Update-SourceManifest` could even reuse the WRONG file's cached hash on a
+  length+mtime coincidence). New `New-RelativePathMap` in Common: `@{}` on
+  Windows (a case-only rename must NOT be a new file there), Ordinal elsewhere.
+  bash was already case-sensitive.
+
+**Fixed — restorers (kit revision 3 → 4;** `Reconstruct.ps1`,
+`bash/reconstruct.sh`**).**
+
+- **F4 (both reviewers; reproduced): stale `RECONSTRUCT.paths.json` hijacked
+  the PS restorer.** The sidecar's recorded absolute roots were adopted with no
+  existence check: a copied/moved store (the flagship self-contained-kit
+  scenario) failed against the dead path — or, same-machine, **silently
+  restored from the still-live ORIGINAL with exit 0** (and the SR-009
+  containment check evaluated against the stale roots). Both restorers now
+  honor the sidecar only while the origin still lives INSIDE the recorded
+  roots; a copied/moved store auto-detects. (Stronger than bash's previous
+  resolvability-only guard, which the same-machine hijack passed.)
+- **F5: Optimize's delete-before-blank crash window read as data loss.** A run
+  killed between `Optimize-ChangeFolders`' duplicate deletion and its manifest
+  rewrite left rows naming deleted files; both restorers treated the non-blank
+  `DataPath` as authoritative and reported `MissingDataFile` ("your bytes are
+  gone") though the keeper sat in the pool — at exactly the moment an operator
+  reaches for the kit. A non-blank `DataPath` is now a locator HINT: on a miss,
+  both restorers fall back to the (hash,length) pool recovery blank rows
+  already use.
+- **F6: `\` separators on a non-Windows restore host.** `Reconstruct.ps1` never
+  mapped them, so a Windows-made HashAddressed backup restored with pwsh on
+  Linux wrote each nested row as a root-level file literally named
+  `sub\file.txt` — **exit 0, structurally wrong tree**. Now mapped exactly as
+  bash's `to_posix` does.
+
+**Fixed — docs.** README's prune-unblock recipe claimed `-Action Verify`
+"repairs the findings that are unambiguous" — verification mutates nothing
+without `-RepairStorage`; sentence fixed (R9). interfaces.md now documents the
+JSON framing (line-based extraction from mixed stdout) that HomeHub's wrapper
+must implement (R8).
+
+**Evidence (real, this host, 2026-08-23).**
+
+- New pins: Pester Describe *'Backup pipeline crash-window hardening
+  (2026-08-23 review round)'* — 6 tests: witness-mismatch backup refuses with
+  **exit 3** and mutates nothing; witness-Absent legacy store still backs up;
+  locked source file fails the set WITHOUT stranding Temp and the next run
+  exits 0; Mirror infra-name collision refused with the store intact; a COPIED
+  backup folder restores from the copy (containment warning asserted); a row
+  whose named data file is renamed away hash-recovers from the pool. Plus
+  *'New-RelativePathMap keys compare like the local filesystem (SR-034)'* in
+  Common.Tests. All pass.
+- Full unit suite + lint: see the run pasted in the Current State bullet
+  (recorded after this entry was drafted; the run includes these 7 new tests).
+- bash: `shellcheck -S warning bash/reconstruct.sh` clean; **bats 55/55, 0
+  failures** on real Linux (WSL Fedora) after the reconstruct.sh changes.
+- Registry: TC-024, TC-033, TC-058, TC-060, TC-066 Expected extended; the
+  dangling-DataPath Open row widened with R5's corroboration; 5 new Open-item
+  rows + 1 fixed-batch row. No SR/LLR status flips (the new behaviors verify
+  under their existing SRs; the Linux halves of F3/F6 ride the container job).
+- Known cosmetic drift, accepted: LLR Detail line-number references into
+  `Reconstruct.ps1` (e.g. LLR-050's `:225-238`) shifted by this batch; symbol
+  references remain correct. Flagged for the ratification rather than
+  hand-renumbering mid-batch.
+
+**Kit-revision exposure (same story as revision 2→3).** Snapshots written
+before today keep their revision-3 kits, which carry F4/F5/F6 until refreshed —
+`-Action Verify -RefreshKits` upgrades every snapshot's kit in place; README's
+revision note covers the exposure.
+
+**Deviations / not fixed (with the human's triage rule applied).** R5
+blank-DataPath healing needs its own SR (dedup-group selection is not a
+rush-fix surface) — widened Open row awaits prioritization; R6 quoting and R10
+no-7-Zip-raw-skip batch with the next kit revision; R7 newline rows are
+bash-v2; F8 kit-less snapshot window recorded with a candidate cheap fix; R11
+(sed JSON nit) dismissed as malicious-only per the rule.
 

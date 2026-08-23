@@ -123,7 +123,12 @@ function Set-BackupStateField {
     $state = Read-BackupState -BackupRoot $BackupRoot
     $state[$Name] = $Value
     $statePath = Join-Path $BackupRoot 'FileBackupState.json'
-    $state | ConvertTo-Json | Set-Content -LiteralPath $statePath -Encoding UTF8
+    # Publish by rename: a crash mid-write must not leave a torn JSON that
+    # Read-BackupState refuses forever (the manifest witness gets the same
+    # write-then-rename treatment).
+    $tmpPath = "$statePath.tmp"
+    $state | ConvertTo-Json | Set-Content -LiteralPath $tmpPath -Encoding UTF8
+    Move-Item -LiteralPath $tmpPath -Destination $statePath -Force
 }
 
 function Get-LastHashRun {
@@ -372,7 +377,10 @@ function Update-SourceManifest {
     }
     $existing = Read-Manifest -FolderPath $manifestFolder
 
-    $existingMap = @{}
+    # Filesystem-faithful key comparison (SR-034): a case-insensitive map on
+    # Linux would hand one case-differing file the OTHER file's cached hash
+    # whenever length+mtime happen to coincide.
+    $existingMap = New-RelativePathMap
     foreach ($row in $existing) { $existingMap[$row.RelativePath] = $row }
 
     # With the legacy in-source cache, skip only root-level infrastructure and
@@ -2620,11 +2628,17 @@ function Initialize-StagingFolder {
         [Parameter(Mandatory)][scriptblock]$Log
     )
     $stagingFolder = Join-Path $ChgPath 'Temp'
-    if (Test-Path -LiteralPath $stagingFolder -PathType Container) {
-        & $Log "Staging folder '$stagingFolder' already exists. Previous run may have failed." 'ERROR'
+    # The create IS the lock take: CreateDirectory-without-Force fails when the
+    # folder already exists, so two overlapping runs cannot both pass a
+    # Test-Path look-then-create window (the same TOCTOU Remove-BackupSnapshot
+    # already closes for the prune path).
+    try {
+        New-Item -ItemType Directory -Path $stagingFolder -ErrorAction Stop | Out-Null
+    } catch {
+        & $Log "Staging folder '$stagingFolder' already exists. Previous run may have failed or still be running." 'ERROR'
+        & $Log "If no other run is active, do NOT delete Temp: it may hold the only copy of snapshot-demanded bytes. Move it aside and follow the safe recovery in README, 'A run refuses because Temp exists'." 'ERROR'
         throw "Cannot initialize staging folder; Temp already exists at '$stagingFolder'"
     }
-    New-Item -ItemType Directory -Path $stagingFolder -Force | Out-Null
     return $stagingFolder
 }
 
@@ -2640,8 +2654,10 @@ function Compare-SourceToBackup {
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb
     )
-    $sourceMap = @{}; foreach ($row in $SourceDb) { $sourceMap[$row.RelativePath] = $row }
-    $backupMap = @{}; foreach ($row in $BackupDb) { $backupMap[$row.RelativePath] = $row }
+    # New-RelativePathMap: case-sensitive keys on Linux (container runs), where
+    # case-differing filenames are distinct ordinary files (SR-034).
+    $sourceMap = New-RelativePathMap; foreach ($row in $SourceDb) { $sourceMap[$row.RelativePath] = $row }
+    $backupMap = New-RelativePathMap; foreach ($row in $BackupDb) { $backupMap[$row.RelativePath] = $row }
 
     $newOrChanged      = New-Object System.Collections.Generic.List[object]
     $removedFromSource = New-Object System.Collections.Generic.List[object]
@@ -2727,6 +2743,19 @@ function Invoke-BackupFileGroup {
             }
             $srcFull  = Join-Path $SrcPath $rel
             $destFull = Join-Path $BkpPath $dataPath
+
+            # A Mirror-mode DataPath is the row's own RelativePath, so a source
+            # file legitimately named like ROOT-LEVEL infrastructure
+            # (MANIFEST.csv, RECONSTRUCT.ps1, ...) would land where step 12/13
+            # write the real index/kit — which then overwrite the user's bytes
+            # while the manifest row keeps pointing there. Prune (re-home) and
+            # repair (rename) already refuse this collision; the copy path must
+            # refuse it too, not corrupt (SR-022).
+            if (Test-IsInfrastructureFile -Root $BkpPath -FullPath ([IO.Path]::GetFullPath($destFull))) {
+                & $Log "Refusing to store '$rel': its Mirror-mode data path is the root-level infrastructure name '$dataPath' (SR-022). Rename the source file, nest it in a folder, or use hash-addressed storage for this set." 'ERROR'
+                $OverallSuccess.Value = $false
+                continue
+            }
 
             $result = Copy-SourceFileToBackup -SourceFilePath $srcFull -BackupFilePath $destFull -ShouldCompress:$compressFlag -SevenZipPath $SevenZipPath
             if ($result -is [string]) {
@@ -3213,6 +3242,24 @@ function Invoke-BackupSet {
             throw "Backup state at '$($paths.BkpPath)' has no LastBackupRun, but its existing MANIFEST.csv contains $($existingRows.Count) row(s). Refusing to mutate it because the prior state could not be snapshotted safely."
         }
     }
+
+    # 1.5 The witness gate the rest of the fleet already honors (SR-038/SR-039):
+    # both restorers and prune refuse a manifest whose witness disagrees, but the
+    # backup pipeline used to read the same manifest unchecked and then re-stamp
+    # a FRESH witness over state derived from a torn index — laundering crash
+    # damage into a permanent, silent hole. Mismatch/Malformed refuses the set
+    # before anything is staged or mutated; Absent stays legal (a pre-SR-038
+    # store must still back up). The distinct ErrorId lets the entry point map
+    # this onto the SR-040 witness code (3) instead of the generic set failure.
+    if (Test-Path -LiteralPath $existingManifest -PathType Leaf) {
+        $witness = Test-ManifestWitness -FolderPath $paths.BkpPath
+        if ($witness.Status -in 'Mismatch', 'Malformed') {
+            Write-Error -ErrorId 'ManifestWitnessMismatch' -ErrorAction Stop -Message (
+                "Backup manifest witness check failed at '$($paths.BkpPath)': $($witness.Detail) " +
+                'Refusing to back up over a possibly torn index. Verify the store (-Action Verify) and, ' +
+                'if the manifest proves intact or repairable, -RepairStorage re-publishes a matching witness.')
+        }
+    }
     $thisBackupDate  = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
 
     # 2. Logger
@@ -3241,8 +3288,17 @@ function Invoke-BackupSet {
 
     # 5. Update source manifest (B4: forced rehash when scheduled)
     & $log "Updating source manifest cache at '$($paths.SrcStatePath)'."
-    $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -ManifestFolderPath $paths.SrcStatePath `
-        -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc
+    try {
+        $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -ManifestFolderPath $paths.SrcStatePath `
+            -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc
+    } catch {
+        # A source file that cannot be read (open for write, AV hold) fails the
+        # set loudly — but must not strand the still-empty staging folder, or
+        # every LATER run refuses on the SR-017 stale-Temp guard instead of the
+        # real cause. Temp holds nothing of value until step 9.5.
+        Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+        throw
+    }
 
     # A previously populated source becoming completely empty is commonly an
     # unavailable/mis-mounted share. Treat it as unsafe before any backup bytes
@@ -3276,7 +3332,14 @@ function Invoke-BackupSet {
 
     # 6. Sanitize / migrate backup storage layout
     & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."
-    $backupDb = Sync-BackupStorageLayout -BackupRoot $paths.BkpPath -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) -SevenZipPath $Deps['7z'] -Log $log -OverallSuccess $OverallSuccess
+    try {
+        $backupDb = Sync-BackupStorageLayout -BackupRoot $paths.BkpPath -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) -SevenZipPath $Deps['7z'] -Log $log -OverallSuccess $OverallSuccess
+    } catch {
+        # Same discipline as step 5: a throw before Temp holds anything of
+        # value must not strand it for the SR-017 guard.
+        Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+        throw
+    }
 
     # 7. Pre-backup snapshot into staging
     & $log "Saving pre-backup manifest to staging '$stagingFolder'."
@@ -3292,8 +3355,8 @@ function Invoke-BackupSet {
     # @() around a List reached via a PSObject property throws on PS 7.5.)
     $manifestChanged = ($diff.NewOrChanged.Count -gt 0) -or ($diff.RemovedFromSource.Count -gt 0)
 
-    # 9. Working backup map
-    $backupMap = @{}
+    # 9. Working backup map (filesystem-faithful key comparison, SR-034)
+    $backupMap = New-RelativePathMap
     foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
     $changedCount = 0
 

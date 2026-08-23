@@ -210,9 +210,10 @@ turn a recoverable problem into a permanent one, so the mechanism refuses with
 status **2** and names the offending rows. Nothing self-heals: the refusal
 persists until the pool is made whole again. To proceed, run
 `-Action Verify` first (see the next section) to enumerate the damage — it
-reports every disagreement between the manifests and the bytes and repairs the
-findings that are unambiguous — and re-run the prune once verification is
-clean. If the missing bytes exist only in a folder outside the pool, they must
+reports every disagreement between the manifests and the bytes, and with
+`-RepairStorage` added it also repairs the findings that are unambiguous
+(verification alone mutates nothing) — and re-run the prune once verification
+is clean. If the missing bytes exist only in a folder outside the pool, they must
 be restored there by hand; recovering content from a partially removed snapshot
 is a recorded future item (`-RepairFromPruned`), not something this version can
 do.
@@ -633,8 +634,17 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   `System.Memory` assemblies absent from a stock 5.1 session. Use `pwsh`.
 - **Email is optional.** Omit the `Secrets` SMTP fields (or pass `-NoMail`); mail failures
   are logged, never fatal.
-- **Stale `Temp` folder error.** A prior run aborted mid-flight; remove the leftover `Temp`
-  folder under your `ChangePath` and re-run.
+- **A run refuses because `Temp` exists (stale `Temp` folder error).** A prior run aborted
+  mid-flight — and the leftover `Temp` under your `ChangePath` may hold the **only physical
+  copy** of bytes that older snapshots recover by hash (the run moves superseded and removed
+  content there before finalizing the snapshot). **Do not delete it.** Safe recovery:
+  (1) move the whole `Temp` folder *aside*, outside `ChangePath` (a rename is instant and
+  loses nothing); (2) re-run the backup, which is now unblocked; (3) run `-Action Verify`
+  and test-restore your oldest snapshot — if verification is clean and restores complete,
+  discard the moved folder; (4) if any snapshot restore reports missing content, copy the
+  moved folder's *data files* into the backup root under any non-colliding names (skip its
+  `MANIFEST.csv` — that is the interrupted run's staging copy of the index) — both restorers
+  find content by hash regardless of filename — and verify again.
 - **Unexpected empty source.** A previously populated set fails before mutating the backup
   when its source becomes empty (often an unavailable share). Set `AllowEmptySource = $true`
   on that set only when deleting every backed-up file is intentional.

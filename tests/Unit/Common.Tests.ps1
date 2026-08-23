@@ -283,3 +283,21 @@ Describe 'Common does not depend on Engine (SR-007)' {
         @($engineCalls).Count + @($engineImports).Count | Should -Be 0
     }
 }
+
+Describe 'New-RelativePathMap keys compare like the local filesystem (SR-034)' {
+    # The Linux half — Ordinal keys keeping 'Readme.txt' and 'readme.txt' as
+    # two rows — runs where $IsWindows is false (WSL/container CI); on Windows
+    # the map must stay case-insensitive so a case-only rename is NOT a new file.
+    It 'merges case-differing keys on Windows and keeps them distinct elsewhere' {
+        $map = New-RelativePathMap
+        $map['Readme.txt'] = 1
+        $map['readme.txt'] = 2
+        if ($IsWindows) {
+            $map.Count | Should -Be 1
+            $map['README.TXT'] | Should -Be 2
+        } else {
+            $map.Count | Should -Be 2
+            $map['Readme.txt'] | Should -Be 1
+        }
+    }
+}

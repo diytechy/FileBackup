@@ -120,6 +120,7 @@ Imports (internal): _none_
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |
 | `New-Logger` | yes | — |
+| `New-RelativePathMap` | yes | SR-034, LLR-034 |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
 | `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |

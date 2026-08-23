@@ -483,6 +483,7 @@ if ($Action -ne 'Backup') {
 }
 
 $overallSuccess = $true
+$witnessFailed  = $false
 $logPaths = New-Object System.Collections.Generic.List[string]
 
 # SR-014: process each set independently — one set's failure marks the run failed
@@ -495,6 +496,10 @@ foreach ($set in $Sets) {
     } catch {
         & $globalLog ("Backup set '{0}' failed: {1}" -f $set.Name, $_.Exception.Message) 'ERROR'
         $overallSuccess = $false
+        # The witness gate refuses with a distinct ErrorId so a torn root index
+        # surfaces as the SR-040 witness code (3, escalate) rather than the
+        # generic set-failure 1 (warn/retry) — IF-001's table applies to backup.
+        if ($_.FullyQualifiedErrorId -like 'ManifestWitnessMismatch*') { $witnessFailed = $true }
     }
 }
 
@@ -528,4 +533,4 @@ if ($NoMail -or -not $haveMailConfig) {
 
 # endregion
 
-if (-not $overallSuccess) { exit 1 }
+if (-not $overallSuccess) { exit ($witnessFailed ? 3 : 1) }

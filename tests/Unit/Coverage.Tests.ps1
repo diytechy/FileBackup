@@ -2397,3 +2397,131 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         }
     }
 }
+
+Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
+    BeforeAll {
+        function Invoke-FBExit {
+            # Child process so the SR-040 exit code is observable.
+            param([string]$Cfg)
+            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $Cfg `
+                -NoMail -NonInteractive -ExitCode *>&1 | Out-Null
+            return $LASTEXITCODE
+        }
+    }
+
+    It 'refuses to back up over a manifest whose witness disagrees, with exit 3 and nothing mutated (SR-038, SR-040)' {
+        $root = Join-Path $TestDrive 'wg-mismatch'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('ALPHA ' * 40))
+        Invoke-FB $cfg
+
+        # A torn Export-Csv is a size change the witness catches; simulate the
+        # damage without re-running the writer (the writer would re-stamp).
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+        [IO.File]::AppendAllText($manifest, "torn trailing bytes")
+        $before = Get-StoreFingerprint -Folder @($bkp, $chg)
+
+        Invoke-FBExit -Cfg $cfg | Should -Be 3 -Because 'IF-001 maps a witness failure to 3 for every action, backup included'
+        Assert-StoreUnchanged -Before $before -Folder @($bkp, $chg)
+    }
+
+    It 'still backs up a legacy store that has no witness at all (SR-038)' {
+        $root = Join-Path $TestDrive 'wg-legacy'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('ALPHA ' * 40))
+        Invoke-FB $cfg
+
+        Remove-Item -LiteralPath (Join-Path $bkp 'MANIFEST.csv.meta') -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('BETA ' * 40))
+        Invoke-FBExit -Cfg $cfg | Should -Be 0 -Because 'Absent is legal: a pre-SR-038 store must still back up'
+    }
+
+    It 'fails the set on an unreadable source file without stranding Temp for the next run (SR-017)' {
+        $root = Join-Path $TestDrive 'wg-locked'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('ALPHA ' * 40))
+        Invoke-FB $cfg
+
+        [IO.File]::WriteAllText((Join-Path $src 'b.txt'), ('LOCKED ' * 40))
+        $handle = [IO.File]::Open((Join-Path $src 'b.txt'), 'Open', 'Read', 'None')
+        try {
+            Invoke-FBExit -Cfg $cfg | Should -Be 1
+            Test-Path -LiteralPath (Join-Path $chg 'Temp') |
+                Should -BeFalse -Because 'a step-5 failure must not wedge every later run on the stale-Temp guard'
+        } finally { $handle.Dispose() }
+        Invoke-FBExit -Cfg $cfg | Should -Be 0 -Because 'with the lock gone the next scheduled run just works'
+    }
+
+    It 'refuses a Mirror source file whose data path is a root-level infrastructure name, without corrupting the store (SR-022)' {
+        $root = Join-Path $TestDrive 'wg-infra'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $state = Join-Path $root 'state'; $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        # External SourceStatePath: EVERY source file is user data, including a
+        # root-level MANIFEST.csv (the container's default arrangement).
+        $set = [pscustomobject]@{
+            Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            SourceStatePath = $state
+            HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true
+        }
+        @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
+        [IO.File]::WriteAllText((Join-Path $src 'MANIFEST.csv'), 'user,data,that,is,not,an,index')
+        [IO.File]::WriteAllText((Join-Path $src 'ok.txt'), ('FINE ' * 40))
+
+        Invoke-FBExit -Cfg $cfg | Should -Be 1 -Because 'the colliding file is refused, not silently corrupted'
+
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        @($rows | Where-Object RelativePath -eq 'ok.txt').Count | Should -Be 1
+        @($rows | Where-Object RelativePath -eq 'MANIFEST.csv').Count |
+            Should -Be 0 -Because 'a row pointing at the index would restore index bytes as user data'
+        # No FileBackupState torn-write residue either (publish-by-rename).
+        Test-Path -LiteralPath (Join-Path $bkp 'FileBackupState.json.tmp') | Should -BeFalse
+    }
+
+    It 'restores a COPIED backup folder from the copy, not from the still-live original the sidecar records (B10, SR-010)' {
+        $root = Join-Path $TestDrive 'wg-copied'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('VERSION-ONE ' * 40))
+        Invoke-FB $cfg
+
+        # The archived copy — then the ORIGINAL keeps evolving.
+        $copy = Join-Path $root 'bkp-archived'
+        Copy-Item -LiteralPath $bkp -Destination $copy -Recurse
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('VERSION-TWO ' * 40))
+        Invoke-FB $cfg
+
+        $target = Join-Path $root 'restored'
+        # In-process invocation: a completed restore ends without `exit`, so
+        # assert the outcome (bytes restored FROM THE COPY), not $LASTEXITCODE.
+        $out = & (Join-Path $copy 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-String
+        $out | Should -Match 'records roots this folder no longer lives in'
+        [IO.File]::ReadAllText((Join-Path $target 'a.txt')) |
+            Should -Be ('VERSION-ONE ' * 40) -Because 'the copy is the restore origin; the recorded original must not hijack it'
+    }
+
+    It 'hash-recovers a row whose named data file is gone but whose bytes survive in the pool (SR-031, SR-010)' {
+        $root = Join-Path $TestDrive 'wg-hint'
+        $env  = New-PruneTimeline -Root $root
+        # The Optimize crash window: the file a row NAMES is gone while
+        # byte-identical content survives elsewhere in the pool. Renaming the
+        # root file reproduces exactly that shape.
+        Move-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination (Join-Path $env.Bkp 'keep.survives')
+
+        $target = Join-Path $root 'restored'
+        & (Join-Path $env.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $target 'keep.txt')) |
+            Should -Be ('KEEP ' * 40) -Because 'DataPath is a locator hint; (hash,length) is the content authority'
+    }
+}

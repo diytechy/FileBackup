@@ -951,8 +951,31 @@ function Test-ManifestWitness {
 
 # endregion
 
+function New-RelativePathMap {
+    <#
+    .SYNOPSIS
+        An empty hashtable whose RelativePath keys compare the way the local
+        filesystem does: case-insensitively on Windows, case-SENSITIVELY
+        elsewhere.
+
+    .OUTPUTS
+        [hashtable]
+    #>
+    # Implements: SR-034, LLR-034
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
+        Justification = 'The Ordinal comparer IS the point: a literal hashtable is always case-insensitive.')]
+    param()
+    # A literal @{} is ALWAYS case-insensitive, which on Linux silently merges
+    # 'Readme.txt' and 'readme.txt' — two ordinary distinct files there — into
+    # one row: one of the pair is never backed up and never restored.
+    if ($IsWindows) { return @{} }
+    return [hashtable]::new(0, [System.StringComparer]::Ordinal)
+}
+
 Export-ModuleMember -Function @(
     'Get-FileBackupDefaults',
+    'New-RelativePathMap',
     'New-Logger',
     'Initialize-XxHashLibrary',
     'Get-XxHashDllPath',

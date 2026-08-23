@@ -54,14 +54,18 @@
 # Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
 #             LLR-032, LLR-039, LLR-040, LLR-050)
 #
-# KitRevision: 3
+# KitRevision: 4
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from
 # the FILE it located rather than the row's Compressed column (SR-050); revision
 # 3 additionally tests every non-matching '.7z' candidate as RAW bytes, so a
-# blank row for a genuine '.7z' SOURCE file is recoverable. Restoring a snapshot
-# with its OWN older kit still carries the defects fixed after it.
+# blank row for a genuine '.7z' SOURCE file is recoverable. Revision 4 honors
+# the path sidecar only while the origin still lives inside the roots it
+# records (a copied/moved store auto-detects instead of reading the original)
+# and falls back to (hash,length) pool recovery when a row's named data file is
+# missing. Restoring a snapshot with its OWN older kit still carries the
+# defects fixed after it.
 
 set -uo pipefail
 
@@ -484,13 +488,27 @@ main() {
         side_backup="${side_backup//\\\\//}"; side_change="${side_change//\\\\//}"
     fi
 
-    # Precedence: explicit flag > resolvable sidecar > auto-detection.
+    # Precedence: explicit flag > sidecar > auto-detection — and the sidecar
+    # only applies while this ORIGIN still lives inside the roots it records.
+    # For a store copied or moved, the recorded roots may still exist (the
+    # original store on the same machine) and would silently point the restore
+    # at the ORIGINAL instead of this copy. Reconstruct.ps1 applies the same
+    # containment rule.
+    local side_ok=0 origin_canon
+    origin_canon="$(canon "$origin")"
+    if [[ -n "$side_backup" && -d "$side_backup" ]]; then
+        case "$origin_canon/" in "$(canon "$side_backup")"/*) side_ok=1 ;; esac
+    fi
+    if (( ! side_ok )) && [[ -n "$side_change" && -d "$side_change" ]]; then
+        case "$origin_canon/" in "$(canon "$side_change")"/*) side_ok=1 ;; esac
+    fi
+
     if   [[ -n "$backup_root" ]]; then backup_root="$(canon "$backup_root")"
-    elif [[ -n "$side_backup" && -d "$side_backup" ]]; then backup_root="$(canon "$side_backup")"
+    elif (( side_ok )) && [[ -n "$side_backup" && -d "$side_backup" ]]; then backup_root="$(canon "$side_backup")"
     else backup_root="$auto_backup"; fi
 
     if   [[ -n "$change_root" ]]; then change_root="$(canon "$change_root")"
-    elif [[ -n "$side_change" && -d "$side_change" ]]; then change_root="$(canon "$side_change")"
+    elif (( side_ok )) && [[ -n "$side_change" && -d "$side_change" ]]; then change_root="$(canon "$side_change")"
     else change_root="$auto_change"; fi
 
     local authority="$origin/$MANIFEST_NAME"
@@ -570,7 +588,7 @@ main() {
     # Failures are split by class so the exit code separates "your bytes are
     # gone" (1) from "fix this host and retry" (4) — SR-040.
     local -a unrestored=() unrestored_host=()
-    local rel dest destdir src found fcause frest fdetail fpath located_form needs_expand
+    local rel dest destdir src found fcause frest fdetail fpath located_form needs_expand recovered
     for (( i=0; i<nrows; i++ )); do
         # The PROVEN form of a hash-recovered file, which outranks the row's
         # Compressed column for that row (SR-050). Empty for a non-blank
@@ -619,8 +637,31 @@ main() {
         fi
 
         if [[ ! -f "$src" ]]; then
-            log "WARN: missing data file '${src}' for '$rel'."
-            unrestored+=("$rel"); continue
+            # A non-blank DataPath is a locator HINT, not the content authority:
+            # a run killed between Optimize-ChangeFolders' duplicate deletion
+            # and its manifest rewrite leaves rows naming deleted files while
+            # the keeper copy still sits in the pool. Try (hash,length)
+            # recovery — the same machinery blank rows use — before declaring
+            # the content missing (Reconstruct.ps1 does the same).
+            recovered=0
+            if [[ -n "${d_hash[i]}" && "${d_len[i]}" =~ ^[0-9]+$ ]]; then
+                log "Data file '${src}' missing for '$rel'; attempting hash scan..."
+                found="$(find_by_hash "${d_hash[i]}" "${d_len[i]}")"
+                fcause="${found%%$'\037'*}"
+                frest="${found#*$'\037'}"
+                fdetail="${frest%%$'\037'*}"
+                fpath="${frest#*$'\037'}"
+                if [[ "$fcause" == 'Found' ]]; then
+                    log "Hash-recovered '$rel' from '$fpath' (form: $fdetail)"
+                    src="$fpath"
+                    located_form="$fdetail"
+                    recovered=1
+                fi
+            fi
+            if (( ! recovered )); then
+                log "WARN: missing data file '${src}' for '$rel' and no pool file matches its (hash,length)."
+                unrestored+=("$rel"); continue
+            fi
         fi
 
         # SR-050: a hash-recovered file is decided by the form the locator PROVED;

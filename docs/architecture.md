@@ -40,32 +40,34 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 1. `Resolve-BackupSetPaths` — Validates the set's SourcePath and resolves (creating if needed) the
 2. `Get-LastBackupRun` — Reads the completion date of the most recent backup — it dates the *next*
 3. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
-4. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
-5. `Initialize-StagingFolder` — Creates the run's Temp staging folder in the change root; aborts loudly
-6. `Get-LastHashRun` — Reads the persisted time of the last scheduled re-hash sweep
-7. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
+4. `Test-ManifestWitness` — Verifies a folder's MANIFEST.csv against its witness sidecar and returns a
+5. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
+6. `Initialize-StagingFolder` — Creates the run's Temp staging folder in the change root; aborts loudly
+7. `Get-LastHashRun` — Reads the persisted time of the last scheduled re-hash sweep
 8. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
-9. `Update-SourceManifest` — Walks the source tree, (re)hashes new/changed files (and all files when
-10. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
-11. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
+9. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
+10. `Update-SourceManifest` — Walks the source tree, (re)hashes new/changed files (and all files when
+11. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
 12. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
-13. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
-14. `Get-MigrationCapacityDemand` — Bytes a pending storage-layout migration will ADD to the backup volume
-15. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
-16. `Sync-BackupStorageLayout` — Migrates backup data files to match the current PreserveFolderTree /
-17. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
-18. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
-19. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
-20. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
-21. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
-22. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
-23. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
-24. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
-25. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
-26. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-27. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-28. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-29. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+13. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
+14. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
+15. `Get-MigrationCapacityDemand` — Bytes a pending storage-layout migration will ADD to the backup volume
+16. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
+17. `Sync-BackupStorageLayout` — Migrates backup data files to match the current PreserveFolderTree /
+18. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+19. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
+20. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
+21. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
+22. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
+23. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
+24. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
+25. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
+26. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+27. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+28. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
+29. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
+30. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+31. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -133,6 +135,7 @@ Imports (internal): _none_
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |
 | `New-Logger` | yes | — |
+| `New-RelativePathMap` | yes | SR-034, LLR-034 |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
 | `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
