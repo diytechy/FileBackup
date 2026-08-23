@@ -188,7 +188,7 @@ Imports (internal): `Common`
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
-| `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
+| `Resolve-BackupSetPaths` | yes | SR-014, SR-049, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
 | `Save-SupersededData` | yes | SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041 |
 | `Set-BackupStateField` | no | — |

@@ -27,12 +27,12 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP5 + the WP4 review
-  fixes, `--phase core,bash-v1` unchanged pending container CI):**
-  **310/310 Pester unit, lint clean, trace SN=30 SR=52 LLR=51 TC=101 with
+- **Latest verified run (2026-08-23, Full tier, post-WP5 **review fixes**,
+  `--phase core,bash-v1` unchanged pending container CI):**
+  **316/316 Pester unit, lint clean, trace SN=30 SR=52 LLR=51 TC=101 with
   0 orphans / 0 integrity / 4 phase-deferred, integration 372 PASS / 0 FAIL /
-  4 SKIP**, plus **bats 54/54 and `shellcheck bash/reconstruct.sh
-  container/entrypoint.sh` clean** on real Linux (WSL). `check.ps1 -Gate G3`
+  4 SKIP**, plus **bats 55/55 and `shellcheck -S warning bash/reconstruct.sh`
+  clean** on real Linux (WSL). `check.ps1 -Gate G3`
   reports **exactly one status-finding** — SR-052 is honestly `Implemented`
   because TC-101's Linux half (the SR-023 restore capacity check firing
   in-container) cannot run without Docker; see the WP5 audit entry and the
@@ -67,17 +67,24 @@ last) — it is the record, not required reading for every pass.
   unavailable on this host — its locally runnable halves DO run and pass).
   Open-items row **I** flips to Implemented; a new row **C-form** records the
   §5.7 latent defect dispositioned to WP5, for which WP4 ships the detector.
-- **WP5 (storage-form trust) is implemented and green on a Full tier —
-  awaiting independent review + batch ratification.** SN-030/SR-049..052/
+- **WP5 (storage-form trust) is implemented, independently reviewed
+  (CHANGES-REQUESTED 2026-08-23 — `Repair-BackupStorageForm` iterated per ROW
+  while renaming a PHYSICAL file, so repairing a deduplicated pair healed one
+  row and left the other pointing at a path that no longer existed; and both
+  locators dropped a `.7z` candidate that expanded successfully to other
+  content, which is exactly a genuine `.7z` SOURCE file, leaving that row
+  unrecoverable while every checker called the store clean) and every accepted
+  finding is landed 2026-08-23 — awaiting batch ratification.** Restore-kit
+  revision is now **3**. SN-030/SR-049..052/
   LLR-049..052/TC-091..102 minted; **SR-049/SR-050/SR-051 Verified**
   (TC-091..TC-100 Pass), **SR-052 `Implemented`** with TC-101's Linux half and
   TC-102 `Draft` pending the Docker CI job (Docker unavailable on this host —
   every locally runnable half DOES run and pass). Open-items rows **C**,
   **C-form**, **C-refcount**, **ext-list merge** and **backup-side capacity**
   all flip to Implemented; three new rows record what WP5 surfaced but did not
-  fix. Restore-kit revision bumped to **2** (SR-050): snapshots written before
-  this run keep their old kit permanently — README documents the exposure and
-  the two remedies.
+  fix. Restore-kit revision bumped to **2** by WP5 itself (SR-050) and to **3**
+  by the review fixes: snapshots written before a fix keep their old kit
+  permanently — README documents the exposure and the two remedies.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -2403,3 +2410,121 @@ reviewer's wording said `Split-Path -Qualifier` *throws* on UNC — it emits
 `$ErrorActionPreference='Stop'` (the entry point's setting). The conclusion is
 unchanged, and the test pins the actual behavior on both UNC and POSIX-rooted
 paths.
+---
+
+### DRIVER (Software + Test Engineer, Data-integrity hat) — WP5 review fixes — 2026-08-23
+
+**Verdict received: CHANGES-REQUESTED** on WP5 (storage-form trust), with one
+confirmed data-loss path in the *repair* action and one silent-unrecoverability
+path in *both* restorers. Every accepted finding is landed here: code + tests in
+`c1cbd4f`, registries and documentation in this commit. The **restore kit is now
+revision 3** in both `Reconstruct.ps1` and `bash/reconstruct.sh`.
+
+**H1 — HIGH, `Repair-BackupStorageForm` corrupted deduplicated stores (fixed).**
+Findings are emitted per ROW; the repair renames a PHYSICAL file. Dedup points
+several rows at one file (SR-003), so the first row's repair renamed the file and
+the second row's repair then saw `Missing` at the old path and skipped it — the
+store was left with a row pointing at a path that no longer existed. The reviewer
+reproduced it: a repairable `FlagOverRaw` pair came out as one healed row and one
+unrestorable one. Repairs are now grouped by `(Folder, DataPath)`: the rename
+happens ONCE, EVERY row referencing the old path adopts the observed form, and
+the folder is persisted once through `Write-Manifest` — the same lesson `ddf52ab`
+taught `Sync-BackupStorageLayout`. A row exempted from the flag rewrite by the
+`.7z`-`RelativePath` rule still follows the file through the rename but keeps its
+own `Compressed` (rewriting it from the bytes would make the restorer expand the
+user's own archive). New TC-094 case: two identical-content rows sharing one
+DataPath in the `FlagOverRaw` shape — **both** healed, one physical copy still
+serves both, re-verify clean, restore byte-exact.
+
+**H2 — MEDIUM-HIGH, a blank row for a genuine `.7z` SOURCE file was
+unrecoverable while every checker called the store clean (fixed).** In both
+locators, an archive candidate that expanded SUCCESSFULLY but whose payload did
+not match was dropped without its own bytes ever being tested — and a real `.7z`
+source file, which SR-004 deliberately stores raw, is exactly that shape (it *is*
+a valid archive; its payload is simply not that row's content). The row's own
+`.7z` `RelativePath` is the deliberate `Test-StorageFormAgreement` exemption, so
+`-Action Verify` reported the store clean. Both restorers now test every
+non-matching `.7z` candidate as raw bytes before dropping it — symmetric with the
+existing failed-expand fallback and free on the happy path. Reachable with **zero
+tampering** (the reviewer's recipe, now the test): an ordinary two-run timeline
+whose source holds a real `.7z`; run 2 supersedes an unrelated file, so
+`Optimize-ChangeFolders` blanks the archive's row in the snapshot.
+
+**M1 — Sync's "7-Zip not found" skip contradicted SR-051 verbatim (fixed).** The
+arm in `Sync-BackupStorageLayout` logged WARN and continued *without* setting
+`$OverallSuccess`, so a run reported success over a store the configuration no
+longer describes. One line: it now logs ERROR and fails the set. Pinned by a new
+TC-095 case (`OverallSuccess` false, nothing mutated).
+
+**M2 — `Get-VolumeIdentity` had no Linux semantics, and capacity never summed
+(fixed).** `[System.IO.DriveInfo]::new($path).Name` is the IDENTITY function on
+Unix — it echoes the path handed to it — so `/backup` and `/backup/sub` read as
+*different* volumes and every same-volume decision was wrong off Windows. The
+identity now comes from `[System.IO.DriveInfo]::GetDrives()` (which reads the
+real mount table on Linux): the longest mount point prefixing the resolved path
+on a separator boundary, with the old constructor kept as the fallback and
+Windows root normalization unchanged; it still never throws. Separately,
+`Assert-BackupCapacity` checked the backup and change demands independently and
+never their sum, so two demands competing for ONE volume's free space both
+passed; demands are now grouped by volume identity and the group total is checked.
+The `.DESCRIPTION`s of both functions say so honestly. **SR-052 stays
+`Implemented`** — the true Linux confirmation is still the Docker CI job, and no
+Windows run can substitute for it; the Windows-side tests pin the summing and
+exercise the same longest-prefix matcher. WP4's prune capacity rail
+(`Get-PruneCapacityRefusal`, built on these two Common functions) was re-run and
+is green.
+
+**Minors.** (m1) TC-100's "fails the SET (status 1)" case now **observes** the
+child process exit code (`Should -Be 1`) against a *genuine* shortfall — an
+inflated `Length` in the backup manifest makes step 5.5's migration demand exceed
+any volume, so no stub is involved. (m2) `-Action Verify` now resolves its roots
+through `Resolve-BackupSetPaths -ReadOnly` **inside the try**: it creates no
+directory, does not require `SourcePath` (a verify is about the STORE; the source
+may be offline), and a missing backup root is the documented code 2. Its
+`.OUTPUTS` drops the code-4 claim, which it never produced. (m3) Recorded, not
+rewritten: TC-097's Expected now notes that the case forces
+`CompressEnabled=true` (its mode axis is effectively two configurations) and that
+**TC-092 is the SR-050 integration proof**; TC-092's row says so too. (m4) Sync's
+Phase 2 identifies a superseded path by the `(Full, Rel)` pair recorded in Phase 1
+instead of slicing `$rootPrefix` off the full path, and the orphan warning uses
+`[IO.Path]::GetRelativePath`. (m5) The step-9.4 comment no longer overclaims
+"byte-identical": step 6's migration may already have re-formed existing rows, so
+what 9.4 guarantees is that none of THIS RUN's content is written and no staging
+folder is orphaned — which is precisely why 5.5 proves the migration's room
+first. The same correction is in LLR-052.
+
+**Registry truth-up.** SR-049 (repair acts on the physical file; dedup
+acceptance; `sharing` permutation), SR-050 (the raw retest now covers a
+successful-but-non-matching expand; `genuine-7z-source` permutation), SR-051
+(missing-7-Zip named in the acceptance; `failure` permutation), SR-052
+(mount-table identity + per-volume summing in requirement and acceptance),
+LLR-049..052 and TC-092/093/094/095/097/098/099/100/101 updated to describe the
+behavior as it now is. **No status flips:** SR-049/SR-050/SR-051 stay `Verified`
+— their extended TCs genuinely pass — and **SR-052 stays `Implemented`**, so
+`check.ps1 -Gate G3` still reports exactly one status-finding, the disclosed one.
+
+**Evidence (real, this session).**
+
+- `Invoke-Pester -Path tests\Unit` → **316 Passed, 0 Failed** (baseline 310; +6).
+- `pwsh scripts/check.ps1 -Tier Full` → `[PASS]` PSScriptAnalyzer, doc
+  navigability, architecture-map freshness, Pester unit, perf budgets, and
+  **Integration sweep: PASS 372 / FAIL 0 / SKIP 4**. The single `[FAIL]` is
+  `Traceability (trace.py --strict)` — `SN=30 SR=52 LLR=51 TC=101 orphans=0
+  integrity=0 status-findings=1 phase-deferred=4`, i.e. the disclosed SR-052
+  status finding and nothing else.
+- WSL (real Linux): `bats tests/bash` → **55/55** (baseline 54; +1) and
+  `shellcheck -S warning bash/reconstruct.sh` clean.
+- **Repro-first evidence.** Each fix was first confirmed RED against `HEAD~`
+  (60ebe6d) in a throwaway `git worktree` carrying only the new tests:
+  H2 → `Reconstruction INCOMPLETE: 1 file(s) ... (1 content-missing, 0 host):
+  real.7z`; H1 → `Expected 2 ... but got 1` (one row healed, one abandoned);
+  M2 summing → `no exception was thrown`; M1 → `Expected $false ... but got
+  $true`; m2 → the backup root was created by a verify that had nothing to
+  verify. The bash half of H2 was confirmed the same way (`git stash` of
+  `bash/reconstruct.sh`): `WARN: [ContentMissing] 'real.7z'`, exit 1.
+
+**Deviations from the work order.** None on substance. Two notes: (1) the
+repaired-finding COUNT is per repaired *finding*, so a shared-DataPath pair
+reports `Repaired = 2` while TC-094's four-shape fixture still reports 3 — the
+existing assertion is unchanged; (2) m3 was taken as the recorded-limitation
+option (registry truth-up only, no test rewrite), as the work order allowed.

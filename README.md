@@ -287,7 +287,11 @@ hash-recovered file from the *manifest row* rather than from the file they
 actually found. After turning compression on or off, restoring an old snapshot
 *with its own old kit* could therefore write archive bytes under the original
 filename and still report success. Kits from revision 2 on decide from the file
-itself and are correct. (The revision is the `# KitRevision:` line near the top
+itself and are correct. Kits **before revision 3** additionally gave up on a
+`.7z` file in the pool once it expanded to something other than the content they
+were looking for — so a backed-up file that is *itself* a `.7z` archive could
+become unrestorable from an older snapshot, with every check still reporting the
+backup clean. Revision 3 tries the file's own bytes as well. (The revision is the `# KitRevision:` line near the top
 of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
 alongside every `BlankRowFormDisagreement` finding.)
 

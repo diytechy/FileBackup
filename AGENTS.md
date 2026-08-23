@@ -175,7 +175,7 @@ Imports (internal): `Common`
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
-| `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
+| `Resolve-BackupSetPaths` | yes | SR-014, SR-049, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
 | `Save-SupersededData` | yes | SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041 |
 | `Set-BackupStateField` | no | — |
@@ -282,7 +282,11 @@ Imports (internal): `Common`
 - **A snapshot keeps the restore kit it was written with, forever.** The
   `# KitRevision: <n>` marker at the top of `Reconstruct.ps1` and
   `bash/reconstruct.sh` names it; bump BOTH together whenever any kit-bundled
-  file changes behavior. Revision 2 is the first with the SR-050 fix above.
+  file changes behavior. Revision 2 is the first with the SR-050 fix above;
+  revision 3 additionally tests every non-matching `.7z` candidate as RAW bytes,
+  without which a blank row for a **genuine `.7z` source file** (which expands
+  fine, but to something that is not that row's content) was unrecoverable while
+  every checker called the store clean.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the six kit artifacts and **never**
   `MANIFEST.csv.meta`.
@@ -402,10 +406,13 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
 **Current automated total:** 372 integration assertions (4 modes × G1–G7 = 208,
-plus G9 Rollback = 164; G8 SKIP under Subst) + 310 Pester unit/coverage tests +
-54 bats tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck`
-clean. (Verified 2026-08-23 on a Full tier, after WP5 and the WP4 review fixes
-— the unit total gained 16 for the prune residue/rail/lock cases and the
+plus G9 Rollback = 164; G8 SKIP under Subst) + 316 Pester unit/coverage tests +
+55 bats tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck`
+clean. (Verified 2026-08-23 on a Full tier, after the **WP5 review fixes** — the
+unit total gained 6 and bats 1 for the dedup-repair, genuine-`.7z`-source,
+missing-7-Zip, read-only-verify, same-volume-capacity and mount-table cases;
+the integration total is unchanged. Before those, after WP5 and the WP4 review
+fixes — the unit total gained 16 for the prune residue/rail/lock cases and the
 `-Action Backup -WhatIf` refusal; the integration total is unchanged, the G9
 prune assertion that moved is the same count. Before those, after WP5 — G4 gained the
 extension-merge migration case `G4.2`/`Invoke-G4ExtensionMerge` (+12 assertions
