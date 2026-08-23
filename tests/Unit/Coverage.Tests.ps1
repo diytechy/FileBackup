@@ -2511,6 +2511,23 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
             Should -Be ('VERSION-ONE ' * 40) -Because 'the copy is the restore origin; the recorded original must not hijack it'
     }
 
+    It 'keys no RelativePath map off a literal case-insensitive hashtable (SR-034)' {
+        # Independent review of 83cc5f1, required change 1: the F3 conversion
+        # missed Save-SupersededData, so on Linux a case-differing pair could
+        # skip staging superseded bytes. Pin the CLASS: a literal @{} whose
+        # fill is keyed by .RelativePath must be New-RelativePathMap instead.
+        $repoRoot = Split-Path $entry
+        foreach ($rel in 'Modules/FileBackup.Engine.psm1', 'Modules/FileBackup.Common.psm1', 'Reconstruct.ps1', 'FileBackup.ps1') {
+            $lines = [IO.File]::ReadAllLines((Join-Path $repoRoot $rel))
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -notmatch '=\s*@\{\}') { continue }
+                $window = $lines[$i..([Math]::Min($i + 3, $lines.Count - 1))] -join "`n"
+                $window | Should -Not -Match '\.RelativePath\]\s*=' `
+                    -Because "$rel line $($i + 1) fills a literal case-insensitive hashtable with RelativePath keys; use New-RelativePathMap (SR-034)"
+            }
+        }
+    }
+
     It 'hash-recovers a row whose named data file is gone but whose bytes survive in the pool (SR-031, SR-010)' {
         $root = Join-Path $TestDrive 'wg-hint'
         $env  = New-PruneTimeline -Root $root

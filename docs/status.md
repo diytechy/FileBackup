@@ -79,9 +79,12 @@ last) — it is the record, not required reading for every pass.
   locators dropped a `.7z` candidate that expanded successfully to other
   content, which is exactly a genuine `.7z` SOURCE file, leaving that row
   unrecoverable while every checker called the store clean) and every accepted
-  finding is landed 2026-08-23; a read-only reviewer is re-verifying the fixes
-  on a pristine export concurrently with this session — awaiting that re-review
-  + batch ratification.** Restore-kit
+  finding is landed 2026-08-23; the fix set is **independently re-verified
+  APPROVE (2026-08-23, entry below)** — the earlier in-flight re-review
+  delivered its HIGH residual (payload-keyed exemption, fixed in `62fc702`)
+  but its closing verdict was never recorded, so a fresh read-only
+  re-verification against a pristine clone of `83cc5f1` replaced it —
+  awaiting batch ratification.** Restore-kit
   revision is now **3**. SN-030/SR-049..052/
   LLR-049..052/TC-091..102 minted; **SR-049/SR-050/SR-051 Verified**
   (TC-091..TC-100 Pass), **SR-052 `Implemented`** with TC-101's Linux half and
@@ -136,7 +139,12 @@ last) — it is the record, not required reading for every pass.
   **bats 55/55 + shellcheck clean** on WSL after the reconstruct.sh changes,
   **lint clean**, trace `SN=30 SR=52 LLR=51 TC=101, 0 orphans / 0 integrity`,
   and the rebuilt container's full smoke + TC-102 check passing under Podman.
-  See the audit entry below.
+  See the audit entry below. **Independently reviewed 2026-08-23:
+  CHANGES-REQUESTED** (the F3 case-sensitivity conversion missed
+  `Save-SupersededData` — on Linux a case-differing pair could skip staging
+  superseded bytes — plus a capacity-map nit and stale revision-3 docs);
+  **every required change landed same day** (entries below) — awaiting batch
+  ratification. `11b2c46` reviewed APPROVE in the same pass.
 - **CI-gated (need a real green CI run on `resync_v2` after the push, not
   locally achievable — Docker is unavailable on this host):** SR-034 and
   SR-044 flip `Implemented`→`Verified`, the `--phase` ratchet re-arms to
@@ -2987,4 +2995,86 @@ rush-fix surface) — widened Open row awaits prioritization; R6 quoting and R10
 no-7-Zip-raw-skip batch with the next kit revision; R7 newline rows are
 bash-v2; F8 kit-less snapshot window recorded with a candidate cheap fix; R11
 (sed JSON nit) dismissed as malicious-only per the rule.
+
+---
+
+### INDEPENDENT REVIEWER — WP5 fix-set re-verification + review of `11b2c46`/`83cc5f1` — 2026-08-23
+
+**Why this entry exists.** The earlier WP5 re-review (in flight last session)
+delivered its one HIGH residual — the payload-keyed exemption, fixed in
+`62fc702` — but its closing verdict was never merged into this file before its
+session ended, violating the durable-memory rule. This fresh read-only
+re-verification against a **pristine clone of `83cc5f1`** (repo working tree
+untouched) replaces it and also gives the two same-day unreviewed commits
+their independent pass.
+
+**Part A — WP5 fix set: APPROVE** (one doc minor, folded into the fixes
+below). Independent probes with the reviewer's own fixtures, 25/25 PASS:
+H1 dedup-pair repair heals BOTH rows sharing one physical file, re-verifies
+clean, restores byte-exact via the standalone kit; the payload-keyed exemption
+reports ZERO findings for real 7z bytes under a non-`.7z` name (Mirror and
+HashAddressed, ±`-Deep`), repair mutates nothing, restores byte-exact before
+and after, while a genuine `FlagOverArchive` is still found and repaired; the
+`11b2c46` empty-document fix prints the literal `[]` for both `verify` and
+`snapshots` at the process boundary. Pinned TC-094 Describe: 8/8.
+
+**Part B — `11b2c46`: APPROVE.** `-InputObject` at both emission sites is
+correct (dropping `-AsArray` avoids the `[[]]` double-wrap; a single finding
+still serializes as a one-element array); the harness's line-based extraction
+matches the framing now documented in interfaces.md.
+
+**Part B — `83cc5f1`: CHANGES-REQUESTED.** Eleven of the twelve fixes check
+out under scrutiny (witness gate truly pre-mutation with real exit 3 observed;
+sidecar containment breaks no in-place or snapshot restore and bash's case
+pattern is correctly quoted; the hash fallback keys on the row's own
+`(xxH2Hash, Length)` — the store's dedup identity, identical to blank-row
+recovery; the staging lock matches the prune precedent; the step-5/6 Temp
+cleanup only ever removes a Temp that is empty by construction). Required:
+
+1. **R1 (same severity class as F3 itself): `Save-SupersededData`'s
+   `$backupByRel` was still a literal case-insensitive map.** On Linux, a
+   case-differing pair — kept correctly distinct by the FIXED diff and backup
+   maps — collapses here; the lookup returns the twin row, its content
+   "survives", staging is skipped, and the copy step overwrites the superseded
+   bytes: the snapshot row is permanently ContentMissing. Reproduced at
+   function level on the pristine clone.
+2. **R2 (minor): `Get-BackupCapacityDemand`'s `$byPath`** — same one-line
+   conversion; consequence is capacity under-estimation only.
+3. **R3 (docs): the batch's claim "README's revision note covers the
+   exposure" was false** — README and AGENTS.md §3 both stopped at revision 3;
+   and AGENTS.md still described the exemption as RelativePath-`.7z`-keyed,
+   stale since `62fc702` (the Part A minor).
+
+Reviewer's evidence (pristine clone): unit **330/330** (5:04), TC-094 Describe
+8/8, hardening Describe 6/6, WSL `shellcheck` clean + **bats 55/55**, trace
+0 orphans / 0 integrity, lint 0 findings. Two notes recorded, no action
+required: a store that loses both witness integrity AND `FileBackupState.json`
+exits 1 (SR-035 fires before the gate), not 3 — still a pre-mutation refusal;
+and `New-Item` narrows rather than provably eliminates the lock race — fine
+for scheduled-run overlap.
+
+---
+
+### DRIVER (Data-integrity hat) — Landing the `83cc5f1` review's required changes — 2026-08-23
+
+All three required changes landed, exactly as specified:
+
+- **R1:** `Save-SupersededData`'s `$backupByRel` → `New-RelativePathMap`, with
+  a why-comment naming the failure. **R2:** `Get-BackupCapacityDemand`'s
+  `$byPath` likewise. New CLASS pin in the hardening Describe: a literal
+  `@{}` whose fill is keyed by `.RelativePath` anywhere in the four code files
+  fails the suite — the exact shape the review caught can't regress silently.
+- **R3:** AGENTS.md §3 exemption sentence rewritten payload-keyed (the Part A
+  minor); AGENTS.md §3 and README's kit-revision notes extended to
+  **revision 4** with the F4/F5/F6 exposure spelled out.
+- **Noted for a container-v1 sweep, not converted here (outside the review's
+  required scope):** the DataPath-keyed membership maps
+  (`$referencedPaths`/`$ownReferenced`/`$existingPaths`) are also literal
+  case-insensitive hashtables; their failure modes are orphan-warning
+  suppression / missing-file classification, not byte loss. Worth one look
+  when container-v1 verifies.
+
+Evidence: see the run pasted in the Current State bullet (full unit suite
+including the new class pin, lint, trace, container re-run — all after these
+edits).
 

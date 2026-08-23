@@ -278,8 +278,11 @@ Imports (internal): `Common`
 - **Exactly one predicate answers "does the index agree with the bytes?"** —
   `Test-StorageFormAgreement`. Both the prune rail (SR-046) and the storage-form
   audit (SR-049) call it, so they cannot drift. It carries the one deliberate
-  exemption: a row whose own `RelativePath` ends in `.7z` is an
-  already-compressed *source* file and is never a disagreement.
+  exemption, keyed on the **payload**, not the name (62fc702): an archive-form
+  file under a `Compressed=No` row is exempt only when its *own bytes*
+  reproduce the row's `(hash, length)` — that is a genuinely already-compressed
+  *source* file, whatever it is called. An archive whose *inner payload*
+  matches the row is still a `FlagOverArchive` disagreement.
 - **A snapshot keeps the restore kit it was written with, forever.** The
   `# KitRevision: <n>` marker at the top of `Reconstruct.ps1` and
   `bash/reconstruct.sh` names it; bump BOTH together whenever any kit-bundled
@@ -287,7 +290,13 @@ Imports (internal): `Common`
   revision 3 additionally tests every non-matching `.7z` candidate as RAW bytes,
   without which a blank row for a **genuine `.7z` source file** (which expands
   fine, but to something that is not that row's content) was unrecoverable while
-  every checker called the store clean.
+  every checker called the store clean. Revision 4 (2026-08-23 review round)
+  honors `RECONSTRUCT.paths.json` only while the kit folder still lives inside
+  the roots it records (a copied/moved store auto-detects instead of silently
+  reading the original), falls back to `(hash, length)` pool recovery when a
+  row's *named* data file is missing, and — in `Reconstruct.ps1` — maps `\`
+  separators and keys the manifest dictionary case-sensitively on non-Windows
+  hosts. A revision-3 kit still carries those defects.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the six kit artifacts and **never**
   `MANIFEST.csv.meta`.

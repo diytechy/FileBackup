@@ -2881,7 +2881,10 @@ function Save-SupersededData {
     )
     if (-not $NewOrChanged) { return }
     $failures = 0
-    $backupByRel = @{}; foreach ($b in $BackupDb) { if ($b.RelativePath) { $backupByRel[$b.RelativePath] = $b } }
+    # Filesystem-faithful keys (SR-034): a case-insensitive map here returns the
+    # WRONG row for a case-differing Linux pair, and its content "surviving"
+    # skips staging the superseded bytes the snapshot needs (review 83cc5f1 R1).
+    $backupByRel = New-RelativePathMap; foreach ($b in $BackupDb) { if ($b.RelativePath) { $backupByRel[$b.RelativePath] = $b } }
     # Content (hash|length) present in the NEW source state survives in the backup.
     $survivingContent = @{}; foreach ($s in $SourceDb) { $survivingContent["$($s.xxH2Hash)|$($s.Length)"] = $true }
 
@@ -3088,7 +3091,7 @@ function Get-BackupCapacityDemand {
         [Parameter(Mandatory)][bool]$SameVolume
     )
     $held = @{}
-    $byPath = @{}
+    $byPath = New-RelativePathMap   # SR-034: RelativePath keys compare like the filesystem
     foreach ($row in @($BackupDb | Where-Object { $_ })) {
         $held["$($row.xxH2Hash)|$($row.Length)"] = $true
         $byPath[$row.RelativePath] = $row

@@ -292,7 +292,13 @@ itself and are correct. Kits **before revision 3** additionally gave up on a
 `.7z` file in the pool once it expanded to something other than the content they
 were looking for — so a backed-up file that is *itself* a `.7z` archive could
 become unrestorable from an older snapshot, with every check still reporting the
-backup clean. Revision 3 tries the file's own bytes as well. (The revision is the `# KitRevision:` line near the top
+backup clean. Revision 3 tries the file's own bytes as well. Kits **before
+revision 4** trusted the `RECONSTRUCT.paths.json` sidecar unconditionally — a
+*copied* backup folder restored on the same machine could silently read the
+still-live **original** store instead of the copy — treated a missing data file
+as unrecoverable even when the bytes survived elsewhere in the pool, and (in
+`RECONSTRUCT.ps1` on Linux) wrote `sub\file.txt` as one root-level file instead
+of a folder tree. Revision 4 fixes all three. (The revision is the `# KitRevision:` line near the top
 of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
 alongside every `BlankRowFormDisagreement` finding.)
 
