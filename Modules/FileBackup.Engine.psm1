@@ -586,8 +586,12 @@ function Sync-BackupStorageLayout {
         } else { $true }
     })
 
-    # Phase 1: copy/compress each row to its new path, update metadata, remember old path.
-    $oldPathsToDelete = New-Object System.Collections.Generic.List[string]
+    # Phase 1: copy/compress each row to its new path, update metadata, remember
+    # the old path. The old path is remembered as (Full, Rel) rather than being
+    # re-derived by slicing $rootPrefix off the full path later: Join-Path does
+    # not guarantee the prefix survives verbatim, and the manifest-relative form
+    # is already in hand (WP5 review, finding m4).
+    $oldPathsToDelete = New-Object System.Collections.Generic.List[object]
     # One shared data file is transformed ONCE; every row that pointed at it
     # adopts the result, exactly as Invoke-BackupFileGroup points a whole group
     # at one physical file (SR-051).
@@ -609,7 +613,13 @@ function Sync-BackupStorageLayout {
         $tempWorking = $null
         if ($row.Compressed -eq 'Yes' -and -not $shouldCompress) {
             if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
-                & $Log "Cannot decompress '$($row.DataPath)': 7-Zip not found. Skipping transformation." 'WARN'
+                # SR-051 says a transformation that cannot be completed leaves
+                # the requested layout unapplied and FAILS the set. A missing
+                # 7-Zip is exactly that case: WARN-and-continue reported success
+                # over a store the configuration no longer describes (WP5
+                # review, finding M1).
+                & $Log "Cannot decompress '$($row.DataPath)': 7-Zip not found at '$SevenZipPath'. Failing the set (SR-051)." 'ERROR'
+                if ($OverallSuccess) { $OverallSuccess.Value = $false }
                 continue
             }
             $tempWorking = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
@@ -655,7 +665,7 @@ function Sync-BackupStorageLayout {
                 Copy-Item -LiteralPath $workingFile -Destination $newDataFull -Force
             }
 
-            $oldPathsToDelete.Add($currentDataFull)
+            $oldPathsToDelete.Add([pscustomobject]@{ Full = $currentDataFull; Rel = $row.DataPath })
             $row.DataPath         = $newDataPath
             $row.Compressed       = if ($shouldCompress) { 'Yes' } else { 'No' }
             $row.StoredAsHashSize = $expectedStoredAs
@@ -683,19 +693,18 @@ function Sync-BackupStorageLayout {
     # a surviving row still references (SR-051 / B9's hazard). Deleting one of
     # those is silent data loss that only surfaces at the next restore.
     foreach ($old in $oldPathsToDelete) {
-        if (-not (Test-Path -LiteralPath $old -PathType Leaf)) { continue }
-        $oldRel = $old.Substring($rootPrefix.Length).TrimStart('\', '/')
-        if ($referencedPaths.ContainsKey($oldRel)) {
-            & $Log "Retained '$oldRel' after transformation: a manifest row still references it." 'INFO'
+        if (-not (Test-Path -LiteralPath $old.Full -PathType Leaf)) { continue }
+        if ($referencedPaths.ContainsKey($old.Rel)) {
+            & $Log "Retained '$($old.Rel)' after transformation: a manifest row still references it." 'INFO'
             continue
         }
-        Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
-        & $Log "Removed old datapath '$old' after transformation." 'INFO'
+        Remove-Item -LiteralPath $old.Full -Force -ErrorAction SilentlyContinue
+        & $Log "Removed old datapath '$($old.Full)' after transformation." 'INFO'
     }
 
     # Warn about orphaned data files.
     foreach ($dataFile in (Get-DataFile -Root $BackupRoot)) {
-        $rel = $dataFile.FullName.Substring($rootPrefix.Length).TrimStart('\','/')
+        $rel = [IO.Path]::GetRelativePath($rootPrefix, $dataFile.FullName)
         if (-not $referencedPaths[$rel]) {
             & $Log "Orphaned datapath file found (not referenced by manifest): '$rel'" 'WARN'
         }
@@ -1552,6 +1561,14 @@ function Repair-BackupStorageForm {
         the "correct" value is location-dependent and SR-050 is the durable fix;
         for the others the evidence is not in the row's own folder.
 
+        Findings are per ROW, but a repair renames a PHYSICAL file — and dedup
+        means several rows can name the SAME file. Repairs are therefore grouped
+        by (Folder, DataPath): the rename happens ONCE and EVERY row that
+        referenced the old path adopts the observed form. Repairing row by row
+        renamed the file for the first row and then saw 'Missing' for the second,
+        leaving it dangling and unrestorable — the same lesson
+        Sync-BackupStorageLayout learned in ddf52ab (WP5 review, finding H1).
+
         A rename that would produce a ROOT-LEVEL infrastructure name is refused
         (SR-022 / B6), and every touched folder is persisted through
         Write-Manifest so its SR-038 witness is re-stamped by the one writer —
@@ -1590,45 +1607,62 @@ function Repair-BackupStorageForm {
         $manifest = @(Read-Manifest -FolderPath $folder)
         $dirty    = $false
 
-        foreach ($finding in $group.Group) {
-            if (-not $finding.Repairable) { $skipped.Add($finding); continue }
-            $row = $manifest | Where-Object { $_.RelativePath -eq $finding.RelativePath -and $_.DataPath -eq $finding.DataPath } |
-                   Select-Object -First 1
-            if (-not $row) { $skipped.Add($finding); continue }
+        # ONE physical file per group: the rename is done once and every row
+        # naming that file adopts the result (finding H1).
+        foreach ($byPath in ($group.Group | Group-Object DataPath)) {
+            $dataPath   = [string]$byPath.Name
+            $repairable = @($byPath.Group | Where-Object { $_.Repairable })
+            foreach ($f in @($byPath.Group | Where-Object { -not $_.Repairable })) { $skipped.Add($f) }
+            if ($repairable.Count -eq 0) { continue }
 
-            $full     = Join-Path $folder $row.DataPath
+            # EVERY row that references this physical file, not just the ones
+            # that produced a finding — a row exempted by the '.7z' source rule
+            # still has to follow its data file through a rename.
+            $rows = @($manifest | Where-Object { $_.DataPath -eq $dataPath })
+            if ($rows.Count -eq 0) { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
+
+            $full     = Join-Path $folder $dataPath
             $observed = Get-StoredFileForm -Path $full
-            if ($observed -eq 'Missing') { $skipped.Add($finding); continue }
+            if ($observed -eq 'Missing') { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
 
             # The bytes decide both columns. Rename only when the name's claim
             # differs from what the bytes are.
             $newCompressed = if ($observed -eq 'Archive') { 'Yes' } else { 'No' }
-            $newDataPath   = $row.DataPath
-            $nameIsArchive = ([IO.Path]::GetExtension([string]$row.DataPath) -ieq '.7z')
-            if ($observed -eq 'Archive' -and -not $nameIsArchive) { $newDataPath = "$($row.DataPath).7z" }
-            if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $row.DataPath.Substring(0, $row.DataPath.Length - 3) }
+            $newDataPath   = $dataPath
+            $nameIsArchive = ([IO.Path]::GetExtension($dataPath) -ieq '.7z')
+            if ($observed -eq 'Archive' -and -not $nameIsArchive) { $newDataPath = "$dataPath.7z" }
+            if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $dataPath.Substring(0, $dataPath.Length - 3) }
 
-            if ($newDataPath -ne $row.DataPath) {
+            if ($newDataPath -ne $dataPath) {
                 $target = Join-Path $folder $newDataPath
                 if (Test-IsInfrastructureFile -Root $folder -FullPath ([IO.Path]::GetFullPath($target))) {
-                    & $Log "Refusing to rename '$($row.DataPath)' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
-                    $skipped.Add($finding); continue
+                    & $Log "Refusing to rename '$dataPath' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
+                    foreach ($f in $repairable) { $skipped.Add($f) }; continue
                 }
                 if (Test-Path -LiteralPath $target -PathType Leaf) {
-                    & $Log "Refusing to rename '$($row.DataPath)' to '$newDataPath': a file is already there." 'WARN'
-                    $skipped.Add($finding); continue
+                    & $Log "Refusing to rename '$dataPath' to '$newDataPath': a file is already there." 'WARN'
+                    foreach ($f in $repairable) { $skipped.Add($f) }; continue
                 }
-                if ($PSCmdlet.ShouldProcess($target, "rename '$($row.DataPath)' so its name matches its bytes")) {
+                if ($PSCmdlet.ShouldProcess($target, "rename '$dataPath' so its name matches its bytes")) {
                     Move-Item -LiteralPath $full -Destination $target -Force
-                } else { $skipped.Add($finding); continue }
+                } else { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
             }
 
-            & $Log ("Repaired '$($finding.FolderName)' row '$($row.RelativePath)' [$($finding.Class)]: " +
-                    "Compressed $($row.Compressed) -> $newCompressed, DataPath '$($row.DataPath)' -> '$newDataPath'.") 'INFO'
-            $row.DataPath   = $newDataPath
-            $row.Compressed = $newCompressed
+            foreach ($row in $rows) {
+                # A row whose own RelativePath is '.7z' is an already-compressed
+                # SOURCE file (the Test-StorageFormAgreement exemption): its
+                # Compressed column is not a disagreement and rewriting it from
+                # the bytes would make the restorer expand the user's archive.
+                # It still follows the file through the rename.
+                $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z')
+                & $Log ("Repaired '$([IO.Path]::GetFileName($folder))' row '$($row.RelativePath)': " +
+                        "Compressed $($row.Compressed) -> $(if ($exempt) { $row.Compressed } else { $newCompressed }), " +
+                        "DataPath '$dataPath' -> '$newDataPath'.") 'INFO'
+                $row.DataPath = $newDataPath
+                if (-not $exempt) { $row.Compressed = $newCompressed }
+            }
             $dirty = $true
-            $repaired++
+            $repaired += $repairable.Count
         }
 
         # One write per folder, through the SOLE manifest writer, so the SR-038
@@ -2422,10 +2456,46 @@ function Resolve-BackupSetPaths {
     .SYNOPSIS
         Validates the set's SourcePath and resolves (creating if needed) the
         Backup/Change paths to absolute form.
+
+    .PARAMETER Set
+        The backup set to resolve.
+
+    .PARAMETER ReadOnly
+        Resolve EXISTING roots only: create nothing, and do not require
+        SourcePath. For the read-only actions (-Action Verify, SR-049), which
+        are about the STORE — the source may legitimately be offline, and an
+        action that mutates nothing must not conjure a backup root. A backup
+        root that does not exist is a precondition failure the caller reports as
+        code 2 (WP5 review, finding m2).
+
+    .OUTPUTS
+        [pscustomobject] SrcPath / SrcStatePath / BkpPath / ChgPath. Under
+        -ReadOnly, SrcPath and SrcStatePath are $null when the source is absent
+        and ChgPath may name a folder that does not exist (there are then no
+        snapshots to audit).
     #>
-    # Implements: SR-014, LLR-014
+    # Implements: SR-014, SR-049, LLR-014
     [CmdletBinding()]
-    param([Parameter(Mandatory)][pscustomobject]$Set)
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Set,
+        [switch]$ReadOnly
+    )
+
+    if ($ReadOnly) {
+        $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath -ErrorAction SilentlyContinue).Path
+        if (-not $bkpPath) {
+            throw "Backup path '$($Set.BackupPath)' for set '$($Set.Name)' does not exist; there is nothing to read there."
+        }
+        $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath -ErrorAction SilentlyContinue).Path
+        if (-not $chgPath) { $chgPath = [IO.Path]::GetFullPath([string]$Set.ChangePath) }
+        $srcPath = (Resolve-Path -LiteralPath $Set.SourcePath -ErrorAction SilentlyContinue).Path
+        return [pscustomobject]@{
+            SrcPath = $srcPath
+            SrcStatePath = $srcPath
+            BkpPath = $bkpPath
+            ChgPath = $chgPath
+        }
+    }
 
     if (-not (Test-Path -LiteralPath $Set.SourcePath -PathType Container)) {
         throw "Source path '$($Set.SourcePath)' for set '$($Set.Name)' does not exist."
@@ -2980,6 +3050,13 @@ function Assert-BackupCapacity {
         volume is a realistic failure mode, and a run that fills it mid-way
         leaves the manifest and the bytes out of step.
 
+        The two demands are grouped by Get-VolumeIdentity and the group's total
+        is checked against that volume's free space. When the backup and change
+        roots live on the SAME volume they compete for the same bytes, so
+        checking them separately passed two demands that each fit and together
+        did not (WP5 review, finding M2). On different volumes the grouping is a
+        no-op and each is checked alone, as before.
+
         A volume whose free space cannot be MEASURED is skipped, not refused:
         not knowing is not evidence of a shortfall. There is deliberately no
         configurable margin (decision Q8; SR-042's schema is closed).
@@ -3013,21 +3090,36 @@ function Assert-BackupCapacity {
         [long]$ChangeBytes = 0,
         [Parameter(Mandatory)][scriptblock]$Log
     )
+    $byVolume = [ordered]@{}
     foreach ($demand in @(
         [pscustomobject]@{ Name = 'backup'; Path = $BackupPath; Bytes = $BackupBytes }
         [pscustomobject]@{ Name = 'change'; Path = $ChangePath; Bytes = $ChangeBytes }
     )) {
         if ($demand.Bytes -le 0) { continue }
-        $free = Get-FreeSpaceBytes -Path $demand.Path
+        # An unidentifiable volume keeps its own bucket keyed by path, so the
+        # free-space probe is still attempted for it.
+        $volume = Get-VolumeIdentity -Path $demand.Path
+        $key    = if ($volume) { $volume } else { $demand.Path }
+        if (-not $byVolume.Contains($key)) {
+            $byVolume[$key] = [pscustomobject]@{ Names = @(); Path = $demand.Path; Bytes = [long]0 }
+        }
+        $byVolume[$key].Names += $demand.Name
+        $byVolume[$key].Bytes += [long]$demand.Bytes
+    }
+
+    foreach ($key in @($byVolume.Keys)) {
+        $group = $byVolume[$key]
+        $label = $group.Names -join '+'
+        $free  = Get-FreeSpaceBytes -Path $group.Path
         if ($null -eq $free) {
-            & $Log "Capacity check skipped for the $($demand.Name) volume '$($demand.Path)': its free space could not be measured." 'WARN'
+            & $Log "Capacity check skipped for the $label volume '$($group.Path)': its free space could not be measured." 'WARN'
             continue
         }
-        if ($free -lt $demand.Bytes) {
-            throw ("Not enough free space on the $($demand.Name) volume '$($demand.Path)'. " +
-                   "Required: $($demand.Bytes) byte(s), Free: $free byte(s). Refusing before writing anything.")
+        if ($free -lt $group.Bytes) {
+            throw ("Not enough free space on the $label volume '$($group.Path)'. " +
+                   "Required: $($group.Bytes) byte(s), Free: $free byte(s). Refusing before writing anything.")
         }
-        & $Log "Capacity check passed for the $($demand.Name) volume '$($demand.Path)': needs $($demand.Bytes), has $free." 'DEBUG'
+        & $Log "Capacity check passed for the $label volume '$($group.Path)': needs $($group.Bytes), has $free." 'DEBUG'
     }
 }
 
@@ -3152,8 +3244,12 @@ function Invoke-BackupSet {
     $changedCount = 0
 
     # 9.4 Capacity preflight, content component (SR-052): the last point at which
-    # nothing has been written. A refusal here fails this SET (status 1), leaving
-    # the tree byte-identical; other sets still run (SR-014).
+    # none of THIS RUN'S CONTENT has been written. A refusal here fails this SET
+    # (status 1) with no data file added, no manifest row changed and no staging
+    # folder left behind; other sets still run (SR-014). It is not a promise that
+    # the tree is byte-identical to the pre-run state — step 6's migration may
+    # already have re-formed existing rows, which is why 5.5 proves ITS room
+    # first (WP5 review, finding m5).
     $demand = Get-BackupCapacityDemand -NewOrChanged $diff.NewOrChanged `
                 -RemovedFromSource $diff.RemovedFromSource -BackupDb $backupDb -SameVolume $sameVolume
     try {

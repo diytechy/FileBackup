@@ -80,6 +80,34 @@ restore_work() {  # <outdir>
     verify_tree "$BATS_TEST_TMPDIR/d" "$FIXTURES/bash-restore/Mirror_Compress/expected/root.tsv"
 }
 
+@test "a blank row for a GENUINE .7z source file is recovered, not called missing (TC-099, SR-050)" {
+    # WP5 review finding H2, the bash twin. A real archive stored raw (SR-004
+    # declines to re-compress a '.7z' source) EXPANDS successfully, but to
+    # something that is not the row's content; before the fix the candidate was
+    # dropped without its own bytes ever being tested, so the row was
+    # unrecoverable while every checker called the store clean.
+    use_fixture Mirror
+    [ -n "${SEVEN_ZIP:-}" ] || SEVEN_ZIP="$(command -v 7z || command -v 7za || command -v 7zz)"
+    [ -n "$SEVEN_ZIP" ] || skip "no 7z on this host"
+
+    printf 'ARCHIVE-PAYLOAD-%.0s' {1..200} > "$BATS_TEST_TMPDIR/inner.txt"
+    ( cd "$BATS_TEST_TMPDIR" && "$SEVEN_ZIP" a -bso0 -bsp0 -y real.7z inner.txt >/dev/null )
+    cp "$BATS_TEST_TMPDIR/real.7z" "$WORK/real.7z"
+
+    # A row for it with a BLANK DataPath: hash recovery must locate the file in
+    # the pool and copy its own bytes.
+    local h len
+    h="$(hash_upper "$WORK/real.7z")"
+    len="$(stat -c '%s' -- "$WORK/real.7z")"
+    printf '"","real.7z","%s","2024-01-01T08:00:00.0000000-06:00","%s","No","Original","0",""\r\n' \
+        "$len" "$h" >> "$WORK/MANIFEST.csv"
+    restamp_witness "$WORK/MANIFEST.csv"
+
+    restore_work "$BATS_TEST_TMPDIR/g"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    [ "$(hash_upper "$BATS_TEST_TMPDIR/g/real.7z")" = "$h" ]
+}
+
 @test "an unexpandable, unmatching .7z candidate is still a HOST failure, exit 4 (TC-099, SR-040)" {
     use_fixture Mirror
     rm -f "$WORK/hello.txt"

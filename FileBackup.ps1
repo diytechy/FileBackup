@@ -96,7 +96,10 @@
                      7-Zip), -BackupRootOnly (or -IncludeSnapshots:$false) for
                      the fast pass, and -RefreshKits to re-copy the current
                      restore kit into every snapshot. Outcome follows the SR-040
-                     table: 0 clean, 1 findings, 2 precondition.
+                     table: 0 clean, 1 findings, 2 precondition. It reads
+                     EXISTING roots only — it creates no directory and does not
+                     require SourcePath, so a backup root that is not there is
+                     a precondition failure (2), never a freshly made empty one.
         Snapshots  — print the read-only snapshot inventory as JSON: Name, Date,
                      Rows, PhysicalBytes, BytesReclaimed, BytesReHomed. The
                      reclaim figures are dedup-aware, so they are what removing
@@ -409,7 +412,11 @@ function Invoke-VerifyAction {
         Logger scriptblock.
     .OUTPUTS
         [int] per the SR-040 table: 0 clean, 1 findings (a content statement,
-        not a usage error), 2 precondition, 4 host.
+        not a usage error), 2 precondition — a backup root that does not exist,
+        no manifest to verify, -Deep without 7-Zip, or any other failure to run
+        the audit at all. Code 4 is not produced here: verification reads, so a
+        host problem stops it before it can classify anything, which is the
+        same "nothing was attempted" class as 2 (WP5 review, finding m2).
     #>
     # Implements: SR-049, SR-040, SR-043, LLR-049
     param(
@@ -421,8 +428,11 @@ function Invoke-VerifyAction {
         [switch]$RootOnly,
         [switch]$Refresh
     )
-    $paths = Resolve-BackupSetPaths -Set $Set
     try {
+        # -ReadOnly: verification creates nothing (not even the roots) and does
+        # not require SourcePath. Inside the try, so a missing or wrong root is
+        # the documented code 2 rather than an unhandled terminating error.
+        $paths = Resolve-BackupSetPaths -Set $Set -ReadOnly
         if ($Refresh) {
             $kits = Update-BackupSnapshotKit -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -Log $Log
             & $Log "Refreshed the restore kit in $($kits.Refreshed) snapshot folder(s) to revision $($kits.Revision)." 'INFO'

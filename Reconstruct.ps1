@@ -49,15 +49,16 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 2
+# KitRevision: 3
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
-# -RefreshKits is the only way to retire an old one). Revision 2 is the first
-# stamped revision; it is also the first that decides a hash-recovered row's
-# form from the FILE it located rather than the row's Compressed column
-# (SR-050) -- restoring a pre-revision-2 snapshot with its OWN kit still
-# carries that defect.
+# -RefreshKits is the only way to retire an old one). Revision 2 was the first
+# stamped revision and the first to decide a hash-recovered row's form from the
+# FILE it located rather than the row's Compressed column (SR-050). Revision 3
+# additionally tests every non-matching '.7z' candidate as RAW bytes, so a
+# blank row for a genuine '.7z' SOURCE file is recoverable. Restoring a snapshot
+# with its OWN older kit still carries the defects fixed after it.
 
 param(
     [string]$TargetRoot,
@@ -203,9 +204,12 @@ function Find-DataFileByHash {
         is not this file: consulting it here restores 7z container bytes under
         the original filename (exit 0) or expands raw bytes (exit 4).
 
-        An archive candidate that cannot be EXPANDED is additionally re-tested as
-        raw bytes before a CandidateError is recorded, so a '.7z' name over raw
-        content (the finding-B family artifact) is still recovered.
+        EVERY '.7z' candidate that does not yield the payload is additionally
+        tested as raw bytes before it is dropped — whether it failed to expand
+        (a '.7z' name over raw content, the finding-B family artifact) or
+        expanded to something else (a genuine '.7z' SOURCE file stored raw,
+        which really is an archive but whose payload is not this row's content).
+        Free on the happy path, and the second case is otherwise unrecoverable.
 
     .OUTPUTS
         [pscustomobject] Path / Cause / Form / Detail, where Cause is one of:
@@ -264,13 +268,23 @@ function Find-DataFileByHash {
                 } finally {
                     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
                 }
-                # The name said '.7z' but it would not expand: it may simply BE
-                # the raw bytes under a lying name (SR-050). Re-test before
-                # calling this a host problem — free on the happy path.
-                if ($expandError) {
+                # The candidate's OWN bytes may be the answer, whether or not it
+                # expanded. A genuine '.7z' SOURCE file stored raw (SR-004
+                # declines to re-compress one) expands SUCCESSFULLY — it really
+                # is an archive — but its payload is not this row's content; the
+                # file itself is. Dropping it there made a blank row for a real
+                # '.7z' source unrecoverable while every checker called the store
+                # clean (WP5 review, finding H2). Symmetric with the
+                # failed-expand case, and free on the happy path.
+                try {
                     if ($f.Length -eq $Length -and (Get-FileXxHash -FilePath $f.FullName) -eq $Hash) {
                         return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Raw'; Detail = '' }
                     }
+                } catch {
+                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                        Detail = "Candidate '$($f.FullName)' could not be read: $($_.Exception.Message)" })
+                }
+                if ($expandError) {
                     $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
                         Detail = "Archive candidate '$($f.FullName)' could not be expanded: $expandError" })
                 }

@@ -573,19 +573,56 @@ function Get-VolumeIdentity {
         told apart as "same volume" (a move is a rename) or "different volumes"
         (a move is a copy, and costs bytes) — SR-052. Never throws.
     .DESCRIPTION
-        On Windows this is the drive root; on Linux it is the containing MOUNT
+        On Windows this is the drive root; on Unix it is the containing MOUNT
         POINT, which is what matters in the container where /backup and /changes
         are separate binds under one filesystem root.
+
+        The identity is taken from the MOUNT TABLE:
+        [System.IO.DriveInfo]::GetDrives() enumerates the real mounts on both
+        platforms, and the longest mount point that prefixes the resolved path
+        (on a path-segment boundary, so '/backupX' never matches '/backup') is
+        that path's volume. `[DriveInfo]::new($path).Name` cannot answer this on
+        Unix: there it is the IDENTITY function and echoes whatever path it was
+        handed, so '/backup' and '/backup/sub' read as different volumes and
+        every same-volume decision built on it was wrong off Windows (WP5
+        review, finding M2). Windows behavior is unchanged — a drive root is
+        already what GetDrives() reports, and DriveInfo remains the fallback.
+
     .PARAMETER Path
         The path whose volume is identified.
     .OUTPUTS
-        [string] the volume key, or $null when it cannot be determined.
+        [string] the volume key, or $null when it cannot be determined. Two
+        paths are on one volume exactly when this returns the same non-null key
+        for both.
     #>
     # Implements: SR-052, LLR-052
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
     $probe = Resolve-ExistingAncestor -Path $Path
     if (-not $probe) { return $null }
+
+    $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+    try {
+        $best = $null
+        foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+            $name = [string]$drive.Name
+            if ([string]::IsNullOrEmpty($name)) { continue }
+            $trimmed = $name.TrimEnd('\', '/')
+            $matched = if ($trimmed.Length -eq 0) {
+                # The filesystem root ('/'): it prefixes everything rooted.
+                $probe.StartsWith($name, $comparison)
+            } else {
+                $probe.Equals($trimmed, $comparison) -or
+                $probe.StartsWith($trimmed + '\', $comparison) -or
+                $probe.StartsWith($trimmed + '/', $comparison)
+            }
+            if ($matched -and ($null -eq $best -or $name.Length -gt $best.Length)) { $best = $name }
+        }
+        if ($best) { return $best }
+    } catch {
+        Write-Verbose "The mount table could not be enumerated for '$probe': $($_.Exception.Message)"
+    }
+
     try { return [System.IO.DriveInfo]::new($probe).Name } catch { return $null }
 }
 

@@ -339,6 +339,47 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
             Should -Be (Get-FileHash -LiteralPath (Join-Path $src 'y.txt') -Algorithm SHA256).Hash
     }
 
+    It 'recovers a blank row for a GENUINE .7z source file, with no tampering at all (SR-050, SR-004)' {
+        # WP5 review finding H2. An archive candidate that expands SUCCESSFULLY
+        # but whose PAYLOAD does not match was dropped without its own bytes ever
+        # being tested — and a real '.7z' source file, which SR-004 stores raw,
+        # is exactly that shape. The row was then unrecoverable while every
+        # checker called the store clean (the .7z RelativePath is the deliberate
+        # Test-StorageFormAgreement exemption).
+        #
+        # Repro recipe: an ordinary two-run timeline. Run 2 supersedes an
+        # UNRELATED file, so Optimize-ChangeFolders blanks the archive's row in
+        # the snapshot and its bytes survive only in the backup root.
+        $root = Join-Path $TestDrive 'tc098-realseven'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+
+        # A GENUINE archive as user content: 7-Zip made it, so it expands.
+        $inner = Join-Path $root 'inner.txt'
+        [IO.File]::WriteAllText($inner, ('ARCHIVE-PAYLOAD ' * 200))
+        Compress-FileWithSevenZip -SevenZipPath $script:sevenZip -SourceFile $inner `
+            -Destination7z (Join-Path $src 'real.7z')
+        [IO.File]::WriteAllText((Join-Path $src 'other.txt'), 'v1')
+        Invoke-FormBackup -Cfg $cfg -At ([datetime]'2024-01-01 00:00:01') | Out-Null
+        [IO.File]::WriteAllText((Join-Path $src 'other.txt'), 'v2')
+        Invoke-FormBackup -Cfg $cfg -At ([datetime]'2024-02-02 00:00:02') | Out-Null
+
+        $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_')[0].FullName
+        $row  = @(Import-Csv -LiteralPath (Join-Path $snap 'MANIFEST.csv') | Where-Object RelativePath -eq 'real.7z')[0]
+        $row.DataPath | Should -BeNullOrEmpty -Because 'Optimize blanks a row whose bytes the pool already holds'
+
+        # ...and the audit calls the store clean, which is why this had to be
+        # caught in the restorer.
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
+
+        $target = Join-Path $root 'out'
+        Invoke-Kit -Folder $snap -Target $target | Out-Null
+        (Get-FileHash -LiteralPath (Join-Path $target 'real.7z') -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath (Join-Path $src 'real.7z') -Algorithm SHA256).Hash
+    }
+
     It 'still reports an unexpandable, unmatching .7z candidate as a HOST failure (SR-040, SR-050)' {
         $s = New-BlankRowStore -Root (Join-Path $TestDrive 'tc098-host') -DataName 'x.txt.7z' `
                 -Compressed 'Yes' -Corrupt
@@ -426,6 +467,36 @@ Describe 'Layout migration is refcount-safe (SR-051)' {
             (Get-FileHash -LiteralPath (Join-Path $target $rel) -Algorithm SHA256).Hash |
                 Should -Be (Get-FileHash -LiteralPath (Join-Path $src $rel) -Algorithm SHA256).Hash
         }
+    }
+
+    It 'fails the set when a needed decompression cannot run because 7-Zip is absent (SR-051)' {
+        # WP5 review, finding M1. SR-051's own text says a transformation that
+        # cannot be completed FAILS the set; the missing-7-Zip arm logged WARN
+        # and continued, so a run reported success over a store the
+        # configuration no longer describes.
+        $root = Join-Path $TestDrive 'tc095-no7z'
+        $bkp  = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $bkp -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $bkp 'a.txt.7z'), ('ARCHIVE-CLAIMING BYTES ' * 20))
+        $file = Get-Item -LiteralPath (Join-Path $bkp 'a.txt.7z')
+        Write-Manifest -FolderPath $bkp -Records @([pscustomobject]@{
+            DataPath = 'a.txt.7z'; RelativePath = 'a.txt'; Length = $file.Length
+            LastWriteTime = (Get-Date); xxH2Hash = (Get-FileXxHash -FilePath $file.FullName)
+            Compressed = 'Yes'; StoredAsHashSize = 'Original'; Duplicate = '0'; MediaMBPerSec = '' })
+
+        $ok = $true
+        $messages = New-Object System.Collections.Generic.List[string]
+        # Compression now OFF, so the row must be decompressed -- with no 7-Zip.
+        Sync-BackupStorageLayout -BackupRoot $bkp -PreserveFolderTree $true -CompressEnabled $false `
+            -SevenZipPath 'C:\nope\7z.exe' -Log { param($m, $l) $messages.Add("[$l] $m") } `
+            -OverallSuccess ([ref]$ok) | Out-Null
+
+        $ok | Should -BeFalse -Because 'SR-051 fails the set when the requested layout cannot be applied'
+        ($messages -join "`n") | Should -Match '7-Zip not found'
+        # ...and nothing was mutated on the way out.
+        Test-Path -LiteralPath (Join-Path $bkp 'a.txt.7z') -PathType Leaf | Should -BeTrue
+        (Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'a.txt').DataPath |
+            Should -Be 'a.txt.7z'
     }
 
     It 'retains a superseded path that a surviving row still references (SR-051)' {
@@ -525,6 +596,30 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
             Should -Throw -ExpectedMessage '*needs 7-Zip*'
     }
 
+    It 'creates nothing and does not require SourcePath (SR-049, SR-014)' {
+        # WP5 review, finding m2. Verification mutates nothing -- which has to
+        # include the ROOTS: routing it through the backup-run path resolver
+        # created the backup and change directories before deciding there was
+        # nothing to verify, and refused outright when the source was offline.
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-readonly')
+
+        # (a) The source is gone: a verify is about the STORE and must still run.
+        Remove-Item -LiteralPath $s.Src -Recurse -Force
+        Invoke-VerifyExitCode -Cfg $s.Cfg | Should -Be 1 -Because 'the store still has findings'
+        Test-Path -LiteralPath $s.Src | Should -BeFalse -Because 'verification creates no directory'
+
+        # (b) A backup root that is not there is a precondition failure (2), and
+        # no root is conjured for the next run to trip over.
+        $root = Join-Path $TestDrive 'tc093-readonly-missing'
+        $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $cfg = Join-Path $root 'c.xml'
+        New-FormConfig -Path $cfg -Src $root -Bkp $bkp -Chg $chg
+        Invoke-VerifyExitCode -Cfg $cfg | Should -Be 2
+        Test-Path -LiteralPath $bkp | Should -BeFalse
+        Test-Path -LiteralPath $chg | Should -BeFalse
+    }
+
     It 'reports a payload that does not reproduce the row under -Deep (SR-049)' {
         $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-deep')
         # c.txt is a NameLies row; repair it first so -Deep reaches the payload
@@ -586,6 +681,66 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         }
         # Every rewritten folder witness is re-stamped by Write-Manifest.
         (Test-ManifestWitness -FolderPath $s.Bkp).Status | Should -Be 'Verified'
+    }
+
+    It 'heals BOTH rows of a deduplicated pair that share one data file (SR-049, SR-003)' {
+        # WP5 review finding H1. Findings are per ROW, the repair renames a
+        # PHYSICAL file: repairing row-by-row renamed it for the first row and
+        # then saw 'Missing' for the second, leaving a dangling reference and an
+        # unrestorable row. Two identical-content rows sharing one DataPath, bent
+        # into the FlagOverRaw shape, must both come out repaired.
+        $root = Join-Path $TestDrive 'tc094-shared'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        $payload = 'DEDUPED-CONTENT ' * 300
+        [IO.File]::WriteAllText((Join-Path $src 'one.txt'), $payload)
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+        # The second file is added in a LATER run: that is when
+        # Invoke-BackupFileGroup takes its reuse branch and points the new row at
+        # the EXISTING row's DataPath (SR-003).
+        [IO.File]::WriteAllText((Join-Path $src 'two.txt'), $payload)
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        $shared = @($rows | Where-Object { $_.RelativePath -in 'one.txt', 'two.txt' })
+        $shared.Count | Should -Be 2
+        @($shared.DataPath | Select-Object -Unique).Count | Should -Be 1 -Because 'dedup points both rows at one file'
+
+        # FlagOverRaw over the SHARED file: RAW bytes, both rows claiming Yes and
+        # naming a '.7z'. Repair must rename once and update both rows.
+        $oldName = $shared[0].DataPath
+        $newName = "$oldName.7z"
+        Move-Item -LiteralPath (Join-Path $bkp $oldName) -Destination (Join-Path $bkp $newName) -Force
+        foreach ($row in $shared) { $row.DataPath = $newName; $row.Compressed = 'Yes' }
+        Set-ManifestRows -Folder $bkp -Rows $rows
+
+        $findings = @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg)
+        @($findings | Where-Object Class -eq 'FlagOverRaw').Count | Should -Be 2
+
+        $result = Repair-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg -Log $logSink
+        $result.Repaired | Should -Be 2 -Because 'the shared file is renamed once and BOTH rows adopt it'
+
+        $after = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        foreach ($rel in 'one.txt', 'two.txt') {
+            $row = $after | Where-Object RelativePath -eq $rel
+            $row.Compressed | Should -Be 'No'
+            Test-Path -LiteralPath (Join-Path $bkp $row.DataPath) -PathType Leaf |
+                Should -BeTrue -Because "row '$rel' must not be left dangling"
+        }
+        @($after | Where-Object { $_.RelativePath -in 'one.txt', 'two.txt' } |
+          ForEach-Object DataPath | Select-Object -Unique).Count |
+            Should -Be 1 -Because 'one physical copy still serves both rows'
+
+        # ...the store re-verifies clean and restores byte-exact.
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
+        $target = Join-Path $root 'out'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        foreach ($rel in 'one.txt', 'two.txt') {
+            (Get-FileHash -LiteralPath (Join-Path $target $rel) -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath (Join-Path $src $rel) -Algorithm SHA256).Hash
+        }
     }
 
     It 'reports blank-row form disagreements without repairing them (SR-049)' {
@@ -763,14 +918,45 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
 
     It 'fails the SET (status 1), not the whole invocation as a usage error (SR-052, SR-014)' {
         # A per-set refusal is status 1: other configured sets may still have run.
+        # OBSERVED at the process boundary (WP5 review, finding m1): asserting on
+        # the in-process throw alone never proved the entry point's status.
+        # The shortfall is genuine and needs no stub — an inflated Length in the
+        # BACKUP manifest makes step 5.5's migration demand exceed any volume.
         $s = New-CapacityStore -Root (Join-Path $TestDrive 'tc100-status')
-        [IO.File]::WriteAllText((Join-Path $s.Src 'big.txt'), ('Y' * 200000))
-        # Realistic shortfall without a stub: demand a volume that cannot hold it.
+        $rows = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv'))
+        foreach ($row in $rows) { $row.Length = [string]([long]::MaxValue / 4) }
+        Set-ManifestRows -Folder $s.Bkp -Rows $rows
+        # Turning compression on makes that row need a transformation, so the
+        # migration component of the estimate is what refuses.
+        New-FormConfig -Path $s.Cfg -Src $s.Src -Bkp $s.Bkp -Chg $s.Chg -Compress $true
+
+        Invoke-FormBackupExitCode -Cfg $s.Cfg | Should -Be 1
+        (Invoke-FormBackup -Cfg $s.Cfg) | Should -Match 'Not enough free space on the backup volume'
+
+        # ...and the same refusal is a terminating error in process.
         $demand = Get-BackupCapacityDemand -NewOrChanged @([pscustomobject]@{ RelativePath = 'big.txt'
                         xxH2Hash = 'DEADBEEF'; Length = [long]::MaxValue / 4 }) `
                     -RemovedFromSource @() -BackupDb @() -SameVolume $true
         { Assert-BackupCapacity -BackupPath $s.Bkp -ChangePath $s.Chg -BackupBytes $demand.BackupBytes -Log { param($m, $l) } } |
             Should -Throw -ExpectedMessage '*Not enough free space*'
+    }
+
+    It 'sums both demands when the backup and change roots share one volume (SR-052)' {
+        # WP5 review, finding M2. Two demands that each fit but together do not
+        # must refuse when they compete for the same bytes — checking them
+        # separately passed the pair.
+        $bkp = Join-Path $TestDrive 'tc100-same\bkp'
+        $chg = Join-Path $TestDrive 'tc100-same\chg'
+        New-Item -ItemType Directory -Path $bkp, $chg -Force | Out-Null
+        (Get-VolumeIdentity -Path $bkp) | Should -Be (Get-VolumeIdentity -Path $chg)
+
+        $free = Get-FreeSpaceBytes -Path $bkp
+        $each = [long]($free * 0.6)          # each demand is 60% of the SAME free space
+        { Assert-BackupCapacity -BackupPath $bkp -ChangePath $chg -BackupBytes $each -ChangeBytes $each -Log { param($m, $l) } } |
+            Should -Throw -ExpectedMessage '*Not enough free space*'
+        # Each alone still fits, so the refusal is the SUM and nothing else.
+        { Assert-BackupCapacity -BackupPath $bkp -ChangePath $chg -BackupBytes $each -Log { param($m, $l) } } |
+            Should -Not -Throw
     }
 
     It 'lets a run that fits proceed unchanged (SR-052)' {
@@ -853,6 +1039,34 @@ Describe 'Free space is measured the same way on both platforms (SR-052, SR-023)
         $a = Get-VolumeIdentity -Path $TestDrive
         $a | Should -Not -BeNullOrEmpty
         Get-VolumeIdentity -Path (Join-Path $TestDrive 'sub\deeper') | Should -Be $a
+    }
+
+    It 'answers a MOUNT POINT from the mount table, longest prefix wins (SR-052)' {
+        # WP5 review, finding M2. On Unix [DriveInfo]::new($p).Name is the
+        # IDENTITY function — it echoes the path handed to it, so '/backup' and
+        # '/backup/sub' read as DIFFERENT volumes and every same-volume decision
+        # was wrong off Windows. The identity now comes from GetDrives(), which
+        # reads the real mount table on Linux; the longest mount point that
+        # prefixes the path on a separator boundary is the answer. Windows
+        # exercises the same matcher (its mount table is the drive roots), and
+        # the Linux confirmation is TC-101's Docker half.
+        $identity = Get-VolumeIdentity -Path $TestDrive
+        $mounts = @([System.IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name })
+        $mounts | Should -Contain $identity -Because 'the identity is a real mount point, never the path itself'
+        $identity | Should -Not -Be ([IO.Path]::GetFullPath($TestDrive)) -Because 'that was the Unix defect'
+
+        # A sibling whose name merely STARTS with the mount point is not in it.
+        $deep = Join-Path $TestDrive 'a\b\c\d'
+        New-Item -ItemType Directory -Path $deep -Force | Out-Null
+        Get-VolumeIdentity -Path $deep | Should -Be $identity
+        # The longest match is chosen: no mount point longer than the answer
+        # also prefixes the path.
+        foreach ($m in $mounts) {
+            if ($m.Length -gt $identity.Length -and
+                ([IO.Path]::GetFullPath($deep)).StartsWith($m.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, 'OrdinalIgnoreCase')) {
+                throw "A longer mount point '$m' also prefixes '$deep' but was not chosen."
+            }
+        }
     }
 
     It 'no longer resolves the restore target through Split-Path -Qualifier (SR-023, SR-052)' {

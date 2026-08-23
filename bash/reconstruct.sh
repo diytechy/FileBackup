@@ -54,12 +54,14 @@
 # Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
 #             LLR-032, LLR-039, LLR-040, LLR-050)
 #
-# KitRevision: 2
+# KitRevision: 3
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
-# behaviour. Revision 2 is the first that decides a hash-recovered row's form
-# from the FILE it located rather than the row's Compressed column (SR-050);
-# restoring a pre-revision-2 snapshot with its OWN kit still carries that defect.
+# behaviour. Revision 2 was the first to decide a hash-recovered row's form from
+# the FILE it located rather than the row's Compressed column (SR-050); revision
+# 3 additionally tests every non-matching '.7z' candidate as RAW bytes, so a
+# blank row for a genuine '.7z' SOURCE file is recoverable. Restoring a snapshot
+# with its OWN older kit still carries the defects fixed after it.
 
 set -uo pipefail
 
@@ -227,11 +229,13 @@ infra_skip() {
 # container bytes under the original name, or expands raw bytes. The search has
 # already proven the form, so reporting it costs nothing.
 #
-# An archive candidate that fails to EXPAND is re-tested as raw bytes before a
-# CandidateError is recorded, so a '.7z' name over raw content is still
-# recovered — free on the happy path. Mirrors Reconstruct.ps1 exactly.
+# EVERY '.7z' candidate that does not yield the payload is re-tested as raw
+# bytes before it is dropped: it may be raw content under a lying name (which
+# fails to expand), or a genuine '.7z' SOURCE file stored raw (which expands
+# fine, to something that is not this row's content). Free on the happy path.
+# Mirrors Reconstruct.ps1 exactly.
 find_by_hash() {
-    local want_hash="$1" want_len="$2" folder f sz tmp h
+    local want_hash="$1" want_len="$2" folder f sz tmp h expand_failed
     local host_dep='' host_storage='' host_candidate=''
     for folder in "${SEARCH_FOLDERS[@]}"; do
         if [[ ! -d "$folder" || ! -r "$folder" ]]; then
@@ -246,6 +250,7 @@ find_by_hash() {
                     continue
                 fi
                 tmp="$(mktemp)"
+                expand_failed=0
                 if sevenzip_to_file "$f" "$tmp"; then
                     sz="$(stat -c '%s' -- "$tmp" 2>/dev/null || echo -1)"
                     if [[ "$sz" == "$want_len" ]]; then
@@ -255,13 +260,19 @@ find_by_hash() {
                     rm -f "$tmp"
                 else
                     rm -f "$tmp"
-                    # The name said '.7z' but it would not expand: it may simply
-                    # BE the raw bytes under a lying name (SR-050).
-                    sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
-                    if [[ "$sz" == "$want_len" ]]; then
-                        h="$(hash_file "$f")"
-                        if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
-                    fi
+                    expand_failed=1
+                fi
+                # The candidate's OWN bytes may be the answer, whether or not it
+                # expanded: a '.7z' name over raw content would not expand, and a
+                # genuine '.7z' SOURCE file stored raw expands fine but to
+                # something that is not this row's content. Test raw before
+                # dropping it (SR-050; WP5 review finding H2).
+                sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+                if [[ "$sz" == "$want_len" ]]; then
+                    h="$(hash_file "$f")"
+                    if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
+                fi
+                if (( expand_failed )); then
                     host_candidate="archive candidate '$f' could not be expanded"
                 fi
             else
