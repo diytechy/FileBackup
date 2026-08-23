@@ -1769,3 +1769,21 @@ pwsh scripts/check.ps1 -Tier Full  (exit 0)
 **Next action (awaiting human):** batch ratification of WP1 **and WP2**
 (implementation + independent review + these fixes); then the WP3
 container/release pass.
+
+### INDEPENDENT REVIEWER — WP1 re-verification — 2026-08-22
+Verdict: **APPROVE** (upgraded from APPROVE-WITH-MINORS). All seven findings
+re-verified as genuinely closed against a pristine export of `84674e3`:
+unclassified errors route to exit 2 without swallowing the preserved throw
+wordings (probed with a locked-manifest error: child exit 2, in-process still
+throws the original message); SR-039/LLR-038..040 cells match the
+implementation (trace integrity 0); verification is hoisted with the log
+buffer flushing correctly (refusals leave a pre-existing target byte-empty of
+new files); `.meta.tmp` allowlisted root-level-only (B6 intact all four
+combinations); Rows-only mismatch defers to the digest in BOTH restorers
+(doctored `Rows=42` restores with a warning; rows mismatch with no digest
+still exits 3); `$Records.Count` edge cases hold (null/empty/single/list);
+TC-067 compares real digests. Evidence (pristine export): unit 108/108,
+integration 236/0/4, bats 48/48, shellcheck clean, trace 0/0/0. One optional
+wording tighten (the late capacity/7-Zip code-2 preflights run after
+target+log creation, identically in both restorers) applied by the driver in
+`Reconstruct.ps1` `.NOTES` and AGENTS.md §3 in the same commit as this entry.

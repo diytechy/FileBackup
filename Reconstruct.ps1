@@ -31,9 +31,12 @@
            error this script did not classify lands here too: nothing was
            attempted, so it must not be reported as data loss (code 1).
         3  Manifest-witness verification failed — the index is untrustworthy;
-           NO file is written to the target (SR-039). Verification runs before
-           the target folder and the log are created, so codes 2 and 3 leave the
-           target exactly as they found it — as reconstruct.sh does.
+           NO file is written to the target (SR-039). Header/witness
+           verification runs before the target folder and the log are created,
+           so those refusals (and code 3 always) leave the target exactly as
+           they found it — as reconstruct.sh does. The later code-2 preflights
+           (capacity, 7-Zip) run after target+log creation, identically in
+           both restorers.
         4  Incomplete, HOST — rows failed for reasons on this machine, not in
            the backup (unreadable search folder, 7-Zip unavailable for an
            archive candidate, extraction/copy I/O error). Retry after fixing

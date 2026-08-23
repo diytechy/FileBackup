@@ -234,9 +234,12 @@ Imports (internal): `Common`
   is never backed up as user data or warned about as an orphan.
 - **Restore verification happens before any mutation.** Both restorers check the
   manifest header shape and the witness *before* creating the target folder or
-  their log, so an exit-2/exit-3 refusal leaves the target byte-for-byte as it
-  was. `Reconstruct.ps1` buffers the pre-target log lines and flushes them once
-  the log exists; do not move the verification below the target creation.
+  their log, so a header or witness refusal (exit 3, and the early exit-2s)
+  leaves the target byte-for-byte as it was; the *late* code-2 preflights
+  (capacity, 7-Zip) run after target+log creation, identically in both
+  restorers. `Reconstruct.ps1` buffers the pre-target log lines and flushes
+  them once the log exists; do not move the verification below the target
+  creation.
 - **The digest is authoritative** (`Test-ManifestWitness` / `verify_manifest_witness`).
   Fields are checked `Bytes → Rows → XxH128`, but a **Rows-only** disagreement —
   same byte length, same digest — is a counting-semantics divergence, not damage:
