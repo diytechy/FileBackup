@@ -3089,6 +3089,49 @@ edits).
 
 ---
 
+### DRIVER (Software + Test Engineer) — WP8: portable names + raw-candidate recovery — 2026-08-23
+
+Plan: [plans/wp8-portable-names-plan.md](plans/wp8-portable-names-plan.md).
+Both scoped items landed.
+
+**Portable-name guard (SR-055, the human's R6/R7 ruling).**
+`Test-PortableRelativePath` classifies per component (Windows-forbidden
+characters incl. control/newline, trailing dot/space, backslash-in-name on
+non-Windows). The skip happens INSIDE `Update-SourceManifest`'s scan, before
+any open/hash attempt — a trailing-dot name Windows cannot even open would
+otherwise abort the whole set on a read error instead of being named as the
+problem. Step 5.1 logs one ERROR per skip and fails the set; step 8 filters
+skipped names out of `RemovedFromSource`, so a previously stored row under a
+bad name is FROZEN, never evicted. This retires R6 (7-Zip quote mis-split) and
+R7 (bash newline rows) at the source for every newly written store.
+
+**Raw-candidate recovery without 7-Zip (R10; kit revision 4 → 5).** Both
+locators now test a `.7z`-named candidate's OWN bytes even when 7-Zip is
+absent (raw needs none); only a candidate whose raw bytes do not match still
+records DependencyMissing. A restore requiring no actual decompression no
+longer exits 4 demanding 7-Zip. Two bats fixtures whose no-7z candidate
+happened to BE the row's raw bytes renamed `.7z` — exactly the shape that now
+recovers — were updated to genuinely non-matching bytes, and a new bats case
+pins the recovery; the PS process-level exit-4 pin needed the same fixture
+update (its candidate was also the row's bytes renamed), while the PS
+function-level DependencyMissing pin already used non-matching bytes and
+stands unchanged.
+
+**Registries.** SN-032 minted (deferred from the WP7 commit so it never sat
+orphaned); SR-055 `Verified`, LLR-055, TC-106 `Pass`; TC-107 `Pass` under the
+SR-050 family for the revision-5 behavior. `trace.py --strict` →
+`SN=32 SR=55 LLR=54 TC=106, 0 orphans / 0 integrity`. AGENTS.md §3 and
+README's kit-revision notes extended to revision 5.
+
+**Evidence (real, this host, 2026-08-23).** WP8 Describe 3/3 (classification
+matrix; trailing-dot end-to-end via `\\?\` — exit 1, one Skipping ERROR, rest
+backed up, prior row frozen with its data file intact; raw-`.7z` recovery with
+a bogus `-SevenZipPath`). WSL: `shellcheck` clean, **bats 56/56** (55 + the
+new revision-5 pin). Full-suite + container runs recorded in the wrap-up
+below.
+
+---
+
 ### HUMAN — Batch ratification — 2026-08-23
 
 The human reviewed the ratification worksheet (artifact `d48d6e78`, built from

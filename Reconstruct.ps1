@@ -49,7 +49,7 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 4
+# KitRevision: 5
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -62,8 +62,11 @@
 # records (a copied/moved store auto-detects instead of reading the original),
 # falls back to (hash,length) pool recovery when a row's named data file is
 # missing, maps '\' separators on non-Windows hosts, and keys the manifest
-# dictionary case-sensitively there. Restoring a snapshot with its OWN older
-# kit still carries the defects fixed after it.
+# dictionary case-sensitively there. Revision 5 tests a '.7z'-named recovery
+# candidate's raw bytes even when 7-Zip is absent (raw needs no 7-Zip), so a
+# restore that requires no actual decompression no longer exits 4 demanding
+# 7-Zip. Restoring a snapshot with its OWN older kit still carries the
+# defects fixed after it.
 
 param(
     [string]$TargetRoot,
@@ -257,6 +260,19 @@ function Find-DataFileByHash {
         foreach ($f in $candidates) {
             if ($f.Extension -ieq '.7z') {
                 if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
+                    # Its OWN bytes may still be the answer — a raw file under a
+                    # '.7z' name, or a genuine '.7z' source stored verbatim —
+                    # and testing that needs no 7-Zip at all (kit revision 5).
+                    # Only a candidate whose raw bytes do NOT match still needs
+                    # the dependency.
+                    try {
+                        if ($f.Length -eq $Length -and (Get-FileXxHash -FilePath $f.FullName) -eq $Hash) {
+                            return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Raw'; Detail = '' }
+                        }
+                    } catch {
+                        $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                            Detail = "Candidate '$($f.FullName)' could not be read: $($_.Exception.Message)" })
+                    }
                     $hostIssues.Add([pscustomobject]@{ Cause = 'DependencyMissing'
                         Detail = "An archive candidate '$($f.FullName)' needs 7-Zip, which was not found at '$SevenZipPath'." })
                     continue

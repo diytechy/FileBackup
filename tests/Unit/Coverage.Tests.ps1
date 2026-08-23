@@ -928,7 +928,11 @@ Describe 'Restore exit-code table (SR-040)' {
         $rows[0].DataPath = ''
         $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
         Write-ManifestWitness -FolderPath $bkp | Out-Null
-        Move-Item -LiteralPath (Join-Path $bkp 'a.txt') -Destination (Join-Path $bkp 'a.7z') -Force
+        # The candidate must NOT carry the row's own bytes: since kit revision 5
+        # a raw match under a '.7z' name recovers WITHOUT 7-Zip (TC-107), so
+        # the dependency failure needs genuinely different candidate bytes.
+        Remove-Item -LiteralPath (Join-Path $bkp 'a.txt') -Force
+        [IO.File]::WriteAllText((Join-Path $bkp 'a.7z'), 'OTHER BYTES ENTIRELY')
 
         Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') `
             @('-TargetRoot', (Join-Path $root 'r'), '-SevenZipPath', (Join-Path $root 'no-7z.exe')) |
@@ -2395,6 +2399,87 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
                 $line | Should -Not -Match 'MANIFEST'
             }
         }
+    }
+}
+
+Describe 'WP8 portable names and raw-candidate recovery (SR-055, SR-050)' {
+    BeforeAll {
+        function Invoke-FBWp8 {
+            param([string]$Cfg)
+            $out = & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $Cfg `
+                        -NoMail -NonInteractive -ExitCode 2>&1
+            return [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($out | Out-String) }
+        }
+    }
+
+    It 'classifies portability per name component (SR-055)' {
+        if ($IsWindows) {
+            # '\' separates on Windows; brackets, parens, spaces, Unicode are fine.
+            Test-PortableRelativePath -RelativePath 'sub folder\ok [1] (2).txt' | Should -BeNullOrEmpty
+        }
+        Test-PortableRelativePath -RelativePath 'колокол.txt' | Should -BeNullOrEmpty
+        Test-PortableRelativePath -RelativePath 'quote"name.txt' | Should -Match 'no Windows file name'
+        Test-PortableRelativePath -RelativePath ("newline`nname.txt") | Should -Match 'control character'
+        Test-PortableRelativePath -RelativePath 'pipe|name.txt' | Should -Match 'no Windows file name'
+        Test-PortableRelativePath -RelativePath 'trailing.' | Should -Match 'dot or space'
+        Test-PortableRelativePath -RelativePath 'sub/trailing ' | Should -Match 'dot or space'
+    }
+
+    It 'skips a non-portable name loudly, fails the set, backs up the rest, and freezes the prior row (SR-055)' {
+        $root = Join-Path $TestDrive 'wp8-names'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'good.txt'), ('GOOD ' * 40))
+        Invoke-FB $cfg
+
+        # A prior-stored row under a non-portable name (a store written before
+        # the guard existed, e.g. on Linux) whose source file is still there:
+        # frozen, never evicted, never re-processed. The trailing-dot shape is
+        # the one Windows can host via the \\?\ prefix, so the whole scenario
+        # runs on this platform.
+        $goodRow = @(Read-Manifest -FolderPath $bkp | Where-Object RelativePath -eq 'good.txt')[0]
+        [IO.File]::Copy("\\?\$bkp\good.txt", "\\?\$bkp\bad.", $true)
+        $badRow = [pscustomobject]@{
+            DataPath = 'bad.'; RelativePath = 'bad.'; Length = $goodRow.Length
+            LastWriteTime = $goodRow.LastWriteTime; xxH2Hash = $goodRow.xxH2Hash
+            Compressed = 'No'; StoredAsHashSize = 'Original'; Duplicate = ''; MediaMBPerSec = ''
+        }
+        Write-Manifest -FolderPath $bkp -Records (@(Read-Manifest -FolderPath $bkp) + $badRow)
+        [IO.File]::WriteAllText("\\?\$src\bad.", ('GOOD ' * 40))
+        [IO.File]::WriteAllText((Join-Path $src 'also-good.txt'), ('ALSO ' * 40))
+
+        $run = Invoke-FBWp8 -Cfg $cfg
+        $run.Code | Should -Be 1 -Because 'a skipped file is a loud failure, never a silent omission'
+        $run.Output | Should -Match "Skipping 'bad\.'"
+
+        $after = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        @($after | Where-Object RelativePath -eq 'also-good.txt').Count | Should -Be 1 -Because 'the rest of the set still backs up'
+        @($after | Where-Object RelativePath -eq 'bad.').Count | Should -Be 1 -Because 'the prior row is frozen, not evicted'
+        Test-Path -LiteralPath "\\?\$bkp\bad." | Should -BeTrue
+    }
+
+    It 'hash-recovers a raw .7z-named candidate with no 7-Zip installed (SR-050, kit revision 5)' {
+        $root = Join-Path $TestDrive 'wp8-raw7z'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        # A genuine user file NAMED .7z whose bytes are raw — SR-004 stores an
+        # already-compressed extension verbatim, so the pool candidate is a raw
+        # file under a '.7z' name. Testing its own bytes needs no 7-Zip.
+        [IO.File]::WriteAllText((Join-Path $src 'payload.7z'), ('NOT AN ARCHIVE ' * 30))
+        Invoke-FB $cfg
+
+        $rows = @(Read-Manifest -FolderPath $bkp)
+        @($rows | Where-Object RelativePath -eq 'payload.7z')[0].DataPath = ''
+        Write-Manifest -FolderPath $bkp -Records $rows
+
+        $target = Join-Path $root 'restored'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target -SevenZipPath 'Z:\no\such\7z.exe' *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $target 'payload.7z')) |
+            Should -Be ('NOT AN ARCHIVE ' * 30) -Because 'raw bytes under a .7z name need no 7-Zip to recover'
     }
 }
 

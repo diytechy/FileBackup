@@ -69,6 +69,41 @@ function Test-IsInfrastructureFile {
     return ($infra -contains $rel)
 }
 
+function Test-PortableRelativePath {
+    <#
+    .SYNOPSIS
+        Returns $null when every component of a relative path is a legal file
+        name on BOTH Windows and Linux; otherwise a short reason naming the
+        offending component and character (SR-055).
+
+    .OUTPUTS
+        [string] $null when portable, else the reason.
+    #>
+    # Implements: SR-055, LLR-055
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RelativePath)
+    # On Windows both slashes separate; on Linux only '/' does — a '\' there is
+    # part of the NAME, and means a path separator to the Windows restorer.
+    $separators = if ($IsWindows) { [char[]]@('\', '/') } else { [char[]]@('/') }
+    foreach ($component in $RelativePath.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)) {
+        foreach ($ch in $component.ToCharArray()) {
+            if ([int]$ch -lt 32) {
+                return "name component '$component' contains a control character (0x$(([int]$ch).ToString('X2'))), which no Windows file name may carry"
+            }
+            if ($ch -in '<', '>', ':', '"', '|', '?', '*') {
+                return "name component '$component' contains '$ch', which no Windows file name may carry"
+            }
+            if (-not $IsWindows -and $ch -eq '\') {
+                return "name component '$component' contains '\', which is a path separator on Windows"
+            }
+        }
+        if ($component.EndsWith('.') -or $component.EndsWith(' ')) {
+            return "name component '$component' ends with a dot or space, which Windows silently strips"
+        }
+    }
+    return $null
+}
+
 function Get-DataFile {
     <#
     .SYNOPSIS
@@ -358,13 +393,18 @@ function Update-SourceManifest {
         MANIFEST.csv. ManifestFolderPath may place that mutable hash cache
         outside a read-only source tree. Returns the rows.
     #>
-    # Implements: SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024
+    # Implements: SR-001, SR-013, SR-024, SR-055, LLR-001, LLR-013, LLR-024, LLR-055
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourcePath,
         [string]$ManifestFolderPath,
         [string]$FfprobePath,
-        [switch]$ForceRehash
+        [switch]$ForceRehash,
+        # SR-055: receives one record per skipped non-portable name. The skip
+        # must happen HERE, before hashing — a name Windows cannot open (e.g. a
+        # trailing dot) would otherwise abort the whole set on a read error
+        # instead of being reported as the name problem it is.
+        [AllowNull()][System.Collections.Generic.List[object]]$UnportableOut
     )
     $sourcePath = (Resolve-Path -LiteralPath $SourcePath).Path
     if ([string]::IsNullOrWhiteSpace($ManifestFolderPath)) {
@@ -395,6 +435,16 @@ function Update-SourceManifest {
     $updated = New-Object System.Collections.Generic.List[object]
     foreach ($f in $files) {
         $rel  = $f.FullName.Substring($sourcePath.Length).TrimStart('\','/')
+
+        # SR-055 portable-name guard, BEFORE any open/hash attempt.
+        if ($null -ne $UnportableOut) {
+            $reason = Test-PortableRelativePath -RelativePath $rel
+            if ($reason) {
+                $UnportableOut.Add([pscustomobject]@{ RelativePath = $rel; Reason = $reason })
+                continue
+            }
+        }
+
         $prev = $existingMap[$rel]
 
         $needsHash = $false
@@ -3249,7 +3299,7 @@ function Invoke-BackupSet {
         hash the source, sync storage layout, preserve superseded bytes, copy new
         data, evict removed files, finalize the dated snapshot, persist run state.
     #>
-    # Implements: SR-014, SR-017, SR-035, SR-036, LLR-014, LLR-017, LLR-035, LLR-036
+    # Implements: SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,
@@ -3324,9 +3374,10 @@ function Invoke-BackupSet {
 
     # 5. Update source manifest (B4: forced rehash when scheduled)
     & $log "Updating source manifest cache at '$($paths.SrcStatePath)'."
+    $unportableNames = New-Object System.Collections.Generic.List[object]
     try {
         $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -ManifestFolderPath $paths.SrcStatePath `
-            -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc
+            -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc -UnportableOut $unportableNames
     } catch {
         # A source file that cannot be read (open for write, AV hold) fails the
         # set loudly — but must not strand the still-empty staging folder, or
@@ -3334,6 +3385,21 @@ function Invoke-BackupSet {
         # real cause. Temp holds nothing of value until step 9.5.
         Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
         throw
+    }
+
+    # 5.1 Portable-name guard (SR-055, human ruling 2026-08-23): a source
+    # filename that cannot exist on both platforms was excluded by the scan —
+    # BEFORE hashing, which would fail on names Windows cannot even open —
+    # and is refused LOUDLY here, not half-handled downstream (7-Zip argument
+    # quoting, the bash manifest parser). The skipped file gets no manifest
+    # row and the set fails; a PREVIOUSLY stored row under such a name is left
+    # frozen rather than evicted (see the step-8 filter) — the operator is
+    # being told to fix the name at the source.
+    $unportable = New-RelativePathMap
+    foreach ($skipped in $unportableNames) {
+        & $log "Skipping '$($skipped.RelativePath)': $($skipped.Reason). Rename it at the source; this set is marked failed (SR-055)." 'ERROR'
+        $unportable[$skipped.RelativePath] = $true
+        $OverallSuccess.Value = $false
     }
 
     # A previously populated source becoming completely empty is commonly an
@@ -3383,6 +3449,15 @@ function Invoke-BackupSet {
 
     # 8. Diff
     $diff = Compare-SourceToBackup -SourceDb $sourceDb -BackupDb $backupDb
+    # A file skipped by the SR-055 portable-name guard must not read as
+    # "removed from source" — its existing row (if any) stays frozen.
+    if ($unportable.Count -gt 0) {
+        $stillRemoved = New-Object System.Collections.Generic.List[object]
+        foreach ($removedRow in $diff.RemovedFromSource) {
+            if (-not $unportable.ContainsKey($removedRow.RelativePath)) { $stillRemoved.Add($removedRow) }
+        }
+        $diff.RemovedFromSource = $stillRemoved
+    }
     & $log "New or changed files: $($diff.NewOrChanged.Count)"
     & $log "Removed files: $($diff.RemovedFromSource.Count)"
     # SR-005 supersession criterion: the manifest state changed. A dedup-served
@@ -3855,7 +3930,7 @@ function Import-BackupConfiguration {
 # endregion
 
 Export-ModuleMember -Function @(
-    'Test-IsInfrastructureFile', 'Get-DataFile',
+    'Test-IsInfrastructureFile', 'Test-PortableRelativePath', 'Get-DataFile',
     'Get-LastHashRun', 'Set-LastHashRun',
     'Get-LastBackupRun', 'Set-LastBackupRun',
     'Resolve-OptionalTool', 'Initialize-Dependencies', 'Get-MediaMBPerSec',

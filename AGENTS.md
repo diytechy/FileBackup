@@ -296,7 +296,10 @@ Imports (internal): `Common`
   reading the original), falls back to `(hash, length)` pool recovery when a
   row's *named* data file is missing, and — in `Reconstruct.ps1` — maps `\`
   separators and keys the manifest dictionary case-sensitively on non-Windows
-  hosts. A revision-3 kit still carries those defects.
+  hosts. Revision 5 tests a `.7z`-named recovery candidate's raw bytes even
+  with no 7-Zip installed (raw needs none), so a restore requiring no actual
+  decompression no longer fails demanding it. An older kit still carries the
+  defects fixed after it.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the six kit artifacts and **never**
   `MANIFEST.csv.meta`.

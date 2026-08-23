@@ -54,7 +54,7 @@
 # Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
 #             LLR-032, LLR-039, LLR-040, LLR-050)
 #
-# KitRevision: 4
+# KitRevision: 5
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from
@@ -64,8 +64,10 @@
 # the path sidecar only while the origin still lives inside the roots it
 # records (a copied/moved store auto-detects instead of reading the original)
 # and falls back to (hash,length) pool recovery when a row's named data file is
-# missing. Restoring a snapshot with its OWN older kit still carries the
-# defects fixed after it.
+# missing. Revision 5 tests a '.7z'-named recovery candidate's raw bytes even
+# when 7z is absent (raw needs no 7z), so a restore that requires no actual
+# decompression no longer exits 4 demanding it. Restoring a snapshot with its
+# OWN older kit still carries the defects fixed after it.
 
 set -uo pipefail
 
@@ -250,6 +252,14 @@ find_by_hash() {
             infra_skip "$f" "$folder" && continue
             if [[ "${f,,}" == *.7z ]]; then
                 if [[ -z "$SEVEN_ZIP" ]]; then
+                    # Its OWN bytes may still be the answer — a raw file under a
+                    # '.7z' name, or a genuine '.7z' source stored verbatim —
+                    # and testing that needs no 7z at all (kit revision 5).
+                    sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+                    if [[ "$sz" == "$want_len" ]]; then
+                        h="$(hash_file "$f")"
+                        if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
+                    fi
                     host_dep="archive candidate '$f' needs 7z, which is not installed"
                     continue
                 fi

@@ -298,7 +298,10 @@ revision 4** trusted the `RECONSTRUCT.paths.json` sidecar unconditionally — a
 still-live **original** store instead of the copy — treated a missing data file
 as unrecoverable even when the bytes survived elsewhere in the pool, and (in
 `RECONSTRUCT.ps1` on Linux) wrote `sub\file.txt` as one root-level file instead
-of a folder tree. Revision 4 fixes all three. (The revision is the `# KitRevision:` line near the top
+of a folder tree. Revision 4 fixes all three. Kits **before revision 5** gave up
+on a `.7z`-named recovery candidate whenever 7-Zip was absent — even when the
+candidate was a raw file whose own bytes were the answer, needing no 7-Zip at
+all. (The revision is the `# KitRevision:` line near the top
 of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
 alongside every `BlankRowFormDisagreement` finding.)
 

@@ -95,7 +95,11 @@ restamp_witness() {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
       printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
     } > "$bad/MANIFEST.csv"
-    mv -f "$bad/orig.txt" "$bad/candidate.7z"
+    # The candidate must NOT carry the row's own bytes: since kit revision 5 a
+    # raw match under a '.7z' name recovers WITHOUT 7z (pinned below), so the
+    # dependency failure needs a candidate whose raw bytes do not match.
+    rm -f "$bad/orig.txt"
+    printf 'other-bytes-entirely\n' > "$bad/candidate.7z"
     restamp_witness "$bad/MANIFEST.csv"
 
     # --seven-zip pointing at a non-command is treated as absent (see main()).
@@ -103,6 +107,27 @@ restamp_witness() {
     [ "$status" -eq 4 ]
     [[ "$output" == *"DependencyMissing"* ]]
     [[ "$output" == *"host"* ]]
+}
+
+@test "hash recovery tests a raw .7z-named candidate WITHOUT 7z (kit revision 5)" {
+    # A raw file parked under a '.7z' name — a genuine .7z source stored
+    # verbatim is the common shape — needs no 7z to test: its own bytes are
+    # hashed directly, so the restore succeeds instead of exiting 4.
+    local pool="$BATS_TEST_TMPDIR/rawcase"
+    mkdir -p "$pool"
+    printf 'raw-payload\n' > "$pool/orig.txt"
+    local h len
+    h="$(hash_upper "$pool/orig.txt")"; len="$(stat -c '%s' "$pool/orig.txt")"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+    } > "$pool/MANIFEST.csv"
+    mv -f "$pool/orig.txt" "$pool/candidate.7z"
+    restamp_witness "$pool/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/traw" --from "$pool" --seven-zip "$BATS_TEST_TMPDIR/no-such-7z"
+    [ "$status" -eq 0 ]
+    printf 'raw-payload\n' | diff - "$BATS_TEST_TMPDIR/traw/payload.txt"
 }
 
 @test "4 outranks 1: a host failure alongside a content failure reports the actionable one (SR-040)" {
@@ -119,7 +144,9 @@ restamp_witness() {
       # row 2: content class (a DataPath that simply is not there)
       printf '"missing.bin","gone.txt","4","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","No","Original","0",""\r\n'
     } > "$bad/MANIFEST.csv"
-    mv -f "$bad/orig.txt" "$bad/candidate.7z"
+    # Non-matching bytes, for the same kit-revision-5 reason as the test above.
+    rm -f "$bad/orig.txt"
+    printf 'other-bytes-entirely\n' > "$bad/candidate.7z"
     restamp_witness "$bad/MANIFEST.csv"
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tmix" --from "$bad" --seven-zip "$BATS_TEST_TMPDIR/no-such-7z"
