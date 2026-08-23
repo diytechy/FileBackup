@@ -121,10 +121,12 @@
 
         0  Complete — every backup set succeeded.
         1  One or more backup sets failed.
-        2  The configuration could not be loaded, or violates the SR-042
-           schema (missing/unrecognized ConfigVersion, unknown key, wrong
-           JSON type, Secrets.Credential in JSON, etc.) — nothing was
-           attempted.
+        2  The configuration could not be loaded -- the file is missing or
+           unreadable, or it violates the SR-042 schema (missing/unrecognized
+           ConfigVersion, unknown key, wrong JSON type, Secrets.Credential in
+           JSON, etc.). Nothing was attempted and NOTHING was created: a
+           refused run makes no log directory and never truncates the previous
+           run's global log.
 
     Without -ExitCode, a configuration failure is a terminating error (throw)
     and a failed set still yields a non-zero exit via the normal PowerShell
@@ -154,36 +156,43 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Modules\FileBackup.Common.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Modules\FileBackup.Engine.psm1') -Force
 
-if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
-    throw "Config file '$ConfigPath' not found."
-}
-
-$ConfigPath = (Resolve-Path -LiteralPath $ConfigPath).Path
-
-# Temporary logger for configuration and dependency messages. Built before the
-# config is loaded (it needs only $ConfigPath/$GlobalLogPath) so a config-load
-# failure can still be logged (SR-043).
+# Where the global log WILL live. Computing the path needs no filesystem
+# mutation, and none happens here: a refused configuration must leave the disk
+# exactly as it found it (SR-042/SR-043), so neither the directory nor the log
+# file is created until the configuration has passed validation. New-Logger
+# truncates (New-Item -Force), so creating it any earlier would destroy the
+# previous run's log on a config typo.
 $globalLogPath = if ($GlobalLogPath) {
     $GlobalLogPath
 } else {
-    Join-Path ([IO.Path]::GetDirectoryName($ConfigPath)) 'Backup_Global.log'
+    Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ConfigPath))) 'Backup_Global.log'
 }
-$globalLogDirectory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($globalLogPath))
-if (-not (Test-Path -LiteralPath $globalLogDirectory -PathType Container)) {
-    New-Item -ItemType Directory -Path $globalLogDirectory -Force | Out-Null
-}
-$globalLog     = New-Logger -LogFile $globalLogPath
+
+# Config-time messages are buffered and flushed once the log file exists (the
+# same pattern Reconstruct.ps1 uses for its pre-target lines).
+$pendingLogLines = New-Object System.Collections.Generic.List[object]
+$bufferLog = {
+    param([string]$Message, [string]$Level = 'INFO')
+    $pendingLogLines.Add([pscustomobject]@{ Message = $Message; Level = $Level })
+}.GetNewClosure()
 
 function Exit-ConfigFailure {
     <#
     .SYNOPSIS
-        Reports an Import-BackupConfiguration failure at the FileBackup.ps1
-        process boundary.
+        Reports a configuration failure at the FileBackup.ps1 process boundary.
     .DESCRIPTION
-        Writes the failure message to stderr and to the global log, then either
-        exits the process with 2 (SR-043's usage/precondition class) when
-        -ExitCode was passed, or rethrows -- preserving the terminating-error
-        behavior that tests/Unit/Engine.Tests.ps1 and the test harness rely on.
+        Covers every way the configuration can be unusable -- the file being
+        missing (the likeliest container misconfiguration) as well as an
+        SR-042 schema violation. Writes the failure to stderr, then either
+        exits the process with 2 (SR-043's usage/precondition class, so
+        NagLight can tell "retrying will not help" from "the backup failed")
+        when -ExitCode was passed, or rethrows -- preserving the
+        terminating-error behavior that tests/Unit/Engine.Tests.ps1 and the
+        test harness rely on.
+
+        Creates NO artifacts: the message is appended to the global log only if
+        that file already exists, so a refused run never creates a log
+        directory and never truncates the previous run's log.
     .PARAMETER Message
         The operator-facing reason. SR-042's loader already names the
         offending key/JSON path; wording is otherwise unchanged from before
@@ -192,20 +201,35 @@ function Exit-ConfigFailure {
     # Implements: SR-043, LLR-043
     param([Parameter(Mandatory)][string]$Message)
     [Console]::Error.WriteLine("FileBackup: $Message")
-    & $globalLog $Message 'ERROR'
+    if (Test-Path -LiteralPath $globalLogPath -PathType Leaf) {
+        Add-Content -LiteralPath $globalLogPath -Value ("{0} [ERROR] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $Message)
+    }
     if ($ExitCode) {
         exit 2
     }
     throw $Message
 }
 
+if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+    Exit-ConfigFailure -Message "Config file '$ConfigPath' not found."
+}
+$ConfigPath = (Resolve-Path -LiteralPath $ConfigPath).Path
+
 try {
-    $cfgResult = Import-BackupConfiguration -Path $ConfigPath -Log $globalLog
+    $cfgResult = Import-BackupConfiguration -Path $ConfigPath -Log $bufferLog
 } catch {
     Exit-ConfigFailure -Message $_.Exception.Message
 }
 $Secrets = $cfgResult.Secrets
 $Sets    = $cfgResult.Sets
+
+# The configuration is good: now the run may create artifacts.
+$globalLogDirectory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($globalLogPath))
+if (-not (Test-Path -LiteralPath $globalLogDirectory -PathType Container)) {
+    New-Item -ItemType Directory -Path $globalLogDirectory -Force | Out-Null
+}
+$globalLog = New-Logger -LogFile $globalLogPath
+foreach ($line in $pendingLogLines) { & $globalLog $line.Message $line.Level }
 
 $anyCompress = $false
 $anyMedia    = $false

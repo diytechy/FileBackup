@@ -8,13 +8,19 @@
   "required": ["ConfigVersion", "BackupSets"],
   "properties": {
     "ConfigVersion": {
-      "description": "Currently 1. A config declaring a higher version is refused by this build.",
+      "description": "Currently 1. A config declaring a higher version is refused by this build. JSON has one number type, so an integral-valued number IS that integer: 1.0 is accepted as 1 (both by this const and by the runtime validator); 1.5, 0, \"1\" and anything above 1 are refused.",
       "const": 1
     },
     "BackupSets": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "$ref": "#/definitions/backupSet" }
+      "description": "One or more backup sets. An array of at least one set object, or -- matching the runtime validator, which wraps it -- a single bare set object.",
+      "anyOf": [
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/backupSet" }
+        },
+        { "$ref": "#/definitions/backupSet" }
+      ]
     },
     "Tools": { "$ref": "#/definitions/tools" },
     "Secrets": { "$ref": "#/definitions/secrets" }

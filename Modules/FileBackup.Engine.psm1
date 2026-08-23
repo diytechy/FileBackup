@@ -1383,6 +1383,9 @@ function Invoke-BackupSet {
 
 # Highest ConfigVersion this build understands (SR-042). A JSON config
 # declaring a higher version is refused by name rather than half-understood.
+# JSON has ONE number type, so an integral-valued number is that integer:
+# "ConfigVersion": 1.0 is the same document as "ConfigVersion": 1 and is
+# accepted; 1.5 is not. The published schema's `const: 1` agrees (TC-077).
 $script:ConfigSchemaVersion = 1
 
 function Assert-NoUnknownConfigKey {
@@ -1435,6 +1438,90 @@ function Assert-NoUnknownConfigKey {
     }
 }
 
+function Test-ConfigValueJsonType {
+    <#
+    .SYNOPSIS
+        Returns $true when a ConvertFrom-Json node has the given JSON type
+        (SR-042). JSON has a single number type, so 'integer' accepts any
+        numeric node whose value has no fractional part (1.0 is the integer 1).
+    .PARAMETER Value
+        The parsed node to classify.
+    .PARAMETER JsonType
+        One of string, boolean, integer, number, object, array.
+    #>
+    # Implements: SR-042, LLR-042
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory)][ValidateSet('string', 'boolean', 'integer', 'number', 'object', 'array')][string]$JsonType
+    )
+
+    if ($null -eq $Value) { return $false }
+    switch ($JsonType) {
+        'string'  { return ($Value -is [string]) }
+        'boolean' { return ($Value -is [bool]) }
+        'object'  { return ($Value -is [System.Management.Automation.PSCustomObject]) -or ($Value -is [hashtable]) }
+        'array'   { return (($Value -is [System.Collections.IEnumerable]) -and ($Value -isnot [string])) }
+        'number'  { return (Test-IsJsonNumber -Value $Value) }
+        'integer' {
+            if (-not (Test-IsJsonNumber -Value $Value)) { return $false }
+            # Culture-safe integral test (no string formatting), and one that
+            # avoids [math]::Floor's ambiguous overload for BigInteger — a JSON
+            # number too large for Int64 parses to that type and is integral.
+            if (($Value -is [double]) -or ($Value -is [single])) {
+                return ([double]$Value -eq [math]::Truncate([double]$Value))
+            }
+            if ($Value -is [decimal]) {
+                return ([decimal]$Value -eq [math]::Truncate([decimal]$Value))
+            }
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-IsJsonNumber {
+    <#
+    .SYNOPSIS
+        True when a ConvertFrom-Json node is a JSON number (SR-042). Excludes
+        [bool] and [char], which are .NET value types but not JSON numbers.
+    .PARAMETER Value
+        The parsed node to classify.
+    #>
+    # Implements: SR-042, LLR-042
+    [CmdletBinding()]
+    param([AllowNull()]$Value)
+
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -is [char] -or $Value -is [string]) { return $false }
+    return (
+        ($Value -is [int]) -or ($Value -is [long]) -or ($Value -is [short]) -or ($Value -is [byte]) -or
+        ($Value -is [sbyte]) -or ($Value -is [uint32]) -or ($Value -is [uint64]) -or ($Value -is [uint16]) -or
+        ($Value -is [double]) -or ($Value -is [single]) -or ($Value -is [decimal]) -or
+        ($Value -is [System.Numerics.BigInteger])
+    )
+}
+
+function Get-ConfigValueJsonTypeName {
+    <#
+    .SYNOPSIS
+        Renders a parsed node's JSON type name for an SR-042 error message
+        ("string", "number", "boolean", "array", "object", "null").
+    .PARAMETER Value
+        The parsed node to describe.
+    #>
+    # Implements: SR-042, LLR-042
+    [CmdletBinding()]
+    param([AllowNull()]$Value)
+
+    if ($null -eq $Value)                                { return 'null' }
+    if ($Value -is [bool])                               { return 'boolean' }
+    if ($Value -is [string])                             { return "string ('$Value')" }
+    if (Test-IsJsonNumber -Value $Value)                 { return "number ($Value)" }
+    if (Test-ConfigValueJsonType -Value $Value -JsonType 'array')  { return 'array' }
+    if (Test-ConfigValueJsonType -Value $Value -JsonType 'object') { return 'object' }
+    return $Value.GetType().Name
+}
+
 function Test-BackupConfigurationShape {
     <#
     .SYNOPSIS
@@ -1444,9 +1531,16 @@ function Test-BackupConfigurationShape {
         Message wording matches the pre-SR-042 checks verbatim so existing
         callers and tests are unaffected.
     .PARAMETER StrictTypes
-        JSON only. Additionally rejects a non-JSON-boolean CompressEnabled /
-        PreserveFolderTree (the "$true` coerces the string `"false`"" trap) and
-        a non-integer Secrets.SmtpPort.
+        JSON only. Additionally type-checks EVERY schema-defined value against
+        its JSON type before any coercion runs, so none of PowerShell's silent
+        conversions can change the meaning of the document: [bool]'false' is
+        $true (a quoted "false" for CompressEnabled/PreserveFolderTree/
+        AllowEmptySource would enable the feature the operator disabled — and
+        for AllowEmptySource that disarms the SR-036 delete-all refusal), and
+        [string]@('x','y') is 'x y' (an array where a path belongs would become
+        a literal two-word path). Covers every set string, the three set
+        booleans, the optional Tools/Secrets strings, Secrets.SmtpPort as an
+        integer, and the container types of BackupSets/Tools/Secrets.
     #>
     # Implements: SR-042, LLR-042
     [CmdletBinding()]
@@ -1456,12 +1550,42 @@ function Test-BackupConfigurationShape {
         [switch]$StrictTypes
     )
 
-    $sets = @($Cfg.BackupSets | Where-Object { $null -ne $_ })
+    function Assert-ConfigValueType {
+        param($Value, [string]$JsonType, [string]$JsonPath)
+        if (-not (Test-ConfigValueJsonType -Value $Value -JsonType $JsonType)) {
+            throw "Config '$ConfigPath' is invalid: $JsonPath — must be a JSON $JsonType, not $(Get-ConfigValueJsonTypeName -Value $Value) (expected a JSON $JsonType)."
+        }
+    }
+
+    if ($StrictTypes -and $Cfg.PSObject.Properties.Name -contains 'BackupSets' -and $null -ne $Cfg.BackupSets) {
+        # An array of sets, or a single bare set object that the loader wraps
+        # (SR-042; the published schema's BackupSets anyOf mirrors this).
+        if (-not ((Test-ConfigValueJsonType -Value $Cfg.BackupSets -JsonType 'array') -or
+                  (Test-ConfigValueJsonType -Value $Cfg.BackupSets -JsonType 'object'))) {
+            throw "Config '$ConfigPath' is invalid: `$.BackupSets — must be a JSON array of backup-set objects (or a single bare object), not $(Get-ConfigValueJsonTypeName -Value $Cfg.BackupSets)."
+        }
+    }
+
+    $allSets = @($Cfg.BackupSets)
+    $sets = @($allSets | Where-Object { $null -ne $_ })
     if ($sets.Count -eq 0) {
         throw "Configuration must define at least one BackupSets entry."
     }
-    foreach ($set in $sets) {
+    # Index over the raw array so the JSON path in a message names the entry as
+    # it appears in the document.
+    for ($i = 0; $i -lt $allSets.Count; $i++) {
+        $set = $allSets[$i]
+        if ($null -eq $set) { continue }
+        $setPath = "`$.BackupSets[$i]"
+        if ($StrictTypes) { Assert-ConfigValueType -Value $set -JsonType 'object' -JsonPath $setPath }
+
         foreach ($field in 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq') {
+            if ($StrictTypes) {
+                if ($set.PSObject.Properties.Name -notcontains $field) {
+                    throw "Every backup set must define a non-empty '$field'."
+                }
+                Assert-ConfigValueType -Value $set.$field -JsonType 'string' -JsonPath "$setPath.$field"
+            }
             if ([string]::IsNullOrWhiteSpace([string]$set.$field)) {
                 throw "Every backup set must define a non-empty '$field'."
             }
@@ -1470,8 +1594,16 @@ function Test-BackupConfigurationShape {
             if ($set.PSObject.Properties.Name -notcontains $field) {
                 throw "Backup set '$($set.Name)' must define '$field' as true or false."
             }
-            if ($StrictTypes -and ($set.$field -isnot [bool])) {
-                throw "Config '$ConfigPath' is invalid: `$.BackupSets[?].$field — must be a JSON boolean, not '$($set.$field)' (expected true or false)."
+            if ($StrictTypes) { Assert-ConfigValueType -Value $set.$field -JsonType 'boolean' -JsonPath "$setPath.$field" }
+        }
+        if ($StrictTypes) {
+            if ($set.PSObject.Properties.Name -contains 'SourceStatePath') {
+                Assert-ConfigValueType -Value $set.SourceStatePath -JsonType 'string' -JsonPath "$setPath.SourceStatePath"
+            }
+            # The dangerous one: "AllowEmptySource": "false" would coerce true
+            # and disarm the SR-036 delete-all refusal.
+            if ($set.PSObject.Properties.Name -contains 'AllowEmptySource') {
+                Assert-ConfigValueType -Value $set.AllowEmptySource -JsonType 'boolean' -JsonPath "$setPath.AllowEmptySource"
             }
         }
         if ([string]$set.HashRecalcFreq -notin 'A', 'E', 'D', 'W', 'M', 'Y', 'N') {
@@ -1479,14 +1611,27 @@ function Test-BackupConfigurationShape {
         }
     }
 
-    if ($StrictTypes -and $Cfg.PSObject.Properties.Name -contains 'Secrets' -and $null -ne $Cfg.Secrets) {
-        $secrets = $Cfg.Secrets
-        if ($secrets.PSObject.Properties.Name -contains 'SmtpPort' -and $null -ne $secrets.SmtpPort) {
-            $port = $secrets.SmtpPort
-            $isInteger = ($port -is [int]) -or ($port -is [long]) -or (($port -is [double]) -and ($port -eq [math]::Floor($port)))
-            if (-not $isInteger) {
-                throw "Config '$ConfigPath' is invalid: `$.Secrets.SmtpPort — must be an integer, got '$port' (expected an integer port number)."
+    if (-not $StrictTypes) { return }
+
+    if ($Cfg.PSObject.Properties.Name -contains 'Tools' -and $null -ne $Cfg.Tools) {
+        Assert-ConfigValueType -Value $Cfg.Tools -JsonType 'object' -JsonPath '$.Tools'
+        foreach ($field in 'SevenZipPath', 'FfprobePath') {
+            if ($Cfg.Tools.PSObject.Properties.Name -contains $field -and $null -ne $Cfg.Tools.$field) {
+                Assert-ConfigValueType -Value $Cfg.Tools.$field -JsonType 'string' -JsonPath "`$.Tools.$field"
             }
+        }
+    }
+
+    if ($Cfg.PSObject.Properties.Name -contains 'Secrets' -and $null -ne $Cfg.Secrets) {
+        $secrets = $Cfg.Secrets
+        Assert-ConfigValueType -Value $secrets -JsonType 'object' -JsonPath '$.Secrets'
+        foreach ($field in 'ToEmail', 'FromEmail', 'SmtpServer') {
+            if ($secrets.PSObject.Properties.Name -contains $field -and $null -ne $secrets.$field) {
+                Assert-ConfigValueType -Value $secrets.$field -JsonType 'string' -JsonPath "`$.Secrets.$field"
+            }
+        }
+        if ($secrets.PSObject.Properties.Name -contains 'SmtpPort' -and $null -ne $secrets.SmtpPort) {
+            Assert-ConfigValueType -Value $secrets.SmtpPort -JsonType 'integer' -JsonPath '$.Secrets.SmtpPort'
         }
     }
 }
@@ -1537,9 +1682,10 @@ function Import-BackupConfiguration {
     .DESCRIPTION
         Dispatches on the file extension. The JSON branch enforces the SR-042
         versioned, closed schema — a required integer ConfigVersion (checked
-        first, in document order), no unrecognized key at any level, JSON-typed
-        booleans for CompressEnabled/PreserveFolderTree, and no
-        Secrets.Credential — before Resolve-BackupSetDefaults materializes
+        first, in document order), no unrecognized key at any level, the JSON
+        type of EVERY schema-defined value (see Test-BackupConfigurationShape's
+        -StrictTypes), and no Secrets.Credential — before
+        Resolve-BackupSetDefaults materializes
         optional-field defaults. The CLIXML branch is the unversioned legacy
         native-Windows form: it runs the same per-set shape check but skips the
         version, closed-schema, and credential rules. Every rejection is a
@@ -1581,17 +1727,19 @@ function Import-BackupConfiguration {
                 throw "Config '$Path' is invalid: `$.ConfigVersion — missing (expected an integer; this build supports up to $script:ConfigSchemaVersion)."
             }
             $rawVersion = $cfg.ConfigVersion
-            $isInteger = ($rawVersion -is [int]) -or ($rawVersion -is [long]) -or (($rawVersion -is [double]) -and ($rawVersion -eq [math]::Floor($rawVersion)))
-            if (-not $isInteger) {
-                throw "Config '$Path' is invalid: `$.ConfigVersion — must be an integer with no fractional part, got '$rawVersion'."
+            if (-not (Test-ConfigValueJsonType -Value $rawVersion -JsonType 'integer')) {
+                throw "Config '$Path' is invalid: `$.ConfigVersion — must be an integer with no fractional part, got $(Get-ConfigValueJsonTypeName -Value $rawVersion)."
+            }
+            # Range-check BEFORE the [int] cast: a JSON number outside Int32 is
+            # an unsupported version, and must be refused as such rather than
+            # overflowing (or being caught by the fractional-part test by luck).
+            if ($rawVersion -lt 1) {
+                throw "Config '$Path' is invalid: `$.ConfigVersion — must be >= 1, got $rawVersion."
+            }
+            if ($rawVersion -gt $script:ConfigSchemaVersion) {
+                throw "Config '$Path' is invalid: `$.ConfigVersion — config declares version $rawVersion; this build supports up to $script:ConfigSchemaVersion — upgrade FileBackup."
             }
             $version = [int]$rawVersion
-            if ($version -lt 1) {
-                throw "Config '$Path' is invalid: `$.ConfigVersion — must be >= 1, got $version."
-            }
-            if ($version -gt $script:ConfigSchemaVersion) {
-                throw "Config '$Path' is invalid: `$.ConfigVersion — config declares version $version; this build supports up to $script:ConfigSchemaVersion — upgrade FileBackup."
-            }
 
             Assert-NoUnknownConfigKey -Node $cfg -ConfigPath $Path
             Test-BackupConfigurationShape -Cfg $cfg -ConfigPath $Path -StrictTypes

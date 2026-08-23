@@ -72,6 +72,14 @@ jobs:
         shell: pwsh
         run: .\tests\Setup.ps1 -InstallDeps -InstallTestTools -NonInteractive
 
+      # TC-076 drives the shipped example config through a real compressed
+      # backup and SKIPs itself without 7-Zip. Fail here instead, so the unit
+      # lane can never go green while silently skipping it (same precondition
+      # the integration-subst job asserts).
+      - name: Verify 7-Zip
+        shell: pwsh
+        run: if (-not (Test-Path 'C:\Program Files\7-Zip\7z.exe')) { throw "7-Zip missing on runner" }
+
       - name: Run Pester
         shell: pwsh
         run: |
@@ -169,7 +177,7 @@ jobs:
       - name: ShellCheck (warnings are errors, same bar as PSScriptAnalyzer)
         # Scope to real shell scripts; .bats files use bats syntax ShellCheck
         # cannot parse. helpers.bash carries its own SC2034 disable.
-        run: shellcheck -x bash/reconstruct.sh tests/bash/helpers.bash tests/bash/verify_restores.sh
+        run: shellcheck -x bash/reconstruct.sh container/entrypoint.sh tests/bash/helpers.bash tests/bash/verify_restores.sh
       - name: Run bats suites (hash conformance, manifest parse, restore, fail-loudly)
         run: bats --print-output-on-failure tests/bash/
 

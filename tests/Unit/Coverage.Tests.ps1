@@ -3,6 +3,14 @@
 .NOTES     In-process backup/reconstruct drives the engine I/O shells, so these
            also lift measured module coverage. Run: Invoke-Pester -Path tests\Unit
 #>
+
+# Discovery-time: the ONE shared configuration-fixture corpus (SR-042), also
+# consumed by TC-074/TC-075 in tests/Unit/Engine.Tests.ps1. TC-077 runs the
+# published JSON schema against exactly the list the validator is tested with,
+# so the two cannot drift.
+. (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'tests\Common\ConfigFixtures.ps1')
+$configCorpus = Get-ConfigFixtureCorpus
+
 BeforeAll {
     $script:repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
@@ -1000,18 +1008,22 @@ Describe 'The shipped example config is executable (SR-042)' {
         $exampleObj.BackupSets[0].BackupPath      = $bkp
         $exampleObj.BackupSets[0].ChangePath      = $chg
         $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
-        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
-            Set-ItResult -Skipped -Because "No 7-Zip found at the platform default '$sevenZip'; TC-076 needs a real 7-Zip to exercise the example's CompressEnabled=true set."
-            return
-        }
         $exampleObj.Tools.SevenZipPath = $sevenZip
 
         # Keys-only diff (SR-042): the executed document must be key-identical to
         # the checked-in example, so the example can no longer silently drift
-        # from the contract it is supposed to demonstrate.
+        # from the contract it is supposed to demonstrate. This half is cheap and
+        # host-independent, so it runs BEFORE the 7-Zip skip guard below -- a
+        # runner without 7-Zip must still catch example drift.
         $checkedInShape = Get-JsonKeyShape -Node (Get-Content -LiteralPath $exampleFile -Raw | ConvertFrom-Json)
         $executedShape  = Get-JsonKeyShape -Node $exampleObj
         Compare-Object -ReferenceObject $checkedInShape -DifferenceObject $executedShape | Should -BeNullOrEmpty
+
+        # The rest drives a real compressed backup, which needs a real 7-Zip.
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            Set-ItResult -Skipped -Because "No 7-Zip found at the platform default '$sevenZip'; TC-076 needs a real 7-Zip to exercise the example's CompressEnabled=true set."
+            return
+        }
 
         $cfgPath = Join-Path $TestDrive 'ex76\config.json'
         $exampleObj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cfgPath -Encoding UTF8
@@ -1033,41 +1045,26 @@ Describe 'The shipped example config is executable (SR-042)' {
 
 Describe 'Published JSON schema matches the validator (SR-042)' {
     BeforeAll {
-        $schemaPath = Join-Path $repo 'container\FileBackup.schema.json'
-
-        $validSet = '"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true,"PreserveFolderTree":false'
-        $script:acceptedFixtures = @(
-            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}]}",
-            "{`"ConfigVersion`":1,`"Tools`":{`"SevenZipPath`":`"/usr/bin/7z`"},`"BackupSets`":[{$validSet}]}"
-        )
-        $script:rejectedFixtures = @(
-            '{"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true,"PreserveFolderTree":false}]}',                                          # missing ConfigVersion
-            "{`"ConfigVersion`":2,`"BackupSets`":[{$validSet}]}",                                                                                                                                                # future version
-            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Bogus`":1}",                                                                                                                                    # unknown top-level key
-            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet,`"AllowEmptySources`":true}]}",                                                                                                                     # unknown set key (typo)
-            '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false","PreserveFolderTree":false}]}',                     # string-boolean
-            '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"Q","CompressEnabled":true,"PreserveFolderTree":false}]}',                        # bad enum
-            '{"ConfigVersion":1,"BackupSets":[]}',                                                                                                                                                               # empty sets
-            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Secrets`":{`"SmtpPort`":`"abc`"}}",                                                                                                            # non-integer port
-            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Secrets`":{`"Credential`":`"x`"}}"                                                                                                             # JSON credential
-        )
+        # Test-Json is given the JSON and the schema as STRINGS: -Path /
+        # -SchemaFile file forms were only added in pwsh 7.4, and AGENTS.md's
+        # floor is "PowerShell 7+". The string form works on every 7.x.
+        $script:schemaText = Get-Content -LiteralPath (Join-Path $repo 'container\FileBackup.schema.json') -Raw
     }
 
-    It 'accepts every TC-074 fixture and rejects every TC-075 fixture, same as Import-BackupConfiguration' {
-        foreach ($json in $acceptedFixtures) {
-            $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
-            $json | Set-Content -LiteralPath $path -Encoding UTF8
+    It 'agrees with Import-BackupConfiguration on ACCEPTED shared-corpus fixture <Name> (SR-042)' -ForEach $configCorpus.Accepted {
+        Test-Json -Json $Json -Schema $schemaText | Should -BeTrue
 
-            Test-Json -Path $path -SchemaFile $schemaPath | Should -BeTrue
-            { Import-BackupConfiguration -Path $path } | Should -Not -Throw
-        }
-        foreach ($json in $rejectedFixtures) {
-            $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
-            $json | Set-Content -LiteralPath $path -Encoding UTF8
+        $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
+        [IO.File]::WriteAllText($path, $Json)
+        { Import-BackupConfiguration -Path $path } | Should -Not -Throw
+    }
 
-            (Test-Json -Path $path -SchemaFile $schemaPath -ErrorAction SilentlyContinue) | Should -BeFalse
-            { Import-BackupConfiguration -Path $path } | Should -Throw
-        }
+    It 'agrees with Import-BackupConfiguration on REJECTED shared-corpus fixture <Name> (SR-042)' -ForEach $configCorpus.Rejected {
+        (Test-Json -Json $Json -Schema $schemaText -ErrorAction SilentlyContinue) | Should -BeFalse
+
+        $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
+        [IO.File]::WriteAllText($path, $Json)
+        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage $Message
     }
 
     It 'declares the shipped example, the README block, and the smoke config all at ConfigVersion 1 (the loader''s current maximum)' {
@@ -1122,6 +1119,46 @@ Describe 'Entry-point status codes (SR-043)' {
 
         (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 2
         Test-Path -LiteralPath $bkp | Should -BeFalse
+    }
+
+    It 'returns 2 for a MISSING config file under -ExitCode (the likeliest container misconfiguration: retrying will not help) (SR-043)' {
+        $root = Join-Path $TestDrive 'tc078-missing'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        (Invoke-FBChild -Cfg (Join-Path $root 'no-such-config.json') -WithExitCode) | Should -Be 2
+    }
+
+    It 'returns 2 for an unreadable/unsupported config extension under -ExitCode (SR-043)' {
+        $root = Join-Path $TestDrive 'tc078-badext'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $cfg = Join-Path $root 'config.txt'
+        [IO.File]::WriteAllText($cfg, 'whatever')
+        (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 2
+    }
+
+    It 'a REFUSED config creates no artifacts and never truncates the previous run''s global log (SR-042, SR-043)' {
+        $root = Join-Path $TestDrive 'tc078-nolosslog'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+        # 1. A seeded log from a "previous run" survives a refused run intact.
+        $seededLog = Join-Path $root 'logs\Backup_Global.log'
+        New-Item -ItemType Directory -Path (Split-Path $seededLog) -Force | Out-Null
+        [IO.File]::WriteAllText($seededLog, "PREVIOUS RUN EVIDENCE`r`n")
+        $badCfg = Join-Path $root 'bad.json'
+        [IO.File]::WriteAllText($badCfg, '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false","PreserveFolderTree":false}]}')
+
+        & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $badCfg `
+            -GlobalLogPath $seededLog -NoMail -NonInteractive -ExitCode *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 2
+        (Get-Content -LiteralPath $seededLog -Raw) | Should -Match 'PREVIOUS RUN EVIDENCE'
+
+        # 2. A refused run against a fresh location creates NOTHING -- not even
+        #    the log directory (New-Logger truncates, so the file must not be
+        #    created before the configuration is known to be good).
+        $freshLog = Join-Path $root 'fresh-logs\Backup_Global.log'
+        & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $badCfg `
+            -GlobalLogPath $freshLog -NoMail -NonInteractive -ExitCode *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 2
+        Test-Path -LiteralPath (Split-Path $freshLog) | Should -BeFalse
     }
 
     It 'returns 1 when the one backup set fails, under -ExitCode' {

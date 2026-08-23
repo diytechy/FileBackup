@@ -127,6 +127,7 @@ Imports (internal): `Common`
 | `Compare-SourceToBackup` | yes | SR-001, LLR-001 |
 | `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
+| `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-DataFile` | yes | — |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
@@ -150,8 +151,10 @@ Imports (internal): `Common`
 | `Sync-BackupStorageLayout` | yes | SR-012, SR-013, LLR-012, LLR-013 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
 | `Test-BackupManifest` | yes | — |
+| `Test-ConfigValueJsonType` | no | SR-042, LLR-042 |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
 | `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
+| `Test-IsJsonNumber` | no | SR-042, LLR-042 |
 | `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024 |
 <!-- END GENERATED MODULE MAP -->
 
@@ -306,9 +309,11 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
 **Current automated total:** 236 integration assertions (4 modes × G1–G7 = 160, plus
-G9 Rollback = 76; G8 SKIP under Subst) + 108 Pester unit/coverage tests + 48 bats
+G9 Rollback = 76; G8 SKIP under Subst) + 172 Pester unit/coverage tests + 48 bats
 tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck` clean.
-(Verified 2026-08-23 on a Full tier, after the WP1 review fixes.)
+(Verified 2026-08-23 on a Full tier, after the WP1 **and WP2** review fixes — the
+unit count grew from 108 as TC-074/075/077 became data-driven over the one shared
+config-fixture corpus, `tests/Common/ConfigFixtures.ps1`.)
 
 ### Suite groups
 | Group | Covers |

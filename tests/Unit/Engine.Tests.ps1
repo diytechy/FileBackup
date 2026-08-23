@@ -1,6 +1,14 @@
 <#
 .SYNOPSIS  Pester 5 unit tests for FileBackup.Engine pure functions.
 #>
+
+# Discovery-time (so the fixtures can drive -ForEach): the ONE shared
+# configuration-fixture corpus (SR-042). tests/Unit/Coverage.Tests.ps1's TC-077
+# reads the same file, so the published schema and the runtime validator are
+# pinned against a single list that cannot be hand-copied out of sync.
+. (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'tests\Common\ConfigFixtures.ps1')
+$configCorpus = Get-ConfigFixtureCorpus
+
 BeforeAll {
     # $PSScriptRoot here is tests\Unit; repo root is two levels up.
     $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -194,17 +202,41 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
 }
 
 Describe 'Configuration loader accepts the documented contract (SR-042)' {
-    It 'accepts container/FileBackup.example.json (ConfigVersion added in-memory if the checked-in file predates WP2 Phase D) (SR-042)' {
-        $exampleObj = Get-Content -Raw (Join-Path $repo 'container\FileBackup.example.json') | ConvertFrom-Json
-        if ($exampleObj.PSObject.Properties.Name -notcontains 'ConfigVersion') {
-            $exampleObj | Add-Member -NotePropertyName ConfigVersion -NotePropertyValue 1
+    BeforeAll {
+        function New-FixtureConfig {
+            param([string]$Json)
+            $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
+            [IO.File]::WriteAllText($path, $Json)
+            return $path
         }
-        $path = Join-Path $TestDrive 'example.json'
-        $exampleObj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $path -Encoding UTF8
+    }
 
-        $result = Import-BackupConfiguration -Path $path
+    It 'accepts the checked-in container/FileBackup.example.json verbatim (SR-042)' {
+        # Verbatim: no in-memory patching. If the shipped example ever stops
+        # satisfying the contract it demonstrates, this fails -- which is the
+        # whole point of the fixture.
+        $result = Import-BackupConfiguration -Path (Join-Path $repo 'container\FileBackup.example.json')
         $result.ConfigVersion | Should -Be 1
         $result.Sets.Count | Should -Be 1
+    }
+
+    It 'accepts shared-corpus fixture <Name> (SR-042)' -ForEach $configCorpus.Accepted {
+        $path = New-FixtureConfig -Json $Json
+        $result = Import-BackupConfiguration -Path $path
+        $result.ConfigVersion | Should -Be 1
+        $result.Sets.Count | Should -BeGreaterThan 0
+    }
+
+    It 'wraps a single bare BackupSets object, as the published schema''s anyOf allows (SR-042)' {
+        $path = New-FixtureConfig -Json '{"ConfigVersion":1,"BackupSets":{"Name":"bare","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false}}'
+        $result = Import-BackupConfiguration -Path $path
+        $result.Sets.Count | Should -Be 1
+        $result.Sets[0].Name | Should -Be 'bare'
+    }
+
+    It 'accepts an integral-valued ConfigVersion number (JSON has one number type: 1.0 IS 1) (SR-042)' {
+        $path = New-FixtureConfig -Json '{"ConfigVersion":1.0,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false}]}'
+        (Import-BackupConfiguration -Path $path).ConfigVersion | Should -Be 1
     }
 
     It 'materializes SourceStatePath and AllowEmptySource defaults, and upper-cases HashRecalcFreq, when omitted (SR-042)' {
@@ -247,61 +279,33 @@ Describe 'Configuration loader fails loudly and names the key (SR-042)' {
         function New-DefectiveConfig {
             param([string]$Json)
             $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
-            $Json | Set-Content -LiteralPath $path -Encoding UTF8
+            [IO.File]::WriteAllText($path, $Json)
             return $path
         }
-        $validSet = '"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true,"PreserveFolderTree":false'
     }
 
-    It 'rejects a missing ConfigVersion' {
-        $path = New-DefectiveConfig "{`"BackupSets`":[{$validSet}]}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*ConfigVersion*missing*'
+    # One list, one place: the same corpus TC-074 accepts from and TC-077 runs
+    # the published JSON schema against.
+    It 'rejects shared-corpus fixture <Name>, naming the key (SR-042)' -ForEach $configCorpus.Rejected {
+        $path = New-DefectiveConfig -Json $Json
+        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage $Message
     }
 
-    It 'rejects a ConfigVersion above the highest supported' {
-        $path = New-DefectiveConfig "{`"ConfigVersion`":2,`"BackupSets`":[{$validSet}]}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*declares version 2*supports up to 1*'
+    It 'refuses a quoted "false" for AllowEmptySource rather than coercing it TRUE and disarming the SR-036 delete-all refusal (SR-042)' {
+        # The reviewer's reproduction: [bool]'false' is $true in PowerShell, so
+        # before this check the run silently emptied the backup root and exited 0.
+        $path = New-DefectiveConfig -Json '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false,"AllowEmptySource":"false"}]}'
+        # -Match (regex), not -ExpectedMessage (wildcard): [0] is a character
+        # class to a wildcard pattern, so it would not pin the JSON path.
+        $err = { Import-BackupConfiguration -Path $path } | Should -Throw -PassThru
+        $err.Exception.Message | Should -Match '\$\.BackupSets\[0\]\.AllowEmptySource .* JSON boolean'
     }
 
-    It 'rejects an unrecognized top-level key' {
-        $path = New-DefectiveConfig "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Bogus`":1}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*$.Bogus*unrecognized key*'
-    }
-
-    It 'rejects an unrecognized per-set key (typo AllowEmptySources) instead of silently ignoring it' {
-        $path = New-DefectiveConfig "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet,`"AllowEmptySources`":true}]}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*AllowEmptySources*unrecognized key*'
-    }
-
-    It 'rejects a quoted "false" for CompressEnabled instead of coercing it true' {
-        $badSet = '"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false","PreserveFolderTree":false'
-        $path = New-DefectiveConfig "{`"ConfigVersion`":1,`"BackupSets`":[{$badSet}]}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*CompressEnabled*JSON boolean*'
-    }
-
-    It 'preserves the existing invalid-HashRecalcFreq wording' {
-        $badSet = '"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"Q","CompressEnabled":true,"PreserveFolderTree":false'
-        $path = New-DefectiveConfig "{`"ConfigVersion`":1,`"BackupSets`":[{$badSet}]}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*invalid HashRecalcFreq*'
-    }
-
-    It 'preserves the existing empty-BackupSets wording' {
-        $path = New-DefectiveConfig '{"ConfigVersion":1,"BackupSets":[]}'
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*at least one BackupSets entry*'
-    }
-
-    It 'rejects a non-integer Secrets.SmtpPort' {
-        $path = New-DefectiveConfig "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Secrets`":{`"SmtpPort`":`"abc`"}}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*Secrets.SmtpPort*integer*'
-    }
-
-    It 'rejects Secrets.Credential in JSON by name (JSON cannot carry a PSCredential)' {
-        $path = New-DefectiveConfig "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Secrets`":{`"Credential`":`"x`"}}"
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*Secrets.Credential*PSCredential*'
-    }
-
-    It 'rejects a file that is not valid JSON' {
-        $path = New-DefectiveConfig 'not json at all'
-        { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage '*not valid JSON*'
+    It 'names the offending set by its real index, not a literal [?] (SR-042)' {
+        $good = '{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true,"PreserveFolderTree":false}'
+        $bad  = '{"Name":"b","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false","PreserveFolderTree":false}'
+        $path = New-DefectiveConfig -Json "{`"ConfigVersion`":1,`"BackupSets`":[$good,$bad]}"
+        $err = { Import-BackupConfiguration -Path $path } | Should -Throw -PassThru
+        $err.Exception.Message | Should -Match '\$\.BackupSets\[1\]\.CompressEnabled'
     }
 }
