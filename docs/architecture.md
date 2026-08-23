@@ -167,6 +167,7 @@ Imports (internal): `Common`
 | `Get-MigrationCapacityDemand` | yes | SR-052, SR-012, LLR-052 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
+| `Get-PruneCapacityRefusal` | yes | SR-046, SR-052, LLR-046 |
 | `Get-ReHomedDataPathName` | no | SR-045, LLR-045 |
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
@@ -184,6 +185,7 @@ Imports (internal): `Common`
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
+| `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |

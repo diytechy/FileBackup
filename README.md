@@ -171,6 +171,10 @@ pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Prune `
      -Snapshot Snapshot_2024_01_01_09_00_00
 ```
 
+`-WhatIf` is for `-Action Prune` only. It binds on every action (pruning needs
+it), but a backup run does not honor it, so `-Action Backup -WhatIf` is refused
+up front with status **2** rather than performing part of a run.
+
 `-Action Snapshots` prints JSON, one object per snapshot:
 
 | Field | Meaning |
@@ -199,6 +203,19 @@ Common refusals: a manifest with no witness at all (pass
 files in the snapshot its own manifest does not reference (`-DiscardUnreferencedData`
 to discard them deliberately), a backup that is running (prune and backup are
 mutually exclusive), or a pool that does not resolve as it stands.
+
+**A pool that does not resolve blocks *every* prune in that store**, not just
+the snapshot you named — pruning into a store that is already damaged could
+turn a recoverable problem into a permanent one, so the mechanism refuses with
+status **2** and names the offending rows. Nothing self-heals: the refusal
+persists until the pool is made whole again. To proceed, run
+`-Action Verify` first (see the next section) to enumerate the damage — it
+reports every disagreement between the manifests and the bytes and repairs the
+findings that are unambiguous — and re-run the prune once verification is
+clean. If the missing bytes exist only in a folder outside the pool, they must
+be restored there by hand; recovering content from a partially removed snapshot
+is a recorded future item (`-RepairFromPruned`), not something this version can
+do.
 
 Interrupted? Just run the same command again. There is no journal to repair:
 the plan is recomputed from what is on disk, and the next invocation sweeps up

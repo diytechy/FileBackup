@@ -27,9 +27,9 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP5,
-  `--phase core,bash-v1` unchanged pending container CI):**
-  **294/294 Pester unit, lint clean, trace SN=30 SR=52 LLR=51 TC=101 with
+- **Latest verified run (2026-08-23, Full tier, post-WP5 + the WP4 review
+  fixes, `--phase core,bash-v1` unchanged pending container CI):**
+  **310/310 Pester unit, lint clean, trace SN=30 SR=52 LLR=51 TC=101 with
   0 orphans / 0 integrity / 4 phase-deferred, integration 372 PASS / 0 FAIL /
   4 SKIP**, plus **bats 54/54 and `shellcheck bash/reconstruct.sh
   container/entrypoint.sh` clean** on real Linux (WSL). `check.ps1 -Gate G3`
@@ -56,8 +56,11 @@ last) — it is the record, not required reading for every pass.
   run of the extended `container` job lands (Docker was unavailable on the
   driver's host this session — only static verification ran locally). See
   below.
-- **WP4 (snapshot retention mechanism, `Remove-BackupSnapshot`) is implemented
-  and green on a Full tier — awaiting independent review + batch ratification.**
+- **WP4 (snapshot retention mechanism, `Remove-BackupSnapshot`) is implemented,
+  independently reviewed (CHANGES-REQUESTED 2026-08-23 — the entry sweep deleted
+  `*.fbprune.tmp` by bare suffix, so a REFUSED prune destroyed a Mirror-mode
+  user file of that name in every folder at once and wedged the store) and every
+  accepted finding is landed 2026-08-23 — awaiting batch ratification.**
   SN-029/SR-045..048/LLR-045..048/TC-081..090 minted; SR-045..047 **Verified**
   (TC-081..087, TC-089, TC-090 Pass), SR-048 `Implemented` with TC-088's
   in-container half `Draft` pending the Docker CI job (Docker is still
@@ -199,6 +202,7 @@ work-package order follows the table.
 | prune form-mismatch rail (new, WP5) | `Test-PoolResolves` refuses a prune with code 2 on a blank-DataPath `form-mismatch`, a rail WP4 justified by "the restorers branch on the ROW". **SR-050 removed that premise**, so prune now refuses a store a revision-2 kit restores correctly — reproducible by any compression flip. | **WP6.** Left unchanged deliberately by WP5: a pre-revision-2 snapshot restored by its OWN kit IS still exposed, and relaxing a Verified prune rail is not WP5's call. Likely resolution: downgrade the BLANK-row half to informational once `-RefreshKits` (or a kit-revision check) proves the pool's kits are current. | Open → WP6 |
 | dangling DataPath becomes unrestorable (new, WP5) | A row whose data file is missing is dropped by `Test-BackupManifest`; if the SOURCE file is unchanged the diff never re-copies it, and `Optimize-ChangeFolders` blanks the `DataPath` — leaving a row whose bytes are nowhere in the pool while the run reports success. `Test-PoolResolves` detects it (`broken-pool`); no backup run does, and SR-049's audit deliberately does not (it is not a FORM finding). Pre-existing, observed while writing TC-094. | **WP6** — needs its own SR: either heal the row (force a re-copy from source) or fail the set. Decide which; healing is the friendlier behaviour and the source bytes are right there. | Open → WP6 |
 | manifest row order (new, WP5) | Consecutive no-op runs can emit manifest ROWS in a different ORDER with identical content (the final manifest is enumerated from a hashtable). SR-024 holds on row content; G7-Determinism does not catch the ordering. TC-094/TC-097 compare rows sorted by `RelativePath`. | **WP6**, low priority. Either sort deterministically before `Write-Manifest`, or state explicitly that row order is not part of the contract. | Open → WP6 |
+| snapshot inventory cost (new, WP4 review L3) | `Get-BackupSnapshot` runs one `Get-SnapshotPrunePlan` per snapshot and each rebuilds the whole pool index — O(n^2) in snapshot count — and the plan hashes candidate files (the destination-collision check) during what is advertised as a read-only inventory. Correctness is unaffected; on a large store `-Action Snapshots` is far more expensive than it looks. | **Perf follow-up, unscheduled.** The obvious fix is to build the pool index ONCE and thread it through `Get-SnapshotPrunePlan`; that is not a trivial edit to a data-integrity function, so the WP4 review fixes deliberately did not attempt it. | Recorded 2026-08-23 (WP4 review, accepted as-is) |
 | **-RepairFromPruned** (deferred from WP4 §5.4) | Materializing bytes back into a pool that lost them. WP5 landed the DIAGNOSIS half (SR-049's R3/R4/R5 findings say exactly what is missing and where); the byte-materialization half stays deferred. | **WP6 or later.** Build on WP4's plan/copy/prove primitives once they are Verified. SR-050 removed the correctness motive, so this is convenience, not safety. No SN/SR yet. | Deferred → WP6-or-later |
 | **H** | No destination mount-identity preflight. | **Stays delegated to HomeHub (IF-001)** — HomeHub genuinely owns mounts and the container can't see the host mount table. Optional later hardening: an `ExpectedSentinel` config key (refuse if a named file is absent at the destination). Low priority; revisit only if FileBackup runs outside the wrapper. | Delegated |
 | release checklist | `checklist-vNEXT-dryrun.md` is stale (UN-### vocabulary, no SR-029+, points at nonexistent `scripts/check.py`, gitignored). | **WP6 (docs batch).** Regenerate from the registries via `gen_release_checklist.py` (also verifies the generator survived the UN→SN rename); include container rows. Blocks G-Release. | Open → WP6 |
@@ -2282,3 +2286,120 @@ LLR-012 / LLR-023 / TC-002 amended per the plan's §3 table.
 - TC-091's "the set still succeeds" assertion had to FLIP at phase D: SR-051
   makes a failed transformation fail the set. The phase-B commit is the record
   of the pre-fix behavior.
+
+---
+
+### DRIVER (Software + Test Engineer, Data-integrity hat) — WP4 review fixes — 2026-08-23
+
+**Verdict received: CHANGES-REQUESTED** on the WP4 snapshot-retention mechanism,
+with one confirmed byte-loss path. Every accepted finding is landed here; the
+work sits on `resync_v2` at `aa796db` (code + tests) plus this documentation
+commit.
+
+**H1 — HIGH, confirmed byte loss (fixed).** `Invoke-PruneEntrySweep`'s
+`*.fbprune.tmp` cleanup was a bare-suffix recursive filter over the whole pool.
+In Mirror mode a genuine user file `notes.fbprune.tmp` is stored at its verbatim
+path and carries a manifest row, so the reviewer's repro — a **REFUSED** prune
+(a typo'd snapshot name) — permanently destroyed every copy of it across the
+backup root and every snapshot, and then wedged the store: the resulting
+`broken-pool` rail blocks all future prunes, and breakage in the backup root
+never self-heals. Fix: the sweep deletes a `.fbprune.tmp` only when the folder's
+OWN manifest does not reference it (a staged copy is unreferenced by
+construction; real content is not), and it scans only pool folders — the only
+re-home destinations. Pinned by new TC-083 cases: the user file, root-level AND
+nested, survives a refused prune, a `-WhatIf`, and a successful prune of another
+snapshot, restores byte-exact from every origin afterwards, and a genuine
+unreferenced staged copy beside it is still swept.
+
+**H2/M1 — the entry sweep ran outside the transaction (fixed, behaviorally).**
+The sweep now runs INSIDE the per-name transaction, after
+`Assert-PrunePrecondition` passes and the Temp lock is held, so (a) its failures
+land in the existing code-4 catch instead of escaping unclassified as process
+exit 1, (b) refusal paths (2/3) genuinely mutate nothing, and (c) `-WhatIf`
+skips it entirely — no log lines, no inflated count. The one thing that still
+runs before the rails is deliberately name-scoped: `Remove-CommittedPruneResidue`
+completes an outstanding `Pruning_<the same name>` deletion, which is past the
+commit point, invisible to every consumer, and occupies the very name the plan
+needs; it is wrapped so a host failure is a code-4 record, and it is skipped
+under `-WhatIf`. Residue for any other name is left alone. This is what keeps
+TC-083's after-commit-rename resume case working (re-invoking sweeps the residue
+and then refuses `bad-target` with 2, exactly as before). SR-046 and LLR-046 now
+state this ordering, and AGENTS.md section 3 carries the H1 warning.
+
+**M2 — self-fulfilling assertion (fixed).** `tests/Suites/G9-Rollback.ps1`'s
+per-state prune check derived `$expectF` from the restore output it was
+validating, so a lost `f.txt` passed vacuously. The expectation now comes from
+that snapshot's own manifest, and the "must be absent" half is asserted too.
+
+**M3 — three untested rails (fixed).** TC-084 gains `destination-collision`
+(hand-verified by the reviewer, now pinned), `infrastructure-name`, and
+`capacity`. The capacity rail was rebuilt: WP4 grouped destinations by
+`Split-Path -Qualifier` inside a `Group-Object` key, which cannot parse a UNC or
+rooted POSIX path — terminating under the entry point's
+`$ErrorActionPreference='Stop'`, and otherwise yielding an empty drive name that
+the `Get-PSDrive` fallback rejected into a swallowing `catch`. Either way the
+rail did not exist on a UNC store. It is now `Get-PruneCapacityRefusal`, built
+on Common's `Get-VolumeIdentity`/`Get-FreeSpaceBytes` (SR-052, WP5), summing per
+volume, refusing with 2 when free space is short on drive-qualified AND UNC
+destinations (probe stubbed in tests), and SKIPPING rather than refusing when a
+volume cannot be measured.
+
+**M4 — TOCTOU on the Temp lock (fixed).** `New-Item -Force` succeeds on an
+existing directory, so two prunes could both pass the staging-busy rail.
+`-Force` is dropped so creation is the atomic test; the already-exists failure is
+classified as the staging-busy refusal (2), and the `finally` block no longer
+deletes a lock this invocation did not create. Pinned by a test that makes the
+folder appear *after* the rails pass (mocked precondition), plus an AST guard.
+
+**L1 — `-Action Backup -WhatIf` (fixed).** It bound because prune needs
+`SupportsShouldProcess`, and produced a half-run. It is now refused as a
+precondition before anything is read or created: exit 2 under `-ExitCode`, a
+terminating error otherwise, with a message saying dry-run is Prune-only.
+
+**Reviewer caveats recorded (not fixed).**
+
+- **README and the broken-pool refusal now say it plainly**: an unresolvable
+  pool blocks *every* prune in the store, nothing self-heals, run
+  `-Action Verify` to enumerate the damage, and recovering content from a
+  partially removed snapshot (`-RepairFromPruned`) is a recorded future item.
+  The refusal message itself carries the "run -Action Verify" pointer.
+- **L2 accepted as-is**: the AST guard over the prune path is lint, not proof;
+  the digest-uniqueness assertion is the real pin.
+- **L3 accepted as-is, recorded as a perf follow-up**: `Get-BackupSnapshot` is
+  O(n^2) — one `Get-SnapshotPrunePlan` per snapshot, each rebuilding the pool
+  index, and the plan hashes candidate files during what is advertised as a
+  read-only inventory. Threading a shared index through `Get-SnapshotPrunePlan`
+  is not a trivial edit to a data-integrity function, so it was NOT attempted
+  here.
+
+**Evidence (real, this host, 2026-08-23).**
+
+- `Invoke-Pester -Path tests\Unit` → **310 Passed / 0 Failed / 0 Skipped** in
+  241.94s (was 294; +16 for H1/H2/M3/M4/L1).
+- `pwsh scripts/check.ps1 -Tier Full` → integration **372 PASS / 0 FAIL /
+  4 SKIP** (Subst, four modes, G1–G9), PSScriptAnalyzer clean, doc navigability
+  clean, architecture-map freshness clean, Pester unit green. The run's ONE
+  failing step is the pre-existing G3 status finding carried from WP5:
+  `SR-052 is Verification=Test but Status=Implemented` (TC-101's Linux half
+  needs the Docker CI job). `python scripts/trace.py --strict --phase
+  core,bash-v1` → `SN=30 SR=52 LLR=51 TC=101 orphans=0 integrity=0`, exit 0;
+  with `--require-verified` the same single SR-052 finding, exit 1 — unchanged
+  by this work.
+- `pwsh scripts/check.ps1 -Tier Smoke -Gate G1` → **All steps passed.**
+- No shell file changed, so bats/shellcheck were not re-run (bats 54/54 stands
+  from WP5).
+
+**Registry.** SR-046 (requirement, acceptance, permutations), LLR-046 (code
+symbols and detail) and TC-083/TC-084 (parameters and expected) updated to
+describe the behavior as it now is. No status flips: SR-045..047 stay Verified,
+TC-083/TC-084 stay Pass, and no TC changed so materially as to need re-minting.
+
+**Deviations from the work order.** None on substance. Two notes: (1) the work
+order's fallback ("keep a pre-loop sweep gated to provably-residue items") was
+not needed — full relocation works, with the name-scoped committed-residue
+completion described above as the one documented pre-rail action; (2) the
+reviewer's wording said `Split-Path -Qualifier` *throws* on UNC — it emits
+"does not have a qualifier specified", which is terminating only under
+`$ErrorActionPreference='Stop'` (the entry point's setting). The conclusion is
+unchanged, and the test pins the actual behavior on both UNC and POSIX-rooted
+paths.

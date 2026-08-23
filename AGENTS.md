@@ -21,7 +21,7 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 | File | Role | Bundled into backups? |
 |---|---|---|
 | `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Assert-BackupCapacity` (+ its two pure demand estimators), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`. | No |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Assert-BackupCapacity` (+ its two pure demand estimators), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`. | No |
 | `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049), dispatch the one configured set to the retention mechanism or the storage-form audit. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
@@ -154,6 +154,7 @@ Imports (internal): `Common`
 | `Get-MigrationCapacityDemand` | yes | SR-052, SR-012, LLR-052 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
+| `Get-PruneCapacityRefusal` | yes | SR-046, SR-052, LLR-046 |
 | `Get-ReHomedDataPathName` | no | SR-045, LLR-045 |
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
@@ -171,6 +172,7 @@ Imports (internal): `Common`
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
+| `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
@@ -220,9 +222,20 @@ Imports (internal): `Common`
   `Pruning_<name>` (which fails `^Snapshot_` for *both* restorers and Optimize,
   so one atomic rename removes it from every consumer's view) and deleting.
   Only `DataPath`/`Compressed`/`StoredAsHashSize` are ever edited, and only in
-  planned rows. Resume is "run it again": no journal, and the entry sweep clears
-  `Pruning_*` folders and `*.fbprune.tmp` staged copies. Retention *policy* is
-  the caller's (IF-001) — the verb takes explicit names, never wildcards.
+  planned rows. Resume is "run it again": no journal. Residue handling is split
+  so a refusal never mutates — `Remove-CommittedPruneResidue` finishes only
+  `Pruning_<the name being pruned>` before that name is planned (it is past the
+  commit point and holds the name), while `Invoke-PruneEntrySweep` clears
+  `*.fbprune.tmp` staged copies **inside** the transaction, once the rails have
+  passed and the Temp lock is held. **The sweep identifies residue by the
+  destination manifest, never by the suffix** — a Mirror-mode user file called
+  `notes.fbprune.tmp` has a manifest row and is content; a staged copy is
+  unreferenced by construction. Deleting by bare suffix destroyed real data
+  across root *and* snapshots (WP4 review finding H1). Neither runs under
+  `-WhatIf`. The Temp lock is created **without `-Force`**, so creation is the
+  atomic test and an existing folder is the staging-busy refusal.
+  Retention *policy* is the caller's (IF-001) — the verb takes explicit names,
+  never wildcards.
 - **The manifest witness is written by `Write-Manifest` only** (SR-038). Every
   `MANIFEST.csv` gets a `MANIFEST.csv.meta` beside it — `Version`, `Rows`,
   `Bytes`, `XxH128`, `Written` as UTF-8/no-BOM/LF `Key=Value` lines, published by
@@ -389,9 +402,12 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
 **Current automated total:** 372 integration assertions (4 modes × G1–G7 = 208,
-plus G9 Rollback = 164; G8 SKIP under Subst) + 294 Pester unit/coverage tests +
+plus G9 Rollback = 164; G8 SKIP under Subst) + 310 Pester unit/coverage tests +
 54 bats tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck`
-clean. (Verified 2026-08-23 on a Full tier, after WP5 — G4 gained the
+clean. (Verified 2026-08-23 on a Full tier, after WP5 and the WP4 review fixes
+— the unit total gained 16 for the prune residue/rail/lock cases and the
+`-Action Backup -WhatIf` refusal; the integration total is unchanged, the G9
+prune assertion that moved is the same count. Before those, after WP5 — G4 gained the
 extension-merge migration case `G4.2`/`Invoke-G4ExtensionMerge` (+12 assertions
 per mode), the unit suite gained `tests/Unit/StorageForm.Tests.ps1`
 (TC-091..TC-096, TC-098, TC-100, TC-101's Windows half) and bats gained
