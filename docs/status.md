@@ -3432,3 +3432,31 @@ SR-052 CI-gated finding, unchanged.
 flips + ratchet re-arm land as their own commit, and the push after that is
 fully green.
 
+**Addendum — second CI run (push of `fa6a894`, run 32671723151), diagnosed
+from step-level API data.** Same five jobs red, but the step conclusions
+rewrite the story:
+
+- **Unit and Integration (Subst): the TEST steps PASSED on CI** (`Run
+  Pester`: success; `Run integration tests (Subst)`: success). Only their
+  reporter steps failed: dorny/test-reporter's glob treats the backslashes in
+  a `${{ runner.temp }}` path as escape characters and matches nothing
+  ("No file matches path `D:\a\_temp/pester.xml`"). So the earlier
+  handle-leak attribution was unnecessary for this run — the suites are
+  genuinely green on the runners. **Fixed in `tests.yml`:** results now write
+  to workspace-relative, forward-slash paths (`pester-results/pester.xml`,
+  `fbtest/**`), and the interop upload gets the same treatment plus
+  `if-no-files-found: error` so an empty artifact can never pass silently.
+- **Traceability:** first step fails with the SR-052 finding as designed;
+  unchanged.
+- **Container:** still fails, ~40 s into the BuildAndTest step — mid-build
+  territory, same profile both runs, NOT reproducible locally (the full job
+  sequence passes on real Docker 29 in Ubuntu WSL and on Podman). Needs the
+  step log, which the API serves only with auth.
+- **bash-interop restore:** still fails after ~12 s of real work; NOT
+  reproducible locally even replicating the artifact zip round-trip onto
+  native ext4 (12/12 origins pass). Needs the step log.
+
+Diagnosis is blocked on the two failing step logs (the human can open the
+jobs' Details pages; unauthenticated API serves conclusions and annotations
+but not logs).
+

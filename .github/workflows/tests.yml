@@ -91,7 +91,10 @@ jobs:
           $cfg = New-PesterConfiguration
           $cfg.Run.Path = 'tests/Unit'
           $cfg.TestResult.Enabled = $true
-          $cfg.TestResult.OutputPath = "$env:RUNNER_TEMP/pester.xml"
+          # Workspace-relative, forward slashes: glob-based actions (dorny)
+          # treat backslashes in a ${{ runner.temp }} path as escape
+          # characters and match nothing (first-CI post-mortem, 2026-08-23).
+          $cfg.TestResult.OutputPath = 'pester-results/pester.xml'
           $cfg.TestResult.OutputFormat = 'NUnitXml'
           $cfg.Output.Verbosity = 'Detailed'
           $cfg.Run.Exit = $true
@@ -102,7 +105,7 @@ jobs:
         uses: dorny/test-reporter@v1
         with:
           name: FileBackup unit (Pester)
-          path: ${{ runner.temp }}/pester.xml
+          path: pester-results/pester.xml
           reporter: dotnet-nunit
           fail-on-error: false
 
@@ -129,23 +132,26 @@ jobs:
 
       - name: Run integration tests (Subst)
         shell: pwsh
+        # Workspace-relative result root: ${{ runner.temp }} expands with
+        # backslashes, which glob-based actions treat as escapes and match
+        # nothing (first-CI post-mortem, 2026-08-23).
         run: |
           .\tests\Run-All.ps1 -Backend Subst `
-              -ResultRoot $env:RUNNER_TEMP\fbtest -EmitJUnit -NonInteractive
+              -ResultRoot fbtest -EmitJUnit -NonInteractive
 
       - name: Upload raw results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-subst
-          path: ${{ runner.temp }}\fbtest\**
+          path: fbtest/**
 
       - name: Publish JUnit
         if: always()
         uses: dorny/test-reporter@v1
         with:
           name: FileBackup integration (Subst)
-          path: ${{ runner.temp }}\fbtest\**\results.xml
+          path: fbtest/**/results.xml
           reporter: java-junit
           fail-on-error: false
 
@@ -242,12 +248,16 @@ jobs:
         run: .\tests\Setup.ps1 -InstallDeps -NonInteractive
       - name: Generate FRESH backups (all 4 modes, kit intact) via the real engine
         shell: pwsh
-        run: pwsh -NoProfile -File scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot "$env:RUNNER_TEMP/fresh"
+        # Workspace-relative OutRoot (see the post-mortem note above): a
+        # backslashed ${{ runner.temp }} upload path can glob to NOTHING and
+        # upload-artifact's default if-no-files-found is only a warning.
+        run: pwsh -NoProfile -File scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot fresh
       - name: Upload fresh backup set
         uses: actions/upload-artifact@v4
         with:
           name: fresh-backups
-          path: ${{ runner.temp }}/fresh/bash-restore/**
+          path: fresh/bash-restore/**
+          if-no-files-found: error
 
   bash-interop-restore:
     name: Bash interop - restore fresh backups (Linux)
