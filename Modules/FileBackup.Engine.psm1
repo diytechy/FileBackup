@@ -779,7 +779,9 @@ function Get-BackupContentIndex {
     }
 
     $folderOrder = 0
-    foreach ($dir in @($SnapshotFolder)) {
+    # Where-Object guards the AGENTS.md §4 hazard: an empty result reaching this
+    # parameter as $null makes @($SnapshotFolder) one $null element.
+    foreach ($dir in @($SnapshotFolder | Where-Object { $_ })) {
         $folderOrder++
         $manifest = Read-Manifest -FolderPath $dir
         $folders.Add([pscustomobject]@{
@@ -1231,6 +1233,467 @@ function Test-PoolResolves {
         }
     }
     return $problems.ToArray()
+}
+
+function Get-StoredFileForm {
+    <#
+    .SYNOPSIS
+        Classifies one stored file as 'Archive' or 'Raw' from its first six
+        bytes — the 7-Zip signature 37 7A BC AF 27 1C — with no hashing and no
+        7-Zip (SR-049).
+
+    .DESCRIPTION
+        The BYTES are ground truth. The extension is only a claim, and the whole
+        point of storage-form verification is to catch a claim that is false.
+        Reading six bytes is cheap enough to do for every row in a pool.
+
+    .PARAMETER Path
+        Full path of the stored data file.
+
+    .OUTPUTS
+        [string] 'Archive', 'Raw', or 'Missing' when the file is not there.
+    #>
+    # Implements: SR-049, LLR-049
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'Missing' }
+    $magic = [byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C)
+    $head  = New-Object byte[] $magic.Length
+    $read  = 0
+    $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try { $read = $fs.Read($head, 0, $magic.Length) } finally { $fs.Dispose() }
+    if ($read -lt $magic.Length) { return 'Raw' }
+    for ($i = 0; $i -lt $magic.Length; $i++) {
+        if ($head[$i] -ne $magic[$i]) { return 'Raw' }
+    }
+    return 'Archive'
+}
+
+function Get-StorageFormFinding {
+    <#
+    .SYNOPSIS
+        Evaluates ONE pool folder's manifest against the bytes in that folder (and,
+        for blank-DataPath rows, against the pool index) and returns one finding
+        per disagreement (SR-049). Pure with respect to the store: it reads, and
+        never writes.
+
+    .DESCRIPTION
+        Classes, in the order they are decided so a row yields exactly ONE finding:
+
+          DanglingDataPath          a non-blank DataPath naming no file.
+          FlagOverRaw               Compressed='Yes' over bytes that are raw.
+          FlagOverArchive           Compressed='No' over bytes that are a 7z archive.
+          NameLies                  flag and bytes agree, but the DataPath's
+                                    extension claims the other form.
+          PayloadMismatch           -Deep only: the stored bytes do not reproduce
+                                    the row's (xxH2Hash,Length).
+          BlankRowFormDisagreement  a blank-DataPath row whose Compressed
+                                    disagrees with the form of the copy hash
+                                    recovery would locate. REPORTED, never
+                                    repaired: the "correct" value is
+                                    location-dependent, and SR-050 is the durable
+                                    fix. Carries the folder's kit revision,
+                                    because a snapshot restored by its OWN
+                                    pre-revision-2 kit is still exposed.
+          Unreferenced              a data file in the folder that no row names.
+
+        A row whose own RelativePath ends in '.7z' is exempt from the flag checks
+        through Test-StorageFormAgreement — a legitimately stored
+        already-compressed source file is not a disagreement.
+
+    .PARAMETER Folder
+        The pool folder being audited (backup root or one Snapshot_* folder).
+
+    .PARAMETER Manifest
+        That folder's own manifest rows.
+
+    .PARAMETER Index
+        A Get-BackupContentIndex result over the pool, used to resolve
+        blank-DataPath rows. Omit to skip the blank-row check.
+
+    .PARAMETER Deep
+        Also prove payload identity (requires 7-Zip for archive rows). See
+        SR-049 for the cost.
+
+    .PARAMETER SevenZipPath
+        7-Zip, required by -Deep when the folder holds archives.
+
+    .OUTPUTS
+        [pscustomobject[]] Folder, FolderName, RelativePath, DataPath, Class,
+        Observed, Expected, Repairable, KitRevision.
+    #>
+    # Implements: SR-049, LLR-049
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Folder,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$Manifest,
+        [object]$Index,
+        [switch]$Deep,
+        [string]$SevenZipPath
+    )
+    $findings  = New-Object System.Collections.Generic.List[object]
+    $name      = [IO.Path]::GetFileName($Folder)
+    $revision  = Get-BackupKitRevision -Folder $Folder
+    $referenced = @{}
+
+    $add = {
+        param([object]$Row, [string]$Class, [string]$Observed, [string]$Expected, [bool]$Repairable)
+        $findings.Add([pscustomobject]@{
+            Folder = $Folder; FolderName = $name
+            RelativePath = $Row.RelativePath; DataPath = $Row.DataPath
+            Class = $Class; Observed = $Observed; Expected = $Expected
+            Repairable = $Repairable; KitRevision = $revision
+        })
+    }
+
+    foreach ($row in @($Manifest)) {
+        if ([string]::IsNullOrWhiteSpace($row.DataPath)) {
+            if ($null -eq $Index) { continue }
+            if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
+            $key = "$($row.xxH2Hash)|$($row.Length)"
+            if (-not $Index.Map.ContainsKey($key)) { continue }   # absence is Test-PoolResolves' finding, not a FORM finding
+            foreach ($location in $Index.Map[$key].ToArray()) {
+                if (-not (Test-StorageFormAgreement -Compressed $row.Compressed -RelativePath $row.RelativePath -DataPath $location.DataPath)) {
+                    & $add $row 'BlankRowFormDisagreement' `
+                        "the pool copy '$($location.DataPath)' in '$([IO.Path]::GetFileName($location.Folder))'" `
+                        "Compressed=$($row.Compressed)" $false
+                    break
+                }
+            }
+            continue
+        }
+
+        $referenced[$row.DataPath] = $true
+        $full     = Join-Path $Folder $row.DataPath
+        $observed = Get-StoredFileForm -Path $full
+        if ($observed -eq 'Missing') {
+            & $add $row 'DanglingDataPath' 'no file' "a file at '$($row.DataPath)'" $false
+            continue
+        }
+
+        # THE exemption (the same one Test-StorageFormAgreement applies): a row
+        # whose own RelativePath ends in '.7z' is an already-compressed SOURCE
+        # file. Its data file is named '.7z' because the SOURCE was, and its
+        # bytes are whatever the user's file held — which this check cannot
+        # second-guess. Neither the flag nor the name is a disagreement.
+        $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z')
+        if (-not $exempt) {
+            $claimed  = if ($row.Compressed -eq 'Yes') { 'Archive' } else { 'Raw' }
+            $nameForm = if ([IO.Path]::GetExtension([string]$row.DataPath) -ieq '.7z') { 'Archive' } else { 'Raw' }
+            if ($claimed -ne $observed) {
+                $class = if ($observed -eq 'Raw') { 'FlagOverRaw' } else { 'FlagOverArchive' }
+                & $add $row $class $observed $claimed $true
+                continue
+            }
+            if ($nameForm -ne $observed) {
+                & $add $row 'NameLies' $observed "a name meaning $nameForm" $true
+                continue
+            }
+        }
+        if ($Deep) {
+            $payloadOk = $false
+            if ($observed -eq 'Archive') {
+                $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                try {
+                    Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $full -DestinationFile $tmp
+                    $payloadOk = ((Get-Item -LiteralPath $tmp).Length -eq [long]$row.Length -and
+                                  (Get-FileXxHash -FilePath $tmp) -eq $row.xxH2Hash)
+                } catch {
+                    $payloadOk = $false
+                } finally {
+                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                }
+            } else {
+                $payloadOk = ((Get-Item -LiteralPath $full).Length -eq [long]$row.Length -and
+                              (Get-FileXxHash -FilePath $full) -eq $row.xxH2Hash)
+            }
+            if (-not $payloadOk) {
+                & $add $row 'PayloadMismatch' 'other bytes' "(hash=$($row.xxH2Hash), length=$($row.Length))" $false
+            }
+        }
+    }
+
+    # Bytes in the folder that no row explains. Enumerated through Get-DataFile,
+    # so root-level infrastructure is excluded and a NESTED file named like
+    # infrastructure is still data (B6 / SN-018).
+    $rootPrefix = (Resolve-Path -LiteralPath $Folder).Path
+    foreach ($file in @(Get-DataFile -Root $Folder)) {
+        $rel = $file.FullName.Substring($rootPrefix.Length).TrimStart('\', '/')
+        if ($referenced.ContainsKey($rel)) { continue }
+        $findings.Add([pscustomobject]@{
+            Folder = $Folder; FolderName = $name
+            RelativePath = ''; DataPath = $rel
+            Class = 'Unreferenced'; Observed = 'a data file no manifest row names'; Expected = ''
+            Repairable = $false; KitRevision = $revision
+        })
+    }
+
+    return $findings.ToArray()
+}
+
+function Get-BackupKitRevision {
+    <#
+    .SYNOPSIS
+        Reads the '# KitRevision: <n>' marker out of the RECONSTRUCT.ps1 bundled
+        in a pool folder, so a finding can say which restore kit that folder
+        carries (SR-049).
+    .DESCRIPTION
+        A snapshot keeps the kit it was written with forever; the SR-050 fix
+        reaches only folders written by revision 2 or later. Folders written
+        before the marker existed report 1.
+    .PARAMETER Folder
+        The pool folder.
+    .OUTPUTS
+        [int] the revision, or 0 when the folder carries no restore kit at all.
+    #>
+    # Implements: SR-049, LLR-049
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Folder)
+    $kit = Join-Path $Folder $script:Def.ReconstructPs1Name
+    if (-not (Test-Path -LiteralPath $kit -PathType Leaf)) { return 0 }
+    foreach ($line in [IO.File]::ReadLines($kit)) {
+        if ($line -match '^\s*#\s*KitRevision:\s*(\d+)') { return [int]$Matches[1] }
+    }
+    return 1
+}
+
+function Test-BackupStorageForm {
+    <#
+    .SYNOPSIS
+        Audits a whole backup pool — the live backup root and, by default, every
+        Snapshot_* folder — for disagreements between what the index says about a
+        row's storage form and what the bytes actually are (SR-049). Mutates
+        nothing.
+
+    .DESCRIPTION
+        Never called by a normal backup run: a physical verify inside every
+        migration would fight SR-024 idempotence and run-time cost, so this is a
+        separate opt-in action (TC-094 pins that no verification symbol is
+        reachable from Invoke-BackupSet).
+
+    .PARAMETER BackupRoot
+        The live backup root.
+
+    .PARAMETER ChangeRoot
+        The change root holding the snapshot folders. Ignored under
+        -BackupRootOnly.
+
+    .PARAMETER BackupRootOnly
+        Audit only the backup root — the fast pass. The default includes every
+        snapshot, because that is where the SR-050 defect lives.
+
+    .PARAMETER Deep
+        Also prove payload identity for every row (SR-049); needs 7-Zip.
+
+    .PARAMETER SevenZipPath
+        7-Zip, required by -Deep.
+
+    .OUTPUTS
+        [pscustomobject[]] the findings, backup root first then snapshots in name
+        order. Empty means the pool's storage form is coherent.
+    #>
+    # Implements: SR-049, SR-038, SR-040, LLR-049
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [string]$ChangeRoot,
+        [switch]$BackupRootOnly,
+        [switch]$Deep,
+        [string]$SevenZipPath
+    )
+    if (-not (Test-Path -LiteralPath (Join-Path $BackupRoot $script:Def.DatabaseFilename) -PathType Leaf)) {
+        throw "No manifest at '$BackupRoot': there is nothing to verify."
+    }
+    if ($Deep -and (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf))) {
+        throw "-Deep proves payload identity and needs 7-Zip, which was not found at '$SevenZipPath'."
+    }
+
+    $snapshots = @()
+    if (-not $BackupRootOnly -and $ChangeRoot -and (Test-Path -LiteralPath $ChangeRoot -PathType Container)) {
+        $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ } | ForEach-Object { $_.FullName })
+    }
+    # The index always spans the whole pool, even under -BackupRootOnly: a blank
+    # row's bytes may live in a folder we are not auditing, and resolving it
+    # against a partial pool would invent findings.
+    $poolSnapshots = if ($ChangeRoot -and (Test-Path -LiteralPath $ChangeRoot -PathType Container)) {
+        # Where-Object first: piping a $null result into ForEach-Object yields one
+        # $null iteration, and @($null) casts to [string[]] as @('') (AGENTS.md §4).
+        @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ } | ForEach-Object { $_.FullName })
+    } else { @() }
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder $poolSnapshots
+
+    $all = New-Object System.Collections.Generic.List[object]
+    foreach ($folder in @($BackupRoot) + $snapshots) {
+        $manifest = Read-Manifest -FolderPath $folder
+        foreach ($f in @(Get-StorageFormFinding -Folder $folder -Manifest $manifest -Index $index -Deep:$Deep -SevenZipPath $SevenZipPath)) {
+            $all.Add($f)
+        }
+    }
+    return $all.ToArray()
+}
+
+function Repair-BackupStorageForm {
+    <#
+    .SYNOPSIS
+        Makes the index agree with the bytes for the findings that are
+        unambiguous from the row's OWN folder, taking the physical bytes as
+        ground truth (SR-049).
+
+    .DESCRIPTION
+        Repairs exactly two things and never anything else: the Compressed
+        column, and the data file's NAME so it stops lying about its form. It
+        never re-packs or re-compresses content, never edits the six logical
+        columns (RelativePath, Length, LastWriteTimeStr, xxH2Hash, Duplicate,
+        MediaMBPerSec), and never migrates layout.
+
+        BlankRowFormDisagreement, DanglingDataPath, PayloadMismatch and
+        Unreferenced are reported and never repaired — for the blank-row class
+        the "correct" value is location-dependent and SR-050 is the durable fix;
+        for the others the evidence is not in the row's own folder.
+
+        A rename that would produce a ROOT-LEVEL infrastructure name is refused
+        (SR-022 / B6), and every touched folder is persisted through
+        Write-Manifest so its SR-038 witness is re-stamped by the one writer —
+        never Export-Csv, never a direct Write-ManifestWitness call.
+
+    .PARAMETER BackupRoot
+        The live backup root.
+
+    .PARAMETER ChangeRoot
+        The change root holding the snapshot folders.
+
+    .PARAMETER BackupRootOnly
+        Repair only the backup root.
+
+    .PARAMETER Log
+        Logger scriptblock (message, level).
+
+    .OUTPUTS
+        [pscustomobject] Repaired (count), Skipped (the findings left alone) and
+        Findings (the pre-repair audit).
+    #>
+    # Implements: SR-049, SR-024, SR-038, LLR-049
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [string]$ChangeRoot,
+        [switch]$BackupRootOnly,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $findings = @(Test-BackupStorageForm -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot -BackupRootOnly:$BackupRootOnly)
+    $repaired = 0
+    $skipped  = New-Object System.Collections.Generic.List[object]
+
+    foreach ($group in ($findings | Group-Object Folder)) {
+        $folder   = $group.Name
+        $manifest = @(Read-Manifest -FolderPath $folder)
+        $dirty    = $false
+
+        foreach ($finding in $group.Group) {
+            if (-not $finding.Repairable) { $skipped.Add($finding); continue }
+            $row = $manifest | Where-Object { $_.RelativePath -eq $finding.RelativePath -and $_.DataPath -eq $finding.DataPath } |
+                   Select-Object -First 1
+            if (-not $row) { $skipped.Add($finding); continue }
+
+            $full     = Join-Path $folder $row.DataPath
+            $observed = Get-StoredFileForm -Path $full
+            if ($observed -eq 'Missing') { $skipped.Add($finding); continue }
+
+            # The bytes decide both columns. Rename only when the name's claim
+            # differs from what the bytes are.
+            $newCompressed = if ($observed -eq 'Archive') { 'Yes' } else { 'No' }
+            $newDataPath   = $row.DataPath
+            $nameIsArchive = ([IO.Path]::GetExtension([string]$row.DataPath) -ieq '.7z')
+            if ($observed -eq 'Archive' -and -not $nameIsArchive) { $newDataPath = "$($row.DataPath).7z" }
+            if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $row.DataPath.Substring(0, $row.DataPath.Length - 3) }
+
+            if ($newDataPath -ne $row.DataPath) {
+                $target = Join-Path $folder $newDataPath
+                if (Test-IsInfrastructureFile -Root $folder -FullPath ([IO.Path]::GetFullPath($target))) {
+                    & $Log "Refusing to rename '$($row.DataPath)' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
+                    $skipped.Add($finding); continue
+                }
+                if (Test-Path -LiteralPath $target -PathType Leaf) {
+                    & $Log "Refusing to rename '$($row.DataPath)' to '$newDataPath': a file is already there." 'WARN'
+                    $skipped.Add($finding); continue
+                }
+                if ($PSCmdlet.ShouldProcess($target, "rename '$($row.DataPath)' so its name matches its bytes")) {
+                    Move-Item -LiteralPath $full -Destination $target -Force
+                } else { $skipped.Add($finding); continue }
+            }
+
+            & $Log ("Repaired '$($finding.FolderName)' row '$($row.RelativePath)' [$($finding.Class)]: " +
+                    "Compressed $($row.Compressed) -> $newCompressed, DataPath '$($row.DataPath)' -> '$newDataPath'.") 'INFO'
+            $row.DataPath   = $newDataPath
+            $row.Compressed = $newCompressed
+            $dirty = $true
+            $repaired++
+        }
+
+        # One write per folder, through the SOLE manifest writer, so the SR-038
+        # witness is re-stamped with it (never a caller-side stamp).
+        if ($dirty -and $PSCmdlet.ShouldProcess($folder, 'persist the repaired manifest')) {
+            Write-Manifest -FolderPath $folder -Records $manifest
+        }
+    }
+
+    return [pscustomobject]@{ Repaired = $repaired; Skipped = $skipped.ToArray(); Findings = $findings }
+}
+
+function Update-BackupSnapshotKit {
+    <#
+    .SYNOPSIS
+        Re-copies the backup root's current restore-kit artifacts into every
+        Snapshot_* folder — the only mechanism that retires an old kit from a
+        snapshot written before the SR-050 fix (SR-049, plan §5 / decision Q3).
+
+    .DESCRIPTION
+        Opt-in and NEVER default: it rewrites files inside immutable snapshot
+        folders, which is a deliberate operator act.
+
+        Copies exactly the six kit artifacts Complete-ChangeFolder copies and
+        NOTHING else. The manifest witness (MANIFEST.csv.meta) is emphatically
+        NOT one of them: each snapshot witnesses its OWN manifest, and copying
+        the root's over it is the single most dangerous mistake available here
+        (AGENTS.md §3, pinned by TC-067).
+
+    .PARAMETER BackupRoot
+        The live backup root, whose kit is the current one.
+
+    .PARAMETER ChangeRoot
+        The change root holding the snapshot folders.
+
+    .PARAMETER Log
+        Logger scriptblock (message, level).
+
+    .OUTPUTS
+        [pscustomobject] Refreshed (folder count) and Revision (the kit revision
+        now present in each).
+    #>
+    # Implements: SR-049, SR-007, SR-038, LLR-049
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName,
+                   $script:Def.ReconstructShName, $script:Def.CommonModuleName,
+                   'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+    $refreshed = 0
+    foreach ($snapshot in @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ })) {
+        if (-not $PSCmdlet.ShouldProcess($snapshot.FullName, 'refresh the bundled restore kit')) { continue }
+        foreach ($artifact in $artifacts) {
+            $src = Join-Path $BackupRoot $artifact
+            if (Test-Path -LiteralPath $src -PathType Leaf) {
+                Copy-Item -LiteralPath $src -Destination (Join-Path $snapshot.FullName $artifact) -Force
+            }
+        }
+        & $Log "Refreshed the restore kit in '$($snapshot.Name)' (the manifest witness was NOT copied)." 'INFO'
+        $refreshed++
+    }
+    return [pscustomobject]@{ Refreshed = $refreshed; Revision = (Get-BackupKitRevision -Folder $BackupRoot) }
 }
 
 function Assert-PrunePrecondition {
@@ -2768,6 +3231,8 @@ Export-ModuleMember -Function @(
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
     'Get-SnapshotPrunePlan', 'Get-BackupSnapshot', 'Get-PoolSnapshotFolder',
     'Test-StorageFormAgreement', 'Test-PoolResolves', 'Assert-PrunePrecondition',
+    'Get-StoredFileForm', 'Get-StorageFormFinding', 'Get-BackupKitRevision',
+    'Test-BackupStorageForm', 'Repair-BackupStorageForm', 'Update-BackupSnapshotKit',
     'Invoke-PruneEntrySweep', 'Copy-ReHomedDataFile', 'Publish-PruneManifest',
     'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',

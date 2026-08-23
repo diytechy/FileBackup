@@ -1971,12 +1971,14 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         }
     }
 
-    It 'exposes -Action Backup|Prune|Snapshots (default Backup) and -Snapshot as a string list' {
+    It 'exposes -Action Backup|Prune|Snapshots|Verify (default Backup) and -Snapshot as a string list' {
         $cmd = Get-Command $entry
         $action = $cmd.Parameters['Action']
         $action | Should -Not -BeNullOrEmpty
         $validate = @($action.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })[0]
-        $validate.ValidValues | Should -Be @('Backup', 'Prune', 'Snapshots')
+        # WP5 extends the ONE dispatch with Verify (SR-049); it never adds a
+        # parallel one.
+        $validate.ValidValues | Should -Be @('Backup', 'Prune', 'Snapshots', 'Verify')
         $cmd.Parameters['Snapshot'].ParameterType.Name | Should -Be 'String[]'
     }
 
@@ -2053,7 +2055,7 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
     It 'container/entrypoint.sh dispatches on the action word and passes ''-'' arguments through unchanged' {
         $sh = Get-Content -LiteralPath (Join-Path $repo 'container\entrypoint.sh') -Raw
         $sh | Should -Match 'FILEBACKUP_ACTION'
-        $sh | Should -Match 'backup\|prune\|snapshots\)'          # only these WORDS are consumed
+        $sh | Should -Match 'backup\|prune\|snapshots\|verify\)'   # only these WORDS are consumed
         $sh | Should -Match '-Action Prune'
         $sh | Should -Match '-Action Snapshots'
         $sh | Should -Match 'FILEBACKUP_SNAPSHOT'

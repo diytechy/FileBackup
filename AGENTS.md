@@ -131,6 +131,7 @@ Imports (internal): `Common`
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
+| `Get-BackupKitRevision` | yes | SR-049, LLR-049 |
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-DataFile` | yes | — |
@@ -142,6 +143,8 @@ Imports (internal): `Common`
 | `Get-ReHomedDataPathName` | no | SR-045, LLR-045 |
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
+| `Get-StorageFormFinding` | yes | SR-049, LLR-049 |
+| `Get-StoredFileForm` | yes | SR-049, LLR-049 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
@@ -154,6 +157,7 @@ Imports (internal): `Common`
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
+| `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
@@ -164,12 +168,14 @@ Imports (internal): `Common`
 | `Sync-BackupStorageLayout` | yes | SR-012, SR-013, SR-051, LLR-012, LLR-013, LLR-051 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
 | `Test-BackupManifest` | yes | — |
+| `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, LLR-049 |
 | `Test-ConfigValueJsonType` | no | SR-042, LLR-042 |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
 | `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |
 | `Test-PoolResolves` | yes | SR-046, SR-045, LLR-046 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
+| `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
 | `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024 |
 <!-- END GENERATED MODULE MAP -->
 

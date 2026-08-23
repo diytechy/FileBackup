@@ -84,9 +84,19 @@
     use, just outside the container contract.
 
 .PARAMETER Action
-    Backup (default), Prune or Snapshots (SR-048).
+    Backup (default), Prune, Snapshots (SR-048) or Verify (SR-049).
 
         Backup     — the normal run described above; unchanged.
+        Verify     — audit the stored form of every manifest row in the backup
+                     root and in every Snapshot_* folder against the physical
+                     bytes, mutating nothing, and print the findings as JSON.
+                     Never invoked by a backup run. Add -RepairStorage to fix
+                     the findings that are unambiguous from bytes in the row's
+                     own folder, -Deep to also prove payload identity (needs
+                     7-Zip), -BackupRootOnly (or -IncludeSnapshots:$false) for
+                     the fast pass, and -RefreshKits to re-copy the current
+                     restore kit into every snapshot. Outcome follows the SR-040
+                     table: 0 clean, 1 findings, 2 precondition.
         Snapshots  — print the read-only snapshot inventory as JSON: Name, Date,
                      Rows, PhysicalBytes, BytesReclaimed, BytesReHomed. The
                      reclaim figures are dedup-aware, so they are what removing
@@ -170,7 +180,24 @@ param(
     # by WP4; Prune removes named snapshots through the retention mechanism and
     # Snapshots prints the read-only inventory as JSON. Retention POLICY belongs
     # to the wrapper (IF-001) -- this entry point only takes explicit names.
-    [ValidateSet('Backup', 'Prune', 'Snapshots')][string]$Action = 'Backup',
+    [ValidateSet('Backup', 'Prune', 'Snapshots', 'Verify')][string]$Action = 'Backup',
+    # -Action Verify (SR-049). -VerifyStorage is kept as an alias so the
+    # disposition wording and the code resolve to the same one dispatch.
+    [Alias('VerifyStorage')][switch]$VerifyStorageAlias,
+    # Repair the findings that are unambiguous from bytes in the row's own
+    # folder. Reporting is the default: verification never mutates.
+    [switch]$RepairStorage,
+    # Also prove payload identity for every row (needs 7-Zip).
+    [switch]$Deep,
+    # Audit only the backup root -- the fast pass. Equivalent to
+    # -IncludeSnapshots:$false; the default covers every snapshot, because that
+    # is where the SR-050 defect lives.
+    [switch]$BackupRootOnly,
+    [bool]$IncludeSnapshots = $true,
+    # Re-copy the CURRENT restore kit into every snapshot folder (SR-049). Opt-in
+    # and never default: it is the only way to retire a pre-SR-050 kit from an
+    # existing snapshot, and it writes inside otherwise-immutable folders.
+    [switch]$RefreshKits,
     # Snapshot folder name(s) for -Action Prune. A single comma-separated value
     # is split, because `pwsh -File` passes every argument as one literal string.
     [string[]]$Snapshot,
@@ -344,14 +371,84 @@ function Invoke-RetentionAction {
     return (Get-PruneBatchExitCode -Result $result)
 }
 
+function Invoke-VerifyAction {
+    <#
+    .SYNOPSIS
+        Runs the -Action Verify half of the entry point and returns its SR-040
+        process code (SR-049).
+    .DESCRIPTION
+        Verification is a one-shot invocation against ONE configured set, like
+        retention (IF-001). It mutates nothing unless -RepairStorage is given,
+        and it is never reachable from a normal backup run.
+
+        Findings go to stdout as JSON so a wrapper can translate them; the
+        function's own output is its status code, so the document is written
+        straight to the console stream and NOT down the pipeline (the same
+        capture bug WP4 hit with the snapshots action).
+    .PARAMETER Set
+        The single backup set to audit.
+    .PARAMETER Deps
+        Resolved dependencies; Deps['7z'] backs -Deep.
+    .PARAMETER Log
+        Logger scriptblock.
+    .OUTPUTS
+        [int] per the SR-040 table: 0 clean, 1 findings (a content statement,
+        not a usage error), 2 precondition, 4 host.
+    #>
+    # Implements: SR-049, SR-040, SR-043, LLR-049
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Set,
+        [Parameter(Mandatory)][hashtable]$Deps,
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [switch]$Repair,
+        [switch]$DeepCheck,
+        [switch]$RootOnly,
+        [switch]$Refresh
+    )
+    $paths = Resolve-BackupSetPaths -Set $Set
+    try {
+        if ($Refresh) {
+            $kits = Update-BackupSnapshotKit -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -Log $Log
+            & $Log "Refreshed the restore kit in $($kits.Refreshed) snapshot folder(s) to revision $($kits.Revision)." 'INFO'
+        }
+        if ($Repair) {
+            $result   = Repair-BackupStorageForm -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -BackupRootOnly:$RootOnly -Log $Log
+            & $Log "Repaired $($result.Repaired) finding(s); $(@($result.Skipped).Count) reported only." 'INFO'
+        }
+        # Report the state the caller is left in: after a repair this is the
+        # re-verification, so a clean exit 0 means the store is now coherent.
+        $findings = @(Test-BackupStorageForm -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
+                        -BackupRootOnly:$RootOnly -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
+    } catch {
+        & $Log "Storage-form verification could not run: $($_.Exception.Message)" 'ERROR'
+        return 2
+    }
+
+    [Console]::Out.WriteLine(($findings | ConvertTo-Json -Depth 4 -AsArray))
+    foreach ($finding in $findings) {
+        & $Log "[$($finding.Class)] '$($finding.FolderName)' row '$($finding.RelativePath)' (data '$($finding.DataPath)'): observed $($finding.Observed), index says $($finding.Expected)." 'WARN'
+    }
+    if ($findings.Count -gt 0) { return 1 }
+    & $Log 'Storage-form verification found no disagreements.' 'INFO'
+    return 0
+}
+
+if ($Action -eq 'Backup' -and $VerifyStorageAlias) { $Action = 'Verify' }
+
 if ($Action -ne 'Backup') {
     if (@($Sets).Count -ne 1) {
         & $globalLog ("Retention acts on ONE backup set per invocation (IF-001); this configuration declares $(@($Sets).Count). Using the first: '$($Sets[0].Name)'.") 'WARN'
     }
-    $retentionCode = Invoke-RetentionAction -Set $Sets[0] -Mode $Action -Name $Snapshot `
-                        -Deps $deps -Log $globalLog -DryRun:$WhatIfPreference
-    if ($ExitCode) { exit $retentionCode }
-    if ($retentionCode -ne 0) { throw "FileBackup -Action $Action finished with status $retentionCode (see README 'Restore exit codes')." }
+    $actionCode = if ($Action -eq 'Verify') {
+        Invoke-VerifyAction -Set $Sets[0] -Deps $deps -Log $globalLog `
+            -Repair:$RepairStorage -DeepCheck:$Deep `
+            -RootOnly:($BackupRootOnly -or -not $IncludeSnapshots) -Refresh:$RefreshKits
+    } else {
+        Invoke-RetentionAction -Set $Sets[0] -Mode $Action -Name $Snapshot `
+            -Deps $deps -Log $globalLog -DryRun:$WhatIfPreference
+    }
+    if ($ExitCode) { exit $actionCode }
+    if ($actionCode -ne 0) { throw "FileBackup -Action $Action finished with status $actionCode (see README 'Restore exit codes')." }
     return
 }
 

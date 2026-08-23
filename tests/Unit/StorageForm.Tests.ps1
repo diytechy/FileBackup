@@ -41,6 +41,15 @@ BeforeAll {
         return $LASTEXITCODE
     }
 
+    function Invoke-VerifyExitCode {
+        # -Action Verify through the real entry point, in a child process so its
+        # exit status is observable (the SR-040 codes at the process boundary).
+        param([string]$Cfg)
+        & (Get-Process -Id $PID).Path -NoProfile -File $script:entry -ConfigPath $Cfg `
+            -Action Verify -NoMail -NonInteractive -ExitCode *>&1 | Out-Null
+        return $LASTEXITCODE
+    }
+
     function Get-TreeFingerprint {
         param([string[]]$Folder)
         $out = @{}
@@ -81,38 +90,45 @@ BeforeAll {
             c.txt  name-lies         Compressed=No,  DataPath 'c.txt.7z', RAW bytes
             d.txt  dangling-datapath Compressed=No,  DataPath 'd.txt',    no file
         #>
-        param([string]$Root, [bool]$Compress = $false)
+        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
         foreach ($n in 'a', 'b', 'c', 'd') {
             [IO.File]::WriteAllText((Join-Path $src "$n.txt"), ("CONTENT-$n " * 40))
         }
         Invoke-FormBackup -Cfg $cfg | Out-Null
 
+        # The shapes are written EXPLICITLY (bytes and DataPath both), so the
+        # fixture means the same thing in all four storage modes rather than
+        # inheriting whatever form the seed run happened to produce.
         $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
         foreach ($row in $rows) {
             $current = Join-Path $bkp $row.DataPath
+            $raw     = Join-Path $src $row.RelativePath        # the true, raw bytes
             switch ($row.RelativePath) {
                 'a.txt' {
-                    Move-Item -LiteralPath $current -Destination (Join-Path $bkp 'a.txt.7z') -Force
+                    Remove-Item -LiteralPath $current -Force
+                    Copy-Item -LiteralPath $raw -Destination (Join-Path $bkp 'a.txt.7z') -Force
                     $row.DataPath = 'a.txt.7z'; $row.Compressed = 'Yes'
                 }
                 'b.txt' {
-                    # Real archive bytes parked under the raw name (shape b).
-                    $tmp = Join-Path $Root 'b.7z'
-                    Compress-FileWithSevenZip -SevenZipPath $script:sevenZip -SourceFile $current -Destination7z $tmp
-                    Copy-Item -LiteralPath $tmp -Destination $current -Force
-                    Remove-Item -LiteralPath $tmp -Force
-                    $row.Compressed = 'No'
+                    # Real archive bytes parked under a RAW name (shape b).
+                    Remove-Item -LiteralPath $current -Force
+                    Compress-FileWithSevenZip -SevenZipPath $script:sevenZip -SourceFile $raw `
+                        -Destination7z (Join-Path $Root 'b.7z')
+                    Move-Item -LiteralPath (Join-Path $Root 'b.7z') -Destination (Join-Path $bkp 'b.txt') -Force
+                    $row.DataPath = 'b.txt'; $row.Compressed = 'No'
                 }
                 'c.txt' {
-                    Move-Item -LiteralPath $current -Destination (Join-Path $bkp 'c.txt.7z') -Force
+                    Remove-Item -LiteralPath $current -Force
+                    Copy-Item -LiteralPath $raw -Destination (Join-Path $bkp 'c.txt.7z') -Force
                     $row.DataPath = 'c.txt.7z'; $row.Compressed = 'No'
                 }
                 'd.txt' {
                     Remove-Item -LiteralPath $current -Force
+                    $row.DataPath = 'd.txt'
                 }
             }
         }
@@ -201,7 +217,10 @@ Describe 'Sync-BackupStorageLayout trusts metadata over bytes (SR-049)' {
         Invoke-FormBackupExitCode -Cfg $s.Cfg | Should -Be 1
     }
 
-    It 'reports one finding per malformed row with its class (SR-049)' -Skip {
+    It 'reports one finding per malformed row with its class (SR-049)' {
+        # Its OWN store: the case above deliberately runs a backup over the
+        # fixture, which heals the dangling row by re-copying it from source.
+        $store = New-MalformedStore -Root (Join-Path $TestDrive 'tc091-classes')
         $findings = @(Test-BackupStorageForm -BackupRoot $store.Bkp -ChangeRoot $store.Chg)
         ($findings | Where-Object RelativePath -eq 'a.txt').Class | Should -Be 'FlagOverRaw'
         ($findings | Where-Object RelativePath -eq 'b.txt').Class | Should -Be 'FlagOverArchive'
@@ -435,6 +454,209 @@ Describe 'Layout migration is refcount-safe (SR-051)' {
             Should -BeTrue -Because 'a still-referenced superseded path must never be deleted'
         foreach ($row in @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))) {
             Test-Path -LiteralPath (Join-Path $bkp $row.DataPath) -PathType Leaf | Should -BeTrue
+        }
+    }
+}
+
+Describe 'Storage-form verification reports without mutating (SR-049)' {
+    # TC-093 — the audit itself: one finding per disagreeing row across the
+    # backup root AND every snapshot, nothing touched, outcome on the SR-040 table.
+    It 'reports zero findings for a clean backup in mode <Mode> and exits 0 (SR-049)' -ForEach @(
+        @{ Mode = 'Mirror';                 Compress = $false; ContentAddressed = $false }
+        @{ Mode = 'Mirror+Compress';        Compress = $true;  ContentAddressed = $false }
+        @{ Mode = 'HashAddressed';          Compress = $false; ContentAddressed = $true  }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  ContentAddressed = $true  }
+    ) {
+        $root = Join-Path $TestDrive "tc093-$Mode"
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        [IO.File]::WriteAllText((Join-Path $src 'text.txt'), ('COMPRESSIBLE ' * 200))
+        [IO.File]::WriteAllText((Join-Path $src 'already.7z'), 'pretend-archive-source')
+        # B6: a NESTED infrastructure-named file is user data and must not be
+        # mistaken for infrastructure or reported as unreferenced.
+        [IO.File]::WriteAllText((Join-Path $src 'sub\MANIFEST.csv'), 'nested,not,infrastructure')
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+        [IO.File]::WriteAllText((Join-Path $src 'text.txt'), ('CHANGED ' * 200))
+        Invoke-FormBackup -Cfg $cfg | Out-Null      # produces a snapshot
+
+        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_').Count |
+            Should -BeGreaterThan 0
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
+        Invoke-VerifyExitCode -Cfg $cfg | Should -Be 0
+    }
+
+    It 'audits every snapshot as well as the backup root, and covers the root alone under -BackupRootOnly (SR-049)' {
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-scope')
+        # Give the store a snapshot carrying a malformed row of its own.
+        $snap = Join-Path $s.Chg 'Snapshot_2024_01_01_00_00_01'
+        New-Item -ItemType Directory -Path $snap -Force | Out-Null
+        $rows = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'b.txt')
+        Copy-Item -LiteralPath (Join-Path $s.Bkp 'b.txt') -Destination (Join-Path $snap 'b.txt') -Force
+        Set-ManifestRows -Folder $snap -Rows $rows
+
+        $all = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        @($all | Where-Object FolderName -eq 'Snapshot_2024_01_01_00_00_01') | Should -Not -BeNullOrEmpty
+        $rootOnly = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -BackupRootOnly)
+        @($rootOnly | Where-Object FolderName -like 'Snapshot_*') | Should -BeNullOrEmpty
+    }
+
+    It 'mutates nothing at all, including MANIFEST.csv and its witness (SR-049)' {
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-nomutate')
+        $before = Get-TreeFingerprint -Folder $s.Bkp
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -Not -BeNullOrEmpty
+        Assert-TreeUnchanged -Before $before -Folder $s.Bkp
+    }
+
+    It 'maps its outcome onto the SR-040 table (SR-049, SR-040)' {
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-codes')
+        Invoke-VerifyExitCode -Cfg $s.Cfg | Should -Be 1 -Because 'findings are a content statement, not a usage error'
+
+        # Precondition: no manifest to verify at all.
+        $empty = Join-Path $TestDrive 'tc093-codes-empty'
+        New-Item -ItemType Directory -Path $empty, (Join-Path $empty 'chg') -Force | Out-Null
+        $cfg2 = Join-Path $TestDrive 'tc093-codes-empty.xml'
+        New-FormConfig -Path $cfg2 -Src $s.Src -Bkp $empty -Chg (Join-Path $empty 'chg')
+        Invoke-VerifyExitCode -Cfg $cfg2 | Should -Be 2
+
+        # Precondition: -Deep with no 7-Zip.
+        { Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath 'C:\nope\7z.exe' } |
+            Should -Throw -ExpectedMessage '*needs 7-Zip*'
+    }
+
+    It 'reports a payload that does not reproduce the row under -Deep (SR-049)' {
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-deep')
+        # c.txt is a NameLies row; repair it first so -Deep reaches the payload
+        # check for it, then corrupt the bytes in place.
+        Repair-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Log { param($m, $l) } | Out-Null
+        $row = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'c.txt')[0]
+        [IO.File]::WriteAllText((Join-Path $s.Bkp $row.DataPath), 'DIFFERENT BYTES ENTIRELY')
+        $deep = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $script:sevenZip)
+        @($deep | Where-Object { $_.RelativePath -eq 'c.txt' -and $_.Class -eq 'PayloadMismatch' }) |
+            Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
+    # TC-094.
+    BeforeAll {
+        $script:logSink = { param($m, $l) }
+    }
+
+    It 'repairs every unambiguous finding and re-verifies clean, in mode <Mode> (SR-049)' -ForEach @(
+        @{ Mode = 'Mirror';                 Compress = $false; ContentAddressed = $false }
+        @{ Mode = 'Mirror+Compress';        Compress = $true;  ContentAddressed = $false }
+        @{ Mode = 'HashAddressed';          Compress = $false; ContentAddressed = $true  }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  ContentAddressed = $true  }
+    ) {
+        $s = New-MalformedStore -Root (Join-Path $TestDrive "tc094-$Mode") -Compress $Compress -ContentAddressed $ContentAddressed
+        $logical = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv'))
+        $payloads = @{}
+        foreach ($row in $logical) {
+            $full = Join-Path $s.Bkp $row.DataPath
+            if (Test-Path -LiteralPath $full -PathType Leaf) {
+                $payloads[$row.RelativePath] = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash
+            }
+        }
+
+        $result = Repair-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Log $logSink
+        $result.Repaired | Should -Be 3 -Because 'three of the four shapes are repairable from the bytes in the row own folder'
+
+        # The remaining finding is the dangling DataPath, which is reported only.
+        $after = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        @($after | Where-Object Class -in 'FlagOverRaw', 'FlagOverArchive', 'NameLies') | Should -BeNullOrEmpty
+        @($after | Where-Object Class -eq 'DanglingDataPath').Count | Should -Be 1
+
+        # The six LOGICAL columns are byte-identical...
+        $now = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv'))
+        foreach ($row in $logical) {
+            $match = $now | Where-Object RelativePath -eq $row.RelativePath
+            foreach ($col in 'RelativePath', 'Length', 'LastWriteTimeStr', 'xxH2Hash', 'Duplicate', 'MediaMBPerSec') {
+                $match.$col | Should -Be $row.$col
+            }
+        }
+        # ...and no content was ever re-packed: every data file payload hash is
+        # what it was, only its name and its Compressed column moved.
+        foreach ($row in $now) {
+            $full = Join-Path $s.Bkp $row.DataPath
+            if (Test-Path -LiteralPath $full -PathType Leaf) {
+                (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash | Should -Be $payloads[$row.RelativePath]
+            }
+        }
+        # Every rewritten folder witness is re-stamped by Write-Manifest.
+        (Test-ManifestWitness -FolderPath $s.Bkp).Status | Should -Be 'Verified'
+    }
+
+    It 'reports blank-row form disagreements without repairing them (SR-049)' {
+        $t = New-FlipTimeline -Root (Join-Path $TestDrive 'tc094-blank') -StartCompressed $false -ContentAddressed $false
+        $findings = @(Test-BackupStorageForm -BackupRoot $t.Bkp -ChangeRoot $t.Chg)
+        $blank = @($findings | Where-Object Class -eq 'BlankRowFormDisagreement')
+        $blank | Should -Not -BeNullOrEmpty
+        $blank[0].Repairable | Should -BeFalse
+        $blank[0].KitRevision | Should -BeGreaterOrEqual 2 -Because 'a finding names the kit that snapshot carries'
+
+        $before = Get-TreeFingerprint -Folder $t.Chg
+        $result = Repair-BackupStorageForm -BackupRoot $t.Bkp -ChangeRoot $t.Chg -Log $logSink
+        @($result.Skipped | Where-Object Class -eq 'BlankRowFormDisagreement') | Should -Not -BeNullOrEmpty
+        Assert-TreeUnchanged -Before $before -Folder $t.Chg
+    }
+
+    It 'leaves a backup run after a repair idempotent (SR-024, SR-049)' {
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc094-idempotent')
+        Repair-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Log $logSink | Out-Null
+        # run1 is by design NOT idempotent with run0: repair leaves the dangling
+        # row for the engine to heal by re-copying it from source. SR-024 is the
+        # run2 = run3 property (plan section 7).
+        $rowText = {
+            # Row CONTENT, ordered by RelativePath. Manifest row ORDER is not a
+            # documented contract (G7 owns determinism); SR-024 is about the rows.
+            @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Sort-Object RelativePath |
+              ForEach-Object { ($_.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join '|' }) -join "`n"
+        }
+        Invoke-FormBackup -Cfg $s.Cfg | Out-Null
+        Invoke-FormBackup -Cfg $s.Cfg | Out-Null
+        $second = & $rowText
+        Invoke-FormBackup -Cfg $s.Cfg | Out-Null
+        & $rowText | Should -Be $second
+
+        # ...and the repaired store carries no storage-form finding at all.
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -BeNullOrEmpty
+    }
+
+    It 'is unreachable from a normal backup run, and never writes a manifest itself (SR-049)' {
+        # Source guard. Invoke-BackupSet's transitive call graph must not contain
+        # any verification/repair symbol, and the WP5 code must persist ONLY
+        # through Write-Manifest (never Export-Csv, never a direct witness stamp).
+        $enginePath = Join-Path $repo 'Modules\FileBackup.Engine.psm1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($enginePath, [ref]$null, [ref]$null)
+        $functions = @{}
+        foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+            $functions[$fn.Name] = $fn
+        }
+        $reached = New-Object System.Collections.Generic.HashSet[string]
+        $walk = {
+            param([string]$Name)
+            if (-not $functions.ContainsKey($Name)) { return }
+            if (-not $reached.Add($Name)) { return }
+            foreach ($call in $functions[$Name].FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+                $called = $call.GetCommandName()
+                if ($called) { & $walk $called }
+            }
+        }
+        & $walk 'Invoke-BackupSet'
+        foreach ($forbidden in 'Test-BackupStorageForm', 'Repair-BackupStorageForm', 'Get-StorageFormFinding',
+                               'Get-StoredFileForm', 'Update-BackupSnapshotKit') {
+            $reached.Contains($forbidden) | Should -BeFalse -Because "no backup run may invoke $forbidden"
+        }
+
+        # Matched on the AST, not on the source text: the functions' own comments
+        # name these commands in order to say they are never used.
+        foreach ($name in 'Test-BackupStorageForm', 'Repair-BackupStorageForm', 'Get-StorageFormFinding', 'Update-BackupSnapshotKit') {
+            $invoked = @($functions[$name].FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+                         ForEach-Object { $_.GetCommandName() })
+            $invoked | Should -Not -Contain 'Export-Csv'
+            $invoked | Should -Not -Contain 'Write-ManifestWitness'
         }
     }
 }
