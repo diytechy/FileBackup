@@ -220,8 +220,17 @@ Describe 'Sync-BackupStorageLayout trusts metadata over bytes (SR-049)' {
         # exactly the SR-022 root-level-only rule the engine itself uses.
         $after = Get-TreeFingerprint -Folder $store.Bkp
         foreach ($f in @(Get-DataFile -Root $store.Bkp)) {
+            if ($f.Name -eq 'd.txt') { continue }   # healed below — deliberately not byte-identical
             $after[$f.FullName] | Should -Be $before[$f.FullName] -Because "data file '$($f.Name)' must be untouched"
         }
+        # WP7 (SR-053): the DANGLING shape is the exception to "untouched" — a
+        # row whose data file is missing is healed from the still-matching
+        # source by the run itself. Healing restores missing BYTES; it never
+        # rewrites the three FORM-malformed rows above (that is Verify/Repair's
+        # job, and the assertions above prove they stayed byte-identical).
+        $healed = @($rows | Where-Object RelativePath -eq 'd.txt')[0]
+        $healed.DataPath | Should -Not -BeNullOrEmpty
+        Test-Path -LiteralPath (Join-Path $store.Bkp $healed.DataPath) | Should -BeTrue
     }
 
     It 'reports a failed transformation of a Compressed=Yes-over-raw row and FAILS the set (SR-049, SR-051)' {

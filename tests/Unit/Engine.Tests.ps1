@@ -65,9 +65,19 @@ Describe 'Compare-SourceToBackup' {
     }
     It 'ignores unchanged files' {
         $row = New-Row 'same' 10 'H1' $t
-        $diff = Compare-SourceToBackup -SourceDb @($row) -BackupDb @($row)
+        # A real backup row always carries a DataPath (the manifest schema);
+        # WP7 treats a BLANK one as damage to heal, so the unchanged case must
+        # be modeled with the column populated.
+        $bkpRow = $row | Select-Object *
+        $bkpRow | Add-Member -NotePropertyName DataPath -NotePropertyValue 'same' -Force
+        $diff = Compare-SourceToBackup -SourceDb @($row) -BackupDb @($bkpRow)
         $diff.NewOrChanged.Count | Should -Be 0
         $diff.RemovedFromSource.Count | Should -Be 0
+
+        # WP7 (SR-053): the same metadata with a BLANK DataPath is not
+        # "unchanged" — it re-enters the diff so the run can heal it.
+        $bkpRow.DataPath = ''
+        (Compare-SourceToBackup -SourceDb @($row) -BackupDb @($bkpRow)).NewOrChanged.Count | Should -Be 1
     }
     It 'detects a content change (hash differs)' {
         $s = New-Row 'f' 10 'NEW' $t

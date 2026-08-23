@@ -3119,6 +3119,100 @@ findings will be recorded here when they land.
 Both run at the human's request before deciding the dispositions; both
 escalate their item. Full facts folded into the Open-items rows; summary:
 
+### HUMAN — Open-item rulings + WP7/WP8 minted — 2026-08-23
+
+After the investigations below, the human ruled ("Yes, please build out WP7
+and WP8 … I will push when those are completed"):
+
+- **WP7 minted (storage self-healing + retention unblock):** the verified-HIGH
+  blank-DataPath item (never adopt a blank DataPath; heal from source on
+  blanking; wire `Test-PoolResolves` into `-Action Verify`; README
+  backup-root warning) plus the form-mismatch prune-rail relaxation, as one
+  WP — shared `Test-PoolResolves`/verify surface.
+- **WP8 minted (portable names + raw-candidate recovery):** R6/R7 are
+  dispositioned by ruling — **a source filename invalid on either platform is
+  skipped LOUDLY at backup time** (reported per file, set fails); no
+  special-case handling of quote/newline names. Plus R10's no-7-Zip
+  raw-candidate test (a kit-revision bump, batched here).
+- **F8** understood and stays parked (sub-second window, `-RefreshKits`
+  recovers). **Snapshot inventory cost** accepted: real cadence is one backup
+  per day, so O(n²) is a non-issue at practical scale.
+- **The push waits for WP7+WP8** — "No reason to push especially with WP7
+  still unfixed."
+
+---
+
+### DRIVER (Software + Test Engineer, Data-integrity hat) — WP7: storage self-healing + retention unblock — 2026-08-23
+
+Plan: [plans/wp7-self-healing-plan.md](plans/wp7-self-healing-plan.md). All
+four scoped changes landed; every acceptance ran green.
+
+**Healing (SR-053).** `Compare-SourceToBackup` gains a third NewOrChanged arm:
+metadata-equal but blank `DataPath` — a blanked row re-enters the diff, so the
+run after a data-file loss re-copies from the still-matching source (or
+re-points at a surviving dedup copy). `Invoke-BackupFileGroup`'s dedup
+candidate filter now requires a non-blank `DataPath`, so a new same-content
+file can never adopt a row that points nowhere (the R5 spread). The heal run
+mints its snapshot like any other manifest-changing run.
+
+**Verify sees the pool (SR-054).** `Invoke-VerifyAction` appends
+`Test-PoolResolves`' `broken-pool` problems to the findings document as
+`Class=PoolUnresolvable` (six-field shape preserved; findings drive exit 1) —
+closing the investigation's decisive blind spot: a store with permanently
+unrestorable rows no longer verifies clean. Pool audit is always pool-wide;
+`-RootOnly` scopes only the form audit. Report-only by design — bytes cannot
+be conjured; the heal is the next backup run or restoring content into the
+pool.
+
+**Rail relaxation (SR-046 as amended).** `Test-PoolResolves`' blank-row form
+check is now gated on the ROW'S OWN folder's kit revision (cached
+`Get-BackupKitRevision`): revision ≥ 2 kits decide form from the located file
+(SR-050), so the disagreement restores correctly and no longer blocks
+retention — the compression-flip wedge (including the two-regime permanent
+wedge and the phase-F upgrade trigger) is gone. A folder with a pre-revision-2
+kit (or none) still refuses, and the refusal now names the kit revision and
+the `-RefreshKits` remedy. Non-blank-DataPath form mismatches still refuse —
+the restorers still trust `Compressed` for a file present at its named path.
+Problem objects gain `Folder`/`RelativePath`/`DataPath` fields (additive).
+
+**Latent defect found and fixed while landing the rail gate:**
+`Get-BackupKitRevision` read the kit header with the LAZY
+`[IO.File]::ReadLines` and returned from inside the loop — PowerShell does not
+dispose the enumerator on an early return, so the open handle on a snapshot's
+`RECONSTRUCT.ps1` lingered until garbage collection. Harmless for every
+pre-WP7 caller (verify paths never rename afterwards), but the rail gate made
+PRUNE a caller, and the leaked handle intermittently blocked the commit rename
+with access-denied (4 flaky suite failures, reproduced with the refusal
+message in hand). Fixed with the eager `ReadAllLines`; the flakiness is gone.
+
+**Two pre-WP7 pins updated to the new semantics (not weakened):** TC-091's
+"leaves every malformed row byte-identical" now exempts exactly the DANGLING
+shape — the run heals it from source, which is SR-053's whole point — and
+asserts the heal while still proving the three FORM-malformed rows stay
+byte-identical; Engine.Tests' pure-diff "ignores unchanged" now models the
+backup row with its DataPath column populated (as every real manifest row is)
+and pins the blank-DataPath arm explicitly.
+
+**Docs.** README: the backup-root "never tidy this folder" warning with the
+AV/cloud-sync culprits and the new healing/verify behavior; the prune
+Known-limitation box replaced by the kit-revision-gated behavior.
+
+**Registries.** SN-031 minted; SR-053/SR-054 minted `Verified`; SR-046
+Requirement/Acceptance/Permutations amended (kit-revision gate); LLR-053/054;
+TC-103..105 `Pass`. `trace.py --strict` → `SN=31 SR=54 LLR=53 TC=104,
+0 orphans / 0 integrity`; `--require-verified` still exactly the one
+pre-existing SR-052 CI-gated finding.
+
+**Evidence (real, this host, 2026-08-23).** New WP7 Describe — 5/5: pure-diff
+blank-row pin; end-to-end heal + adoption ban (external deletion + new
+same-content file → exit 0, both rows resolve, restore byte-exact); Verify
+exits 1 with `PoolUnresolvable` in the JSON document when every copy of a
+content is deleted; compression-flipped store **prunes with exit 0** and the
+surviving snapshot restores byte-exact across the flip; the same store with
+one kit regressed to revision 1 **refuses with exit 2** naming form-mismatch
+and RefreshKits. Full-suite + lint run recorded in the WP7+WP8 wrap-up entry.
+Existing TC-084 rail cases (non-blank mismatches) unchanged and green.
+
 **Blank-DataPath (verdict: worth its own WP now; NOT parkable behind "verify
 detects it").** Reproduced end-to-end on HEAD: delete one file inside the
 backup root (dominant realistic class — AV quarantine, cloud-sync

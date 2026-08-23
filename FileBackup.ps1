@@ -421,7 +421,7 @@ function Invoke-VerifyAction {
         host problem stops it before it can classify anything, which is the
         same "nothing was attempted" class as 2 (WP5 review, finding m2).
     #>
-    # Implements: SR-049, SR-040, SR-043, LLR-049
+    # Implements: SR-049, SR-054, SR-040, SR-043, LLR-049, LLR-054
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,
         [Parameter(Mandatory)][hashtable]$Deps,
@@ -448,6 +448,21 @@ function Invoke-VerifyAction {
         # re-verification, so a clean exit 0 means the store is now coherent.
         $findings = @(Test-BackupStorageForm -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                         -BackupRootOnly:$RootOnly -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
+        # WP7 (SR-054): the form audit answers "do the bytes match the index's
+        # CLAIMS"; the pool audit answers "does every row resolve to bytes AT
+        # ALL" — the blind spot that let a store with permanently unrestorable
+        # rows verify clean. Always pool-wide (a pool is one unit; -RootOnly
+        # scopes only the form audit) and broken-pool only (form disagreements
+        # are the form audit's report). Report-only: the heal is the next
+        # backup run while the source still holds the content — -RepairStorage
+        # cannot conjure bytes.
+        $findings += @(Test-PoolResolves -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath |
+            Where-Object Kind -eq 'broken-pool' | ForEach-Object {
+                [pscustomobject]@{ Class = 'PoolUnresolvable'; FolderName = $_.Folder
+                    RelativePath = $_.RelativePath; DataPath = $_.DataPath
+                    Observed = 'no bytes for this row anywhere in the pool'
+                    Expected = 'every manifest row resolves to real bytes' }
+            })
     } catch {
         & $Log "Storage-form verification could not run: $($_.Exception.Message)" 'ERROR'
         return 2

@@ -1178,15 +1178,17 @@ function Test-PoolResolves {
         phase-3 proof that makes snapshot removal safe (SR-046).
 
     .DESCRIPTION
-        A non-blank DataPath must name a file present in its own folder (that is
-        how both restorers resolve it — a non-blank DataPath never falls back to
-        hash recovery). A blank DataPath must find its (hash,length) somewhere in
-        the pool, and every located copy must agree in form with the row's
-        Compressed column: the restorers branch on the ROW, so a '.7z' file found
-        for a Compressed='No' row would restore archive bytes under the original
-        name (the finding-C family). A row whose RelativePath is itself '.7z' is
-        exempt from that second half — a legitimately stored already-compressed
-        source file is not a form disagreement.
+        A non-blank DataPath must name a file present in its own folder (a
+        PRESENT file is restored by the row's Compressed column, so its form
+        must also agree — that half is unchanged). A blank DataPath must find
+        its (hash,length) somewhere in the pool. Whether a located copy's FORM
+        must also agree depends on the folder's own restore kit (WP7, SR-046
+        as amended): revision-2+ kits decide a hash-recovered file's form from
+        the FILE they locate (SR-050), so for them a form disagreement restores
+        correctly and is NOT a problem — refusing it wedged every prune in a
+        store that had merely flipped CompressEnabled. A folder with no kit or
+        a pre-revision-2 kit still branches on the ROW and still refuses. A row
+        whose RelativePath is itself '.7z' stays exempt either way.
 
         Reports rather than throws, so the caller can name every unresolvable row
         at once.
@@ -1217,6 +1219,11 @@ function Test-PoolResolves {
                    Where-Object { $_.FullName -ne $ExcludeFolder })
     $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
 
+    # WP7 (SR-046 as amended): whether a blank row's located copy must agree in
+    # FORM depends on the kit that would restore it — the folder's own. Cached
+    # per folder; revision >= 2 decides form from the located file (SR-050).
+    $kitRevisionOf = @{}
+
     foreach ($f in $index.Folders) {
         if ($f.Folder -eq $ExcludeFolder) { continue }
         foreach ($row in $f.Manifest) {
@@ -1224,11 +1231,13 @@ function Test-PoolResolves {
                 $full = Join-Path $f.Folder $row.DataPath
                 if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
+                        Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = $row.DataPath
                         Message = "'$($f.Name)': row '$($row.RelativePath)' points at '$($row.DataPath)', which is not in that folder." })
                     continue
                 }
                 if (-not (Test-StorageFormAgreement -Compressed $row.Compressed -RelativePath $row.RelativePath -DataPath $row.DataPath)) {
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'form-mismatch'
+                        Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = $row.DataPath
                         Message = "'$($f.Name)': row '$($row.RelativePath)' is Compressed=$($row.Compressed) but its data file '$($row.DataPath)' has the opposite form." })
                 }
                 continue
@@ -1237,13 +1246,19 @@ function Test-PoolResolves {
             $key = "$($row.xxH2Hash)|$($row.Length)"
             if (-not $index.Map.ContainsKey($key)) {
                 $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
+                    Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = ''
                     Message = "'$($f.Name)': row '$($row.RelativePath)' resolves by hash, but no copy of its content exists in the pool." })
                 continue
             }
+            if (-not $kitRevisionOf.ContainsKey($f.Folder)) {
+                $kitRevisionOf[$f.Folder] = Get-BackupKitRevision -Folder $f.Folder
+            }
+            if ($kitRevisionOf[$f.Folder] -ge 2) { continue }   # kit decides form from the FILE — a form difference restores correctly
             foreach ($location in $index.Map[$key].ToArray()) {
                 if (-not (Test-StorageFormAgreement -Compressed $row.Compressed -RelativePath $row.RelativePath -DataPath $location.DataPath)) {
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'form-mismatch'
-                        Message = "'$($f.Name)': row '$($row.RelativePath)' is Compressed=$($row.Compressed) but the copy hash recovery would find, '$($location.DataPath)' in '$([IO.Path]::GetFileName($location.Folder))', has the opposite form." })
+                        Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = ''
+                        Message = "'$($f.Name)': row '$($row.RelativePath)' is Compressed=$($row.Compressed) but the copy hash recovery would find, '$($location.DataPath)' in '$([IO.Path]::GetFileName($location.Folder))', has the opposite form — and this folder's kit (revision $($kitRevisionOf[$f.Folder])) branches on the row, not the file. Run -Action Verify -RefreshKits to upgrade the kit, then retry." })
                     break
                 }
             }
@@ -1511,7 +1526,11 @@ function Get-BackupKitRevision {
     param([Parameter(Mandatory)][string]$Folder)
     $kit = Join-Path $Folder $script:Def.ReconstructPs1Name
     if (-not (Test-Path -LiteralPath $kit -PathType Leaf)) { return 0 }
-    foreach ($line in [IO.File]::ReadLines($kit)) {
+    # ReadAllLines, not the lazy ReadLines: PowerShell does not dispose a lazy
+    # enumerator on an early return, and the leaked handle inside a snapshot
+    # folder blocked that folder's prune commit rename with access-denied
+    # (WP7 — the rail gate made prune the first caller that renames after).
+    foreach ($line in [IO.File]::ReadAllLines($kit)) {
         if ($line -match '^\s*#\s*KitRevision:\s*(\d+)') { return [int]$Matches[1] }
     }
     return 1
@@ -2648,7 +2667,7 @@ function Compare-SourceToBackup {
         Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
         (backup rows) by RelativePath. No I/O — unit-testable.
     #>
-    # Implements: SR-001, LLR-001
+    # Implements: SR-001, SR-053, LLR-001, LLR-053
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
@@ -2669,6 +2688,15 @@ function Compare-SourceToBackup {
             $newOrChanged.Add($s)
         } elseif ($s.Length -ne $b.Length -or $s.LastWriteTime -ne $b.LastWriteTime -or $s.xxH2Hash -ne $b.xxH2Hash) {
             $newOrChanged.Add($s)
+        } elseif ([string]::IsNullOrWhiteSpace($b.DataPath)) {
+            # WP7 (SR-053): a root row with a BLANK DataPath is a row whose
+            # bytes were lost (Test-BackupManifest blanked it) — metadata
+            # equality must not hide it from the diff, or the store never
+            # heals while the source still holds the content. Re-entering the
+            # diff re-copies the bytes (or re-points at a surviving dedup
+            # copy — Invoke-BackupFileGroup's SR-053 filter guarantees the
+            # adopted DataPath is non-blank).
+            $newOrChanged.Add($s)
         }
     }
     foreach ($rel in $backupMap.Keys) {
@@ -2685,7 +2713,7 @@ function Invoke-BackupFileGroup {
         present, otherwise copies/compresses once and points every logical name
         at it.
     #>
-    # Implements: SR-003, LLR-003
+    # Implements: SR-003, SR-053, LLR-003, LLR-053
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Group,
@@ -2708,7 +2736,12 @@ function Invoke-BackupFileGroup {
     }
 
     # B8: force an array so [0] is always valid even for a single match.
-    $existingBackupWithHash = @($BackupDb | Where-Object { $_.xxH2Hash -eq $hash -and $_.Length -eq $len })
+    # WP7 (SR-053): a row whose DataPath is BLANK is damage being healed, not
+    # existing content — adopting it gave a brand-new file a row that points
+    # nowhere and its bytes were never written (investigation R5). Blank rows
+    # are excluded, so the group falls through to the copy branch instead.
+    $existingBackupWithHash = @($BackupDb | Where-Object {
+        $_.xxH2Hash -eq $hash -and $_.Length -eq $len -and -not [string]::IsNullOrWhiteSpace($_.DataPath) })
     $storedAsHash = -not $PreserveFolderTree
 
     foreach ($entry in $Group) {

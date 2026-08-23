@@ -432,16 +432,14 @@ migrated by `Sync-BackupStorageLayout` on the next run, which touches the backup
 root only — snapshots keep the form they were written with, and are restored
 correctly regardless (see "Restoring an older snapshot" below).
 
-> **Known limitation — a form change currently blocks prune.** After flipping
-> `CompressEnabled` (or changing the extension list), older snapshots hold
-> blank-DataPath rows whose recorded form no longer matches the migrated root
-> copy. **Restores stay byte-exact** — but `-Action Prune` refuses the *whole
-> store* with status 2 (`form-mismatch`) until the forms agree again, and
-> `-RepairStorage` reports these rows unrepairable. A store carrying snapshots
-> from *both* regimes is blocked under either setting. Interim workaround for
-> a single flip: flip the setting back and run one backup, prune, then re-flip.
-> Tracked as a scheduled fix in `docs/status.md` (the rail's premise predates
-> the revision-2 kit fix that made these snapshots restore correctly).
+> **After a form change, prune checks each snapshot's kit revision.** Flipping
+> `CompressEnabled` (or changing the extension list) leaves older snapshots
+> holding blank-DataPath rows whose recorded form no longer matches the
+> migrated root copy. Restores are byte-exact either way (revision-2+ kits
+> decide from the file they find), and prune accepts the disagreement for any
+> folder whose own kit is revision 2 or newer. Only a folder still carrying a
+> pre-revision-2 kit (or none) refuses, naming the kit revision — run
+> `-Action Verify -RefreshKits` to upgrade every snapshot's kit, then retry.
 
 You can list multiple `BackupSets` in either format; each is processed
 independently. IF-001 rules **one `BackupSet` per container invocation** —
@@ -665,3 +663,12 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
 - **Unexpected empty source.** A previously populated set fails before mutating the backup
   when its source becomes empty (often an unavailable share). Set `AllowEmptySource = $true`
   on that set only when deleting every backed-up file is intentional.
+- **Never delete or "clean up" files inside the backup root or snapshot folders.** In
+  Mirror mode the backup root looks like an ordinary copy of your source, but it is a
+  managed pool: deduplication means one file there can be the only physical copy that other
+  rows and older snapshots recover by content hash. If a data file does go missing
+  (antivirus quarantine and cloud-sync "free up space" features are the usual culprits —
+  exclude backup and change paths from both), the next backup run re-copies it from the
+  source as long as the source still holds that content, and `-Action Verify` reports any
+  row whose bytes are gone from the pool entirely (`PoolUnresolvable`) so you can restore
+  the content before the source is also lost.

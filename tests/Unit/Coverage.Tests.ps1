@@ -2398,6 +2398,115 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
     }
 }
 
+Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046)' {
+    BeforeAll {
+        function Invoke-FBArgs {
+            # Child process so the SR-040 exit code is observable.
+            param([string]$Cfg, [string[]]$Arguments)
+            $out = & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $Cfg `
+                        -NoMail -NonInteractive -ExitCode @Arguments 2>&1
+            return [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($out | Out-String) }
+        }
+    }
+
+    It 'treats a blank-DataPath root row as changed so the diff can heal it (SR-053)' {
+        # Pure-diff pin: metadata equality must not hide a row whose bytes are gone.
+        $row = { param($rel, $data) [pscustomobject]@{
+            RelativePath = $rel; Length = 10; LastWriteTime = '2026-01-01 00:00:00'
+            xxH2Hash = 'ABCD'; DataPath = $data } }
+        $src = @(& $row 'a.txt' 'ignored')
+        # .Count direct — @() around a List reached via a PSObject property
+        # throws on PS 7.5 (see the step-8 note in Invoke-BackupSet).
+        $diff = Compare-SourceToBackup -SourceDb $src -BackupDb @(& $row 'a.txt' '')
+        $diff.NewOrChanged.Count | Should -Be 1 -Because 'a blank DataPath is damage to heal, not an unchanged row'
+        $diff = Compare-SourceToBackup -SourceDb $src -BackupDb @(& $row 'a.txt' 'a.txt')
+        $diff.NewOrChanged.Count | Should -Be 0
+    }
+
+    It 'heals an externally deleted data file from the still-matching source, and never adopts the blank row (SR-053)' {
+        $root = Join-Path $TestDrive 'wp7-heal'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'unique.txt'), ('IRREPLACEABLE ' * 30))
+        Invoke-FB $cfg
+
+        # The verified initiating class: something outside FileBackup (AV
+        # quarantine, cloud dehydration, a tidying operator) deletes the data
+        # file inside the backup root. The source is untouched.
+        Remove-Item -LiteralPath (Join-Path $bkp 'unique.txt') -Force
+        # R5 shape in the same run: a NEW source file with the same content
+        # must not adopt the blanked row.
+        Copy-Item -LiteralPath (Join-Path $src 'unique.txt') -Destination (Join-Path $src 'copy.txt')
+
+        Invoke-FBArgs -Cfg $cfg -Arguments @() | ForEach-Object { $_.Code | Should -Be 0 }
+
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        foreach ($rel in 'unique.txt', 'copy.txt') {
+            $r = @($rows | Where-Object RelativePath -eq $rel)[0]
+            $r.DataPath | Should -Not -BeNullOrEmpty -Because "the $rel row must point at real bytes again"
+            Test-Path -LiteralPath (Join-Path $bkp $r.DataPath) | Should -BeTrue
+        }
+        $target = Join-Path $root 'restored'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $target 'unique.txt')) | Should -Be ('IRREPLACEABLE ' * 30)
+        [IO.File]::ReadAllText((Join-Path $target 'copy.txt'))   | Should -Be ('IRREPLACEABLE ' * 30)
+    }
+
+    It 'verify reports PoolUnresolvable, exit 1, when a row''s bytes are gone from the pool entirely (SR-054)' {
+        $root = Join-Path $TestDrive 'wp7-poolgone'
+        $env  = New-PruneTimeline -Root $root
+        # Kill the LAST copies of gone.txt's content: eviction parked its bytes
+        # in the newest snapshot; the oldest snapshot's row reaches them only
+        # by hash. Deleting every physical copy leaves rows with no bytes.
+        Get-ChildItem -LiteralPath $env.Chg -Recurse -File -Filter 'gone.txt' | Remove-Item -Force
+
+        $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Verify')
+        $run.Code | Should -Be 1 -Because 'a store with unrestorable rows must not verify clean'
+        $lines = $run.Output -split "`r?`n"
+        $start = [array]::IndexOf($lines, '[')
+        $end   = [array]::IndexOf($lines, ']')
+        $doc = @(($lines[$start..$end] -join "`n") | ConvertFrom-Json)
+        @($doc | Where-Object Class -eq 'PoolUnresolvable') | Should -Not -BeNullOrEmpty
+    }
+
+    It 'prunes a compression-flipped store whose kits are revision 2 or newer (SR-046 as amended)' {
+        $root = Join-Path $TestDrive 'wp7-flip'
+        $env  = New-PruneTimeline -Root $root -Compress $true
+        # The documented-as-safe operation that used to wedge retention: flip
+        # CompressEnabled, run once (root migrates, snapshots keep their form).
+        New-FBConfig -Path $env.Cfg -Src $env.Src -Bkp $env.Bkp -Chg $env.Chg -Compress $false
+        Invoke-FB $env.Cfg
+
+        $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest)
+        $run.Code | Should -Be 0 -Because 'revision-2+ kits decide form from the file they locate (SR-050); the rail premise is gone'
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
+
+        # The surviving snapshot still restores byte-exact across the flip.
+        $target = Join-Path $root 'restored'
+        & (Join-Path (Join-Path $env.Chg $env.Oldest) 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $target 'gone.txt')) | Should -Be ('DOOMED ' * 40)
+    }
+
+    It 'still refuses the form disagreement for a folder carrying a pre-revision-2 kit (SR-046)' {
+        $root = Join-Path $TestDrive 'wp7-oldkit'
+        $env  = New-PruneTimeline -Root $root -Compress $true
+        New-FBConfig -Path $env.Cfg -Src $env.Src -Bkp $env.Bkp -Chg $env.Chg -Compress $false
+        Invoke-FB $env.Cfg
+
+        # Regress the OLDEST snapshot's kit marker to revision 1: that kit
+        # genuinely branches on the row, so its rows' form disagreement is real.
+        $kit = Join-Path (Join-Path $env.Chg $env.Oldest) 'RECONSTRUCT.ps1'
+        [IO.File]::WriteAllText($kit, ([IO.File]::ReadAllText($kit) -replace '# KitRevision: \d+', '# KitRevision: 1'))
+
+        $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest)
+        $run.Code | Should -Be 2 -Because 'a pre-revision-2 kit restores the wrong form; pruning into that store stays refused'
+        $run.Output | Should -Match 'form-mismatch'
+        $run.Output | Should -Match 'RefreshKits' -Because 'the refusal must name the remedy'
+    }
+}
+
 Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
     BeforeAll {
         function Invoke-FBExit {
