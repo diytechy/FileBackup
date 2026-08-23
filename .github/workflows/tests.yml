@@ -39,13 +39,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Trace registries (strict, 0 orphans + Test SRs Verified)
         shell: pwsh
-        # --phase mirrors check.ps1: bash-v1 has shipped (SR-030/031/032 Verified);
-        # bash-v2 (SR-033) stays phase-deferred until it ships.
-        # TODO(WP3 ratchet): bump to core,bash-v1,container-v1 in the same commit
-        # that flips SR-034/LLR-034/TC-060/SR-044/LLR-044/TC-079/TC-080 to
-        # Verified/Pass, once this job's container step is green on real CI
-        # (docs/plans/wp3-container-release-plan.md §5 steps 5-6).
-        run: python scripts/trace.py --strict --require-verified --phase core,bash-v1
+        # --phase mirrors check.ps1: bash-v1 and container-v1 have shipped
+        # (container-v1's promotion evidence is the first green container job,
+        # run 32673687758, 2026-08-23); bash-v2 (SR-033) stays phase-deferred
+        # until it ships.
+        run: python scripts/trace.py --strict --require-verified --phase core,bash-v1,container-v1
       - name: Doc navigability (0 broken intra-repo links)
         shell: pwsh
         run: python scripts/check_docs.py --ignore docs/test/report.md --ignore "docs/releases/*"

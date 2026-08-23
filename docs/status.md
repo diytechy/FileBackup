@@ -45,10 +45,19 @@ last) — it is the record, not required reading for every pass.
   the Export/Load sequence.** The first real CI run (push of `83cc5f1`)
   failed 5 jobs; the post-mortem entry below diagnoses all five — one
   genuine container-harness bug (host-side witness stamp needing a DLL
-  ubuntu-latest lacks) is fixed; Traceability stays red BY DESIGN until the
-  post-CI registry flips. **Next human action: push `resync_v2`.** Expected:
-  all green except Traceability (+ skipped VHDX); then the registry-flip
-  commit clears Traceability on the following push.
+  ubuntu-latest lacks) is fixed; after two more diagnosed-and-fixed CI rounds
+  (post-mortem addenda below), **the fourth CI run (`08a1743`, run
+  32673687758) came back GREEN on every job except the by-design Traceability
+  failure — including the container job's FIRST green run, the promotion
+  evidence.** The pre-authorized registry flips are now LANDED:
+  SR-034/044/048/052 → Verified, TC-060/079/080/088/101/102 → Pass,
+  LLR-044 → Implemented, ratchet re-armed to `core,bash-v1,container-v1` in
+  `check.ps1` and CI. `trace.py --strict --require-verified` now reports
+  **0 status-findings** (1 phase-deferred: SR-033, bash-v2 — by design).
+  **Next human action: push the flip commit; expected result: a fully green
+  wall. Then the gate is clear to advance G3 → G-Release,** and IF-001's
+  exit condition (WP1+WP2 Verified) is long since met — the contract can move
+  Experimental → Stable when HomeHub is ready.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   whole WP1→WP8 queue has landed and is human-ratified through WP6 + the
   hardening batch, with WP7/WP8 review-closed. **Next human action: push
@@ -61,9 +70,9 @@ last) — it is the record, not required reading for every pass.
   shellcheck clean (WSL), bash-interop 12/12 origins on Linux, container job
   end-to-end on REAL Docker (Ubuntu WSL) incl. Export/Load, lint clean,
   trace `SN=32 SR=55 LLR=54 TC=106, 0 orphans / 0 integrity`.**
-  `check.ps1 -Gate G3` reports **exactly one status-finding** — SR-052 stays
-  honestly `Implemented` until TC-101's Linux half runs in the Docker CI job
-  (red BY DESIGN on the next push; cleared by the post-CI registry flips).
+  `check.ps1 -Gate G3` now reports **0 status-findings** — the container CI
+  job's first green run (32673687758) supplied the promotion evidence and the
+  registry flips landed; the long-standing SR-052 finding is CLEARED.
 - **WP1 (restore trust & diagnostics) is implemented, independently reviewed
   (APPROVE-WITH-MINORS 2026-08-22) and the accepted findings are landed
   2026-08-23 — ratified 2026-08-23.** SR-038..041 Verified,
@@ -288,8 +297,8 @@ work-package order follows the table.
 | **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Implemented (WP1), independently reviewed (APPROVE-WITH-MINORS 2026-08-22), accepted findings landed 2026-08-23 — ratified 2026-08-23 |
 | config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Implemented (WP2), independently reviewed (CHANGES-REQUESTED 2026-08-22), accepted findings landed 2026-08-23 — ratified 2026-08-23 |
 | multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Implemented (WP2), independently reviewed (CHANGES-REQUESTED 2026-08-22), accepted findings landed 2026-08-23 — ratified 2026-08-23 |
-| container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | Implemented (WP3) — ratified 2026-08-23, pending its own CI evidence |
-| container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Implemented (WP3) — ratified 2026-08-23, pending its own CI evidence |
+| container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | **Done — CI evidence run 32673687758 (2026-08-23); flips + ratchet landed** |
+| container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | **Done — CI evidence run 32673687758 (2026-08-23)** |
 | **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Implemented (WP4), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23 — ratified 2026-08-23 |
 | **C-form (new, WP4 §5.7)** | A blank-DataPath row whose `Compressed` disagrees with the .7z-ness of the file hash recovery locates restores **archive bytes under the original name**: both restorers branch on the ROW's `Compressed`, not on the form of the file they found. Reachable today after a compression-mode flip, because `Sync-BackupStorageLayout` migrates only the backup root and never the snapshots. | **WP5**, with finding C (same repair story). WP4 ships the **detector**: `Test-PoolResolves` reports `form-mismatch` and `Remove-BackupSnapshot` refuses (code 2) rather than pruning into it, so a store in this state is named instead of silently widened — and WP5 inherits a ready repro (TC-084's `form-mismatch` case). Note the deliberate exemption: a row whose own `RelativePath` ends in `.7z` (a legitimately stored already-compressed source file) is NOT a disagreement. | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review of the fixes in flight — ratified 2026-08-23 |
 | **C-refcount (new, WP5 planning G10)** | `Sync-BackupStorageLayout` is not refcount-aware: dedup makes rows share one `DataPath` (`Invoke-BackupFileGroup`), the migration decision is per-row (`Engine.psm1` `$needsTransform`), and Phase 2 deletes every superseded path unconditionally — so a config change that flips only ONE of two content-sharing rows deletes the file the other still references (`MissingDataFile` on the next restore, exit 1). **Live data-loss defect on Verified code**, reachable today (compression flip + two same-content rows with different extensions); the ext-list merge would trigger it at scale. Contrast `Move-RemovedFilesToStaging`, which IS refcount-aware (B9). | **WP5 as SR-051** ([plans/wp5-storage-trust-plan.md](plans/wp5-storage-trust-plan.md)), sequenced BEFORE the ext-list merge. Surfaced immediately per the plan's Q7 so it stays visible even if WP5 slips. | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review of the fixes in flight — ratified 2026-08-23 |
@@ -3491,4 +3500,35 @@ root-caused:**
   registry flips.
 
 **Expected fourth run: fully green except Traceability (+ skipped VHDX).**
+
+---
+
+### DRIVER — container-v1 SHIPPED: registry flips + ratchet re-arm — 2026-08-23
+
+The fourth CI run (push of `08a1743`, **run 32673687758**) came back exactly
+as predicted: **every job green except the by-design Traceability failure**
+(VHDX skipped) — including the **container job's first-ever green run**:
+build, byte-exact restore, TC-102 storage-form check, Export → `docker load`
+roundtrip, and Publish/Pull through the throwaway registry, all on real CI.
+That run is the promotion evidence the WP3 plan (§5 steps 5–6) and every
+`Implemented`-pending row have been waiting for. In this commit, as
+pre-authorized by the 2026-08-23 batch ratification:
+
+- **SR-034, SR-044, SR-048, SR-052 → `Verified`**; **LLR-044 →
+  `Implemented`**; **TC-060, TC-079, TC-080, TC-088, TC-101, TC-102 →
+  `Pass`.**
+- **Phase ratchet re-armed to `core,bash-v1,container-v1`** in both
+  `scripts/check.ps1` (G3/all) and the CI traceability job; both TODO blocks
+  retired with a note citing the evidence run.
+- Verification after the flips: `trace.py --strict --require-verified
+  --phase core,bash-v1,container-v1` → `SN=32 SR=55 LLR=54 TC=106,
+  0 orphans / 0 integrity / 0 status-findings / 1 phase-deferred` (SR-033,
+  bash-v2 — by design). The G3 gate's mechanized criteria are now fully
+  clean for the first time since the retrofit began.
+- Open-items rows *container release-verify* and *container smoke depth*
+  close as Done (evidence: run 32673687758).
+
+**Next:** push this commit — expected fully green — then advance G3 →
+G-Release (human attestation per the gate-advance procedure), and optionally
+move IF-001 Experimental → Stable jointly with HomeHub.
 

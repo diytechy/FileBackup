@@ -102,23 +102,12 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # scope; SRs tagged with a not-yet-delivered phase (e.g. bash-v1) are
     # exempted EXPLICITLY and reported as phase-deferred. When a phase ships,
     # append it here (e.g. 'core,bash-v1') so its SRs must be Verified.
-    # TODO(WP3 ratchet): container-v1's CI proof (Export/Load, Publish/Pull,
-    # incremental+snapshot smoke) landed in this commit, but SR-034/TC-060 are
-    # still Implemented/Draft pending a real green CI run of the container job
-    # (docs/plans/wp3-container-release-plan.md §5 steps 5-6). Bumping this to
-    # core,bash-v1,container-v1 now makes --require-verified fail locally on
-    # SR-034's pending status. The driver flips this to
-    # core,bash-v1,container-v1 in the SAME commit that flips SR-034/LLR-034/
-    # TC-060/SR-044/LLR-044/TC-079/TC-080 to Verified/Pass, after CI is green.
-    #
-    # TODO(WP5, same CI run): SR-052 is a CORE row, so no phase exempts it, and
-    # it stays `Implemented` until TC-101's LINUX half runs — the SR-023 restore
-    # capacity check firing inside the container, which is the whole point of
-    # replacing Split-Path -Qualifier. Docker was unavailable on the driver's
-    # host, so this step reports exactly ONE status-finding until that CI run.
-    # Flip SR-052 -> Verified and TC-101/TC-102 -> Pass in the same commit that
-    # closes the WP3 ratchet above. Everything else about WP5 is green locally.
-    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1') }
+    # container-v1 shipped 2026-08-23: the first green container CI job on
+    # resync_v2 (run 32673687758) is the promotion evidence — SR-034/044/048/
+    # 052 flipped Verified and TC-060/079/080/088/101/102 flipped Pass in the
+    # SAME commit that armed this ratchet. bash-v2 (SR-033) remains the one
+    # phase-deferred row.
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 
