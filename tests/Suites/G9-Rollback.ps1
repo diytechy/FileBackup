@@ -93,3 +93,165 @@ function Invoke-G9 {
     Assert-True $suite $group 'G9.5' 'Latest_renamed_present'{ TextEq (Join-Path $r0 'renamed.txt') 'RENAMEME' }
     Assert-True $suite $group 'G9.5' 'Latest_orig_absent'    { -not (Test-Path -LiteralPath (Join-Path $r0 'orig.txt')) }
 }
+
+function Get-G9PhysicalCopyCount {
+    <#
+    .SYNOPSIS
+        Counts the physical copies of one content (hash,length) across the whole
+        store — the dedup property TC-049/TC-082 assert on quiescent states.
+    #>
+    param([pscustomobject]$Env, [string]$Hash, [long]$Length)
+    # Counted through the physical content index, not by hashing raw files: in
+    # the compressed modes the stored file is a .7z whose own bytes hash to
+    # something else entirely, so only the index knows which files ARE the
+    # content. The index lists one entry per data file that exists on disk.
+    $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.FullName })
+    $index = Get-BackupContentIndex -BackupRoot $Env.BkpPath -SnapshotFolder $snapshots
+    $key = "$Hash|$Length"
+    if (-not $index.Map.ContainsKey($key)) { return 0 }
+    return $index.Map[$key].Count
+}
+
+function Invoke-G9Prune {
+    <#
+    .SYNOPSIS  G9 (part 2) - snapshot retention over the same dated timeline.
+    .NOTES     TC-090 (prune at every timeline position) and TC-082 (TC-049's
+               adversarial delete/re-add/delete cycle extended with prunes).
+               SR-045/SR-046: removing a snapshot must re-home the content only
+               it physically holds, and must never refuse the newest or the last.
+    #>
+    param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
+    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $group = 'G9-Rollback'
+
+    function SnapName([datetime]$d) { 'Snapshot_' + $d.ToString('yyyy_MM_dd_HH_mm_ss') }
+    function RestoreTo([pscustomobject]$Env, [string]$ReconFolder, [string]$TargetName) {
+        $target = Join-Path $Env.Root $TargetName
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+        Invoke-Reconstruct -ReconstructScript (Join-Path $ReconFolder 'RECONSTRUCT.ps1') -TargetRoot $target
+        return $target
+    }
+    function TextAt([string]$Path, [string]$Expected) {
+        (Test-Path -LiteralPath $Path) -and ([IO.File]::ReadAllText($Path) -eq $Expected)
+    }
+
+    # ================= TC-090: prune at every timeline position =================
+    Reset-TestEnvironment $Env
+    $cfg = Join-Path $Env.Root 'cfg-g9p.xml'
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    $S = $Env.SrcPath
+    $D = @([datetime]'2025-01-01 00:00:01', [datetime]'2025-02-02 00:00:02', [datetime]'2025-03-03 00:00:03',
+           [datetime]'2025-04-04 00:00:04', [datetime]'2025-05-05 00:00:05')
+
+    New-TestFile (Join-Path $S 'a.txt') 'A1'
+    New-TestFile (Join-Path $S 'sub\MANIFEST.csv') 'NESTED-NOT-INFRASTRUCTURE'   # B6
+    New-RandomBinaryFile (Join-Path $S 'keep.bin') 2048
+    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D[0] | Out-Null
+    foreach ($i in 1..4) {
+        New-TestFile (Join-Path $S 'a.txt') ('A' + ($i + 1))
+        Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D[$i] | Out-Null
+    }
+    # Snapshots exist for D1..D4 (each named by the superseded run's date); the
+    # live backup root is state5.
+    $snaps = @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.Name })
+    Assert-True $suite $group 'G9.6' 'Prune_timeline_has_four_snapshots' { $snaps.Count -eq 4 }
+
+    # -- oldest: nothing else can only-reach its content, so zero bytes copied --
+    $oldest = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $snaps[0])
+    Assert-True $suite $group 'G9.6' 'Prune_oldest_succeeds'   { $oldest[0].Status -eq 'Pruned' -and $oldest[0].Code -eq 0 }
+    Assert-True $suite $group 'G9.6' 'Prune_oldest_copies_zero'{ $oldest[0].BytesReHomed -eq 0 }
+    Assert-True $suite $group 'G9.6' 'Prune_oldest_folder_gone'{ -not (Test-Path -LiteralPath (Join-Path $Env.ChgPath $snaps[0])) }
+
+    # -- newest: it parks the superseded bytes, so this is the expensive case --
+    $newest = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $snaps[3])
+    Assert-True $suite $group 'G9.7' 'Prune_newest_succeeds'  { $newest[0].Status -eq 'Pruned' -and $newest[0].Code -eq 0 }
+    Assert-True $suite $group 'G9.7' 'Prune_newest_not_refused' { $newest[0].Refusals.Count -eq 0 }
+
+    # -- middle --
+    $middle = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $snaps[1])
+    Assert-True $suite $group 'G9.8' 'Prune_middle_succeeds' { $middle[0].Status -eq 'Pruned' }
+
+    # Every state that is left still restores byte-exact, and the nested
+    # infrastructure-named user file survives every re-home (B6).
+    $survivor = Join-Path $Env.ChgPath $snaps[2]
+    $r3 = RestoreTo $Env $survivor 'g9p-r3'
+    Assert-True $suite $group 'G9.8' 'Prune_survivor_state_restores' { TextAt (Join-Path $r3 'a.txt') 'A3' }
+    Assert-True $suite $group 'G9.8' 'Prune_survivor_nested_manifest' { TextAt (Join-Path $r3 'sub\MANIFEST.csv') 'NESTED-NOT-INFRASTRUCTURE' }
+    $r0 = RestoreTo $Env $Env.BkpPath 'g9p-r0'
+    Assert-True $suite $group 'G9.8' 'Prune_latest_state_restores' { TextAt (Join-Path $r0 'a.txt') 'A5' }
+
+    # -- the sole remaining snapshot: retention to zero is legitimate --
+    $last = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $snaps[2])
+    Assert-True $suite $group 'G9.9' 'Prune_last_succeeds' { $last[0].Status -eq 'Pruned' }
+    Assert-True $suite $group 'G9.9' 'Prune_no_snapshots_left' { @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath).Count -eq 0 }
+    $r0b = RestoreTo $Env $Env.BkpPath 'g9p-r0b'
+    Assert-True $suite $group 'G9.9' 'Prune_latest_still_restores' { TextAt (Join-Path $r0b 'a.txt') 'A5' }
+    Assert-True $suite $group 'G9.9' 'Prune_latest_keeps_binary' {
+        (Test-Path -LiteralPath (Join-Path $r0b 'keep.bin')) -and
+        (Get-Item -LiteralPath (Join-Path $r0b 'keep.bin')).Length -eq 2048
+    }
+
+    # ============ TC-082: TC-049's cycle, extended with prunes =================
+    Reset-TestEnvironment $Env
+    $cfg2 = Join-Path $Env.Root 'cfg-g9c.xml'
+    Write-TestConfig $cfg2 $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    $C = 'CYCLE-CONTENT ' + ('data ' * 50)
+    New-TestFile (Join-Path $S 'steady.txt') 'STEADY'
+    New-TestFile (Join-Path $S 'f.txt') $C
+    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[0] | Out-Null
+    Remove-Item -LiteralPath (Join-Path $S 'f.txt') -Force
+    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[1] | Out-Null
+    New-TestFile (Join-Path $S 'f.txt') $C                       # reintroduced, identical
+    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[2] | Out-Null
+    Remove-Item -LiteralPath (Join-Path $S 'f.txt') -Force
+    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[3] | Out-Null
+
+    $probe = Join-Path $Env.Root 'g9c-probe.tmp'
+    New-TestFile $probe $C
+    $cHash = Get-FileXxHash -FilePath $probe
+    $cLen  = (Get-Item -LiteralPath $probe).Length
+    Remove-Item -LiteralPath $probe -Force
+    Assert-True $suite $group 'G9.10' 'Cycle_one_copy_before_prune' {
+        (Get-G9PhysicalCopyCount -Env $Env -Hash $cHash -Length $cLen) -eq 1
+    }
+
+    # Prune the snapshot that physically holds the single copy: the content must
+    # be re-homed, not lost, and the store must go back to exactly one copy.
+    $cycleSnaps = @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.Name })
+    $keeper = $null
+    foreach ($name in $cycleSnaps) {
+        $plan = Get-SnapshotPrunePlan -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $name
+        if ($plan.Items.Count -gt 0) { $keeper = $name; break }
+    }
+    Assert-True $suite $group 'G9.10' 'Cycle_keeper_snapshot_identified' { $null -ne $keeper }
+    if ($keeper) {
+        $pruned = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $keeper)
+        Assert-True $suite $group 'G9.10' 'Cycle_prune_keeper_succeeds' { $pruned[0].Status -eq 'Pruned' }
+        Assert-True $suite $group 'G9.10' 'Cycle_one_copy_after_prune' {
+            (Get-G9PhysicalCopyCount -Env $Env -Hash $cHash -Length $cLen) -eq 1
+        }
+        foreach ($name in @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.Name })) {
+            $t = RestoreTo $Env (Join-Path $Env.ChgPath $name) ('g9c-' + $name)
+            $expectF = (Test-Path -LiteralPath (Join-Path $t 'f.txt'))
+            Assert-True $suite $group 'G9.10' ("Cycle_state_restores_" + $name) {
+                (TextAt (Join-Path $t 'steady.txt') 'STEADY') -and
+                ((-not $expectF) -or (TextAt (Join-Path $t 'f.txt') $C))
+            }
+        }
+    }
+
+    # Oldest-first retention copies nothing: the cheap policy stays cheap.
+    $remaining = @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.Name })
+    if ($remaining.Count -gt 0) {
+        $oldestPlan = Get-SnapshotPrunePlan -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $remaining[0]
+        $oldestRun  = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $remaining[0])
+        Assert-True $suite $group 'G9.11' 'Cycle_oldest_first_copies_zero' {
+            $oldestPlan.BytesReHomed -eq 0 -and $oldestRun[0].Status -eq 'Pruned'
+        }
+    }
+    $rLatest = RestoreTo $Env $Env.BkpPath 'g9c-latest'
+    Assert-True $suite $group 'G9.11' 'Cycle_latest_restores_after_prunes' {
+        (TextAt (Join-Path $rLatest 'steady.txt') 'STEADY') -and
+        (-not (Test-Path -LiteralPath (Join-Path $rLatest 'f.txt')))
+    }
+}

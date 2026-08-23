@@ -1872,3 +1872,88 @@ Describe 'Reported reclaim equals measured reclaim (SR-047)' {
         $result[0].BytesReHomed   | Should -Be $newest.BytesReHomed
     }
 }
+
+Describe 'Prune is idempotent and resumable (SR-046)' {
+    # TC-083. The transaction is stopped at each phase boundary by executing the
+    # steps up to that point and no further — every half-state must be harmless
+    # and invisible, and re-invoking the same command must finish the job and
+    # sweep the residue. There is no journal anywhere in the store.
+    BeforeAll {
+        function Assert-EveryStateRestores {
+            param([pscustomobject]$Env, [string]$Root, [string]$Tag)
+            $origins = @($Env.Bkp) + @(Get-PoolSnapshotFolder -ChangeRoot $Env.Chg | ForEach-Object { $_.FullName })
+            foreach ($origin in $origins) {
+                $target = Join-Path $Root ("$Tag-" + [IO.Path]::GetFileName($origin))
+                if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+                & (Join-Path $origin 'RECONSTRUCT.ps1') -TargetRoot $target -ExitCode:$false *>&1 | Out-Null
+                [IO.File]::ReadAllText((Join-Path $target 'keep.txt')) | Should -Be ('KEEP ' * 40)
+                [IO.File]::ReadAllText((Join-Path $target 'sub\MANIFEST.csv')) | Should -Be ('nested,not,infrastructure' * 5)
+            }
+        }
+    }
+
+    It 'interrupted after the copy: the staged file is invisible, and re-running completes and sweeps it' {
+        $root = Join-Path $TestDrive 'tc083-copy'
+        $env  = New-PruneTimeline -Root $root
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $item = $plan.Items.ToArray()[0]
+
+        # Stop right after the materialize step: a staged copy, nothing published.
+        $staged = (Join-Path $item.DestinationFolder $item.DestinationDataPath) + '.fbprune.tmp'
+        Copy-Item -LiteralPath $item.SourceFullPath -Destination $staged -Force
+
+        Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-copy'
+        @(Get-ChildItem -LiteralPath $env.Bkp, $env.Chg -File -Recurse -Filter '*journal*') | Should -BeNullOrEmpty
+
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $result[0].Status | Should -Be 'Pruned'
+        @(Get-ChildItem -LiteralPath $env.Bkp, $env.Chg -File -Recurse -Filter '*.fbprune.tmp') | Should -BeNullOrEmpty
+        Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-copy-done'
+    }
+
+    It 'interrupted after the manifest publish: the pool is redundant, and re-running completes it' {
+        $root = Join-Path $TestDrive 'tc083-manifest'
+        $env  = New-PruneTimeline -Root $root
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+
+        # Phases 1 and 2 only: the bytes are re-homed and published, the snapshot
+        # folder is still there — the deliberately redundant state.
+        foreach ($item in $plan.Items.ToArray()) { Copy-ReHomedDataFile -Item $item | Out-Null }
+        Publish-PruneManifest -Plan $plan -Log { param($m, $l) } | Out-Null
+
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
+        Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-manifest'
+        (Test-ManifestWitness -FolderPath (Join-Path $env.Chg $env.Oldest)).Status | Should -Be 'Verified'
+
+        # Re-running recomputes the plan from disk: nothing is endangered any
+        # more, so it copies nothing and simply finishes the deletion.
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $result[0].Status | Should -Be 'Pruned'
+        $result[0].BytesReHomed | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
+        Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-manifest-done'
+    }
+
+    It 'interrupted after the commit rename: the folder is invisible to every consumer, and the next run sweeps it' {
+        $root = Join-Path $TestDrive 'tc083-commit'
+        $env  = New-PruneTimeline -Root $root
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        foreach ($item in $plan.Items.ToArray()) { Copy-ReHomedDataFile -Item $item | Out-Null }
+        Publish-PruneManifest -Plan $plan -Log { param($m, $l) } | Out-Null
+        Rename-Item -LiteralPath $plan.Folder -NewName ('Pruning_' + $env.Newest)   # the commit point
+
+        # Invisible to the inventory, to Optimize, and to both restorers'
+        # ^Snapshot_ pattern — one atomic rename removed it from every view.
+        @(Get-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg | ForEach-Object { $_.Name }) |
+            Should -Not -Contain $env.Newest
+        @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg).Count | Should -Be 1
+        Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-commit'
+
+        # Any subsequent invocation sweeps it, with no journal to consult.
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $result[0].Code | Should -Be 2                       # it is genuinely gone now
+        @(Get-ChildItem -LiteralPath $env.Chg -Directory | Where-Object { $_.Name -like 'Pruning_*' }) |
+            Should -BeNullOrEmpty
+        Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-commit-done'
+    }
+}

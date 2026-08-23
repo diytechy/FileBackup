@@ -45,6 +45,10 @@ if (-not (Test-Path -LiteralPath $BackupScript)) {
 # re-stamp its witness (Write-ManifestWitness, SR-038) and keep exercising the
 # failure they mean to, rather than tripping witness verification.
 Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
+# Engine is imported for G9's retention half (SR-045/SR-046): the suite drives
+# Remove-BackupSnapshot / Get-SnapshotPrunePlan directly, the same way it drives
+# FileBackup.ps1 for the backup half.
+Import-Module (Join-Path $repo 'Modules\FileBackup.Engine.psm1') -Force
 . (Join-Path $here 'Common\Harness.ps1')
 . (Join-Path $here 'Common\VolumeBackend.ps1')
 foreach ($id in @('G1','G2','G3','G4','G5','G6','G7','G8','G9')) {
@@ -91,6 +95,11 @@ try {
             }
             try {
                 & $fn -Env $Env -BackupScript $BackupScript -Mode $combo.Mode -Compress $combo.Compress
+                # G9's retention half (TC-082/TC-090) runs as a second pass over
+                # its own timelines, so the rollback assertions above stay intact.
+                if ($gid -eq 'G9') {
+                    Invoke-G9Prune -Env $Env -BackupScript $BackupScript -Mode $combo.Mode -Compress $combo.Compress
+                }
             } catch {
                 Add-TestResult $combo.Mode $gid '*' 'GroupCrashed' 'FAIL' $_.Exception.Message
             }
