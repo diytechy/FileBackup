@@ -27,12 +27,14 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP1- AND WP2-review-fixes):**
-  **172/172 Pester unit, lint clean, trace SN=27 SR=43 LLR=42 TC=77 with
-  0 orphans / 0 integrity / 0 status-findings / 2 phase-deferred (bash-v2,
-  container-v1), integration 236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier
-  Full` → "All steps passed"), plus **48/48 bats** and `shellcheck` clean on
-  real Linux (WSL Fedora 40).
+- **Latest verified run (2026-08-23, Full tier, post-WP3 local edits,
+  `--phase core,bash-v1` unchanged pending CI):**
+  **172/172 Pester unit, lint clean, trace SN=28 SR=44 LLR=43(/44) TC=79(/80)
+  with 0 orphans / 0 integrity / 0 status-findings / 3 phase-deferred
+  (bash-v2, container-v1 ×2 — SR-034 and the new SR-044), integration
+  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps
+  passed"). bats/shellcheck unchanged from the prior real-Linux run (no
+  shell file touched this session).
 - **WP1 (restore trust & diagnostics) is implemented, independently reviewed
   (APPROVE-WITH-MINORS 2026-08-22) and the accepted findings are landed
   2026-08-23 — awaiting batch ratification.** SR-038..041 Verified,
@@ -43,6 +45,14 @@ last) — it is the record, not required reading for every pass.
   finding is landed 2026-08-23 — awaiting batch ratification.** SR-042..043
   Verified, TC-074..078 Pass, all three config test cases now driven from the
   one shared corpus `tests/Common/ConfigFixtures.ps1`. See the audit entries
+  below.
+- **WP3 (container release-verify + smoke depth) is implemented — awaiting
+  CI evidence + independent review + batch ratification.** SN=28 SR=44
+  LLR=44 TC=80 minted (SN-028/SR-044/LLR-044/TC-079..080, all Draft);
+  SR-034/LLR-034/TC-060 stay `Implemented`/`Draft` and the `--phase` ratchet
+  stays at `core,bash-v1` in both `check.ps1` and CI until a real green CI
+  run of the extended `container` job lands (Docker was unavailable on the
+  driver's host this session — only static verification ran locally). See
   below.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
@@ -157,8 +167,8 @@ work-package order follows the table.
 | **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Implemented (WP1) — awaiting independent review + batch ratification |
 | config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Implemented (WP2) — awaiting independent review + batch ratification |
 | multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Implemented (WP2) — awaiting independent review + batch ratification |
-| container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | In CI (partial) → WP3 |
-| container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Open → WP3 |
+| container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
+| container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
 | **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Open → WP4 |
 | **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself. | **WP5.** With B fixed, new malformed rows can't be created — C matters for pre-fix backups and for migrations the ext-list merge triggers. Repro test first (double-check §5.3); repair via an opt-in `-VerifyStorage` mode, **not** a physical verify inside every migration (would fight SR-024 idempotence/perf). | Open → WP5 |
 | ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Open → WP5 |
@@ -1787,3 +1797,130 @@ integration 236/0/4, bats 48/48, shellcheck clean, trace 0/0/0. One optional
 wording tighten (the late capacity/7-Zip code-2 preflights run after
 target+log creation, identically in both restorers) applied by the driver in
 `Reconstruct.ps1` `.NOTES` and AGENTS.md §3 in the same commit as this entry.
+
+### DRIVER (Software + Test Engineer hats) — WP3 container release-verify + smoke depth — 2026-08-23
+Executed `docs/plans/wp3-container-release-plan.md` §5 steps 1-4 and 7-8
+(steps 5-6, the push and post-CI status flips, are the driver's — real CI
+evidence has not landed yet). Grounded at `ba1ee48`; re-read current file
+state before editing per the plan's own caution (WP2 review fixes had since
+touched `Invoke-Container.ps1`'s smoke config area, `tests.yml`'s unit-job
+7-Zip precondition and shellcheck list, and the unit count).
+
+**Landed:**
+- `scripts/Invoke-Container.ps1`: new `Load` action (`docker load`, symmetric
+  with `Export`); the smoke kit check now lists all 8 real kit artifacts
+  (added `RECONSTRUCT.paths.json`, the genuine gap the plan's grounding pass
+  found — the "witness sidecar" disposition text was stale, `MANIFEST.csv.meta`
+  was already checked since WP1); a second, source-mutating container run
+  appended strictly after the existing single-run assertions, asserting
+  exactly one `Snapshot_<date>` folder under `/changes`, re-running the
+  8-artifact kit check against both `/backup` and the snapshot folder, and
+  two more restore containers — one restoring `/backup` (latest) compared
+  against the mutated source, one invoking `RECONSTRUCT.ps1` from *inside*
+  the snapshot folder itself (per grounding note 4: the authority folder is
+  wherever the invoked script physically lives) compared against a
+  pre-mutation `source-gen1` copy taken before the mutation.
+- `.github/workflows/tests.yml`: `container` job gains a `registry:2`
+  service, an Export→`docker rmi`→Load→Test step and a Publish→`docker rmi`
+  (both tags)→Pull→Test step, a bounded `curl --retry` registry-readiness
+  check before Publish, a one-line localhost-trust comment, and
+  `timeout-minutes: 20`→`25`.
+- Registries: minted **SN-028, SR-044, LLR-044, TC-079, TC-080** (all
+  `Draft`/`Phase=container-v1`) and reworded TC-060's `Expected` to describe
+  the 8-artifact kit + load roundtrip + registry roundtrip CI now proves,
+  per plan §1. `python scripts/trace.py --strict`: **SN=28 SR=44 LLR=43(of
+  44; LLR-019 is a pre-existing gap) TC=79(of 80; TC-029 likewise) orphans=0
+  integrity=0.**
+
+**Ratchet NOT re-armed — deviation from plan §2/§4, per the work order's own
+contingency clause.** Bumping `--phase` to `core,bash-v1,container-v1` in
+both `check.ps1` and `tests.yml`'s traceability job makes
+`--require-verified` report a real status-finding (`SR-034 is
+Verification=Test but Status=Implemented`), because SR-034/TC-060 are still
+pending a green CI run of the new container steps — this is expected
+pre-CI, not a defect. Per instruction, **kept both files at `--phase
+core,bash-v1`** and left a `TODO(WP3 ratchet)` comment at each site naming
+the exact commit-time condition (driver flips `--phase` to
+`core,bash-v1,container-v1` in the same commit that flips
+SR-034/LLR-034/TC-060/SR-044/LLR-044/TC-079/TC-080 to `Verified`/`Pass`,
+after real green CI). SR-034/LLR-034 Status columns and TC-060/079/080
+Status columns are untouched (still `Implemented`/`Draft` as the plan
+requires until CI proves it).
+
+**Local verification — Docker unavailable on this host.** `docker version`
+and `docker` on PATH both fail (`docker: command not found` / not
+recognized); the only container tooling present is Podman
+(`C:\Program Files\RedHat\Podman\podman.exe`) plus a **stopped** WSL
+`podman-machine-default` distro — no running container engine. Per the work
+order's contingency, did **not** fake a green `BuildAndTest` run. Static
+verification performed instead:
+- `Invoke-ScriptAnalyzer -Settings tests/PSScriptAnalyzerSettings.psd1` on
+  `scripts/Invoke-Container.ps1` and `scripts/check.ps1`: **0 findings**
+  (also swept by `check.ps1 -Tier Full`'s own lint step, see below).
+- `[System.Management.Automation.Language.Parser]::ParseFile` on
+  `Invoke-Container.ps1`: **no parse errors.**
+- Manual code review of the new incremental/snapshot block: mount
+  read/write modes match the existing pattern (`/backup`, `/changes`
+  writable on the backup run, read-only on every restore run); the
+  `source-gen1` copy happens before the host-side mutation and lives outside
+  every bind-mounted directory; `$runArgs` is reused verbatim for the second
+  `docker run` (same mounts, same image) as the plan specifies; the
+  snapshot-restore invocation points at
+  `/changes/<Snapshot_name>/RECONSTRUCT.ps1` with explicit
+  `-BackupRootOverride /backup -ChangeRootOverride /changes`, matching
+  grounding note 4 exactly.
+- **In-container proof (BuildAndTest, Load, Publish/Pull, and the new
+  incremental/snapshot smoke assertions actually executing) has NOT
+  happened locally and awaits the first push's CI run of the `container`
+  job**, per the work order.
+- WSL shellcheck was not re-run: no `.sh` file was touched by this step (only
+  `Invoke-Container.ps1`, `tests.yml`, `check.ps1`, and the registries).
+
+**`pwsh scripts/check.ps1 -Tier Full` (Gate G3) — genuinely green, real
+output:**
+```
+==== PSScriptAnalyzer ====
+[PASS] PSScriptAnalyzer
+
+==== Traceability (trace.py --strict) ====
+Traceability: SN=28 SR=44 LLR=43 TC=79 orphans=0 integrity=0
+status-findings=0 phase-deferred=3.
+
+==== Doc navigability (check_docs.py) ====
+[PASS] Doc navigability (check_docs.py)
+
+==== Architecture map freshness ====
+[PASS] Architecture map freshness
+
+==== Pester unit ====
+Tests Passed: 172, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+[PASS] Pester unit
+
+==== Integration sweep (Full) ====
+TEST SUMMARY
+  PASS: 236
+  FAIL: 0
+  SKIP: 4
+[PASS] Integration sweep (Full)
+
+================ check.ps1 (tier Full, gate G3) ================
+All steps passed.
+```
+(`--phase core,bash-v1` still in force, so `status-findings=0` here —
+`phase-deferred=3` now covers SR-033 (bash-v2) plus SR-034/SR-044
+(container-v1); this is the expected pre-CI shape, not a regression.)
+
+Commits (this session, `resync_v2`, no push — the driver pushes): container
+script + smoke depth; CI Export/Load + Publish/Pull roundtrip (phase left at
+`core,bash-v1` with TODO comments); registry mints + TC-060 reword.
+
+**Awaiting:** the driver's push, a real green CI run of the `container` job
+(BuildAndTest, Export/Load roundtrip, Publish/Pull roundtrip, incremental +
+snapshot smoke all passing in-container), the ratchet re-arm to
+`core,bash-v1,container-v1` alongside the SR-034/LLR-034/TC-060/SR-044/
+LLR-044/TC-079/TC-080 status flips, independent review, and batch
+ratification. Current State tallies below updated to SN=28 SR=44 LLR=44
+TC=80 per plan §1 (registry *row* counts — trace.py's summary line counts
+distinct ids present out of the numeric range, so it reports LLR=43/TC=79
+because of the pre-existing LLR-019/TC-029 gaps, not because a row is
+missing here).
