@@ -24,14 +24,17 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **Active gate:** G3 — Implementation truth-up (G2 human-APPROVED 2026-06-05)
-- **Latest verified run (2026-08-21, Smoke tier):** **65/65 Pester unit, lint
+- **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
+  gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
+  advance to G-Release only after WP6)
+- **Latest verified run (2026-08-22, Full tier):** **65/65 Pester unit, lint
   clean, trace SN=24 SR=37 LLR=36 TC=64 with 0 orphans / 0 integrity /
-  0 status-findings / 2 phase-deferred (bash-v2, container-v1)**
-  (`check.ps1 -Tier Smoke` → "All steps passed"). **A post-2026-08-12 Full
-  tier (236 integration assertions) has not been run** — the last Full-tier
-  green predates the hardening commits (2026-07-03: 53/53 unit, 236/0/4
-  integration); run it before G3 sign-off.
+  0 status-findings / 2 phase-deferred (bash-v2, container-v1), integration
+  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps passed").
+  This closes the post-2026-08-12 Full-tier gap that was blocking G3 sign-off.
+  (First attempt crashed on an environment defect — the Subst backend's
+  free-letter probe couldn't see disconnected-but-remembered network mappings;
+  harness fixed, audit entry 2026-08-22.)
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -118,18 +121,15 @@ last) — it is the record, not required reading for every pass.
   Inspection) + LLR-035..037; SR-009/LLR-009 extended to the traversal guard;
   new TC-061..065 pinning the already-shipped `Safety.Tests.ps1` /
   `Coverage.Tests.ps1` tests; SR back-links and test names annotated.
-- **Next action (human):** (a) **G3 sign-off / ratification** covering the main
-  implementation truth-up, the snapshot redesign (reviewer-approved
-  2026-06-06), and the 2026-07-02 review-findings scoped change (implemented,
-  full tier green, independent reviewer APPROVE); (b) **bash-v1 final review +
-  cross-check** against the plan's §7 acceptance checklist (all boxes met
-  locally; the two CI bash jobs confirm on push); (c) **ratify the 2026-08-12
-  hardening + container work and its 2026-08-21 registry back-fill** (the
-  `reconstruct.sh` bundling decision was implemented 2026-08-12 — SR-007/TC-059
-  — but carries no human-approval record; ratify or revert); (d) **prioritize
-  the open HomeHub findings C/D/E/H/I/J** (below) — E is the standing design
-  question. (The PS-side Find-DataFileByHash over-skip finding was **fixed
-  2026-07-03 with human approval** — TC-058, audit entry below.)
+- **2026-08-22 — Next-action items (a)–(c) RATIFIED (human, audit entry
+  below):** (a) G3 sign-off, (b) bash-v1 final review acceptance, (c) the
+  2026-08-12 hardening + container work and its 2026-08-21 registry back-fill
+  (including the `reconstruct.sh` bundling decision). Item (d) was resolved
+  2026-08-21 by the approved frontier dispositions. **The WP1→WP6 queue is now
+  unblocked and being executed** under the human's standing "grind to
+  completion" authorization: driver + independent-reviewer approvals recorded
+  per gate as work lands, with all human gate sign-offs collected in one batch
+  at the end of the queue.
 
 ## Open items (frontier)
 
@@ -247,7 +247,7 @@ keep it.
 |---|---|---|---|---|---|
 | G1 — Requirements/UX/Constraints | APPROVE (driver) | APPROVE (driver) | APPROVE (driver) | n/a | **APPROVE 2026-06-05** |
 | G2 — Decomposition & Test Coverage | n/a | n/a | APPROVE (driver) | APPROVE (driver) | **APPROVE 2026-06-05** |
-| G3 — Implementation | n/a | n/a | CHANGES-REQUESTED (driver) | CHANGES-REQUESTED (driver) | PENDING |
+| G3 — Implementation | n/a | n/a | APPROVE (driver 2026-08-22) | APPROVE (driver 2026-08-22) | **APPROVE 2026-08-22** |
 | G-Release — Release readiness | n/a | n/a | PENDING | PENDING | PENDING |
 | G-Final — Acceptance | PENDING | n/a | n/a | (evidence) | PENDING |
 
@@ -1142,3 +1142,33 @@ contract text extended (one-set-per-invocation; no direct snapshot deletion;
 retention policy/mechanism split); Non-goals gains the archive-option
 rejection. Registry/doc-only change — no engine code touched; WP1's SN/SR
 minting still goes through its own G1 when scheduled.
+
+### DRIVER (Test hat) — test-harness fix: Subst free-letter probe — 2026-08-22
+The first post-hardening Full-tier attempt failed 32 integration assertions,
+all environmental: this machine holds disconnected-but-remembered network
+mappings (`X:`/`S:` → MINI-SERV shares). `New-SubstEnv`'s free-letter probe
+(`Test-Path "X:\"`) returns **False** for such a letter, so the harness
+claimed `X:`, its `subst` lost silently to the remembered mapping, and every
+volume-backed write hit the dead share ("user name or password is incorrect").
+Fix (tests/Common/VolumeBackend.ps1): the probe now also excludes every
+`Get-PSDrive -PSProvider FileSystem` name (which lists disconnected mappings)
+before the `Test-Path` check. Test-scaffolding-only change, decided
+autonomously per the decision dial; the user's remembered mappings were left
+untouched. Evidence: rerun below.
+
+### HUMAN — (a)–(c) ratified; WP1–WP6 grind authorized — 2026-08-22
+Verdict: APPROVE. The human directed "spin up opus and sonnet agents as
+appropriate to grind through the queue to completion" and confirmed via
+explicit prompts: (1) that instruction **counts as ratification of
+Next-action (a)–(c)** — G3 sign-off, bash-v1 final-review acceptance, and the
+2026-08-12 hardening + container work with its 2026-08-21 registry back-fill
+(incl. the `reconstruct.sh` bundling decision) — contingent on the pending
+Full tier coming back green; and (2) WP-level gate pauses are handled by
+**batch ratification** — agents drive each WP through its gates with driver +
+independent-reviewer approvals and pasted evidence, and all human gate
+sign-offs are collected in one batch at the end of the queue.
+Evidence (real output, 2026-08-22, post-harness-fix): `check.ps1 -Tier Full`
+→ PSScriptAnalyzer PASS · trace **SN=24 SR=37 LLR=36 TC=64, 0 orphans /
+0 integrity / 0 status-findings / 2 phase-deferred** · Pester unit **65/65** ·
+integration **236 PASS / 0 FAIL / 4 SKIP** → "All steps passed." The G3 row in
+Gate Sign-offs is marked APPROVE 2026-08-22 accordingly.

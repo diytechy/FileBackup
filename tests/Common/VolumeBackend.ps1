@@ -29,10 +29,14 @@ function New-SubstEnv {
 
     # Pick four free drive letters (high letters first) instead of hardcoding
     # X/Y/Z/W, which can collide with real drives on a dev machine.
+    # Test-Path alone is not enough: a disconnected-but-remembered network
+    # mapping (net use) answers False yet still owns the letter, and a subst
+    # onto it fails silently — writes then hit the dead share.
     $candidates = 'X','Y','W','V','U','T','S','R','Q','P','N','M','K','J','H','G','F','E'
+    $used = @((Get-PSDrive -PSProvider FileSystem).Name)
     $free = @()
     foreach ($c in $candidates) {
-        if (-not (Test-Path "${c}:\")) { $free += $c }
+        if ($c -notin $used -and -not (Test-Path "${c}:\")) { $free += $c }
         if ($free.Count -eq 4) { break }
     }
     if ($free.Count -lt 4) {
