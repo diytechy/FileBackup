@@ -127,6 +127,8 @@ Imports (internal): `Common`
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
 | `Compare-SourceToBackup` | yes | SR-001, LLR-001 |
 | `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
+| `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
+| `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
@@ -135,7 +137,8 @@ Imports (internal): `Common`
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
-| `Get-PoolSnapshotFolder` | no | SR-045, LLR-045 |
+| `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
+| `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
 | `Get-ReHomedDataPathName` | no | SR-045, LLR-045 |
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
@@ -144,10 +147,13 @@ Imports (internal): `Common`
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
 | `Invoke-BackupFileGroup` | yes | SR-003, LLR-003 |
 | `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, LLR-014, LLR-017, LLR-035, LLR-036 |
+| `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
+| `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
+| `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |

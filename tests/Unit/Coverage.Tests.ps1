@@ -61,9 +61,12 @@ BeforeAll {
         }
     }
     function Get-StoreFingerprint {
+        # '*.fbprune.tmp' is deliberately excluded: an aborted re-home may leave
+        # a staged copy behind, which is invisible to both restorers and swept by
+        # the next invocation (SR-046). Everything else must be byte-identical.
         param([string[]]$Folder)
         $out = @{}
-        foreach ($f in @(Get-ChildItem -LiteralPath $Folder -File -Recurse)) {
+        foreach ($f in @(Get-ChildItem -LiteralPath $Folder -File -Recurse | Where-Object { $_.Name -notlike '*.fbprune.tmp' })) {
             $out[$f.FullName] = "$($f.Length)|$(Get-FileXxHash -FilePath $f.FullName)"
         }
         return $out
@@ -1569,5 +1572,303 @@ Describe 'Prune refuses before mutating (SR-046)' {
         $withoutNewest.Count | Should -BeGreaterThan 0
         $withoutNewest[0].Code | Should -Be 2
         $withoutNewest[0].Kind | Should -Be 'broken-pool'
+    }
+}
+
+Describe 'Prune re-homes the last copy before deleting (SR-045)' {
+    # TC-081 across the four storage modes. The newest snapshot holds the only
+    # physical copy of content an older snapshot's blank-DataPath row needs
+    # (the eviction of gone.txt), so removing it MUST re-home those bytes first.
+    BeforeAll {
+        function Restore-Folder {
+            param([string]$Origin, [string]$Target)
+            if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Recurse -Force }
+            & (Join-Path $Origin 'RECONSTRUCT.ps1') -TargetRoot $Target *>&1 | Out-Null
+            return $Target
+        }
+    }
+
+    It 'in <Mode> re-homes the endangered bytes and every remaining state still restores byte-exact (SR-045)' -ForEach @(
+        @{ Mode = 'Mirror';                  Compress = $false; Hashed = $false }
+        @{ Mode = 'Mirror+Compress';         Compress = $true;  Hashed = $false }
+        @{ Mode = 'HashAddressed';           Compress = $false; Hashed = $true  }
+        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  Hashed = $true  }
+    ) {
+        $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+        if ($Compress -and -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            Set-ItResult -Skipped -Because "no 7-Zip at '$sevenZip' for the compressed modes"
+            return
+        }
+        $root = Join-Path $TestDrive ('tc081-' + $Mode.Replace('+', '-'))
+        $env  = New-PruneTimeline -Root $root -Compress $Compress -ContentAddressed $Hashed
+
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $plan.Items.Count | Should -BeGreaterThan 0
+        $item = $plan.Items.ToArray()[0]
+
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -SevenZipPath $sevenZip)
+        $result.Count | Should -Be 1
+        $result[0].Status | Should -Be 'Pruned'
+        $result[0].Code | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $env.Chg -Directory | Where-Object { $_.Name -like 'Pruning_*' }) | Should -BeNullOrEmpty
+
+        # The re-homed file is where the plan said, with the SOURCE row's form
+        # adopted on the destination row, and its content hashes to the row.
+        $destFull = Join-Path $item.DestinationFolder $item.DestinationDataPath
+        Test-Path -LiteralPath $destFull -PathType Leaf | Should -BeTrue
+        $destRow = @(Read-Manifest -FolderPath $item.DestinationFolder |
+                     Where-Object { $_.DataPath -eq $item.DestinationDataPath })[0]
+        $destRow.Compressed | Should -Be $item.Compressed
+        $destRow.StoredAsHashSize | Should -Be $item.StoredAsHashSize
+        if ($destRow.Compressed -eq 'Yes') {
+            $scratch = Join-Path $root 'verify.tmp'
+            Expand-FileWithSevenZip -SevenZipPath $sevenZip -Archive $destFull -DestinationFile $scratch
+            Get-FileXxHash -FilePath $scratch | Should -Be $destRow.xxH2Hash
+            (Get-Item -LiteralPath $scratch).Length | Should -Be ([long]$destRow.Length)
+        } else {
+            Get-FileXxHash -FilePath $destFull | Should -Be $destRow.xxH2Hash
+            (Get-Item -LiteralPath $destFull).Length | Should -Be ([long]$destRow.Length)
+        }
+
+        # State1 (the surviving snapshot) restores byte-exact, INCLUDING the file
+        # whose only copy lived in the folder just removed.
+        $r1 = Restore-Folder -Origin (Join-Path $env.Chg $env.Oldest) -Target (Join-Path $root 'r-state1')
+        [IO.File]::ReadAllText((Join-Path $r1 'gone.txt'))  | Should -Be ('DOOMED ' * 40)
+        [IO.File]::ReadAllText((Join-Path $r1 'super.txt')) | Should -Be ('VERSION-ONE ' * 40)
+        [IO.File]::ReadAllText((Join-Path $r1 'keep.txt'))  | Should -Be ('KEEP ' * 40)
+        [IO.File]::ReadAllText((Join-Path $r1 'sub\MANIFEST.csv')) | Should -Be ('nested,not,infrastructure' * 5)
+
+        # ...and so does the latest state from the backup root.
+        $r0 = Restore-Folder -Origin $env.Bkp -Target (Join-Path $root 'r-latest')
+        [IO.File]::ReadAllText((Join-Path $r0 'super.txt')) | Should -Be ('VERSION-TWO ' * 40)
+        Test-Path -LiteralPath (Join-Path $r0 'gone.txt') | Should -BeFalse
+        [IO.File]::ReadAllText((Join-Path $r0 'sub\MANIFEST.csv')) | Should -Be ('nested,not,infrastructure' * 5)
+    }
+
+    It 'copies nothing when the target endangers nothing, and still removes it (SR-045)' {
+        $root = Join-Path $TestDrive 'tc081-noop'
+        $env  = New-PruneTimeline -Root $root
+        $bytesBefore = Get-StoreBytes -Folder @($env.Bkp, $env.Chg)
+        $oldestBytes = Get-StoreBytes -Folder @(Join-Path $env.Chg $env.Oldest)
+
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Oldest)
+        $result[0].Status | Should -Be 'Pruned'
+        $result[0].BytesReHomed | Should -Be 0
+        (Get-StoreBytes -Folder @($env.Bkp, $env.Chg)) | Should -Be ($bytesBefore - $oldestBytes)
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Oldest) | Should -BeFalse
+    }
+
+    It '-WhatIf runs the full preflight, mutates nothing, and reports what the real run then achieves (SR-046)' {
+        $root = Join-Path $TestDrive 'tc081-whatif'
+        $env  = New-PruneTimeline -Root $root
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        $dry = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -WhatIf)
+        $dry[0].Status | Should -Be 'WhatIf'
+        $dry[0].Code | Should -Be 0
+        $dry[0].BytesReHomed | Should -BeGreaterThan 0
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+
+        $real = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $real[0].BytesReclaimed | Should -Be $dry[0].BytesReclaimed
+        $real[0].BytesReHomed   | Should -Be $dry[0].BytesReHomed
+    }
+
+    It 'removes the LAST remaining snapshot without refusing (SR-045)' {
+        $root = Join-Path $TestDrive 'tc081-last'
+        $env  = New-PruneTimeline -Root $root
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest, $env.Oldest)
+        $result.Count | Should -Be 2
+        @($result | Where-Object { $_.Status -eq 'Pruned' }).Count | Should -Be 2
+        (Get-PruneBatchExitCode -Result $result) | Should -Be 0
+        @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg) | Should -BeNullOrEmpty
+
+        # The latest state is the live backup root and is unaffected.
+        $t = Join-Path $root 'r-latest'
+        & (Join-Path $env.Bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t 'super.txt')) | Should -Be ('VERSION-TWO ' * 40)
+    }
+}
+
+Describe 'Prune changes only the storage-form columns (SR-045)' {
+    # TC-086: a column-wise before/after diff of EVERY manifest in the pool.
+    It 'in <Mode> leaves the row sets and the six logical columns identical (SR-045)' -ForEach @(
+        @{ Mode = 'Mirror';                  Compress = $false; Hashed = $false }
+        @{ Mode = 'Mirror+Compress';         Compress = $true;  Hashed = $false }
+        @{ Mode = 'HashAddressed';           Compress = $false; Hashed = $true  }
+        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  Hashed = $true  }
+    ) {
+        $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+        if ($Compress -and -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            Set-ItResult -Skipped -Because "no 7-Zip at '$sevenZip' for the compressed modes"
+            return
+        }
+        $root = Join-Path $TestDrive ('tc086-' + $Mode.Replace('+', '-'))
+        $env  = New-PruneTimeline -Root $root -Compress $Compress -ContentAddressed $Hashed
+        $survivors = @($env.Bkp, (Join-Path $env.Chg $env.Oldest))
+
+        $before = @{}
+        foreach ($folder in $survivors) { $before[$folder] = @(Import-Csv -LiteralPath (Join-Path $folder 'MANIFEST.csv')) }
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $planned = @($plan.Items.ToArray() | ForEach-Object { "$($_.DestinationFolder)|$($_.DestinationRow.RelativePath)" })
+
+        Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -SevenZipPath $sevenZip | Out-Null
+
+        foreach ($folder in $survivors) {
+            $after = @(Import-Csv -LiteralPath (Join-Path $folder 'MANIFEST.csv'))
+            $after.Count | Should -Be $before[$folder].Count
+            for ($i = 0; $i -lt $after.Count; $i++) {
+                $b = $before[$folder][$i]; $a = $after[$i]
+                foreach ($col in 'RelativePath', 'Length', 'LastWriteTimeStr', 'xxH2Hash', 'Duplicate', 'MediaMBPerSec') {
+                    $a.$col | Should -Be $b.$col
+                }
+                if ($planned -notcontains "$folder|$($b.RelativePath)") {
+                    foreach ($col in 'DataPath', 'Compressed', 'StoredAsHashSize') {
+                        $a.$col | Should -Be $b.$col
+                    }
+                }
+            }
+        }
+    }
+}
+
+Describe 'Prune re-stamps every manifest it rewrites (SR-038)' {
+    # TC-085. The witness is written by Write-Manifest ONLY, and never copied
+    # between folders (AGENTS.md 3 "the single most dangerous mistake").
+    It 'leaves every pool manifest Verified after re-homing into <Destination>' -ForEach @(
+        @{ Destination = 'snapshot' }, @{ Destination = 'backup-root' }
+    ) {
+        $root = Join-Path $TestDrive ('tc085-' + $Destination)
+        $env  = New-PruneTimeline -Root $root
+        if ($Destination -eq 'backup-root') {
+            # Make the ROOT the demander: re-introduce the deleted content, so the
+            # live state needs the bytes the newest snapshot holds.
+            [IO.File]::WriteAllText((Join-Path $env.Src 'gone.txt'), 'DOOMED ' * 40)
+            & $entry -ConfigPath $env.Cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-04-04 00:00:04') *>&1 | Out-Null
+        }
+        $newest = @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg)[-1].Name
+        Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $newest | Out-Null
+
+        $folders = @($env.Bkp) + @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg | ForEach-Object { $_.FullName })
+        foreach ($folder in $folders) {
+            (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Verified'
+            $target = Join-Path $root ('rw-' + [IO.Path]::GetFileName($folder))
+            & (Join-Path $folder 'RECONSTRUCT.ps1') -TargetRoot $target -RequireWitness *>&1 | Out-Null
+        }
+        # Each folder's witness is its OWN: no two folders share a digest for
+        # different manifests (the copied-witness mistake).
+        $digests = foreach ($folder in $folders) {
+            (Get-Content -LiteralPath (Get-ManifestWitnessPath -FolderPath $folder) | Where-Object { $_ -like 'XxH128=*' })
+        }
+        @($digests | Select-Object -Unique).Count | Should -Be $folders.Count
+    }
+
+    It 'the prune path calls neither Export-Csv nor Write-ManifestWitness directly (SR-038)' {
+        $src = Get-Content -LiteralPath (Join-Path $repo 'Modules\FileBackup.Engine.psm1') -Raw
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)
+        $pruneFunctions = 'Remove-BackupSnapshot', 'Get-SnapshotPrunePlan', 'Copy-ReHomedDataFile',
+                          'Publish-PruneManifest', 'Complete-PruneDeletion', 'Assert-PrunePrecondition',
+                          'Test-PoolResolves', 'Invoke-PruneEntrySweep', 'Get-BackupSnapshot'
+        $found = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                                          $pruneFunctions -contains $n.Name }, $true)
+        @($found).Count | Should -Be $pruneFunctions.Count
+        foreach ($fn in $found) {
+            $calls = $fn.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+                     ForEach-Object { $_.GetCommandName() }
+            $calls | Should -Not -Contain 'Export-Csv'
+            $calls | Should -Not -Contain 'Write-ManifestWitness'
+        }
+    }
+}
+
+Describe 'Prune reports host I/O as code 4 before the commit point (SR-046, SR-040)' {
+    # TC-084's tenth case, plus the batch precedence rule.
+    It 'aborts with code 4 when the source data file cannot be read, losing nothing' {
+        $root = Join-Path $TestDrive 'tc084-io'
+        $env  = New-PruneTimeline -Root $root
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $source = $plan.Items.ToArray()[0].SourceFullPath
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        # FileShare::None makes the copy throw the way a real locked file does.
+        $lock = [IO.File]::Open($source, 'Open', 'Read', 'None')
+        try {
+            $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        } finally { $lock.Dispose() }
+
+        $result[0].Status | Should -Be 'Refused'
+        $result[0].Code | Should -Be 4
+        $result[0].Message | Should -Match 'no data was lost'
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+        # No lock is left behind: the Temp mutual-exclusion marker is released.
+        Test-Path -LiteralPath (Join-Path $env.Chg 'Temp') | Should -BeFalse
+
+        # Re-running now that the file is readable completes the operation and
+        # sweeps any staged copy the aborted attempt left behind.
+        $retry = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $retry[0].Status | Should -Be 'Pruned'
+        @(Get-ChildItem -LiteralPath $env.Bkp, $env.Chg -File -Recurse -Filter '*.fbprune.tmp') | Should -BeNullOrEmpty
+    }
+
+    It 'collapses a batch to the worst code by the 2 > 3 > 4 > 1 precedence (SR-040)' {
+        $mixed = @(
+            [pscustomobject]@{ Name = 'a'; Code = 0 }
+            [pscustomobject]@{ Name = 'b'; Code = 4 }
+            [pscustomobject]@{ Name = 'c'; Code = 3 }
+            [pscustomobject]@{ Name = 'd'; Code = 2 }
+        )
+        (Get-PruneBatchExitCode -Result $mixed) | Should -Be 2
+        (Get-PruneBatchExitCode -Result @($mixed[0], $mixed[1], $mixed[2])) | Should -Be 3
+        (Get-PruneBatchExitCode -Result @($mixed[0], $mixed[1])) | Should -Be 4
+        (Get-PruneBatchExitCode -Result @($mixed[0])) | Should -Be 0
+        (Get-PruneBatchExitCode -Result @()) | Should -Be 0
+    }
+
+    It 'refuses a batch member without touching the ones that already succeeded (SR-046)' {
+        $root = Join-Path $TestDrive 'tc084-batch'
+        $env  = New-PruneTimeline -Root $root
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg `
+                        -Name $env.Newest, 'Snapshot_1999_09_09_09_09_09')
+        $result.Count | Should -Be 2
+        $result[0].Status | Should -Be 'Pruned'
+        $result[1].Code | Should -Be 2
+        (Get-PruneBatchExitCode -Result $result) | Should -Be 2
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Oldest) -PathType Container | Should -BeTrue
+    }
+}
+
+Describe 'Reported reclaim equals measured reclaim (SR-047)' {
+    # The second half of TC-087: the figure the inventory promised is the figure
+    # the removal actually achieves, measured over the whole store.
+    It 'matches the measured whole-store drop and the measured copied bytes' {
+        $root = Join-Path $TestDrive 'tc087-measured'
+        $env  = New-PruneTimeline -Root $root
+        $inv  = @(Get-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg)
+        $newest = @($inv | Where-Object { $_.Name -eq $env.Newest })[0]
+
+        # A destination manifest gains a few bytes of DataPath text (and its
+        # witness is re-stamped), which is index, not content: measure that
+        # delta explicitly rather than pretending it does not exist.
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $destFolders = @($plan.Items.ToArray() | ForEach-Object { $_.DestinationFolder } | Select-Object -Unique)
+        $indexBytes = {
+            [long](@($destFolders | ForEach-Object {
+                Get-Item -LiteralPath (Join-Path $_ 'MANIFEST.csv'), (Get-ManifestWitnessPath -FolderPath $_)
+            } | Measure-Object -Property Length -Sum).Sum)
+        }
+        $indexBefore = & $indexBytes
+
+        $bytesBefore = Get-StoreBytes -Folder @($env.Bkp, $env.Chg)
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $result[0].Status | Should -Be 'Pruned'
+        $bytesAfter = Get-StoreBytes -Folder @($env.Bkp, $env.Chg)
+        $indexDelta = (& $indexBytes) - $indexBefore
+
+        ($bytesBefore - $bytesAfter + $indexDelta) | Should -Be $newest.BytesReclaimed
+        $result[0].BytesReclaimed | Should -Be $newest.BytesReclaimed
+        $result[0].BytesReHomed   | Should -Be $newest.BytesReHomed
     }
 }

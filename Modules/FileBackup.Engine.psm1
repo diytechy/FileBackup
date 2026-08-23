@@ -738,7 +738,7 @@ function Optimize-ChangeFolders {
     }
 
     # One shared scan (LLR-047): the same index the retention mechanism reads.
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($changeDirs.FullName)
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($changeDirs | ForEach-Object { $_.FullName })
     $globalMap       = $index.Map
     $changeManifests = @($index.Folders | Where-Object { -not $_.IsBackup })
 
@@ -919,7 +919,7 @@ function Get-SnapshotPrunePlan {
     $targetFolder = $target.FullName
     $plan.Folder  = $targetFolder
 
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots.FullName)
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
     $plan.Index = $index
     foreach ($f in $index.Folders) { $plan.Manifests[$f.Folder] = $f.Manifest }
     $targetManifest = @($index.Folders | Where-Object { $_.Folder -eq $targetFolder } | ForEach-Object { $_.Manifest })
@@ -1063,7 +1063,7 @@ function Test-PoolResolves {
     $problems  = New-Object System.Collections.Generic.List[object]
     $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot |
                    Where-Object { $_.FullName -ne $ExcludeFolder })
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots.FullName)
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
 
     $isArchiveName = { param([string]$Path) [IO.Path]::GetExtension($Path) -ieq '.7z' }
 
@@ -1260,6 +1260,330 @@ function Get-BackupSnapshot {
             BytesReHomed   = $plan.BytesReHomed
         }
     }
+}
+
+function Invoke-PruneEntrySweep {
+    <#
+    .SYNOPSIS
+        Finishes what an interrupted prune left behind: any 'Pruning_*' folder
+        (already past the commit point) is deleted, and any '*.fbprune.tmp'
+        staged copy is removed. This is what makes resume "just run it again"
+        with no journal (SR-046).
+
+    .PARAMETER BackupRoot
+        The live backup root — a re-home destination, so it can hold a staged copy.
+
+    .PARAMETER ChangeRoot
+        The change root, which holds the snapshot folders.
+
+    .OUTPUTS
+        [int] the number of residue items removed.
+    #>
+    # Implements: SR-046, LLR-046
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $removed = 0
+    if (Test-Path -LiteralPath $ChangeRoot -PathType Container) {
+        foreach ($dir in @(Get-ChildItem -LiteralPath $ChangeRoot -Directory | Where-Object { $_.Name -like 'Pruning_*' })) {
+            & $Log "Completing an interrupted prune: removing '$($dir.Name)' (already past the commit point)." 'WARN'
+            Remove-Item -LiteralPath $dir.FullName -Recurse -Force
+            $removed++
+        }
+    }
+    foreach ($root in @($BackupRoot, $ChangeRoot)) {
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        foreach ($file in @(Get-ChildItem -LiteralPath $root -File -Recurse -Filter '*.fbprune.tmp')) {
+            & $Log "Removing an interrupted prune's staged copy '$($file.FullName)'." 'WARN'
+            Remove-Item -LiteralPath $file.FullName -Force
+            $removed++
+        }
+    }
+    return $removed
+}
+
+function Copy-ReHomedDataFile {
+    <#
+    .SYNOPSIS
+        Materializes one re-homed data file at its destination: copy to
+        '<destination>.fbprune.tmp' on the same volume, verify, then publish by
+        atomic rename (SR-045/SR-046 phase 1).
+
+    .DESCRIPTION
+        Stored-form identity (length + xxHash128 of the copy against the source)
+        is always checked. Content identity — the copy's payload really is the
+        row's (xxH2Hash, Length), expanding a '.7z' to a temp file first, exactly
+        Find-DataFileByHash's check — is checked unless -SkipContentVerify.
+
+        A destination file that is already there and already identical is an
+        interrupted run's completed copy (Get-SnapshotPrunePlan proved the bytes
+        match), so this is a no-op and the row edit still publishes.
+
+    .PARAMETER Item
+        One Get-SnapshotPrunePlan item.
+
+    .OUTPUTS
+        [string] the published destination path.
+    #>
+    # Implements: SR-045, LLR-045
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$Item,
+        [string]$SevenZipPath,
+        [switch]$SkipContentVerify
+    )
+    $destFull = Join-Path $Item.DestinationFolder $Item.DestinationDataPath
+    if (Test-Path -LiteralPath $destFull -PathType Leaf) { return $destFull }
+
+    $destDir = [System.IO.Path]::GetDirectoryName($destFull)
+    if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+
+    $temp = "$destFull.fbprune.tmp"
+    Copy-Item -LiteralPath $Item.SourceFullPath -Destination $temp -Force
+
+    $sourceInfo = Get-Item -LiteralPath $Item.SourceFullPath
+    $copyInfo   = Get-Item -LiteralPath $temp
+    if ($copyInfo.Length -ne $sourceInfo.Length) {
+        throw "Re-homed copy of '$($Item.SourceDataPath)' is $($copyInfo.Length) bytes, source is $($sourceInfo.Length)."
+    }
+    if ((Get-FileXxHash -FilePath $temp) -ne (Get-FileXxHash -FilePath $Item.SourceFullPath)) {
+        throw "Re-homed copy of '$($Item.SourceDataPath)' does not hash equal to its source."
+    }
+
+    if (-not $SkipContentVerify) {
+        $payload = $temp
+        $scratch = $null
+        try {
+            if ($Item.Compressed -eq 'Yes') {
+                $scratch = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $temp -DestinationFile $scratch
+                $payload = $scratch
+            }
+            $payloadInfo = Get-Item -LiteralPath $payload
+            if ($payloadInfo.Length -ne [long]$Item.SourceRow.Length -or
+                (Get-FileXxHash -FilePath $payload) -ne $Item.SourceRow.xxH2Hash) {
+                throw "Re-homed content for '$($Item.SourceRow.RelativePath)' does not match its manifest (hash,length)."
+            }
+        } finally {
+            if ($scratch) { Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    Move-Item -LiteralPath $temp -Destination $destFull -Force
+    return $destFull
+}
+
+function Publish-PruneManifest {
+    <#
+    .SYNOPSIS
+        Points each destination row at its re-homed file and persists every
+        touched manifest through Write-Manifest (SR-045/SR-046 phase 2), which
+        re-stamps the SR-038 witness by its one writer.
+
+    .DESCRIPTION
+        Only DataPath, Compressed and StoredAsHashSize are ever assigned, and
+        only on rows the plan named: no row is added, removed or reordered, and
+        the six logical columns are untouched. MANIFEST.csv.meta is never copied
+        between folders — each folder's witness is stamped for its own manifest.
+
+    .PARAMETER Plan
+        The Get-SnapshotPrunePlan result whose items have been materialized.
+
+    .OUTPUTS
+        [string[]] the folders whose manifests were rewritten.
+    #>
+    # Implements: SR-045, SR-038, LLR-045
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][object]$Plan,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $touched = New-Object System.Collections.Generic.List[string]
+    foreach ($item in $Plan.Items.ToArray()) {
+        $item.DestinationRow.DataPath         = $item.DestinationDataPath
+        $item.DestinationRow.Compressed       = $item.Compressed
+        $item.DestinationRow.StoredAsHashSize = $item.StoredAsHashSize
+        if (-not $touched.Contains($item.DestinationFolder)) { $touched.Add($item.DestinationFolder) }
+    }
+    foreach ($folder in $touched) {
+        & $Log "Re-homed data published into '$folder'; rewriting its manifest." 'INFO'
+        Write-Manifest -FolderPath $folder -Records $Plan.Manifests[$folder]
+    }
+    return $touched.ToArray()
+}
+
+function Complete-PruneDeletion {
+    <#
+    .SYNOPSIS
+        The commit point: renames the snapshot out of the ^Snapshot_ namespace
+        to 'Pruning_<name>' — which fails the pattern Reconstruct.ps1,
+        reconstruct.sh AND Optimize-ChangeFolders all use, so one atomic rename
+        removes it from every consumer's view — and then deletes it (SR-046).
+
+    .PARAMETER SnapshotFolder
+        Full path of the snapshot folder to remove.
+
+    .OUTPUTS
+        None.
+    #>
+    # Implements: SR-046, LLR-046
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SnapshotFolder,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $parent      = [System.IO.Path]::GetDirectoryName($SnapshotFolder)
+    $pruningName = 'Pruning_' + [System.IO.Path]::GetFileName($SnapshotFolder)
+    Rename-Item -LiteralPath $SnapshotFolder -NewName $pruningName
+    & $Log "Commit point passed: '$([System.IO.Path]::GetFileName($SnapshotFolder))' is no longer visible to any restorer." 'INFO'
+    Remove-Item -LiteralPath (Join-Path $parent $pruningName) -Recurse -Force
+}
+
+function Remove-BackupSnapshot {
+    <#
+    .SYNOPSIS
+        Removes one or more dated snapshots, re-homing any content whose only
+        physical copy they hold into the surviving pool first, and proving the
+        pool still resolves before the folder is deleted (SR-045/SR-046).
+
+    .DESCRIPTION
+        HomeHub owns retention POLICY; this is the mechanism (IF-001). Named
+        snapshots only — no -KeepLast/-OlderThan, no wildcards. Each name is an
+        independent transaction, processed in the order given; the batch outcome
+        is the worst code by the SR-040 precedence 2 > 3 > 4 > 1.
+
+        Ordering (the invariant is that the pool goes redundant, then the
+        snapshot disappears — never deficient): sweep any interrupted run's
+        residue; plan; check every rail; take the Temp lock; materialize each
+        re-homed file; publish the destination manifests; prove every surviving
+        row resolves with the target excluded; only then commit and delete.
+
+        -WhatIf runs the full preflight and reports the classification and the
+        reclaim figures the real run would achieve, mutating nothing.
+        ConfirmImpact is Medium so an automated run never prompts.
+
+    .PARAMETER Name
+        Exact snapshot folder name(s). See SR-046 for the containment rules.
+
+    .PARAMETER SkipContentVerify
+        Verify only stored-form identity of each copy, not that its payload
+        hashes to the row's (xxH2Hash, Length).
+
+    .PARAMETER AllowUnverifiedIndex
+        Proceed when a pool manifest has no witness at all (a backup predating
+        SR-038). A witness that MISMATCHES still refuses.
+
+    .PARAMETER DiscardUnreferencedData
+        Accept data files in the target that its own manifest does not
+        reference, discarding them with the folder.
+
+    .OUTPUTS
+        [pscustomobject] per name: Name, Status (Pruned|Refused|WhatIf), Code,
+        BytesReclaimed, BytesReHomed, ReHomeDestinations, Refusals, Message.
+    #>
+    # Implements: SR-045, SR-046, SR-040, LLR-045, LLR-046
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][string[]]$Name,
+        [string]$SevenZipPath = $script:Def.SevenZipDefaultPath,
+        [switch]$SkipContentVerify,
+        [switch]$AllowUnverifiedIndex,
+        [switch]$DiscardUnreferencedData,
+        [switch]$NonInteractive,
+        [scriptblock]$Log
+    )
+    $log = if ($Log) { $Log } else { { param([string]$Message, [string]$Level = 'INFO') Write-Verbose "[$Level] $Message" } }
+    $bkp = (Resolve-Path -LiteralPath $BackupRoot).Path
+    $chg = (Resolve-Path -LiteralPath $ChangeRoot).Path
+
+    Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
+
+    foreach ($snapshotName in $Name) {
+        $plan     = Get-SnapshotPrunePlan -BackupRoot $bkp -ChangeRoot $chg -Name $snapshotName
+        $refusals = @(Assert-PrunePrecondition -BackupRoot $bkp -ChangeRoot $chg -Plan $plan `
+                        -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify `
+                        -AllowUnverifiedIndex:$AllowUnverifiedIndex -DiscardUnreferencedData:$DiscardUnreferencedData)
+        $destinations = @($plan.Items.ToArray() | ForEach-Object { $_.DestinationFolder } | Select-Object -Unique)
+        & $log ("Plan for '$snapshotName': folder='$($plan.Folder)', rows=$($plan.Rows), re-home $($plan.Items.Count) file(s)/$($plan.BytesReHomed) byte(s), reclaim $($plan.BytesReclaimed) byte(s), refusals=$($refusals.Count).") 'DEBUG'
+
+        if ($refusals.Count -gt 0) {
+            $worst = @($refusals | Sort-Object { switch ($_.Code) { 2 { 0 } 3 { 1 } 4 { 2 } default { 3 } } })[0]
+            foreach ($refusal in $refusals) { & $log "Refusing to remove '$snapshotName' [$($refusal.Code)/$($refusal.Kind)]: $($refusal.Message)" 'ERROR' }
+            [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = $worst.Code
+                BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
+                Refusals = $refusals; Message = $worst.Message }
+            continue
+        }
+
+        $what = "remove it, re-homing $($plan.Items.Count) file(s) / $($plan.BytesReHomed) byte(s) first and reclaiming $($plan.BytesReclaimed) byte(s)"
+        if (-not $PSCmdlet.ShouldProcess($plan.Folder, $what)) {
+            & $log "Dry run: '$snapshotName' would $what." 'INFO'
+            [pscustomobject]@{ Name = $snapshotName; Status = 'WhatIf'; Code = 0
+                BytesReclaimed = $plan.BytesReclaimed; BytesReHomed = $plan.BytesReHomed
+                ReHomeDestinations = $destinations; Refusals = @(); Message = "Dry run: would $what." }
+            continue
+        }
+
+        $staging = Join-Path $chg 'Temp'
+        New-Item -ItemType Directory -Path $staging -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $staging 'PRUNE.inprogress') -Value $snapshotName -Encoding UTF8
+        try {
+            foreach ($item in $plan.Items.ToArray()) {
+                & $log "Re-homing '$($item.SourceRow.RelativePath)' from '$snapshotName' to '$($item.DestinationFolder)' as '$($item.DestinationDataPath)'." 'INFO'
+                Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify | Out-Null
+            }
+            Publish-PruneManifest -Plan $plan -Log $log | Out-Null
+
+            $unresolved = @(Test-PoolResolves -BackupRoot $bkp -ChangeRoot $chg -ExcludeFolder $plan.Folder)
+            if ($unresolved.Count -gt 0) {
+                foreach ($problem in $unresolved) { & $log "Aborting: $($problem.Message)" 'ERROR' }
+                throw "The surviving pool would not resolve without '$snapshotName' ($($unresolved.Count) row(s)); nothing was deleted."
+            }
+
+            Complete-PruneDeletion -SnapshotFolder $plan.Folder -Log $log
+            & $log "Removed '$snapshotName': reclaimed $($plan.BytesReclaimed) byte(s), re-homed $($plan.BytesReHomed)." 'INFO'
+            [pscustomobject]@{ Name = $snapshotName; Status = 'Pruned'; Code = 0
+                BytesReclaimed = $plan.BytesReclaimed; BytesReHomed = $plan.BytesReHomed
+                ReHomeDestinations = $destinations; Refusals = @()
+                Message = "Removed '$snapshotName'." }
+        } catch {
+            & $log "Removal of '$snapshotName' failed before the commit point; NO DATA WAS LOST: $($_.Exception.Message)" 'ERROR'
+            [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4
+                BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
+                Refusals = @([pscustomobject]@{ Code = 4; Kind = 'host-io'; Message = $_.Exception.Message })
+                Message = "Removal aborted before the commit point; no data was lost. $($_.Exception.Message)" }
+        } finally {
+            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Get-PruneBatchExitCode {
+    <#
+    .SYNOPSIS
+        Collapses a Remove-BackupSnapshot batch into one SR-040 process exit
+        code with the documented precedence 2 > 3 > 4 > 1 (0 only when every
+        named snapshot was removed or dry-run).
+
+    .PARAMETER Result
+        The records Remove-BackupSnapshot emitted.
+
+    .OUTPUTS
+        [int] 0, 1, 2, 3 or 4.
+    #>
+    # Implements: SR-040, SR-046, SR-048, LLR-046, LLR-048
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$Result)
+    if (-not $Result) { return 0 }
+    foreach ($code in 2, 3, 4, 1) {
+        if (@($Result | Where-Object { $_.Code -eq $code }).Count -gt 0) { return $code }
+    }
+    return 0
 }
 
 # endregion
@@ -2312,8 +2636,10 @@ Export-ModuleMember -Function @(
     'Test-HashRecalcDue', 'Update-SourceManifest', 'Copy-SourceFileToBackup',
     'Test-BackupManifest', 'Sync-BackupStorageLayout',
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
-    'Get-SnapshotPrunePlan', 'Get-BackupSnapshot',
+    'Get-SnapshotPrunePlan', 'Get-BackupSnapshot', 'Get-PoolSnapshotFolder',
     'Test-PoolResolves', 'Assert-PrunePrecondition',
+    'Invoke-PruneEntrySweep', 'Copy-ReHomedDataFile', 'Publish-PruneManifest',
+    'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',
