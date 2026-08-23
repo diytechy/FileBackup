@@ -704,3 +704,162 @@ Describe 'The already-compressed extension list is one list (SR-004)' {
         ($documented -join ' ') | Should -Be ($live -join ' ')
     }
 }
+
+Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
+    # TC-100. The shortfall is induced by STUBBING the free-space probe, so the
+    # test needs no full volume and stays deterministic. The arithmetic itself
+    # (Get-BackupCapacityDemand / Get-MigrationCapacityDemand) is asserted
+    # directly, because that is the part a wrong estimate would silently break.
+    BeforeAll {
+        function New-CapacityStore {
+            param([string]$Root, [bool]$Compress = $false)
+            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $cfg = Join-Path $Root 'c.xml'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
+            [IO.File]::WriteAllText((Join-Path $src 'seed.txt'), ('SEED ' * 100))
+            Invoke-FormBackup -Cfg $cfg | Out-Null
+            return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg }
+        }
+    }
+
+    It 'refuses the set and writes nothing when the estimate exceeds free space (SR-052, SR-013)' {
+        $s = New-CapacityStore -Root (Join-Path $TestDrive 'tc100-refuse')
+        [IO.File]::WriteAllText((Join-Path $s.Src 'big.txt'), ('X' * 200000))
+
+        $beforeData  = @(Get-DataFile -Root $s.Bkp | ForEach-Object { "$($_.Name)|$($_.Length)" }) | Sort-Object
+        $beforeState = Get-Content -LiteralPath (Join-Path $s.Bkp 'FileBackupState.json') -Raw
+        $beforeChg   = @(Get-ChildItem -LiteralPath $s.Chg -Recurse -File | ForEach-Object { $_.FullName }) | Sort-Object
+
+        $failed = $null
+        try {
+            InModuleScope FileBackup.Engine -Parameters @{ Set = $s } {
+                param($Set)
+                # The volume reports one byte free; everything else is real.
+                Mock Get-FreeSpaceBytes { return 1L }
+                $cfgSet = [pscustomobject]@{ Name = 'S'; SourcePath = $Set.Src; BackupPath = $Set.Bkp
+                    ChangePath = $Set.Chg; HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true }
+                $ok = $true
+                Invoke-BackupSet -Set $cfgSet -Deps @{ '7z' = $null; 'ffprobe' = $null; 'xxhash' = $true } `
+                    -OverallSuccess ([ref]$ok) -LogPaths (New-Object System.Collections.Generic.List[string])
+            }
+        } catch {
+            $failed = $_.Exception.Message
+        }
+
+        $failed | Should -Not -BeNullOrEmpty
+        $failed | Should -Match 'Not enough free space on the backup volume'
+        $failed | Should -Match 'Required: \d+ byte\(s\), Free: 1 byte\(s\)'
+
+        # Nothing was written: no data file changed or appeared, the run state is
+        # untouched, and no staging folder was orphaned for the SR-017 guard.
+        (@(Get-DataFile -Root $s.Bkp | ForEach-Object { "$($_.Name)|$($_.Length)" }) | Sort-Object) -join ',' |
+            Should -Be ($beforeData -join ',')
+        Get-Content -LiteralPath (Join-Path $s.Bkp 'FileBackupState.json') -Raw | Should -Be $beforeState
+        (@(Get-ChildItem -LiteralPath $s.Chg -Recurse -File | ForEach-Object { $_.FullName }) | Sort-Object) -join ',' |
+            Should -Be ($beforeChg -join ',')
+        Test-Path -LiteralPath (Join-Path $s.Chg 'Temp') | Should -BeFalse
+    }
+
+    It 'fails the SET (status 1), not the whole invocation as a usage error (SR-052, SR-014)' {
+        # A per-set refusal is status 1: other configured sets may still have run.
+        $s = New-CapacityStore -Root (Join-Path $TestDrive 'tc100-status')
+        [IO.File]::WriteAllText((Join-Path $s.Src 'big.txt'), ('Y' * 200000))
+        # Realistic shortfall without a stub: demand a volume that cannot hold it.
+        $demand = Get-BackupCapacityDemand -NewOrChanged @([pscustomobject]@{ RelativePath = 'big.txt'
+                        xxH2Hash = 'DEADBEEF'; Length = [long]::MaxValue / 4 }) `
+                    -RemovedFromSource @() -BackupDb @() -SameVolume $true
+        { Assert-BackupCapacity -BackupPath $s.Bkp -ChangePath $s.Chg -BackupBytes $demand.BackupBytes -Log { param($m, $l) } } |
+            Should -Throw -ExpectedMessage '*Not enough free space*'
+    }
+
+    It 'lets a run that fits proceed unchanged (SR-052)' {
+        $s = New-CapacityStore -Root (Join-Path $TestDrive 'tc100-fits')
+        [IO.File]::WriteAllText((Join-Path $s.Src 'more.txt'), ('MORE ' * 100))
+        Invoke-FormBackupExitCode -Cfg $s.Cfg | Should -Be 0
+        @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'more.txt') |
+            Should -Not -BeNullOrEmpty
+    }
+
+    It 'counts only NEW deduplicated content on the backup volume (SR-052)' {
+        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
+        $new  = @(
+            [pscustomobject]@{ RelativePath = 'b.txt'; xxH2Hash = 'H1'; Length = 1000L }   # dedup: already held
+            [pscustomobject]@{ RelativePath = 'c.txt'; xxH2Hash = 'H2'; Length = 500L }
+            [pscustomobject]@{ RelativePath = 'd.txt'; xxH2Hash = 'H2'; Length = 500L }    # dedup: same new key
+        )
+        $d = Get-BackupCapacityDemand -NewOrChanged $new -RemovedFromSource @() -BackupDb $held -SameVolume $true
+        $d.BackupBytes | Should -Be 500
+        $d.ChangeBytes | Should -Be 0 -Because 'on one volume, staging is a rename'
+    }
+
+    It 'counts staging bytes only when the change root is on another volume (SR-052)' {
+        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
+        $new  = @([pscustomobject]@{ RelativePath = 'a.txt'; xxH2Hash = 'H9'; Length = 2000L })   # a.txt modified
+        (Get-BackupCapacityDemand -NewOrChanged $new -RemovedFromSource @() -BackupDb $held -SameVolume $true).ChangeBytes |
+            Should -Be 0
+        $cross = Get-BackupCapacityDemand -NewOrChanged $new -RemovedFromSource @() -BackupDb $held -SameVolume $false
+        $cross.BackupBytes | Should -Be 2000
+        $cross.ChangeBytes | Should -Be 1000 -Because 'the superseded version must be COPIED across the volume boundary'
+    }
+
+    It 'includes a pending storage-layout migration in the estimate (SR-052, SR-012)' {
+        $db = @(
+            [pscustomobject]@{ RelativePath = 'a.txt'; DataPath = 'a.txt'; xxH2Hash = 'H1'; Length = 100L
+                Compressed = 'No'; StoredAsHashSize = 'Original' }
+            [pscustomobject]@{ RelativePath = 'b.jpg'; DataPath = 'b.jpg'; xxH2Hash = 'H2'; Length = 700L
+                Compressed = 'No'; StoredAsHashSize = 'Original' }
+        )
+        # No change requested: nothing to migrate.
+        Get-MigrationCapacityDemand -BackupDb $db -PreserveFolderTree $true -CompressEnabled $false | Should -Be 0
+        # Turning compression on migrates a.txt only (.jpg is already-compressed).
+        Get-MigrationCapacityDemand -BackupDb $db -PreserveFolderTree $true -CompressEnabled $true | Should -Be 100
+        # Switching tree mode migrates both.
+        Get-MigrationCapacityDemand -BackupDb $db -PreserveFolderTree $false -CompressEnabled $false | Should -Be 800
+        # Rows sharing one (hash,length) are counted once (SR-051 transforms the group once).
+        $shared = @(
+            [pscustomobject]@{ RelativePath = 'x.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
+                Compressed = 'No'; StoredAsHashSize = 'Original' }
+            [pscustomobject]@{ RelativePath = 'y.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
+                Compressed = 'No'; StoredAsHashSize = 'Original' }
+        )
+        Get-MigrationCapacityDemand -BackupDb $shared -PreserveFolderTree $false -CompressEnabled $false | Should -Be 400
+    }
+}
+
+Describe 'Free space is measured the same way on both platforms (SR-052, SR-023)' {
+    # TC-101, Windows half. The Linux half (a rooted POSIX path in the container,
+    # and the SR-023 restore check firing there for the first time) runs in the
+    # Docker CI job.
+    It 'returns a plausible non-zero value for a drive-qualified Windows path (SR-052)' {
+        $free = Get-FreeSpaceBytes -Path $TestDrive
+        $free | Should -Not -BeNullOrEmpty
+        $free | Should -BeGreaterThan 0
+        $free | Should -BeOfType [long]
+    }
+
+    It 'measures a path that does not exist yet, via its nearest existing ancestor (SR-052)' {
+        $future = Join-Path $TestDrive 'does\not\exist\yet'
+        Get-FreeSpaceBytes -Path $future | Should -BeGreaterThan 0
+    }
+
+    It 'never throws for an unresolvable path, it answers $null (SR-052)' {
+        $answer = $null
+        { $answer = Get-FreeSpaceBytes -Path '\\?\NoSuchVolume{0000}\nope' } | Should -Not -Throw
+        $answer | Should -BeNullOrEmpty
+    }
+
+    It 'tells two volumes apart and one volume from itself (SR-052)' {
+        $a = Get-VolumeIdentity -Path $TestDrive
+        $a | Should -Not -BeNullOrEmpty
+        Get-VolumeIdentity -Path (Join-Path $TestDrive 'sub\deeper') | Should -Be $a
+    }
+
+    It 'no longer resolves the restore target through Split-Path -Qualifier (SR-023, SR-052)' {
+        # The regression pin for the Linux half: the mechanism that could not
+        # resolve a rooted POSIX path must be gone from the restore kit.
+        $text = Get-Content -LiteralPath (Join-Path $repo 'Reconstruct.ps1') -Raw
+        $text | Should -Not -Match '\$drive\s*=\s*Get-PSDrive -Name \(Split-Path'
+        $text | Should -Match 'Get-FreeSpaceBytes -Path \$TargetRoot'
+    }
+}

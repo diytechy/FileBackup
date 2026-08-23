@@ -2674,6 +2674,194 @@ function Complete-ChangeFolder {
 
 # region Per-set orchestrator
 
+function Get-MigrationCapacityDemand {
+    <#
+    .SYNOPSIS
+        Bytes a pending storage-layout migration will ADD to the backup volume
+        before it frees anything (SR-052). Pure: it reads no filesystem.
+
+    .DESCRIPTION
+        Sync-BackupStorageLayout copies every transformed row to its new location
+        and persists the manifest BEFORE deleting the old file (B7), so a
+        migration transiently needs a second copy of everything it moves. Sized
+        by the row's uncompressed Length, which is the upper bound in both
+        directions.
+
+        Rows sharing one (xxH2Hash,Length) are counted ONCE: SR-051 transforms
+        such a group through a single physical file.
+
+    .PARAMETER BackupDb
+        The backup manifest as it stands before the migration.
+
+    .PARAMETER PreserveFolderTree
+        The run's tree mode (see SR-012).
+
+    .PARAMETER CompressEnabled
+        The run's compression setting (see SR-004).
+
+    .OUTPUTS
+        [long] bytes.
+    #>
+    # Implements: SR-052, SR-012, LLR-052
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb,
+        [Parameter(Mandatory)][bool]$PreserveFolderTree,
+        [Parameter(Mandatory)][bool]$CompressEnabled
+    )
+    $expectedStoredAs = if ($PreserveFolderTree) { 'Original' } else { 'Hash' }
+    $counted = @{}
+    $total   = 0L
+    foreach ($row in @($BackupDb | Where-Object { $_ })) {
+        if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+        $shouldCompress = Test-ShouldCompress -FileName $row.RelativePath -CompressEnabled $CompressEnabled
+        if (($row.StoredAsHashSize -eq $expectedStoredAs) -and (($row.Compressed -eq 'Yes') -eq $shouldCompress)) { continue }
+        $key = "$($row.xxH2Hash)|$($row.Length)"
+        if ($counted.ContainsKey($key)) { continue }
+        $counted[$key] = $true
+        $total += [long]$row.Length
+    }
+    return $total
+}
+
+function Get-BackupCapacityDemand {
+    <#
+    .SYNOPSIS
+        Bytes this run will add to the backup volume and to the change volume
+        (SR-052). Pure: it reads no filesystem.
+
+    .DESCRIPTION
+        BACKUP: the new deduplicated content only — one entry per
+        (xxH2Hash,Length) that the backup does not already hold — sized by
+        uncompressed Length, which is the upper bound whether or not the bytes
+        end up compressed.
+
+        CHANGE: what Save-SupersededData and Move-RemovedFilesToStaging must put
+        in staging. Counted ONLY when the change root is on a DIFFERENT volume
+        than the backup root: on the same volume those are renames and cost
+        nothing. Also deduplicated by (xxH2Hash,Length), because dedup means one
+        physical file backs several rows.
+
+    .PARAMETER NewOrChanged
+        Compare-SourceToBackup's NewOrChanged rows.
+
+    .PARAMETER RemovedFromSource
+        Compare-SourceToBackup's RemovedFromSource rows.
+
+    .PARAMETER BackupDb
+        What the backup already holds.
+
+    .PARAMETER SameVolume
+        True when the change root and the backup root are on one volume.
+
+    .OUTPUTS
+        [pscustomobject] BackupBytes, ChangeBytes.
+    #>
+    # Implements: SR-052, SR-013, LLR-052
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$NewOrChanged,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$RemovedFromSource,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb,
+        [Parameter(Mandatory)][bool]$SameVolume
+    )
+    $held = @{}
+    $byPath = @{}
+    foreach ($row in @($BackupDb | Where-Object { $_ })) {
+        $held["$($row.xxH2Hash)|$($row.Length)"] = $true
+        $byPath[$row.RelativePath] = $row
+    }
+
+    $backupBytes = 0L
+    $seen = @{}
+    foreach ($row in @($NewOrChanged | Where-Object { $_ })) {
+        $key = "$($row.xxH2Hash)|$($row.Length)"
+        if ($held.ContainsKey($key) -or $seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        $backupBytes += [long]$row.Length
+    }
+
+    $changeBytes = 0L
+    if (-not $SameVolume) {
+        $staged = @{}
+        # Where-Object guards the AGENTS.md §4 hazard: an empty list arriving as
+        # $null makes @(...) one $null element.
+        foreach ($row in @(@($NewOrChanged) + @($RemovedFromSource) | Where-Object { $_ })) {
+            $prior = $byPath[$row.RelativePath]
+            if (-not $prior) { continue }                       # nothing of this path is stored yet
+            $key = "$($prior.xxH2Hash)|$($prior.Length)"
+            if ($seen.ContainsKey($key) -or $staged.ContainsKey($key)) { continue }
+            $staged[$key] = $true
+            $changeBytes += [long]$prior.Length
+        }
+    }
+
+    return [pscustomobject]@{ BackupBytes = $backupBytes; ChangeBytes = $changeBytes }
+}
+
+function Assert-BackupCapacity {
+    <#
+    .SYNOPSIS
+        Refuses a backup set BEFORE any mutation when the destination volumes
+        cannot hold what the run is about to add (SR-052).
+
+    .DESCRIPTION
+        The backup half of SN-019, mirroring the restore side's SR-023 check. The
+        destination is typically a HomeHub-controlled bind mount, so a full
+        volume is a realistic failure mode, and a run that fills it mid-way
+        leaves the manifest and the bytes out of step.
+
+        A volume whose free space cannot be MEASURED is skipped, not refused:
+        not knowing is not evidence of a shortfall. There is deliberately no
+        configurable margin (decision Q8; SR-042's schema is closed).
+
+    .PARAMETER BackupPath
+        The backup root's volume.
+
+    .PARAMETER ChangePath
+        The change root's volume.
+
+    .PARAMETER BackupBytes
+        Bytes the run will add to the backup volume.
+
+    .PARAMETER ChangeBytes
+        Bytes the run will add to the change volume.
+
+    .PARAMETER Log
+        Logger scriptblock (message, level).
+
+    .OUTPUTS
+        None. Throws a message naming the volume, the requirement and the free
+        space; the caller fails the SET (entry-point status 1 — other sets may
+        still run), leaving the tree byte-identical.
+    #>
+    # Implements: SR-052, SR-013, SR-014, LLR-052
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupPath,
+        [Parameter(Mandatory)][string]$ChangePath,
+        [long]$BackupBytes = 0,
+        [long]$ChangeBytes = 0,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    foreach ($demand in @(
+        [pscustomobject]@{ Name = 'backup'; Path = $BackupPath; Bytes = $BackupBytes }
+        [pscustomobject]@{ Name = 'change'; Path = $ChangePath; Bytes = $ChangeBytes }
+    )) {
+        if ($demand.Bytes -le 0) { continue }
+        $free = Get-FreeSpaceBytes -Path $demand.Path
+        if ($null -eq $free) {
+            & $Log "Capacity check skipped for the $($demand.Name) volume '$($demand.Path)': its free space could not be measured." 'WARN'
+            continue
+        }
+        if ($free -lt $demand.Bytes) {
+            throw ("Not enough free space on the $($demand.Name) volume '$($demand.Path)'. " +
+                   "Required: $($demand.Bytes) byte(s), Free: $free byte(s). Refusing before writing anything.")
+        }
+        & $Log "Capacity check passed for the $($demand.Name) volume '$($demand.Path)': needs $($demand.Bytes), has $free." 'DEBUG'
+    }
+}
+
 function Invoke-BackupSet {
     <#
     .SYNOPSIS
@@ -2754,6 +2942,23 @@ function Invoke-BackupSet {
         }
     }
 
+    # 5.5 Capacity preflight, migration component (SR-052): a migration copies
+    # before it deletes (B7), so it needs the room BEFORE step 6 touches a byte.
+    # A refusal must not orphan the staging folder, or the NEXT run aborts on the
+    # SR-017 stale-Temp guard instead of on the real cause (same discipline as
+    # the AllowEmptySource refusal above).
+    $refuseCapacity = {
+        param([string]$Message)
+        Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+        throw $Message
+    }
+    $sameVolume = ((Get-VolumeIdentity -Path $paths.BkpPath) -eq (Get-VolumeIdentity -Path $paths.ChgPath))
+    try {
+        Assert-BackupCapacity -BackupPath $paths.BkpPath -ChangePath $paths.ChgPath -Log $log `
+            -BackupBytes (Get-MigrationCapacityDemand -BackupDb (Read-Manifest -FolderPath $paths.BkpPath) `
+                            -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled))
+    } catch { & $refuseCapacity $_.Exception.Message }
+
     # 6. Sanitize / migrate backup storage layout
     & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."
     $backupDb = Sync-BackupStorageLayout -BackupRoot $paths.BkpPath -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) -SevenZipPath $Deps['7z'] -Log $log -OverallSuccess $OverallSuccess
@@ -2776,6 +2981,16 @@ function Invoke-BackupSet {
     $backupMap = @{}
     foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
     $changedCount = 0
+
+    # 9.4 Capacity preflight, content component (SR-052): the last point at which
+    # nothing has been written. A refusal here fails this SET (status 1), leaving
+    # the tree byte-identical; other sets still run (SR-014).
+    $demand = Get-BackupCapacityDemand -NewOrChanged $diff.NewOrChanged `
+                -RemovedFromSource $diff.RemovedFromSource -BackupDb $backupDb -SameVolume $sameVolume
+    try {
+        Assert-BackupCapacity -BackupPath $paths.BkpPath -ChangePath $paths.ChgPath -Log $log `
+            -BackupBytes $demand.BackupBytes -ChangeBytes $demand.ChangeBytes
+    } catch { & $refuseCapacity $_.Exception.Message }
 
     # 9.5 Preserve superseded bytes into the snapshot BEFORE they are overwritten
     # (Mirror) or orphaned (HashAddressed) — required for point-in-time restore.
@@ -3235,6 +3450,7 @@ Export-ModuleMember -Function @(
     'Test-BackupStorageForm', 'Repair-BackupStorageForm', 'Update-BackupSnapshotKit',
     'Invoke-PruneEntrySweep', 'Copy-ReHomedDataFile', 'Publish-PruneManifest',
     'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
+    'Get-MigrationCapacityDemand', 'Get-BackupCapacityDemand', 'Assert-BackupCapacity',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',

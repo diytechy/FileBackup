@@ -486,6 +486,109 @@ function Expand-FileWithSevenZip {
 
 # region Manifest I/O
 
+function Resolve-ExistingAncestor {
+    <#
+    .SYNOPSIS
+        Returns the nearest existing ancestor of a path (the path itself when it
+        exists), so a volume can be interrogated for a target that has not been
+        created yet.
+    .PARAMETER Path
+        Any path, existing or not.
+    .OUTPUTS
+        [string] an existing path, or $null when even the root does not exist.
+    #>
+    # Implements: SR-052, SR-023, LLR-052
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    try { $probe = [System.IO.Path]::GetFullPath($Path) } catch { return $null }
+    while ($probe) {
+        if (Test-Path -LiteralPath $probe) { return $probe }
+        $parent = [System.IO.Path]::GetDirectoryName($probe)
+        if ([string]::IsNullOrEmpty($parent) -or $parent -eq $probe) { return $null }
+        $probe = $parent
+    }
+    return $null
+}
+
+function Get-FreeSpaceBytes {
+    <#
+    .SYNOPSIS
+        Free bytes on the volume that contains a path, measured the same way on
+        Windows and on Linux (SR-052). Never throws.
+
+    .DESCRIPTION
+        Lives in Common because the restore kit consumes it and must stay
+        self-contained (AGENTS.md §2).
+
+        Replaces `Get-PSDrive -Name (Split-Path -Qualifier $path)`, which cannot
+        resolve a rooted POSIX path: `Split-Path -Qualifier '/backup'` throws,
+        and Reconstruct.ps1's adjacent catch swallowed it, so the SR-023 restore
+        capacity check was SILENTLY INERT on Linux and in the container while
+        bash/reconstruct.sh's `df -P -B1` worked.
+
+        System.IO.DriveInfo answers for both platforms (a drive root on Windows,
+        the containing mount on Unix). Get-PSDrive remains as the fallback for a
+        drive-qualified Windows path. A path that does not exist yet is resolved
+        to its nearest existing ancestor first, so a restore target can be
+        measured before it is created.
+
+    .PARAMETER Path
+        The path whose volume is measured.
+
+    .OUTPUTS
+        [long] free bytes, or $null when neither mechanism can answer — the
+        caller then SKIPS the check rather than refusing (an unmeasurable volume
+        is not evidence of a full one).
+    #>
+    # Implements: SR-052, SR-023, LLR-052, LLR-023
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $probe = Resolve-ExistingAncestor -Path $Path
+    if (-not $probe) { return $null }
+
+    try {
+        $drive = [System.IO.DriveInfo]::new($probe)
+        if ($drive.IsReady) { return [long]$drive.AvailableFreeSpace }
+    } catch {
+        Write-Verbose "DriveInfo could not measure '$probe': $($_.Exception.Message)"
+    }
+
+    try {
+        $root = [System.IO.Path]::GetPathRoot($probe)
+        if ($root -match '^([A-Za-z]):') {
+            $psDrive = Get-PSDrive -Name $Matches[1] -ErrorAction Stop
+            if ($null -ne $psDrive.Free) { return [long]$psDrive.Free }
+        }
+    } catch {
+        Write-Verbose "Get-PSDrive could not measure '$probe': $($_.Exception.Message)"
+    }
+    return $null
+}
+
+function Get-VolumeIdentity {
+    <#
+    .SYNOPSIS
+        A stable key naming the volume that contains a path, so two paths can be
+        told apart as "same volume" (a move is a rename) or "different volumes"
+        (a move is a copy, and costs bytes) — SR-052. Never throws.
+    .DESCRIPTION
+        On Windows this is the drive root; on Linux it is the containing MOUNT
+        POINT, which is what matters in the container where /backup and /changes
+        are separate binds under one filesystem root.
+    .PARAMETER Path
+        The path whose volume is identified.
+    .OUTPUTS
+        [string] the volume key, or $null when it cannot be determined.
+    #>
+    # Implements: SR-052, LLR-052
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    $probe = Resolve-ExistingAncestor -Path $Path
+    if (-not $probe) { return $null }
+    try { return [System.IO.DriveInfo]::new($probe).Name } catch { return $null }
+}
+
 function Read-Manifest {
     <#
     .SYNOPSIS
@@ -825,6 +928,9 @@ Export-ModuleMember -Function @(
     'Test-ShouldCompress',
     'Compress-FileWithSevenZip',
     'Expand-FileWithSevenZip',
+    'Resolve-ExistingAncestor',
+    'Get-FreeSpaceBytes',
+    'Get-VolumeIdentity',
     'Read-Manifest',
     'Write-Manifest',
     'Get-ManifestWitnessPath',

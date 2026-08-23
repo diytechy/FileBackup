@@ -105,12 +105,15 @@ Imports (internal): _none_
 | `Expand-FileWithSevenZip` | yes | SR-008, LLR-008 |
 | `Get-FileBackupDefaults` | yes | — |
 | `Get-FileXxHash` | yes | SR-002, LLR-002 |
+| `Get-FreeSpaceBytes` | yes | SR-052, SR-023, LLR-052, LLR-023 |
 | `Get-HashSizeFileName` | yes | SR-003, SR-021, LLR-003, LLR-021 |
 | `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
+| `Get-VolumeIdentity` | yes | SR-052, LLR-052 |
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |
 | `New-Logger` | yes | — |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
+| `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
 | `Write-Manifest` | yes | SR-025, SR-038, LLR-025, LLR-038 |
@@ -123,6 +126,7 @@ Imports (internal): `Common`
 
 | Function | Exported | Implements |
 |---|:---:|---|
+| `Assert-BackupCapacity` | yes | SR-052, SR-013, SR-014, LLR-052 |
 | `Assert-NoUnknownConfigKey` | no | SR-042, LLR-042 |
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
 | `Compare-SourceToBackup` | yes | SR-001, LLR-001 |
@@ -130,6 +134,7 @@ Imports (internal): `Common`
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
+| `Get-BackupCapacityDemand` | yes | SR-052, SR-013, LLR-052 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
 | `Get-BackupKitRevision` | yes | SR-049, LLR-049 |
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
@@ -138,6 +143,7 @@ Imports (internal): `Common`
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
+| `Get-MigrationCapacityDemand` | yes | SR-052, SR-012, LLR-052 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
 | `Get-ReHomedDataPathName` | no | SR-045, LLR-045 |

@@ -470,18 +470,19 @@ foreach ($rel in $main.Keys) {
     if ($row.Compressed -eq 'Yes') { $anyCompressed = $true; continue }
     if ($row.Length) { $totalBytes += [long]$row.Length }
 }
-# Resolve the drive separately so a resolution failure is non-fatal, but an
-# actual insufficient-space verdict still aborts (previously the throw was
-# swallowed by the same catch that handled drive resolution — SR-023 / B11).
-$drive = $null
-try {
-    $drive = Get-PSDrive -Name (Split-Path -Qualifier $TargetRoot).TrimEnd(':')
-} catch {
-    Write-Verbose "Capacity pre-check skipped (could not resolve target drive): $($_.Exception.Message)"
-}
-if ($drive) {
-    if ($drive.Free -lt $totalBytes) {
-        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "Not enough free space on target drive. Required (uncompressed rows only): $totalBytes, Free: $($drive.Free)"
+# Measure the target volume through Get-FreeSpaceBytes (SR-052), which never
+# throws and works for a rooted POSIX path as well as a drive-qualified Windows
+# one. The previous `Split-Path -Qualifier` lookup ERRORED on '/restore' and was
+# swallowed by the adjacent catch, so this whole check was silently inert on
+# Linux and in the container while bash/reconstruct.sh's `df` half worked.
+# An UNMEASURABLE volume still skips the check: not knowing the free space is
+# not evidence that there is none (SR-023 / B11).
+$freeBytes = Get-FreeSpaceBytes -Path $TargetRoot
+if ($null -eq $freeBytes) {
+    Write-Verbose "Capacity pre-check skipped (could not measure the target volume)."
+} else {
+    if ($freeBytes -lt $totalBytes) {
+        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "Not enough free space on target drive. Required (uncompressed rows only): $totalBytes, Free: $freeBytes"
     }
     if ($anyCompressed) {
         "$(Get-Date -Format 'O') - NOTE: backup contains compressed rows; capacity check excluded them (true need is higher)." |
