@@ -127,6 +127,7 @@ Imports (internal): `Common`
 | `Compare-SourceToBackup` | yes | SR-001, LLR-001 |
 | `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
+| `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-DataFile` | yes | — |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |

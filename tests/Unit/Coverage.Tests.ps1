@@ -1237,3 +1237,111 @@ Describe 'Entry-point status codes (SR-043)' {
         (Get-Content -LiteralPath $log -Raw) | Should -Match '(?i)2 BackupSets entries.*IF-001'
     }
 }
+
+Describe 'Optimize-ChangeFolders is unchanged by the shared index (SR-026)' {
+    # TC-089 — the regression pin for WP4 phase A. Optimize-ChangeFolders'
+    # inline reference scan is lifted into Get-BackupContentIndex so prune can
+    # reuse it; these post-conditions are asserted against a hand-built pool so
+    # the lift can be proven behavior-preserving rather than assumed.
+    BeforeAll {
+        function New-PoolRow {
+            param([string]$DataPath, [string]$RelativePath, [long]$Length,
+                  [string]$Hash, [string]$Compressed = 'No', [string]$StoredAs = 'Original')
+            [pscustomobject]@{
+                DataPath = $DataPath; RelativePath = $RelativePath; Length = $Length
+                LastWriteTime = [datetime]'2024-01-01 00:00:00'; xxH2Hash = $Hash
+                Compressed = $Compressed; StoredAsHashSize = $StoredAs
+                Duplicate = 'No'; MediaMBPerSec = ''
+            }
+        }
+        function New-PoolFile {
+            param([string]$Folder, [string]$Name, [string]$Content)
+            $full = Join-Path $Folder $Name
+            $dir = [IO.Path]::GetDirectoryName($full)
+            if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            [IO.File]::WriteAllText($full, $Content)
+            return $full
+        }
+    }
+
+    It 'keeps the backup copy, elects the newest snapshot without one, blanks vanished rows, and leaves one physical copy per key (SR-026)' {
+        $root = Join-Path $TestDrive 'tc089'
+        $bkp  = Join-Path $root 'bkp'
+        $chg  = Join-Path $root 'chg'
+        $s1   = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        $s2   = Join-Path $chg 'Snapshot_2024_02_02_00_00_02'
+        New-Item -ItemType Directory -Path $bkp, $s1, $s2 -Force | Out-Null
+
+        $X = 'ROOT-KEPT-CONTENT ' * 20      # lives in the root AND both snapshots
+        $Y = 'SNAPSHOT-ONLY-CONTENT ' * 20  # lives in both snapshots only
+        $Z = 'VANISHED-CONTENT ' * 20       # referenced by a snapshot row, no file anywhere
+
+        $fx = New-PoolFile $bkp 'x.txt' $X
+        New-PoolFile $s1 'x.txt' $X | Out-Null
+        New-PoolFile $s2 'x.txt' $X | Out-Null
+        New-PoolFile $s1 'y.txt' $Y | Out-Null
+        New-PoolFile $s2 'y.txt' $Y | Out-Null
+        $hx = Get-FileXxHash -FilePath $fx; $lx = (Get-Item -LiteralPath $fx).Length
+        $hy = Get-FileXxHash -FilePath (Join-Path $s1 'y.txt'); $ly = (Get-Item -LiteralPath (Join-Path $s1 'y.txt')).Length
+
+        Write-Manifest -FolderPath $bkp -Records @(New-PoolRow 'x.txt' 'x.txt' $lx $hx)
+        Write-Manifest -FolderPath $s1 -Records @(
+            (New-PoolRow 'x.txt' 'x.txt' $lx $hx),
+            (New-PoolRow 'y.txt' 'y.txt' $ly $hy),
+            (New-PoolRow 'gone.txt' 'gone.txt' $Z.Length 'DEADBEEFDEADBEEFDEADBEEFDEADBEEF'))
+        Write-Manifest -FolderPath $s2 -Records @(
+            (New-PoolRow 'x.txt' 'x.txt' $lx $hx),
+            (New-PoolRow 'y.txt' 'y.txt' $ly $hy))
+
+        Optimize-ChangeFolders -ChangeRoot $chg -BackupRoot $bkp -Log { param($m, $l) } | Out-Null
+
+        # 1. The backup copy is always the keeper, and no backup-root file is deleted.
+        Test-Path -LiteralPath (Join-Path $bkp 'x.txt') -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $s1 'x.txt') -PathType Leaf | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $s2 'x.txt') -PathType Leaf | Should -BeFalse
+
+        # 2. Absent a root copy the NEWEST snapshot wins.
+        Test-Path -LiteralPath (Join-Path $s2 'y.txt') -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $s1 'y.txt') -PathType Leaf | Should -BeFalse
+
+        # 3. Every row whose data file went away is blanked (restore recovers by hash),
+        #    including the row whose file never existed.
+        $m1 = @(Read-Manifest -FolderPath $s1)
+        ($m1 | Where-Object { $_.RelativePath -eq 'x.txt' }).DataPath    | Should -BeNullOrEmpty
+        ($m1 | Where-Object { $_.RelativePath -eq 'y.txt' }).DataPath    | Should -BeNullOrEmpty
+        ($m1 | Where-Object { $_.RelativePath -eq 'gone.txt' }).DataPath | Should -BeNullOrEmpty
+        $m2 = @(Read-Manifest -FolderPath $s2)
+        ($m2 | Where-Object { $_.RelativePath -eq 'x.txt' }).DataPath | Should -BeNullOrEmpty
+        ($m2 | Where-Object { $_.RelativePath -eq 'y.txt' }).DataPath | Should -Be 'y.txt'
+
+        # 4. Row sets are otherwise untouched — Optimize only ever blanks DataPath.
+        $m1.Count | Should -Be 3
+        $m2.Count | Should -Be 2
+
+        # 5. Every rewritten manifest is re-witnessed (Write-Manifest, never Export-Csv).
+        foreach ($folder in $bkp, $s1, $s2) {
+            (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Verified'
+        }
+
+        # 6. TC-049's property on the quiescent pool: exactly one physical copy per key.
+        foreach ($pair in @(@($hx, $lx), @($hy, $ly))) {
+            @(Get-ChildItem -LiteralPath $bkp, $chg -File -Recurse |
+                Where-Object { $_.Name -notmatch '^MANIFEST\.csv' -and $_.Length -eq $pair[1] -and
+                               (Get-FileXxHash -FilePath $_.FullName) -eq $pair[0] }).Count | Should -Be 1
+        }
+    }
+
+    It 'does nothing when the change root has no snapshot folders (SR-026)' {
+        $root = Join-Path $TestDrive 'tc089b'
+        $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $bkp, $chg -Force | Out-Null
+        $f = New-PoolFile $bkp 'only.txt' 'ONLY'
+        Write-Manifest -FolderPath $bkp -Records @(New-PoolRow 'only.txt' 'only.txt' (Get-Item -LiteralPath $f).Length (Get-FileXxHash -FilePath $f))
+        $before = Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv')
+
+        Optimize-ChangeFolders -ChangeRoot $chg -BackupRoot $bkp -Log { param($m, $l) } | Out-Null
+
+        Test-Path -LiteralPath (Join-Path $bkp 'only.txt') -PathType Leaf | Should -BeTrue
+        Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv') | Should -Be $before
+    }
+}

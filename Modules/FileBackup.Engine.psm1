@@ -624,6 +624,89 @@ function Sync-BackupStorageLayout {
 
 # region Change-folder de-duplication
 
+function Get-BackupContentIndex {
+    <#
+    .SYNOPSIS
+        Builds the physical content index over a backup pool (backup root +
+        snapshot folders): "<xxH2Hash>|<Length>" -> every folder that actually
+        holds those bytes, plus each folder's manifest.
+
+    .DESCRIPTION
+        One scan, two consumers (LLR-047). Optimize-ChangeFolders uses it to
+        elect a keeper per key; the retention mechanism (SR-045/SR-047) uses it
+        to find content whose only physical copy lives in the snapshot about to
+        be removed. Blank DataPaths, blank hashes and rows whose file is not on
+        disk are skipped: the index describes bytes that EXIST, so a blank row
+        is demand, never supply.
+
+        The backup root is ordered -1 and the snapshot folders 1..n in the order
+        given (Optimize passes them sorted by name, i.e. oldest first), so
+        "newest wins" is `Sort-Object FolderOrder -Descending`.
+
+    .PARAMETER BackupRoot
+        The live backup root. Its manifest is read when present.
+
+    .PARAMETER SnapshotFolder
+        Full paths of the snapshot folders to index, oldest first. May be empty.
+
+    .OUTPUTS
+        [pscustomobject] Map (hashtable key -> List of location records with
+        LocationType/Folder/DataPath/FullPath/IsBackup/FolderOrder) and Folders
+        (one record per indexed folder: Folder, Name, Order, Manifest, IsBackup).
+    #>
+    # Implements: SR-026, SR-045, SR-047, LLR-047
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][string[]]$SnapshotFolder
+    )
+    $map = @{}   # "<hash>|<len>" -> list of location records
+
+    $addToMap = {
+        param([string]$LocationType, [string]$Folder, [object]$Row, [int]$FolderOrder)
+        if ([string]::IsNullOrWhiteSpace($Row.DataPath)) { return }
+        if ([string]::IsNullOrWhiteSpace($Row.xxH2Hash)) { return }
+        $key  = "$($Row.xxH2Hash)|$($Row.Length)"
+        $full = Join-Path $Folder $Row.DataPath
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { return }
+        if (-not $map.ContainsKey($key)) {
+            $map[$key] = New-Object System.Collections.Generic.List[object]
+        }
+        $map[$key].Add([pscustomobject]@{
+            LocationType = $LocationType
+            Folder       = $Folder
+            DataPath     = $Row.DataPath
+            FullPath     = $full
+            IsBackup     = ($LocationType -eq 'Backup')
+            FolderOrder  = $FolderOrder
+        })
+    }
+
+    $folders = New-Object System.Collections.Generic.List[object]
+
+    if (Test-Path -LiteralPath (Join-Path $BackupRoot $script:Def.DatabaseFilename) -PathType Leaf) {
+        $backupManifest = Read-Manifest -FolderPath $BackupRoot
+        $folders.Add([pscustomobject]@{
+            Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
+            Order = -1; Manifest = $backupManifest; IsBackup = $true
+        })
+        foreach ($row in $backupManifest) { & $addToMap 'Backup' $BackupRoot $row -1 }
+    }
+
+    $folderOrder = 0
+    foreach ($dir in @($SnapshotFolder)) {
+        $folderOrder++
+        $manifest = Read-Manifest -FolderPath $dir
+        $folders.Add([pscustomobject]@{
+            Folder = $dir; Name = [IO.Path]::GetFileName($dir)
+            Order = $folderOrder; Manifest = $manifest; IsBackup = $false
+        })
+        foreach ($row in $manifest) { & $addToMap 'Change' $dir $row $folderOrder }
+    }
+
+    return [pscustomobject]@{ Map = $map; Folders = $folders }
+}
+
 function Optimize-ChangeFolders {
     <#
     .SYNOPSIS
@@ -654,42 +737,10 @@ function Optimize-ChangeFolders {
         return
     }
 
-    $globalMap = @{}   # "<hash>|<len>" -> list of location records
-
-    $addToGlobalMap = {
-        param([string]$LocationType, [string]$Folder, [object]$Row, [int]$FolderOrder)
-        if ([string]::IsNullOrWhiteSpace($Row.DataPath)) { return }
-        if ([string]::IsNullOrWhiteSpace($Row.xxH2Hash)) { return }
-        $key  = "$($Row.xxH2Hash)|$($Row.Length)"
-        $full = Join-Path $Folder $Row.DataPath
-        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { return }
-        if (-not $globalMap.ContainsKey($key)) {
-            $globalMap[$key] = New-Object System.Collections.Generic.List[object]
-        }
-        $globalMap[$key].Add([pscustomobject]@{
-            LocationType = $LocationType
-            Folder       = $Folder
-            DataPath     = $Row.DataPath
-            FullPath     = $full
-            IsBackup     = ($LocationType -eq 'Backup')
-            FolderOrder  = $FolderOrder
-        })
-    }
-
-    if (Test-Path -LiteralPath (Join-Path $BackupRoot $script:Def.DatabaseFilename) -PathType Leaf) {
-        foreach ($row in (Read-Manifest -FolderPath $BackupRoot)) {
-            & $addToGlobalMap 'Backup' $BackupRoot $row -1
-        }
-    }
-
-    $changeManifests = @()
-    $folderOrder = 0
-    foreach ($dir in $changeDirs) {
-        $folderOrder++
-        $manifest = Read-Manifest -FolderPath $dir.FullName
-        $changeManifests += [pscustomobject]@{ Folder = $dir.FullName; Name = $dir.Name; Order = $folderOrder; Manifest = $manifest }
-        foreach ($row in $manifest) { & $addToGlobalMap 'Change' $dir.FullName $row $folderOrder }
-    }
+    # One shared scan (LLR-047): the same index the retention mechanism reads.
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($changeDirs.FullName)
+    $globalMap       = $index.Map
+    $changeManifests = @($index.Folders | Where-Object { -not $_.IsBackup })
 
     foreach ($key in $globalMap.Keys) {
         $entries = $globalMap[$key]
@@ -1782,7 +1833,8 @@ Export-ModuleMember -Function @(
     'Get-LastBackupRun', 'Set-LastBackupRun',
     'Resolve-OptionalTool', 'Initialize-Dependencies', 'Get-MediaMBPerSec',
     'Test-HashRecalcDue', 'Update-SourceManifest', 'Copy-SourceFileToBackup',
-    'Test-BackupManifest', 'Sync-BackupStorageLayout', 'Optimize-ChangeFolders',
+    'Test-BackupManifest', 'Sync-BackupStorageLayout',
+    'Get-BackupContentIndex', 'Optimize-ChangeFolders',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',
