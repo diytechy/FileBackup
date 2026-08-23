@@ -9,4 +9,5 @@ exec pwsh -NoLogo -NoProfile -NonInteractive -File /opt/filebackup/FileBackup.ps
     -GlobalLogPath "$log_path" \
     -NoMail \
     -NonInteractive \
+    -ExitCode \
     "$@"

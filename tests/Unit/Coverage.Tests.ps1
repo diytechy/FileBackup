@@ -1060,3 +1060,117 @@ Describe 'Published JSON schema matches the validator (SR-042)' {
         $invokeContainerSrc | Should -Match 'ConfigVersion\s*=\s*1'
     }
 }
+
+Describe 'Entry-point status codes (SR-043)' {
+    BeforeAll {
+        function New-JsonBackupConfig {
+            param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg, [string]$Name = 'S')
+            [ordered]@{
+                ConfigVersion = 1
+                BackupSets    = @(
+                    [ordered]@{
+                        Name = $Name; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+                        HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true
+                    }
+                )
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding UTF8
+        }
+
+        # Child process so the exit code is observable without ending this
+        # runspace -- -ExitCode calls `exit`, which would tear down an
+        # in-process caller (SR-043's help text: only entry points pass it).
+        function Invoke-FBChild {
+            param([string]$Cfg, [switch]$WithExitCode)
+            $extra = @{}
+            if ($WithExitCode) { $extra['ExitCode'] = $true }
+            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $Cfg -NoMail -NonInteractive @extra *>&1 | Out-Null
+            return $LASTEXITCODE
+        }
+    }
+
+    It 'returns 2 for a schema-violating config under -ExitCode, creating no backup artifacts' {
+        $root = Join-Path $TestDrive 'tc078-bad'; $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $cfg = Join-Path $root 'config.json'
+        '{"BackupSets":[]}' | Set-Content -LiteralPath $cfg -Encoding UTF8   # missing ConfigVersion (SR-042)
+
+        (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 2
+        Test-Path -LiteralPath $bkp | Should -BeFalse
+    }
+
+    It 'returns 1 when the one backup set fails, under -ExitCode' {
+        $root = Join-Path $TestDrive 'tc078-setfail'
+        $cfg = Join-Path $root 'config.json'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        # A well-formed config (passes SR-042) whose SourcePath does not exist:
+        # the set fails at Resolve-BackupSetPaths, which FileBackup.ps1's
+        # per-set try/catch turns into overall failure -- exit 1 regardless of
+        # -ExitCode, unchanged since before WP2.
+        New-JsonBackupConfig -Path $cfg -Src (Join-Path $root 'no-such-source') -Bkp (Join-Path $root 'bkp') -Chg (Join-Path $root 'chg')
+
+        (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 1
+    }
+
+    It 'returns 0 for a clean single-set run under -ExitCode' {
+        $root = Join-Path $TestDrive 'tc078-clean'; $src = Join-Path $root 'src'
+        $cfg = Join-Path $root 'config.json'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'clean run')
+        New-JsonBackupConfig -Path $cfg -Src $src -Bkp (Join-Path $root 'bkp') -Chg (Join-Path $root 'chg')
+
+        (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 0
+    }
+
+    It 'without -ExitCode returns the pre-WP2 codes: a bad config still exits non-zero (1, not 2), a failed set still exits 1, a clean run still exits 0' {
+        $root = Join-Path $TestDrive 'tc078-nopswitch'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+
+        $badCfg = Join-Path $root 'bad.json'
+        '{"BackupSets":[]}' | Set-Content -LiteralPath $badCfg -Encoding UTF8
+        (Invoke-FBChild -Cfg $badCfg) | Should -Be 1
+
+        $failCfg = Join-Path $root 'fail.json'
+        New-JsonBackupConfig -Path $failCfg -Src (Join-Path $root 'no-such-source-2') -Bkp (Join-Path $root 'bkp2') -Chg (Join-Path $root 'chg2')
+        (Invoke-FBChild -Cfg $failCfg) | Should -Be 1
+
+        $cleanSrc = Join-Path $root 'src3'
+        New-Item -ItemType Directory -Path $cleanSrc -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $cleanSrc 'f.txt'), 'clean')
+        $cleanCfg = Join-Path $root 'clean.json'
+        New-JsonBackupConfig -Path $cleanCfg -Src $cleanSrc -Bkp (Join-Path $root 'bkp3') -Chg (Join-Path $root 'chg3')
+        (Invoke-FBChild -Cfg $cleanCfg) | Should -Be 0
+    }
+
+    It 'still throws for a bad config when invoked in-process without -ExitCode' {
+        $root = Join-Path $TestDrive 'tc078-inprocess'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $cfg = Join-Path $root 'bad.json'
+        '{"BackupSets":[]}' | Set-Content -LiteralPath $cfg -Encoding UTF8
+
+        { & $entry -ConfigPath $cfg -NoMail -NonInteractive } | Should -Throw -ExpectedMessage '*ConfigVersion*missing*'
+    }
+
+    It 'a two-set JSON config logs the IF-001 one-set-per-invocation warning while still processing both sets' {
+        $root = Join-Path $TestDrive 'tc078-twoset'
+        $cfg = Join-Path $root 'config.json'
+        $srcA = Join-Path $root 'srcA'; $srcB = Join-Path $root 'srcB'
+        $bkpA = Join-Path $root 'bkpA'; $bkpB = Join-Path $root 'bkpB'
+        $log  = Join-Path $root 'logs\global.log'
+        New-Item -ItemType Directory -Path $srcA, $srcB -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $srcA 'a.txt'), 'A')
+        [IO.File]::WriteAllText((Join-Path $srcB 'b.txt'), 'B')
+        [ordered]@{
+            ConfigVersion = 1
+            BackupSets    = @(
+                [ordered]@{ Name = 'A'; SourcePath = $srcA; BackupPath = $bkpA; ChangePath = (Join-Path $root 'chgA'); HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true }
+                [ordered]@{ Name = 'B'; SourcePath = $srcB; BackupPath = $bkpB; ChangePath = (Join-Path $root 'chgB'); HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true }
+            )
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cfg -Encoding UTF8
+
+        & $entry -ConfigPath $cfg -GlobalLogPath $log -NoMail -NonInteractive *>&1 | Out-Null
+
+        Test-Path -LiteralPath (Join-Path $bkpA 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $bkpB 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+        (Get-Content -LiteralPath $log -Raw) | Should -Match '(?i)2 BackupSets entries.*IF-001'
+    }
+}

@@ -149,9 +149,25 @@ the same script also works. See `bash reconstruct.sh --help`.
 
 ## Config format
 
-`FileBackup.ps1 -ConfigPath` accepts CLIXML (`.xml`) and JSON (`.json`). CLIXML
-remains useful for a Windows-only SMTP `PSCredential`; JSON is the portable,
-secret-free format intended for containers and HomeHub.
+`FileBackup.ps1 -ConfigPath` accepts CLIXML (`.xml`) and JSON (`.json`),
+loaded and validated by `Import-BackupConfiguration` (SR-042).
+
+**JSON is the canonical, versioned contract** — the portable, secret-free
+format for containers and HomeHub, and the one this README's examples and
+`container/FileBackup.example.json` are tested against. Every document
+declares a `ConfigVersion` (currently `1`); the schema is **closed** — any key
+it doesn't recognize (a typo like `AllowEmptySources`) aborts the run before
+anything is touched, naming the offending key and its JSON path — and
+booleans are real JSON booleans (a quoted `"false"` is rejected, never
+silently coerced to `true`). `container/FileBackup.schema.json` publishes the
+same contract as a JSON Schema (draft-07) for editor support; the hand-rolled
+PowerShell validator in `FileBackup.Engine.psm1` is the runtime authority, and
+a test (TC-077) pins the two together so the published schema cannot drift.
+
+**CLIXML is the unversioned legacy native-Windows form** — still useful for a
+Windows-only SMTP `PSCredential` (JSON cannot carry one at all: containerized
+runs are `-NoMail` by design). It keeps today's per-set shape checks but is
+exempt from `ConfigVersion`, the closed schema, and the credential rule.
 
 ```powershell
 @{
@@ -204,13 +220,26 @@ before backup processing instead of writing raw bytes described as compressed.
 
 | Field | Meaning |
 |---|---|
+| `ConfigVersion` | JSON only, required. Currently `1`. A config declaring a higher version is refused by name rather than half-understood; a missing/non-integer/out-of-range value is a hard error. |
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
 | `SourceStatePath` | Optional writable folder for the source hash-cache `MANIFEST.csv`. Omit for legacy in-source storage; containers should set a unique path outside the read-only source, backup, and change trees. |
-| `CompressEnabled` | `$true` stores data files as `.7z` (already-compressed extensions are exempt). |
-| `PreserveFolderTree` | `$true` mirrors the source tree under the backup root; `$false` stores content-addressed `<hashShort> <sizeShort>.<ext>` files referenced via the manifest. |
-| `AllowEmptySource` | Defaults to `$false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `$true` only for an intentional delete-all. |
+| `CompressEnabled` | `$true`/`true` stores data files as `.7z` (already-compressed extensions are exempt). JSON must use a real boolean, not a quoted string. |
+| `PreserveFolderTree` | `$true`/`true` mirrors the source tree under the backup root; `$false`/`false` stores content-addressed `<hashShort> <sizeShort>.<ext>` files referenced via the manifest. |
+| `AllowEmptySource` | Defaults to `$false`/`false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `true` only for an intentional delete-all. |
 
-You can list multiple `BackupSets`; each is processed independently.
+You can list multiple `BackupSets` in either format; each is processed
+independently. IF-001 rules **one `BackupSet` per container invocation** —
+HomeHub runs one service/invocation per directory — so a JSON config with
+more than one set is accepted (a legitimate native-Windows use) but logs a
+`WARN` naming the count instead of failing.
+
+`FileBackup.ps1 -ExitCode` (passed by `container/entrypoint.sh`) reports
+outcome as a process exit code instead of only a terminating error: `0`
+complete, `1` a backup set failed, `2` the configuration could not be loaded
+or violates the contract above — the same usage/precondition class as the
+restore table in "Restore exit codes". Without `-ExitCode`, a configuration
+problem is a terminating error and a failed set still yields a non-zero exit,
+unchanged from before this contract existed.
 
 ---
 

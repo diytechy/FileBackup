@@ -24,7 +24,35 @@
 
 .PARAMETER ConfigPath
     CLIXML or JSON config (default: $HOME\BackupConfig.xml). The format is
-    selected from the .xml/.json extension. Schema:
+    selected from the .xml/.json extension and loaded/validated by
+    Import-BackupConfiguration (SR-042).
+
+    JSON is the documented, VERSIONED contract (container/FileBackup.schema.json
+    is the published, documentation-only mirror) -- a required integer
+    ConfigVersion (currently 1), a closed schema (any key it doesn't recognize
+    aborts the run naming that key and its JSON path), JSON-typed booleans for
+    CompressEnabled/PreserveFolderTree (a quoted "false" is rejected, never
+    coerced true), and no Secrets.Credential (JSON cannot carry a
+    PSCredential; use CLIXML, or run with -NoMail as containers do):
+
+        {
+          "ConfigVersion": 1,
+          "Tools": { "SevenZipPath": "/usr/bin/7z" },
+          "BackupSets": [{
+            "Name": "MainData",
+            "SourcePath": "/source",
+            "SourceStatePath": "/state",
+            "BackupPath": "/backup",
+            "ChangePath": "/changes",
+            "HashRecalcFreq": "W",
+            "CompressEnabled": true,
+            "PreserveFolderTree": false
+          }]
+        }
+
+    CLIXML is the unversioned LEGACY native-Windows form -- exempt from
+    ConfigVersion, the closed schema, and the Credential ban (it is the only
+    format that can carry a real PSCredential):
 
         @{
             Secrets = @{
@@ -49,6 +77,12 @@
             )
         } | Export-Clixml -LiteralPath "$HOME\BackupConfig.xml"
 
+    Both formats accept multiple BackupSets and process every one; IF-001
+    rules ONE BackupSet per container invocation (HomeHub deploys one
+    service/directory), so a JSON config with more than one set logs a WARN
+    naming the count instead of failing -- it is a legitimate native-Windows
+    use, just outside the container contract.
+
 .PARAMETER GlobalLogPath
     Optional path for dependency and cross-set messages. Defaults to
     FILEBACKUP_LOG_PATH when set, otherwise Backup_Global.log beside the config.
@@ -66,6 +100,15 @@
     With -NonInteractive, install the missing System.IO.Hashing package
     automatically instead of failing.
 
+.PARAMETER ExitCode
+    Report outcome through a process exit code (SR-043) instead of only a
+    terminating error: 0 complete, 1 one or more backup sets failed, 2 the
+    configuration could not be loaded or violates SR-042 -- the same
+    usage/precondition class the restorers use (README "Restore exit codes").
+    Only process entry points should pass this (container/entrypoint.sh does);
+    an in-process caller that passes it will terminate its own session on
+    `exit`, so leave it off for interactive/scripted in-process use.
+
 .NOTES
     Requires PowerShell 7+ (pwsh). Dependencies:
         - System.IO.Hashing (NuGet) for xxHash128  - installed on first use / by tests\Setup.ps1.
@@ -73,6 +116,19 @@
           Tools.SevenZipPath / FILEBACKUP_7ZIP_PATH when compression is enabled.
         - ffprobe on PATH or configured through Tools.FfprobePath /
           FILEBACKUP_FFPROBE_PATH for media metrics (optional).
+
+    Entry-point status codes (SR-043; container/entrypoint.sh passes -ExitCode):
+
+        0  Complete — every backup set succeeded.
+        1  One or more backup sets failed.
+        2  The configuration could not be loaded, or violates the SR-042
+           schema (missing/unrecognized ConfigVersion, unknown key, wrong
+           JSON type, Secrets.Credential in JSON, etc.) — nothing was
+           attempted.
+
+    Without -ExitCode, a configuration failure is a terminating error (throw)
+    and a failed set still yields a non-zero exit via the normal PowerShell
+    unhandled-error path — unchanged from before SR-042/SR-043.
 #>
 
 [CmdletBinding()]
