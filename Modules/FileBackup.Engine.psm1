@@ -238,7 +238,17 @@ function Initialize-Dependencies {
             & $Log 'Install 7-Zip or set Tools.SevenZipPath / FILEBACKUP_7ZIP_PATH.' 'ERROR'
         }
     } else {
-        $deps['7z'] = $null
+        # Compression being OFF does not mean 7-Zip is unneeded: the backup may
+        # still HOLD Compressed=Yes rows written under a previous configuration,
+        # and Sync-BackupStorageLayout needs 7-Zip to migrate them back to raw
+        # (SR-012). Resolving it as $null here made that migration silently inert
+        # -- "Cannot decompress ...: 7-Zip not found. Skipping transformation."
+        # -- so a documented configuration change was never applied. Resolve it
+        # opportunistically and silently: absent is genuinely not fatal on this
+        # branch, and Resolve-OptionalTool's non-Required path can PROMPT, which
+        # SR-016 forbids for something this run may not need at all.
+        $deps['7z'] = if (-not [string]::IsNullOrWhiteSpace($SevenZipPath) -and
+                          (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) { $SevenZipPath } else { $null }
     }
 
     if ($AnyMediaMetricsNeeded) {
