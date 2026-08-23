@@ -208,7 +208,7 @@ Describe 'Hash recovery trusts the located file''s form (SR-050)' {
     # TC-092 — the no-tampering repro. Before the SR-050 fix the first case exits
     # 0 having written 7z container bytes under the original filename (silent
     # corruption) and the second exits 4 with a misfiled host-class cause.
-    It 'restores a snapshot byte-exact after compression is turned <Flip> (mode <Mode>) (SR-050)' -Skip -ForEach @(
+    It 'restores a snapshot byte-exact after compression is turned <Flip> (mode <Mode>) (SR-050)' -ForEach @(
         @{ Flip = 'on';  StartCompressed = $false; Mode = 'Mirror';        ContentAddressed = $false }
         @{ Flip = 'off'; StartCompressed = $true;  Mode = 'Mirror';        ContentAddressed = $false }
         @{ Flip = 'on';  StartCompressed = $false; Mode = 'HashAddressed'; ContentAddressed = $true  }
@@ -222,5 +222,110 @@ Describe 'Hash recovery trusts the located file''s form (SR-050)' {
         Test-Path -LiteralPath $restored -PathType Leaf | Should -BeTrue
         (Get-FileHash -LiteralPath $restored -Algorithm SHA256).Hash |
             Should -Be (Get-FileHash -LiteralPath $t.Original -Algorithm SHA256).Hash
+    }
+}
+
+Describe 'Hash recovery reports the located file''s form (SR-050)' {
+    # TC-098 — Reconstruct.ps1's half, driven directly against hand-bent stores.
+    # The kit (Common module + DLL + RECONSTRUCT.ps1) is deposited by a real run
+    # first, so the restore under test is the deployed, standalone one.
+    BeforeAll {
+        function New-BlankRowStore {
+            <#
+            .SYNOPSIS
+                A one-file backup whose row is blanked to force hash recovery,
+                with the single pool copy renamed/re-formed as the case demands.
+            .PARAMETER DataName
+                What the surviving pool copy is called (its extension is the
+                name's claim about its form).
+            .PARAMETER Compressed
+                What the blanked ROW claims — deliberately the wrong answer.
+            .PARAMETER Corrupt
+                Replace the pool copy's bytes with garbage, so nothing matches.
+            #>
+            param([string]$Root, [string]$DataName, [string]$Compressed,
+                  [bool]$Compress = $false, [switch]$Corrupt)
+            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $cfg = Join-Path $Root 'c.xml'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
+            $original = Join-Path $Root 'original.bin'
+            [IO.File]::WriteAllText($original, ('PAYLOAD-BYTES ' * 300))
+            Copy-Item -LiteralPath $original -Destination (Join-Path $src 'x.txt') -Force
+            Invoke-FormBackup -Cfg $cfg | Out-Null
+
+            $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+            $row  = $rows | Where-Object RelativePath -eq 'x.txt'
+            Move-Item -LiteralPath (Join-Path $bkp $row.DataPath) -Destination (Join-Path $bkp $DataName) -Force
+            if ($Corrupt) { [IO.File]::WriteAllText((Join-Path $bkp $DataName), 'not an archive and not the payload') }
+            $row.DataPath = ''          # force the hash-recovery branch
+            $row.Compressed = $Compressed
+            Set-ManifestRows -Folder $bkp -Rows $rows
+            return [pscustomobject]@{ Bkp = $bkp; Original = $original }
+        }
+        function Invoke-Kit {
+            param([string]$Folder, [string]$Target)
+            $out = & (Join-Path $Folder 'RECONSTRUCT.ps1') -TargetRoot $Target *>&1
+            return ($out | Out-String)
+        }
+    }
+
+    It 'recovers a .7z-named file that holds RAW bytes instead of calling it a candidate error (SR-050)' {
+        $s = New-BlankRowStore -Root (Join-Path $TestDrive 'tc098-rawfallback') -DataName 'x.txt.7z' -Compressed 'Yes'
+        $target = Join-Path $TestDrive 'tc098-rawfallback-out'
+        Invoke-Kit -Folder $s.Bkp -Target $target | Out-Null
+        (Get-FileHash -LiteralPath (Join-Path $target 'x.txt') -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $s.Original -Algorithm SHA256).Hash
+    }
+
+    It 'copies a raw pool file for a row that wrongly claims Compressed=Yes (SR-050)' {
+        $s = New-BlankRowStore -Root (Join-Path $TestDrive 'tc098-rawrow') -DataName 'x.txt' -Compressed 'Yes'
+        $target = Join-Path $TestDrive 'tc098-rawrow-out'
+        Invoke-Kit -Folder $s.Bkp -Target $target | Out-Null
+        (Get-FileHash -LiteralPath (Join-Path $target 'x.txt') -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $s.Original -Algorithm SHA256).Hash
+    }
+
+    It 'expands an archive pool file for a row that wrongly claims Compressed=No (SR-050)' {
+        $s = New-BlankRowStore -Root (Join-Path $TestDrive 'tc098-archiverow') -DataName 'x.txt.7z' `
+                -Compressed 'No' -Compress $true
+        $target = Join-Path $TestDrive 'tc098-archiverow-out'
+        Invoke-Kit -Folder $s.Bkp -Target $target | Out-Null
+        (Get-FileHash -LiteralPath (Join-Path $target 'x.txt') -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $s.Original -Algorithm SHA256).Hash
+    }
+
+    It 'still resolves a NON-blank DataPath row by its own Compressed column (SR-050)' {
+        # A compressed backup restored from its own root: every row has a
+        # DataPath, so no located form exists and Compressed must still decide.
+        $root = Join-Path $TestDrive 'tc098-nonblank'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
+        [IO.File]::WriteAllText((Join-Path $src 'y.txt'), ('COMPRESSIBLE ' * 300))
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+        (Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'y.txt').Compressed |
+            Should -Be 'Yes'
+        $target = Join-Path $root 'out'
+        Invoke-Kit -Folder $bkp -Target $target | Out-Null
+        (Get-FileHash -LiteralPath (Join-Path $target 'y.txt') -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath (Join-Path $src 'y.txt') -Algorithm SHA256).Hash
+    }
+
+    It 'still reports an unexpandable, unmatching .7z candidate as a HOST failure (SR-040, SR-050)' {
+        $s = New-BlankRowStore -Root (Join-Path $TestDrive 'tc098-host') -DataName 'x.txt.7z' `
+                -Compressed 'Yes' -Corrupt
+        $target = Join-Path $TestDrive 'tc098-host-out'
+        { & (Join-Path $s.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null } |
+            Should -Throw -ExpectedMessage '*0 content-missing, 1 host*'
+    }
+
+    It 'still reports genuinely absent content as the CONTENT class (SR-040, SR-050)' {
+        $s = New-BlankRowStore -Root (Join-Path $TestDrive 'tc098-content') -DataName 'x.txt' -Compressed 'No'
+        Remove-Item -LiteralPath (Join-Path $s.Bkp 'x.txt') -Force
+        $target = Join-Path $TestDrive 'tc098-content-out'
+        { & (Join-Path $s.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null } |
+            Should -Throw -ExpectedMessage '*1 content-missing, 0 host*'
     }
 }

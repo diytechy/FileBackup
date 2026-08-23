@@ -51,8 +51,15 @@
 #
 # Precedence when several apply: 2 > 3 > 4 > 1.
 #
-# Implements: SR-030, SR-031, SR-032, SR-039, SR-040 (LLR-030, LLR-031, LLR-032,
-#             LLR-039, LLR-040)
+# Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
+#             LLR-032, LLR-039, LLR-040, LLR-050)
+#
+# KitRevision: 2
+# The revision of the restore kit bundled into a backup folder — the same marker
+# Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
+# behaviour. Revision 2 is the first that decides a hash-recovered row's form
+# from the FILE it located rather than the row's Compressed column (SR-050);
+# restoring a pre-revision-2 snapshot with its OWN kit still carries that defect.
 
 set -uo pipefail
 
@@ -211,6 +218,18 @@ infra_skip() {
 # any global assignment would be discarded. The three host causes are only
 # reported when nothing matched: a successful recovery must never be downgraded
 # by an unrelated bad folder.
+#
+# On Found the DETAIL field carries the located file's proven FORM — 'Archive'
+# (the payload matched after expanding it) or 'Raw' (the file itself hashed) —
+# which is what the caller must use to decide whether to decompress (SR-050).
+# The row's Compressed column describes a file in the ROW's own folder, so for a
+# blank-DataPath row it describes the wrong file: trusting it plain-copies 7z
+# container bytes under the original name, or expands raw bytes. The search has
+# already proven the form, so reporting it costs nothing.
+#
+# An archive candidate that fails to EXPAND is re-tested as raw bytes before a
+# CandidateError is recorded, so a '.7z' name over raw content is still
+# recovered — free on the happy path. Mirrors Reconstruct.ps1 exactly.
 find_by_hash() {
     local want_hash="$1" want_len="$2" folder f sz tmp h
     local host_dep='' host_storage='' host_candidate=''
@@ -231,17 +250,25 @@ find_by_hash() {
                     sz="$(stat -c '%s' -- "$tmp" 2>/dev/null || echo -1)"
                     if [[ "$sz" == "$want_len" ]]; then
                         h="$(hash_file "$tmp")"
-                        if [[ "$h" == "$want_hash" ]]; then rm -f "$tmp"; printf 'Found\037\037%s' "$f"; return 0; fi
+                        if [[ "$h" == "$want_hash" ]]; then rm -f "$tmp"; printf 'Found\037Archive\037%s' "$f"; return 0; fi
                     fi
+                    rm -f "$tmp"
                 else
+                    rm -f "$tmp"
+                    # The name said '.7z' but it would not expand: it may simply
+                    # BE the raw bytes under a lying name (SR-050).
+                    sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+                    if [[ "$sz" == "$want_len" ]]; then
+                        h="$(hash_file "$f")"
+                        if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
+                    fi
                     host_candidate="archive candidate '$f' could not be expanded"
                 fi
-                rm -f "$tmp"
             else
                 sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
                 [[ "$sz" == "$want_len" ]] || continue
                 h="$(hash_file "$f")"
-                if [[ "$h" == "$want_hash" ]]; then printf 'Found\037\037%s' "$f"; return 0; fi
+                if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
             fi
         done < <(find "$folder" -type f -print0 2>/dev/null)
     done
@@ -532,8 +559,12 @@ main() {
     # Failures are split by class so the exit code separates "your bytes are
     # gone" (1) from "fix this host and retry" (4) — SR-040.
     local -a unrestored=() unrestored_host=()
-    local rel dest destdir src found fcause frest fdetail fpath
+    local rel dest destdir src found fcause frest fdetail fpath located_form needs_expand
     for (( i=0; i<nrows; i++ )); do
+        # The PROVEN form of a hash-recovered file, which outranks the row's
+        # Compressed column for that row (SR-050). Empty for a non-blank
+        # DataPath, whose Compressed does describe its own folder's file.
+        located_form=''
         rel="$(to_posix "${d_rel[i]}")"
         [[ -n "$rel" ]] || continue
         dest="$TARGET_ROOT/$rel"
@@ -556,8 +587,9 @@ main() {
                 fdetail="${frest%%$'\037'*}"
                 fpath="${frest#*$'\037'}"
                 if [[ "$fcause" == 'Found' ]]; then
-                    log "Hash-recovered '$rel' from '$fpath'"
+                    log "Hash-recovered '$rel' from '$fpath' (form: $fdetail)"
                     src="$fpath"
+                    located_form="$fdetail"
                 else
                     # One message per CAUSE, not one warning for all four (SR-040).
                     log "WARN: [$fcause] '$rel' — $fdetail"
@@ -580,7 +612,15 @@ main() {
             unrestored+=("$rel"); continue
         fi
 
-        if [[ "${d_comp[i]}" == "Yes" ]]; then
+        # SR-050: a hash-recovered file is decided by the form the locator PROVED;
+        # only a row resolved through its own DataPath is decided by its Compressed.
+        if [[ -n "$located_form" ]]; then
+            [[ "$located_form" == 'Archive' ]] && needs_expand=1 || needs_expand=0
+        else
+            [[ "${d_comp[i]}" == "Yes" ]] && needs_expand=1 || needs_expand=0
+        fi
+
+        if (( needs_expand )); then
             if ! sevenzip_to_file "$src" "$dest"; then
                 # An extraction failure is a HOST problem: the archive is in the
                 # backup, this machine could not open it (SR-040).

@@ -49,6 +49,16 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
+# KitRevision: 2
+# The revision of the restore kit bundled into a backup folder. Bumped whenever
+# any kit-bundled file changes behaviour, so a snapshot can be asked which kit
+# it carries (SR-049 reports it with every blank-row form finding, and
+# -RefreshKits is the only way to retire an old one). Revision 2 is the first
+# stamped revision; it is also the first that decides a hash-recovered row's
+# form from the FILE it located rather than the row's Compressed column
+# (SR-050) -- restoring a pre-revision-2 snapshot with its OWN kit still
+# carries that defect.
+
 param(
     [string]$TargetRoot,
     [string]$BackupRootOverride,
@@ -184,9 +194,23 @@ function Find-DataFileByHash {
         be the only physical copy of a blanked snapshot row. The skip is a scan
         optimization, never a correctness gate — matching is by (hash, length).
 
+        The located file's FORM travels back with it (SR-050). The search has
+        already PROVEN that form — an archive candidate only matches once it has
+        been expanded and its payload hashed, a raw candidate only once the file
+        itself hashed — so reporting it costs nothing, and it is the only field
+        that describes the file actually found. The row's Compressed column
+        describes a file in the ROW's own folder, which for a blank-DataPath row
+        is not this file: consulting it here restores 7z container bytes under
+        the original filename (exit 0) or expands raw bytes (exit 4).
+
+        An archive candidate that cannot be EXPANDED is additionally re-tested as
+        raw bytes before a CandidateError is recorded, so a '.7z' name over raw
+        content (the finding-B family artifact) is still recovered.
+
     .OUTPUTS
-        [pscustomobject] Path / Cause / Detail, where Cause is one of:
-          Found              — Path holds the data source.
+        [pscustomobject] Path / Cause / Form / Detail, where Cause is one of:
+          Found              — Path holds the data source; Form is 'Archive'
+                               (extract it) or 'Raw' (copy it).
           ContentMissing     — the pool was searched cleanly; the bytes are gone.
           DependencyMissing  — an archive candidate was met with no usable 7-Zip.
           StorageUnreadable  — a search folder is absent or could not be read.
@@ -196,7 +220,7 @@ function Find-DataFileByHash {
         backup may still hold the bytes, so a wrapper should retry rather than
         report data loss. They are only reported when the scan found nothing.
     #>
-    # Implements: SR-040, LLR-040
+    # Implements: SR-040, SR-050, LLR-040, LLR-050
     param([string]$Hash, [long]$Length, [string[]]$SearchFolders, [string]$SevenZipPath)
 
     $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
@@ -229,21 +253,31 @@ function Find-DataFileByHash {
                     continue
                 }
                 $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                $expandError = $null
                 try {
                     Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $f.FullName -DestinationFile $tmp
                     if ((Get-Item -LiteralPath $tmp).Length -eq $Length -and (Get-FileXxHash -FilePath $tmp) -eq $Hash) {
-                        return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Detail = '' }
+                        return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Archive'; Detail = '' }
                     }
                 } catch {
-                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
-                        Detail = "Archive candidate '$($f.FullName)' could not be expanded: $($_.Exception.Message)" })
+                    $expandError = $_.Exception.Message
                 } finally {
                     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                }
+                # The name said '.7z' but it would not expand: it may simply BE
+                # the raw bytes under a lying name (SR-050). Re-test before
+                # calling this a host problem — free on the happy path.
+                if ($expandError) {
+                    if ($f.Length -eq $Length -and (Get-FileXxHash -FilePath $f.FullName) -eq $Hash) {
+                        return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Raw'; Detail = '' }
+                    }
+                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                        Detail = "Archive candidate '$($f.FullName)' could not be expanded: $expandError" })
                 }
             } elseif ($f.Length -eq $Length) {
                 try {
                     if ((Get-FileXxHash -FilePath $f.FullName) -eq $Hash) {
-                        return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Detail = '' }
+                        return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Raw'; Detail = '' }
                     }
                 } catch {
                     $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
@@ -258,12 +292,13 @@ function Find-DataFileByHash {
     foreach ($preferred in 'DependencyMissing', 'StorageUnreadable', 'CandidateError') {
         $issue = $hostIssues | Where-Object { $_.Cause -eq $preferred } | Select-Object -First 1
         if ($issue) {
-            return [pscustomobject]@{ Path = $null; Cause = $issue.Cause; Detail = $issue.Detail }
+            return [pscustomobject]@{ Path = $null; Cause = $issue.Cause; Form = $null; Detail = $issue.Detail }
         }
     }
     return [pscustomobject]@{
         Path   = $null
         Cause  = 'ContentMissing'
+        Form   = $null
         Detail = "No file with (hash=$Hash, length=$Length) survives anywhere in the data pool."
     }
 }
@@ -517,14 +552,19 @@ foreach ($rel in $main.Keys) {
 
     $srcFolder = $row.SourceFolder
     $dataPath  = $row.DataPath
+    # The PROVEN form of a hash-recovered file, which outranks the row's
+    # Compressed column for that row (SR-050). Stays $null for a non-blank
+    # DataPath, whose Compressed does describe its own folder's file.
+    $locatedForm = $null
 
     if ([string]::IsNullOrWhiteSpace($dataPath)) {
         if ($row.xxH2Hash -and $row.Length) {
             "$(Get-Date -Format 'O') - No datapath for $rel; attempting hash scan..." | Out-File -LiteralPath $logPath -Append
             $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
             if ($found.Cause -eq 'Found') {
-                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$($found.Path)'" | Out-File -LiteralPath $logPath -Append
-                $srcFull = $found.Path
+                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$($found.Path)' (form: $($found.Form))" | Out-File -LiteralPath $logPath -Append
+                $srcFull     = $found.Path
+                $locatedForm = $found.Form
             } else {
                 # One message per CAUSE, not one warning for all four (SR-040).
                 Add-Unrestored -RelativePath $rel -Cause $found.Cause -Detail $found.Detail
@@ -545,7 +585,11 @@ foreach ($rel in $main.Keys) {
         continue
     }
 
-    if ($row.Compressed -eq 'Yes') {
+    # SR-050: a hash-recovered file is decided by the form the locator PROVED;
+    # only a row resolved through its own DataPath is decided by its Compressed.
+    $needsExpand = if ($null -ne $locatedForm) { $locatedForm -eq 'Archive' } else { $row.Compressed -eq 'Yes' }
+
+    if ($needsExpand) {
         try {
             Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $srcFull -DestinationFile $destFull
         } catch {
