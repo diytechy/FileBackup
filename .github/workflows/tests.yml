@@ -41,6 +41,10 @@ jobs:
         shell: pwsh
         # --phase mirrors check.ps1: bash-v1 has shipped (SR-030/031/032 Verified);
         # bash-v2 (SR-033) stays phase-deferred until it ships.
+        # TODO(WP3 ratchet): bump to core,bash-v1,container-v1 in the same commit
+        # that flips SR-034/LLR-034/TC-060/SR-044/LLR-044/TC-079/TC-080 to
+        # Verified/Pass, once this job's container step is green on real CI
+        # (docs/plans/wp3-container-release-plan.md §5 steps 5-6).
         run: python scripts/trace.py --strict --require-verified --phase core,bash-v1
       - name: Doc navigability (0 broken intra-repo links)
         shell: pwsh
@@ -182,14 +186,45 @@ jobs:
         run: bats --print-output-on-failure tests/bash/
 
   container:
-    name: Container build + compressed roundtrip
+    name: Container build + compressed roundtrip + distribution proof
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    # Runner-hosted job (no `container:` key), so the registry:2 service's port
+    # maps to localhost -- Docker trusts localhost for plain HTTP by default.
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
     steps:
       - uses: actions/checkout@v4
       - name: Build image and verify a byte-exact restore
         shell: pwsh
         run: ./scripts/Invoke-Container.ps1 -Action BuildAndTest -Image filebackup:ci
+
+      - name: Export -> docker load roundtrip
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-Container.ps1 -Action Export -Image filebackup:ci -OutputPath .artifacts/filebackup-image.tar
+          docker rmi filebackup:ci
+          ./scripts/Invoke-Container.ps1 -Action Load -Image filebackup:ci -OutputPath .artifacts/filebackup-image.tar
+          ./scripts/Invoke-Container.ps1 -Action Test -Image filebackup:ci
+
+      - name: Wait for the throwaway registry to be ready
+        run: curl --retry 10 --retry-delay 2 --retry-connrefused -sf http://localhost:5000/v2/
+
+      - name: Publish/Pull roundtrip against a throwaway registry
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-Container.ps1 -Action Publish -Image filebackup:ci -RegistryImage localhost:5000/filebackup:ci
+          docker rmi localhost:5000/filebackup:ci filebackup:ci
+          ./scripts/Invoke-Container.ps1 -Action Pull -RegistryImage localhost:5000/filebackup:ci -Image filebackup:ci
+          ./scripts/Invoke-Container.ps1 -Action Test -Image filebackup:ci
+
+      - name: Clean up exported tar
+        if: always()
+        shell: pwsh
+        run: Remove-Item -Recurse -Force .artifacts -ErrorAction SilentlyContinue
 
   bash-interop-make:
     name: Bash interop - make fresh backups (Windows)

@@ -102,6 +102,14 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # scope; SRs tagged with a not-yet-delivered phase (e.g. bash-v1) are
     # exempted EXPLICITLY and reported as phase-deferred. When a phase ships,
     # append it here (e.g. 'core,bash-v1') so its SRs must be Verified.
+    # TODO(WP3 ratchet): container-v1's CI proof (Export/Load, Publish/Pull,
+    # incremental+snapshot smoke) landed in this commit, but SR-034/TC-060 are
+    # still Implemented/Draft pending a real green CI run of the container job
+    # (docs/plans/wp3-container-release-plan.md §5 steps 5-6). Bumping this to
+    # core,bash-v1,container-v1 now makes --require-verified fail locally on
+    # SR-034's pending status. The driver flips this to
+    # core,bash-v1,container-v1 in the SAME commit that flips SR-034/LLR-034/
+    # TC-060/SR-044/LLR-044/TC-079/TC-080 to Verified/Pass, after CI is green.
     if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
