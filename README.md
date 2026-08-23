@@ -432,6 +432,17 @@ migrated by `Sync-BackupStorageLayout` on the next run, which touches the backup
 root only — snapshots keep the form they were written with, and are restored
 correctly regardless (see "Restoring an older snapshot" below).
 
+> **Known limitation — a form change currently blocks prune.** After flipping
+> `CompressEnabled` (or changing the extension list), older snapshots hold
+> blank-DataPath rows whose recorded form no longer matches the migrated root
+> copy. **Restores stay byte-exact** — but `-Action Prune` refuses the *whole
+> store* with status 2 (`form-mismatch`) until the forms agree again, and
+> `-RepairStorage` reports these rows unrepairable. A store carrying snapshots
+> from *both* regimes is blocked under either setting. Interim workaround for
+> a single flip: flip the setting back and run one backup, prune, then re-flip.
+> Tracked as a scheduled fix in `docs/status.md` (the rail's premise predates
+> the revision-2 kit fix that made these snapshots restore correctly).
+
 You can list multiple `BackupSets` in either format; each is processed
 independently. IF-001 rules **one `BackupSet` per container invocation** —
 HomeHub runs one service/invocation per directory — so a JSON config with
