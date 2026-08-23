@@ -110,6 +110,14 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # SR-034's pending status. The driver flips this to
     # core,bash-v1,container-v1 in the SAME commit that flips SR-034/LLR-034/
     # TC-060/SR-044/LLR-044/TC-079/TC-080 to Verified/Pass, after CI is green.
+    #
+    # TODO(WP5, same CI run): SR-052 is a CORE row, so no phase exempts it, and
+    # it stays `Implemented` until TC-101's LINUX half runs — the SR-023 restore
+    # capacity check firing inside the container, which is the whole point of
+    # replacing Split-Path -Qualifier. Docker was unavailable on the driver's
+    # host, so this step reports exactly ONE status-finding until that CI run.
+    # Flip SR-052 -> Verified and TC-101/TC-102 -> Pass in the same commit that
+    # closes the WP3 ratchet above. Everything else about WP5 is green locally.
     if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }

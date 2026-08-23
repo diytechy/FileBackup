@@ -104,6 +104,114 @@ function Add-BindMountArguments {
     $Arguments.Add($spec)
 }
 
+function Invoke-ContainerAction {
+    <#
+    .SYNOPSIS
+        Runs one entrypoint ACTION word against the smoke store and returns its
+        exit status and stdout, WITHOUT throwing on a non-zero code — verify
+        reports findings as status 1, which is an expected outcome (SR-040).
+    .PARAMETER Word
+        The entrypoint's positional action word (backup, prune, snapshots, verify).
+    .PARAMETER Environment
+        Extra 'NAME=value' pairs passed with -e.
+    .OUTPUTS
+        [pscustomobject] Code, Output.
+    #>
+    # Implements: SR-049, SR-048, SR-043, LLR-049
+    param(
+        [Parameter(Mandatory)][string]$Image,
+        [Parameter(Mandatory)][string]$Word,
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$State,
+        [Parameter(Mandatory)][string]$Backup,
+        [Parameter(Mandatory)][string]$Changes,
+        [Parameter(Mandatory)][string]$Logs,
+        [string[]]$Environment = @()
+    )
+    $runArgs = [System.Collections.Generic.List[string]]@(
+        'run','--rm','--network','none','--read-only',
+        '--security-opt','no-new-privileges','--cap-drop','ALL',
+        '--tmpfs','/tmp:rw,noexec,nosuid,nodev'
+    )
+    foreach ($pair in $Environment) { $runArgs.Add('-e'); $runArgs.Add($pair) }
+    Add-BindMountArguments -Arguments $runArgs -Source $ConfigPath -Target '/config/FileBackup.json' -ReadOnly
+    Add-BindMountArguments -Arguments $runArgs -Source $Source  -Target '/source' -ReadOnly
+    Add-BindMountArguments -Arguments $runArgs -Source $State   -Target '/state'
+    Add-BindMountArguments -Arguments $runArgs -Source $Backup  -Target '/backup'
+    Add-BindMountArguments -Arguments $runArgs -Source $Changes -Target '/changes'
+    Add-BindMountArguments -Arguments $runArgs -Source $Logs    -Target '/logs'
+    $runArgs.Add($Image)
+    $runArgs.Add($Word)
+    $output = & $script:ContainerRuntime @($runArgs.ToArray()) 2>&1 | Out-String
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $output }
+}
+
+function Test-ContainerStorageForm {
+    <#
+    .SYNOPSIS
+        TC-102: the storage-form verification action, exercised in-container
+        against the smoke store (SR-049, SR-048).
+    .DESCRIPTION
+        Proves, on a real Linux container: a clean backup verifies with exit 0,
+        emits parseable JSON and modifies nothing; a seeded malformed row is
+        reported with a non-zero status per the SR-040 table; repair mode fixes
+        it and a re-verify exits 0. The default backup action and flags-only
+        invocations are unaffected (they are exercised by the steps above).
+    #>
+    # Implements: SR-049, SR-048, SR-043, LLR-049
+    param(
+        [Parameter(Mandatory)][string]$Image,
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$State,
+        [Parameter(Mandatory)][string]$Backup,
+        [Parameter(Mandatory)][string]$Changes,
+        [Parameter(Mandatory)][string]$Logs
+    )
+    $common = @{ Image = $Image; ConfigPath = $ConfigPath; Source = $Source; State = $State
+                 Backup = $Backup; Changes = $Changes; Logs = $Logs }
+
+    # --- clean store: exit 0, parseable JSON, nothing modified ---
+    $before = @{}
+    foreach ($file in @(Get-ChildItem -LiteralPath $Backup, $Changes -File -Recurse)) {
+        $before[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    }
+    $clean = Invoke-ContainerAction @common -Word 'verify'
+    if ($clean.Code -ne 0) { throw "verify on a clean store exited $($clean.Code); expected 0.`n$($clean.Output)" }
+    $json = [regex]::Match($clean.Output, '(?s)\[.*\]').Value
+    if (-not $json) { throw "verify did not emit a JSON findings document.`n$($clean.Output)" }
+    try { ConvertFrom-Json $json | Out-Null } catch { throw "verify's findings document is not parseable JSON: $($_.Exception.Message)" }
+    foreach ($file in @(Get-ChildItem -LiteralPath $Backup, $Changes -File -Recurse)) {
+        $now = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        if ($before[$file.FullName] -ne $now) { throw "verify modified '$($file.FullName)'; it must mutate nothing." }
+    }
+
+    # --- seed one malformed row: Compressed=Yes over raw bytes ---
+    $manifestPath = Join-Path $Backup 'MANIFEST.csv'
+    $rows = @(Import-Csv -LiteralPath $manifestPath)
+    $target = @($rows | Where-Object Compressed -eq 'No')[0]
+    if (-not $target) { $target = $rows[0] }
+    $dataFile = Join-Path $Backup $target.DataPath
+    [System.IO.File]::WriteAllText($dataFile, 'raw bytes that are not an archive')
+    $target.Compressed = 'Yes'
+    $rows | Export-Csv -LiteralPath $manifestPath -NoTypeInformation
+    Import-Module (Join-Path $repo 'Modules/FileBackup.Common.psm1') -Force
+    Write-ManifestWitness -FolderPath $Backup | Out-Null
+
+    $dirty = Invoke-ContainerAction @common -Word 'verify'
+    if ($dirty.Code -eq 0) { throw "verify reported a seeded malformed row as clean.`n$($dirty.Output)" }
+    if ($dirty.Code -ne 1) { throw "verify exited $($dirty.Code) for a findings outcome; the SR-040 table says 1.`n$($dirty.Output)" }
+
+    # --- repair, then re-verify clean ---
+    $repair = Invoke-ContainerAction @common -Word 'verify' -Environment @('FILEBACKUP_REPAIR=1')
+    if ($repair.Code -ne 0) { throw "verify --repair exited $($repair.Code); expected 0 after repairing.`n$($repair.Output)" }
+    $again = Invoke-ContainerAction @common -Word 'verify'
+    if ($again.Code -ne 0) { throw "re-verify after repair exited $($again.Code); expected 0.`n$($again.Output)" }
+
+    Write-Host 'Container storage-form check passed (TC-102): clean verify exits 0 and mutates nothing, a malformed row exits 1, repair makes it clean.'
+}
+
 function Invoke-ContainerSmokeTest {
     Write-Host "Smoke-testing $Image"
     Invoke-ContainerCommand -Arguments @('image','inspect',$Image)
@@ -286,6 +394,9 @@ function Invoke-ContainerSmokeTest {
         if (Test-Path -LiteralPath (Join-Path $restoreSnapshot 'gamma.txt') -PathType Leaf) {
             throw "Restored snapshot unexpectedly contains 'gamma.txt', which did not exist at snapshot time."
         }
+
+        Test-ContainerStorageForm -Image $Image -ConfigPath (Join-Path $config 'FileBackup.json') `
+            -Source $source -State $state -Backup $backup -Changes $changes -Logs $logs
 
         Write-Host 'Container smoke test passed: incremental run produced a restorable dated snapshot alongside a byte-exact latest-state restore.'
     }

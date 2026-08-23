@@ -20,9 +20,9 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 
 | File | Role | Bundled into backups? |
 |---|---|---|
-| `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Get-FileBackupDefaults`. | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`. | No |
-| `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots`, dispatch the one configured set to the retention mechanism (SR-048). | n/a |
+| `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Assert-BackupCapacity` (+ its two pure demand estimators), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`. | No |
+| `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049), dispatch the one configured set to the retention mechanism or the storage-form audit. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
 | `Dockerfile`, `container/`, `scripts/Invoke-Container.ps1` | **Linux container runtime and lifecycle** (phase `container-v1`): digest-pinned non-root image, JSON configuration entrypoint, compressed build/restore smoke test, offline tar export, and optional OCI registry publish/pull. | n/a |
@@ -44,10 +44,18 @@ Therefore:
 3. Guard against a stale `Temp` staging folder.
 4. Read persisted last-hash-run time; decide if a scheduled rehash is due.
 5. `Update-SourceManifest` — walk source, (re)hash new/changed/scheduled files.
+5.5 `Assert-BackupCapacity` (migration component) — a migration copies before it
+    deletes, so the room is proven before step 6 touches a byte (SR-052).
 6. `Sync-BackupStorageLayout` — migrate data files if compress/tree mode changed.
+   Refcount-safe (SR-051): a (hash,length) group is transformed together or not
+   at all, one shared file is transformed once, and a superseded path any
+   surviving row still references is retained, not deleted.
 7. Snapshot the pre-run manifest into staging (the point-in-time index).
 8. `Compare-SourceToBackup` — pure diff (`NewOrChanged` + `RemovedFromSource`).
 9. Build the working backup map.
+9.4 `Assert-BackupCapacity` (content component) — the last point at which nothing
+    has been written. A refusal removes the staging folder and fails the SET
+    (status 1), never orphaning a `Temp` for the next run's SR-017 guard.
 9.5 `Save-SupersededData` — move superseded prior bytes into staging *before*
     `Invoke-BackupFileGroup` overwrites (Mirror) or orphans (HashAddressed) them.
 10. `Invoke-BackupFileGroup` per `(hash,size)` — copy/compress new data once.
@@ -243,6 +251,28 @@ Imports (internal): `Common`
   Never filter data files by bare name.
 - **Content-addressed data filenames carry the storage extension**: `.7z` when compressed,
   in *both* Mirror and HashAddressed modes, so `Compressed` and the filename agree.
+- **A blank-DataPath row is resolved by the form of the file hash recovery
+  locates, never by the row's `Compressed`** (SR-050) — that column describes
+  only a file in the row's *own* folder, and a blank row has none. The locator
+  has already PROVEN the located file's form (it expanded an archive candidate
+  and matched its payload, or hashed a raw one), so `Find-DataFileByHash` /
+  `find_by_hash` report it as `Form` and the restore loop's decompress decision
+  reads that. A row with a non-blank `DataPath` keeps using its own `Compressed`.
+  Getting this backwards writes 7z container bytes under the original filename
+  and exits 0. Reachable with no tampering: `Sync-BackupStorageLayout` migrates
+  the backup root only, so a compression-policy flip leaves snapshots behind.
+- **Exactly one predicate answers "does the index agree with the bytes?"** —
+  `Test-StorageFormAgreement`. Both the prune rail (SR-046) and the storage-form
+  audit (SR-049) call it, so they cannot drift. It carries the one deliberate
+  exemption: a row whose own `RelativePath` ends in `.7z` is an
+  already-compressed *source* file and is never a disagreement.
+- **A snapshot keeps the restore kit it was written with, forever.** The
+  `# KitRevision: <n>` marker at the top of `Reconstruct.ps1` and
+  `bash/reconstruct.sh` names it; bump BOTH together whenever any kit-bundled
+  file changes behavior. Revision 2 is the first with the SR-050 fix above.
+  `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
+  from an existing snapshot, and it copies the six kit artifacts and **never**
+  `MANIFEST.csv.meta`.
 
 ## 4. Conventions & known gotchas
 
@@ -250,6 +280,12 @@ Imports (internal): `Common`
   Desktop build needs transitive `System.Memory` assemblies.
 - **Hashing:** xxHash128 via `System.IO.Hashing` (XXH3-based; faster than XXH64). **Not**
   K4os.Hash.xxHash — its 1.0.8 (final) release has no `XXH128` type. Use `Get-FileXxHash`.
+- **Never resolve a volume with `Split-Path -Qualifier`** — it throws on a rooted
+  POSIX path (`/backup`), and where the throw sat next to a tolerant `catch` it
+  made SR-023's restore capacity check silently inert on Linux for months. Use
+  `Get-FreeSpaceBytes` / `Get-VolumeIdentity` (Common, SR-052): cross-platform,
+  never throw, and answer `$null` when the volume cannot be measured — at which
+  point the caller SKIPS the check rather than refusing.
 - **Never `Split-Path -LiteralPath … -Parent` / `-Leaf`** — that flag combination *throws*
   on PS7. Use `[System.IO.Path]::GetDirectoryName/GetFileName` (also wildcard-safe for
   bracketed paths). Positional `Split-Path $x -Parent` is fine.
@@ -352,12 +388,14 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 ² Linux CI builds the pinned image and drives a real compressed backup plus restore through
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
-**Current automated total:** 324 integration assertions (4 modes × G1–G7 = 160, plus
-G9 Rollback = 164; G8 SKIP under Subst) + 223 Pester unit/coverage tests + 48 bats
-tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck` clean.
-(Verified 2026-08-23 on a Full tier, after WP4 — G9 gained a retention half
-(`Invoke-G9Prune`, +22 assertions per mode) and the unit suite gained the
-prune/inventory cases TC-081..090.)
+**Current automated total:** 372 integration assertions (4 modes × G1–G7 = 208,
+plus G9 Rollback = 164; G8 SKIP under Subst) + 294 Pester unit/coverage tests +
+54 bats tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck`
+clean. (Verified 2026-08-23 on a Full tier, after WP5 — G4 gained the
+extension-merge migration case `G4.2`/`Invoke-G4ExtensionMerge` (+12 assertions
+per mode), the unit suite gained `tests/Unit/StorageForm.Tests.ps1`
+(TC-091..TC-096, TC-098, TC-100, TC-101's Windows half) and bats gained
+`storage_form.bats` (TC-099). WP4 had brought this to 324 / 223 / 48.)
 
 ### Suite groups
 | Group | Covers |
@@ -365,7 +403,7 @@ prune/inventory cases TC-081..090.)
 | G1 InitialBackup  | Empty source, single file, 200-file bulk, nested `MANIFEST.csv` (B6), Unicode, bracketed paths. |
 | G2 Incremental    | Rename, move, modify, delete, re-add identical/different, dedup. |
 | G3 Reconstruction | Roundtrip from backup root, hash-fallback (incl. compressed), target-inside-backup rejected. |
-| G4 Sanitization   | Mirror → HashAddressed migration; `StoredAsHashSize` flips. |
+| G4 Sanitization   | Mirror → HashAddressed migration; `StoredAsHashSize` flips. **Plus `G4.2`** (`Invoke-G4ExtensionMerge`, TC-097/SR-004/SR-051): the already-compressed extension-list merge at scale — a genuine pre-merge store is re-run on the merged list, and the triggered migration must leave nothing dangling, verify clean (SR-049), restore every snapshot and the latest state byte-exact, and be idempotent from run 2. |
 | G5 EdgeCases      | Stale `Temp` aborts, read-only source, idempotent second run. |
 | G6 HashFrequency  | `Test-HashRecalcDue` over all 7 codes (deterministic via `-Now`). |
 | G7 Determinism    | Identical re-runs ⇒ identical manifest rows; SHA-256 spot check. |

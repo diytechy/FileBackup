@@ -211,6 +211,87 @@ pruning is never needed in order to restore.
 
 ---
 
+## Checking that the index tells the truth (`-Action Verify`)
+
+The manifest records **how** each file was stored — compressed or not. Nothing
+in a normal backup run ever checks that claim against the bytes on disk, so a
+wrong entry would validate itself forever. `-Action Verify` is the check. It is
+opt-in, a normal backup never invokes it, and by default it reads and reports
+without changing anything:
+
+```powershell
+# Audit the live backup AND every snapshot. Prints findings as JSON.
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Verify
+
+# Fast pass: the live backup only.
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Verify -BackupRootOnly
+
+# Also prove every row's payload really reproduces its recorded hash (needs 7-Zip).
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Verify -Deep
+
+# Fix what is unambiguous from the bytes in each row's own folder.
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Verify -RepairStorage
+```
+
+Each finding names the folder, the row, and a class:
+
+| Class | Meaning | Repairable |
+|---|---|:---:|
+| `FlagOverRaw` | The row says compressed; the bytes are raw. | yes |
+| `FlagOverArchive` | The row says not compressed; the bytes are a `.7z` archive. | yes |
+| `NameLies` | Flag and bytes agree, but the data file's name claims the other form. | yes |
+| `DanglingDataPath` | The row names a data file that is not there. | no |
+| `PayloadMismatch` | `-Deep` only: the stored bytes do not reproduce the row's hash/length. | no |
+| `BlankRowFormDisagreement` | A row that resolves by content hash, whose `Compressed` disagrees with the copy the restore would find. Harmless with a current restore kit — see below. | no |
+| `Unreferenced` | A data file in the folder that no manifest row names. | no |
+
+Repair takes the **bytes as ground truth**: it rewrites `Compressed` and renames
+the data file so its name stops lying. It never re-packs or re-compresses
+content, never touches the logical columns (path, length, timestamp, hash), and
+never migrates layout. Findings it will not touch are reported, not silently
+"fixed".
+
+Status follows the same table as a restore: **0** nothing to report, **1**
+findings (a statement about your data, not a usage error), **2** a precondition
+failed — no manifest to verify, or `-Deep` without 7-Zip.
+
+In the container: `verify` as the action word, and `FILEBACKUP_REPAIR=1` to
+repair.
+
+### Older snapshots carry the restore kit they were written with
+
+Each snapshot bundles its own copy of the restore scripts, frozen at the moment
+it was created. A defect fixed in the kit is therefore fixed for the live backup
+and for every **new** snapshot, but a snapshot written before the fix keeps the
+old kit permanently — including copies you moved off the volume.
+
+One such fix matters: kits **before revision 2** decided whether to decompress a
+hash-recovered file from the *manifest row* rather than from the file they
+actually found. After turning compression on or off, restoring an old snapshot
+*with its own old kit* could therefore write archive bytes under the original
+filename and still report success. Kits from revision 2 on decide from the file
+itself and are correct. (The revision is the `# KitRevision:` line near the top
+of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
+alongside every `BlankRowFormDisagreement` finding.)
+
+Two ways to be safe:
+
+* restore an old snapshot with the **live backup root's** current
+  `RECONSTRUCT.ps1`, pointing it at the snapshot
+  (`-BackupRootOverride` / `-ChangeRootOverride`); or
+* refresh the kits in place, once:
+
+```powershell
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Verify -RefreshKits
+```
+
+`-RefreshKits` re-copies the current restore scripts into every snapshot folder.
+It is opt-in and never automatic — it writes inside folders that are otherwise
+immutable. It copies only the kit files; each snapshot keeps its **own** manifest
+and its own witness.
+
+---
+
 ## Config format
 
 `FileBackup.ps1 -ConfigPath` accepts CLIXML (`.xml`) and JSON (`.json`),

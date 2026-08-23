@@ -27,14 +27,16 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP4,
+- **Latest verified run (2026-08-23, Full tier, post-WP5,
   `--phase core,bash-v1` unchanged pending container CI):**
-  **223/223 Pester unit, lint clean, trace SN=29 SR=48 LLR=47(/48) TC=89(/90)
-  with 0 orphans / 0 integrity / 0 status-findings / 4 phase-deferred
-  (bash-v2, container-v1 ×3 — SR-034, SR-044 and the new SR-048), integration
-  324 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps
-  passed"), plus **bats 48/48 and `shellcheck container/entrypoint.sh` clean**
-  on real Linux (WSL).
+  **294/294 Pester unit, lint clean, trace SN=30 SR=52 LLR=51 TC=101 with
+  0 orphans / 0 integrity / 4 phase-deferred, integration 372 PASS / 0 FAIL /
+  4 SKIP**, plus **bats 54/54 and `shellcheck bash/reconstruct.sh
+  container/entrypoint.sh` clean** on real Linux (WSL). `check.ps1 -Gate G3`
+  reports **exactly one status-finding** — SR-052 is honestly `Implemented`
+  because TC-101's Linux half (the SR-023 restore capacity check firing
+  in-container) cannot run without Docker; see the WP5 audit entry and the
+  `TODO(WP5, same CI run)` in `scripts/check.ps1`.
 - **WP1 (restore trust & diagnostics) is implemented, independently reviewed
   (APPROVE-WITH-MINORS 2026-08-22) and the accepted findings are landed
   2026-08-23 — awaiting batch ratification.** SR-038..041 Verified,
@@ -62,6 +64,17 @@ last) — it is the record, not required reading for every pass.
   unavailable on this host — its locally runnable halves DO run and pass).
   Open-items row **I** flips to Implemented; a new row **C-form** records the
   §5.7 latent defect dispositioned to WP5, for which WP4 ships the detector.
+- **WP5 (storage-form trust) is implemented and green on a Full tier —
+  awaiting independent review + batch ratification.** SN-030/SR-049..052/
+  LLR-049..052/TC-091..102 minted; **SR-049/SR-050/SR-051 Verified**
+  (TC-091..TC-100 Pass), **SR-052 `Implemented`** with TC-101's Linux half and
+  TC-102 `Draft` pending the Docker CI job (Docker unavailable on this host —
+  every locally runnable half DOES run and pass). Open-items rows **C**,
+  **C-form**, **C-refcount**, **ext-list merge** and **backup-side capacity**
+  all flip to Implemented; three new rows record what WP5 surfaced but did not
+  fix. Restore-kit revision bumped to **2** (SR-050): snapshots written before
+  this run keep their old kit permanently — README documents the exposure and
+  the two remedies.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -178,11 +191,15 @@ work-package order follows the table.
 | container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
 | container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
 | **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Implemented (WP4) — awaiting independent review + batch ratification |
-| **C-form (new, WP4 §5.7)** | A blank-DataPath row whose `Compressed` disagrees with the .7z-ness of the file hash recovery locates restores **archive bytes under the original name**: both restorers branch on the ROW's `Compressed`, not on the form of the file they found. Reachable today after a compression-mode flip, because `Sync-BackupStorageLayout` migrates only the backup root and never the snapshots. | **WP5**, with finding C (same repair story). WP4 ships the **detector**: `Test-PoolResolves` reports `form-mismatch` and `Remove-BackupSnapshot` refuses (code 2) rather than pruning into it, so a store in this state is named instead of silently widened — and WP5 inherits a ready repro (TC-084's `form-mismatch` case). Note the deliberate exemption: a row whose own `RelativePath` ends in `.7z` (a legitimately stored already-compressed source file) is NOT a disagreement. | Open → WP5 |
-| **C-refcount (new, WP5 planning G10)** | `Sync-BackupStorageLayout` is not refcount-aware: dedup makes rows share one `DataPath` (`Invoke-BackupFileGroup`), the migration decision is per-row (`Engine.psm1` `$needsTransform`), and Phase 2 deletes every superseded path unconditionally — so a config change that flips only ONE of two content-sharing rows deletes the file the other still references (`MissingDataFile` on the next restore, exit 1). **Live data-loss defect on Verified code**, reachable today (compression flip + two same-content rows with different extensions); the ext-list merge would trigger it at scale. Contrast `Move-RemovedFilesToStaging`, which IS refcount-aware (B9). | **WP5 as SR-051** ([plans/wp5-storage-trust-plan.md](plans/wp5-storage-trust-plan.md)), sequenced BEFORE the ext-list merge. Surfaced immediately per the plan's Q7 so it stays visible even if WP5 slips. | Open → WP5 |
-| **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself. | **WP5.** With B fixed, new malformed rows can't be created — C matters for pre-fix backups and for migrations the ext-list merge triggers. Repro test first (double-check §5.3); repair via an opt-in `-VerifyStorage` mode, **not** a physical verify inside every migration (would fight SR-024 idempotence/perf). | Open → WP5 |
-| ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Open → WP5 |
-| backup-side capacity | Does the backup side have the capacity preflight the restore side gained (SR-023 is restore-only)? | **WP5.** Verify first, then a small SR mirroring SR-023. Importance rises with the container (target is a HomeHub-controlled bind mount). | Open → WP5 |
+| **C-form (new, WP4 §5.7)** | A blank-DataPath row whose `Compressed` disagrees with the .7z-ness of the file hash recovery locates restores **archive bytes under the original name**: both restorers branch on the ROW's `Compressed`, not on the form of the file they found. Reachable today after a compression-mode flip, because `Sync-BackupStorageLayout` migrates only the backup root and never the snapshots. | **WP5**, with finding C (same repair story). WP4 ships the **detector**: `Test-PoolResolves` reports `form-mismatch` and `Remove-BackupSnapshot` refuses (code 2) rather than pruning into it, so a store in this state is named instead of silently widened — and WP5 inherits a ready repro (TC-084's `form-mismatch` case). Note the deliberate exemption: a row whose own `RelativePath` ends in `.7z` (a legitimately stored already-compressed source file) is NOT a disagreement. | Implemented (WP5) — awaiting independent review + batch ratification |
+| **C-refcount (new, WP5 planning G10)** | `Sync-BackupStorageLayout` is not refcount-aware: dedup makes rows share one `DataPath` (`Invoke-BackupFileGroup`), the migration decision is per-row (`Engine.psm1` `$needsTransform`), and Phase 2 deletes every superseded path unconditionally — so a config change that flips only ONE of two content-sharing rows deletes the file the other still references (`MissingDataFile` on the next restore, exit 1). **Live data-loss defect on Verified code**, reachable today (compression flip + two same-content rows with different extensions); the ext-list merge would trigger it at scale. Contrast `Move-RemovedFilesToStaging`, which IS refcount-aware (B9). | **WP5 as SR-051** ([plans/wp5-storage-trust-plan.md](plans/wp5-storage-trust-plan.md)), sequenced BEFORE the ext-list merge. Surfaced immediately per the plan's Q7 so it stays visible even if WP5 slips. | Implemented (WP5) — awaiting independent review + batch ratification |
+| **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself. | **WP5.** With B fixed, new malformed rows can't be created — C matters for pre-fix backups and for migrations the ext-list merge triggers. Repro test first (double-check §5.3); repair via an opt-in `-VerifyStorage` mode, **not** a physical verify inside every migration (would fight SR-024 idempotence/perf). | Implemented (WP5) — awaiting independent review + batch ratification |
+| ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Implemented (WP5) — awaiting independent review + batch ratification |
+| backup-side capacity | Does the backup side have the capacity preflight the restore side gained (SR-023 is restore-only)? | **WP5.** Verify first, then a small SR mirroring SR-023. Importance rises with the container (target is a HomeHub-controlled bind mount). | Implemented (WP5) — SR-052 stays `Implemented` until TC-101's Linux half runs in the Docker CI job; awaiting independent review + batch ratification |
+| prune form-mismatch rail (new, WP5) | `Test-PoolResolves` refuses a prune with code 2 on a blank-DataPath `form-mismatch`, a rail WP4 justified by "the restorers branch on the ROW". **SR-050 removed that premise**, so prune now refuses a store a revision-2 kit restores correctly — reproducible by any compression flip. | **WP6.** Left unchanged deliberately by WP5: a pre-revision-2 snapshot restored by its OWN kit IS still exposed, and relaxing a Verified prune rail is not WP5's call. Likely resolution: downgrade the BLANK-row half to informational once `-RefreshKits` (or a kit-revision check) proves the pool's kits are current. | Open → WP6 |
+| dangling DataPath becomes unrestorable (new, WP5) | A row whose data file is missing is dropped by `Test-BackupManifest`; if the SOURCE file is unchanged the diff never re-copies it, and `Optimize-ChangeFolders` blanks the `DataPath` — leaving a row whose bytes are nowhere in the pool while the run reports success. `Test-PoolResolves` detects it (`broken-pool`); no backup run does, and SR-049's audit deliberately does not (it is not a FORM finding). Pre-existing, observed while writing TC-094. | **WP6** — needs its own SR: either heal the row (force a re-copy from source) or fail the set. Decide which; healing is the friendlier behaviour and the source bytes are right there. | Open → WP6 |
+| manifest row order (new, WP5) | Consecutive no-op runs can emit manifest ROWS in a different ORDER with identical content (the final manifest is enumerated from a hashtable). SR-024 holds on row content; G7-Determinism does not catch the ordering. TC-094/TC-097 compare rows sorted by `RelativePath`. | **WP6**, low priority. Either sort deterministically before `Write-Manifest`, or state explicitly that row order is not part of the contract. | Open → WP6 |
+| **-RepairFromPruned** (deferred from WP4 §5.4) | Materializing bytes back into a pool that lost them. WP5 landed the DIAGNOSIS half (SR-049's R3/R4/R5 findings say exactly what is missing and where); the byte-materialization half stays deferred. | **WP6 or later.** Build on WP4's plan/copy/prove primitives once they are Verified. SR-050 removed the correctness motive, so this is convenience, not safety. No SN/SR yet. | Deferred → WP6-or-later |
 | **H** | No destination mount-identity preflight. | **Stays delegated to HomeHub (IF-001)** — HomeHub genuinely owns mounts and the container can't see the host mount table. Optional later hardening: an `ExpectedSentinel` config key (refuse if a named file is absent at the destination). Low priority; revisit only if FileBackup runs outside the wrapper. | Delegated |
 | release checklist | `checklist-vNEXT-dryrun.md` is stale (UN-### vocabulary, no SR-029+, points at nonexistent `scripts/check.py`, gitignored). | **WP6 (docs batch).** Regenerate from the registries via `gen_release_checklist.py` (also verifies the generator survived the UN→SN rename); include container rows. Blocks G-Release. | Open → WP6 |
 | interfaces.md boilerplate | `docs/interfaces.md` is unmodified kit boilerplate; the real IF-001 lives in `requirements/interfaces.csv`. | **WP6.** Rewrite as a thin IF-001 pointer + prose contract. | Open → WP6 |
@@ -195,8 +212,9 @@ work-package order follows the table.
 one G1→G3 pass, one independent review, one kit revision, PS + bash + kit
 copies together) → **WP2** config contract (+ record the one-set-per-invocation
 ruling) → **WP3** container release-verify + smoke depth + ratchet re-arm →
-**WP4** retention mechanism (`Prune-Snapshot`) → **WP5** C repro test, then
-ext-list merge; backup-capacity check → **WP6** docs batch.
+**WP4** retention mechanism (`Prune-Snapshot`) → **WP5** storage-form trust (C repro first, then SR-050's restorer fix, SR-051's
+refcount-safe migration, SR-049's verify/repair, the ext-list merge and SR-052's
+capacity guard) → **WP6** docs batch.
 
 ### Design note: dated snapshots — implemented 2026-06-06, kept for the record
 **Human direction (2026-06-05):** snapshot folders should be **labelled by the
@@ -2071,3 +2089,196 @@ already demand the key? is the collision guard tight enough in Mirror mode?);
 `.7z`-RelativePath exemption; (5) whether refusing to prune *into* an
 already-broken pool is the right default given `-RepairFromPruned` is deferred
 to WP5.
+
+### DRIVER (Software + Test + Data-integrity hats) — WP5 storage-form trust — 2026-08-23
+Verdict: implemented and green on a Full tier — **awaiting independent review +
+batch ratification**. Work order:
+[plans/wp5-storage-trust-plan.md](plans/wp5-storage-trust-plan.md), phases A→H,
+one commit per green phase. Ids minted: **SN-030, SR-049..052, LLR-049..052,
+TC-091..102.** Closes HomeHub cross-check finding **C**, the WP4-surfaced
+**C-form** latent defect, the planning-pass **C-refcount (G10)** data-loss
+defect, the **ext-list merge**, and the **backup-side capacity** row.
+
+**Phase A — one shared predicate (557b2b1).** `Test-StorageFormAgreement`
+extracted from `Test-PoolResolves`' inline check so prune (SR-046) and verify
+(SR-049) ask the same question and cannot drift, carrying the documented
+C-form exemption (a row whose own RelativePath ends `.7z` is not a
+disagreement). Behavior identical; WP4's TC-083/084/089 re-run green.
+
+**Phase B — REPRO, RED (ba9b35d).** The evidence commit. Real red output, run
+before any fix, from `tests/Unit/StorageForm.Tests.ps1`:
+
+```
+[+] leaves every malformed row byte-identical and still reports the set successful (SR-049)
+[+] swallows a failed transformation of a Compressed=Yes-over-raw row into a log line (SR-049)
+[-] reports one finding per malformed row with its class (SR-049)
+    CommandNotFoundException: The term 'Test-BackupStorageForm' is not recognized...
+[-] restores a snapshot byte-exact after compression is turned on (mode Mirror) (SR-050)
+    Expected: '2A7B9B01C49B84B0D15E4048E13F1BA772FE68630DECFBB711E6BCF807B4EF0D'
+    But was:  '540C3E48515CBABA6BBFCAAA3A9AE442A3C74447AF3A80BDC29D1969D588CEE6'
+[-] restores a snapshot byte-exact after compression is turned off (mode Mirror) (SR-050)
+    RuntimeException: Reconstruction INCOMPLETE: 1 file(s) could not be restored
+    (0 content-missing, 1 host): a.txt.
+[-] restores a snapshot byte-exact after compression is turned on (mode HashAddressed) (SR-050)
+[-] restores a snapshot byte-exact after compression is turned off (mode HashAddressed) (SR-050)
+Tests Passed: 2, Failed: 5
+```
+
+The two PASSES are the defect: four malformed shapes survive
+`Sync-BackupStorageLayout` byte-identical and the set still reports success,
+because `$needsTransform` compares manifest metadata with configuration and
+never with the bytes. The five failures are the requirement. Note the two
+directions of the WP4 §5.7 defect: flipping compression ON gives **exit 0 with
+7z container bytes written under the original filename** (silent corruption);
+flipping it OFF gives **exit 4 misfiled as a HOST problem**. Both reachable with
+NO tampering.
+
+*Masking defect fixed in the same commit (new, not in any disposition):*
+`Initialize-Dependencies` set `$deps['7z'] = $null` whenever `CompressEnabled`
+was false, so turning compression OFF made the SR-012 migration silently inert
+("7-Zip not found. Skipping transformation") and a documented configuration
+change was never applied. 7-Zip is now resolved opportunistically and silently
+on that branch (no prompt — SR-016).
+
+**Phase C — SR-050, the data-integrity commit (4127edb).** Both restorers now
+decide whether to decompress from the form the LOCATOR PROVED, not from the
+row's `Compressed` (which describes only a file in the row's own folder).
+`Find-DataFileByHash` gains `Form`; `find_by_hash`'s Found tuple becomes
+`Found\037<form>\037<path>`; an archive candidate that fails to expand is
+re-tested as raw bytes before a CandidateError (Q4). `# KitRevision: 2` markers
+in both restorers (no prior convention existed; 2 is the first stamped one).
+TC-092 4/4 GREEN, TC-098 6/6, TC-099 6/6 under bats on real Linux.
+
+**Phase D — SR-051, refcount-safe migration (ddf52ab).** Closes G10. Verified
+RED against the pre-fix engine before landing:
+
+```
+[-] keeps every row of a shared-content pair resolvable ... (mode Mirror)
+    Expected $true, because row 'same.jpg' must still resolve after the migration, but got $false.
+[-] retains a superseded path that a surviving row still references
+    Expected $true, because a still-referenced superseded path must never be deleted, but got $false.
+[-] reports a failed transformation ... and FAILS the set   Expected 1, but got 0.
+```
+
+Green after, in all four modes. A (hash,length) group is decided together, a
+shared file is transformed once, Phase 2 retains any path a surviving row still
+references, and a failed transformation fails the set.
+
+**Phase E — SR-049, verify + repair (3e170f0).** `Get-StoredFileForm` (7z magic,
+no hashing) → `Get-StorageFormFinding` (exactly one finding per row) →
+`Test-BackupStorageForm` (root + every snapshot, mutates nothing) →
+`Repair-BackupStorageForm` (bytes are ground truth; rewrites `Compressed` and
+renames; never re-packs, never touches the six logical columns, refuses a rename
+onto a root-level infrastructure name, persists ONLY through `Write-Manifest`)
+→ `-Action Verify` on WP4's one dispatch (+`-VerifyStorage` alias,
+`-RepairStorage`, `-Deep`, `-BackupRootOnly`/`-IncludeSnapshots`,
+`-RefreshKits`) → the entrypoint word `verify`. Findings as JSON via
+`[Console]::Out`. `Get-BackupKitRevision` reports the kit a snapshot is stuck
+with on every blank-row finding. Two more defects found while testing and fixed
+here: `Get-BackupContentIndex` threw on an empty `-SnapshotFolder` arriving as
+`$null` (AGENTS §4 hazard), and the C-form exemption was applied to the flag
+check but not the NAME check, so `already.7z` stored raw was reported as
+`NameLies` in all four modes.
+
+**Phase F — SR-004 merge (b1aafb5).** `.jar .tgz .zst .gif .webm .ogg .sav
+.pack` added to the ONE list (Q6; no Office extensions — SN-003's acceptance is
+a stakeholder decision). README gains the table, and TC-096 asserts it equals
+the live list and that the list has one definition site. TC-097 (suite case
+`G4.2`, four modes) builds a genuine PRE-merge store and re-runs on the merged
+list: the triggered migration leaves nothing dangling, verifies clean, and every
+state — both snapshots and the latest — restores byte-exact with exit 0; run2 ≡
+run3.
+
+**Phase G — SR-052 capacity (d082cda).** `Get-FreeSpaceBytes` /
+`Get-VolumeIdentity` in **Common** (the kit stays self-contained), measuring via
+`System.IO.DriveInfo` with `Get-PSDrive` as the drive-qualified fallback, never
+throwing. `Reconstruct.ps1` rewired: its `Split-Path -Qualifier` lookup **threw
+on a rooted POSIX path and was swallowed by the adjacent catch, so SR-023's
+restore capacity check has been silently inert on Linux and in the container
+since it was written** while bash's `df` half worked (planning finding G9).
+Backup side: two pure demand estimators + `Assert-BackupCapacity`, called at
+step 5.5 (migration) and 9.4 (content); a refusal removes the staging folder
+before throwing so it cannot orphan a `Temp` for the next run's SR-017 guard,
+and fails the SET (status 1), not the invocation. No configuration key (Q8).
+
+**Phase H — boundary, docs, registries (this commit).** TC-102 lands as
+`Test-ContainerStorageForm` inside the container smoke test (clean verify exits
+0 / emits parseable JSON / mutates nothing; a seeded malformed row exits 1;
+repair then re-verify exits 0); README gains the `-Action Verify` section, the
+finding-class table, the merged-extension table and the **old-kit exposure**
+statement with both remedies; AGENTS §2/§3/§4/§6 updated (three new invariants:
+the blank-row form rule, the one-predicate rule, and the kit-revision rule; a
+new gotcha forbidding `Split-Path -Qualifier` for volumes); IF-001 amended
+(SR-Refs += SR-049;SR-052, the `verify` word, the capacity refusal); LLR-004 /
+LLR-012 / LLR-023 / TC-002 amended per the plan's §3 table.
+
+**Evidence (real, local, 2026-08-23):**
+
+- `Invoke-Pester -Path tests\Unit` → **294 passed / 0 failed / 0 skipped**.
+- `tests\Run-All.ps1 -NonInteractive` → **372 PASS / 0 FAIL / 4 SKIP**
+  (G8 RealVolume under Subst).
+- `bats tests/bash` on real Linux (WSL Fedora 40) → **54/54**;
+  `shellcheck -S warning bash/reconstruct.sh container/entrypoint.sh` clean.
+- `python scripts/trace.py --strict` → `SN=30 SR=52 LLR=51 TC=101 orphans=0
+  integrity=0`.
+- PSScriptAnalyzer over the maintained surface: clean.
+
+**Honest gaps — what is NOT proven here.**
+
+1. **Docker was unavailable on this host.** TC-102 and **TC-101's Linux half**
+   have never been executed. TC-101/TC-102 stay `Draft`, and **SR-052 stays
+   `Implemented`, not `Verified`** — its acceptance requires the restore
+   capacity check to demonstrably fire on Linux, which is exactly the thing the
+   `Split-Path -Qualifier` bug prevented, and no local run can show it. This
+   means `check.ps1 -Gate G3` reports **exactly one status-finding** until that
+   CI run; a `TODO(WP5, same CI run)` in `scripts/check.ps1` names it beside the
+   WP3 ratchet TODO, and both flip in the same commit once the container job is
+   green. SR-049/SR-050/SR-051 ARE Verified — their acceptance is fully covered
+   by locally-passing TCs.
+2. **WP5 does not close F3 for pre-existing snapshots restored by their own
+   kit**, and never claimed to. A snapshot written before revision 2 keeps the
+   defective kit permanently, including copies moved off-volume. The remedies
+   are documented in README (restore with the root's current kit, or
+   `-RefreshKits`), and the verifier reports each snapshot's kit revision.
+
+**Findings for the independent reviewer.**
+
+- **[MEDIUM] `Test-PoolResolves`' blank-row `form-mismatch` refusal is now
+  conservative.** WP4 made it a code-2 prune refusal because "the restorers
+  branch on the ROW". SR-050 removed that premise, so prune now refuses to
+  prune a store that a revision-2 kit restores correctly — reproducible by any
+  compression flip. Left UNCHANGED deliberately (a pre-revision-2 snapshot
+  restored by its OWN kit is still exposed, and relaxing a Verified prune rail
+  is not WP5's call). New Open-items row; targeted WP6.
+- **[MEDIUM] A dangling `DataPath` becomes a permanently unrestorable row.**
+  Observed while building TC-094: a row whose data file is missing is dropped by
+  `Test-BackupManifest`, re-copied from source only if the diff sees a change —
+  and where the source file is unchanged, `Optimize-ChangeFolders` blanks the
+  `DataPath` instead, leaving a row whose bytes are nowhere in the pool while
+  the run reports success. `Test-PoolResolves` detects it (`broken-pool`); no
+  backup run does, and SR-049's form audit deliberately does not (it is not a
+  FORM finding). Pre-existing, not a WP5 regression. New Open-items row.
+- **[MINOR] Manifest row ORDER is not stable between consecutive no-op runs**
+  (the final manifest is enumerated from a hashtable). Row CONTENT is stable, so
+  SR-024 holds; TC-094 and TC-097 therefore compare rows sorted by
+  `RelativePath` rather than raw file bytes. G7-Determinism does not catch it.
+- **Scrutinize most:** the SR-050 change in both restorers (4127edb) — it is the
+  one place where a wrong decision silently writes wrong bytes; the Phase 2
+  retention filter and the group-consistency gate in
+  `Sync-BackupStorageLayout` (ddf52ab); and `Repair-BackupStorageForm`'s rename
+  path, which is the only WP5 code that moves a data file.
+
+**Deviations from the work order.**
+
+- TC-092/TC-095/TC-098/TC-100 landed in `tests/Unit/StorageForm.Tests.ps1`
+  (which drives real multi-run backups and real restores in-process, as WP4's
+  TC-081..090 do) rather than in G9-Rollback; TC-097 landed as the planned
+  `G4.2` suite case. The bash half of TC-097's "both restorers" is covered by
+  TC-099/TC-054 under bats — the Windows integration suite cannot drive
+  `reconstruct.sh`.
+- `-IncludeSnapshots` and `-BackupRootOnly` are the same knob, exposed both ways
+  (`-IncludeSnapshots:$false` ≡ `-BackupRootOnly`) so the plan's §4 wording and
+  the disposition wording both resolve.
+- TC-091's "the set still succeeds" assertion had to FLIP at phase D: SR-051
+  makes a failed transformation fail the set. The phase-B commit is the record
+  of the pre-fix behavior.

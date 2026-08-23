@@ -198,7 +198,7 @@ jobs:
           - 5000:5000
     steps:
       - uses: actions/checkout@v4
-      - name: Build image and verify a byte-exact restore
+      - name: Build image, verify a byte-exact restore, and run the storage-form check (TC-102)
         shell: pwsh
         run: ./scripts/Invoke-Container.ps1 -Action BuildAndTest -Image filebackup:ci
 
