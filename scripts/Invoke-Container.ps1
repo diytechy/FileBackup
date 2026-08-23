@@ -11,7 +11,7 @@
     arguments or logs.
 
 .PARAMETER Action
-    Build | Test | BuildAndTest | Export | Publish | Pull.
+    Build | Test | BuildAndTest | Export | Publish | Pull | Load.
 
 .PARAMETER Image
     Local image reference. Defaults to filebackup:local.
@@ -25,7 +25,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Build','Test','BuildAndTest','Export','Publish','Pull')]
+    [ValidateSet('Build','Test','BuildAndTest','Export','Publish','Pull','Load')]
     [string]$Action = 'BuildAndTest',
     [ValidateSet('Auto','Docker','Podman')]
     [string]$Runtime = 'Auto',
@@ -146,7 +146,7 @@ function Invoke-ContainerSmokeTest {
         # MANIFEST.csv.meta is the SR-038 witness, written beside every manifest by
         # Write-Manifest — not a copied kit artifact, but it must be present in a
         # backup the container produced, or a restore would report an unverified index.
-        foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.bat','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll') {
+        foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.bat','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
             if (-not (Test-Path -LiteralPath (Join-Path $backup $artifact) -PathType Leaf)) {
                 throw "Container smoke test did not produce restore-kit artifact '$artifact'."
             }
@@ -184,6 +184,110 @@ function Invoke-ContainerSmokeTest {
             }
         }
         Write-Host 'Container smoke test passed: compressed backup, restore kit, and byte-exact restore verified.'
+
+        # ---- Incremental run + dated-snapshot restore (SR-005/SR-010, LLR-044) ----
+        # Strictly appended after the single-run assertions above so a regression in
+        # this block can never mask under an already-passing earlier assertion.
+        $sourceGen1 = Join-Path $smokeRoot 'source-gen1'
+        $restoreLatest = Join-Path $smokeRoot 'restore-latest'
+        $restoreSnapshot = Join-Path $smokeRoot 'restore-snapshot'
+        New-Item -ItemType Directory -Path $sourceGen1, $restoreLatest, $restoreSnapshot -Force | Out-Null
+        if ($IsLinux -or $IsMacOS) {
+            & chmod 0777 $restoreLatest $restoreSnapshot
+            if ($LASTEXITCODE -ne 0) { throw 'Could not make incremental smoke-test restore directories writable.' }
+        }
+        Copy-Item -Path (Join-Path $source '*') -Destination $sourceGen1 -Recurse -Force
+
+        # Mutate the source (change + remove + add) so both NewOrChanged and
+        # RemovedFromSource fire and the SR-005 supersession path is exercised.
+        [System.IO.File]::WriteAllText((Join-Path $source 'alpha.txt'), ('mutated payload ' * 300))
+        Remove-Item -LiteralPath (Join-Path $source 'binary.dat') -Force
+        [System.IO.File]::WriteAllText((Join-Path $source 'gamma.txt'), 'added in generation 2')
+
+        # Incremental run: same mounts, same image -- the second container invocation.
+        Invoke-ContainerCommand -Arguments $runArgs.ToArray()
+
+        $snapshotDirs = @(Get-ChildItem -LiteralPath $changes -Directory -ErrorAction SilentlyContinue |
+            Where-Object Name -match '^Snapshot_\d')
+        if ($snapshotDirs.Count -ne 1) {
+            throw "Expected exactly one Snapshot_<date> folder under changes after the incremental run; found $($snapshotDirs.Count)."
+        }
+        $snapshotName = $snapshotDirs[0].Name
+        $snapshotPath = $snapshotDirs[0].FullName
+
+        foreach ($kitRoot in @($backup, $snapshotPath)) {
+            foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.bat','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
+                if (-not (Test-Path -LiteralPath (Join-Path $kitRoot $artifact) -PathType Leaf)) {
+                    throw "Incremental smoke test did not produce restore-kit artifact '$artifact' under '$kitRoot'."
+                }
+            }
+        }
+
+        # Restore #1: latest state (/backup), compared against the mutated source.
+        $restoreLatestArgs = [System.Collections.Generic.List[string]]@(
+            'run','--rm','--network','none','--read-only',
+            '--security-opt','no-new-privileges','--cap-drop','ALL',
+            '--tmpfs','/tmp:rw,noexec,nosuid,nodev',
+            '--entrypoint','pwsh'
+        )
+        Add-BindMountArguments -Arguments $restoreLatestArgs -Source $backup -Target '/backup' -ReadOnly
+        Add-BindMountArguments -Arguments $restoreLatestArgs -Source $changes -Target '/changes' -ReadOnly
+        Add-BindMountArguments -Arguments $restoreLatestArgs -Source $restoreLatest -Target '/restore-latest'
+        $restoreLatestArgs.Add($Image)
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/backup/RECONSTRUCT.ps1','-TargetRoot','/restore-latest','-BackupRootOverride','/backup','-ChangeRootOverride','/changes','-SevenZipPath','/usr/bin/7z') {
+            $restoreLatestArgs.Add($arg)
+        }
+        Invoke-ContainerCommand -Arguments $restoreLatestArgs.ToArray()
+
+        foreach ($relativePath in 'alpha.txt','gamma.txt') {
+            $expected = Join-Path $source $relativePath
+            $actual = Join-Path $restoreLatest $relativePath
+            if (-not (Test-Path -LiteralPath $actual -PathType Leaf)) {
+                throw "Restored latest-state file '$relativePath' is missing."
+            }
+            if ((Get-FileHash -LiteralPath $expected -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $actual -Algorithm SHA256).Hash) {
+                throw "Restored latest-state file '$relativePath' differs from the mutated source."
+            }
+        }
+        if (Test-Path -LiteralPath (Join-Path $restoreLatest 'binary.dat') -PathType Leaf) {
+            throw "Restored latest state still contains 'binary.dat', which was removed from the source before the incremental run."
+        }
+
+        # Restore #2: the pre-mutation snapshot, restored by invoking RECONSTRUCT.ps1
+        # from INSIDE the snapshot folder itself -- the authority folder is wherever the
+        # invoked script physically lives, the concrete SR-010 point-in-time proof.
+        $restoreSnapshotArgs = [System.Collections.Generic.List[string]]@(
+            'run','--rm','--network','none','--read-only',
+            '--security-opt','no-new-privileges','--cap-drop','ALL',
+            '--tmpfs','/tmp:rw,noexec,nosuid,nodev',
+            '--entrypoint','pwsh'
+        )
+        Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $backup -Target '/backup' -ReadOnly
+        Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $changes -Target '/changes' -ReadOnly
+        Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $restoreSnapshot -Target '/restore-snapshot'
+        $restoreSnapshotArgs.Add($Image)
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File',"/changes/$snapshotName/RECONSTRUCT.ps1",'-TargetRoot','/restore-snapshot','-BackupRootOverride','/backup','-ChangeRootOverride','/changes','-SevenZipPath','/usr/bin/7z') {
+            $restoreSnapshotArgs.Add($arg)
+        }
+        Invoke-ContainerCommand -Arguments $restoreSnapshotArgs.ToArray()
+
+        foreach ($relativePath in 'alpha.txt','binary.dat') {
+            $expected = Join-Path $sourceGen1 $relativePath
+            $actual = Join-Path $restoreSnapshot $relativePath
+            if (-not (Test-Path -LiteralPath $actual -PathType Leaf)) {
+                throw "Restored snapshot file '$relativePath' is missing."
+            }
+            if ((Get-FileHash -LiteralPath $expected -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $actual -Algorithm SHA256).Hash) {
+                throw "Restored snapshot file '$relativePath' differs from the pre-mutation source."
+            }
+        }
+        if (Test-Path -LiteralPath (Join-Path $restoreSnapshot 'gamma.txt') -PathType Leaf) {
+            throw "Restored snapshot unexpectedly contains 'gamma.txt', which did not exist at snapshot time."
+        }
+
+        Write-Host 'Container smoke test passed: incremental run produced a restorable dated snapshot alongside a byte-exact latest-state restore.'
     }
     finally {
         if (Test-Path -LiteralPath $smokeRoot) {
@@ -223,5 +327,11 @@ switch ($Action) {
         Invoke-ContainerCommand -Arguments @('image','pull',$RegistryImage)
         Invoke-ContainerCommand -Arguments @('image','tag',$RegistryImage,$Image)
         Write-Host "Pulled $RegistryImage and tagged it locally as $Image"
+    }
+    'Load' {
+        if (-not $OutputPath) { $OutputPath = Join-Path $repo '.artifacts\filebackup-image.tar' }
+        $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+        Invoke-ContainerCommand -Arguments @('load','--input',$OutputPath)
+        Write-Host "Loaded image from $OutputPath"
     }
 }
