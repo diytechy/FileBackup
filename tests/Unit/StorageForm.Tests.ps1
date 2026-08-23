@@ -660,3 +660,47 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         }
     }
 }
+
+Describe 'The already-compressed extension list is one list (SR-004)' {
+    # TC-096 — amends TC-002 rather than replacing it: TC-002 keeps the
+    # extension-not-path property, this pins the merged membership and the
+    # single definition site.
+    It 'declines to compress <Ext> (SR-004)' -ForEach @(
+        # the original seventeen...
+        @{ Ext = '.zip' }, @{ Ext = '.7z' },  @{ Ext = '.rar' }
+        @{ Ext = '.gz' },  @{ Ext = '.bz2' }, @{ Ext = '.xz' }
+        @{ Ext = '.mp4' }, @{ Ext = '.mkv' }, @{ Ext = '.mov' }, @{ Ext = '.avi' }
+        @{ Ext = '.mp3' }, @{ Ext = '.aac' }, @{ Ext = '.flac' }
+        @{ Ext = '.jpg' }, @{ Ext = '.jpeg' }, @{ Ext = '.png' }, @{ Ext = '.webp' }
+        # ...plus the eight merged in by WP5.
+        @{ Ext = '.jar' }, @{ Ext = '.tgz' }, @{ Ext = '.zst' }, @{ Ext = '.gif' }
+        @{ Ext = '.webm' }, @{ Ext = '.ogg' }, @{ Ext = '.sav' }, @{ Ext = '.pack' }
+    ) {
+        Test-ShouldCompress -FileName "file$Ext"            -CompressEnabled $true | Should -BeFalse
+        Test-ShouldCompress -FileName "file$($Ext.ToUpper())" -CompressEnabled $true | Should -BeFalse
+        # The EXTENSION decides, never the path (TC-002's property, kept).
+        Test-ShouldCompress -FileName "C:\a$Ext\b\file.txt" -CompressEnabled $true | Should -BeTrue
+    }
+
+    It 'still compresses SN-003''s acceptance-line extensions (SR-004, SN-003)' {
+        foreach ($ext in '.docx', '.txt', '.xlsx', '.csv', '.log', '.bin') {
+            Test-ShouldCompress -FileName "file$ext" -CompressEnabled $true |
+                Should -BeTrue -Because "SN-003's acceptance says a $ext IS stored as .7z"
+        }
+    }
+
+    It 'is defined in exactly one place, and README quotes that definition (SR-004)' {
+        $commonPath = Join-Path $repo 'Modules\FileBackup.Common.psm1'
+        $enginePath = Join-Path $repo 'Modules\FileBackup.Engine.psm1'
+        # One definition site.
+        @(Select-String -LiteralPath $commonPath -Pattern '^\$script:NonCompressibleExtensions\s*=').Count | Should -Be 1
+        @(Select-String -LiteralPath $enginePath -Pattern 'NonCompressibleExtensions').Count | Should -Be 0
+
+        # ...and the README table is the same set, so the documentation cannot drift.
+        $live = @((Get-FileBackupDefaults).NonCompressibleExtensions) | Sort-Object
+        $readme = Get-Content -LiteralPath (Join-Path $repo 'README.md') -Raw
+        $block = [regex]::Match($readme, '(?s)### Already-compressed extensions.*?```\r?\n(.*?)```').Groups[1].Value
+        $documented = @([regex]::Matches($block, '\.[a-z0-9]+') | ForEach-Object { $_.Value }) | Sort-Object
+        ($documented -join ' ') | Should -Be ($live -join ' ')
+    }
+}

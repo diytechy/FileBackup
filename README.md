@@ -298,6 +298,31 @@ before backup processing instead of writing raw bytes described as compressed.
 | `PreserveFolderTree` | `$true`/`true` mirrors the source tree under the backup root; `$false`/`false` stores content-addressed `<hashShort> <sizeShort>.<ext>` files referenced via the manifest. |
 | `AllowEmptySource` | Defaults to `$false`/`false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `true` only for an intentional delete-all. |
 
+### Already-compressed extensions
+
+With `CompressEnabled` on, files with these extensions are stored verbatim
+rather than re-packed (`Compressed=No`), because re-compressing them costs CPU
+and gains nothing:
+
+```
+.zip .7z .rar .gz .bz2 .xz .tgz .zst
+.mp4 .mkv .mov .avi .webm
+.mp3 .aac .flac .ogg
+.jpg .jpeg .png .webp .gif
+.jar .pack .sav
+```
+
+Matching is on the **extension only**, case-insensitively, never on the path.
+Office and text formats (`.docx`, `.txt`, …) are deliberately **not** on the
+list — they compress well and are stored as `.7z`. The list lives in exactly one
+place, `$script:NonCompressibleExtensions` in `Modules/FileBackup.Common.psm1`;
+this table is checked against it by TC-096.
+
+Changing the list changes what a *future* run stores. Existing data files are
+migrated by `Sync-BackupStorageLayout` on the next run, which touches the backup
+root only — snapshots keep the form they were written with, and are restored
+correctly regardless (see "Restoring an older snapshot" below).
+
 You can list multiple `BackupSets` in either format; each is processed
 independently. IF-001 rules **one `BackupSet` per container invocation** —
 HomeHub runs one service/invocation per directory — so a JSON config with

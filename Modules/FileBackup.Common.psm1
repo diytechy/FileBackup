@@ -54,12 +54,22 @@ $script:Alphabet = @(
     'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z'
 )
 
+# The ONE definition of "already compressed / opaque" (SR-004). Test-ShouldCompress
+# is its only reader, and README/AGENTS quote this list rather than restating it.
+# Extended 2026-08-23 (WP5) with the eight entries the HomeHub deployer's list
+# carried and this one did not. Office/text formats are deliberately NOT here:
+# SN-003's acceptance line says a .docx / .txt IS stored as .7z, which is a
+# stakeholder decision, not an oversight.
 $script:NonCompressibleExtensions = @(
     '.zip', '.7z', '.rar',
-    '.gz',  '.bz2', '.xz',
-    '.mp4', '.mkv', '.mov', '.avi',
-    '.mp3', '.aac', '.flac',
-    '.jpg', '.jpeg', '.png', '.webp'
+    '.gz',  '.bz2', '.xz',  '.tgz', '.zst',
+    '.mp4', '.mkv', '.mov', '.avi', '.webm',
+    '.mp3', '.aac', '.flac', '.ogg',
+    '.jpg', '.jpeg', '.png', '.webp', '.gif',
+    # Container/archive formats that are already deflate-compressed inside.
+    '.jar', '.pack',
+    # Emulator/game save states — routinely already packed, and large.
+    '.sav'
 )
 
 # Tool defaults are intentionally resolved at import time so callers receive one
