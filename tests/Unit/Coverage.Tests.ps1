@@ -1957,3 +1957,125 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-commit-done'
     }
 }
+
+Describe 'Retention at the entry point and the container boundary (SR-048)' {
+    # TC-088's locally runnable halves. The in-container half (the same actions
+    # driven through docker run) belongs to the Docker CI job; Docker is not
+    # available on this host, so it is NOT claimed here.
+    BeforeAll {
+        function Invoke-FBAction {
+            param([string]$Cfg, [string[]]$Arguments)
+            $out = & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $Cfg `
+                        -NoMail -NonInteractive -ExitCode @Arguments 2>&1
+            return [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($out | Out-String) }
+        }
+    }
+
+    It 'exposes -Action Backup|Prune|Snapshots (default Backup) and -Snapshot as a string list' {
+        $cmd = Get-Command $entry
+        $action = $cmd.Parameters['Action']
+        $action | Should -Not -BeNullOrEmpty
+        $validate = @($action.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })[0]
+        $validate.ValidValues | Should -Be @('Backup', 'Prune', 'Snapshots')
+        $cmd.Parameters['Snapshot'].ParameterType.Name | Should -Be 'String[]'
+    }
+
+    It 'prints the inventory as parseable JSON, exits 0 and modifies nothing (-Action Snapshots)' {
+        $root = Join-Path $TestDrive 'tc088-inventory'
+        $env  = New-PruneTimeline -Root $root
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Snapshots')
+        $run.Code | Should -Be 0
+        # The logger writes to the same stream, so take the document from the
+        # line that IS '[' (ConvertTo-Json -AsArray) to the end.
+        $lines = $run.Output -split "`r?`n"
+        $start = [array]::IndexOf($lines, '[')
+        $start | Should -BeGreaterThan -1
+        $json = @(($lines[$start..($lines.Count - 1)] -join "`n") | ConvertFrom-Json)
+        $json.Count | Should -Be 2
+        foreach ($field in 'Name', 'Date', 'Rows', 'PhysicalBytes', 'BytesReclaimed', 'BytesReHomed') {
+            $json[0].PSObject.Properties.Name | Should -Contain $field
+        }
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+    }
+
+    It 'prunes a named snapshot with exit 0, leaving every remaining state restorable (-Action Prune)' {
+        $root = Join-Path $TestDrive 'tc088-prune'
+        $env  = New-PruneTimeline -Root $root
+
+        $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest)
+        $run.Code | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
+
+        $target = Join-Path $root 'r-state1'
+        & (Join-Path (Join-Path $env.Chg $env.Oldest) 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $target 'gone.txt')) | Should -Be ('DOOMED ' * 40)
+    }
+
+    It 'exits 2 for an unknown snapshot name, leaving the tree unchanged' {
+        $root = Join-Path $TestDrive 'tc088-unknown'
+        $env  = New-PruneTimeline -Root $root
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', 'Snapshot_1999_09_09_09_09_09')
+        $run.Code | Should -Be 2
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+    }
+
+    It 'exits 2 when -Action Prune is given no -Snapshot (policy belongs to the caller)' {
+        $root = Join-Path $TestDrive 'tc088-noname'
+        $env  = New-PruneTimeline -Root $root
+        (Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune')).Code | Should -Be 2
+    }
+
+    It 'exits 0 for a dry run and changes nothing (-Action Prune -WhatIf)' {
+        $root = Join-Path $TestDrive 'tc088-dryrun'
+        $env  = New-PruneTimeline -Root $root
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest, '-WhatIf')
+        $run.Code | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+    }
+
+    It 'leaves the default action untouched: a flags-only invocation still runs a backup and exits 0' {
+        $root = Join-Path $TestDrive 'tc088-legacy'
+        $env  = New-PruneTimeline -Root $root
+        [IO.File]::WriteAllText((Join-Path $env.Src 'later.txt'), 'ADDED AFTER')
+
+        (Invoke-FBAction -Cfg $env.Cfg -Arguments @()).Code | Should -Be 0
+        @(Import-Csv -LiteralPath (Join-Path $env.Bkp 'MANIFEST.csv') |
+            Where-Object { $_.RelativePath -eq 'later.txt' }) | Should -Not -BeNullOrEmpty
+    }
+
+    It 'container/entrypoint.sh dispatches on the action word and passes ''-'' arguments through unchanged' {
+        $sh = Get-Content -LiteralPath (Join-Path $repo 'container\entrypoint.sh') -Raw
+        $sh | Should -Match 'FILEBACKUP_ACTION'
+        $sh | Should -Match 'backup\|prune\|snapshots\)'          # only these WORDS are consumed
+        $sh | Should -Match '-Action Prune'
+        $sh | Should -Match '-Action Snapshots'
+        $sh | Should -Match 'FILEBACKUP_SNAPSHOT'
+        $sh | Should -Match 'FILEBACKUP_DRY_RUN'
+        $sh | Should -Match '-WhatIf'
+        # The pass-through contract that keeps TC-060/TC-076 valid.
+        $sh | Should -Match '-ExitCode'
+        $sh | Should -Match '"\$@"'
+        # A leading '-' argument matches no case branch, so it stays in "$@".
+        $sh | Should -Not -Match 'case "\$\{1:-\}" in\s*\r?\n\s*-'
+    }
+
+    It 'there is no prune in bash: reconstruct.sh carries no snapshot-removal path' {
+        $sh = Get-Content -LiteralPath (Join-Path $repo 'bash\reconstruct.sh') -Raw
+        $sh | Should -Not -Match '(?i)prune'
+        $sh | Should -Not -Match 'Pruning_'
+        # No line deletes a snapshot folder or a manifest.
+        foreach ($line in ($sh -split "`n")) {
+            if ($line -match '\brm\b') {
+                $line | Should -Not -Match 'Snapshot'
+                $line | Should -Not -Match 'MANIFEST'
+            }
+        }
+    }
+}

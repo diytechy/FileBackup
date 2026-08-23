@@ -27,14 +27,14 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP3 local edits,
-  `--phase core,bash-v1` unchanged pending CI):**
-  **172/172 Pester unit, lint clean, trace SN=28 SR=44 LLR=43(/44) TC=79(/80)
-  with 0 orphans / 0 integrity / 0 status-findings / 3 phase-deferred
-  (bash-v2, container-v1 ×2 — SR-034 and the new SR-044), integration
-  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps
-  passed"). bats/shellcheck unchanged from the prior real-Linux run (no
-  shell file touched this session).
+- **Latest verified run (2026-08-23, Full tier, post-WP4,
+  `--phase core,bash-v1` unchanged pending container CI):**
+  **223/223 Pester unit, lint clean, trace SN=29 SR=48 LLR=47(/48) TC=89(/90)
+  with 0 orphans / 0 integrity / 0 status-findings / 4 phase-deferred
+  (bash-v2, container-v1 ×3 — SR-034, SR-044 and the new SR-048), integration
+  324 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps
+  passed"), plus **bats 48/48 and `shellcheck container/entrypoint.sh` clean**
+  on real Linux (WSL).
 - **WP1 (restore trust & diagnostics) is implemented, independently reviewed
   (APPROVE-WITH-MINORS 2026-08-22) and the accepted findings are landed
   2026-08-23 — awaiting batch ratification.** SR-038..041 Verified,
@@ -54,6 +54,14 @@ last) — it is the record, not required reading for every pass.
   run of the extended `container` job lands (Docker was unavailable on the
   driver's host this session — only static verification ran locally). See
   below.
+- **WP4 (snapshot retention mechanism, `Remove-BackupSnapshot`) is implemented
+  and green on a Full tier — awaiting independent review + batch ratification.**
+  SN-029/SR-045..048/LLR-045..048/TC-081..090 minted; SR-045..047 **Verified**
+  (TC-081..087, TC-089, TC-090 Pass), SR-048 `Implemented` with TC-088's
+  in-container half `Draft` pending the Docker CI job (Docker is still
+  unavailable on this host — its locally runnable halves DO run and pass).
+  Open-items row **I** flips to Implemented; a new row **C-form** records the
+  §5.7 latent defect dispositioned to WP5, for which WP4 ships the detector.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -169,7 +177,8 @@ work-package order follows the table.
 | multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Implemented (WP2) — awaiting independent review + batch ratification |
 | container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
 | container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
-| **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Open → WP4 |
+| **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Implemented (WP4) — awaiting independent review + batch ratification |
+| **C-form (new, WP4 §5.7)** | A blank-DataPath row whose `Compressed` disagrees with the .7z-ness of the file hash recovery locates restores **archive bytes under the original name**: both restorers branch on the ROW's `Compressed`, not on the form of the file they found. Reachable today after a compression-mode flip, because `Sync-BackupStorageLayout` migrates only the backup root and never the snapshots. | **WP5**, with finding C (same repair story). WP4 ships the **detector**: `Test-PoolResolves` reports `form-mismatch` and `Remove-BackupSnapshot` refuses (code 2) rather than pruning into it, so a store in this state is named instead of silently widened — and WP5 inherits a ready repro (TC-084's `form-mismatch` case). Note the deliberate exemption: a row whose own `RelativePath` ends in `.7z` (a legitimately stored already-compressed source file) is NOT a disagreement. | Open → WP5 |
 | **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself. | **WP5.** With B fixed, new malformed rows can't be created — C matters for pre-fix backups and for migrations the ext-list merge triggers. Repro test first (double-check §5.3); repair via an opt-in `-VerifyStorage` mode, **not** a physical verify inside every migration (would fight SR-024 idempotence/perf). | Open → WP5 |
 | ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Open → WP5 |
 | backup-side capacity | Does the backup side have the capacity preflight the restore side gained (SR-023 is restore-only)? | **WP5.** Verify first, then a small SR mirroring SR-023. Importance rises with the container (target is a HomeHub-controlled bind mount). | Open → WP5 |
@@ -1947,3 +1956,117 @@ stays on record in the CHANGES-REQUESTED audit entry. Evidence (pristine
 export): unit 172/172, integration Mirror 59/0/1, trace 0/0/0, lint clean.
 **WP1 and WP2 are now both implemented + independently review-APPROVED;
 awaiting batch ratification.**
+
+### DRIVER (Software + Test Engineer, Data-integrity hat) — WP4 snapshot retention — 2026-08-23
+Executed `docs/plans/wp4-retention-plan.md` §3 phases A→F in order, grounded at
+`3ee8f5b`/`b4f108c`, one commit per green phase. The plan's §5 driver decisions
+were treated as binding: the verb is **`Remove-BackupSnapshot`** (`Prune-` fails
+approved-verbs lint), an **absent witness refuses by default**
+(`-AllowUnverifiedIndex` overrides — the deliberate inverse of the restore
+default), and **unreferenced bytes refuse by default**
+(`-DiscardUnreferencedData` overrides).
+
+**Phase A (highest care) — index extraction, zero behavior change.** TC-089
+landed FIRST and was run green against the PRE-refactor code, then
+`Get-BackupContentIndex` was lifted literally out of `Optimize-ChangeFolders`
+(same key construction, same blank/missing guards, same folder ordering) and
+Optimize refactored to consume it. Full tier re-run including TC-049.
+Commit alone, as the plan requires.
+
+**Phases B–E.** `Get-SnapshotPrunePlan` / `Get-BackupSnapshot` (pure,
+read-only); `Assert-PrunePrecondition` / `Test-PoolResolves` (the rails);
+then the transaction — `Copy-ReHomedDataFile`, `Publish-PruneManifest`,
+`Complete-PruneDeletion`, `Invoke-PruneEntrySweep`, with
+`Remove-BackupSnapshot` as a short ordered list of named steps; then the
+adversarial and interrupt/resume tests. §4's regression risks were treated as
+constraints: prune never copies `MANIFEST.csv.meta` between folders and every
+rewrite goes through `Write-Manifest` (TC-085 pins both halves with an AST
+guard); TC-084 re-stamps tampered witnesses so the intended failure is what is
+observed; the store — `FileBackupState.json` included — is hash-compared
+byte-for-byte after every refusal.
+
+**Phase F — boundary.** `FileBackup.ps1 -Action Backup|Prune|Snapshots` +
+`-Snapshot` (the Backup path is untouched); `container/entrypoint.sh` dispatches
+on `FILEBACKUP_ACTION` or a leading positional word and leaves every
+`-`-prefixed argument in `"$@"` exactly as before; README "Snapshot retention
+(pruning)" + the container action block; IF-001 rewritten per §1.6 (SR-Refs
++= SR-045..048, the "planned `Prune-Snapshot` verb" wording replaced);
+AGENTS.md §2 module map + entry-point row and a new §3 invariant ("a
+`Snapshot_*` folder is removed only by `Remove-BackupSnapshot`"); arch map
+regenerated; §6 totals refreshed.
+
+**Deliberate deviations (both recorded in the registry cells):**
+1. `Assert-PrunePrecondition` **returns** the full refusal set instead of
+   throwing on the first one, so `Remove-BackupSnapshot` can apply the
+   2 > 3 > 4 > 1 precedence over all of it and `-WhatIf` can report every
+   refusal at once (LLR-046 states this).
+2. TC-081 and TC-083 are declared `Tier=Smoke`, not `Full`: they live in the
+   Pester suite, which every tier runs, and claiming Full would understate
+   where they actually execute.
+
+**Defects found while testing (both fixed here):**
+- `@($empty.FullName)` yields `@($null)`, which fails a `[string[]]` binding —
+  pruning the LAST remaining snapshot aborted with a spurious code 4. All three
+  index call sites now project with `ForEach-Object`. (A close cousin of the
+  PS 7.5 `@()`-over-a-List gotcha already in AGENTS.md §4.)
+- The first draft of TC-082's "stored exactly once" assertion counted copies by
+  hashing raw files, which is wrong in the two `+Compress` modes (the stored
+  file is a `.7z` whose own bytes hash to something else). It now counts through
+  `Get-BackupContentIndex`.
+
+**Also fixed:** `-Action Snapshots` first emitted its JSON down the pipeline,
+where the caller captured it as part of the status code — it now writes to
+`[Console]::Out` (probed in a child process before and after).
+
+**Evidence — real output, this host.**
+```
+pwsh scripts/check.ps1 -Tier Full        (gate G3, --phase core,bash-v1)
+[PASS] PSScriptAnalyzer
+Traceability: SN=29 SR=48 LLR=47 TC=89 orphans=0 integrity=0
+              status-findings=0 phase-deferred=4.
+[PASS] Doc navigability (check_docs.py)
+[PASS] Architecture map freshness
+Tests Passed: 223, Failed: 0, Skipped: 0
+[PASS] Performance budgets (check_perf.py)
+  PASS: 324   FAIL: 0   SKIP: 4
+All steps passed.
+```
+```
+WSL (podman-machine-default):
+  bats tests/bash            -> 48 ok / 0 not ok
+  shellcheck container/entrypoint.sh -> clean
+```
+Baseline before WP4 was unit 172, integration 236/0/4; the deltas are +51 unit
+(TC-081..089 minus TC-088's container half) and +88 integration (G9's retention
+half, 22 assertions × 4 modes).
+
+**Status flips:** SR-045/046/047 → `Verified`, LLR-045/046/047 → `Verified`,
+TC-081..087/089/090 → `Pass`. **SR-048 stays `Implemented`** (Phase
+`container-v1`) with LLR-048 `Implemented` and **TC-088 `Draft`**: Docker is not
+available on this host, so the in-container half was NOT run and is not claimed.
+TC-088's locally runnable halves — the `-Action`/`-Snapshot` parameter contract,
+the real child-process invocations of every action (inventory JSON, prune,
+unknown name → 2, dry run, legacy flags-only), the entrypoint dispatch and
+`-`-pass-through source assertions, and the guard proving `bash/reconstruct.sh`
+carries no removal path — all run and pass in the Pester suite. The
+`--phase core,bash-v1` ratchet and its `TODO(WP3 ratchet)` comment are
+deliberately untouched.
+
+**Open-items:** row **I** → *Implemented (WP4) — awaiting independent review +
+batch ratification*; new row **C-form** records the §5.7 latent defect
+(blank-`Compressed` vs the located file's form after a compression-mode flip),
+dispositioned to WP5 with WP4's `Test-PoolResolves` as the detector/repro.
+
+**For the independent reviewer, in priority order:** (1) the transaction
+ordering in `Remove-BackupSnapshot` — specifically that nothing is deleted
+before `Test-PoolResolves -ExcludeFolder` has passed, and that the
+`Pruning_<name>` rename is a genuine single commit point for *all three*
+consumers (both restorers and Optimize); (2) the TC-049 interaction — a prune
+transiently creates a second copy, and the "stored exactly once" property is
+asserted on quiescent states only (TC-082); (3) destination election and name
+synthesis in `Get-SnapshotPrunePlan` (does the elected destination always
+already demand the key? is the collision guard tight enough in Mirror mode?);
+(4) the form-agreement rule in `Test-PoolResolves`, including the deliberate
+`.7z`-RelativePath exemption; (5) whether refusing to prune *into* an
+already-broken pool is the right default given `-RepairFromPruned` is deferred
+to WP5.

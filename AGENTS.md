@@ -21,8 +21,8 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 | File | Role | Bundled into backups? |
 |---|---|---|
 | `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Get-FileBackupDefaults`. | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, … | No |
-| `FileBackup.ps1` | Thin entry point: import modules, read config, loop `Invoke-BackupSet`, optional mail. | n/a |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`. | No |
+| `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots`, dispatch the one configured set to the retention mechanism (SR-048). | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
 | `Dockerfile`, `container/`, `scripts/Invoke-Container.ps1` | **Linux container runtime and lifecycle** (phase `container-v1`): digest-pinned non-root image, JSON configuration entrypoint, compressed build/restore smoke test, offline tar export, and optional OCI registry publish/pull. | n/a |
@@ -188,6 +188,20 @@ Imports (internal): `Common`
   own manifest* as the sole authority and resolves bytes by `(hash,length)` from
   the data pool (backup root + all snapshots) — it never overlays a newer manifest.
   Clean cutover: no `Pre_*_Changes` reading/writing remains (SR-005/SR-010/SR-028).
+- **A `Snapshot_*` folder is removed only by `Remove-BackupSnapshot`** (SR-045/
+  SR-046), never by deleting the directory — dedup means a snapshot can hold the
+  only physical copy of content other snapshots recover by hash. The mechanism
+  re-homes those last-copy bytes into the surviving pool (backup root if it
+  demands the key, else the newest surviving snapshot that does), rewrites that
+  destination's manifest **through `Write-Manifest`** — never copying a
+  `MANIFEST.csv.meta` between folders — proves every surviving row still
+  resolves with the target excluded, and only then commits by renaming to
+  `Pruning_<name>` (which fails `^Snapshot_` for *both* restorers and Optimize,
+  so one atomic rename removes it from every consumer's view) and deleting.
+  Only `DataPath`/`Compressed`/`StoredAsHashSize` are ever edited, and only in
+  planned rows. Resume is "run it again": no journal, and the entry sweep clears
+  `Pruning_*` folders and `*.fbprune.tmp` staged copies. Retention *policy* is
+  the caller's (IF-001) — the verb takes explicit names, never wildcards.
 - **The manifest witness is written by `Write-Manifest` only** (SR-038). Every
   `MANIFEST.csv` gets a `MANIFEST.csv.meta` beside it — `Version`, `Rows`,
   `Bytes`, `XxH128`, `Written` as UTF-8/no-BOM/LF `Key=Value` lines, published by
@@ -325,12 +339,12 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 ² Linux CI builds the pinned image and drives a real compressed backup plus restore through
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
-**Current automated total:** 236 integration assertions (4 modes × G1–G7 = 160, plus
-G9 Rollback = 76; G8 SKIP under Subst) + 172 Pester unit/coverage tests + 48 bats
+**Current automated total:** 324 integration assertions (4 modes × G1–G7 = 160, plus
+G9 Rollback = 164; G8 SKIP under Subst) + 223 Pester unit/coverage tests + 48 bats
 tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck` clean.
-(Verified 2026-08-23 on a Full tier, after the WP1 **and WP2** review fixes — the
-unit count grew from 108 as TC-074/075/077 became data-driven over the one shared
-config-fixture corpus, `tests/Common/ConfigFixtures.ps1`.)
+(Verified 2026-08-23 on a Full tier, after WP4 — G9 gained a retention half
+(`Invoke-G9Prune`, +22 assertions per mode) and the unit suite gained the
+prune/inventory cases TC-081..090.)
 
 ### Suite groups
 | Group | Covers |
@@ -343,7 +357,7 @@ config-fixture corpus, `tests/Common/ConfigFixtures.ps1`.)
 | G6 HashFrequency  | `Test-HashRecalcDue` over all 7 codes (deterministic via `-Now`). |
 | G7 Determinism    | Identical re-runs ⇒ identical manifest rows; SHA-256 spot check. |
 | G8 RealVolume     | USB-only sanity; SKIPs under Subst/VHDX. |
-| G9 Rollback       | Dated-snapshot timeline (injected `-BackupTime`): modify/delete/add/rename/no-op over D1–D4; restore as-of each snapshot + latest, byte-exact; mixed content (text/binary/dup/already-compressed); no snapshot for the no-op/latest run. SR-005/SR-010/SR-028. |
+| G9 Rollback       | Dated-snapshot timeline (injected `-BackupTime`): modify/delete/add/rename/no-op over D1–D4; restore as-of each snapshot + latest, byte-exact; mixed content (text/binary/dup/already-compressed); no snapshot for the no-op/latest run. SR-005/SR-010/SR-028. **Plus retention** (`Invoke-G9Prune`, SR-045/SR-046): prune at every timeline position on a four-snapshot store, and TC-049's delete/re-add/delete cycle pruned — every remaining state still restores and content stays stored exactly once. |
 
 ### Backends
 | Backend | Provisioning | Admin? | CI? |

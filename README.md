@@ -150,6 +150,67 @@ the same script also works. See `bash reconstruct.sh --help`.
 
 ---
 
+## Snapshot retention (pruning)
+
+Snapshots pile up, so eventually you want to drop old ones. **Do not delete a
+`Snapshot_*` folder yourself.** Because content is deduplicated, a folder that
+looks like old history can hold the *only* physical copy of content other
+snapshots recover by hash — deleting it from outside the tool is silent data
+loss. Ask FileBackup to do it instead:
+
+```powershell
+# What is there, and what would each removal actually free?
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Snapshots
+
+# Dry run first: reports exactly what the real run would do, changes nothing.
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Prune `
+     -Snapshot Snapshot_2024_01_01_09_00_00 -WhatIf
+
+# Remove it (several names are allowed; each is its own transaction).
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Prune `
+     -Snapshot Snapshot_2024_01_01_09_00_00
+```
+
+`-Action Snapshots` prints JSON, one object per snapshot:
+
+| Field | Meaning |
+|---|---|
+| `Name`, `Date` | The folder and the point in time it preserves. |
+| `Rows` | Rows in that snapshot's own manifest. |
+| `PhysicalBytes` | What the folder occupies on disk. |
+| `BytesReHomed` | Bytes that must be copied elsewhere before it can go. |
+| `BytesReclaimed` | What removing it would **actually** free — `PhysicalBytes` less the re-homed bytes. Not the same as the folder size, because of dedup. |
+
+Removing a snapshot first copies any content whose only physical copy it holds
+into the surviving pool (the backup root, or the newest surviving snapshot that
+needs it), rewrites that destination's manifest — re-stamping its witness —
+proves that **every** surviving manifest row still resolves, and only then
+deletes the folder. The last step out of the `Snapshot_` namespace is a single
+rename, so no restore ever sees a half-removed snapshot. Nothing is deleted
+until the pool is provably redundant.
+
+It refuses rather than guesses. Removal reports the same status codes as a
+restore (see "Restore exit codes"): **0** removed, **1** a batch finished
+incomplete but **no data was lost**, **2** usage or precondition (nothing was
+mutated), **3** a manifest witness did not verify (nothing was mutated),
+**4** a host I/O problem — retriable, and always before the point of no return.
+Common refusals: a manifest with no witness at all (pass
+`-AllowUnverifiedIndex` for a backup written before witnesses existed), data
+files in the snapshot its own manifest does not reference (`-DiscardUnreferencedData`
+to discard them deliberately), a backup that is running (prune and backup are
+mutually exclusive), or a pool that does not resolve as it stands.
+
+Interrupted? Just run the same command again. There is no journal to repair:
+the plan is recomputed from what is on disk, and the next invocation sweeps up
+anything the interrupted one left behind. Retention *policy* — how many to
+keep, how old is too old — is deliberately not FileBackup's business; it takes
+explicit names only.
+
+There is no prune on the Linux side: `reconstruct.sh` stays restore-only, and
+pruning is never needed in order to restore.
+
+---
+
 ## Config format
 
 `FileBackup.ps1 -ConfigPath` accepts CLIXML (`.xml`) and JSON (`.json`),
@@ -288,6 +349,23 @@ source-state, backup, change, and log mounts must be writable by the selected
 `FILEBACKUP_UID`/`FILEBACKUP_GID`. Give each backup set its own state folder.
 The entrypoint preserves FileBackup's exit code, so HomeHub can wrap the job and
 post its own NagLight result without coupling this project to that service.
+
+The same container also performs retention. A leading word — `backup` (the
+default), `snapshots` or `prune` — selects the action, or set
+`FILEBACKUP_ACTION`; anything starting with `-` is passed to `FileBackup.ps1`
+untouched, so existing invocations are unaffected:
+
+```bash
+# Inventory with dedup-aware reclaim figures (JSON on stdout, changes nothing):
+docker run --rm ... filebackup:local snapshots
+
+# Remove one snapshot (FILEBACKUP_SNAPSHOT / FILEBACKUP_DRY_RUN work too):
+docker run --rm ... filebackup:local prune -Snapshot Snapshot_2024_01_01_09_00_00
+```
+
+Pruning writes to `/changes` **and** `/backup`, so both must be mounted
+writable for that action. See "Snapshot retention (pruning)" above for the
+status codes and the refusal set.
 
 ### Build, verify, and move the image
 

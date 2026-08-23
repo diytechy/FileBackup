@@ -83,6 +83,30 @@
     naming the count instead of failing -- it is a legitimate native-Windows
     use, just outside the container contract.
 
+.PARAMETER Action
+    Backup (default), Prune or Snapshots (SR-048).
+
+        Backup     — the normal run described above; unchanged.
+        Snapshots  — print the read-only snapshot inventory as JSON: Name, Date,
+                     Rows, PhysicalBytes, BytesReclaimed, BytesReHomed. The
+                     reclaim figures are dedup-aware, so they are what removing
+                     that snapshot would ACTUALLY free.
+        Prune      — remove the snapshot(s) named by -Snapshot, re-homing any
+                     content whose only physical copy they hold into the
+                     surviving pool first. Add -WhatIf for a dry run that
+                     reports exactly what the real run would achieve.
+
+    Retention POLICY (what to keep) belongs to the caller — IF-001 rules that
+    HomeHub decides and FileBackup removes; there is deliberately no
+    -KeepLast/-OlderThan and no wildcard.
+
+.PARAMETER Snapshot
+    Snapshot folder name(s) for -Action Prune, e.g.
+    Snapshot_2026_01_02_03_04_05. Several may be given, or one
+    comma-separated string (what the container passes). Each is an independent
+    transaction; the process status is the worst by the SR-040 precedence
+    2 > 3 > 4 > 1.
+
 .PARAMETER GlobalLogPath
     Optional path for dependency and cross-set messages. Defaults to
     FILEBACKUP_LOG_PATH when set, otherwise Backup_Global.log beside the config.
@@ -128,14 +152,28 @@
            refused run makes no log directory and never truncates the previous
            run's global log.
 
+    Under -Action Prune / -Action Snapshots the status is the SR-040 restore
+    table instead (README "Restore exit codes"): 0 pruned, 1 batch incomplete
+    but NO DATA LOST, 2 usage or precondition (nothing mutated), 3 manifest
+    witness verification failed (nothing mutated), 4 host I/O, retriable and
+    aborted before the commit point — precedence 2 > 3 > 4 > 1.
+
     Without -ExitCode, a configuration failure is a terminating error (throw)
     and a failed set still yields a non-zero exit via the normal PowerShell
     unhandled-error path — unchanged from before SR-042/SR-043.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$ConfigPath = "$HOME\BackupConfig.xml",
+    # What this invocation does (SR-048). Backup is the default and is unchanged
+    # by WP4; Prune removes named snapshots through the retention mechanism and
+    # Snapshots prints the read-only inventory as JSON. Retention POLICY belongs
+    # to the wrapper (IF-001) -- this entry point only takes explicit names.
+    [ValidateSet('Backup', 'Prune', 'Snapshots')][string]$Action = 'Backup',
+    # Snapshot folder name(s) for -Action Prune. A single comma-separated value
+    # is split, because `pwsh -File` passes every argument as one literal string.
+    [string[]]$Snapshot,
     [string]$GlobalLogPath = $env:FILEBACKUP_LOG_PATH,
     [switch]$NoMail,
     [switch]$NonInteractive,
@@ -252,6 +290,70 @@ if ($cfgResult.Tools -and $null -ne $cfgResult.Tools.FfprobePath) {
     $dependencyParams['FfprobePath'] = [string]$cfgResult.Tools.FfprobePath
 }
 $deps = Initialize-Dependencies @dependencyParams
+
+function Invoke-RetentionAction {
+    <#
+    .SYNOPSIS
+        Runs the -Action Prune / -Action Snapshots half of the entry point and
+        returns its SR-040 process code (SR-048).
+    .DESCRIPTION
+        Retention is a one-shot invocation against ONE configured set (IF-001's
+        one-set-per-invocation ruling), so the set is resolved here rather than
+        looped. Prune passes -WhatIf straight through, so a dry run reports what
+        the real run would achieve without mutating anything.
+    .PARAMETER Set
+        The single backup set to act on.
+    .PARAMETER Name
+        Snapshot names for Prune; see SR-046 for the containment rules.
+    .OUTPUTS
+        [int] 0/1/2/3/4 per the SR-040 table, precedence 2 > 3 > 4 > 1.
+    #>
+    # Implements: SR-048, SR-040, LLR-048
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Set,
+        [Parameter(Mandatory)][ValidateSet('Prune', 'Snapshots')][string]$Mode,
+        [AllowNull()][string[]]$Name,
+        [Parameter(Mandatory)][hashtable]$Deps,
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [switch]$DryRun
+    )
+    $paths = Resolve-BackupSetPaths -Set $Set
+
+    if ($Mode -eq 'Snapshots') {
+        # Straight to the console stream, NOT down the pipeline: this function's
+        # output is its status code, and a JSON document mixed into that would
+        # be captured by the caller instead of reaching stdout.
+        $document = Get-BackupSnapshot -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath |
+            ConvertTo-Json -Depth 4 -AsArray
+        [Console]::Out.WriteLine($document)
+        return 0
+    }
+
+    # `pwsh -File` hands every argument over as one literal string, so a
+    # container passing "A,B" arrives as a single element.
+    $names = @($Name | Where-Object { $_ } | ForEach-Object { $_ -split ',' } |
+               ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($names.Count -eq 0) {
+        & $Log '-Action Prune requires -Snapshot <name>[,<name>] (retention policy belongs to the caller; this entry point takes explicit names only).' 'ERROR'
+        return 2
+    }
+
+    $result = @(Remove-BackupSnapshot -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
+                    -Name $names -SevenZipPath $Deps['7z'] -Log $Log `
+                    -NonInteractive:$NonInteractive -WhatIf:$DryRun)
+    return (Get-PruneBatchExitCode -Result $result)
+}
+
+if ($Action -ne 'Backup') {
+    if (@($Sets).Count -ne 1) {
+        & $globalLog ("Retention acts on ONE backup set per invocation (IF-001); this configuration declares $(@($Sets).Count). Using the first: '$($Sets[0].Name)'.") 'WARN'
+    }
+    $retentionCode = Invoke-RetentionAction -Set $Sets[0] -Mode $Action -Name $Snapshot `
+                        -Deps $deps -Log $globalLog -DryRun:$WhatIfPreference
+    if ($ExitCode) { exit $retentionCode }
+    if ($retentionCode -ne 0) { throw "FileBackup -Action $Action finished with status $retentionCode (see README 'Restore exit codes')." }
+    return
+}
 
 $overallSuccess = $true
 $logPaths = New-Object System.Collections.Generic.List[string]
