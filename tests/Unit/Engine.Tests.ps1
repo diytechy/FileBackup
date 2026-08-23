@@ -75,15 +75,17 @@ Describe 'Compare-SourceToBackup' {
 Describe 'Test-IsInfrastructureFile' {
     It 'flags root-level infrastructure files' {
         $root = Join-Path $TestDrive 'bk'; New-Item -ItemType Directory -Path $root | Out-Null
-        foreach ($n in 'MANIFEST.csv','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll') {
+        foreach ($n in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll') {
             $p = Join-Path $root $n; Set-Content -LiteralPath $p -Value 'x'
             Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeTrue
         }
     }
     It 'does NOT flag nested files that share the name (B6)' {
         $root = Join-Path $TestDrive 'bk2'; New-Item -ItemType Directory -Path (Join-Path $root 'sub') -Force | Out-Null
-        $p = Join-Path $root 'sub\MANIFEST.csv'; Set-Content -LiteralPath $p -Value 'x'
-        Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeFalse
+        foreach ($n in 'MANIFEST.csv', 'MANIFEST.csv.meta') {
+            $p = Join-Path $root "sub\$n"; Set-Content -LiteralPath $p -Value 'x'
+            Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeFalse
+        }
     }
     It 'does NOT flag ordinary data files' {
         $root = Join-Path $TestDrive 'bk3'; New-Item -ItemType Directory -Path $root | Out-Null

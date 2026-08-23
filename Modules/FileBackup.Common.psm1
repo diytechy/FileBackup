@@ -25,6 +25,11 @@
 # region Shared defaults
 
 $script:DatabaseFilename      = 'MANIFEST.csv'
+# Witness sidecar for the manifest (SR-038): row count + byte length + xxHash128 of
+# MANIFEST.csv exactly as written, so a restore can tell a truncated/replaced index
+# from a genuinely small job. Written only by Write-Manifest, so it cannot drift.
+$script:WitnessFilename       = 'MANIFEST.csv.meta'
+$script:WitnessFormatVersion  = 1
 $script:ReconstructPs1Name    = 'RECONSTRUCT.ps1'
 $script:ReconstructBatName    = 'RECONSTRUCT.bat'
 $script:ReconstructShName     = 'reconstruct.sh'
@@ -93,6 +98,8 @@ function Get-FileBackupDefaults {
     param()
     return @{
         DatabaseFilename         = $script:DatabaseFilename
+        WitnessFilename          = $script:WitnessFilename
+        WitnessFormatVersion     = $script:WitnessFormatVersion
         ReconstructPs1Name       = $script:ReconstructPs1Name
         ReconstructBatName       = $script:ReconstructBatName
         ReconstructShName        = $script:ReconstructShName
@@ -529,6 +536,230 @@ function Write-Manifest {
     }
 
     $out | Export-Csv -LiteralPath $path -NoTypeInformation
+
+    Write-ManifestWitness -FolderPath $FolderPath | Out-Null
+}
+
+function Get-ManifestWitnessPath {
+    <#
+    .SYNOPSIS
+        Returns the full path of the manifest witness sidecar that belongs beside
+        the MANIFEST.csv in the given folder.
+
+    .PARAMETER FolderPath
+        The folder holding the MANIFEST.csv. See SR-038 for the origins covered.
+
+    .OUTPUTS
+        [string] the sidecar path (whether or not the file exists).
+    #>
+    # Implements: SR-038, LLR-038
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FolderPath
+    )
+    return (Join-Path $FolderPath $script:WitnessFilename)
+}
+
+function Write-ManifestWitness {
+    <#
+    .SYNOPSIS
+        Stamps the witness sidecar (MANIFEST.csv.meta) for the MANIFEST.csv in a
+        folder: format version, data-row count, byte length, and the xxHash128 of
+        the manifest's bytes exactly as they sit on disk.
+
+    .DESCRIPTION
+        Called at the end of Write-Manifest so every manifest the system writes —
+        backup root, staging, dated snapshots, the source hash cache, and every
+        rewrite — is witnessed by the one code path (SR-038). Tests that tamper
+        with a manifest on purpose re-stamp with this function so the damage they
+        mean to exercise is what the restorer reports.
+
+        Rows is counted by re-reading the written file with Import-Csv, i.e. by the
+        same rule the verifier applies, so the two can never disagree about what a
+        "row" is.
+
+    .PARAMETER FolderPath
+        The folder holding the MANIFEST.csv to witness.
+
+    .OUTPUTS
+        [string] the path of the published sidecar.
+
+    .NOTES
+        Published by rename (write .tmp, Move-Item -Force), the repo's atomicity
+        idiom. The manifest is written BEFORE the witness on purpose: a crash
+        between the two leaves a *stale* witness that mismatches, so the failure
+        lands in the safe direction (a loud refusal) rather than a silent pass.
+        The next successful run rewrites both.
+    #>
+    # Implements: SR-038, LLR-038
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FolderPath
+    )
+    $manifestPath = Join-Path $FolderPath $script:DatabaseFilename
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "Cannot write a manifest witness: no $($script:DatabaseFilename) in '$FolderPath'."
+    }
+
+    $bytes = ([System.IO.FileInfo]$manifestPath).Length
+    $rows  = @(Import-Csv -LiteralPath $manifestPath).Count
+    $hash  = Get-FileXxHash -FilePath $manifestPath
+
+    $lines = @(
+        "Version=$($script:WitnessFormatVersion)"
+        "Rows=$rows"
+        "Bytes=$bytes"
+        "XxH128=$hash"
+        "Written=$((Get-Date).ToString($script:CSVDateFormat))"
+    )
+    # UTF-8 without BOM, LF line endings, trailing newline — the bash reader is a
+    # plain grep/cut and must not meet a BOM or a CR.
+    $content  = ($lines -join "`n") + "`n"
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+
+    $witnessPath = Get-ManifestWitnessPath -FolderPath $FolderPath
+    $tempPath    = "$witnessPath.tmp"
+    [System.IO.File]::WriteAllText($tempPath, $content, $encoding)
+    Move-Item -LiteralPath $tempPath -Destination $witnessPath -Force
+
+    return $witnessPath
+}
+
+function Test-ManifestWitness {
+    <#
+    .SYNOPSIS
+        Verifies a folder's MANIFEST.csv against its witness sidecar and returns a
+        verdict object rather than throwing, so each restorer can map the verdict
+        onto its own exit code (SR-039, SR-040).
+
+    .PARAMETER FolderPath
+        The restore origin whose MANIFEST.csv is to be checked.
+
+    .OUTPUTS
+        [pscustomobject] with:
+          Status  — Verified | Absent | Mismatch | Malformed
+          Field   — the first field that disagreed (Bytes|Rows|XxH128), else $null
+          Detail  — an operator-legible sentence naming expected vs. found
+          Version — the sidecar's declared format version (0 when unknown)
+          Path    — the sidecar path
+
+    .NOTES
+        Absent is NOT a failure here: a backup written before SR-038 has no
+        sidecar and must still restore. The caller decides whether absence is
+        fatal (strict mode). A sidecar declaring a version newer than this build
+        understands verifies only the keys it knows and reports VersionUnknown —
+        a witness from the future must never condemn a good manifest.
+    #>
+    # Implements: SR-039, LLR-039
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FolderPath
+    )
+
+    $witnessPath  = Get-ManifestWitnessPath -FolderPath $FolderPath
+    $manifestPath = Join-Path $FolderPath $script:DatabaseFilename
+
+    $verdict = [pscustomobject]@{
+        Status         = 'Verified'
+        Field          = $null
+        Detail         = ''
+        Version        = 0
+        VersionUnknown = $false
+        Path           = $witnessPath
+    }
+
+    if (-not (Test-Path -LiteralPath $witnessPath -PathType Leaf)) {
+        $verdict.Status = 'Absent'
+        $verdict.Detail = "No $($script:WitnessFilename) beside the manifest; the index is unverified."
+        return $verdict
+    }
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        $verdict.Status = 'Malformed'
+        $verdict.Detail = "A witness exists but there is no $($script:DatabaseFilename) to verify."
+        return $verdict
+    }
+
+    $keys = @{}
+    foreach ($line in [System.IO.File]::ReadAllLines($witnessPath)) {
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed)) { continue }
+        $split = $trimmed.IndexOf('=')
+        if ($split -lt 1) { continue }
+        # Unknown keys are ignored by design (forward compatibility).
+        $keys[$trimmed.Substring(0, $split)] = $trimmed.Substring($split + 1)
+    }
+
+    $parsedVersion = 0
+    if (-not $keys.ContainsKey('Version') -or -not [int]::TryParse($keys['Version'], [ref]$parsedVersion)) {
+        $verdict.Status = 'Malformed'
+        $verdict.Detail = "The witness sidecar has no readable Version line; it is not a $($script:WitnessFilename)."
+        return $verdict
+    }
+    $verdict.Version = $parsedVersion
+    if ($parsedVersion -gt $script:WitnessFormatVersion) {
+        $verdict.VersionUnknown = $true
+    }
+
+    if (-not ($keys.ContainsKey('Bytes') -or $keys.ContainsKey('Rows') -or $keys.ContainsKey('XxH128'))) {
+        $verdict.Status = 'Malformed'
+        $verdict.Detail = 'The witness sidecar carries none of Bytes, Rows or XxH128 — nothing to verify against.'
+        return $verdict
+    }
+
+    if ($keys.ContainsKey('Bytes')) {
+        $expectedBytes = [long]0
+        if (-not [long]::TryParse($keys['Bytes'], [ref]$expectedBytes)) {
+            $verdict.Status = 'Malformed'
+            $verdict.Field  = 'Bytes'
+            $verdict.Detail = "The witness Bytes value '$($keys['Bytes'])' is not a number."
+            return $verdict
+        }
+        $actualBytes = ([System.IO.FileInfo]$manifestPath).Length
+        if ($actualBytes -ne $expectedBytes) {
+            $verdict.Status = 'Mismatch'
+            $verdict.Field  = 'Bytes'
+            $verdict.Detail = "Manifest byte length disagrees with its witness: expected $expectedBytes, found $actualBytes."
+            return $verdict
+        }
+    }
+
+    if ($keys.ContainsKey('Rows')) {
+        $expectedRows = 0
+        if (-not [int]::TryParse($keys['Rows'], [ref]$expectedRows)) {
+            $verdict.Status = 'Malformed'
+            $verdict.Field  = 'Rows'
+            $verdict.Detail = "The witness Rows value '$($keys['Rows'])' is not a number."
+            return $verdict
+        }
+        $actualRows = 0
+        try { $actualRows = @(Import-Csv -LiteralPath $manifestPath).Count }
+        catch {
+            $verdict.Status = 'Mismatch'
+            $verdict.Field  = 'Rows'
+            $verdict.Detail = "The manifest could not be parsed as CSV while its witness expects $expectedRows row(s): $($_.Exception.Message)"
+            return $verdict
+        }
+        if ($actualRows -ne $expectedRows) {
+            $verdict.Status = 'Mismatch'
+            $verdict.Field  = 'Rows'
+            $verdict.Detail = "Manifest row count disagrees with its witness: expected $expectedRows row(s), found $actualRows."
+            return $verdict
+        }
+    }
+
+    if ($keys.ContainsKey('XxH128')) {
+        $expectedHash = ("$($keys['XxH128'])").Trim().ToUpperInvariant()
+        $actualHash   = Get-FileXxHash -FilePath $manifestPath
+        if ($actualHash -ne $expectedHash) {
+            $verdict.Status = 'Mismatch'
+            $verdict.Field  = 'XxH128'
+            $verdict.Detail = "Manifest digest disagrees with its witness: expected $expectedHash, found $actualHash."
+            return $verdict
+        }
+    }
+
+    $verdict.Detail = "Manifest verified against its witness (version $parsedVersion)."
+    return $verdict
 }
 
 # endregion
@@ -548,5 +779,8 @@ Export-ModuleMember -Function @(
     'Compress-FileWithSevenZip',
     'Expand-FileWithSevenZip',
     'Read-Manifest',
-    'Write-Manifest'
+    'Write-Manifest',
+    'Get-ManifestWitnessPath',
+    'Write-ManifestWitness',
+    'Test-ManifestWitness'
 )

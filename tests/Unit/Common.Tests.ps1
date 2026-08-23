@@ -93,6 +93,125 @@ Describe 'Read/Write-Manifest' {
     }
 }
 
+Describe 'Manifest witness sidecar (SR-038)' {
+    # TC-066. Write-Manifest is the ONLY writer of the witness, so every origin
+    # (backup root, staging, snapshot, source hash cache) is covered by one path.
+    BeforeAll {
+        $script:witnessName = (Get-FileBackupDefaults).WitnessFilename
+        function New-WitnessRow {
+            param([string]$Name = 'a.txt', [int]$Length = 5)
+            [pscustomobject]@{ DataPath=$Name; RelativePath=$Name; Length=$Length
+                LastWriteTime=(Get-Date '2026-01-02T03:04:05'); xxH2Hash='H1'; Compressed='No'
+                StoredAsHashSize='Original'; Duplicate=0; MediaMBPerSec=$null }
+        }
+        function Get-WitnessMap {
+            param([string]$Folder)
+            $map = @{}
+            foreach ($line in [IO.File]::ReadAllLines((Join-Path $Folder $script:witnessName))) {
+                if ($line -match '^([^=]+)=(.*)$') { $map[$Matches[1]] = $Matches[2] }
+            }
+            return $map
+        }
+    }
+
+    It 'writes a sidecar whose Rows/Bytes/XxH128 describe the manifest as written (SR-038)' {
+        $folder = Join-Path $TestDrive 'w1'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Manifest -FolderPath $folder -Records @((New-WitnessRow 'a.txt'), (New-WitnessRow 'b.txt' 9))
+
+        $manifest = Join-Path $folder 'MANIFEST.csv'
+        $map = Get-WitnessMap $folder
+        $map['Version'] | Should -Be '1'
+        $map['Rows']    | Should -Be '2'
+        $map['Bytes']   | Should -Be ([string]([IO.FileInfo]$manifest).Length)
+        $map['XxH128']  | Should -Be (Get-FileXxHash -FilePath $manifest)
+        $map['Written'] | Should -Not -BeNullOrEmpty
+        Test-ManifestWitness -FolderPath $folder | Select-Object -ExpandProperty Status | Should -Be 'Verified'
+    }
+
+    It 'is UTF-8 without BOM and LF-terminated so the bash reader can parse it (SR-038)' {
+        $folder = Join-Path $TestDrive 'w-enc'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+
+        $bytes = [IO.File]::ReadAllBytes((Join-Path $folder $script:witnessName))
+        # No UTF-8 BOM...
+        ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeFalse
+        # ...no CR anywhere, and a trailing newline.
+        ($bytes -contains 0x0D) | Should -BeFalse
+        $bytes[-1] | Should -Be 0x0A
+    }
+
+    It 'records Rows=0 for an empty record set (SR-038)' {
+        $folder = Join-Path $TestDrive 'w2'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Manifest -FolderPath $folder -Records $null
+        (Get-WitnessMap $folder)['Rows'] | Should -Be '0'
+        Test-ManifestWitness -FolderPath $folder | Select-Object -ExpandProperty Status | Should -Be 'Verified'
+    }
+
+    It 'republishes the sidecar atomically on rewrite, leaving no .tmp behind (SR-038)' {
+        $folder = Join-Path $TestDrive 'w3'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+        $first = (Get-WitnessMap $folder)['XxH128']
+
+        Write-Manifest -FolderPath $folder -Records @((New-WitnessRow 'a.txt'), (New-WitnessRow 'c.txt' 12))
+        $second = Get-WitnessMap $folder
+        $second['Rows'] | Should -Be '2'
+        $second['XxH128'] | Should -Not -Be $first
+        @(Get-ChildItem -LiteralPath $folder -Filter '*.tmp').Count | Should -Be 0
+        Test-ManifestWitness -FolderPath $folder | Select-Object -ExpandProperty Status | Should -Be 'Verified'
+    }
+
+    It 'reports Absent, Mismatch and Malformed distinctly (SR-039)' {
+        $folder = Join-Path $TestDrive 'w4'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+        $manifest = Join-Path $folder 'MANIFEST.csv'
+        $witness  = Join-Path $folder $script:witnessName
+
+        # Truncating the manifest is caught by Bytes (the cheap precise pre-check).
+        $keep = [IO.File]::ReadAllBytes($manifest)
+        [IO.File]::WriteAllBytes($manifest, $keep[0..($keep.Length - 20)])
+        $v = Test-ManifestWitness -FolderPath $folder
+        $v.Status | Should -Be 'Mismatch'
+        $v.Field  | Should -Be 'Bytes'
+
+        # A same-length byte edit slips past Bytes/Rows and is caught by the digest.
+        $keep[$keep.Length - 5] = [byte]0x41
+        [IO.File]::WriteAllBytes($manifest, $keep)
+        $v = Test-ManifestWitness -FolderPath $folder
+        $v.Status | Should -Be 'Mismatch'
+        $v.Field  | Should -Be 'XxH128'
+
+        # Re-stamping makes the same manifest verify again.
+        Write-ManifestWitness -FolderPath $folder | Out-Null
+        Test-ManifestWitness -FolderPath $folder | Select-Object -ExpandProperty Status | Should -Be 'Verified'
+
+        # An unparseable sidecar is Malformed, not Mismatch.
+        [IO.File]::WriteAllText($witness, "this is not a witness`n")
+        Test-ManifestWitness -FolderPath $folder | Select-Object -ExpandProperty Status | Should -Be 'Malformed'
+
+        # A legacy (sidecar-less) origin reports Absent — never a failure here.
+        Remove-Item -LiteralPath $witness -Force
+        Test-ManifestWitness -FolderPath $folder | Select-Object -ExpandProperty Status | Should -Be 'Absent'
+    }
+
+    It 'verifies only the understood keys when the sidecar is from the future (SR-039)' {
+        $folder = Join-Path $TestDrive 'w5'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+        $witness = Join-Path $folder $script:witnessName
+
+        $text = [IO.File]::ReadAllText($witness) -replace 'Version=1', 'Version=99'
+        [IO.File]::WriteAllText($witness, $text + "SomeFutureKey=whatever`n")
+        $v = Test-ManifestWitness -FolderPath $folder
+        $v.Status         | Should -Be 'Verified'   # a newer witness must never condemn a good manifest
+        $v.VersionUnknown | Should -BeTrue
+    }
+}
+
 Describe 'Common does not depend on Engine (SR-007)' {
     # Load-bearing split: the restore kit bundles only Common, so Common must
     # never import or load Engine (AGENTS.md sec.2). AST guard over real import

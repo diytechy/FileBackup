@@ -456,6 +456,61 @@ Describe 'Reconstruct sidecar is infrastructure (SR-022)' {
     }
 }
 
+Describe 'Manifest witness is infrastructure (SR-022, SR-038)' {
+    # TC-067. Two halves of B6: the ROOT-level MANIFEST.csv.meta is infrastructure
+    # (no orphan WARN), a NESTED user file of the same name is real data. Plus the
+    # single most dangerous mistake available in SR-038 — the witness must NOT be
+    # copied into snapshots with the restore kit, or every snapshot would carry the
+    # backup root's witness and fail verification against its own manifest.
+    It 'logs no orphan warning for the root witness, keeps a nested one as data, and gives each snapshot its own (SR-038)' {
+        $root = Join-Path $TestDrive 's38'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        $witnessName = (Get-FileBackupDefaults).WitnessFilename
+
+        # A nested user file named exactly like the witness (B6).
+        [IO.File]::WriteAllText((Join-Path $src "sub\$witnessName"), 'NESTED-USER-WITNESS')
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v1')
+        Invoke-FB $cfg                                   # run1 (no snapshot)
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v2')
+        Invoke-FB $cfg                                   # run2 ⇒ snapshot of state-1
+
+        # Half 1: root-level witness is infrastructure — no orphan/not-in-DB WARN.
+        (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) |
+            Should -Not -Match ([regex]::Escape($witnessName))
+
+        # Half 2: the nested same-named file is data — it is in the manifest...
+        @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+            Where-Object { $_.RelativePath -eq "sub\$witnessName" }) | Should -Not -BeNullOrEmpty
+        # ...and restores byte-exact.
+        $t = Join-Path $root 'restore'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t "sub\$witnessName")) | Should -Be 'NESTED-USER-WITNESS'
+
+        # Every origin carrying a manifest carries a witness that verifies against
+        # ITS OWN manifest — the backup root, and each snapshot independently.
+        $snaps = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' })
+        $snaps.Count | Should -BeGreaterThan 0
+        foreach ($origin in @($bkp) + $snaps.FullName) {
+            Test-Path -LiteralPath (Join-Path $origin $witnessName) -PathType Leaf | Should -BeTrue
+            (Test-ManifestWitness -FolderPath $origin).Status | Should -Be 'Verified'
+        }
+        # The snapshot's witness is its OWN, not a copy of the backup root's: the
+        # two manifests differ (blanked DataPaths), so the digests must differ too.
+        $rootDigest = (Test-ManifestWitness -FolderPath $bkp).Path
+        $rootDigest | Should -Not -BeNullOrEmpty
+        $rootHash = Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv')
+        foreach ($snap in $snaps) {
+            $snapHash = Get-FileXxHash -FilePath (Join-Path $snap.FullName 'MANIFEST.csv')
+            $snapHash | Should -Not -Be $rootHash
+            ([IO.File]::ReadAllText((Join-Path $snap.FullName $witnessName))) |
+                Should -Match ([regex]::Escape("XxH128=$snapHash"))
+        }
+    }
+}
+
 Describe 'Restore target guard (SR-009)' {
     # Independent-review finding: the old '-like' guard falsely rejected a sibling
     # whose name shares the backup-root prefix (e.g. bk vs bk-restore).

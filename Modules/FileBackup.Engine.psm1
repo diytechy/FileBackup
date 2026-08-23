@@ -56,7 +56,11 @@ function Test-IsInfrastructureFile {
         'backup.log',
         # New-ReconstructScript's path sidecar — omitting it produced false
         # orphan/not-in-DB WARNs every run (SR-022, 2026-07-02 review).
-        'RECONSTRUCT.paths.json'
+        'RECONSTRUCT.paths.json',
+        # Write-Manifest's witness sidecar — omitting it would produce false
+        # orphan/not-in-DB WARNs every run (SR-038, SR-022). Root-level only:
+        # a nested user file of the same name is still data (B6).
+        $script:Def.WitnessFilename
     )
     return ($infra -contains $rel)
 }
