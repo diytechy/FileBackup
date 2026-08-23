@@ -27,16 +27,16 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP2):** **106/106 Pester
-  unit, lint clean, trace SN=27 SR=43 LLR=42 TC=77 with 0 orphans / 0 integrity
-  / 0 status-findings / 2 phase-deferred (bash-v2, container-v1), integration
-  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps passed").
-  (The prior 2026-08-23 post-WP1 baseline — 83/83 unit, SN=26 SR=41 LLR=40
-  TC=72 — plus **45/45 bats**/`shellcheck` clean on real Linux (WSL Fedora 40)
-  from WP1 is unaffected by WP2, a Windows/container-config-only change.)
-- **WP1 (restore trust & diagnostics) is implemented and self-verified
-  2026-08-23 — awaiting independent review + batch ratification.** SR-038..041
-  Verified, TC-066..073 Pass. See the audit entry below.
+- **Latest verified run (2026-08-23, Full tier, post-WP1-review-fixes):**
+  **108/108 Pester unit, lint clean, trace SN=27 SR=43 LLR=42 TC=77 with
+  0 orphans / 0 integrity / 0 status-findings / 2 phase-deferred (bash-v2,
+  container-v1), integration 236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier
+  Full` → "All steps passed"), plus **48/48 bats** and `shellcheck` clean on
+  real Linux (WSL Fedora 40).
+- **WP1 (restore trust & diagnostics) is implemented, independently reviewed
+  (APPROVE-WITH-MINORS 2026-08-22) and the accepted findings are landed
+  2026-08-23 — awaiting batch ratification.** SR-038..041 Verified,
+  TC-066..073 Pass. See the audit entries below.
 - **WP2 (config contract) is implemented and self-verified 2026-08-23 —
   awaiting independent review + batch ratification.** SR-042..043 Verified,
   TC-074..078 Pass. See the audit entry below.
@@ -1523,3 +1523,117 @@ the same WARN — informational, not a `check.ps1` failure either way.
 **Next action (awaiting human):** independent review of the WP2 config-loading
 surface (schema validator correctness, the closed-schema/credential-ban logic,
 the exit-code wiring), then batch ratification alongside WP1 and the other WPs.
+
+---
+
+### INDEPENDENT REVIEWER (Opus subagent) — WP1 restore trust & diagnostics — 2026-08-22
+
+**Verdict: APPROVE-WITH-MINORS.** Read-only pass over the committed WP1 surface
+(`a6ddc5f..47e2f93`): witness writer, exit-code taxonomy, both restorers'
+verification, move-loop aggregation, registries. No data-integrity defect found;
+the findings below were dispositioned by the driver and landed the next day.
+
+### DRIVER (Software + Test Engineer hats) — WP1 review fixes — 2026-08-23
+
+Landed the accepted findings from the 2026-08-22 review. Behavior changes are
+confined to the restore path and the witness verifier; the backup pipeline is
+untouched.
+
+**What landed, by finding**
+
+- **Top-level error routing in `Reconstruct.ps1` (MEDIUM).** An unclassified
+  terminating error — e.g. `New-Item` throwing because a FILE occupies the
+  target path — escaped and left the process exit status at **1**, the code
+  README's table reserves for *content unrecoverable / data loss*, while bash
+  returned **2** for the same cause. A script-level `trap` now routes any
+  failure the script did not classify to the **precondition** class (exit 2
+  under `-ExitCode`; rethrow otherwise, so in-process callers still see the
+  original error), and the target-directory / log creation route their own
+  failures explicitly through the same class. PS and bash now both return 2 for
+  target-is-a-file. Pinned by a new case in TC-070's Describe and its bats twin
+  in `exit_codes.bats` (bash already returned 2; it is pinned now).
+- **Verification hoisted above mutation (asymmetry ruling — preferred fix).**
+  `Read-RawManifest`'s header-shape + witness checks now run **before** the
+  target folder and `RECONSTRUCT.log` are created, matching `reconstruct.sh`
+  exactly. On any exit-2/exit-3 refusal the PS restorer writes **nothing** into
+  the target — not a row, not a log — so README's "no file is written to the
+  target" is now literally true. Pre-target log lines are buffered
+  (`Add-ReconstructLog`) and flushed once the log exists; refusals go to the
+  console/stderr and the thrown error. TC-068/TC-070 now assert *nothing* is
+  written (no folder created where it did not exist; no `RECONSTRUCT.log`
+  dropped into a folder the operator already had).
+- **SR-039 registry truth-up (MEDIUM).** AcceptanceCriteria now states what the
+  code does: a replaced/garbage (unrecognizable-header) manifest aborts with the
+  **precondition** code 2 (precedence 2 > 3), truncated/byte-edited manifests
+  with the witness code 3; the "nothing written into the target" claim is kept
+  and is now literally true. The Rationale's false distinction ("a *legacy*
+  garbage manifest fails the header check") is dropped — **all**
+  unrecognizable-header manifests fail the header check first, whatever their
+  provenance; the digest catches damage that preserves the header shape.
+- **`MANIFEST.csv.meta.tmp` added to the infrastructure allowlist.** A crash
+  between `WriteAllText` and `Move-Item` leaves the witness staging file behind;
+  it must not be backed up as user data nor warned about as an orphan. Root-level
+  only, as ever (B6). Noted in LLR-038's Detail.
+- **Rows-only mismatch demoted** (honors plan §6 decision 3 — *the digest is
+  authoritative*). In `Test-ManifestWitness` and `verify_manifest_witness`, when
+  `Bytes` and `XxH128` both match but `Rows` disagrees, the verdict is
+  **Verified with a warning** (counting-semantics divergence) instead of an
+  abort: the manifest is byte-identical to the one that was witnessed, so the
+  *count* is what is wrong, not the index. Order stays Bytes → Rows → XxH128;
+  a Bytes or digest mismatch still aborts, and a Rows disagreement with **no
+  digest to defer to** still aborts. New unit case each side.
+- **Perf: `Write-Manifest` no longer re-reads the manifest** with `Import-Csv`
+  just to count rows — it passes the record count it already holds through
+  `Write-ManifestWitness -RowCount`. A standalone re-stamp (tests tampering on
+  purpose) omits it and the file is counted as before. TC-066's `Rows=0`
+  empty-set case still passes unchanged.
+- **Vacuous assertion fixed** (`Coverage.Tests.ps1`, TC-067). `$rootDigest =
+  (Test-ManifestWitness …).Path` grabbed a *path*, so `Should -Not
+  -BeNullOrEmpty` could never fail. It now reads the sidecar's real `XxH128`
+  value, asserts it equals the backup root manifest's digest, and the
+  snapshot-vs-root inequality is compared against that digest — the assertion it
+  always meant to make.
+
+**Accepted as-is (deliberately NOT changed):** the `Exit-Reconstruct`
+unapproved-verb nit; `MANIFEST.csv` remaining a non-atomic `Export-Csv` (the
+stale-witness crash window fails loud in the safe direction — AGENTS.md §4).
+The reviewer's clarifying sentence was added wherever "atomic rename" is
+claimed (AGENTS.md §3 + §4, `Write-ManifestWitness`'s `.NOTES`, README's
+manifest section): **the atomic rename publishes the WITNESS, not
+`MANIFEST.csv` itself.**
+
+**Evidence (all genuinely run, 2026-08-23)**
+
+```
+Invoke-Pester tests\Unit\Common.Tests.ps1    -> Tests Passed: 21, Failed: 0
+Invoke-Pester tests\Unit\Coverage.Tests.ps1  -> Tests Passed: 47, Failed: 0
+pwsh scripts/gen_arch_map.ps1                -> [OK] Generated regions already current (x2)
+python scripts/trace.py --strict --require-verified --phase core,bash-v1
+  -> Traceability: SN=27 SR=43 LLR=42 TC=77 orphans=0 integrity=0
+     status-findings=0 phase-deferred=2
+pwsh scripts/check.ps1 -Tier Full
+  -> [PASS] PSScriptAnalyzer / Traceability / Doc navigability / Architecture map
+     freshness; Pester unit Tests Passed: 108, Failed: 0; [PASS] Performance
+     budgets; Integration sweep PASS: 236  FAIL: 0  SKIP: 4
+  -> "================ check.ps1 (tier Full, gate G3) ================
+      All steps passed."
+wsl bash -lc "bats tests/bash"  -> 1..48, all ok (45 before; +3 new cases)
+wsl bash -lc "shellcheck bash/reconstruct.sh" -> clean
+```
+
+**Deviations from the work order (small, deliberate).**
+- **SR-039's *Requirement* cell was truthed up too**, not only Acceptance and
+  Rationale: the demoted rows-only mismatch and the before-any-mutation ordering
+  would otherwise have left the normative sentence false. Same for LLR-039 /
+  LLR-040's Detail cells.
+- **The top-level catch is a script-scope `trap`, not a `try` wrapping the
+  script body** — a `try` would have meant re-indenting ~400 lines of restore
+  logic for no behavioral difference. `Exit-Reconstruct` sets a `$classified`
+  flag so the trap re-throws our own classified failures verbatim (the six
+  `Should -Throw` wordings are untouched).
+- **AGENTS.md §6's automated totals were stale** (83 Pester unit / 45 bats,
+  written before WP2 landed its tests). Corrected to the measured **108 Pester /
+  48 bats** rather than only adding this change's +2/+3.
+
+**Next action (awaiting human):** batch ratification of WP1 (implementation +
+review + these fixes) alongside WP2; then the WP3 container/release pass.

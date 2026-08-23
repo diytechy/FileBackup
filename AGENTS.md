@@ -174,7 +174,9 @@ Imports (internal): `Common`
 - **The manifest witness is written by `Write-Manifest` only** (SR-038). Every
   `MANIFEST.csv` gets a `MANIFEST.csv.meta` beside it — `Version`, `Rows`,
   `Bytes`, `XxH128`, `Written` as UTF-8/no-BOM/LF `Key=Value` lines, published by
-  atomic rename. One writer means backup root, staging, dated snapshots, the
+  atomic rename. **The atomic rename covers the WITNESS publish only — `MANIFEST.csv`
+  itself is still written in place by `Export-Csv`** (see §4's crash-window note:
+  the resulting stale witness fails loud in the safe direction). One writer means backup root, staging, dated snapshots, the
   source hash cache, and every rewrite are covered and cannot drift, so **never
   stamp a witness from a caller.** Each snapshot carries **its own** witness for
   its own manifest — do **not** add the witness to `New-ReconstructScript`'s
@@ -222,7 +224,20 @@ Imports (internal): `Common`
   `MANIFEST.csv` *then* the witness. A crash between the two leaves a **stale**
   witness that mismatches — i.e. it fails loud in the safe direction (a refused
   restore, exit 3) rather than silently passing, and the next successful run
-  rewrites both. Do not "fix" this by writing the witness first.
+  rewrites both. Do not "fix" this by writing the witness first. Note the scope
+  of the atomicity claim: **only the witness publish is an atomic rename**; the
+  manifest is a plain in-place `Export-Csv`. `MANIFEST.csv.meta.tmp` (a crash
+  leftover from that rename) is on the root-level infrastructure allowlist so it
+  is never backed up as user data or warned about as an orphan.
+- **Restore verification happens before any mutation.** Both restorers check the
+  manifest header shape and the witness *before* creating the target folder or
+  their log, so an exit-2/exit-3 refusal leaves the target byte-for-byte as it
+  was. `Reconstruct.ps1` buffers the pre-target log lines and flushes them once
+  the log exists; do not move the verification below the target creation.
+- **The digest is authoritative** (`Test-ManifestWitness` / `verify_manifest_witness`).
+  Fields are checked `Bytes → Rows → XxH128`, but a **Rows-only** disagreement —
+  same byte length, same digest — is a counting-semantics divergence, not damage:
+  it warns and restores. Bytes or digest disagreement still refuses.
 - `Write-Host` is fine (this is a CLI/automation tool) — excluded in lint settings.
 - **Linux restore tooling floor (`bash/reconstruct.sh`, phase `bash-v1`):** bash
   ≥ 4, GNU coreutils, **gawk** (FPAT-based RFC-4180 parsing — plain `awk`/mawk is
@@ -291,9 +306,9 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
 **Current automated total:** 236 integration assertions (4 modes × G1–G7 = 160, plus
-G9 Rollback = 76; G8 SKIP under Subst) + 83 Pester unit/coverage tests + 45 bats
+G9 Rollback = 76; G8 SKIP under Subst) + 108 Pester unit/coverage tests + 48 bats
 tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck` clean.
-(Verified 2026-08-23 on a Full tier.)
+(Verified 2026-08-23 on a Full tier, after the WP1 review fixes.)
 
 ### Suite groups
 | Group | Covers |

@@ -107,12 +107,15 @@ error unless you pass `-ExitCode` (which `RECONSTRUCT.bat` does for you).
 |---|---|---|---|
 | **0** | Complete | Every manifest row restored. | Nothing. |
 | **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool. | Real data loss: check an older backup. |
-| **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, target inside the backup, a missing required tool, or not enough free space. | Fix the invocation or environment. |
+| **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, target inside the backup, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
 | **3** | Witness verification failed | The index itself is untrustworthy; **no file is written to the target.** | The manifest is damaged — restore from a snapshot or another copy. |
 | **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error. | **Retriable** — fix the host and run again. |
 
 When several apply the precedence is **2 > 3 > 4 > 1**: codes 2 and 3 abort
-before anything is written, and 4 outranks 1 because it is the actionable one.
+before anything is written — the manifest's header and witness are checked before
+the target folder and the restore log are even created, so a refused restore
+leaves the target exactly as it was — and 4 outranks 1 because it is the
+actionable one.
 The summary line names both counts regardless, e.g.
 `Reconstruction INCOMPLETE: 3 file(s) could not be restored (2 content-missing, 1 host).`
 
@@ -362,9 +365,11 @@ candidates as needed).
 
 Every `MANIFEST.csv` is accompanied by **`MANIFEST.csv.meta`**, a five-line
 `Key=Value` witness (`Version`, `Rows`, `Bytes`, `XxH128`, `Written`) written by
-the same code path that writes the manifest and published by atomic rename. It
-is what lets a restore prove the index it is about to trust is the index that was
-written. See "Restore exit codes" above.
+the same code path that writes the manifest and published by atomic rename — the
+rename publishes the *witness*; `MANIFEST.csv` itself is written in place, so a
+crash between the two leaves a stale witness that refuses the restore rather than
+one that silently passes. The witness is what lets a restore prove the index it is
+about to trust is the index that was written. See "Restore exit codes" above.
 
 ---
 
