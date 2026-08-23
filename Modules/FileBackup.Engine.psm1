@@ -1375,6 +1375,255 @@ function Invoke-BackupSet {
 
 # endregion
 
+# region Configuration loading (SR-042, SR-043)
+
+# Highest ConfigVersion this build understands (SR-042). A JSON config
+# declaring a higher version is refused by name rather than half-understood.
+$script:ConfigSchemaVersion = 1
+
+function Assert-NoUnknownConfigKey {
+    <#
+    .SYNOPSIS
+        Recursively rejects any JSON key the SR-042 schema does not define, at
+        the top level, Tools, Secrets, and every BackupSets[] entry, naming the
+        offending key by its full JSON path. Also bans Secrets.Credential (JSON
+        cannot carry a PSCredential).
+    #>
+    # Implements: SR-042, LLR-042
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Node,
+        [Parameter(Mandatory)][string]$ConfigPath
+    )
+
+    $topLevelKeys = 'ConfigVersion', 'BackupSets', 'Tools', 'Secrets'
+    $setKeys      = 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq',
+                    'CompressEnabled', 'PreserveFolderTree', 'SourceStatePath', 'AllowEmptySource'
+    $toolsKeys    = 'SevenZipPath', 'FfprobePath'
+    $secretsKeys  = 'ToEmail', 'FromEmail', 'SmtpServer', 'SmtpPort', 'Credential'
+
+    function Test-ConfigKeySet {
+        param($Obj, [string[]]$Allowed, [string]$ObjJsonPath)
+        foreach ($prop in $Obj.PSObject.Properties.Name) {
+            if ($prop -notin $Allowed) {
+                throw "Config '$ConfigPath' is invalid: $ObjJsonPath.$prop — unrecognized key (expected one of: $($Allowed -join ', '))."
+            }
+        }
+    }
+
+    Test-ConfigKeySet -Obj $Node -Allowed $topLevelKeys -ObjJsonPath '$'
+
+    if ($Node.PSObject.Properties.Name -contains 'Tools' -and $null -ne $Node.Tools) {
+        Test-ConfigKeySet -Obj $Node.Tools -Allowed $toolsKeys -ObjJsonPath '$.Tools'
+    }
+
+    if ($Node.PSObject.Properties.Name -contains 'Secrets' -and $null -ne $Node.Secrets) {
+        Test-ConfigKeySet -Obj $Node.Secrets -Allowed $secretsKeys -ObjJsonPath '$.Secrets'
+        if ($Node.Secrets.PSObject.Properties.Name -contains 'Credential') {
+            throw "Config '$ConfigPath' is invalid: `$.Secrets.Credential — JSON cannot carry a PSCredential (expected: omit Secrets.Credential; containerized runs are -NoMail)."
+        }
+    }
+
+    $sets = @($Node.BackupSets)
+    for ($i = 0; $i -lt $sets.Count; $i++) {
+        if ($null -eq $sets[$i]) { continue }
+        Test-ConfigKeySet -Obj $sets[$i] -Allowed $setKeys -ObjJsonPath "`$.BackupSets[$i]"
+    }
+}
+
+function Test-BackupConfigurationShape {
+    <#
+    .SYNOPSIS
+        Validates the BackupSets shape shared by the JSON and CLIXML config
+        branches (SR-042): at least one set, five non-empty required strings,
+        presence of the two boolean fields, and a recognized HashRecalcFreq.
+        Message wording matches the pre-SR-042 checks verbatim so existing
+        callers and tests are unaffected.
+    .PARAMETER StrictTypes
+        JSON only. Additionally rejects a non-JSON-boolean CompressEnabled /
+        PreserveFolderTree (the "$true` coerces the string `"false`"" trap) and
+        a non-integer Secrets.SmtpPort.
+    #>
+    # Implements: SR-042, LLR-042
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Cfg,
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [switch]$StrictTypes
+    )
+
+    $sets = @($Cfg.BackupSets | Where-Object { $null -ne $_ })
+    if ($sets.Count -eq 0) {
+        throw "Configuration must define at least one BackupSets entry."
+    }
+    foreach ($set in $sets) {
+        foreach ($field in 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq') {
+            if ([string]::IsNullOrWhiteSpace([string]$set.$field)) {
+                throw "Every backup set must define a non-empty '$field'."
+            }
+        }
+        foreach ($field in 'CompressEnabled', 'PreserveFolderTree') {
+            if ($set.PSObject.Properties.Name -notcontains $field) {
+                throw "Backup set '$($set.Name)' must define '$field' as true or false."
+            }
+            if ($StrictTypes -and ($set.$field -isnot [bool])) {
+                throw "Config '$ConfigPath' is invalid: `$.BackupSets[?].$field — must be a JSON boolean, not '$($set.$field)' (expected true or false)."
+            }
+        }
+        if ([string]$set.HashRecalcFreq -notin 'A', 'E', 'D', 'W', 'M', 'Y', 'N') {
+            throw "Backup set '$($set.Name)' has invalid HashRecalcFreq '$($set.HashRecalcFreq)'. Expected A, E, D, W, M, Y, or N."
+        }
+    }
+
+    if ($StrictTypes -and $Cfg.PSObject.Properties.Name -contains 'Secrets' -and $null -ne $Cfg.Secrets) {
+        $secrets = $Cfg.Secrets
+        if ($secrets.PSObject.Properties.Name -contains 'SmtpPort' -and $null -ne $secrets.SmtpPort) {
+            $port = $secrets.SmtpPort
+            $isInteger = ($port -is [int]) -or ($port -is [long]) -or (($port -is [double]) -and ($port -eq [math]::Floor($port)))
+            if (-not $isInteger) {
+                throw "Config '$ConfigPath' is invalid: `$.Secrets.SmtpPort — must be an integer, got '$port' (expected an integer port number)."
+            }
+        }
+    }
+}
+
+function Resolve-BackupSetDefaults {
+    <#
+    .SYNOPSIS
+        Materializes each backup set's optional fields to their documented
+        defaults (SourceStatePath = SourcePath, AllowEmptySource = $false) and
+        normalizes casing/types, so the engine's own [bool] / ToUpperInvariant
+        casts at point of use become belt-and-braces (SR-042).
+    .PARAMETER Sets
+        Raw BackupSets objects (JSON or CLIXML), already shape-validated by
+        Test-BackupConfigurationShape.
+    .OUTPUTS
+        [pscustomobject[]] — one normalized object per input set.
+    #>
+    # Implements: SR-042, LLR-042
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Sets)
+
+    foreach ($set in $Sets) {
+        $sourceStatePath = if ([string]::IsNullOrWhiteSpace([string]$set.SourceStatePath)) {
+            [string]$set.SourcePath
+        } else {
+            [string]$set.SourceStatePath
+        }
+        $allowEmptySource = ($set.PSObject.Properties.Name -contains 'AllowEmptySource') -and $null -ne $set.AllowEmptySource -and [bool]$set.AllowEmptySource
+
+        [pscustomobject]@{
+            Name               = [string]$set.Name
+            SourcePath         = [string]$set.SourcePath
+            SourceStatePath    = $sourceStatePath
+            BackupPath         = [string]$set.BackupPath
+            ChangePath         = [string]$set.ChangePath
+            HashRecalcFreq     = ([string]$set.HashRecalcFreq).ToUpperInvariant()
+            CompressEnabled    = [bool]$set.CompressEnabled
+            PreserveFolderTree = [bool]$set.PreserveFolderTree
+            AllowEmptySource   = $allowEmptySource
+        }
+    }
+}
+
+function Import-BackupConfiguration {
+    <#
+    .SYNOPSIS
+        Loads and validates a FileBackup configuration file (JSON or CLIXML).
+    .DESCRIPTION
+        Dispatches on the file extension. The JSON branch enforces the SR-042
+        versioned, closed schema — a required integer ConfigVersion (checked
+        first, in document order), no unrecognized key at any level, JSON-typed
+        booleans for CompressEnabled/PreserveFolderTree, and no
+        Secrets.Credential — before Resolve-BackupSetDefaults materializes
+        optional-field defaults. The CLIXML branch is the unversioned legacy
+        native-Windows form: it runs the same per-set shape check but skips the
+        version, closed-schema, and credential rules. Every rejection is a
+        single terminating error naming the offending key/JSON path, reported
+        in first-failure-in-document-order.
+
+        A JSON config declaring more than one BackupSets entry is not an
+        error — the engine still processes every set — but logs a WARN naming
+        the count and pointing at IF-001's one-set-per-invocation ruling.
+    .PARAMETER Path
+        Resolved path to the .json or .xml config file.
+    .PARAMETER Log
+        Optional logger scriptblock (as returned by New-Logger), used only for
+        the multi-set-JSON warning above. Errors are always thrown, never
+        logged here — config loading runs before any logger normally exists.
+    .OUTPUTS
+        [pscustomobject] with ConfigVersion (int, or $null for CLIXML), Sets
+        (defaults materialized, HashRecalcFreq upper-cased, booleans real
+        [bool]), Tools, Secrets.
+    #>
+    # Implements: SR-042, LLR-042
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [scriptblock]$Log
+    )
+
+    $extension = [System.IO.Path]::GetExtension($Path)
+    switch ($extension.ToLowerInvariant()) {
+        '.json' {
+            $raw = Get-Content -LiteralPath $Path -Raw
+            try {
+                $cfg = $raw | ConvertFrom-Json -ErrorAction Stop
+            } catch {
+                throw "Config '$Path' is invalid: `$ — not valid JSON (expected a JSON document). $($_.Exception.Message)"
+            }
+
+            if ($cfg.PSObject.Properties.Name -notcontains 'ConfigVersion') {
+                throw "Config '$Path' is invalid: `$.ConfigVersion — missing (expected an integer; this build supports up to $script:ConfigSchemaVersion)."
+            }
+            $rawVersion = $cfg.ConfigVersion
+            $isInteger = ($rawVersion -is [int]) -or ($rawVersion -is [long]) -or (($rawVersion -is [double]) -and ($rawVersion -eq [math]::Floor($rawVersion)))
+            if (-not $isInteger) {
+                throw "Config '$Path' is invalid: `$.ConfigVersion — must be an integer with no fractional part, got '$rawVersion'."
+            }
+            $version = [int]$rawVersion
+            if ($version -lt 1) {
+                throw "Config '$Path' is invalid: `$.ConfigVersion — must be >= 1, got $version."
+            }
+            if ($version -gt $script:ConfigSchemaVersion) {
+                throw "Config '$Path' is invalid: `$.ConfigVersion — config declares version $version; this build supports up to $script:ConfigSchemaVersion — upgrade FileBackup."
+            }
+
+            Assert-NoUnknownConfigKey -Node $cfg -ConfigPath $Path
+            Test-BackupConfigurationShape -Cfg $cfg -ConfigPath $Path -StrictTypes
+
+            $sets = @(Resolve-BackupSetDefaults -Sets @($cfg.BackupSets | Where-Object { $null -ne $_ }))
+            if ($sets.Count -gt 1 -and $Log) {
+                & $Log ("Config '{0}' declares {1} BackupSets entries. FileBackup will process all of them, but IF-001 rules one BackupSet per container invocation — this JSON config is outside that contract for containerized use." -f $Path, $sets.Count) 'WARN'
+            }
+
+            [pscustomobject]@{
+                ConfigVersion = $version
+                Sets          = $sets
+                Tools         = if ($cfg.PSObject.Properties.Name -contains 'Tools') { $cfg.Tools } else { [pscustomobject]@{} }
+                Secrets       = if ($cfg.PSObject.Properties.Name -contains 'Secrets') { $cfg.Secrets } else { $null }
+            }
+        }
+        '.xml' {
+            $cfg = Import-Clixml -LiteralPath $Path
+            Test-BackupConfigurationShape -Cfg $cfg -ConfigPath $Path
+            $sets = @(Resolve-BackupSetDefaults -Sets @($cfg.BackupSets | Where-Object { $null -ne $_ }))
+
+            [pscustomobject]@{
+                ConfigVersion = $null
+                Sets          = $sets
+                Tools         = $cfg.Tools
+                Secrets       = $cfg.Secrets
+            }
+        }
+        default {
+            throw "Unsupported config format '$extension'. Use a .xml (CLIXML) or .json file."
+        }
+    }
+}
+
+# endregion
+
 Export-ModuleMember -Function @(
     'Test-IsInfrastructureFile', 'Get-DataFile',
     'Get-LastHashRun', 'Set-LastHashRun',
@@ -1384,5 +1633,6 @@ Export-ModuleMember -Function @(
     'Test-BackupManifest', 'Sync-BackupStorageLayout', 'Optimize-ChangeFolders',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
-    'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet'
+    'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',
+    'Import-BackupConfiguration'
 )
