@@ -24,6 +24,15 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **BATCH RATIFICATION: human-RATIFIED 2026-08-23** (via the ratification
+  worksheet, artifact `d48d6e78`; recorded in the audit entry below): WP1,
+  WP2, WP4, WP6; WP5 with both residuals on the recorded re-review APPROVE;
+  WP3's implementation pending its own CI evidence; the adversarial-review
+  hardening batch (`83cc5f1`) together with its review-fix landing
+  (`31a55f2`) on the recorded CHANGES-REQUESTED→landed trail. **The push of
+  `resync_v2` is now unblocked.** Not decided in this ratification: the
+  dangling/blank-DataPath prioritization and the parked-findings acceptance —
+  realism verification for those is in flight; they remain Open below.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes.
   **WP6 (this batch) is now done — the whole WP1→WP6 queue has landed.** The
@@ -3077,4 +3086,29 @@ All three required changes landed, exactly as specified:
 Evidence: see the run pasted in the Current State bullet (full unit suite
 including the new class pin, lint, trace, container re-run — all after these
 edits).
+
+---
+
+### HUMAN — Batch ratification — 2026-08-23
+
+The human reviewed the ratification worksheet (artifact `d48d6e78`, built from
+this file's Current State and Open items) and ratified the batch: **WP1, WP2,
+WP4, WP6; WP5 including both residuals, on the recorded re-review APPROVE;
+WP3's implementation pending its own CI evidence; and the adversarial-review
+hardening batch `83cc5f1` together with its review-fix landing `31a55f2`, on
+the recorded CHANGES-REQUESTED→landed trail.** ("I've reviewed and ratified",
+2026-08-23.)
+
+Consequences: the push of `resync_v2` is unblocked (first run of the container
+and bash-interop CI jobs); on green CI the pre-authorized registry flips
+execute (SR-034/044/048/052 → Verified, TC-088/101(TC-101 Linux half)/102 →
+Pass, ratchet → `core,bash-v1,container-v1`), clearing the one standing G3
+status finding.
+
+**Deliberately not decided here:** the dangling/blank-DataPath prioritization
+and the parked-findings acceptance (R6/R7/R10/F8 + the form-mismatch rail).
+The human asked for a realism verification of those before deciding; two
+read-only investigations (blank-DataPath reachability end-to-end, and the
+prune form-mismatch rail's real-world trigger) are in flight and their
+findings will be recorded here when they land.
 
