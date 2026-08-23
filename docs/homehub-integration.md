@@ -365,6 +365,22 @@ In priority order. None of these needs HomeHub — they are all local to this re
    HomeHub adopts needs a bound on growth, and FileBackup has none.
 8. **Delete the false parity comment** at `bash/reconstruct.sh:381`.
 
+> **2026-08-23 verification (WP6).** The comment is still present (source has
+> since moved to `bash/reconstruct.sh:564`, one line reading `# Any compressed
+> row means 7z is mandatory (degrade only where PS degrades).`), unchanged
+> since it was flagged. But its premise has since been overtaken by finding
+> **A**'s fix: `Reconstruct.ps1` (lines ~521-527) now preflights 7-Zip and
+> refuses with `EXIT_PRECONDITION` before writing anything whenever the
+> manifest has compressed rows and no usable 7-Zip is found — the same gate
+> `bash/reconstruct.sh:564-567` runs (`(( any_comp )) && [[ -z "$SEVEN_ZIP" ]]`
+> → `die`). So as of this commit the two restorers **do** behave identically
+> here: both refuse loudly, neither degrades. The comment's *claim* (parity)
+> is no longer false; it is the comment's own framing ("degrade") that is
+> stale, since neither side degrades anymore — it should read "refuse" or
+> simply be deleted as redundant now that the behavior is self-evidently
+> shared. Left as-is pending a bash-side WP6-or-later editorial pass (not a
+> defect; out of scope for a docs-only batch that touches no `bash/` files).
+
 > Findings **0**, **A**, **B**, **C**, **D**, **E** and **I** were each confirmed
 > by an independent adversarial pass at the cited lines. **F** and **G** were
 > traced but are the two most worth reproducing before acting on.

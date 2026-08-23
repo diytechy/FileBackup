@@ -252,7 +252,7 @@ def main():
         "",
         "## 6. Release hygiene",
         "",
-        "- [ ] `python scripts/check.py --gate G3 --tier release` is green "
+        "- [ ] `pwsh scripts/check.ps1 -Gate G3 -Tier Release` is green "
         "(paste the output in the audit log).",
         "- [ ] CHANGELOG / release notes updated.",
         "- [ ] Version bumped; any changed `Stable` interface versions "

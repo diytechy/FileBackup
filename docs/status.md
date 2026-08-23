@@ -14,7 +14,7 @@ last) — it is the record, not required reading for every pass.
 > below still resolve). Cross-project contracts live in
 > [requirements/interfaces.csv](requirements/interfaces.csv) — IF-001 (the
 > HomeHub OCI image contract) since 2026-08-12. [interfaces.md](interfaces.md)
-> is still unadapted kit boilerplate — tracked in *Open items*.
+> is the thin, human-readable pointer over that CSV (rewritten 2026-08-23, WP6).
 
 > **Naming caution.** The kit's **gates** are `G1, G2, G3, G-Release, G-Final`.
 > FileBackup's existing test **groups** are `G1…G9` (storage-mode suites in
@@ -25,8 +25,13 @@ last) — it is the record, not required reading for every pass.
 ## Current State
 
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
-  gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
-  advance to G-Release only after WP6)
+  gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes.
+  **WP6 (this batch) is now done — the whole WP1→WP6 queue has landed.** The
+  next human action is the **batch ratification** covering WP1/WP2/WP4/WP5's
+  review-accepted findings, WP3's implementation pending its own CI evidence,
+  and WP6's docs, followed by **the push** (WP3's container CI job and the
+  bash-interop job have not run on `resync_v2` yet — see WP3's row). Advance
+  to G-Release only after that ratification.)
 - **Latest verified run (2026-08-23, Full tier, post-WP5 **review fixes**,
   `--phase core,bash-v1` unchanged pending container CI):**
   **316/316 Pester unit, lint clean, trace SN=30 SR=52 LLR=51 TC=101 with
@@ -74,7 +79,9 @@ last) — it is the record, not required reading for every pass.
   locators dropped a `.7z` candidate that expanded successfully to other
   content, which is exactly a genuine `.7z` SOURCE file, leaving that row
   unrecoverable while every checker called the store clean) and every accepted
-  finding is landed 2026-08-23 — awaiting batch ratification.** Restore-kit
+  finding is landed 2026-08-23; a read-only reviewer is re-verifying the fixes
+  on a pristine export concurrently with this session — awaiting that re-review
+  + batch ratification.** Restore-kit
   revision is now **3**. SN-030/SR-049..052/
   LLR-049..052/TC-091..102 minted; **SR-049/SR-050/SR-051 Verified**
   (TC-091..TC-100 Pass), **SR-052 `Implemented`** with TC-101's Linux half and
@@ -85,6 +92,33 @@ last) — it is the record, not required reading for every pass.
   fix. Restore-kit revision bumped to **2** by WP5 itself (SR-050) and to **3**
   by the review fixes: snapshots written before a fix keep their old kit
   permanently — README documents the exposure and the two remedies.
+- **WP6 (docs batch) is done, docs-only, no code touched — the last item in
+  the WP1→WP6 queue.** Release checklist regenerated from the registries
+  ([release-checklist.md](release-checklist.md), now tracked; the stale
+  untracked `checklist-vNEXT-dryrun.md` deleted; one generator bug fixed —
+  its hardcoded hygiene line named the nonexistent `scripts/check.py`, now
+  `pwsh scripts/check.ps1`). `interfaces.md` rewritten as a thin IF-001
+  pointer + prose contract. `homehub-integration.md` §5 item 8 (the false-
+  parity comment) verified and closed with a dated note: the comment is
+  still there (now `bash/reconstruct.sh:564`) but finding A's fix means its
+  claim is no longer false — both restorers now refuse identically when
+  7-Zip is missing on a compressed manifest. `docs/plans/wp3-` and
+  `wp4-*-plan.md` linked from their WP3/WP4 audit entries (0 orphans besides
+  the still-generated `docs/test/report.md`, ignored by `check.ps1`'s own
+  `--ignore`). Open items truth-up: WP1/WP2/WP4/WP5 rows now read their
+  review verdicts instead of a bare "awaiting independent review"; a new
+  Get-StoreFingerprint row records the WP4 reviewer's accepted nit; the
+  dangling-DataPath row stays **Open**, explicitly dispositioned "awaiting
+  human prioritization in the batch ratification"; the prune form-mismatch
+  rail row is relabeled **WP6-or-later** since relaxing a Verified prune rail
+  is a code change, out of this docs-only batch's surface. Kit-version stamp
+  deliberately left untouched. See the audit entry below.
+- **CI-gated (need a real green CI run on `resync_v2` after the push, not
+  locally achievable — Docker is unavailable on this host):** SR-034 and
+  SR-044 flip `Implemented`→`Verified`, the `--phase` ratchet re-arms to
+  `core,bash-v1,container-v1`, and SR-048/SR-052 promote `Implemented`→
+  `Verified` once TC-088, TC-101 (Linux half), and TC-102 go from `Draft` to
+  `Pass` in the Docker container job.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -192,29 +226,30 @@ work-package order follows the table.
 
 | Item | What | Disposition (human-approved 2026-08-21) | State |
 |---|---|---|---|
-| **E** | Restore can only verify rows its manifest still contains — a truncated manifest shrinks the job and still reports success. HomeHub's archive census does not port because of dedup. Partial mitigation shipped: missing-MANIFEST refusal (TC-063). | **WP1 (restore trust & diagnostics bundle).** Witness = a sidecar (e.g. `MANIFEST.csv.meta`) written atomically alongside the manifest carrying row count + xxHash128 of the manifest bytes, duplicated into each snapshot; both restorers verify it before restoring. Independent of the restore loop; portable to bash with tools already required; **subsumes the corrupt-manifest guard** (garbage manifest fails the digest). Adds an artifact to the SR-022 infrastructure allowlist — mind regression B6/TC-052. Needs its own SN/SR through G1; **blocks any "restore is trustworthy" claim.** | Implemented (WP1) — awaiting independent review + batch ratification |
-| corrupt-manifest guard | Corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1` (2026-07-03 reviewer MINOR; bash validates the header, exit 2). | **WP1**, implemented *inside* the witness change — a lone interim header check would burn a kit revision for something the witness replaces. | Implemented (WP1) — awaiting independent review + batch ratification |
-| **D** + exit-code table | `Find-DataFileByHash` collapses 4 failure causes into one warning; IF-001 promises HomeHub a translatable exit status but `Reconstruct.ps1` throws one generic failure for every cause. | **WP1.** One documented exit-code table shared by both restorers — adopt bash's existing exit 2 as the baseline, don't invent a competing scheme. Prerequisite for IF-001 leaving `Experimental` (NagLight translation needs something to translate). | Implemented (WP1) — awaiting independent review + batch ratification |
-| **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Implemented (WP1) — awaiting independent review + batch ratification |
-| config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Implemented (WP2) — awaiting independent review + batch ratification |
-| multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Implemented (WP2) — awaiting independent review + batch ratification |
+| **E** | Restore can only verify rows its manifest still contains — a truncated manifest shrinks the job and still reports success. HomeHub's archive census does not port because of dedup. Partial mitigation shipped: missing-MANIFEST refusal (TC-063). | **WP1 (restore trust & diagnostics bundle).** Witness = a sidecar (e.g. `MANIFEST.csv.meta`) written atomically alongside the manifest carrying row count + xxHash128 of the manifest bytes, duplicated into each snapshot; both restorers verify it before restoring. Independent of the restore loop; portable to bash with tools already required; **subsumes the corrupt-manifest guard** (garbage manifest fails the digest). Adds an artifact to the SR-022 infrastructure allowlist — mind regression B6/TC-052. Needs its own SN/SR through G1; **blocks any "restore is trustworthy" claim.** | Implemented (WP1), independently reviewed (APPROVE-WITH-MINORS 2026-08-22), accepted findings landed 2026-08-23 — awaiting batch ratification |
+| corrupt-manifest guard | Corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1` (2026-07-03 reviewer MINOR; bash validates the header, exit 2). | **WP1**, implemented *inside* the witness change — a lone interim header check would burn a kit revision for something the witness replaces. | Implemented (WP1), independently reviewed (APPROVE-WITH-MINORS 2026-08-22), accepted findings landed 2026-08-23 — awaiting batch ratification |
+| **D** + exit-code table | `Find-DataFileByHash` collapses 4 failure causes into one warning; IF-001 promises HomeHub a translatable exit status but `Reconstruct.ps1` throws one generic failure for every cause. | **WP1.** One documented exit-code table shared by both restorers — adopt bash's existing exit 2 as the baseline, don't invent a competing scheme. Prerequisite for IF-001 leaving `Experimental` (NagLight translation needs something to translate). | Implemented (WP1), independently reviewed (APPROVE-WITH-MINORS 2026-08-22), accepted findings landed 2026-08-23 — awaiting batch ratification |
+| **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Implemented (WP1), independently reviewed (APPROVE-WITH-MINORS 2026-08-22), accepted findings landed 2026-08-23 — awaiting batch ratification |
+| config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Implemented (WP2), independently reviewed (CHANGES-REQUESTED 2026-08-22), accepted findings landed 2026-08-23 — awaiting batch ratification |
+| multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Implemented (WP2), independently reviewed (CHANGES-REQUESTED 2026-08-22), accepted findings landed 2026-08-23 — awaiting batch ratification |
 | container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
 | container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Implemented (WP3) — awaiting CI evidence + independent review + batch ratification |
-| **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Implemented (WP4) — awaiting independent review + batch ratification |
-| **C-form (new, WP4 §5.7)** | A blank-DataPath row whose `Compressed` disagrees with the .7z-ness of the file hash recovery locates restores **archive bytes under the original name**: both restorers branch on the ROW's `Compressed`, not on the form of the file they found. Reachable today after a compression-mode flip, because `Sync-BackupStorageLayout` migrates only the backup root and never the snapshots. | **WP5**, with finding C (same repair story). WP4 ships the **detector**: `Test-PoolResolves` reports `form-mismatch` and `Remove-BackupSnapshot` refuses (code 2) rather than pruning into it, so a store in this state is named instead of silently widened — and WP5 inherits a ready repro (TC-084's `form-mismatch` case). Note the deliberate exemption: a row whose own `RelativePath` ends in `.7z` (a legitimately stored already-compressed source file) is NOT a disagreement. | Implemented (WP5) — awaiting independent review + batch ratification |
-| **C-refcount (new, WP5 planning G10)** | `Sync-BackupStorageLayout` is not refcount-aware: dedup makes rows share one `DataPath` (`Invoke-BackupFileGroup`), the migration decision is per-row (`Engine.psm1` `$needsTransform`), and Phase 2 deletes every superseded path unconditionally — so a config change that flips only ONE of two content-sharing rows deletes the file the other still references (`MissingDataFile` on the next restore, exit 1). **Live data-loss defect on Verified code**, reachable today (compression flip + two same-content rows with different extensions); the ext-list merge would trigger it at scale. Contrast `Move-RemovedFilesToStaging`, which IS refcount-aware (B9). | **WP5 as SR-051** ([plans/wp5-storage-trust-plan.md](plans/wp5-storage-trust-plan.md)), sequenced BEFORE the ext-list merge. Surfaced immediately per the plan's Q7 so it stays visible even if WP5 slips. | Implemented (WP5) — awaiting independent review + batch ratification |
-| **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself. | **WP5.** With B fixed, new malformed rows can't be created — C matters for pre-fix backups and for migrations the ext-list merge triggers. Repro test first (double-check §5.3); repair via an opt-in `-VerifyStorage` mode, **not** a physical verify inside every migration (would fight SR-024 idempotence/perf). | Implemented (WP5) — awaiting independent review + batch ratification |
-| ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Implemented (WP5) — awaiting independent review + batch ratification |
-| backup-side capacity | Does the backup side have the capacity preflight the restore side gained (SR-023 is restore-only)? | **WP5.** Verify first, then a small SR mirroring SR-023. Importance rises with the container (target is a HomeHub-controlled bind mount). | Implemented (WP5) — SR-052 stays `Implemented` until TC-101's Linux half runs in the Docker CI job; awaiting independent review + batch ratification |
-| prune form-mismatch rail (new, WP5) | `Test-PoolResolves` refuses a prune with code 2 on a blank-DataPath `form-mismatch`, a rail WP4 justified by "the restorers branch on the ROW". **SR-050 removed that premise**, so prune now refuses a store a revision-2 kit restores correctly — reproducible by any compression flip. | **WP6.** Left unchanged deliberately by WP5: a pre-revision-2 snapshot restored by its OWN kit IS still exposed, and relaxing a Verified prune rail is not WP5's call. Likely resolution: downgrade the BLANK-row half to informational once `-RefreshKits` (or a kit-revision check) proves the pool's kits are current. | Open → WP6 |
-| dangling DataPath becomes unrestorable (new, WP5) | A row whose data file is missing is dropped by `Test-BackupManifest`; if the SOURCE file is unchanged the diff never re-copies it, and `Optimize-ChangeFolders` blanks the `DataPath` — leaving a row whose bytes are nowhere in the pool while the run reports success. `Test-PoolResolves` detects it (`broken-pool`); no backup run does, and SR-049's audit deliberately does not (it is not a FORM finding). Pre-existing, observed while writing TC-094. | **WP6** — needs its own SR: either heal the row (force a re-copy from source) or fail the set. Decide which; healing is the friendlier behaviour and the source bytes are right there. | Open → WP6 |
+| **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Implemented (WP4), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23 — awaiting batch ratification |
+| **C-form (new, WP4 §5.7)** | A blank-DataPath row whose `Compressed` disagrees with the .7z-ness of the file hash recovery locates restores **archive bytes under the original name**: both restorers branch on the ROW's `Compressed`, not on the form of the file they found. Reachable today after a compression-mode flip, because `Sync-BackupStorageLayout` migrates only the backup root and never the snapshots. | **WP5**, with finding C (same repair story). WP4 ships the **detector**: `Test-PoolResolves` reports `form-mismatch` and `Remove-BackupSnapshot` refuses (code 2) rather than pruning into it, so a store in this state is named instead of silently widened — and WP5 inherits a ready repro (TC-084's `form-mismatch` case). Note the deliberate exemption: a row whose own `RelativePath` ends in `.7z` (a legitimately stored already-compressed source file) is NOT a disagreement. | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review of the fixes in flight — awaiting batch ratification |
+| **C-refcount (new, WP5 planning G10)** | `Sync-BackupStorageLayout` is not refcount-aware: dedup makes rows share one `DataPath` (`Invoke-BackupFileGroup`), the migration decision is per-row (`Engine.psm1` `$needsTransform`), and Phase 2 deletes every superseded path unconditionally — so a config change that flips only ONE of two content-sharing rows deletes the file the other still references (`MissingDataFile` on the next restore, exit 1). **Live data-loss defect on Verified code**, reachable today (compression flip + two same-content rows with different extensions); the ext-list merge would trigger it at scale. Contrast `Move-RemovedFilesToStaging`, which IS refcount-aware (B9). | **WP5 as SR-051** ([plans/wp5-storage-trust-plan.md](plans/wp5-storage-trust-plan.md)), sequenced BEFORE the ext-list merge. Surfaced immediately per the plan's Q7 so it stays visible even if WP5 slips. | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review of the fixes in flight — awaiting batch ratification |
+| **C** | `Sync-BackupStorageLayout` trusts manifest `Compressed`/`StoredAsHashSize` metadata, so a malformed row can validate itself. | **WP5.** With B fixed, new malformed rows can't be created — C matters for pre-fix backups and for migrations the ext-list merge triggers. Repro test first (double-check §5.3); repair via an opt-in `-VerifyStorage` mode, **not** a physical verify inside every migration (would fight SR-024 idempotence/perf). | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review of the fixes in flight — awaiting batch ratification |
+| ext-list merge | Merge bash's broader already-compressed extension list (`jar tgz zst gif webm ogg sav pack`) into `Common.psm1`; keep per-file granularity. | **WP5, sequenced AFTER C's repro test** — not trivial: the merge flips existing `.7z` rows to "wrong" under `Sync-BackupStorageLayout`'s config comparison and exercises the untested migration path at scale. Cover the triggered migration in C's test. | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review of the fixes in flight — awaiting batch ratification |
+| backup-side capacity | Does the backup side have the capacity preflight the restore side gained (SR-023 is restore-only)? | **WP5.** Verify first, then a small SR mirroring SR-023. Importance rises with the container (target is a HomeHub-controlled bind mount). | Implemented (WP5), independently reviewed (CHANGES-REQUESTED 2026-08-23), accepted findings landed 2026-08-23; re-review in flight — SR-052 stays `Implemented` until TC-101's Linux half runs in the Docker CI job; awaiting batch ratification |
+| prune form-mismatch rail (new, WP5) | `Test-PoolResolves` refuses a prune with code 2 on a blank-DataPath `form-mismatch`, a rail WP4 justified by "the restorers branch on the ROW". **SR-050 removed that premise**, so prune now refuses a store a revision-2 kit restores correctly — reproducible by any compression flip. | **WP6-or-later.** Left unchanged deliberately by WP5: a pre-revision-2 snapshot restored by its OWN kit IS still exposed, and relaxing a Verified prune rail is not WP5's call. **A code change, so out of this docs-only WP6 batch's scope** — confirmed still open, unchanged since WP5. Likely resolution: downgrade the BLANK-row half to informational once `-RefreshKits` (or a kit-revision check) proves the pool's kits are current. | Open → WP6-or-later |
+| dangling DataPath becomes unrestorable (new, WP5) | A row whose data file is missing is dropped by `Test-BackupManifest`; if the SOURCE file is unchanged the diff never re-copies it, and `Optimize-ChangeFolders` blanks the `DataPath` — leaving a row whose bytes are nowhere in the pool while the run reports success. `Test-PoolResolves` detects it (`broken-pool`); no backup run does, and SR-049's audit deliberately does not (it is not a FORM finding). Pre-existing, observed while writing TC-094. Severity: **pre-existing MEDIUM** (silent-success data-loss risk, not confirmed reachable at scale). | Needs its own SR: either heal the row (force a re-copy from source) or fail the set. **Not decided by WP6** (a docs-only batch) — **awaiting human prioritization in the batch ratification.** | Open |
 | manifest row order (new, WP5) | Consecutive no-op runs can emit manifest ROWS in a different ORDER with identical content (the final manifest is enumerated from a hashtable). SR-024 holds on row content; G7-Determinism does not catch the ordering. TC-094/TC-097 compare rows sorted by `RelativePath`. | **WP6**, low priority. Either sort deterministically before `Write-Manifest`, or state explicitly that row order is not part of the contract. | Open → WP6 |
 | snapshot inventory cost (new, WP4 review L3) | `Get-BackupSnapshot` runs one `Get-SnapshotPrunePlan` per snapshot and each rebuilds the whole pool index — O(n^2) in snapshot count — and the plan hashes candidate files (the destination-collision check) during what is advertised as a read-only inventory. Correctness is unaffected; on a large store `-Action Snapshots` is far more expensive than it looks. | **Perf follow-up, unscheduled.** The obvious fix is to build the pool index ONCE and thread it through `Get-SnapshotPrunePlan`; that is not a trivial edit to a data-integrity function, so the WP4 review fixes deliberately did not attempt it. | Recorded 2026-08-23 (WP4 review, accepted as-is) |
 | **-RepairFromPruned** (deferred from WP4 §5.4) | Materializing bytes back into a pool that lost them. WP5 landed the DIAGNOSIS half (SR-049's R3/R4/R5 findings say exactly what is missing and where); the byte-materialization half stays deferred. | **WP6 or later.** Build on WP4's plan/copy/prove primitives once they are Verified. SR-050 removed the correctness motive, so this is convenience, not safety. No SN/SR yet. | Deferred → WP6-or-later |
 | **H** | No destination mount-identity preflight. | **Stays delegated to HomeHub (IF-001)** — HomeHub genuinely owns mounts and the container can't see the host mount table. Optional later hardening: an `ExpectedSentinel` config key (refuse if a named file is absent at the destination). Low priority; revisit only if FileBackup runs outside the wrapper. | Delegated |
-| release checklist | `checklist-vNEXT-dryrun.md` is stale (UN-### vocabulary, no SR-029+, points at nonexistent `scripts/check.py`, gitignored). | **WP6 (docs batch).** Regenerate from the registries via `gen_release_checklist.py` (also verifies the generator survived the UN→SN rename); include container rows. Blocks G-Release. | Open → WP6 |
-| interfaces.md boilerplate | `docs/interfaces.md` is unmodified kit boilerplate; the real IF-001 lives in `requirements/interfaces.csv`. | **WP6.** Rewrite as a thin IF-001 pointer + prose contract. | Open → WP6 |
-| doc drift | Kit-version stamp still `9b697cc 2026-07-02`; homehub-integration.md §5.8 false-parity comment (bash/reconstruct.sh:380) unverified post-A-fix. (AGENTS.md test count fixed 2026-08-21.) | **WP6.** Re-stamp only on a real kit resync; verify + close §5.8. | Open → WP6 |
+| release checklist | `checklist-vNEXT-dryrun.md` was stale (UN-### vocabulary, no SR-029+, pointed at nonexistent `scripts/check.py`, untracked/gitignored). | **WP6 (docs batch).** Regenerated from the registries via `gen_release_checklist.py` — the generator survived the UN→SN rename intact and already included the container SNs (SN-024/026/028); fixed one generator bug found in passing (its hardcoded hygiene line named the nonexistent `scripts/check.py` — now `pwsh scripts/check.ps1 -Gate G3 -Tier Release`). Deleted the stale untracked dry-run file. [`docs/release-checklist.md`](release-checklist.md) is now tracked (`.gitignore` narrowed to keep only `docs/releases/` — versioned/signed per-release copies — generated). | Done (WP6) |
+| interfaces.md boilerplate | `docs/interfaces.md` is unmodified kit boilerplate; the real IF-001 lives in `requirements/interfaces.csv`. | **WP6.** Rewritten as a thin IF-001 pointer + prose contract (config schema v1, one-set-per-invocation, the shared exit-code table, retention policy/mechanism split, no-direct-snapshot-deletion, `Experimental` stability + the joint WP1/WP2 exit condition). See [`interfaces.md`](interfaces.md). | Done (WP6) |
+| doc drift | Kit-version stamp still `9b697cc 2026-07-02`; homehub-integration.md §5.8 false-parity comment (bash/reconstruct.sh:380) unverified post-A-fix. (AGENTS.md test count fixed 2026-08-21.) | **WP6.** Kit-version stamp deliberately left untouched (re-stamp only on a real kit resync — not this batch). §5.8 verified and closed with a dated note in [`homehub-integration.md`](homehub-integration.md#5-original-double-check-list): the comment is still present (now at `bash/reconstruct.sh:564`) and its underlying claim is no longer false — finding A's fix made `Reconstruct.ps1` refuse identically to bash when 7-Zip is missing on a compressed manifest; the comment's stale word is "degrade" (neither side degrades anymore), left for a future bash-side editorial pass since this batch touches no `bash/` files. | Done (WP6) |
+| Get-StoreFingerprint nit (new, WP4 review) | `Get-StoreFingerprint` excludes `*.fbprune.tmp` wholesale — a future test combining `-SuffixNamedUserFiles` with `Assert-StoreUnchanged` would be blind to the H1 class (missing/renamed-file corruption on that suffix). Not a defect on any test that exists today; a test-authoring blind spot. | **Accepted 2026-08-23 (WP4 review, recorded as-is, no action taken)** — flagged here so a future `-SuffixNamedUserFiles` × `Assert-StoreUnchanged` combination test doesn't silently miss the H1 class. Revisit only if that combination is added. | Accepted, recorded — no action taken |
 | Archive-option storage mode (ex-ToDo) | Store backups as `.7z` archive sets with per-folder rebuild scripts. | **REJECTED 2026-08-21** — opaque archive sets contradict the model's core strength (plain files on disk, restorable by a 20 KB bash script with no runtime). Moved to Non-goals. | Rejected |
 | CloneSpy CRC export (ex-ToDo) | Emit a CloneSpy-compatible CRC list per backup set. | Harmless C-priority idea; stays parked, unscheduled. | Parked |
 
@@ -1838,7 +1873,7 @@ target+log creation, identically in both restorers) applied by the driver in
 `Reconstruct.ps1` `.NOTES` and AGENTS.md §3 in the same commit as this entry.
 
 ### DRIVER (Software + Test Engineer hats) — WP3 container release-verify + smoke depth — 2026-08-23
-Executed `docs/plans/wp3-container-release-plan.md` §5 steps 1-4 and 7-8
+Executed [docs/plans/wp3-container-release-plan.md](plans/wp3-container-release-plan.md) §5 steps 1-4 and 7-8
 (steps 5-6, the push and post-CI status flips, are the driver's — real CI
 evidence has not landed yet). Grounded at `ba1ee48`; re-read current file
 state before editing per the plan's own caution (WP2 review fixes had since
@@ -1988,7 +2023,7 @@ export): unit 172/172, integration Mirror 59/0/1, trace 0/0/0, lint clean.
 awaiting batch ratification.**
 
 ### DRIVER (Software + Test Engineer, Data-integrity hat) — WP4 snapshot retention — 2026-08-23
-Executed `docs/plans/wp4-retention-plan.md` §3 phases A→F in order, grounded at
+Executed [docs/plans/wp4-retention-plan.md](plans/wp4-retention-plan.md) §3 phases A→F in order, grounded at
 `3ee8f5b`/`b4f108c`, one commit per green phase. The plan's §5 driver decisions
 were treated as binding: the verb is **`Remove-BackupSnapshot`** (`Prune-` fails
 approved-verbs lint), an **absent witness refuses by default**
@@ -2546,3 +2581,101 @@ export: unit 310/310, integration 372/0/4, trace SN=30 SR=52 LLR=51 TC=101
 `*.fbprune.tmp` wholesale — a future test combining `-SuffixNamedUserFiles`
 with `Assert-StoreUnchanged` would be blind to the H1 class. The reviewer's
 APPROVE covers WP4 + its fixes only; WP5 has its own review track.
+
+### DRIVER (UX/Docs + System Engineer hats) — WP6 docs batch — 2026-08-23
+Verdict: APPROVE (driver hats) — awaiting batch ratification with WP1-WP5.
+Executed the three Open-items rows (release checklist, interfaces.md
+boilerplate, doc drift) plus the accumulated housekeeping (plan-doc links,
+Open-items truth-up, Current State rewrite). **Docs-only — no `Modules/`,
+`Reconstruct.ps1`, `bash/`, `tests/`, `FileBackup.ps1`, or `container/` file
+was touched.**
+
+What changed:
+- **Release checklist.** Regenerated `docs/release-checklist.md` via
+  `python scripts/gen_release_checklist.py` — SN=30, human-SR=4, manual-TC=7,
+  IF=1, PB=0; confirmed the generator survived the UN→SN rename intact and
+  already includes the container SNs (SN-024/026/028) without any patch.
+  Found and fixed one real generator bug in passing: its hardcoded release-
+  hygiene line named a nonexistent `scripts/check.py` (a Python-stack
+  leftover) — now `pwsh scripts/check.ps1 -Gate G3 -Tier Release`, matching
+  this repo's actual harness entry point. Deleted the stale, already-
+  untracked `docs/releases/checklist-vNEXT-dryrun.md`. Narrowed `.gitignore`
+  so `docs/release-checklist.md` is tracked going forward (it is the current,
+  regenerate-at-will checklist, kept navigable in the repo); `docs/releases/`
+  stays generated/gitignored for future `--version`-stamped, signed copies.
+- **`docs/interfaces.md`.** Replaced the unmodified kit boilerplate with a
+  thin, project-specific page: what IF-001 is, a pointer to
+  `requirements/interfaces.csv` as the machine source of truth, and a prose
+  rendering of the current contract (mounts, config schema v1, one-set-per-
+  invocation, the shared backup/restore/prune/verify exit-code table,
+  retention policy/mechanism split, no-direct-snapshot-deletion,
+  `Experimental` stability + the joint WP1/WP2 exit condition to leave it).
+- **Doc drift.** Left the kit-version stamp untouched (re-stamp only on a
+  real kit resync, not this batch). Read the current `bash/reconstruct.sh`
+  and verified homehub-integration.md §5 item 8's claim: the false-parity
+  comment is still present, unchanged, now at line 564 (source drifted from
+  the finding's original :380/:381 coordinates). Its underlying claim is no
+  longer false, though — cross-read against the current `Reconstruct.ps1`
+  (~521-527) shows finding A's fix made the PowerShell restorer refuse with
+  `EXIT_PRECONDITION` on the identical gate bash already used (`any_comp` and
+  no usable 7-Zip), before writing anything. Both restorers now refuse
+  identically; neither degrades. Closed the item with a dated verification
+  note in place, without rewriting the original finding's history.
+- **Plan-doc links.** `docs/plans/wp1-restore-trust-plan.md`,
+  `wp2-config-contract-plan.md`, and `wp5-storage-trust-plan.md` were already
+  linked (from Open-items or their own WP audit entries); `wp3-container-
+  release-plan.md` and `wp4-retention-plan.md` were referenced only inside
+  code spans (not real Markdown links, so `check_docs.py` still orphaned
+  them) — converted both to real links from their WP3/WP4 audit-entry
+  headers.
+- **Open-items truth-up.** WP1/WP2/WP4/WP5 rows now read their actual review
+  verdicts and landed-fix dates instead of a bare "awaiting independent
+  review + batch ratification" (WP3 stays as-is — it genuinely has no CI
+  evidence yet). Added a row for the WP4 reviewer's accepted
+  `Get-StoreFingerprint`/`*.fbprune.tmp` nit. Confirmed and left `-RepairFrom
+  Pruned` (Deferred → WP6-or-later), the dangling-DataPath defect, the
+  `Get-BackupSnapshot`/snapshot-inventory-cost perf row, and the manifest-
+  row-order row all present with a clear State. Per the work order: the
+  dangling-DataPath row's State stays **Open**, its disposition now reads
+  "awaiting human prioritization in the batch ratification" verbatim. The
+  prune form-mismatch rail row is relabeled **WP6-or-later** and its
+  disposition now says explicitly that relaxing a Verified prune rail is a
+  code change and out of this docs-only batch's surface.
+- **Current State header.** Rewritten: the WP1-WP6 scoreboard (WP1/WP2/WP4
+  implemented + independently reviewed with accepted fixes landed; WP5
+  implemented + fixes landed with re-review in flight; WP3 implemented,
+  awaiting its own CI evidence on the first push of `resync_v2`; WP6 this
+  batch, done); the CI-gated flip list (SR-034/SR-044 → Verified, ratchet
+  → `core,bash-v1,container-v1`, SR-048/SR-052 → Verified once TC-088/101/102
+  leave `Draft`); and the next human action (batch ratification, then the
+  push).
+
+**A concurrent, unrelated in-flight change was observed and deliberately left
+alone.** `Modules/FileBackup.Engine.psm1` carries an uncommitted modification
+to `Get-StorageFormFinding`'s `FlagOverArchive` exemption (payload-hash-keyed
+instead of extension-keyed, citing a "WP5 re-review residual") that this
+driver did not make and did not touch — consistent with the work order's note
+that a read-only reviewer may be re-verifying WP5 concurrently. It is excluded
+from every commit in this entry; whoever owns it should commit or discard it
+separately.
+
+Evidence (real output, local, this session):
+- `python scripts/check_docs.py --root . --ignore 'docs/test/report.md'
+  --ignore 'docs/releases/*'` → `check_docs: OK - 19 doc(s), 69 intra-repo
+  link(s), 0 broken.` (0 orphans, 0 broken — was 4 orphan warnings before
+  this batch: wp3-plan, wp4-plan, the newly-tracked release-checklist, and
+  the gitignored report.md, the last of which stays excluded by `--ignore`
+  and is expected.)
+- `pwsh scripts/check.ps1 -Tier Smoke` (gate G3, from `docs/gate`): lint
+  PASS; **Traceability FAILED** — `SN=30 SR=52 LLR=51 TC=101 orphans=0
+  integrity=0 status-findings=1 phase-deferred=4`, the one pre-existing,
+  disclosed SR-052 CI-gated finding from the WP5 baseline (Docker
+  unavailable on this host; not a regression from this batch — no registry
+  or code file changed here); doc navigability PASS (0 broken); generated-
+  docs freshness PASS; Pester unit **316/316** PASS; performance budgets
+  PASS (no budgets registered). `check.ps1`'s own summary: `FAILED:
+  Traceability (trace.py --strict)` — the single known finding, unchanged
+  by this batch.
+
+Findings: none new. The generator bug (nonexistent `scripts/check.py`
+reference) above is the only thing found broken.
