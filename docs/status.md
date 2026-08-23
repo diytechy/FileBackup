@@ -27,16 +27,19 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP1):** **83/83 Pester
-  unit, lint clean, trace SN=26 SR=41 LLR=40 TC=72 with 0 orphans / 0 integrity
+- **Latest verified run (2026-08-23, Full tier, post-WP2):** **106/106 Pester
+  unit, lint clean, trace SN=27 SR=43 LLR=42 TC=77 with 0 orphans / 0 integrity
   / 0 status-findings / 2 phase-deferred (bash-v2, container-v1), integration
-  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps passed"),
-  plus **45/45 bats** and `shellcheck` clean on real Linux (WSL Fedora 40).
-  (The prior 2026-08-22 baseline — 65/65 unit, SN=24 SR=37 LLR=36 TC=64 — closed
-  the post-2026-08-12 Full-tier gap that was blocking G3 sign-off.)
+  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps passed").
+  (The prior 2026-08-23 post-WP1 baseline — 83/83 unit, SN=26 SR=41 LLR=40
+  TC=72 — plus **45/45 bats**/`shellcheck` clean on real Linux (WSL Fedora 40)
+  from WP1 is unaffected by WP2, a Windows/container-config-only change.)
 - **WP1 (restore trust & diagnostics) is implemented and self-verified
   2026-08-23 — awaiting independent review + batch ratification.** SR-038..041
   Verified, TC-066..073 Pass. See the audit entry below.
+- **WP2 (config contract) is implemented and self-verified 2026-08-23 —
+  awaiting independent review + batch ratification.** SR-042..043 Verified,
+  TC-074..078 Pass. See the audit entry below.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -148,8 +151,8 @@ work-package order follows the table.
 | corrupt-manifest guard | Corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1` (2026-07-03 reviewer MINOR; bash validates the header, exit 2). | **WP1**, implemented *inside* the witness change — a lone interim header check would burn a kit revision for something the witness replaces. | Implemented (WP1) — awaiting independent review + batch ratification |
 | **D** + exit-code table | `Find-DataFileByHash` collapses 4 failure causes into one warning; IF-001 promises HomeHub a translatable exit status but `Reconstruct.ps1` throws one generic failure for every cause. | **WP1.** One documented exit-code table shared by both restorers — adopt bash's existing exit 2 as the baseline, don't invent a competing scheme. Prerequisite for IF-001 leaving `Experimental` (NagLight translation needs something to translate). | Implemented (WP1) — awaiting independent review + batch ratification |
 | **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Implemented (WP1) — awaiting independent review + batch ratification |
-| config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Open → WP2 |
-| multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Ruled — document in WP2 |
+| config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Implemented (WP2) — awaiting independent review + batch ratification |
+| multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Implemented (WP2) — awaiting independent review + batch ratification |
 | container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | In CI (partial) → WP3 |
 | container smoke depth | Smoke checks a six-artifact kit that omits `RECONSTRUCT.paths.json` and runs one single-set, no-snapshot, no-rerun backup. | **WP3**, with release-verify: add the sidecar to the kit check and a second incremental, snapshot-producing run restored in-container. | Open → WP3 |
 | **I** | Snapshot retention is unbounded. | **Re-ruled — the pure "delegate to HomeHub" disposition was unsafe:** blank-DataPath rows recover bytes by hash from *other* snapshots' folders, so externally pruning a `Snapshot_*` folder can delete the only physical copy other snapshots still need. **Split: HomeHub owns retention *policy*; FileBackup owns the *mechanism*** — a `Prune-Snapshot` verb (WP4, own SR) that re-homes still-referenced bytes before deleting a folder. IF-001 now states: never delete snapshot folders directly. **Do before HomeHub builds any pruning.** | Open → WP4 |
@@ -1309,3 +1312,214 @@ reviewer ruling on whether to align them.
 **Next action (awaiting human):** independent review of the WP1 data-integrity
 surface (witness write/verify path, exit-code classification, move-loop
 aggregation), then batch ratification alongside the other WPs.
+
+### DRIVER (Software + Test Engineer hats) — WP2 config contract — 2026-08-23
+
+Executed [plans/wp2-config-contract-plan.md](plans/wp2-config-contract-plan.md)
+end to end under the 2026-08-22 grind authorization (batch ratification).
+Closes Open-items rows **config contract** and **multi-set mounts**. Ids
+minted and closed: **SN-027, SR-042..043, LLR-042..043, TC-074..078**
+(sequenced after WP1's SN-025..026/SR-038..041/LLR-038..041/TC-066..073,
+reusing WP1's "2 = usage/precondition" exit-code meaning).
+
+**What landed, by phase**
+
+- **Phase A — registries** (`444ee8f`) — SN-027 (edge-case: a wrong config
+  refuses to start, names the offending key, never guesses a default), SR-042
+  (versioned closed JSON schema) / SR-043 (`-ExitCode` distinguishes a config
+  failure from a set failure), LLR-042/043, TC-074..078; IF-001's `Contract`
+  cell gained the schema summary and `SR-Refs` gained `SR-042;SR-043` — `Version`
+  stays `v1` (never left `Experimental`) and `Stability` stays `Experimental`
+  (a separate decision for batch ratification, per the work order).
+- **Phase B — the loader** (`10b58fe`, SR-042/LLR-042). New region in
+  `Modules/FileBackup.Engine.psm1`: `$script:ConfigSchemaVersion = 1`;
+  `Import-BackupConfiguration` (exported) dispatches on extension. JSON:
+  parses, checks `ConfigVersion` first — missing / non-integer / `< 1` /
+  above `$script:ConfigSchemaVersion` — all hard errors naming `$.ConfigVersion`,
+  in document order before anything else runs; then `Assert-NoUnknownConfigKey`
+  (private) recursively rejects any key outside the schema at the top level,
+  `Tools`, `Secrets`, and every `BackupSets[]` entry, naming the JSON path, and
+  explicitly bans `Secrets.Credential`; then `Test-BackupConfigurationShape`
+  (private, shared with CLIXML) with `-StrictTypes` — a quoted `"false"` for
+  `CompressEnabled`/`PreserveFolderTree` is rejected as the wrong JSON type,
+  never coerced by `[bool]`, and a non-integer `Secrets.SmtpPort` is rejected —
+  while the three pre-existing message wordings (`*at least one BackupSets
+  entry*`, `*must define a non-empty*`, `*invalid HashRecalcFreq*`) are emitted
+  **verbatim** by the same shared function. `Resolve-BackupSetDefaults`
+  (private) materializes `SourceStatePath=SourcePath`,
+  `AllowEmptySource=$false`, and upper-cased `HashRecalcFreq`. CLIXML runs only
+  the shared shape check (no version, no closed schema, no credential ban) —
+  unversioned legacy. A JSON config with >1 `BackupSets` logs a `WARN` (IF-001)
+  instead of failing. 13 new Pester cases (TC-074/075) call the function
+  directly, so this phase touched no other file's behavior.
+- **Phase C — wire the entry point** (`a6df81e`, SR-043/LLR-043).
+  `FileBackup.ps1:100-125`'s bare `ConvertFrom-Json`/`Import-Clixml` dispatch
+  and inline per-set validation loop collapsed to one
+  `Import-BackupConfiguration` call. The global logger now builds *before* the
+  config load (it only needs `$ConfigPath`/`$GlobalLogPath`) so a load failure
+  can still be logged. New `[switch]$ExitCode` + `Exit-ConfigFailure`: under
+  `-ExitCode` a load failure logs to stderr + the global log and `exit 2`
+  (SR-043's usage/precondition class); without it, it rethrows — unchanged
+  in-process behavior. The trailing `if (-not $overallSuccess) { exit 1 }` is
+  untouched. **Regression fix required to keep this phase green** (flagged in
+  the plan's §5 risk table, landed here rather than deferred to Phase D as the
+  table's own bullet ordering implied, because the moment the entry point is
+  wired the two inline JSON fixtures in `Engine.Tests.ps1`'s SR-018 block break
+  the instant `ConfigVersion` is required): added `ConfigVersion` to the valid
+  fixture; the pre-existing `'{}'` case now asserts the ConfigVersion-missing
+  message (checked first, in document order) rather than the empty-BackupSets
+  message, and a new case pins the old `'{}'` → `"at least one BackupSets
+  entry"` wording against a `'{"ConfigVersion":1}'` fixture so that check
+  stays covered.
+- **Phase D — versionize the artifacts, publish the schema** (`136b60a`,
+  SR-042/LLR-042). `"ConfigVersion": 1` added to
+  `container/FileBackup.example.json`, the README JSON block, and
+  `Invoke-Container.ps1`'s `New-SmokeConfiguration`. Published
+  `container/FileBackup.schema.json` (JSON Schema draft-07:
+  `additionalProperties: false` at every level, `const: 1` for `ConfigVersion`,
+  `enum` for `HashRecalcFreq`; `Secrets.Credential` is simply absent from the
+  allowed key set, so the schema rejects it the same way the hand-rolled
+  validator does) as documentation — the runtime authority stays the
+  PowerShell validator, per the plan's decision #5. TC-076
+  (`Coverage.Tests.ps1`): loads the checked-in example, retargets *only* its
+  path fields and `Tools.SevenZipPath` (to the platform's real 7-Zip), asserts
+  a recursive keys-only diff against the checked-in file so the example cannot
+  silently drift from what it claims to demonstrate, then drives a real
+  compressed `FileBackup.ps1` run and a byte-exact `RECONSTRUCT.ps1` restore.
+  TC-077: `Test-Json -SchemaFile` against the same accept/reject fixture corpus
+  as TC-074/075, cross-checked against `Import-BackupConfiguration` so the
+  published schema and the runtime validator cannot drift apart; also pins
+  `ConfigVersion=1` across the example, the extracted README block, and the
+  smoke config.
+- **Phase E — entrypoint, help, README** (`6097189`, SR-043/LLR-043).
+  `container/entrypoint.sh` passes `-ExitCode` (shellcheck-clean, verified in
+  WSL `podman-machine-default`). `FileBackup.ps1`'s `.PARAMETER ConfigPath` now
+  documents JSON-as-canonical-versioned vs. CLIXML-as-legacy with a worked
+  example of each, the IF-001 multi-set warning, and a new `.PARAMETER
+  ExitCode`; `.NOTES` gained the SR-043 status-code table. (The `-ExitCode`
+  switch itself and `Exit-ConfigFailure` were already added in Phase C, since
+  both needed to land in the same commit as the logger-ordering change they
+  depend on — Phase E's job here was documentation, not code.) README's
+  "Config format" section rewritten to state the same JSON-canonical/
+  CLIXML-legacy split, a `ConfigVersion` field row, the multi-set warning, and
+  the `-ExitCode` status-code summary (the now-redundant standalone "multiple
+  BackupSets" sentence removed). TC-078 (`Coverage.Tests.ps1`, 6 cases):
+  child-process `-ExitCode` returns 2 (schema-violating config, no backup
+  artifacts created) / 1 (one set fails) / 0 (clean run); the same three
+  invocations without `-ExitCode` return the pre-WP2 codes (1/1/0 — a bad
+  config is still a non-zero exit, just not specifically 2); an in-process call
+  still throws for a bad config; a two-set JSON config logs the IF-001 warning
+  naming the count while still processing both sets.
+- **Phase F — close (this entry).** Flipped SR-042/043 → `Verified`,
+  LLR-042/043 → `Verified` (matching the convention the existing LLR rows use,
+  not the work order's literal "Implemented" wording), TC-074..078 → `Pass`,
+  via targeted line-level edits (a full CSV-writer rewrite was tried first and
+  rejected — it silently reformatted every unrelated row's quoting under
+  `QUOTE_MINIMAL`, which would have buried the real diff; reverted and redone
+  as anchored regex substitutions touching only the five target rows — verified
+  by `git diff` showing exactly those five one-line changes per file).
+
+**Evidence (real output, 2026-08-23)**
+
+`pwsh scripts/check.ps1 -Tier Full`:
+
+```
+==== PSScriptAnalyzer ====
+[PASS] PSScriptAnalyzer
+
+==== Traceability (trace.py --strict) ====
+Traceability: SN=27 SR=43 LLR=42 TC=77 orphans=0 integrity=0 status-findings=0 phase-deferred=2.
+[PASS] Traceability (trace.py --strict)
+
+==== Doc navigability (check_docs.py) ====
+check_docs: WARN - orphan doc (no path from an entry root): docs/plans/wp2-config-contract-plan.md
+check_docs: OK - 15 doc(s), 54 intra-repo link(s), 0 broken (1 orphan warning(s)).
+[PASS] Doc navigability (check_docs.py)
+
+==== Architecture map freshness ====
+[OK]  Generated regions current in C:\Projects\FileBackup\docs\architecture.md
+[OK]  Generated regions current in C:\Projects\FileBackup\AGENTS.md
+[PASS] Architecture map freshness
+
+==== Pester unit ====
+Tests Passed: 106, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+[PASS] Pester unit
+
+==== Performance budgets (check_perf.py) ====
+check_perf: OK - no performance budgets to compare (process.md §9)
+[PASS] Performance budgets (check_perf.py)
+
+==== Integration sweep (Full) ====
+  PASS: 236
+  FAIL: 0
+  SKIP: 4
+[PASS] Integration sweep (Full)
+
+================ check.ps1 (tier Full, gate G3) ================
+All steps passed.
+```
+
+G3 ratchet, `python scripts/trace.py --strict --require-verified --phase core,bash-v1`:
+
+```
+Traceability: SN=27 SR=43 LLR=42 TC=77 orphans=0 integrity=0 status-findings=0 phase-deferred=2. Report -> docs\test\report.md
+```
+
+The `docs/plans/wp2-config-contract-plan.md` orphan-doc WARN above is
+resolved by this entry's own link to it, the same way WP1's plan file avoided
+the same WARN — informational, not a `check.ps1` failure either way.
+
+**Decisions taken (per plan §6, flagged for batch ratification)**
+
+1. Missing `ConfigVersion` is fatal (not assumed `1`).
+2. Unknown keys are rejected, not warn-and-ignore.
+3. A JSON config with >1 `BackupSets` warns (IF-001), does not fail.
+4. IF-001 `Version` stays `v1`; `Stability` stays `Experimental` pending WP1
+   also being Verified (**not** flipped by this entry — separate decision).
+5. Runtime validation is hand-rolled (`Import-BackupConfiguration`); the
+   published `container/FileBackup.schema.json` is documentation, with TC-077
+   pinning their equivalence.
+
+**Deviations from the plan, and why**
+
+- **The two `Engine.Tests.ps1` JSON-fixture updates moved from Phase D to
+  Phase C.** The plan's ordered implementation list (§4) put them in Phase D
+  alongside the other artifact versionizing, but its own §5 regression-risk
+  table says the fixtures "become invalid the moment `ConfigVersion` is
+  required" — which is Phase C, not D. Landing the fix in Phase C (commit
+  `a6df81e`) keeps that phase's commit genuinely green rather than leaving a
+  known-red window between C and D.
+- **`-ExitCode` and `Exit-ConfigFailure` landed in Phase C, not E.** The plan's
+  §4 phase list assigns `-ExitCode` to Phase E, but §2's loader design ties the
+  switch's failure path directly to the logger-ordering change Phase C already
+  had to make (the logger must exist before the config load so a load failure
+  can be logged) — splitting them would have meant either a Phase C without a
+  working failure path or a Phase E that silently depended on Phase C internals
+  it hadn't announced. Phase E's actual work was the `.PARAMETER`/`.NOTES`/
+  README documentation, TC-078, and the `entrypoint.sh` flag — all still
+  sequenced and committed as planned.
+- **TC-076/TC-077 placed in `Coverage.Tests.ps1`, not `Engine.Tests.ps1`.** The
+  plan names both TCs but not a file; `Coverage.Tests.ps1` already hosts every
+  other integration-style test that drives a real `FileBackup.ps1` run and
+  byte-compares a restore (SR-004/012/013/026/028 etc.), so the example-config
+  and schema-parity tests joined that file rather than `Engine.Tests.ps1`
+  (which stayed pure-function/direct-loader tests per Phase B's own framing).
+
+**Known items for the reviewer.**
+- `Assert-NoUnknownConfigKey`'s per-set path uses a literal `[?]` placeholder
+  in one `Test-BackupConfigurationShape` message (`$.BackupSets[?].CompressEnabled`)
+  rather than the failing set's real index, because that check runs after the
+  loop variable no longer carries its array position — the *key-name* messages
+  from `Assert-NoUnknownConfigKey` do carry the real `[i]` index; only the
+  *type* message for `CompressEnabled`/`PreserveFolderTree` does not. Minor,
+  cosmetic, TC-075 asserts on the substring `*CompressEnabled*JSON boolean*`
+  rather than the exact set index.
+- The example-config integration test (TC-076) skips (via `Set-ItResult
+  -Skipped`) rather than fails when no 7-Zip is found at the platform default
+  path, since the checked-in example has `CompressEnabled: true` and this
+  environment happens to have 7-Zip installed — worth confirming CI's image
+  also has 7-Zip on the default path so this doesn't silently skip there too.
+
+**Next action (awaiting human):** independent review of the WP2 config-loading
+surface (schema validator correctness, the closed-schema/credential-ban logic,
+the exit-code wiring), then batch ratification alongside WP1 and the other WPs.
