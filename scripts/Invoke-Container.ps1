@@ -142,7 +142,10 @@ function Invoke-ContainerSmokeTest {
         $runArgs.Add($Image)
         Invoke-ContainerCommand -Arguments $runArgs.ToArray()
 
-        foreach ($artifact in 'MANIFEST.csv','RECONSTRUCT.bat','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll') {
+        # MANIFEST.csv.meta is the SR-038 witness, written beside every manifest by
+        # Write-Manifest — not a copied kit artifact, but it must be present in a
+        # backup the container produced, or a restore would report an unverified index.
+        foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.bat','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll') {
             if (-not (Test-Path -LiteralPath (Join-Path $backup $artifact) -PathType Leaf)) {
                 throw "Container smoke test did not produce restore-kit artifact '$artifact'."
             }

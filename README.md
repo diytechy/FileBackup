@@ -84,6 +84,38 @@ it carries `RECONSTRUCT.bat`, `RECONSTRUCT.ps1`, `reconstruct.sh`, the hashing m
 `System.IO.Hashing.dll`, and a path sidecar — so restore works on a machine without
 this repo.
 
+**The index is checked before anything is restored.** Every `MANIFEST.csv` is
+written together with a small witness file, `MANIFEST.csv.meta`, recording that
+manifest's row count, byte length, and xxHash128. Both restorers verify the
+manifest against its witness *before* writing a single file, so a truncated,
+half-written, or replaced index refuses the restore instead of quietly
+"succeeding" against a shrunken job. Each dated snapshot carries its own witness
+for its own manifest.
+
+A backup written by an older version has no witness; it still restores, and the
+log says `UNVERIFIED`. Pass `-RequireWitness` (Windows) or `--require-witness`
+(Linux) to refuse an unverifiable index instead.
+
+### Restore exit codes
+
+Both restorers report outcome through one table, so a scheduled task or wrapper
+can tell the failure classes apart without reading the log. `RECONSTRUCT.bat` and
+`reconstruct.sh` return these directly; `Reconstruct.ps1` throws a terminating
+error unless you pass `-ExitCode` (which `RECONSTRUCT.bat` does for you).
+
+| Code | Class | Meaning | What to do |
+|---|---|---|---|
+| **0** | Complete | Every manifest row restored. | Nothing. |
+| **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool. | Real data loss: check an older backup. |
+| **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, target inside the backup, a missing required tool, or not enough free space. | Fix the invocation or environment. |
+| **3** | Witness verification failed | The index itself is untrustworthy; **no file is written to the target.** | The manifest is damaged — restore from a snapshot or another copy. |
+| **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error. | **Retriable** — fix the host and run again. |
+
+When several apply the precedence is **2 > 3 > 4 > 1**: codes 2 and 3 abort
+before anything is written, and 4 outranks 1 because it is the actionable one.
+The summary line names both counts regardless, e.g.
+`Reconstruction INCOMPLETE: 3 file(s) could not be restored (2 content-missing, 1 host).`
+
 ### Restore on Linux (no PowerShell)
 
 The same backup folders also restore on a stock Linux box — a NAS, a rescue
@@ -106,8 +138,10 @@ default: the current directory). The backup root and the snapshot folder are
 auto-detected from that location; pass `--backup-root` / `--change-root` to
 override (needed when the backup and change folders are not nested — the sidecar's
 Windows paths are ignored on Linux). Like the Windows restorer it **fails loudly**:
-it restores everything recoverable, then exits non-zero naming any file it could
-not restore (a clean restore exits 0). New backups carry the tested script as
+it verifies the manifest against its `MANIFEST.csv.meta` witness before writing
+anything, then restores everything recoverable and exits with the code from
+"Restore exit codes" above — the same numbers the Windows restorer returns.
+New backups carry the tested script as
 `reconstruct.sh` in the live root and each snapshot; an external rescue copy of
 the same script also works. See `bash reconstruct.sh --help`.
 
@@ -270,6 +304,7 @@ SOURCE                      BACKUP (latest state)                 SNAPSHOTS (old
 D:\Data\report.docx  -hash→ E:\…\DataStore\Ab92Cd 5K.7z          E:\…\DataChanges\
 D:\Data\photo.jpg    -hash→ E:\…\DataStore\Xy7Ko 3M.jpg            Snapshot_2026_03_19_22_50_06\
                             MANIFEST.csv                            ← full point-in-time MANIFEST.csv
+                            MANIFEST.csv.meta                          + its own MANIFEST.csv.meta
                             RECONSTRUCT.ps1/.bat/.sh                   + only the superseded bytes
                             FileBackup.Common.psm1                     + a restore kit
                             System.IO.Hashing.dll                  Snapshot_2026_02_10_08_00_00\  …
@@ -283,12 +318,23 @@ that point's full manifest plus only the bytes superseded afterward, and resolve
 else by hash from the backup root. The **most recent run has no snapshot** (it *is* the live
 backup), and a run that changes nothing creates none.
 
+**A note on your source folder:** each run keeps its hash cache as a
+`MANIFEST.csv` (and now a `MANIFEST.csv.meta` beside it) in the source-state
+location, which by default is the source root itself. Set `SourceStatePath` to
+keep both out of the tree being backed up.
+
 ### Manifest columns
 
 `DataPath` · `RelativePath` · `Length` · `LastWriteTimeStr` · `xxH2Hash` · `Compressed` ·
 `StoredAsHashSize` · `Duplicate` · `MediaMBPerSec`. A blank `DataPath` means "recover by
 content hash" — the restore script scans for a matching file (decompressing `.7z`
 candidates as needed).
+
+Every `MANIFEST.csv` is accompanied by **`MANIFEST.csv.meta`**, a five-line
+`Key=Value` witness (`Version`, `Rows`, `Bytes`, `XxH128`, `Written`) written by
+the same code path that writes the manifest and published by atomic rename. It
+is what lets a restore prove the index it is about to trust is the index that was
+written. See "Restore exit codes" above.
 
 ---
 

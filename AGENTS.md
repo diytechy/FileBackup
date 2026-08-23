@@ -30,7 +30,9 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 **The Common/Engine split is load-bearing.** `New-ReconstructScript` copies
 `Reconstruct.ps1`, `reconstruct.sh`, `FileBackup.Common.psm1`,
 `System.IO.Hashing.dll`, and a `RECONSTRUCT.paths.json` sidecar into each backup
-folder so a restore needs nothing else.
+folder so a restore needs nothing else. A backup folder additionally holds
+`MANIFEST.csv.meta` — the SR-038 manifest witness — which is **not** a copied kit
+artifact: `Write-Manifest` stamps each folder's own (see §3).
 Therefore:
 
 - Anything `Reconstruct.ps1` calls **must live in Common**, not Engine.
@@ -104,12 +106,15 @@ Imports (internal): _none_
 | `Get-FileBackupDefaults` | yes | — |
 | `Get-FileXxHash` | yes | SR-002, LLR-002 |
 | `Get-HashSizeFileName` | yes | SR-003, SR-021, LLR-003, LLR-021 |
+| `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |
 | `New-Logger` | yes | — |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
+| `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
-| `Write-Manifest` | yes | SR-025, LLR-025 |
+| `Write-Manifest` | yes | SR-025, SR-038, LLR-025, LLR-038 |
+| `Write-ManifestWitness` | yes | SR-038, LLR-038 |
 
 ### `Modules/FileBackup.Engine.psm1`
 
@@ -129,20 +134,20 @@ Imports (internal): `Common`
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
 | `Invoke-BackupFileGroup` | yes | SR-003, LLR-003 |
 | `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, LLR-014, LLR-017, LLR-035, LLR-036 |
-| `Move-RemovedFilesToStaging` | yes | SR-006, LLR-006 |
+| `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
-| `Save-SupersededData` | yes | SR-010, SR-028, LLR-010, LLR-028 |
+| `Save-SupersededData` | yes | SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041 |
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
 | `Sync-BackupStorageLayout` | yes | SR-012, SR-013, LLR-012, LLR-013 |
 | `Test-BackupManifest` | yes | — |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
-| `Test-IsInfrastructureFile` | yes | SR-022, LLR-022 |
+| `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024 |
 <!-- END GENERATED MODULE MAP -->
 
@@ -162,6 +167,26 @@ Imports (internal): `Common`
   own manifest* as the sole authority and resolves bytes by `(hash,length)` from
   the data pool (backup root + all snapshots) — it never overlays a newer manifest.
   Clean cutover: no `Pre_*_Changes` reading/writing remains (SR-005/SR-010/SR-028).
+- **The manifest witness is written by `Write-Manifest` only** (SR-038). Every
+  `MANIFEST.csv` gets a `MANIFEST.csv.meta` beside it — `Version`, `Rows`,
+  `Bytes`, `XxH128`, `Written` as UTF-8/no-BOM/LF `Key=Value` lines, published by
+  atomic rename. One writer means backup root, staging, dated snapshots, the
+  source hash cache, and every rewrite are covered and cannot drift, so **never
+  stamp a witness from a caller.** Each snapshot carries **its own** witness for
+  its own manifest — do **not** add the witness to `New-ReconstructScript`'s
+  kit-artifact copy list (`Complete-ChangeFolder`'s artifact loop copies from the
+  backup root and would overwrite each snapshot's witness with the root's; this
+  is the single most dangerous mistake available in this area, pinned by TC-067).
+  The witness is **root-level infrastructure** in `Test-IsInfrastructureFile` — a
+  nested `sub\MANIFEST.csv.meta` is user data like any other (B6). A test that
+  deliberately tampers with a manifest must re-stamp with `Write-ManifestWitness`
+  or it will observe exit 3 instead of the failure it meant to exercise.
+- **Restore outcome is one shared exit-code table** (SR-040): 0 complete, 1
+  incomplete/content, 2 usage or precondition, 3 witness verification failed, 4
+  incomplete/host — precedence 2 > 3 > 4 > 1, identical in `Reconstruct.ps1` and
+  `bash/reconstruct.sh`. Normative copy lives in README "Restore exit codes".
+  `Reconstruct.ps1` keeps throwing for in-process callers and only exits with a
+  code under `-ExitCode`; do not make `exit` the default.
 - **Reconstruct stays standalone** — no repo, no NuGet install at restore time.
 - **Infrastructure files are root-level only** (`Test-IsInfrastructureFile`): a *nested*
   user file named `MANIFEST.csv`/`RECONSTRUCT.ps1`/etc. is real data (regression B6).
@@ -189,6 +214,11 @@ Imports (internal): `Common`
   the generated map/flow's summary harvesting. Order: `<# .SYNOPSIS … #>` block
   first, then the `# Implements: SR-###, LLR-###` back-link line. Reference SR
   ids for input ranges instead of restating them (docs/process.md §3).
+- **The manifest-witness crash window is deliberate.** `Write-Manifest` writes
+  `MANIFEST.csv` *then* the witness. A crash between the two leaves a **stale**
+  witness that mismatches — i.e. it fails loud in the safe direction (a refused
+  restore, exit 3) rather than silently passing, and the next successful run
+  rewrites both. Do not "fix" this by writing the witness first.
 - `Write-Host` is fine (this is a CLI/automation tool) — excluded in lint settings.
 - **Linux restore tooling floor (`bash/reconstruct.sh`, phase `bash-v1`):** bash
   ≥ 4, GNU coreutils, **gawk** (FPAT-based RFC-4180 parsing — plain `awk`/mawk is
@@ -257,8 +287,9 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
 **Current automated total:** 236 integration assertions (4 modes × G1–G7 = 160, plus
-G9 Rollback = 76; G8 SKIP under Subst; last Full-tier run 2026-07-03) + 65 Pester
-unit/coverage tests (verified 2026-08-21); lint clean.
+G9 Rollback = 76; G8 SKIP under Subst) + 83 Pester unit/coverage tests + 45 bats
+tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck` clean.
+(Verified 2026-08-23 on a Full tier.)
 
 ### Suite groups
 | Group | Covers |
@@ -288,7 +319,8 @@ label not matching `FBTEST-*`, so it can't touch a production volume.
   PSScriptAnalyzer; `unit` → Pester (NUnit published); `integration-subst` → all 4 modes,
   JUnit published. 7-Zip ships on the runner; `System.IO.Hashing` is installed + cached.
 - **GitHub `ubuntu-latest` (Docker)** — builds the container and verifies a compressed
-  two-file backup, complete six-artifact restore kit, and byte-exact containerized restore.
+  two-file backup, complete seven-artifact restore kit (six copied files plus the
+  SR-038 `MANIFEST.csv.meta` witness), and byte-exact containerized restore.
 - **Self-hosted VHDX** — gated by repo var `HAS_SELF_HOSTED_HYPERV == 'true'` on a
   `[self-hosted, windows, hyper-v]` runner. `RunAllTests.bat VHDX`.
 - **Hardware (RealUSB) runbook** — `Setup-USB.bat` (wipes a USB, makes four GPT/NTFS

@@ -503,9 +503,13 @@ function Read-Manifest {
 function Write-Manifest {
     <#
     .SYNOPSIS
-        Writes the canonical 9-column MANIFEST.csv to a folder.
+        Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+        witness sidecar so the index can be proven intact at restore time.
+    .NOTES
+        Sole writer of MANIFEST.csv.meta (SR-038) — every origin is covered here
+        rather than in the callers, so the witness cannot drift from its manifest.
     #>
-    # Implements: SR-025, LLR-025
+    # Implements: SR-025, SR-038, LLR-025, LLR-038
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderPath,

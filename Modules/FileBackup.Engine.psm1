@@ -35,7 +35,7 @@ function Test-IsInfrastructureFile {
         state file). Nested user files that happen to share those names are NOT
         treated as infrastructure — that is the B6 fix.
     #>
-    # Implements: SR-022, LLR-022
+    # Implements: SR-022, SR-038, LLR-022, LLR-038
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Root,

@@ -48,12 +48,12 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 9. `Update-SourceManifest` — Walks the source tree, (re)hashes new/changed files (and all files when
 10. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
 11. `Sync-BackupStorageLayout` — Migrates backup data files to match the current PreserveFolderTree /
-12. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder.
+12. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
 13. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
 14. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
 15. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
 16. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
-17. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder.
+17. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
 18. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
 19. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
 20. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
@@ -120,12 +120,15 @@ Imports (internal): _none_
 | `Get-FileBackupDefaults` | yes | — |
 | `Get-FileXxHash` | yes | SR-002, LLR-002 |
 | `Get-HashSizeFileName` | yes | SR-003, SR-021, LLR-003, LLR-021 |
+| `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |
 | `New-Logger` | yes | — |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
+| `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
-| `Write-Manifest` | yes | SR-025, LLR-025 |
+| `Write-Manifest` | yes | SR-025, SR-038, LLR-025, LLR-038 |
+| `Write-ManifestWitness` | yes | SR-038, LLR-038 |
 
 ### `Modules/FileBackup.Engine.psm1`
 
@@ -145,19 +148,19 @@ Imports (internal): `Common`
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
 | `Invoke-BackupFileGroup` | yes | SR-003, LLR-003 |
 | `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, LLR-014, LLR-017, LLR-035, LLR-036 |
-| `Move-RemovedFilesToStaging` | yes | SR-006, LLR-006 |
+| `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Resolve-BackupSetPaths` | yes | SR-014, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
-| `Save-SupersededData` | yes | SR-010, SR-028, LLR-010, LLR-028 |
+| `Save-SupersededData` | yes | SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041 |
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
 | `Sync-BackupStorageLayout` | yes | SR-012, SR-013, LLR-012, LLR-013 |
 | `Test-BackupManifest` | yes | — |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
-| `Test-IsInfrastructureFile` | yes | SR-022, LLR-022 |
+| `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024 |
 <!-- END GENERATED MODULE MAP -->

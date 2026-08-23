@@ -27,14 +27,16 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-22, Full tier):** **65/65 Pester unit, lint
-  clean, trace SN=24 SR=37 LLR=36 TC=64 with 0 orphans / 0 integrity /
-  0 status-findings / 2 phase-deferred (bash-v2, container-v1), integration
-  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps passed").
-  This closes the post-2026-08-12 Full-tier gap that was blocking G3 sign-off.
-  (First attempt crashed on an environment defect — the Subst backend's
-  free-letter probe couldn't see disconnected-but-remembered network mappings;
-  harness fixed, audit entry 2026-08-22.)
+- **Latest verified run (2026-08-23, Full tier, post-WP1):** **83/83 Pester
+  unit, lint clean, trace SN=26 SR=41 LLR=40 TC=72 with 0 orphans / 0 integrity
+  / 0 status-findings / 2 phase-deferred (bash-v2, container-v1), integration
+  236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier Full` → "All steps passed"),
+  plus **45/45 bats** and `shellcheck` clean on real Linux (WSL Fedora 40).
+  (The prior 2026-08-22 baseline — 65/65 unit, SN=24 SR=37 LLR=36 TC=64 — closed
+  the post-2026-08-12 Full-tier gap that was blocking G3 sign-off.)
+- **WP1 (restore trust & diagnostics) is implemented and self-verified
+  2026-08-23 — awaiting independent review + batch ratification.** SR-038..041
+  Verified, TC-066..073 Pass. See the audit entry below.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -142,10 +144,10 @@ work-package order follows the table.
 
 | Item | What | Disposition (human-approved 2026-08-21) | State |
 |---|---|---|---|
-| **E** | Restore can only verify rows its manifest still contains — a truncated manifest shrinks the job and still reports success. HomeHub's archive census does not port because of dedup. Partial mitigation shipped: missing-MANIFEST refusal (TC-063). | **WP1 (restore trust & diagnostics bundle).** Witness = a sidecar (e.g. `MANIFEST.csv.meta`) written atomically alongside the manifest carrying row count + xxHash128 of the manifest bytes, duplicated into each snapshot; both restorers verify it before restoring. Independent of the restore loop; portable to bash with tools already required; **subsumes the corrupt-manifest guard** (garbage manifest fails the digest). Adds an artifact to the SR-022 infrastructure allowlist — mind regression B6/TC-052. Needs its own SN/SR through G1; **blocks any "restore is trustworthy" claim.** | Open → WP1 |
-| corrupt-manifest guard | Corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1` (2026-07-03 reviewer MINOR; bash validates the header, exit 2). | **WP1**, implemented *inside* the witness change — a lone interim header check would burn a kit revision for something the witness replaces. | Open → WP1 |
-| **D** + exit-code table | `Find-DataFileByHash` collapses 4 failure causes into one warning; IF-001 promises HomeHub a translatable exit status but `Reconstruct.ps1` throws one generic failure for every cause. | **WP1.** One documented exit-code table shared by both restorers — adopt bash's existing exit 2 as the baseline, don't invent a competing scheme. Prerequisite for IF-001 leaving `Experimental` (NagLight translation needs something to translate). | Open → WP1 |
-| **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Open → WP1 |
+| **E** | Restore can only verify rows its manifest still contains — a truncated manifest shrinks the job and still reports success. HomeHub's archive census does not port because of dedup. Partial mitigation shipped: missing-MANIFEST refusal (TC-063). | **WP1 (restore trust & diagnostics bundle).** Witness = a sidecar (e.g. `MANIFEST.csv.meta`) written atomically alongside the manifest carrying row count + xxHash128 of the manifest bytes, duplicated into each snapshot; both restorers verify it before restoring. Independent of the restore loop; portable to bash with tools already required; **subsumes the corrupt-manifest guard** (garbage manifest fails the digest). Adds an artifact to the SR-022 infrastructure allowlist — mind regression B6/TC-052. Needs its own SN/SR through G1; **blocks any "restore is trustworthy" claim.** | Implemented (WP1) — awaiting independent review + batch ratification |
+| corrupt-manifest guard | Corrupt non-CSV MANIFEST.csv restores nothing yet exits 0 in `Reconstruct.ps1` (2026-07-03 reviewer MINOR; bash validates the header, exit 2). | **WP1**, implemented *inside* the witness change — a lone interim header check would burn a kit revision for something the witness replaces. | Implemented (WP1) — awaiting independent review + batch ratification |
+| **D** + exit-code table | `Find-DataFileByHash` collapses 4 failure causes into one warning; IF-001 promises HomeHub a translatable exit status but `Reconstruct.ps1` throws one generic failure for every cause. | **WP1.** One documented exit-code table shared by both restorers — adopt bash's existing exit 2 as the baseline, don't invent a competing scheme. Prerequisite for IF-001 leaving `Experimental` (NagLight translation needs something to translate). | Implemented (WP1) — awaiting independent review + batch ratification |
+| **J** | Backup-side move loops (`Move-RemovedFilesToStaging`, `Save-SupersededData`) abort on first failure instead of aggregating like restore's `$unrestored`. | **WP1** companion (same fail-loudly theme), or immediately after. Small. | Implemented (WP1) — awaiting independent review + batch ratification |
 | config contract | IF-001's import half is under-specified: `FileBackup.ps1`'s JSON branch is a bare `ConvertFrom-Json` — no schema, no version field, no validation, no test; `container/FileBackup.example.json` is never executed by any test (TC-060 generates its own config). | **WP2.** Versioned JSON schema + validating loader that fails loudly (SR + LLR + TC executing the example file itself). JSON becomes the canonical documented contract; CLIXML stays the legacy native-Windows path. Top HomeHub-facing priority after E. Blocks IF-001 moving past `Experimental`. | Open → WP2 |
 | multi-set mounts | How HomeHub maps N host directories onto container paths was unspecified. | **RESOLVED by ruling, WP2 records it:** **one BackupSet per container invocation**; HomeHub runs one service/invocation per directory (matches its per-service scheduling + NagLight model, keeps mounts trivial). Multi-set stays a native-Windows convenience. Recorded in IF-001. | Ruled — document in WP2 |
 | container release-verify | SR-034/TC-060 are `Implemented`/`Draft`; CI runs **BuildAndTest only** — Export/Publish/Pull and a `docker load` roundtrip are never exercised; no local `check.ps1` tier runs the container step. | **WP3.** Extend the CI job: Export → `docker load` roundtrip; Publish/Pull against a throwaway `registry:2` container in-job. Then TC-060 → Pass, SR-034 → Verified, **re-arm the ratchet to `--phase core,bash-v1,container-v1`.** Blocks calling container-v1 released. | In CI (partial) → WP3 |
@@ -1172,3 +1174,138 @@ Evidence (real output, 2026-08-22, post-harness-fix): `check.ps1 -Tier Full`
 0 integrity / 0 status-findings / 2 phase-deferred** · Pester unit **65/65** ·
 integration **236 PASS / 0 FAIL / 4 SKIP** → "All steps passed." The G3 row in
 Gate Sign-offs is marked APPROVE 2026-08-22 accordingly.
+
+### DRIVER (Software + Test Engineer hats) — WP1 restore trust & diagnostics — 2026-08-23
+
+Executed [plans/wp1-restore-trust-plan.md](plans/wp1-restore-trust-plan.md) end
+to end under the 2026-08-22 grind authorization (batch ratification). Closes
+Open-items rows **E**, **corrupt-manifest guard**, **D + exit-code table**, and
+**J**. Ids minted and closed: **SN-025..026, SR-038..041, LLR-038..041,
+TC-066..073.**
+
+**What landed, by phase**
+
+- **Registries** (`a6ddc5f`) — SN/SR/LLR/TC rows + the IF-001 contract amendment
+  (exit-code table + witness promise; `SR-Refs` now `SR-034;SR-038;SR-039;SR-040`).
+  IF-001 stays `v1`/`Experimental` — WP2's config contract is the remaining blocker.
+- **Phase A — manifest witness writer** (`ae0bd26`, SR-038 / TC-066, TC-067).
+  `Write-Manifest` now stamps `MANIFEST.csv.meta` (`Version`, `Rows`, `Bytes`,
+  `XxH128`, `Written`; UTF-8 no BOM, LF) beside every manifest it writes,
+  published by `Move-Item -Force` (atomic rename). One writer, so backup root,
+  staging, dated snapshots, the source hash cache and every rewrite are covered
+  and cannot drift. `Get-ManifestWitnessPath` / `Write-ManifestWitness` /
+  `Test-ManifestWitness` live in **Common** (Reconstruct may call only Common).
+  The witness joins `Test-IsInfrastructureFile`'s **root-level** allowlist only —
+  a nested `sub\MANIFEST.csv.meta` is still user data (B6). It is deliberately
+  **not** a kit artifact: copying it into snapshots would overwrite each
+  snapshot's own witness with the backup root's. TC-067 pins both halves.
+- **Phases B+C — exit-code contract + witness verification** (`3ee8f5b`,
+  SR-039/SR-040 / TC-068..072). One documented table in both restorers: **0**
+  complete · **1** incomplete/content · **2** usage or precondition · **3**
+  witness verification failed · **4** incomplete/host (retriable), precedence
+  **2 > 3 > 4 > 1**. `Find-DataFileByHash` / `find_by_hash` now return a distinct
+  cause (`ContentMissing`, `DependencyMissing`, `StorageUnreadable`,
+  `CandidateError`) instead of collapsing four failures into one warning, and the
+  summary names the count per class. Both restorers check the CSV header shape
+  and, when a witness is present, `Bytes`/`Rows`/`XxH128` before writing any
+  manifest row. A missing sidecar warns `UNVERIFIED` and continues so **legacy
+  backups still restore**; `-RequireWitness` / `--require-witness` makes absence
+  an abort. Delivery is opt-in: `Reconstruct.ps1` still **throws** for in-process
+  callers and only exits with a code under `-ExitCode`, which `RECONSTRUCT.bat`
+  now passes — so the six `Should -Throw` assertions and the harness are untouched.
+- **Phase D — move-loop failure aggregation** (`60496b3`, SR-041 / TC-073).
+  `Move-RemovedFilesToStaging` and `Save-SupersededData` wrap each move in
+  try/catch, log an ERROR naming file and cause, count it, continue, and emit a
+  per-loop summary; both take `[ref]$OverallSuccess`. `Invoke-BackupSet` passes
+  the ref and does **not** early-return, so step 13 still finalizes or discards
+  the staging folder. Before this, one failed `Move-Item` escaped the pipeline,
+  hid every other failure, skipped snapshot finalization and left `Temp` behind —
+  so the *next* run aborted on the SR-017 stale-staging guard (finding J).
+- **Phase E — kit, fixtures, docs.** `Invoke-Container.ps1`'s smoke assertion
+  six → seven artifacts; `tests/fixtures/bash-restore/**` regenerated so every
+  fixture manifest carries a matching witness (the hand-built manifest in
+  `fail_loudly.bats` stays witness-less on purpose, pinning the legacy path);
+  README gained "Restore exit codes" (normative) plus witness prose in
+  "3. Restore", "Restore on Linux", "How it works" and "Manifest columns";
+  AGENTS.md §2/§3/§4 gained the witness invariant, the exit-code invariant and
+  the deliberate crash-window note; `bash-variant-plan.md`'s contract table
+  gained both rows; generated blocks regenerated.
+
+**Evidence (real output, 2026-08-23)**
+
+`pwsh scripts/check.ps1 -Tier Full`:
+
+```
+[PASS] PSScriptAnalyzer
+==== Traceability (trace.py --strict) ====
+Traceability: SN=26 SR=41 LLR=40 TC=72 orphans=0 integrity=0 status-findings=0 phase-deferred=2. Report -> docs\test\report.md
+[PASS] Traceability (trace.py --strict)
+[PASS] Doc navigability (check_docs.py)
+[PASS] Architecture map freshness
+Tests Passed: 83, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+[PASS] Pester unit
+[PASS] Performance budgets (check_perf.py)
+[PASS] Integration sweep (Full)
+All steps passed.
+```
+
+Integration sweep detail: **PASS: 236 · FAIL: 0 · SKIP: 4** (G8 SKIPs under Subst).
+
+G3 ratchet, `python scripts/trace.py --strict --require-verified --phase core,bash-v1`:
+
+```
+Traceability: SN=26 SR=41 LLR=40 TC=72 orphans=0 integrity=0 status-findings=0 phase-deferred=2. Report -> docs\test\report.md
+```
+
+Real Linux (WSL `podman-machine-default`, Fedora 40) — `shellcheck bash/reconstruct.sh`
+clean, `bats tests/bash` **45/45 ok** (was 24; +11 `witness.bats`, +10 `exit_codes.bats`):
+
+```
+ok 43 --require-witness turns a missing witness into a refusal (SR-039)
+ok 44 a witness from the FUTURE verifies the known fields and warns (SR-039)
+ok 45 each SNAPSHOT carries its OWN witness, not the backup root's (SR-038)
+```
+
+**Decisions taken (per plan §6, flagged for batch ratification)**
+
+1. `-ExitCode` switch for PowerShell exit-code delivery; `throw` stays the default.
+2. Engine-side witness verification before mutating a backup deferred to WP5's
+   `-VerifyStorage`.
+3. `Rows` counted as `Import-Csv` / `parse_manifest` count them; `XxH128` stays
+   authoritative, so a counting divergence can never alone condemn a good manifest.
+4. SN-025 in the edge-case table, SN-026 in core needs.
+
+**Deviations from the plan, and why**
+
+- **Phases B and C landed in one commit** (`3ee8f5b`). They rewrite the same
+  functions in both restorers (`Read-RawManifest` / `main()`'s guard region and
+  the shared exit path); splitting them would have required an intermediate
+  state that is neither meaningful nor independently reviewable. Both phases'
+  tests are present and green.
+- **A third manifest-tampering test site** beyond the two the plan's §5 table
+  named: `Coverage.Tests.ps1`'s SR-023 capacity test also rewrites `MANIFEST.csv`
+  and now re-stamps the witness. `G3-Reconstruction.ps1`'s hash-fallback blanking
+  was a fourth; `tests/Run-All.ps1` now imports Common so suites can re-stamp.
+- **A "replaced by garbage" manifest exits 2, not 3.** The plan's normative table
+  (§2) and its §5 regression row both put an unrecognizable header at code 2 (the
+  pre-existing guard `fail_loudly.bats` pins), while TC-068/TC-069's summary prose
+  loosely said "witness failure" for all three damage kinds. Implemented per the
+  normative table (precedence 2 > 3) and **truthed-up the two TC Expected cells**
+  to say so. No design change.
+- **A real bug found while implementing bash Phase B:** the first cut set the
+  recovery cause in shell globals, but `find_by_hash` is called through command
+  substitution — a subshell — so the cause never reached the caller and exit 4
+  could never fire. The cause now travels in the function's **output**
+  (`<cause>\037<detail>\037<path>`). Caught by TC-071, which is the point of it.
+
+**Known asymmetry for the reviewer.** On a witness failure the bash restorer
+writes *nothing at all* (its check sits before `mkdir -p` on the target), while
+`Reconstruct.ps1` has already created the target directory and `RECONSTRUCT.log`
+by the time `Read-RawManifest` runs — the placement the plan specifies for each.
+Neither writes a manifest **row**, which is the contract ("no file is written to
+the target" = no restored data), and both TCs assert exactly that. Worth a
+reviewer ruling on whether to align them.
+
+**Next action (awaiting human):** independent review of the WP1 data-integrity
+surface (witness write/verify path, exit-code classification, move-loop
+aggregation), then batch ratification alongside the other WPs.
