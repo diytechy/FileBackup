@@ -161,8 +161,15 @@ format for containers and HomeHub, and the one this README's examples and
 declares a `ConfigVersion` (currently `1`); the schema is **closed** — any key
 it doesn't recognize (a typo like `AllowEmptySources`) aborts the run before
 anything is touched, naming the offending key and its JSON path — and
-booleans are real JSON booleans (a quoted `"false"` is rejected, never
-silently coerced to `true`). `container/FileBackup.schema.json` publishes the
+**every** value must have the JSON type the schema gives it. Booleans are real
+JSON booleans (a quoted `"false"` is rejected, never silently coerced to
+`true` — PowerShell's `[bool]'false'` *is* `$true`, so for `AllowEmptySource`
+that coercion would disarm the delete-all refusal), paths are real JSON
+strings (`["x","y"]` is rejected rather than flattened to the literal path
+`x y`), and `Secrets.SmtpPort` is a number. JSON has a single number type, so
+an integral-valued number *is* that integer: `"ConfigVersion": 1.0` is the
+same document as `1`, while `1.5` is refused.
+`container/FileBackup.schema.json` publishes the
 same contract as a JSON Schema (draft-07) for editor support; the hand-rolled
 PowerShell validator in `FileBackup.Engine.psm1` is the runtime authority, and
 a test (TC-077) pins the two together so the published schema cannot drift.
@@ -238,9 +245,14 @@ more than one set is accepted (a legitimate native-Windows use) but logs a
 
 `FileBackup.ps1 -ExitCode` (passed by `container/entrypoint.sh`) reports
 outcome as a process exit code instead of only a terminating error: `0`
-complete, `1` a backup set failed, `2` the configuration could not be loaded
-or violates the contract above — the same usage/precondition class as the
-restore table in "Restore exit codes". Without `-ExitCode`, a configuration
+complete, `1` a backup set failed, `2` the configuration could not be loaded —
+the file is **missing** or unreadable, or it violates the contract above — the
+same usage/precondition class as the restore table in "Restore exit codes". A
+supervisor can therefore tell "your config is wrong, retrying will not help"
+from "the backup failed". A refused run creates **nothing**: no log directory
+is made and the previous run's global log is left byte-for-byte intact (the
+message goes to stderr, and is appended to that log only if it already
+exists). Without `-ExitCode`, a configuration
 problem is a terminating error and a failed set still yields a non-zero exit,
 unchanged from before this contract existed.
 

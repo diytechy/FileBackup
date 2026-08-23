@@ -27,8 +27,8 @@ last) — it is the record, not required reading for every pass.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes —
   advance to G-Release only after WP6)
-- **Latest verified run (2026-08-23, Full tier, post-WP1-review-fixes):**
-  **108/108 Pester unit, lint clean, trace SN=27 SR=43 LLR=42 TC=77 with
+- **Latest verified run (2026-08-23, Full tier, post-WP1- AND WP2-review-fixes):**
+  **172/172 Pester unit, lint clean, trace SN=27 SR=43 LLR=42 TC=77 with
   0 orphans / 0 integrity / 0 status-findings / 2 phase-deferred (bash-v2,
   container-v1), integration 236 PASS / 0 FAIL / 4 SKIP** (`check.ps1 -Tier
   Full` → "All steps passed"), plus **48/48 bats** and `shellcheck` clean on
@@ -37,9 +37,13 @@ last) — it is the record, not required reading for every pass.
   (APPROVE-WITH-MINORS 2026-08-22) and the accepted findings are landed
   2026-08-23 — awaiting batch ratification.** SR-038..041 Verified,
   TC-066..073 Pass. See the audit entries below.
-- **WP2 (config contract) is implemented and self-verified 2026-08-23 —
-  awaiting independent review + batch ratification.** SR-042..043 Verified,
-  TC-074..078 Pass. See the audit entry below.
+- **WP2 (config contract) is implemented, independently reviewed
+  (CHANGES-REQUESTED 2026-08-22 — a quoted `"false"` for `AllowEmptySource`
+  coerced to `$true` and disarmed the delete-all refusal) and every accepted
+  finding is landed 2026-08-23 — awaiting batch ratification.** SR-042..043
+  Verified, TC-074..078 Pass, all three config test cases now driven from the
+  one shared corpus `tests/Common/ConfigFixtures.ps1`. See the audit entries
+  below.
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -1637,3 +1641,131 @@ wsl bash -lc "shellcheck bash/reconstruct.sh" -> clean
 
 **Next action (awaiting human):** batch ratification of WP1 (implementation +
 review + these fixes) alongside WP2; then the WP3 container/release pass.
+
+### INDEPENDENT REVIEWER (Opus subagent) — WP2 config contract — 2026-08-22
+
+**Verdict: CHANGES-REQUESTED.** Read-only pass over the committed WP2 surface
+(`444ee8f..ba1ee48`): the loader, the entry point, the published schema, the
+fixtures and the registries. The blocking finding is a **data-loss** one, with a
+reproduction:
+
+- **HIGH — only two booleans were type-checked.** `Test-BackupConfigurationShape`
+  applied its strict-type rule to `CompressEnabled`/`PreserveFolderTree` only, so
+  `"AllowEmptySource": "false"` — a JSON *string* — sailed through the closed-schema
+  check and reached `Resolve-BackupSetDefaults`, where `[bool]'false'` is `$true` in
+  PowerShell. The reviewer ran it: the delete-all refusal (SR-036) was **disarmed by
+  a quoting mistake**, the run wiped the backup root and exited **0**. Same class:
+  `"SourcePath": ["x","y"]` became the literal path `x y` via `[string]`.
+- **HIGH — one corpus, seven schema↔validator divergences.** TC-077's accepted /
+  rejected fixture lists were a hand copy of TC-074/075's, and schema and validator
+  disagreed on the six type cases above, on a bare single-set object (the plan says
+  accepted-and-wrapped; the schema said array-only) and on `ConfigVersion: 1.0`.
+- **MEDIUM — a missing config file exited 1, not 2.** The `Test-Path` existence check
+  sat *outside* the try that maps config failures — telling NagLight to retry forever
+  on the likeliest container misconfiguration of all.
+- **MEDIUM — a refused config truncated the previous run's global log.** Logger
+  creation had been moved *before* validation, and `New-Logger` truncates
+  (`New-Item -Force`), falsifying TC-075's "no artifact is created by a refused run".
+- **MINORS** — TC-074's `Add-Member ConfigVersion` escape hatch defeated the very
+  drift the fixture exists to catch; TC-076's 7-Zip skip guard ran *before* the cheap
+  keys-only contract check (and CI's `unit` job had no 7-Zip precondition); a literal
+  `$.BackupSets[?]` in the message instead of the real index; AGENTS.md's test counts;
+  no explicit numeric-range guard on `ConfigVersion`; `container/entrypoint.sh` missing
+  from CI's shellcheck list; `Test-Json -Path` needs pwsh 7.4, above the stated floor.
+
+### DRIVER (Software + Test Engineer hats) — WP2 review fixes — 2026-08-23
+
+Landed every accepted finding above. The behavior changes are confined to
+configuration loading and the entry point's failure path; the backup pipeline,
+the restore path and the CLIXML branch are untouched.
+
+**What landed, by finding**
+
+- **Every schema value is type-checked now (HIGH).** `Test-BackupConfigurationShape
+  -StrictTypes` validates each value against its JSON type through a new
+  `Test-ConfigValueJsonType` (+ `Test-IsJsonNumber`, `Get-ConfigValueJsonTypeName`):
+  JSON strings for `Name`/`SourcePath`/`BackupPath`/`ChangePath`/`HashRecalcFreq`/
+  `SourceStatePath`/`Tools.*`/the `Secrets` strings, JSON booleans for
+  `CompressEnabled`/`PreserveFolderTree`/**`AllowEmptySource`**, a JSON integer for
+  `Secrets.SmtpPort`, and the container types of `BackupSets`/`Tools`/`Secrets`. No
+  coercion can run before the type is known, so the reviewer's exploit is dead at the
+  door (re-run below). Fixtures added for AllowEmptySource-string, SourcePath-array,
+  Name-number, SourceStatePath-number, Tools.SevenZipPath-number and
+  HashRecalcFreq-array (`[string]@('A')` is `'A'`, so the array used to pass the enum
+  check as well).
+- **ONE shared fixture corpus (HIGH).** New `tests/Common/ConfigFixtures.ps1` holds
+  7 accepted + 27 rejected fixtures with their expected message; TC-074, TC-075 **and**
+  TC-077 all drive it via Pester `-ForEach`, so a divergence can no longer hide in a
+  hand copy and a new defect is written down once. Schema alignment: `BackupSets` is
+  now `anyOf [array-of-set, set]` (the bare single object the plan promised and the
+  loader always wrapped), and `ConfigVersion`'s `const: 1` is documented as accepting
+  an integral-valued number — JSON has one number type, so `1.0` **is** `1`, for the
+  schema (verified: `Test-Json` returns True) and the validator alike; `1.5`, `0`,
+  `"1"` and anything above 1 are refused by both.
+- **A missing config file exits 2 (MEDIUM).** The existence check routes through
+  `Exit-ConfigFailure` like every other config failure, so it exits 2 under `-ExitCode`
+  and still *throws* without it (the harness and `Engine.Tests.ps1` rely on the throw).
+  An unsupported extension does the same.
+- **A refused run creates nothing (MEDIUM).** Log-*file* creation is deferred until
+  after `Import-BackupConfiguration` succeeds; the config-time messages (the multi-set
+  `WARN`) are buffered and flushed once the log exists — the same pattern
+  `Reconstruct.ps1` uses for its pre-target lines. `Exit-ConfigFailure` writes to
+  stderr and *appends* to the global log only when that file already exists, so the
+  previous run's log is never truncated and no log directory is created. TC-075's
+  registry claim is now true, and TC-078 asserts both halves.
+- **Minors.** TC-074's `Add-Member ConfigVersion` escape hatch is gone (the example is
+  loaded verbatim from disk); TC-076's cheap keys-only diff now runs **before** the
+  7-Zip skip guard and CI's `unit` job asserts 7-Zip is present (mirroring
+  `integration-subst`); messages name `$.BackupSets[<real index>]`; `ConfigVersion` is
+  range-checked *before* the `[int]` cast (an out-of-Int64 version is refused as an
+  unsupported version, not by fractional-representation luck); `container/entrypoint.sh`
+  joined CI's shellcheck list (clean); `Test-Json` is called with `-Json`/`-Schema`
+  **strings** because `-Path`/`-SchemaFile` need pwsh 7.4 and AGENTS.md's floor is
+  PowerShell 7+; AGENTS.md §6's totals corrected to the measured counts.
+
+**Evidence (all genuinely run, 2026-08-23)**
+
+```
+# The reviewer's AllowEmptySource repro, re-run against the fixed loader:
+run 1 exit=0  backup files=10
+  stderr: FileBackup: Config '...\config.json' is invalid:
+          $.BackupSets[0].AllowEmptySource - must be a JSON boolean,
+          not string ('false') (expected a JSON boolean).
+run 2 exit=2 (expect 2)
+backup still holds keepme.txt: True
+previous log preserved: True
+
+Invoke-Pester tests\Unit           -> Tests Passed: 172, Failed: 0   (was 108)
+python scripts/trace.py --strict --require-verified --phase core,bash-v1
+  -> Traceability: SN=27 SR=43 LLR=42 TC=77 orphans=0 integrity=0
+     status-findings=0 phase-deferred=2
+pwsh scripts/gen_arch_map.ps1  -> Updated generated regions in docs\architecture.md
+                                  Updated generated regions in AGENTS.md
+wsl shellcheck -x bash/reconstruct.sh container/entrypoint.sh
+    tests/bash/helpers.bash tests/bash/verify_restores.sh   -> SHELLCHECK-CLEAN
+wsl bats tests/bash/  -> ok 48 (1..48, all ok)
+pwsh scripts/check.ps1 -Tier Full  (exit 0)
+  -> "  PASS: 236   FAIL: 0   SKIP: 4"          (SKIP = G8 RealVolume x4 modes)
+     "[PASS] Integration sweep (Full)"
+     "================ check.ps1 (tier Full, gate G3) ================
+      All steps passed." 
+```
+
+**Deviations from the work order (small, deliberate).**
+- **The type checker is three module-private helpers, not an inline block.**
+  `Test-ConfigValueJsonType` / `Test-IsJsonNumber` / `Get-ConfigValueJsonTypeName` are
+  exported to nobody but appear in the generated module map (regenerated). The integral
+  test avoids both `[math]::Floor` (ambiguous overload for the `BigInteger` a huge JSON
+  number parses to) and culture-dependent string formatting.
+- **`Secrets.Credential` in JSON keeps its own named error** rather than folding into
+  the generic unknown-key message — it is the one key with a real remediation
+  ("use CLIXML, or `-NoMail`").
+- **SR-042/SR-043 stay `Verified`** (they were flipped in WP2 phase F): the new
+  fixtures land green in the same commit, so there is no window where the claim is
+  unbacked. SR-042/043's Requirement and AcceptanceCriteria cells were truthed up to
+  state the full type rule, the missing-file case and the no-artifacts guarantee;
+  LLR-042/043's Detail and TC-074..078's Parameters/Expected likewise.
+
+**Next action (awaiting human):** batch ratification of WP1 **and WP2**
+(implementation + independent review + these fixes); then the WP3
+container/release pass.
