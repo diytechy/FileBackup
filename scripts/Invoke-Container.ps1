@@ -73,6 +73,7 @@ function Invoke-ImageBuild {
 function New-SmokeConfiguration {
     param([Parameter(Mandatory)][string]$Path)
     [ordered]@{
+        ConfigVersion = 1
         Tools = [ordered]@{ SevenZipPath = '/usr/bin/7z' }
         BackupSets = @(
             [ordered]@{

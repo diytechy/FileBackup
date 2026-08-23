@@ -181,6 +181,7 @@ The equivalent container-oriented JSON is:
 
 ```json
 {
+  "ConfigVersion": 1,
   "Tools": { "SevenZipPath": "/usr/bin/7z" },
   "BackupSets": [{
     "Name": "MainData",

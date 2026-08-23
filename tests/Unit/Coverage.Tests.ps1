@@ -927,3 +927,136 @@ Describe 'Move loops aggregate failures (SR-041)' {
         (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) | Should -Not -Match 'stale'
     }
 }
+
+Describe 'The shipped example config is executable (SR-042)' {
+    BeforeAll {
+        function Get-JsonKeyShape {
+            <#
+            .SYNOPSIS
+                Recursively collects "<path>=<JSON-type>" strings for every key
+                in a ConvertFrom-Json object, so two documents can be proven
+                key-identical without caring about their (path) values.
+            #>
+            param($Node, [string]$JsonPath = '$')
+            $out = [string[]]@()
+            if ($null -eq $Node) { return , $out }
+            if ($Node -is [System.Management.Automation.PSCustomObject]) {
+                foreach ($prop in ($Node.PSObject.Properties.Name | Sort-Object)) {
+                    $childPath = "$JsonPath.$prop"
+                    $out += $childPath
+                    $out += @(Get-JsonKeyShape -Node $Node.$prop -JsonPath $childPath)
+                }
+            } elseif ($Node -is [array]) {
+                for ($i = 0; $i -lt $Node.Count; $i++) {
+                    $out += @(Get-JsonKeyShape -Node $Node[$i] -JsonPath "$JsonPath[$i]")
+                }
+            }
+            # Comma-prefix: an empty array would otherwise enumerate to zero
+            # pipeline objects on return, making the captured result $null.
+            return , $out
+        }
+    }
+
+    It 'runs the checked-in container/FileBackup.example.json, with only its paths and 7-Zip path retargeted, to a byte-exact restore (SR-042, SR-034)' {
+        $exampleFile = Join-Path $repo 'container\FileBackup.example.json'
+        $exampleObj  = Get-Content -LiteralPath $exampleFile -Raw | ConvertFrom-Json
+
+        $src = Join-Path $TestDrive 'ex76\src'; $state = Join-Path $TestDrive 'ex76\state'
+        $bkp = Join-Path $TestDrive 'ex76\bkp'; $chg = Join-Path $TestDrive 'ex76\chg'
+        New-Item -ItemType Directory -Path $src, $state -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $src 'report.txt'), ('EXAMPLE CONFIG DATA ' * 500))
+
+        # Retarget ONLY the path fields and the 7-Zip tool path; every other key
+        # (ConfigVersion, Name, HashRecalcFreq, CompressEnabled, PreserveFolderTree)
+        # is kept exactly as checked in.
+        $exampleObj.BackupSets[0].SourcePath      = $src
+        $exampleObj.BackupSets[0].SourceStatePath = $state
+        $exampleObj.BackupSets[0].BackupPath      = $bkp
+        $exampleObj.BackupSets[0].ChangePath      = $chg
+        $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            Set-ItResult -Skipped -Because "No 7-Zip found at the platform default '$sevenZip'; TC-076 needs a real 7-Zip to exercise the example's CompressEnabled=true set."
+            return
+        }
+        $exampleObj.Tools.SevenZipPath = $sevenZip
+
+        # Keys-only diff (SR-042): the executed document must be key-identical to
+        # the checked-in example, so the example can no longer silently drift
+        # from the contract it is supposed to demonstrate.
+        $checkedInShape = Get-JsonKeyShape -Node (Get-Content -LiteralPath $exampleFile -Raw | ConvertFrom-Json)
+        $executedShape  = Get-JsonKeyShape -Node $exampleObj
+        Compare-Object -ReferenceObject $checkedInShape -DifferenceObject $executedShape | Should -BeNullOrEmpty
+
+        $cfgPath = Join-Path $TestDrive 'ex76\config.json'
+        $exampleObj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cfgPath -Encoding UTF8
+
+        Invoke-FB $cfgPath
+
+        Test-Path -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+        foreach ($kit in 'RECONSTRUCT.ps1', 'RECONSTRUCT.bat', 'reconstruct.sh', 'FileBackup.Common.psm1') {
+            Test-Path -LiteralPath (Join-Path $bkp $kit) -PathType Leaf | Should -BeTrue
+        }
+
+        $target = Join-Path $TestDrive 'ex76-restore'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        $restored = Join-Path $target 'report.txt'
+        Test-Path -LiteralPath $restored -PathType Leaf | Should -BeTrue
+        (Get-FileHash -LiteralPath (Join-Path $src 'report.txt')).Hash | Should -Be (Get-FileHash -LiteralPath $restored).Hash
+    }
+}
+
+Describe 'Published JSON schema matches the validator (SR-042)' {
+    BeforeAll {
+        $schemaPath = Join-Path $repo 'container\FileBackup.schema.json'
+
+        $validSet = '"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true,"PreserveFolderTree":false'
+        $script:acceptedFixtures = @(
+            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}]}",
+            "{`"ConfigVersion`":1,`"Tools`":{`"SevenZipPath`":`"/usr/bin/7z`"},`"BackupSets`":[{$validSet}]}"
+        )
+        $script:rejectedFixtures = @(
+            '{"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true,"PreserveFolderTree":false}]}',                                          # missing ConfigVersion
+            "{`"ConfigVersion`":2,`"BackupSets`":[{$validSet}]}",                                                                                                                                                # future version
+            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Bogus`":1}",                                                                                                                                    # unknown top-level key
+            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet,`"AllowEmptySources`":true}]}",                                                                                                                     # unknown set key (typo)
+            '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false","PreserveFolderTree":false}]}',                     # string-boolean
+            '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"Q","CompressEnabled":true,"PreserveFolderTree":false}]}',                        # bad enum
+            '{"ConfigVersion":1,"BackupSets":[]}',                                                                                                                                                               # empty sets
+            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Secrets`":{`"SmtpPort`":`"abc`"}}",                                                                                                            # non-integer port
+            "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet}],`"Secrets`":{`"Credential`":`"x`"}}"                                                                                                             # JSON credential
+        )
+    }
+
+    It 'accepts every TC-074 fixture and rejects every TC-075 fixture, same as Import-BackupConfiguration' {
+        foreach ($json in $acceptedFixtures) {
+            $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
+            $json | Set-Content -LiteralPath $path -Encoding UTF8
+
+            Test-Json -Path $path -SchemaFile $schemaPath | Should -BeTrue
+            { Import-BackupConfiguration -Path $path } | Should -Not -Throw
+        }
+        foreach ($json in $rejectedFixtures) {
+            $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.json')
+            $json | Set-Content -LiteralPath $path -Encoding UTF8
+
+            (Test-Json -Path $path -SchemaFile $schemaPath -ErrorAction SilentlyContinue) | Should -BeFalse
+            { Import-BackupConfiguration -Path $path } | Should -Throw
+        }
+    }
+
+    It 'declares the shipped example, the README block, and the smoke config all at ConfigVersion 1 (the loader''s current maximum)' {
+        $exampleObj = Get-Content -LiteralPath (Join-Path $repo 'container\FileBackup.example.json') -Raw | ConvertFrom-Json
+        $exampleObj.ConfigVersion | Should -Be 1
+
+        $readme = Get-Content -LiteralPath (Join-Path $repo 'README.md') -Raw
+        if ($readme -match '(?s)```json\r?\n(\{.*?"BackupSets".*?\})\r?\n```') {
+            $readmeObj = $Matches[1] | ConvertFrom-Json
+            $readmeObj.ConfigVersion | Should -Be 1
+        } else {
+            throw "Could not locate the README JSON config block to check its ConfigVersion."
+        }
+
+        $invokeContainerSrc = Get-Content -LiteralPath (Join-Path $repo 'scripts\Invoke-Container.ps1') -Raw
+        $invokeContainerSrc | Should -Match 'ConfigVersion\s*=\s*1'
+    }
+}

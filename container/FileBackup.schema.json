@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/filebackup/FileBackup/container/FileBackup.schema.json",
+  "title": "FileBackup configuration (SR-042)",
+  "description": "Versioned JSON configuration contract for FileBackup.ps1 -ConfigPath. Published as documentation/editor support; the hand-rolled PowerShell validator in Modules/FileBackup.Engine.psm1 (Import-BackupConfiguration) is the runtime authority. TC-077 pins the two against one fixture corpus so this file cannot drift from the validator. CLIXML configs are the unversioned legacy native-Windows form and are not covered by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ConfigVersion", "BackupSets"],
+  "properties": {
+    "ConfigVersion": {
+      "description": "Currently 1. A config declaring a higher version is refused by this build.",
+      "const": 1
+    },
+    "BackupSets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/backupSet" }
+    },
+    "Tools": { "$ref": "#/definitions/tools" },
+    "Secrets": { "$ref": "#/definitions/secrets" }
+  },
+  "definitions": {
+    "backupSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Name", "SourcePath", "BackupPath", "ChangePath", "HashRecalcFreq",
+        "CompressEnabled", "PreserveFolderTree"
+      ],
+      "properties": {
+        "Name":               { "type": "string", "minLength": 1 },
+        "SourcePath":         { "type": "string", "minLength": 1 },
+        "BackupPath":         { "type": "string", "minLength": 1 },
+        "ChangePath":         { "type": "string", "minLength": 1 },
+        "HashRecalcFreq": {
+          "type": "string",
+          "enum": ["A", "E", "D", "W", "M", "Y", "N", "a", "e", "d", "w", "m", "y", "n"]
+        },
+        "CompressEnabled":    { "type": "boolean" },
+        "PreserveFolderTree": { "type": "boolean" },
+        "SourceStatePath": {
+          "type": "string",
+          "description": "Optional; defaults to SourcePath. Required in practice for a read-only container source."
+        },
+        "AllowEmptySource": {
+          "type": "boolean",
+          "description": "Optional; defaults to false. Set true only for an intentional delete-all."
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "SevenZipPath": { "type": "string" },
+        "FfprobePath":  { "type": "string" }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Secrets.Credential is intentionally NOT a listed property: JSON cannot carry a PSCredential, and additionalProperties:false rejects it. Containerized runs are -NoMail.",
+      "additionalProperties": false,
+      "properties": {
+        "ToEmail":    { "type": "string" },
+        "FromEmail":  { "type": "string" },
+        "SmtpServer": { "type": "string" },
+        "SmtpPort":   { "type": "integer" }
+      }
+    }
+  }
+}
