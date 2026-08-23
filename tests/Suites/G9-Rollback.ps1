@@ -231,11 +231,17 @@ function Invoke-G9Prune {
             (Get-G9PhysicalCopyCount -Env $Env -Hash $cHash -Length $cLen) -eq 1
         }
         foreach ($name in @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.Name })) {
+            # The expectation comes from that snapshot's OWN manifest, never
+            # from the restore output being judged: reading it back from the
+            # target made the assertion self-fulfilling, so losing f.txt passed
+            # vacuously (WP4 review, finding M2).
+            $expectF = @(Read-Manifest -FolderPath (Join-Path $Env.ChgPath $name) |
+                         Where-Object { $_.RelativePath -eq 'f.txt' }).Count -gt 0
             $t = RestoreTo $Env (Join-Path $Env.ChgPath $name) ('g9c-' + $name)
-            $expectF = (Test-Path -LiteralPath (Join-Path $t 'f.txt'))
             Assert-True $suite $group 'G9.10' ("Cycle_state_restores_" + $name) {
                 (TextAt (Join-Path $t 'steady.txt') 'STEADY') -and
-                ((-not $expectF) -or (TextAt (Join-Path $t 'f.txt') $C))
+                $(if ($expectF) { TextAt (Join-Path $t 'f.txt') $C }
+                  else { -not (Test-Path -LiteralPath (Join-Path $t 'f.txt')) })
             }
         }
     }

@@ -37,7 +37,8 @@ BeforeAll {
             can only reach by hash (Save-SupersededData parks superseded bytes
             in the newest snapshot — the expensive prune case).
         #>
-        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false,
+              [bool]$SuffixNamedUserFiles = $false)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
@@ -50,6 +51,14 @@ BeforeAll {
         # B6: a NESTED file named like infrastructure is user data and must
         # travel through prune like any other content.
         [IO.File]::WriteAllText((Join-Path $src 'sub\MANIFEST.csv'), 'nested,not,infrastructure' * 5)
+        # WP4 review finding H1: a genuine user file whose name ends in the
+        # prune mechanism's staging suffix. In Mirror mode it is stored at its
+        # verbatim path, so a bare-suffix sweep destroyed it in every folder at
+        # once. Root-level AND nested, because the sweep recursed.
+        if ($SuffixNamedUserFiles) {
+            [IO.File]::WriteAllText((Join-Path $src 'notes.fbprune.tmp'), 'USER CONTENT THAT MERELY LOOKS LIKE RESIDUE ' * 3)
+            [IO.File]::WriteAllText((Join-Path $src 'sub\notes.fbprune.tmp'), 'NESTED USER CONTENT ' * 7)
+        }
         & $run ([datetime]'2024-01-01 00:00:01')                        # state1
         [IO.File]::WriteAllText((Join-Path $src 'super.txt'), 'VERSION-TWO ' * 40)
         & $run ([datetime]'2024-02-02 00:00:02')                        # state2 => Snapshot(D1)
@@ -1517,6 +1526,30 @@ Describe 'Prune refuses before mutating (SR-046)' {
         @{ Kind = 'witness-absent'; Code = 3; Target = $null; Extra = @{}; Induce = {
                 param($e) Remove-Item -LiteralPath (Get-ManifestWitnessPath -FolderPath $e.Bkp) -Force } }
         @{ Kind = 'no-7zip'; Code = 2; Target = $null; Extra = @{ SevenZipPath = 'Z:\no\such\7z.exe' }; Compress = $true; Induce = { param($e) } }
+        # The two plan-time rails WP4 shipped untested (review finding M3). The
+        # reviewer hand-verified destination-collision; both are pinned here.
+        @{ Kind = 'destination-collision'; Code = 2; Target = $null; Extra = @{}; Induce = {
+                param($e)
+                # Occupy the elected destination name with DIFFERENT bytes:
+                # identical bytes are an interrupted run's completed copy and
+                # must NOT refuse, anything else must never be overwritten.
+                $plan = Get-SnapshotPrunePlan -BackupRoot $e.Bkp -ChangeRoot $e.Chg -Name $e.Newest
+                $item = $plan.Items.ToArray()[0]
+                [IO.File]::WriteAllText((Join-Path $item.DestinationFolder $item.DestinationDataPath),
+                                        'A DIFFERENT FILE IS ALREADY PARKED ON THIS NAME') } }
+        @{ Kind = 'infrastructure-name'; Code = 2; Target = $null; Extra = @{}; Induce = {
+                param($e)
+                # Make the endangered row's re-homed name a ROOT-LEVEL
+                # infrastructure name at the destination — hash recovery skips
+                # those (B6), so re-homing onto one would hide the bytes.
+                $plan   = Get-SnapshotPrunePlan -BackupRoot $e.Bkp -ChangeRoot $e.Chg -Name $e.Newest
+                $item   = $plan.Items.ToArray()[0]
+                $folder = Join-Path $e.Chg $e.Newest
+                Rename-Item -LiteralPath (Join-Path $folder $item.SourceDataPath) -NewName 'backup.log'
+                $rows = @(Read-Manifest -FolderPath $folder)
+                $row  = @($rows | Where-Object { $_.DataPath -eq $item.SourceDataPath })[0]
+                $row.DataPath = 'backup.log'; $row.RelativePath = 'backup.log'
+                Write-Manifest -FolderPath $folder -Records $rows } }
     ) {
         $root = Join-Path $TestDrive ('tc084-' + $Kind + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
         $env  = New-PruneTimeline -Root $root -Compress ([bool]$Compress)
@@ -1557,6 +1590,64 @@ Describe 'Prune refuses before mutating (SR-046)' {
 
         $refusals = Get-Refusal -Env $env -Name $env.Newest -Extra @{ AllowUnverifiedIndex = $true }
         @($refusals | Where-Object { $_.Kind -eq 'witness-mismatch' })[0].Code | Should -Be 3
+    }
+
+    # TC-084's capacity rail (review finding M3). WP4 grouped destinations by
+    # `Split-Path -Qualifier` INSIDE a Group-Object key, which throws on a UNC
+    # path and took the whole rail with it (the Get-PSDrive fallback was
+    # swallowed), so on a UNC store the rail silently did not exist. It is now
+    # built on Common's cross-platform probes (SR-052) and is exercised on both
+    # path shapes with the probe stubbed.
+    It 'refuses with code 2 when a destination volume lacks room, on <Shape> paths (SR-046, SR-052)' -ForEach @(
+        @{ Shape = 'drive-qualified'; Folder = 'C:\store\bkp' }
+        @{ Shape = 'UNC';             Folder = '\\server\share\store\bkp' }
+    ) {
+        $items = @([pscustomobject]@{ DestinationFolder = $Folder; Bytes = [long]5000 },
+                   [pscustomobject]@{ DestinationFolder = $Folder; Bytes = [long]6000 })
+
+        Mock -ModuleName FileBackup.Engine Get-VolumeIdentity { 'VOL' }
+        Mock -ModuleName FileBackup.Engine Get-FreeSpaceBytes { [long]10000 }
+        $refusals = @(Get-PruneCapacityRefusal -Item $items -PlanName 'Snapshot_X')
+        $refusals.Count | Should -Be 1                       # both items summed on one volume
+        $refusals[0].Code | Should -Be 2
+        $refusals[0].Kind | Should -Be 'capacity'
+        $refusals[0].Message | Should -Match 'required 11000, free 10000'
+
+        Mock -ModuleName FileBackup.Engine Get-FreeSpaceBytes { [long]11000 }
+        @(Get-PruneCapacityRefusal -Item $items -PlanName 'Snapshot_X') | Should -BeNullOrEmpty
+    }
+
+    It 'skips the capacity rail when the volume cannot be measured, rather than refusing (SR-052)' {
+        Mock -ModuleName FileBackup.Engine Get-VolumeIdentity { $null }
+        Mock -ModuleName FileBackup.Engine Get-FreeSpaceBytes { $null }
+        @(Get-PruneCapacityRefusal -Item @([pscustomobject]@{ DestinationFolder = '\\server\share\x'; Bytes = [long]9 }) `
+            -PlanName 'Snapshot_X') | Should -BeNullOrEmpty
+    }
+
+    It 'neither probe fails on a UNC or rooted path, where Split-Path -Qualifier cannot answer (AGENTS.md 4)' {
+        foreach ($path in '\\server\share\store', '/backup') {
+            { Get-VolumeIdentity -Path $path } | Should -Not -Throw
+            { Get-FreeSpaceBytes -Path $path } | Should -Not -Throw
+            # What the old rail was built on: no qualifier to parse. Under the
+            # entry point's $ErrorActionPreference='Stop' that is terminating —
+            # inside a Group-Object key it took the whole rail with it; with
+            # 'Continue' it yields an empty drive name the swallowed Get-PSDrive
+            # fallback then rejects. Either way the rail did not exist on a UNC
+            # or POSIX-rooted store.
+            { Split-Path -Qualifier $path -ErrorAction Stop } | Should -Throw '*does not have a qualifier*'
+        }
+    }
+
+    It 'the whole precondition set refuses on capacity against a real store, mutating nothing (SR-046)' {
+        $root = Join-Path $TestDrive 'tc084-capacity'
+        $env  = New-PruneTimeline -Root $root
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        Mock -ModuleName FileBackup.Engine Get-FreeSpaceBytes { [long]1 }
+        $refusals = Get-Refusal -Env $env -Name $env.Newest
+        @($refusals | Where-Object { $_.Kind -eq 'capacity' }).Count | Should -Be 1
+        @($refusals | Where-Object { $_.Kind -eq 'capacity' })[0].Code | Should -Be 2
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
     }
 
     It 'proves the surviving pool resolves with the target excluded, and does not without a re-home (SR-046)' {
@@ -1958,6 +2049,190 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
     }
 }
 
+Describe 'The entry sweep removes residue only, never user content (SR-046)' {
+    # TC-083, extended after the WP4 review. H1: the sweep deleted every
+    # '*.fbprune.tmp' under the backup root and the change root by BARE SUFFIX.
+    # In Mirror mode a user file called 'notes.fbprune.tmp' is stored at its
+    # verbatim path with a manifest row naming it, so a refused prune (a typo'd
+    # snapshot name) destroyed every copy of it across root and snapshots and
+    # then wedged the store on the broken-pool rail. A staged copy is
+    # unreferenced by construction; real content never is.
+    BeforeAll {
+        function Get-SuffixFile {
+            param([pscustomobject]$Env)
+            return @((Join-Path $Env.Bkp 'notes.fbprune.tmp'), (Join-Path $Env.Bkp 'sub\notes.fbprune.tmp'))
+        }
+        function Assert-SuffixFilesIntact {
+            param([pscustomobject]$Env, [hashtable]$Expected)
+            foreach ($path in (Get-SuffixFile -Env $Env)) {
+                Test-Path -LiteralPath $path -PathType Leaf | Should -BeTrue -Because "'$path' is user content, not prune residue"
+                (Get-FileXxHash -FilePath $path) | Should -Be $Expected[$path]
+            }
+        }
+    }
+
+    It 'a user file named *.fbprune.tmp survives refusal, dry run and a real prune, and still restores byte-exact' {
+        $root = Join-Path $TestDrive 'h1-userfile'
+        $env  = New-PruneTimeline -Root $root -SuffixNamedUserFiles $true
+        $expected = @{}
+        foreach ($path in (Get-SuffixFile -Env $env)) {
+            Test-Path -LiteralPath $path -PathType Leaf | Should -BeTrue
+            $expected[$path] = Get-FileXxHash -FilePath $path
+        }
+
+        # 1. A REFUSED prune (the reviewer's repro: a typo'd snapshot name).
+        $refused = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name 'Snapshot_1999_09_09_09_09_09')
+        $refused[0].Code | Should -Be 2
+        Assert-SuffixFilesIntact -Env $env -Expected $expected
+
+        # 2. A dry run.
+        $dry = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -WhatIf)
+        $dry[0].Status | Should -Be 'WhatIf'
+        Assert-SuffixFilesIntact -Env $env -Expected $expected
+
+        # 3. A real, successful prune of another snapshot.
+        $pruned = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $pruned[0].Status | Should -Be 'Pruned'
+        Assert-SuffixFilesIntact -Env $env -Expected $expected
+
+        # 4. And every surviving origin still restores them byte-exact.
+        $origins = @($env.Bkp) + @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg | ForEach-Object { $_.FullName })
+        foreach ($origin in $origins) {
+            $target = Join-Path $root ('h1-' + [IO.Path]::GetFileName($origin))
+            if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+            & (Join-Path $origin 'RECONSTRUCT.ps1') -TargetRoot $target -ExitCode:$false *>&1 | Out-Null
+            foreach ($rel in 'notes.fbprune.tmp', 'sub\notes.fbprune.tmp') {
+                $restored = Join-Path $target $rel
+                Test-Path -LiteralPath $restored -PathType Leaf | Should -BeTrue -Because "'$rel' must restore from '$origin'"
+                (Get-FileXxHash -FilePath $restored) | Should -Be (Get-FileXxHash -FilePath (Join-Path $env.Src $rel))
+            }
+        }
+    }
+
+    It 'still sweeps a genuine staged copy sitting beside the user file in the same folder' {
+        $root = Join-Path $TestDrive 'h1-mixed'
+        $env  = New-PruneTimeline -Root $root -SuffixNamedUserFiles $true
+        $residue = Join-Path $env.Bkp 'keep.txt.fbprune.tmp'       # unreferenced: real residue
+        Copy-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination $residue
+
+        $removed = Invoke-PruneEntrySweep -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Log { param($m, $l) }
+        $removed | Should -Be 1
+        Test-Path -LiteralPath $residue | Should -BeFalse
+        foreach ($path in (Get-SuffixFile -Env $env)) { Test-Path -LiteralPath $path | Should -BeTrue }
+    }
+}
+
+Describe 'Prune mutates only inside the transaction (SR-046)' {
+    # Review findings H2/M1: the sweep ran before the rails, so a refusal
+    # (code 2/3) had already deleted things, -WhatIf logged and counted removals
+    # it never performed, and an undeletable residue escaped unclassified as a
+    # process exit 1 instead of the retriable code 4.
+    It 'a refused prune leaves an interrupted run''s residue exactly where it was' {
+        $root = Join-Path $TestDrive 'h2-refused'
+        $env  = New-PruneTimeline -Root $root
+        $staged  = (Join-Path $env.Bkp 'keep.txt') + '.fbprune.tmp'
+        Copy-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination $staged
+        $pruning = Join-Path $env.Chg ('Pruning_' + $env.Oldest + '_other')
+        New-Item -ItemType Directory -Path $pruning -Force | Out-Null
+
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name 'Snapshot_1999_09_09_09_09_09')
+        $result[0].Status | Should -Be 'Refused'
+        $result[0].Code | Should -Be 2
+        Test-Path -LiteralPath $staged  | Should -BeTrue
+        Test-Path -LiteralPath $pruning | Should -BeTrue
+    }
+
+    It '-WhatIf sweeps nothing and reports nothing it did not do' {
+        $root = Join-Path $TestDrive 'h2-whatif'
+        $env  = New-PruneTimeline -Root $root
+        $staged = (Join-Path $env.Bkp 'keep.txt') + '.fbprune.tmp'
+        Copy-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination $staged
+        $pruning = Join-Path $env.Chg ('Pruning_' + $env.Newest)
+        New-Item -ItemType Directory -Path $pruning -Force | Out-Null
+
+        $lines = New-Object System.Collections.Generic.List[string]
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest `
+                        -Log { param($m, $l) $lines.Add($m) } -WhatIf)
+        $result[0].Status | Should -Be 'WhatIf'
+        Test-Path -LiteralPath $staged  | Should -BeTrue
+        Test-Path -LiteralPath $pruning | Should -BeTrue
+        @($lines | Where-Object { $_ -match 'staged copy|past the commit point' }) | Should -BeNullOrEmpty
+    }
+
+    It 'classifies an undeletable committed residue as the retriable code 4, not an unclassified throw' {
+        $root = Join-Path $TestDrive 'h2-locked'
+        $env  = New-PruneTimeline -Root $root
+        $pruning = Join-Path $env.Chg ('Pruning_' + $env.Newest)
+        New-Item -ItemType Directory -Path $pruning -Force | Out-Null
+
+        # A held handle inside the folder is the real-world cause; the mock
+        # reproduces its effect deterministically (Windows' behavior for a
+        # locked file under Remove-Item -Recurse is not stable enough to pin).
+        Mock -ModuleName FileBackup.Engine Remove-CommittedPruneResidue {
+            throw "The process cannot access the file because it is being used by another process."
+        }
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+
+        $result[0].Status | Should -Be 'Refused'
+        $result[0].Code   | Should -Be 4
+        (Get-PruneBatchExitCode -Result $result) | Should -Be 4
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
+    }
+
+    It 'completes the outstanding deletion of the SAME name only, and no other' {
+        $root = Join-Path $TestDrive 'h2-scoped'
+        $env  = New-PruneTimeline -Root $root
+        $mine    = Join-Path $env.Chg ('Pruning_' + $env.Newest)
+        $someone = Join-Path $env.Chg ('Pruning_' + $env.Oldest)
+        New-Item -ItemType Directory -Path $mine, $someone -Force | Out-Null
+
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $result[0].Status | Should -Be 'Pruned'
+        Test-Path -LiteralPath $mine    | Should -BeFalse
+        Test-Path -LiteralPath $someone | Should -BeTrue
+    }
+
+    It 'takes the Temp lock by CREATING it, so a folder appearing after the rails refuses with staging-busy (2)' {
+        # The TOCTOU window (review finding M4): New-Item -Force succeeded on an
+        # existing folder, so two prunes could both pass the staging-busy rail.
+        # The mock reproduces exactly that race — the rails pass, then the folder
+        # appears — and the lock creation must be the thing that catches it.
+        $root = Join-Path $TestDrive 'm4-toctou'
+        $env  = New-PruneTimeline -Root $root
+        $staging = Join-Path $env.Chg 'Temp'
+        $marker  = Join-Path $staging 'OTHER.marker'
+
+        # The mock body runs in module scope, so it derives the paths from its
+        # own bound -ChangeRoot rather than from this scope's variables.
+        Mock -ModuleName FileBackup.Engine Assert-PrunePrecondition {
+            $held = Join-Path $ChangeRoot 'Temp'
+            New-Item -ItemType Directory -Path $held -Force | Out-Null
+            [IO.File]::WriteAllText((Join-Path $held 'OTHER.marker'), 'held by the other run')
+            return @()
+        }
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+
+        $result[0].Status | Should -Be 'Refused'
+        $result[0].Code   | Should -Be 2
+        $result[0].Refusals[0].Kind | Should -Be 'staging-busy'
+        # The other holder's lock is still there: the finally must never delete
+        # a folder this invocation did not create.
+        Test-Path -LiteralPath $marker | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
+    }
+
+    It 'creates the staging lock without -Force, so creation IS the atomic test (source guard)' {
+        $source = [IO.File]::ReadAllText((Join-Path $repo 'Modules\FileBackup.Engine.psm1'))
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
+        $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                          $n.Name -eq 'Remove-BackupSnapshot' }, $true)
+        $lockCall = @($fn.Find({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
+                                 $n.GetCommandName() -eq 'New-Item' }, $true))
+        $lockCall.Count | Should -BeGreaterThan 0
+        foreach ($call in $lockCall) { $call.Extent.Text | Should -Not -Match '-Force' }
+    }
+}
+
 Describe 'Retention at the entry point and the container boundary (SR-048)' {
     # TC-088's locally runnable halves. The in-container half (the same actions
     # driven through docker run) belongs to the Docker CI job; Docker is not
@@ -2040,6 +2315,29 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         $run.Code | Should -Be 0
         Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
         Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+    }
+
+    It 'refuses -Action Backup -WhatIf loudly instead of performing a half-run (SR-048)' {
+        # Review finding L1: -WhatIf binds on every action because Prune needs
+        # SupportsShouldProcess, but the backup pipeline does not honor it.
+        $root = Join-Path $TestDrive 'l1-whatif'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v1')
+
+        $run = Invoke-FBAction -Cfg $cfg -Arguments @('-WhatIf')
+        $run.Code | Should -Be 2
+        $run.Output | Should -Match 'WhatIf is not supported for -Action Backup'
+        # Nothing was attempted: no backup root, no change root, no log dir.
+        Test-Path -LiteralPath $bkp | Should -BeFalse
+        Test-Path -LiteralPath $chg | Should -BeFalse
+
+        # Without -ExitCode it is a terminating error, like every other
+        # precondition failure at this boundary.
+        { & $entry -ConfigPath $cfg -NoMail -NonInteractive -WhatIf } | Should -Throw '*only available for -Action Prune*'
+        Test-Path -LiteralPath $bkp | Should -BeFalse
     }
 
     It 'leaves the default action untouched: a flags-only invocation still runs a backup and exits 0' {

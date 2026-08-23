@@ -1696,6 +1696,74 @@ function Update-BackupSnapshotKit {
     return [pscustomobject]@{ Refreshed = $refreshed; Revision = (Get-BackupKitRevision -Folder $BackupRoot) }
 }
 
+function Get-PruneCapacityRefusal {
+    <#
+    .SYNOPSIS
+        The prune capacity rail: proves each destination VOLUME has room for the
+        bytes the plan would copy into it, measured through Common's
+        cross-platform probes (SR-046, SR-052).
+
+    .DESCRIPTION
+        Items are grouped by Get-VolumeIdentity, not by `Split-Path -Qualifier`:
+        that cmdlet cannot parse a UNC or rooted POSIX path ("does not have a
+        qualifier specified"), and WP4 asked it for one inside a Group-Object
+        key — terminating under the entry point's $ErrorActionPreference='Stop',
+        and otherwise yielding an empty drive name that the Get-PSDrive fallback
+        rejected into a swallowing catch. Either way the rail silently did not
+        exist on a UNC store (AGENTS.md §4). Get-VolumeIdentity and
+        Get-FreeSpaceBytes never throw.
+
+        An unmeasurable volume ($null free space) SKIPS the check rather than
+        refusing: not being able to measure a volume is not evidence that it is
+        full (SR-052). Two destinations on the same volume are summed once.
+
+    .PARAMETER Item
+        The plan items (each with DestinationFolder and Bytes). May be empty.
+
+    .PARAMETER PlanName
+        The snapshot being planned, for the refusal message.
+
+    .OUTPUTS
+        [pscustomobject] Code=2 / Kind='capacity' / Message per short volume;
+        empty when every destination volume has room or cannot be measured.
+    #>
+    # Implements: SR-046, SR-052, LLR-046
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$Item,
+        [string]$PlanName
+    )
+    $refusals = New-Object System.Collections.Generic.List[object]
+    if (-not $Item) { return $refusals.ToArray() }
+
+    $byVolume = [ordered]@{}
+    foreach ($entry in $Item) {
+        $folder = [string]$entry.DestinationFolder
+        $volume = Get-VolumeIdentity -Path $folder
+        # An unidentifiable volume still gets its own bucket keyed by folder, so
+        # the free-space probe is at least attempted for it.
+        $key = if ($volume) { $volume } else { $folder }
+        if (-not $byVolume.Contains($key)) {
+            $byVolume[$key] = [pscustomobject]@{ Probe = $folder; Needed = [long]0 }
+        }
+        $byVolume[$key].Needed += [long]$entry.Bytes
+    }
+
+    foreach ($key in @($byVolume.Keys)) {
+        $group = $byVolume[$key]
+        $free  = Get-FreeSpaceBytes -Path $group.Probe
+        if ($null -eq $free) {
+            Write-Verbose "Capacity rail skipped for '$key': the volume could not be measured."
+            continue
+        }
+        if ($free -lt $group.Needed) {
+            $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'capacity'
+                Message = "Not enough free space on '$key' to re-home '$PlanName': required $($group.Needed), free $free." })
+        }
+    }
+    return $refusals.ToArray()
+}
+
 function Assert-PrunePrecondition {
     <#
     .SYNOPSIS
@@ -1714,7 +1782,9 @@ function Assert-PrunePrecondition {
         files in the target unless -DiscardUnreferencedData; the whole pool
         already resolves (Test-PoolResolves — prune refuses to prune INTO a
         broken or form-disagreeing pool and hands the repro on); free space at
-        every destination volume; 7-Zip when a compressed row must be verified;
+        every destination volume through Get-PruneCapacityRefusal (Common's
+        cross-platform probes — an unmeasurable volume skips, never refuses);
+        7-Zip when a compressed row must be verified;
         and Test-ManifestWitness Verified for every manifest in the pool, with
         Absent refused unless -AllowUnverifiedIndex (the deliberate inverse of
         the restore default: restoring against an unverified index is
@@ -1769,21 +1839,12 @@ function Assert-PrunePrecondition {
 
     foreach ($problem in (Test-PoolResolves -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot)) {
         $refusals.Add([pscustomobject]@{ Code = 2; Kind = $problem.Kind
-            Message = "The pool does not resolve as it stands, so it must not be pruned: $($problem.Message)" })
+            Message = ("The pool does not resolve as it stands, so it must not be pruned: $($problem.Message) " +
+                       "This blocks EVERY prune in this store until it is resolved — run '-Action Verify' to enumerate the damage.") })
     }
 
     $items = $Plan.Items.ToArray()
-    foreach ($group in ($items | Group-Object { Split-Path -Qualifier $_.DestinationFolder })) {
-        $needed = [long](@($group.Group | Measure-Object -Property Bytes -Sum).Sum)
-        $drive = $null
-        try { $drive = Get-PSDrive -Name ($group.Name.TrimEnd(':')) } catch {
-            Write-Verbose "Capacity pre-check skipped for '$($group.Name)': $($_.Exception.Message)"
-        }
-        if ($drive -and $drive.Free -lt $needed) {
-            $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'capacity'
-                Message = "Not enough free space on '$($group.Name)' to re-home '$($Plan.Name)': required $needed, free $($drive.Free)." })
-        }
-    }
+    foreach ($refusal in (Get-PruneCapacityRefusal -Item $items -PlanName $Plan.Name)) { $refusals.Add($refusal) }
 
     if (-not $SkipContentVerify -and @($items | Where-Object { $_.Compressed -eq 'Yes' }).Count -gt 0) {
         if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
@@ -1855,13 +1916,73 @@ function Get-BackupSnapshot {
     }
 }
 
+function Remove-CommittedPruneResidue {
+    <#
+    .SYNOPSIS
+        Finishes a prior, already-COMMITTED deletion of one named snapshot: a
+        leftover 'Pruning_<name>' folder is past the commit point, invisible to
+        every consumer, and only its deletion remains (SR-046).
+
+    .DESCRIPTION
+        Scoped to the name being pruned, deliberately. It runs before that name
+        is planned — the plan cannot be computed while the folder still occupies
+        the name, and finishing the caller's OWN previous instruction for THIS
+        name is the only mutation any prune performs outside the transaction.
+        Residue for any other name is left alone, so a refused prune of one
+        snapshot never touches another's.
+
+        The folder is already outside the ^Snapshot_ namespace, so no restorer,
+        inventory or Optimize-ChangeFolders can see it and nothing referenced it
+        (the pool was proven redundant before the rename).
+
+    .PARAMETER ChangeRoot
+        The change root holding the snapshot folders.
+
+    .PARAMETER Name
+        The snapshot name whose committed deletion should be completed.
+
+    .OUTPUTS
+        [int] 1 when a residue folder was deleted, otherwise 0.
+    #>
+    # Implements: SR-046, LLR-046
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { return 0 }
+    $residue = Join-Path $ChangeRoot ('Pruning_' + $Name)
+    if (-not (Test-Path -LiteralPath $residue -PathType Container)) { return 0 }
+
+    & $Log "Completing an interrupted prune: removing 'Pruning_$Name' (already past the commit point)." 'WARN'
+    Remove-Item -LiteralPath $residue -Recurse -Force
+    return 1
+}
+
 function Invoke-PruneEntrySweep {
     <#
     .SYNOPSIS
-        Finishes what an interrupted prune left behind: any 'Pruning_*' folder
-        (already past the commit point) is deleted, and any '*.fbprune.tmp'
-        staged copy is removed. This is what makes resume "just run it again"
-        with no journal (SR-046).
+        Removes the '*.fbprune.tmp' staged copies an interrupted prune left
+        behind — and ONLY those, never a user file that merely bears the suffix
+        (SR-046).
+
+    .DESCRIPTION
+        Runs INSIDE the transaction, after every rail has passed and the Temp
+        lock is held, so a refusal never mutates and a failure here classifies as
+        the retriable code 4 like any other host I/O problem.
+
+        The guard is the manifest, not the name. A staged copy is by
+        construction UNREFERENCED — Copy-ReHomedDataFile writes
+        '<destination>.fbprune.tmp' and only publishes it by rename — whereas a
+        genuine user file called 'notes.fbprune.tmp' is stored at its verbatim
+        path in Mirror mode and carries a manifest row naming it. Deleting by
+        bare suffix therefore destroyed real content in the backup root and in
+        every snapshot at once (WP4 review, finding H1); a file its own folder's
+        manifest references is data and is never swept.
+
+        Only pool folders are scanned (the backup root and each Snapshot_*),
+        because those are the only re-home destinations.
 
     .PARAMETER BackupRoot
         The live backup root — a re-home destination, so it can hold a staged copy.
@@ -1870,7 +1991,7 @@ function Invoke-PruneEntrySweep {
         The change root, which holds the snapshot folders.
 
     .OUTPUTS
-        [int] the number of residue items removed.
+        [int] the number of staged copies removed.
     #>
     # Implements: SR-046, LLR-046
     [CmdletBinding()]
@@ -1879,17 +2000,19 @@ function Invoke-PruneEntrySweep {
         [Parameter(Mandatory)][string]$ChangeRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
+    $normalize = { param([string]$Value) ($Value -replace '[\\/]+', '/').Trim('/') }
     $removed = 0
-    if (Test-Path -LiteralPath $ChangeRoot -PathType Container) {
-        foreach ($dir in @(Get-ChildItem -LiteralPath $ChangeRoot -Directory | Where-Object { $_.Name -like 'Pruning_*' })) {
-            & $Log "Completing an interrupted prune: removing '$($dir.Name)' (already past the commit point)." 'WARN'
-            Remove-Item -LiteralPath $dir.FullName -Recurse -Force
-            $removed++
+    $folders = @($BackupRoot) + @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | ForEach-Object { $_.FullName })
+    foreach ($folder in $folders) {
+        if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
+        $referenced = @{}
+        foreach ($row in @(Read-Manifest -FolderPath $folder)) {
+            if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $referenced[(& $normalize $row.DataPath)] = $true }
         }
-    }
-    foreach ($root in @($BackupRoot, $ChangeRoot)) {
-        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
-        foreach ($file in @(Get-ChildItem -LiteralPath $root -File -Recurse -Filter '*.fbprune.tmp')) {
+        $prefix = (Resolve-Path -LiteralPath $folder).Path
+        foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Recurse -Filter '*.fbprune.tmp')) {
+            $rel = & $normalize $file.FullName.Substring($prefix.Length)
+            if ($referenced[$rel]) { continue }   # real content that merely ends in '.fbprune.tmp'
             & $Log "Removing an interrupted prune's staged copy '$($file.FullName)'." 'WARN'
             Remove-Item -LiteralPath $file.FullName -Force
             $removed++
@@ -2049,14 +2172,28 @@ function Remove-BackupSnapshot {
         is the worst code by the SR-040 precedence 2 > 3 > 4 > 1.
 
         Ordering (the invariant is that the pool goes redundant, then the
-        snapshot disappears — never deficient): sweep any interrupted run's
-        residue; plan; check every rail; take the Temp lock; materialize each
-        re-homed file; publish the destination manifests; prove every surviving
-        row resolves with the target excluded; only then commit and delete.
+        snapshot disappears — never deficient): complete a prior COMMITTED
+        deletion of this same name if one is outstanding; plan; check every
+        rail; take the Temp lock; sweep any staged copies an interrupted run
+        left; materialize each re-homed file; publish the destination manifests;
+        prove every surviving row resolves with the target excluded; only then
+        commit and delete.
+
+        Exactly one thing happens before the rails, and only for the name being
+        pruned: Remove-CommittedPruneResidue finishes an outstanding
+        'Pruning_<name>' deletion, which is past the point of no return and
+        already invisible to every consumer (the plan cannot even be computed
+        while it holds the name). Everything else — the staged-copy sweep
+        included (WP4 review, findings H2/M1) — happens inside the transaction,
+        so a refusal (code 2/3) genuinely mutates nothing and a host failure in
+        the sweep classifies as the retriable code 4 rather than escaping
+        unclassified.
 
         -WhatIf runs the full preflight and reports the classification and the
-        reclaim figures the real run would achieve, mutating nothing.
-        ConfirmImpact is Medium so an automated run never prompts.
+        reclaim figures the real run would achieve, mutating nothing at all:
+        neither the residue completion nor the sweep runs, so nothing is logged
+        or counted that did not happen. ConfirmImpact is Medium so an automated
+        run never prompts.
 
     .PARAMETER Name
         Exact snapshot folder name(s). See SR-046 for the containment rules.
@@ -2094,9 +2231,23 @@ function Remove-BackupSnapshot {
     $bkp = (Resolve-Path -LiteralPath $BackupRoot).Path
     $chg = (Resolve-Path -LiteralPath $ChangeRoot).Path
 
-    Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
-
     foreach ($snapshotName in $Name) {
+        # The one pre-rail action, scoped to THIS name: finish its own committed
+        # deletion if one is outstanding. A host failure here is retriable (4),
+        # not an unclassified throw out of the cmdlet.
+        if (-not $WhatIfPreference) {
+            try {
+                Remove-CommittedPruneResidue -ChangeRoot $chg -Name $snapshotName -Log $log | Out-Null
+            } catch {
+                & $log "Could not complete the outstanding deletion of 'Pruning_$snapshotName': $($_.Exception.Message)" 'ERROR'
+                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4
+                    BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = @()
+                    Refusals = @([pscustomobject]@{ Code = 4; Kind = 'host-io'; Message = $_.Exception.Message })
+                    Message = "The outstanding deletion of 'Pruning_$snapshotName' could not be completed; nothing else was attempted. $($_.Exception.Message)" }
+                continue
+            }
+        }
+
         $plan     = Get-SnapshotPrunePlan -BackupRoot $bkp -ChangeRoot $chg -Name $snapshotName
         $refusals = @(Assert-PrunePrecondition -BackupRoot $bkp -ChangeRoot $chg -Plan $plan `
                         -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify `
@@ -2122,10 +2273,28 @@ function Remove-BackupSnapshot {
             continue
         }
 
+        # Creating the lock directory IS the test (M4): -Force would succeed on
+        # an existing folder, letting two prunes past the staging-busy rail
+        # between its check and here. Failure means someone else holds it, so it
+        # is the staging-busy refusal — and the finally below must not delete a
+        # folder this invocation did not create.
         $staging = Join-Path $chg 'Temp'
-        New-Item -ItemType Directory -Path $staging -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $staging 'PRUNE.inprogress') -Value $snapshotName -Encoding UTF8
         try {
+            New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
+        } catch {
+            & $log "Refusing to remove '$snapshotName' [2/staging-busy]: the staging lock at '$staging' could not be taken: $($_.Exception.Message)" 'ERROR'
+            $busy = [pscustomobject]@{ Code = 2; Kind = 'staging-busy'
+                Message = "The staging folder '$staging' already exists — a backup or another prune is running. Prune and backup are mutually exclusive (SR-017)." }
+            [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 2
+                BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
+                Refusals = @($busy); Message = $busy.Message }
+            continue
+        }
+        try {
+            Set-Content -LiteralPath (Join-Path $staging 'PRUNE.inprogress') -Value $snapshotName -Encoding UTF8
+            # Inside the transaction: staged copies are residue, and clearing
+            # them is host I/O like any other (code 4 if it fails).
+            Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
             foreach ($item in $plan.Items.ToArray()) {
                 & $log "Re-homing '$($item.SourceRow.RelativePath)' from '$snapshotName' to '$($item.DestinationFolder)' as '$($item.DestinationDataPath)'." 'INFO'
                 Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify | Out-Null
@@ -3446,6 +3615,7 @@ Export-ModuleMember -Function @(
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
     'Get-SnapshotPrunePlan', 'Get-BackupSnapshot', 'Get-PoolSnapshotFolder',
     'Test-StorageFormAgreement', 'Test-PoolResolves', 'Assert-PrunePrecondition',
+    'Get-PruneCapacityRefusal', 'Remove-CommittedPruneResidue',
     'Get-StoredFileForm', 'Get-StorageFormFinding', 'Get-BackupKitRevision',
     'Test-BackupStorageForm', 'Repair-BackupStorageForm', 'Update-BackupSnapshotKit',
     'Invoke-PruneEntrySweep', 'Copy-ReHomedDataFile', 'Publish-PruneManifest',

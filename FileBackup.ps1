@@ -106,6 +106,11 @@
                      surviving pool first. Add -WhatIf for a dry run that
                      reports exactly what the real run would achieve.
 
+    -WhatIf applies to -Action Prune ONLY. It binds on every action because
+    Prune needs SupportsShouldProcess, but the backup pipeline does not honor
+    it, so -Action Backup -WhatIf is refused up front (status 2 under
+    -ExitCode, a terminating error otherwise) rather than producing a half-run.
+
     Retention POLICY (what to keep) belongs to the caller — IF-001 rules that
     HomeHub decides and FileBackup removes; there is deliberately no
     -KeepLast/-OlderThan and no wildcard.
@@ -244,11 +249,13 @@ $bufferLog = {
 function Exit-ConfigFailure {
     <#
     .SYNOPSIS
-        Reports a configuration failure at the FileBackup.ps1 process boundary.
+        Reports a configuration or usage precondition failure at the
+        FileBackup.ps1 process boundary.
     .DESCRIPTION
         Covers every way the configuration can be unusable -- the file being
         missing (the likeliest container misconfiguration) as well as an
-        SR-042 schema violation. Writes the failure to stderr, then either
+        SR-042 schema violation -- and the usage preconditions in the same
+        class, such as -WhatIf on -Action Backup (SR-048). Writes the failure to stderr, then either
         exits the process with 2 (SR-043's usage/precondition class, so
         NagLight can tell "retrying will not help" from "the backup failed")
         when -ExitCode was passed, or rethrows -- preserving the
@@ -273,6 +280,15 @@ function Exit-ConfigFailure {
         exit 2
     }
     throw $Message
+}
+
+# -WhatIf binds on every action because SupportsShouldProcess exists for Prune
+# (SR-048). The backup pipeline does NOT honor it — it would run for real up to
+# the first ShouldProcess-aware call and produce a half-run — so refuse here,
+# before anything is read or created (WP4 review, finding L1).
+if ($Action -eq 'Backup' -and $VerifyStorageAlias) { $Action = 'Verify' }
+if ($Action -eq 'Backup' -and $WhatIfPreference) {
+    Exit-ConfigFailure -Message '-WhatIf is not supported for -Action Backup: a dry run is only available for -Action Prune. Re-run without -WhatIf.'
 }
 
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
@@ -432,8 +448,6 @@ function Invoke-VerifyAction {
     & $Log 'Storage-form verification found no disagreements.' 'INFO'
     return 0
 }
-
-if ($Action -eq 'Backup' -and $VerifyStorageAlias) { $Action = 'Verify' }
 
 if ($Action -ne 'Backup') {
     if (@($Sets).Count -ne 1) {
