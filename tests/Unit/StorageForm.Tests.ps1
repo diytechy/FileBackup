@@ -1110,7 +1110,10 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
     }
 
     It 'counts only NEW deduplicated content on the backup volume (SR-052)' {
-        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
+        # DataPath populated: a real held row carries one; a BLANK row's key is
+        # deliberately NOT held (its bytes are gone and the SR-053 heal will
+        # copy them — see the WP7 'budgets heal copies' pin).
+        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; DataPath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
         $new  = @(
             [pscustomobject]@{ RelativePath = 'b.txt'; xxH2Hash = 'H1'; Length = 1000L }   # dedup: already held
             [pscustomobject]@{ RelativePath = 'c.txt'; xxH2Hash = 'H2'; Length = 500L }
@@ -1122,7 +1125,7 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
     }
 
     It 'counts staging bytes only when the change root is on another volume (SR-052)' {
-        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
+        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; DataPath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
         $new  = @([pscustomobject]@{ RelativePath = 'a.txt'; xxH2Hash = 'H9'; Length = 2000L })   # a.txt modified
         (Get-BackupCapacityDemand -NewOrChanged $new -RemovedFromSource @() -BackupDb $held -SameVolume $true).ChangeBytes |
             Should -Be 0

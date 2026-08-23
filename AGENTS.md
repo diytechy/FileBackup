@@ -138,7 +138,7 @@ Imports (internal): `Common`
 | `Assert-BackupCapacity` | yes | SR-052, SR-013, SR-014, LLR-052 |
 | `Assert-NoUnknownConfigKey` | no | SR-042, LLR-042 |
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
-| `Compare-SourceToBackup` | yes | SR-001, LLR-001 |
+| `Compare-SourceToBackup` | yes | SR-001, SR-053, LLR-001, LLR-053 |
 | `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
@@ -164,8 +164,8 @@ Imports (internal): `Common`
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
-| `Invoke-BackupFileGroup` | yes | SR-003, LLR-003 |
-| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, LLR-014, LLR-017, LLR-035, LLR-036 |
+| `Invoke-BackupFileGroup` | yes | SR-003, SR-053, LLR-003, LLR-053 |
+| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
@@ -191,9 +191,10 @@ Imports (internal): `Common`
 | `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |
 | `Test-PoolResolves` | yes | SR-046, SR-045, LLR-046 |
+| `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
-| `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024 |
+| `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, SR-055, LLR-001, LLR-013, LLR-024, LLR-055 |
 <!-- END GENERATED MODULE MAP -->
 
 ## 3. Invariants — do not break

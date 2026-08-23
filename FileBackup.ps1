@@ -458,10 +458,23 @@ function Invoke-VerifyAction {
         # cannot conjure bytes.
         $findings += @(Test-PoolResolves -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath |
             Where-Object Kind -eq 'broken-pool' | ForEach-Object {
-                [pscustomobject]@{ Class = 'PoolUnresolvable'; FolderName = $_.Folder
-                    RelativePath = $_.RelativePath; DataPath = $_.DataPath
-                    Observed = 'no bytes for this row anywhere in the pool'
-                    Expected = 'every manifest row resolves to real bytes' }
+                # Two honest classes (WP7 review, required change 2): a row
+                # whose CONTENT is truly gone is the escalate-worthy loss; a
+                # row whose named file is gone while the bytes survive
+                # elsewhere restores via the revision-4+ fallback and heals on
+                # the next backup run — calling it unresolvable would hand the
+                # wrapper a false data-loss alarm.
+                if ($_.BytesSurvive) {
+                    [pscustomobject]@{ Class = 'PoolDataPathMissing'; FolderName = $_.Folder
+                        RelativePath = $_.RelativePath; DataPath = $_.DataPath
+                        Observed = 'the named data file is gone, but the content survives elsewhere in the pool'
+                        Expected = 'the row''s DataPath names a file present in its folder' }
+                } else {
+                    [pscustomobject]@{ Class = 'PoolUnresolvable'; FolderName = $_.Folder
+                        RelativePath = $_.RelativePath; DataPath = $_.DataPath
+                        Observed = 'no bytes for this row anywhere in the pool'
+                        Expected = 'every manifest row resolves to real bytes' }
+                }
             })
     } catch {
         & $Log "Storage-form verification could not run: $($_.Exception.Message)" 'ERROR'

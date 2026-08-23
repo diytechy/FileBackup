@@ -2423,6 +2423,14 @@ Describe 'WP8 portable names and raw-candidate recovery (SR-055, SR-050)' {
         Test-PortableRelativePath -RelativePath 'pipe|name.txt' | Should -Match 'no Windows file name'
         Test-PortableRelativePath -RelativePath 'trailing.' | Should -Match 'dot or space'
         Test-PortableRelativePath -RelativePath 'sub/trailing ' | Should -Match 'dot or space'
+
+        # The Linux arm, asserted via the -TreatAsPosix seam (WP8 review,
+        # minor 1): '\' in a component is a NAME character on a POSIX host and
+        # a path separator to the Windows restorer — refused; and on POSIX only
+        # '/' separates, so 'sub\file' is ONE component there.
+        Test-PortableRelativePath -RelativePath 'a\b.txt' -TreatAsPosix $true | Should -Match 'path separator on Windows'
+        Test-PortableRelativePath -RelativePath 'sub/a.txt' -TreatAsPosix $true | Should -BeNullOrEmpty
+        Test-PortableRelativePath -RelativePath 'sub\a.txt' -TreatAsPosix $false | Should -BeNullOrEmpty
     }
 
     It 'skips a non-portable name loudly, fails the set, backs up the rest, and freezes the prior row (SR-055)' {
@@ -2554,6 +2562,66 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         $end   = [array]::IndexOf($lines, ']')
         $doc = @(($lines[$start..$end] -join "`n") | ConvertFrom-Json)
         @($doc | Where-Object Class -eq 'PoolUnresolvable') | Should -Not -BeNullOrEmpty
+    }
+
+    It 'budgets heal copies in the capacity preflight (SR-052, SR-053)' {
+        # WP7 review, required change 1: a blank row's key must not read as
+        # "already held" — the heal WILL copy those bytes, and the preflight
+        # must refuse before mutation, not fail mid-copy on a full volume.
+        $mk = { param($rel, $data) [pscustomobject]@{
+            RelativePath = $rel; DataPath = $data; Length = 500
+            LastWriteTime = '2026-01-01 00:00:00'; xxH2Hash = 'AB12' } }
+        $demand = Get-BackupCapacityDemand -NewOrChanged @(& $mk 'big.bin' 'ignored') `
+            -RemovedFromSource @() -BackupDb @(& $mk 'big.bin' '') -SameVolume $true
+        $demand.BackupBytes | Should -Be 500 -Because 'a blank row holds no bytes; the heal will copy them'
+        $demand = Get-BackupCapacityDemand -NewOrChanged @(& $mk 'big.bin' 'ignored') `
+            -RemovedFromSource @() -BackupDb @(& $mk 'big.bin' 'big.bin') -SameVolume $true
+        $demand.BackupBytes | Should -Be 0 -Because 'a non-blank row genuinely holds the bytes'
+    }
+
+    It 'verify tells a missing named file with surviving bytes apart from true loss (SR-054)' {
+        # WP7 review, required change 2: a row whose named file is gone while
+        # the CONTENT survives elsewhere restores via the revision-4+ fallback
+        # and heals next run — reporting it PoolUnresolvable handed the wrapper
+        # a false data-loss alarm.
+        $root = Join-Path $TestDrive 'wp7-classes'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('SHARED ' * 40))
+        Invoke-FB $cfg
+
+        # A second physical copy of the same content under its own row.
+        $rowA = @(Read-Manifest -FolderPath $bkp | Where-Object RelativePath -eq 'a.txt')[0]
+        Copy-Item -LiteralPath (Join-Path $bkp 'a.txt') -Destination (Join-Path $bkp 'spare.bin')
+        $spare = [pscustomobject]@{
+            DataPath = 'spare.bin'; RelativePath = 'spare.src'; Length = $rowA.Length
+            LastWriteTime = $rowA.LastWriteTime; xxH2Hash = $rowA.xxH2Hash
+            Compressed = 'No'; StoredAsHashSize = 'Original'; Duplicate = ''; MediaMBPerSec = ''
+        }
+        Write-Manifest -FolderPath $bkp -Records (@(Read-Manifest -FolderPath $bkp) + $spare)
+        [IO.File]::Delete((Join-Path $bkp 'a.txt'))
+
+        $parse = {
+            param($output)
+            $lines = $output -split "`r?`n"
+            $start = [array]::IndexOf($lines, '[')
+            $end   = [array]::IndexOf($lines, ']')
+            return @(($lines[$start..$end] -join "`n") | ConvertFrom-Json)
+        }
+        $run = Invoke-FBArgs -Cfg $cfg -Arguments @('-Action', 'Verify')
+        $run.Code | Should -Be 1
+        $doc = & $parse $run.Output
+        @($doc | Where-Object Class -eq 'PoolDataPathMissing') | Should -Not -BeNullOrEmpty
+        @($doc | Where-Object Class -eq 'PoolUnresolvable') |
+            Should -BeNullOrEmpty -Because 'the bytes survive as spare.bin; nothing is lost'
+
+        [IO.File]::Delete((Join-Path $bkp 'spare.bin'))
+        $run = Invoke-FBArgs -Cfg $cfg -Arguments @('-Action', 'Verify')
+        $run.Code | Should -Be 1
+        @((& $parse $run.Output) | Where-Object Class -eq 'PoolUnresolvable') |
+            Should -Not -BeNullOrEmpty -Because 'now the content is truly gone from the pool'
     }
 
     It 'prunes a compression-flipped store whose kits are revision 2 or newer (SR-046 as amended)' {

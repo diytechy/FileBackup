@@ -206,8 +206,17 @@ function Test-ContainerStorageForm {
     [System.IO.File]::WriteAllText($dataFile, 'raw bytes that are not an archive')
     $target.Compressed = 'Yes'
     $rows | Export-Csv -LiteralPath $manifestPath -NoTypeInformation
-    Import-Module (Join-Path $repo 'Modules/FileBackup.Common.psm1') -Force
-    Write-ManifestWitness -FolderPath $Backup | Out-Null
+    # Re-stamp the witness INSIDE the image, never on the host: the image
+    # bakes System.IO.Hashing; ubuntu-latest does not, and the host-side
+    # Import-Module route prompted interactively for the DLL and aborted the
+    # first real CI run of this job (2026-08-23, run 32661497480).
+    $stampArgs = [System.Collections.Generic.List[string]]::new()
+    $stampArgs.AddRange([string[]]@('run', '--rm', '--entrypoint', 'pwsh'))
+    Add-BindMountArguments -Arguments $stampArgs -Source $Backup -Target '/backup'
+    $stampArgs.Add($Image)
+    $stampArgs.AddRange([string[]]@('-NoProfile', '-Command',
+        'Import-Module /opt/filebackup/Modules/FileBackup.Common.psm1; Write-ManifestWitness -FolderPath /backup | Out-Null'))
+    Invoke-ContainerCommand -Arguments $stampArgs.ToArray()
 
     $dirty = Invoke-ContainerAction @common -Word 'verify'
     if ($dirty.Code -eq 0) { throw "verify reported a seeded malformed row as clean.`n$($dirty.Output)" }

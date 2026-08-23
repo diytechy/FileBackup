@@ -81,10 +81,16 @@ function Test-PortableRelativePath {
     #>
     # Implements: SR-055, LLR-055
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$RelativePath)
+    param(
+        [Parameter(Mandatory)][string]$RelativePath,
+        # Test seam (WP8 review, minor 1): classify as a POSIX host would.
+        # Defaults to the actual platform; lets the Windows unit suite assert
+        # the Linux-only backslash-in-name arm instead of leaving it untested.
+        [bool]$TreatAsPosix = (-not $IsWindows)
+    )
     # On Windows both slashes separate; on Linux only '/' does — a '\' there is
     # part of the NAME, and means a path separator to the Windows restorer.
-    $separators = if ($IsWindows) { [char[]]@('\', '/') } else { [char[]]@('/') }
+    $separators = if ($TreatAsPosix) { [char[]]@('/') } else { [char[]]@('\', '/') }
     foreach ($component in $RelativePath.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)) {
         foreach ($ch in $component.ToCharArray()) {
             if ([int]$ch -lt 32) {
@@ -93,7 +99,7 @@ function Test-PortableRelativePath {
             if ($ch -in '<', '>', ':', '"', '|', '?', '*') {
                 return "name component '$component' contains '$ch', which no Windows file name may carry"
             }
-            if (-not $IsWindows -and $ch -eq '\') {
+            if ($TreatAsPosix -and $ch -eq '\') {
                 return "name component '$component' contains '\', which is a path separator on Windows"
             }
         }
@@ -1280,8 +1286,25 @@ function Test-PoolResolves {
             if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) {
                 $full = Join-Path $f.Folder $row.DataPath
                 if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                    # BytesSurvive: whether the CONTENT still exists somewhere a
+                    # revision-4+ kit's fallback can reach — Verify must not call
+                    # a restorable row "no bytes anywhere in the pool" (WP7
+                    # review, required change 2). Checked on DISK, not just the
+                    # index, since this very branch proves rows can lie.
+                    $bytesSurvive = $false
+                    if ($row.xxH2Hash) {
+                        $contentKey = "$($row.xxH2Hash)|$($row.Length)"
+                        if ($index.Map.ContainsKey($contentKey)) {
+                            foreach ($location in $index.Map[$contentKey].ToArray()) {
+                                if ($location.FullPath -ne $full -and (Test-Path -LiteralPath $location.FullPath -PathType Leaf)) {
+                                    $bytesSurvive = $true; break
+                                }
+                            }
+                        }
+                    }
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
                         Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = $row.DataPath
+                        BytesSurvive = $bytesSurvive
                         Message = "'$($f.Name)': row '$($row.RelativePath)' points at '$($row.DataPath)', which is not in that folder." })
                     continue
                 }
@@ -1297,6 +1320,7 @@ function Test-PoolResolves {
             if (-not $index.Map.ContainsKey($key)) {
                 $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
                     Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = ''
+                    BytesSurvive = $false
                     Message = "'$($f.Name)': row '$($row.RelativePath)' resolves by hash, but no copy of its content exists in the pool." })
                 continue
             }
@@ -3176,7 +3200,14 @@ function Get-BackupCapacityDemand {
     $held = @{}
     $byPath = New-RelativePathMap   # SR-034: RelativePath keys compare like the filesystem
     foreach ($row in @($BackupDb | Where-Object { $_ })) {
-        $held["$($row.xxH2Hash)|$($row.Length)"] = $true
+        # A blank-DataPath row holds NO bytes: the SR-053 heal will copy them,
+        # so its key must not read as "already held" or the SR-052 preflight
+        # budgets zero for a heal and the run fails mid-copy on a full volume
+        # instead of refusing before mutation (WP7 review, required change 1 —
+        # mirrors Invoke-BackupFileGroup's adoption filter).
+        if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) {
+            $held["$($row.xxH2Hash)|$($row.Length)"] = $true
+        }
         $byPath[$row.RelativePath] = $row
     }
 

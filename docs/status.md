@@ -33,6 +33,20 @@ last) — it is the record, not required reading for every pass.
   `resync_v2` is now unblocked.** Not decided in this ratification: the
   dangling/blank-DataPath prioritization and the parked-findings acceptance —
   realism verification for those is in flight; they remain Open below.
+- **WP7 (storage self-healing + retention unblock) and WP8 (portable names +
+  raw-candidate recovery, kit revision 5) are implemented, independently
+  reviewed (WP7 CHANGES-REQUESTED → required changes landed; WP8
+  APPROVE-WITH-MINORS → minors landed), and green across the full battery:
+  unit 341/341, integration 372/0/4 (Subst, the CI command verbatim), bats
+  56/56 + shellcheck clean, bash-interop 12/12 origins on Linux, and the
+  container job replicated END-TO-END ON REAL DOCKER (Ubuntu WSL) including
+  the Export/Load sequence.** The first real CI run (push of `83cc5f1`)
+  failed 5 jobs; the post-mortem entry below diagnoses all five — one
+  genuine container-harness bug (host-side witness stamp needing a DLL
+  ubuntu-latest lacks) is fixed; Traceability stays red BY DESIGN until the
+  post-CI registry flips. **Next human action: push `resync_v2`.** Expected:
+  all green except Traceability (+ skipped VHDX); then the registry-flip
+  commit clears Traceability on the following push.
 - **Active gate:** G3 (retrofit truth-up **human-APPROVED 2026-08-22**; the
   gate stays G3 while the WP1–WP5 scoped changes run their own G1→G3 passes.
   **WP6 (this batch) is now done — the whole WP1→WP6 queue has landed.** The
@@ -300,6 +314,8 @@ work-package order follows the table.
 | bash newline-in-filename rows (new, R7) | `reconstruct.sh`'s line-based FPAT parser cannot parse an RFC-4180 quoted field containing a newline — a legal Linux filename the engine can now write from a container backup; `Import-Csv` handles it, so the twin restorers diverge on the same manifest. Loud-ish (exit 1/4), not silent. | bash-v2 scope: refuse such rows with a clear message in bash, or refuse the filename at backup time on Linux. | Open → bash-v2 |
 | no-7-Zip raw-candidate skip (new, R10) | Both restorers `continue` past a `.7z`-named hash-recovery candidate when 7-Zip is absent, never testing its raw bytes — which needs no 7-Zip and is exactly the revision-3 exemption shape. A restore needing no actual decompression can exit 4 "install 7-Zip" unnecessarily. | Low impact (a genuinely compressed store dies earlier anyway). Fold into the next kit-revision batch with R6. | Open |
 | kit-less snapshot window (new, F8) | A crash inside `Complete-ChangeFolder` between the `Temp`→`Snapshot_*` rename and the kit-artifact copy loop yields a valid snapshot (manifest + witness) carrying NO restore kit (`Get-BackupKitRevision` = 0) — breaks the "every snapshot is self-contained" expectation; no byte loss. | Recoverable today via `-Action Verify -RefreshKits`. Candidate cheap fix: copy the kit into staging BEFORE the rename so the rename publishes a complete snapshot. Unscheduled. | Open |
+| Windows reserved device names (new, WP8 review minor 2) | `CON`, `NUL.txt`, `COM1.dat` etc. pass `Test-PortableRelativePath` as portable — SR-055 as ruled never claimed them, and the worst case is a loud copy failure on a Windows restore, but they are one more not-on-both-platforms name class. | Follow-up note only; extend SR-055's character rules if it ever bites. | Recorded |
+| no-7z double host record (WP8 review minor 3, accepted) | An UNREADABLE `.7z` candidate met with no 7-Zip records both CandidateError and DependencyMissing for one candidate in `Reconstruct.ps1`'s locator. Cosmetic: hostIssues aggregate, DependencyMissing outranks by design, and the reported cause is correct. | Accepted as-is — not worth a kit-revision-relevant edit on its own; fold into the next kit touch. | Accepted |
 
 **Agreed work-package order (after Next-action items (a)–(c) are ratified):**
 **WP1** restore trust & diagnostics (E + corrupt-manifest + D/exit codes + J —
@@ -3089,49 +3105,6 @@ edits).
 
 ---
 
-### DRIVER (Software + Test Engineer) — WP8: portable names + raw-candidate recovery — 2026-08-23
-
-Plan: [plans/wp8-portable-names-plan.md](plans/wp8-portable-names-plan.md).
-Both scoped items landed.
-
-**Portable-name guard (SR-055, the human's R6/R7 ruling).**
-`Test-PortableRelativePath` classifies per component (Windows-forbidden
-characters incl. control/newline, trailing dot/space, backslash-in-name on
-non-Windows). The skip happens INSIDE `Update-SourceManifest`'s scan, before
-any open/hash attempt — a trailing-dot name Windows cannot even open would
-otherwise abort the whole set on a read error instead of being named as the
-problem. Step 5.1 logs one ERROR per skip and fails the set; step 8 filters
-skipped names out of `RemovedFromSource`, so a previously stored row under a
-bad name is FROZEN, never evicted. This retires R6 (7-Zip quote mis-split) and
-R7 (bash newline rows) at the source for every newly written store.
-
-**Raw-candidate recovery without 7-Zip (R10; kit revision 4 → 5).** Both
-locators now test a `.7z`-named candidate's OWN bytes even when 7-Zip is
-absent (raw needs none); only a candidate whose raw bytes do not match still
-records DependencyMissing. A restore requiring no actual decompression no
-longer exits 4 demanding 7-Zip. Two bats fixtures whose no-7z candidate
-happened to BE the row's raw bytes renamed `.7z` — exactly the shape that now
-recovers — were updated to genuinely non-matching bytes, and a new bats case
-pins the recovery; the PS process-level exit-4 pin needed the same fixture
-update (its candidate was also the row's bytes renamed), while the PS
-function-level DependencyMissing pin already used non-matching bytes and
-stands unchanged.
-
-**Registries.** SN-032 minted (deferred from the WP7 commit so it never sat
-orphaned); SR-055 `Verified`, LLR-055, TC-106 `Pass`; TC-107 `Pass` under the
-SR-050 family for the revision-5 behavior. `trace.py --strict` →
-`SN=32 SR=55 LLR=54 TC=106, 0 orphans / 0 integrity`. AGENTS.md §3 and
-README's kit-revision notes extended to revision 5.
-
-**Evidence (real, this host, 2026-08-23).** WP8 Describe 3/3 (classification
-matrix; trailing-dot end-to-end via `\\?\` — exit 1, one Skipping ERROR, rest
-backed up, prior row frozen with its data file intact; raw-`.7z` recovery with
-a bogus `-SevenZipPath`). WSL: `shellcheck` clean, **bats 56/56** (55 + the
-new revision-5 pin). Full-suite + container runs recorded in the wrap-up
-below.
-
----
-
 ### HUMAN — Batch ratification — 2026-08-23
 
 The human reviewed the ratification worksheet (artifact `d48d6e78`, built from
@@ -3161,6 +3134,39 @@ findings will be recorded here when they land.
 
 Both run at the human's request before deciding the dispositions; both
 escalate their item. Full facts folded into the Open-items rows; summary:
+
+**Blank-DataPath (verdict: worth its own WP now; NOT parkable behind "verify
+detects it").** Reproduced end-to-end on HEAD: delete one file inside the
+backup root (dominant realistic class — AV quarantine, cloud-sync
+dehydration, operator tidying; README never warns against it; the engine's
+own deletion paths are closed on current code) → next run WARNs once and
+exits 0, blanks the row, never re-copies although the diff proves the source
+still holds the bytes → all later runs silent → **`-Action Verify`/-`Deep`
+exit 0 "no disagreements" on the broken store** → restore exits 1
+content-missing. R5 adoption confirmed live: a NEW same-content file adopts
+the blank row with zero warnings and no bytes ever written. Kit-4 fallback
+rescues only content that survives elsewhere in the pool — unique content is
+lost. Cheap fix class verified viable: never adopt a blank DataPath
+(simultaneously kills the spread and heals from source), re-copy on blanking
+when the source matches, call `Test-PoolResolves` from Verify, README
+warning.
+
+**Prune form-mismatch rail (verdict: promote WP6-or-later → scheduled).**
+Reproduced: after a `CompressEnabled` flip, prune refuses the whole store
+(exit 2 form-mismatch) while the refused snapshot restores byte-exact with
+its own revision-4 kit; `-RepairStorage` says unrepairable, `-RefreshKits`
+doesn't clear it, the precondition doesn't exclude even the snapshot being
+pruned. NEW beyond the row: a store with snapshots from both regimes is
+**permanently wedged under either setting** (no unblock short of hand-editing
+manifests, which breaks witnesses); and the WP5 phase-F extension merge is
+itself a form flip for 8 types, so an existing compressed store that merely
+upgrades walks into the wedge with no operator action. README's promise that
+the flip is safe was true for restore and false for prune — a Known-
+limitation caveat with the single-flip workaround is landed in README in
+this commit (docs-only). Data safety never at risk; the refusal is
+conservative.
+
+---
 
 ### HUMAN — Open-item rulings + WP7/WP8 minted — 2026-08-23
 
@@ -3256,34 +3262,174 @@ one kit regressed to revision 1 **refuses with exit 2** naming form-mismatch
 and RefreshKits. Full-suite + lint run recorded in the WP7+WP8 wrap-up entry.
 Existing TC-084 rail cases (non-blank mismatches) unchanged and green.
 
-**Blank-DataPath (verdict: worth its own WP now; NOT parkable behind "verify
-detects it").** Reproduced end-to-end on HEAD: delete one file inside the
-backup root (dominant realistic class — AV quarantine, cloud-sync
-dehydration, operator tidying; README never warns against it; the engine's
-own deletion paths are closed on current code) → next run WARNs once and
-exits 0, blanks the row, never re-copies although the diff proves the source
-still holds the bytes → all later runs silent → **`-Action Verify`/-`Deep`
-exit 0 "no disagreements" on the broken store** → restore exits 1
-content-missing. R5 adoption confirmed live: a NEW same-content file adopts
-the blank row with zero warnings and no bytes ever written. Kit-4 fallback
-rescues only content that survives elsewhere in the pool — unique content is
-lost. Cheap fix class verified viable: never adopt a blank DataPath
-(simultaneously kills the spread and heals from source), re-copy on blanking
-when the source matches, call `Test-PoolResolves` from Verify, README
-warning.
+---
 
-**Prune form-mismatch rail (verdict: promote WP6-or-later → scheduled).**
-Reproduced: after a `CompressEnabled` flip, prune refuses the whole store
-(exit 2 form-mismatch) while the refused snapshot restores byte-exact with
-its own revision-4 kit; `-RepairStorage` says unrepairable, `-RefreshKits`
-doesn't clear it, the precondition doesn't exclude even the snapshot being
-pruned. NEW beyond the row: a store with snapshots from both regimes is
-**permanently wedged under either setting** (no unblock short of hand-editing
-manifests, which breaks witnesses); and the WP5 phase-F extension merge is
-itself a form flip for 8 types, so an existing compressed store that merely
-upgrades walks into the wedge with no operator action. README's promise that
-the flip is safe was true for restore and false for prune — a Known-
-limitation caveat with the single-flip workaround is landed in README in
-this commit (docs-only). Data safety never at risk; the refusal is
-conservative.
+### DRIVER (Software + Test Engineer) — WP8: portable names + raw-candidate recovery — 2026-08-23
+
+Plan: [plans/wp8-portable-names-plan.md](plans/wp8-portable-names-plan.md).
+Both scoped items landed.
+
+**Portable-name guard (SR-055, the human's R6/R7 ruling).**
+`Test-PortableRelativePath` classifies per component (Windows-forbidden
+characters incl. control/newline, trailing dot/space, backslash-in-name on
+non-Windows). The skip happens INSIDE `Update-SourceManifest`'s scan, before
+any open/hash attempt — a trailing-dot name Windows cannot even open would
+otherwise abort the whole set on a read error instead of being named as the
+problem. Step 5.1 logs one ERROR per skip and fails the set; step 8 filters
+skipped names out of `RemovedFromSource`, so a previously stored row under a
+bad name is FROZEN, never evicted. This retires R6 (7-Zip quote mis-split) and
+R7 (bash newline rows) at the source for every newly written store.
+
+**Raw-candidate recovery without 7-Zip (R10; kit revision 4 → 5).** Both
+locators now test a `.7z`-named candidate's OWN bytes even when 7-Zip is
+absent (raw needs none); only a candidate whose raw bytes do not match still
+records DependencyMissing. A restore requiring no actual decompression no
+longer exits 4 demanding 7-Zip. Two bats fixtures whose no-7z candidate
+happened to BE the row's raw bytes renamed `.7z` — exactly the shape that now
+recovers — were updated to genuinely non-matching bytes, and a new bats case
+pins the recovery; the PS process-level exit-4 pin needed the same fixture
+update (its candidate was also the row's bytes renamed), while the PS
+function-level DependencyMissing pin already used non-matching bytes and
+stands unchanged.
+
+**Registries.** SN-032 minted (deferred from the WP7 commit so it never sat
+orphaned); SR-055 `Verified`, LLR-055, TC-106 `Pass`; TC-107 `Pass` under the
+SR-050 family for the revision-5 behavior. `trace.py --strict` →
+`SN=32 SR=55 LLR=54 TC=106, 0 orphans / 0 integrity`. AGENTS.md §3 and
+README's kit-revision notes extended to revision 5.
+
+**Evidence (real, this host, 2026-08-23).** WP8 Describe 3/3 (classification
+matrix; trailing-dot end-to-end via `\\?\` — exit 1, one Skipping ERROR, rest
+backed up, prior row frozen with its data file intact; raw-`.7z` recovery with
+a bogus `-SevenZipPath`). WSL: `shellcheck` clean, **bats 56/56** (55 + the
+new revision-5 pin). Full-suite + container runs recorded in the wrap-up
+below.
+
+---
+
+### INDEPENDENT REVIEWER — WP7 (`1acbbbf`) + WP8 (`8e5e925`) — 2026-08-23
+
+Read-only review against a pristine clone at `8e5e925`; every hard case probed
+(heal-picks-wrong-bytes, Save-SupersededData interaction, snapshot minting,
+kit-gate folder semantics, ExcludeFolder, no other lazy-enumerator leaks in
+the module, post-repair re-verify includes the pool audit, JSON shape,
+frozen-row interactions, zero behavior change when 7-Zip is present).
+Reviewer's suite runs: WP7+WP8+SR-046 refusal Describes 30/30, all remaining
+prune/retention Describes 39/39, Engine+StorageForm 148/148, **bats 56/56**,
+trace 0 orphans / 0 integrity.
+
+**WP7: CHANGES-REQUESTED.**
+1. *(Required)* `Get-BackupCapacityDemand` counted a blank-DataPath row's key
+   as "already held", so a heal's copies were budgeted ZERO — the flagship
+   cloud-dehydration scenario would fail mid-copy on a full volume instead of
+   refusing before mutation (SR-052 violated in the heal case; reviewer
+   reproduced: 500-byte blanked row → demand 0).
+2. *(Required)* Verify stamped EVERY broken-pool problem
+   `PoolUnresolvable — no bytes anywhere in the pool` without checking the
+   pool: a row whose named file is gone while the content survives elsewhere
+   (restorable by the revision-4+ fallback, healed next run) was reported as
+   data loss — a false escalation for the wrapper.
+3. *(Minors)* the cited "wrap-up entry" did not yet exist (it is the entry
+   after next); the WP8/WP7 audit entries were inserted out of the
+   newest-last order (now reordered); cross-volume ChangeBytes over-estimates
+   a blank prior row (conservative, noted).
+
+**WP8: APPROVE-WITH-MINORS.** R10 verified clean (raw-first inside the
+no-7-Zip branch only; kit revision 5 truthfully stamped both sides; all three
+fixture updates justified). Minors: (1) SR-055's `backslash-on-linux`
+permutation had NO covering test while TC-106 claimed one — the
+registry-accuracy point; (2) Windows reserved device names pass as portable —
+SR-design observation, recorded as an Open note; (3) an unreadable `.7z`
+candidate under no-7-Zip double-records CandidateError + DependencyMissing —
+cosmetic, accepted.
+
+---
+
+### DRIVER (Data-integrity hat) — Landing the WP7/WP8 review's required changes — 2026-08-23
+
+- **R1:** `Get-BackupCapacityDemand` now excludes blank-DataPath rows from its
+  already-held set (mirroring the SR-053 adoption filter) — heal copies are
+  budgeted and the SR-052 preflight refuses before mutation. Pinned: unit case
+  `budgets heal copies in the capacity preflight` (500-byte blanked row →
+  demand 500; non-blank → 0). SR-052 acceptance text extended.
+- **R2:** `Test-PoolResolves` broken-pool problems now carry `BytesSurvive`,
+  proven on DISK against the content index (excluding the missing path
+  itself — this very branch proves rows can lie); `Invoke-VerifyAction` maps
+  survivors onto the honest new class **`PoolDataPathMissing`** and only a
+  genuinely byte-less row onto `PoolUnresolvable`. Pinned: `verify tells a
+  missing named file with surviving bytes apart from true loss` — spare copy
+  present → `PoolDataPathMissing`, no `PoolUnresolvable`; spare deleted →
+  `PoolUnresolvable`. SR-054 acceptance, LLR-054, TC-104 updated.
+- **WP8 minor 1:** `Test-PortableRelativePath` gains a `-TreatAsPosix` test
+  seam (defaults to the real platform); the Windows unit suite now asserts
+  the POSIX backslash arm and the separator difference explicitly. TC-106 and
+  LLR-055 now tell the truth about where that arm runs.
+- **WP8 minors 2/3:** recorded as Open-item rows (reserved device names;
+  accepted cosmetic double-record).
+- **Minor (b):** the status.md tail re-ordered to newest-last (the
+  investigation bodies re-joined to their header; WP7/WP8 entries moved after
+  the rulings they implement).
+
+---
+
+### DRIVER — WP7+WP8 wrap-up: the full battery + first-CI post-mortem — 2026-08-23
+
+Recorded after the review fixes landed (the evidence the earlier entries
+point at). All output real, this host, 2026-08-23:
+
+- **Unit: 341/341** (Pester, 5 files; includes the 10 WP7/WP8 pins, the two
+  review-fix pins, and three pre-existing fixtures updated to carry a real
+  `DataPath` — a held row without one now honestly reads as blank/heal-due).
+- **Integration (the exact CI command, `Run-All.ps1 -Backend Subst
+  -EmitJUnit -NonInteractive`): 372 PASS / 0 FAIL / 4 SKIP** (G8 real-USB
+  skips, by design) — the Full-tier run the WP4-era residual asked for.
+- **bash: shellcheck clean; bats 56/56** (WSL Fedora).
+- **bash-interop replicated end-to-end locally:** fresh Windows-made fixtures
+  (all 4 modes) restored through `tests/bash/verify_restores.sh` on Linux —
+  **verified 12 origins, 0 failing**.
+- **Container job replicated on REAL Docker** (Ubuntu WSL, docker 29.6.1 —
+  the runner's engine, not Podman): BuildAndTest incl. TC-102, then the CI
+  job's Export → `docker rmi` → Load → re-Test sequence — all pass.
+- **Podman side unchanged and green**; export tar refreshed
+  (`.artifacts/filebackup-dev-wp5fix.tar`, revision-5 kit inside).
+- Lint clean on every changed file; `trace.py --strict` →
+  `SN=32 SR=55 LLR=54 TC=106, 0 orphans / 0 integrity`;
+  `check.ps1 -Gate G3` footer recorded below at commit time — expected state:
+  exactly the one CI-gated SR-052 status finding.
+
+**Post-mortem of the first real CI run (push of `83cc5f1`, run 32661497480,
+3 ✓ / 5 ✗ / 1 skipped).** Diagnosed from the public API + local replication
+(job logs need auth):
+
+1. **Traceability — EXPECTED failure by design.** The job runs
+   `trace.py --strict --require-verified` and the standing SR-052
+   `Implemented` status is a finding until the post-CI registry flips land;
+   the job's own `TODO(WP3 ratchet)` comment records this ordering. It stays
+   red on the next push too, and clears with the flip commit.
+2. **Unit + Integration (Subst) — attributed to the `Get-BackupKitRevision`
+   handle leak** (present since WP5, fixed in `1acbbbf`): both jobs died
+   without writing their result files, the signature of a teardown crash from
+   a leaked handle inside a test store; both suites pass fully at HEAD
+   locally (341/341 and 372/0/4 with the CI commands verbatim).
+3. **Container — REPRODUCED and fixed.** On real Docker/Ubuntu the build and
+   smoke passed and then TC-102's malformed-row seeding re-stamped the
+   witness via the HOST's `FileBackup.Common` → `System.IO.Hashing` is not on
+   ubuntu-latest → the module PROMPTED INTERACTIVELY and aborted. Never seen
+   locally because this Windows host has the DLL. Fixed in
+   `scripts/Invoke-Container.ps1`: the witness re-stamp now runs INSIDE the
+   image (`--entrypoint pwsh`, the DLL is baked in); the full job sequence
+   then passes on real Docker.
+4. **bash-interop restore — no code defect found.** The full flow replicated
+   locally passes 12/12 at HEAD, and the job failed in ~28 s (barely its
+   apt-get step); treated as environmental/early-step until the next push's
+   log says otherwise.
+
+`check.ps1 -Tier Smoke -Gate G3` at commit time: every step PASS; footer
+`FAILED: Traceability (trace.py --strict)` — the one pre-existing, disclosed
+SR-052 CI-gated finding, unchanged.
+
+**Expected result of the next push:** everything green except Traceability
+(and the skipped self-hosted VHDX job); then the pre-authorized registry
+flips + ratchet re-arm land as their own commit, and the push after that is
+fully green.
 
