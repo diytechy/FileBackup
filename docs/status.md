@@ -1924,3 +1924,26 @@ TC=80 per plan §1 (registry *row* counts — trace.py's summary line counts
 distinct ids present out of the numeric range, so it reports LLR=43/TC=79
 because of the pre-existing LLR-019/TC-029 gaps, not because a row is
 missing here).
+
+### INDEPENDENT REVIEWER — WP2 re-verification — 2026-08-22
+Verdict: **APPROVE** (upgraded from CHANGES-REQUESTED). All findings
+re-probed on a pristine export of `b67cdcf` and confirmed closed: the
+AllowEmptySource `"false"` delete-all repro now refuses with
+`$.BackupSets[0].AllowEmptySource — must be a JSON boolean` and exit 2,
+creating no directories; every other type coercion (SourcePath array, Name
+number, HashRecalcFreq array, Tools/Secrets types, SmtpPort string,
+BackupSets string) refused with the key named; the shared fixture corpus
+(7 accepted / 27 rejected, the shipped example itself a fixture) drives
+TC-074/075/077 with schema↔validator parity on all twelve probe rows
+including the bare-set `anyOf` and integral-float ConfigVersion; missing
+config exits 2 (pinned); a refused config appends to an existing log and
+creates nothing in a fresh path (pinned); all minors closed (real
+BackupSets index, ConfigVersion range guard, 7-Zip CI precondition,
+entrypoint.sh in shellcheck scope, PS 7.0-floor Test-Json form, AGENTS.md
+counts 172/48 match measurement). Deviation ruling: keeping SR-042/043 at
+`Verified` was ACCEPTED — the fixes and fixtures land green in one commit,
+so no commit exists where the row overclaims; the premature `ba1ee48` flip
+stays on record in the CHANGES-REQUESTED audit entry. Evidence (pristine
+export): unit 172/172, integration Mirror 59/0/1, trace 0/0/0, lint clean.
+**WP1 and WP2 are now both implemented + independently review-APPROVED;
+awaiting batch ratification.**
