@@ -1018,8 +1018,14 @@ function Move-RemovedFilesToStaging {
         references it (shared hash/size dedup). When it is still referenced, the
         file is left in the backup root and the change manifest blanks the
         DataPath (reconstruct recovers it by hash).
+
+        A failed move does NOT abort the run (SR-041): it is logged as an ERROR,
+        counted, and the loop continues. One locked file must not hide every
+        other failure, skip snapshot finalization, and leave the Temp staging
+        folder behind for the next run's SR-017 stale-staging guard to trip on.
+        Same shape as Invoke-BackupFileGroup's existing per-entry handling.
     #>
-    # Implements: SR-006, LLR-006
+    # Implements: SR-006, SR-041, LLR-006, LLR-041
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$RemovedFromSource,
@@ -1027,8 +1033,10 @@ function Move-RemovedFilesToStaging {
         [Parameter(Mandatory)][string]$StagingFolder,
         [Parameter(Mandatory)][ref]$BackupMap,
         [Parameter(Mandatory)][ref]$ChangedCount,
-        [Parameter(Mandatory)][scriptblock]$Log
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [Parameter(Mandatory)][ref]$OverallSuccess
     )
+    $failures = 0
     foreach ($bk in $RemovedFromSource) {
         $rel  = $bk.RelativePath
         $data = $bk.DataPath
@@ -1049,13 +1057,24 @@ function Move-RemovedFilesToStaging {
         $srcDataFull = Join-Path $BkpPath $data
         if (Test-Path -LiteralPath $srcDataFull -PathType Leaf) {
             $destDataFull = Join-Path $StagingFolder $data
-            $destDir = [System.IO.Path]::GetDirectoryName($destDataFull)
-            if (-not (Test-Path -LiteralPath $destDir)) {
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            try {
+                $destDir = [System.IO.Path]::GetDirectoryName($destDataFull)
+                if (-not (Test-Path -LiteralPath $destDir)) {
+                    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+                }
+                Move-Item -LiteralPath $srcDataFull -Destination $destDataFull -Force
+                $ChangedCount.Value++
             }
-            Move-Item -LiteralPath $srcDataFull -Destination $destDataFull -Force
-            $ChangedCount.Value++
+            catch {
+                & $Log "Failed to evict '$rel' (data '$data') to staging: $($_.Exception.Message)" 'ERROR'
+                $OverallSuccess.Value = $false
+                $failures++
+                continue
+            }
         }
+    }
+    if ($failures -gt 0) {
+        & $Log "Removed-file eviction finished with $failures failure(s); the snapshot is partial." 'ERROR'
     }
 }
 
@@ -1072,8 +1091,13 @@ function Save-SupersededData {
         old content still exists elsewhere (e.g. a surviving duplicate), it stays
         in the backup and the snapshot recovers it by hash. This is what makes a
         point-in-time restore reproduce old content in every storage mode.
+
+        A failed move does NOT abort the run (SR-041): it is logged as an ERROR,
+        counted, and the loop continues, so the run still finalizes its staging
+        folder instead of orphaning it (SR-017). Same shape as
+        Invoke-BackupFileGroup's existing per-entry handling.
     #>
-    # Implements: SR-010, SR-028, LLR-010, LLR-028
+    # Implements: SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$NewOrChanged,
@@ -1081,9 +1105,11 @@ function Save-SupersededData {
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
         [Parameter(Mandatory)][string]$BkpPath,
         [Parameter(Mandatory)][string]$StagingFolder,
-        [Parameter(Mandatory)][scriptblock]$Log
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [Parameter(Mandatory)][ref]$OverallSuccess
     )
     if (-not $NewOrChanged) { return }
+    $failures = 0
     $backupByRel = @{}; foreach ($b in $BackupDb) { if ($b.RelativePath) { $backupByRel[$b.RelativePath] = $b } }
     # Content (hash|length) present in the NEW source state survives in the backup.
     $survivingContent = @{}; foreach ($s in $SourceDb) { $survivingContent["$($s.xxH2Hash)|$($s.Length)"] = $true }
@@ -1097,10 +1123,21 @@ function Save-SupersededData {
         $srcDataFull = Join-Path $BkpPath $old.DataPath
         if (-not (Test-Path -LiteralPath $srcDataFull -PathType Leaf)) { continue }  # already moved / shared
         $destFull = Join-Path $StagingFolder $old.DataPath
-        $destDir  = [System.IO.Path]::GetDirectoryName($destFull)
-        if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-        Move-Item -LiteralPath $srcDataFull -Destination $destFull -Force
-        & $Log "Preserved superseded data for '$($chg.RelativePath)' into the snapshot."
+        try {
+            $destDir = [System.IO.Path]::GetDirectoryName($destFull)
+            if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+            Move-Item -LiteralPath $srcDataFull -Destination $destFull -Force
+            & $Log "Preserved superseded data for '$($chg.RelativePath)' into the snapshot."
+        }
+        catch {
+            & $Log "Failed to preserve superseded data for '$($chg.RelativePath)' (data '$($old.DataPath)'): $($_.Exception.Message)" 'ERROR'
+            $OverallSuccess.Value = $false
+            $failures++
+            continue
+        }
+    }
+    if ($failures -gt 0) {
+        & $Log "Superseded-data preservation finished with $failures failure(s); the snapshot is partial." 'ERROR'
     }
 }
 
@@ -1293,8 +1330,11 @@ function Invoke-BackupSet {
 
     # 9.5 Preserve superseded bytes into the snapshot BEFORE they are overwritten
     # (Mirror) or orphaned (HashAddressed) — required for point-in-time restore.
+    # A move failure here is aggregated, not thrown (SR-041): the run must reach
+    # step 13 so the staging folder is finalized or discarded rather than
+    # orphaned for the next run's SR-017 guard.
     Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb -SourceDb $sourceDb `
-        -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log
+        -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
 
     # 10. Copy new/changed files
     foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
@@ -1311,7 +1351,8 @@ function Invoke-BackupSet {
     Move-RemovedFilesToStaging `
         -RemovedFromSource $diff.RemovedFromSource `
         -BkpPath $paths.BkpPath -StagingFolder $stagingFolder `
-        -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) -Log $log
+        -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) -Log $log `
+        -OverallSuccess $OverallSuccess
 
     # 12. Save updated backup manifest
     $backupDbFinal = $backupMap.Values | Sort-Object { $_.RelativePath.Length } -Descending

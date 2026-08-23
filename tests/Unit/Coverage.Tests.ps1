@@ -848,3 +848,82 @@ Describe 'Restore exit-code table (SR-040)' {
             Should -Throw -ExpectedMessage '*1 file(s) could not be restored*'
     }
 }
+
+Describe 'Move loops aggregate failures (SR-041)' {
+    # TC-073. HomeHub cross-check finding J: one failed Move-Item escaped
+    # Invoke-BackupSet, which hid every other failure, skipped snapshot
+    # finalization, and left the Temp staging folder behind — so the NEXT run
+    # aborted on the SR-017 stale-staging guard. A single locked file must not
+    # cost the user their next backup too.
+    It 'logs an ERROR per failed move, still finalizes the snapshot, and leaves no Temp behind (SR-041)' {
+        $root = Join-Path $TestDrive 's41'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg    # Mirror, no compress
+
+        # Run 1: four files, two of which this run will supersede/remove.
+        [IO.File]::WriteAllText((Join-Path $src 'super.txt'),  'OLD-SUPERSEDED')
+        [IO.File]::WriteAllText((Join-Path $src 'gone.txt'),   'OLD-REMOVED')
+        [IO.File]::WriteAllText((Join-Path $src 'super2.txt'), 'OLD-SUPERSEDED-2')
+        [IO.File]::WriteAllText((Join-Path $src 'gone2.txt'),  'OLD-REMOVED-2')
+        Invoke-FB $cfg
+
+        # Set up run 2: supersede one file (Save-SupersededData path) and remove
+        # another (Move-RemovedFilesToStaging path), so BOTH loops have work.
+        [IO.File]::WriteAllText((Join-Path $src 'super.txt'),  'NEW-CONTENT')
+        [IO.File]::WriteAllText((Join-Path $src 'super2.txt'), 'NEW-CONTENT-2')
+        Remove-Item -LiteralPath (Join-Path $src 'gone.txt')  -Force
+        Remove-Item -LiteralPath (Join-Path $src 'gone2.txt') -Force
+
+        # Hold TWO backup data files open with no sharing, so their moves fail —
+        # one in each loop. FileShare::None makes Move-Item throw exactly the way
+        # a real locked file (AV scanner, open handle) does.
+        $lock1 = [IO.File]::Open((Join-Path $bkp 'super.txt'), 'Open', 'Read', 'None')
+        $lock2 = [IO.File]::Open((Join-Path $bkp 'gone.txt'),  'Open', 'Read', 'None')
+        try {
+            # Child process so the exit code is observable.
+            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+            $code = $LASTEXITCODE
+        }
+        finally {
+            $lock1.Dispose(); $lock2.Dispose()
+        }
+
+        $log = Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw
+
+        # 1. Each failure is logged as its own ERROR naming the file — not one
+        #    generic abort that hides the second failure.
+        $log | Should -Match "ERROR.*Failed to preserve superseded data for 'super\.txt'"
+        $log | Should -Match "ERROR.*Failed to evict 'gone\.txt'"
+        # 2. ...plus a summary count per loop.
+        $log | Should -Match 'Superseded-data preservation finished with 1 failure'
+        $log | Should -Match 'Removed-file eviction finished with 1 failure'
+        # 3. The run reports overall failure.
+        $code | Should -Be 1
+
+        # 4. Every MOVABLE entry was still staged: the loops continued past the
+        #    failures instead of aborting on the first one.
+        $snaps = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' })
+        $snaps.Count | Should -Be 1
+        $snap = $snaps[0].FullName
+        [IO.File]::ReadAllText((Join-Path $snap 'super2.txt')) | Should -Be 'OLD-SUPERSEDED-2'
+        [IO.File]::ReadAllText((Join-Path $snap 'gone2.txt'))  | Should -Be 'OLD-REMOVED-2'
+
+        # 5. The snapshot was still FINALIZED (it has its own manifest + witness)
+        #    rather than being abandoned mid-flight.
+        Test-Path -LiteralPath (Join-Path $snap 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+        (Test-ManifestWitness -FolderPath $snap).Status | Should -Be 'Verified'
+
+        # 6. No Temp staging folder survives...
+        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -eq 'Temp' }) |
+            Should -BeNullOrEmpty
+
+        # 7. ...so the NEXT run proceeds normally instead of tripping the SR-017
+        #    stale-staging guard. This is the half that actually cost the user a
+        #    backup before the fix.
+        & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) | Should -Not -Match 'stale'
+    }
+}
