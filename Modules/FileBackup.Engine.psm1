@@ -787,6 +787,282 @@ function Optimize-ChangeFolders {
 
 # endregion
 
+# region Snapshot retention (SR-045..SR-047)
+
+function Get-PoolSnapshotFolder {
+    <#
+    .SYNOPSIS
+        Returns the dated snapshot folders under a change root, oldest first
+        (name order), filtered by the one $Def.ChangeFolderRegex every consumer
+        uses. Nothing else in the change root is a snapshot.
+    #>
+    # Implements: SR-045, LLR-045
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ChangeRoot)
+    if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { return @() }
+    return @(Get-ChildItem -LiteralPath $ChangeRoot -Directory |
+             Where-Object { $_.Name -match $script:Def.ChangeFolderRegex } |
+             Sort-Object Name)
+}
+
+function Get-SnapshotDate {
+    <#
+    .SYNOPSIS
+        Parses the point-in-time date out of a Snapshot_<date> folder name
+        (tolerating Complete-ChangeFolder's _NNN collision disambiguator).
+        Returns $null when the name carries no parseable date.
+    #>
+    # Implements: SR-047, LLR-047
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+    if ($Name -notmatch '^Snapshot_(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})') { return $null }
+    try { return [datetime]::ParseExact($Matches[1], $script:Def.FileLabelDateFormat, $null) }
+    catch { return $null }
+}
+
+function Get-ReHomedDataPathName {
+    <#
+    .SYNOPSIS
+        Synthesizes the data-file name a re-homed file must take at its
+        destination, from the SOURCE row's storage form (SR-045): the physical
+        form travels with the bytes, so prune never re-packs.
+
+    .DESCRIPTION
+        Mirrors Invoke-BackupFileGroup / Sync-BackupStorageLayout exactly —
+        Get-HashSizeFileName when the row is stored hash-addressed ('.7z' when
+        compressed, else the logical extension), otherwise the RelativePath
+        (+'.7z' when compressed).
+
+    .PARAMETER Row
+        The source manifest row whose bytes are being re-homed.
+
+    .OUTPUTS
+        [string] the destination-relative data path.
+    #>
+    # Implements: SR-045, LLR-045
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$Row)
+    if ($Row.StoredAsHashSize -eq 'Hash') {
+        $ext = if ($Row.Compressed -eq 'Yes') { '.7z' } else { [IO.Path]::GetExtension($Row.RelativePath) }
+        return (Get-HashSizeFileName -HashHex $Row.xxH2Hash -Length $Row.Length -Extension $ext)
+    }
+    if ($Row.Compressed -eq 'Yes') { return ($Row.RelativePath + '.7z') }
+    return $Row.RelativePath
+}
+
+function Get-SnapshotPrunePlan {
+    <#
+    .SYNOPSIS
+        Computes — without touching a byte — what removing one snapshot would
+        cost and what must be re-homed first so no surviving manifest is left
+        pointing at content that no longer exists (SR-045).
+
+    .DESCRIPTION
+        Pool = backup root + every Snapshot_* folder. The physical index (bytes
+        that EXIST) comes from Get-BackupContentIndex. The demand set is every
+        row OUTSIDE the target whose DataPath is blank, or whose DataPath names
+        a file that is not there — those rows resolve by (hash,length) from
+        anywhere in the pool. A demanded key whose every physical copy lies
+        inside the target is ENDANGERED: exactly one file per endangered key is
+        copied out before the folder dies.
+
+        The destination is where Optimize-ChangeFolders would have elected the
+        keeper had the target never existed — the backup root when it demands
+        the key, else the newest surviving snapshot that demands it. That
+        guarantees the destination already carries a manifest row for the
+        content, so one row is edited (DataPath + the storage-form pair) and no
+        row is added, removed or reordered.
+
+        Refusals discoverable at plan time are returned in Problems (each with
+        its SR-040 code) rather than thrown, so -WhatIf can report all of them
+        and Remove-BackupSnapshot can apply the 2 > 3 > 4 > 1 precedence over
+        the whole set.
+
+    .PARAMETER BackupRoot
+        The live backup root.
+
+    .PARAMETER ChangeRoot
+        The change root holding the snapshot folders.
+
+    .PARAMETER Name
+        Exact snapshot folder name (no wildcards). See SR-046 for containment.
+
+    .OUTPUTS
+        [pscustomobject] Name, Folder, Date, Rows, PhysicalBytes, Items,
+        BytesReHomed, BytesReclaimed, UnreferencedData, Problems, Index,
+        Manifests.
+    #>
+    # Implements: SR-045, SR-047, LLR-045, LLR-047
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $problems = New-Object System.Collections.Generic.List[object]
+    $items    = New-Object System.Collections.Generic.List[object]
+    $plan = [pscustomobject]@{
+        Name = $Name; Folder = $null; Date = (Get-SnapshotDate -Name $Name)
+        Rows = 0; PhysicalBytes = [long]0; Items = $items
+        BytesReHomed = [long]0; BytesReclaimed = [long]0
+        UnreferencedData = @(); Problems = $problems
+        Index = $null; Manifests = @{}
+    }
+
+    $snapshots = Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot
+    $target    = $snapshots | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
+    if (-not $target) {
+        $problems.Add([pscustomobject]@{ Code = 2; Kind = 'bad-target'
+            Message = "'$Name' is not a snapshot folder directly under '$ChangeRoot'." })
+        return $plan
+    }
+    $targetFolder = $target.FullName
+    $plan.Folder  = $targetFolder
+
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots.FullName)
+    $plan.Index = $index
+    foreach ($f in $index.Folders) { $plan.Manifests[$f.Folder] = $f.Manifest }
+    $targetManifest = @($index.Folders | Where-Object { $_.Folder -eq $targetFolder } | ForEach-Object { $_.Manifest })
+    $plan.Rows = $targetManifest.Count
+
+    # Everything in the folder disappears with it — data files and the snapshot's
+    # own restore-kit copies alike.
+    $plan.PhysicalBytes = [long](Get-ChildItem -LiteralPath $targetFolder -File -Recurse |
+        Measure-Object -Property Length -Sum).Sum
+
+    # Bytes in the target that its own manifest does not reference are unexplained
+    # (the pipeline never creates one) — a refusal, not something to plan around.
+    $ownReferenced = @{}
+    foreach ($row in $targetManifest) {
+        if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $ownReferenced[$row.DataPath.TrimStart('\','/')] = $true }
+    }
+    $targetPrefix = (Resolve-Path -LiteralPath $targetFolder).Path
+    $unreferenced = foreach ($file in (Get-DataFile -Root $targetFolder)) {
+        $rel = $file.FullName.Substring($targetPrefix.Length).TrimStart('\','/')
+        if (-not $ownReferenced[$rel] -and $rel -notlike '*.fbprune.tmp') { $rel }
+    }
+    $plan.UnreferencedData = @($unreferenced)
+
+    # Demand: rows OUTSIDE the target that resolve by (hash,length).
+    $demand = @{}
+    foreach ($f in $index.Folders) {
+        if ($f.Folder -eq $targetFolder) { continue }
+        foreach ($row in $f.Manifest) {
+            if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
+            $resolvesByHash = [string]::IsNullOrWhiteSpace($row.DataPath) -or
+                -not (Test-Path -LiteralPath (Join-Path $f.Folder $row.DataPath) -PathType Leaf)
+            if (-not $resolvesByHash) { continue }
+            $key = "$($row.xxH2Hash)|$($row.Length)"
+            if (-not $demand.ContainsKey($key)) { $demand[$key] = New-Object System.Collections.Generic.List[object] }
+            $demand[$key].Add([pscustomobject]@{ FolderRecord = $f; Row = $row })
+        }
+    }
+
+    foreach ($key in $demand.Keys) {
+        # .ToArray(), not @(...): a List reached through a PSObject property
+        # throws "Argument types do not match" under the array subexpression on
+        # PS 7.5 (the same gotcha AGENTS.md §4 records for Compare-SourceToBackup).
+        $locations = @()
+        if ($index.Map.ContainsKey($key)) { $locations = $index.Map[$key].ToArray() }
+        if ($locations.Count -eq 0) { continue }                                    # already broken: Test-PoolResolves reports it
+        if (@($locations | Where-Object { $_.Folder -ne $targetFolder }).Count -gt 0) { continue }  # survives without the target
+
+        $source    = $locations[0]
+        $sourceRow = @($targetManifest | Where-Object { $_.DataPath -eq $source.DataPath })[0]
+        if (-not $sourceRow) { continue }
+
+        $claims  = $demand[$key].ToArray()
+        $winner  = @($claims | Where-Object { $_.FolderRecord.IsBackup })[0]
+        if (-not $winner) {
+            $winner = @($claims | Sort-Object { $_.FolderRecord.Order } -Descending)[0]
+        }
+        $destFolder = $winner.FolderRecord.Folder
+        $destName   = Get-ReHomedDataPathName -Row $sourceRow
+        $destFull   = Join-Path $destFolder $destName
+
+        if (Test-IsInfrastructureFile -Root $destFolder -FullPath ([IO.Path]::GetFullPath($destFull))) {
+            $problems.Add([pscustomobject]@{ Code = 2; Kind = 'infrastructure-name'
+                Message = "Re-homing '$($sourceRow.RelativePath)' into '$destFolder' would create the root-level infrastructure name '$destName', which hash recovery skips." })
+            continue
+        }
+        if (Test-Path -LiteralPath $destFull -PathType Leaf) {
+            # Something already occupies the elected name. Identical bytes mean a
+            # previous interrupted prune already materialized it (resume); anything
+            # else is a collision we refuse rather than overwrite.
+            if ((Get-Item -LiteralPath $destFull).Length -eq (Get-Item -LiteralPath $source.FullPath).Length -and
+                (Get-FileXxHash -FilePath $destFull) -eq (Get-FileXxHash -FilePath $source.FullPath)) {
+                # fall through: the copy step is a no-op, the row edit still has to publish
+            } else {
+                $problems.Add([pscustomobject]@{ Code = 2; Kind = 'destination-collision'
+                    Message = "Re-homing '$($sourceRow.RelativePath)' into '$destFolder' would overwrite the different file already at '$destName'." })
+                continue
+            }
+        }
+
+        $items.Add([pscustomobject]@{
+            Key                 = $key
+            SourceFullPath      = $source.FullPath
+            SourceDataPath      = $source.DataPath
+            SourceRow           = $sourceRow
+            DestinationFolder   = $destFolder
+            DestinationDataPath = $destName
+            DestinationRow      = $winner.Row
+            Compressed          = $sourceRow.Compressed
+            StoredAsHashSize    = $sourceRow.StoredAsHashSize
+            Bytes               = [long](Get-Item -LiteralPath $source.FullPath).Length
+        })
+    }
+
+    $plan.BytesReHomed   = [long](@($items | Measure-Object -Property Bytes -Sum).Sum)
+    $plan.BytesReclaimed = $plan.PhysicalBytes - $plan.BytesReHomed
+    return $plan
+}
+
+function Get-BackupSnapshot {
+    <#
+    .SYNOPSIS
+        Read-only inventory of the dated snapshots in a store, with the
+        dedup-aware reclaim figures only this tool can compute (SR-047).
+
+    .DESCRIPTION
+        Mutates nothing. BytesReclaimed is what removing that snapshot NOW would
+        actually free across the whole store (its physical size less the bytes
+        that must first be re-homed into the surviving pool), and BytesReHomed
+        is the copy cost — both taken from the same Get-SnapshotPrunePlan the
+        real removal executes, so the reported figure is the achieved figure by
+        construction.
+
+    .PARAMETER BackupRoot
+        The live backup root.
+
+    .PARAMETER ChangeRoot
+        The change root holding the snapshot folders.
+
+    .OUTPUTS
+        [pscustomobject] per snapshot, oldest first: Name, Date, Rows,
+        PhysicalBytes, BytesReclaimed, BytesReHomed.
+    #>
+    # Implements: SR-047, LLR-047
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot
+    )
+    foreach ($snapshot in (Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot)) {
+        $plan = Get-SnapshotPrunePlan -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot -Name $snapshot.Name
+        [pscustomobject]@{
+            Name           = $snapshot.Name
+            Date           = $plan.Date
+            Rows           = $plan.Rows
+            PhysicalBytes  = $plan.PhysicalBytes
+            BytesReclaimed = $plan.BytesReclaimed
+            BytesReHomed   = $plan.BytesReHomed
+        }
+    }
+}
+
+# endregion
+
 # region Reconstruct-script generator
 
 function New-ReconstructScript {
@@ -1835,6 +2111,7 @@ Export-ModuleMember -Function @(
     'Test-HashRecalcDue', 'Update-SourceManifest', 'Copy-SourceFileToBackup',
     'Test-BackupManifest', 'Sync-BackupStorageLayout',
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
+    'Get-SnapshotPrunePlan', 'Get-BackupSnapshot',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',

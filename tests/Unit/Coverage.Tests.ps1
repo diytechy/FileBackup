@@ -1345,3 +1345,109 @@ Describe 'Optimize-ChangeFolders is unchanged by the shared index (SR-026)' {
         Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv') | Should -Be $before
     }
 }
+
+Describe 'Snapshot inventory reports true dedup-aware reclaim (SR-047)' {
+    # TC-087. The reclaim figure is the one number HomeHub cannot compute for
+    # itself: because of dedup, a snapshot folder's size is NOT what removing it
+    # frees. Get-BackupSnapshot reports the figure the real removal achieves,
+    # and reports it without touching a single byte.
+    BeforeAll {
+        function New-PruneTimeline {
+            <#
+            .SYNOPSIS
+                Builds a three-run store: shared content, superseded content and
+                a deleted file, so the newest snapshot holds bytes an older
+                snapshot can only reach by hash.
+            #>
+            param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $cfg = Join-Path $Root 'c.xml'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+            $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+            [IO.File]::WriteAllText((Join-Path $src 'keep.txt'),  'KEEP ' * 40)
+            [IO.File]::WriteAllText((Join-Path $src 'super.txt'), 'VERSION-ONE ' * 40)
+            [IO.File]::WriteAllText((Join-Path $src 'gone.txt'),  'DOOMED ' * 40)
+            & $run ([datetime]'2024-01-01 00:00:01')                        # state1
+            [IO.File]::WriteAllText((Join-Path $src 'super.txt'), 'VERSION-TWO ' * 40)
+            & $run ([datetime]'2024-02-02 00:00:02')                        # state2 => Snapshot(D1)
+            Remove-Item -LiteralPath (Join-Path $src 'gone.txt') -Force
+            & $run ([datetime]'2024-03-03 00:00:03')                        # state3 => Snapshot(D2)
+            return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg }
+        }
+        function Get-StoreFingerprint {
+            param([string[]]$Folder)
+            $out = @{}
+            foreach ($f in @(Get-ChildItem -LiteralPath $Folder -File -Recurse)) {
+                $out[$f.FullName] = "$($f.Length)|$(Get-FileXxHash -FilePath $f.FullName)"
+            }
+            return $out
+        }
+        function Get-StoreBytes {
+            param([string[]]$Folder)
+            return [long](Get-ChildItem -LiteralPath $Folder -File -Recurse | Measure-Object -Property Length -Sum).Sum
+        }
+    }
+
+    It 'reports one record per snapshot with all six fields, and modifies nothing (SR-047)' {
+        $root = Join-Path $TestDrive 'tc087'
+        $env  = New-PruneTimeline -Root $root
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        $inv = @(Get-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg)
+        $inv.Count | Should -Be 2
+        $inv[0].Name | Should -Be 'Snapshot_2024_01_01_00_00_01'
+        $inv[1].Name | Should -Be 'Snapshot_2024_02_02_00_00_02'
+        $inv[0].Date | Should -Be ([datetime]'2024-01-01 00:00:01')
+        foreach ($rec in $inv) {
+            $rec.Rows | Should -BeGreaterThan 0
+            $rec.PhysicalBytes | Should -BeGreaterThan 0
+            ($rec.BytesReclaimed + $rec.BytesReHomed) | Should -Be $rec.PhysicalBytes
+            $rec.Rows | Should -Be @(Read-Manifest -FolderPath (Join-Path $env.Chg $rec.Name)).Count
+        }
+
+        # The report is read-only: every file in the store is byte-identical.
+        $after = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+        $after.Count | Should -Be $before.Count
+        foreach ($k in $before.Keys) { $after[$k] | Should -Be $before[$k] }
+    }
+
+    It 'serializes to one JSON object per snapshot carrying all six fields (SR-047)' {
+        $root = Join-Path $TestDrive 'tc087-json'
+        $env  = New-PruneTimeline -Root $root
+        $json = @(Get-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg) | ConvertTo-Json -Depth 4
+        $parsed = @($json | ConvertFrom-Json)
+        $parsed.Count | Should -Be 2
+        foreach ($rec in $parsed) {
+            foreach ($field in 'Name', 'Date', 'Rows', 'PhysicalBytes', 'BytesReclaimed', 'BytesReHomed') {
+                $rec.PSObject.Properties.Name | Should -Contain $field
+            }
+        }
+    }
+
+    It 'costs nothing to prune the OLDEST snapshot and reports the newest''s re-home cost (SR-045, SR-047)' {
+        $root = Join-Path $TestDrive 'tc087-cost'
+        $env  = New-PruneTimeline -Root $root
+        $plans = @('Snapshot_2024_01_01_00_00_01', 'Snapshot_2024_02_02_00_00_02') |
+            ForEach-Object { Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $_ }
+
+        # The oldest snapshot holds no content another state can only get from it
+        # (Save-SupersededData parks superseded bytes in the NEWEST snapshot).
+        $plans[0].Items.Count | Should -Be 0
+        $plans[0].BytesReHomed | Should -Be 0
+        # The newest holds the superseded + deleted bytes the older state needs.
+        $plans[1].Items.Count | Should -BeGreaterThan 0
+        $plans[1].BytesReHomed | Should -BeGreaterThan 0
+        foreach ($plan in $plans) { $plan.Problems.Count | Should -Be 0 }
+    }
+
+    It 'refuses an unknown snapshot name with code 2 and no plan (SR-046)' {
+        $root = Join-Path $TestDrive 'tc087-unknown'
+        $env  = New-PruneTimeline -Root $root
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name 'Snapshot_1999_09_09_09_09_09'
+        $plan.Problems.Count | Should -Be 1
+        $plan.Problems[0].Code | Should -Be 2
+        $plan.Items.Count | Should -Be 0
+    }
+}

@@ -128,11 +128,16 @@ Imports (internal): `Common`
 | `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
+| `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-DataFile` | yes | — |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
+| `Get-PoolSnapshotFolder` | no | SR-045, LLR-045 |
+| `Get-ReHomedDataPathName` | no | SR-045, LLR-045 |
+| `Get-SnapshotDate` | no | SR-047, LLR-047 |
+| `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
