@@ -3460,3 +3460,35 @@ Diagnosis is blocked on the two failing step logs (the human can open the
 jobs' Details pages; unauthenticated API serves conclusions and annotations
 but not logs).
 
+**Addendum 2 — third CI run (push of `d4922b5`, run 32672263476), diagnosed
+from the human-provided log archive. Every remaining failure is now
+root-caused:**
+
+- **Integration (Subst): GREEN** — 372 PASS / 0 FAIL / 4 SKIP on the runner
+  and the JUnit report parsed (the glob fix worked).
+- **Unit: tests 341/341 GREEN on the runner; only the reporter failed** — the
+  glob fix found the file, but dorny's `dotnet-nunit` parser crashes on
+  Pester's NUnit-2.5 schema (`TypeError: cannot read properties of
+  undefined`). **Fixed:** Pester now emits `JUnitXml` and the reporter uses
+  `java-junit` — the exact parser the Subst job proved working.
+- **Container: root-caused from the log.** The build, both smoke passes and
+  both restores all PASSED on the runner; the TC-102 seeding then died with
+  ACCESS-DENIED writing the malformed bytes — the data file belongs to the
+  image's uid 65532 and the runner user cannot overwrite it. (The earlier
+  Ubuntu-WSL "pass" was a false green: that shell is root.) **Fixed:** the
+  entire seeding — data-file rewrite, manifest row flip, witness re-stamp —
+  now runs INSIDE the image via one `--entrypoint pwsh` command with the
+  target row passed by env var; the host only reads. Validated locally as a
+  NON-root docker-group user (uid 1001), the faithful runner replica.
+- **bash-interop restore: root-caused.** HashAddressed short-names can BEGIN
+  WITH A DOT (e.g. `.nArDBFwE!yq[FFf !!!!!!!!#..bin` in the committed
+  fixtures) and `upload-artifact@v4` EXCLUDES HIDDEN FILES BY DEFAULT — the
+  Linux job's pool silently lacked exactly those data files, which is why
+  precisely the two snapshot origins that hash-recover through them failed
+  while every Mirror origin passed. **Fixed:** `include-hidden-files: true`
+  on the fixture upload (alongside the earlier `if-no-files-found: error`).
+- **Traceability:** the designed SR-052 failure, unchanged; clears with the
+  registry flips.
+
+**Expected fourth run: fully green except Traceability (+ skipped VHDX).**
+

@@ -198,25 +198,33 @@ function Test-ContainerStorageForm {
     }
 
     # --- seed one malformed row: Compressed=Yes over raw bytes ---
+    # Selection reads on the HOST (world-readable); every WRITE runs INSIDE
+    # the image. Two first-real-CI lessons (runs 32661497480 / 32672263476):
+    # the host has no System.IO.Hashing (the witness stamp prompted
+    # interactively and aborted), and the store's files belong to the image's
+    # uid 65532 — a host-side WriteAllText onto a data file is access-denied
+    # on the runner. Write-Manifest also re-stamps the witness, so one
+    # in-container command does data file + manifest + witness together.
     $manifestPath = Join-Path $Backup 'MANIFEST.csv'
     $rows = @(Import-Csv -LiteralPath $manifestPath)
     $target = @($rows | Where-Object Compressed -eq 'No')[0]
     if (-not $target) { $target = $rows[0] }
-    $dataFile = Join-Path $Backup $target.DataPath
-    [System.IO.File]::WriteAllText($dataFile, 'raw bytes that are not an archive')
-    $target.Compressed = 'Yes'
-    $rows | Export-Csv -LiteralPath $manifestPath -NoTypeInformation
-    # Re-stamp the witness INSIDE the image, never on the host: the image
-    # bakes System.IO.Hashing; ubuntu-latest does not, and the host-side
-    # Import-Module route prompted interactively for the DLL and aborted the
-    # first real CI run of this job (2026-08-23, run 32661497480).
-    $stampArgs = [System.Collections.Generic.List[string]]::new()
-    $stampArgs.AddRange([string[]]@('run', '--rm', '--entrypoint', 'pwsh'))
-    Add-BindMountArguments -Arguments $stampArgs -Source $Backup -Target '/backup'
-    $stampArgs.Add($Image)
-    $stampArgs.AddRange([string[]]@('-NoProfile', '-Command',
-        'Import-Module /opt/filebackup/Modules/FileBackup.Common.psm1; Write-ManifestWitness -FolderPath /backup | Out-Null'))
-    Invoke-ContainerCommand -Arguments $stampArgs.ToArray()
+    $seedArgs = [System.Collections.Generic.List[string]]::new()
+    $seedArgs.AddRange([string[]]@('run', '--rm', '--entrypoint', 'pwsh'))
+    Add-BindMountArguments -Arguments $seedArgs -Source $Backup -Target '/backup'
+    $seedArgs.AddRange([string[]]@('--env', "FILEBACKUP_SEED_REL=$($target.RelativePath)"))
+    $seedArgs.Add($Image)
+    $seedArgs.AddRange([string[]]@('-NoProfile', '-Command', @'
+$ErrorActionPreference = 'Stop'
+Import-Module /opt/filebackup/Modules/FileBackup.Common.psm1
+$rows = @(Read-Manifest -FolderPath /backup)
+$t = @($rows | Where-Object RelativePath -eq $env:FILEBACKUP_SEED_REL)[0]
+if (-not $t) { throw "seed target '$env:FILEBACKUP_SEED_REL' not found in /backup manifest" }
+[System.IO.File]::WriteAllText("/backup/$($t.DataPath)", 'raw bytes that are not an archive')
+$t.Compressed = 'Yes'
+Write-Manifest -FolderPath /backup -Records $rows
+'@))
+    Invoke-ContainerCommand -Arguments $seedArgs.ToArray()
 
     $dirty = Invoke-ContainerAction @common -Word 'verify'
     if ($dirty.Code -eq 0) { throw "verify reported a seeded malformed row as clean.`n$($dirty.Output)" }

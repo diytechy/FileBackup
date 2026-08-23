@@ -94,8 +94,11 @@ jobs:
           # Workspace-relative, forward slashes: glob-based actions (dorny)
           # treat backslashes in a ${{ runner.temp }} path as escape
           # characters and match nothing (first-CI post-mortem, 2026-08-23).
+          # JUnit, not NUnitXml: dorny's dotnet-nunit parser crashes on
+          # Pester's NUnit-2.5 schema ("Cannot read properties of undefined");
+          # the java-junit parser is the one the Subst job proved works.
           $cfg.TestResult.OutputPath = 'pester-results/pester.xml'
-          $cfg.TestResult.OutputFormat = 'NUnitXml'
+          $cfg.TestResult.OutputFormat = 'JUnitXml'
           $cfg.Output.Verbosity = 'Detailed'
           $cfg.Run.Exit = $true
           Invoke-Pester -Configuration $cfg
@@ -106,7 +109,7 @@ jobs:
         with:
           name: FileBackup unit (Pester)
           path: pester-results/pester.xml
-          reporter: dotnet-nunit
+          reporter: java-junit
           fail-on-error: false
 
   integration-subst:
@@ -258,6 +261,11 @@ jobs:
           name: fresh-backups
           path: fresh/bash-restore/**
           if-no-files-found: error
+          # HashAddressed short-names can BEGIN WITH A DOT, and v4 excludes
+          # hidden files by default — which silently dropped those data files
+          # from the artifact and broke exactly the snapshot origins that
+          # hash-recover through them (run 32672263476 post-mortem).
+          include-hidden-files: true
 
   bash-interop-restore:
     name: Bash interop - restore fresh backups (Linux)
