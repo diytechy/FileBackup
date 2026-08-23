@@ -2528,3 +2528,21 @@ repaired-finding COUNT is per repaired *finding*, so a shared-DataPath pair
 reports `Repaired = 2` while TC-094's four-shape fixture still reports 3 — the
 existing assertion is unchanged; (2) m3 was taken as the recorded-limitation
 option (registry truth-up only, no test rewrite), as the work order allowed.
+
+### INDEPENDENT REVIEWER — WP4 re-verification — 2026-08-23
+Verdict: **APPROVE** (upgraded from CHANGES-REQUESTED). All six findings
+re-verified closed against a pristine export of `60ebe6d` by re-running the
+original repros: the H1 byte-loss sweep is dead (Mirror user files named
+`*.fbprune.tmp` survive typo'd/dry-run/real prunes and restore byte-exact,
+while genuine residue is still swept); the sweep is inside the transaction
+with failures classified 4 and refusals mutating nothing; the name-scoped
+pre-rail residue completion touches only `Pruning_<same name>`; the G9
+assertion now derives expectations from the snapshot's own manifest; all
+three missing rails have cases and the capacity rail exists on UNC paths
+(unmeasurable volume = reasoned, documented fail-open skip); the Temp lock is
+atomic; `-Action Backup -WhatIf` refuses cleanly. Baselines exact on the
+export: unit 310/310, integration 372/0/4, trace SN=30 SR=52 LLR=51 TC=101
+0/0. Recorded nit (no action): `Get-StoreFingerprint` excludes
+`*.fbprune.tmp` wholesale — a future test combining `-SuffixNamedUserFiles`
+with `Assert-StoreUnchanged` would be blind to the H1 class. The reviewer's
+APPROVE covers WP4 + its fixes only; WP5 has its own review track.
