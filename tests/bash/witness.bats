@@ -77,6 +77,27 @@ restored_count() {
     [ "$(restored_count "$BATS_TEST_TMPDIR/short")" -eq 0 ]
 }
 
+@test "a ROWS-ONLY disagreement warns and restores, because the digest is authoritative (SR-039)" {
+    # WP1 plan sec.6 decision 3: XxH128 is the authority, Rows is the
+    # operator-legible number. Bytes and digest matching means this is exactly
+    # the manifest that was witnessed, so a differing count is a
+    # counting-semantics divergence, not damage — it must not refuse a restore.
+    sed -i -E 's/^Rows=[0-9]+$/Rows=999/' "$WITNESS"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/rowsonly" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"row count disagrees with its witness"* ]]
+    [[ "$output" == *"not damage"* ]]
+    [ -f "$BATS_TEST_TMPDIR/rowsonly/hello.txt" ]
+}
+
+@test "a ROWS disagreement with NO digest to defer to still exits 3 (SR-039)" {
+    sed -i -E 's/^Rows=[0-9]+$/Rows=999/' "$WITNESS"
+    sed -i -E '/^XxH128=/d' "$WITNESS"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/rowsnodigest" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 3 ]
+    [ "$(restored_count "$BATS_TEST_TMPDIR/rowsnodigest")" -eq 0 ]
+}
+
 @test "a manifest REPLACED BY GARBAGE exits 2 via the header guard (SR-039/SR-040)" {
     # Precedence 2 > 3: an unrecognizable header means this is not a manifest at
     # all, which is the pre-existing corrupt-file guard (fail_loudly.bats pins

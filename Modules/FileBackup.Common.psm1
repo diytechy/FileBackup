@@ -541,7 +541,9 @@ function Write-Manifest {
 
     $out | Export-Csv -LiteralPath $path -NoTypeInformation
 
-    Write-ManifestWitness -FolderPath $FolderPath | Out-Null
+    # The row count is already known here (one CSV row per record, and an empty
+    # set writes no rows), so the witness does not re-read the file to count it.
+    Write-ManifestWitness -FolderPath $FolderPath -RowCount $Records.Count | Out-Null
 }
 
 function Get-ManifestWitnessPath {
@@ -578,27 +580,35 @@ function Write-ManifestWitness {
         with a manifest on purpose re-stamp with this function so the damage they
         mean to exercise is what the restorer reports.
 
-        Rows is counted by re-reading the written file with Import-Csv, i.e. by the
-        same rule the verifier applies, so the two can never disagree about what a
-        "row" is.
+        Rows counts data rows the way the verifier counts them (one per record /
+        one per CSV row, header excluded). Write-Manifest passes -RowCount because
+        it already holds the records it just wrote; a standalone caller (a test
+        re-stamping a tampered manifest) omits it and the file is re-read.
 
     .PARAMETER FolderPath
         The folder holding the MANIFEST.csv to witness.
+
+    .PARAMETER RowCount
+        The manifest's data-row count when the caller already knows it. Omitted
+        (or negative) means "count it by re-reading the written file".
 
     .OUTPUTS
         [string] the path of the published sidecar.
 
     .NOTES
-        Published by rename (write .tmp, Move-Item -Force), the repo's atomicity
-        idiom. The manifest is written BEFORE the witness on purpose: a crash
-        between the two leaves a *stale* witness that mismatches, so the failure
+        The SIDECAR is published by rename (write .tmp, Move-Item -Force), the
+        repo's atomicity idiom — atomicity here covers the witness publish only;
+        MANIFEST.csv itself is still written in place by Export-Csv. That is
+        deliberate: the manifest is written BEFORE the witness, so a crash
+        between the two leaves a *stale* witness that mismatches and the failure
         lands in the safe direction (a loud refusal) rather than a silent pass.
         The next successful run rewrites both.
     #>
     # Implements: SR-038, LLR-038
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$FolderPath
+        [Parameter(Mandatory)][string]$FolderPath,
+        [int]$RowCount = -1
     )
     $manifestPath = Join-Path $FolderPath $script:DatabaseFilename
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -606,7 +616,7 @@ function Write-ManifestWitness {
     }
 
     $bytes = ([System.IO.FileInfo]$manifestPath).Length
-    $rows  = @(Import-Csv -LiteralPath $manifestPath).Count
+    $rows  = if ($RowCount -ge 0) { $RowCount } else { @(Import-Csv -LiteralPath $manifestPath).Count }
     $hash  = Get-FileXxHash -FilePath $manifestPath
 
     $lines = @(
@@ -644,6 +654,7 @@ function Test-ManifestWitness {
           Status  — Verified | Absent | Mismatch | Malformed
           Field   — the first field that disagreed (Bytes|Rows|XxH128), else $null
           Detail  — an operator-legible sentence naming expected vs. found
+          Warning — a non-fatal discrepancy the caller should surface, else $null
           Version — the sidecar's declared format version (0 when unknown)
           Path    — the sidecar path
 
@@ -653,6 +664,13 @@ function Test-ManifestWitness {
         fatal (strict mode). A sidecar declaring a version newer than this build
         understands verifies only the keys it knows and reports VersionUnknown —
         a witness from the future must never condemn a good manifest.
+
+        The DIGEST is authoritative (WP1 plan §6 decision 3). Fields are checked
+        Bytes -> Rows -> XxH128, but a Rows-only disagreement — same bytes, same
+        digest, different count — is a counting-semantics divergence between the
+        writer and this reader, not damage: it reports Verified with a Warning
+        instead of condemning a manifest the digest just proved intact. Bytes or
+        digest disagreement still fails.
     #>
     # Implements: SR-039, LLR-039
     [CmdletBinding()]
@@ -662,11 +680,13 @@ function Test-ManifestWitness {
 
     $witnessPath  = Get-ManifestWitnessPath -FolderPath $FolderPath
     $manifestPath = Join-Path $FolderPath $script:DatabaseFilename
+    $rowsDisagreement = $null
 
     $verdict = [pscustomobject]@{
         Status         = 'Verified'
         Field          = $null
         Detail         = ''
+        Warning        = $null
         Version        = 0
         VersionUnknown = $false
         Path           = $witnessPath
@@ -744,10 +764,8 @@ function Test-ManifestWitness {
             return $verdict
         }
         if ($actualRows -ne $expectedRows) {
-            $verdict.Status = 'Mismatch'
-            $verdict.Field  = 'Rows'
-            $verdict.Detail = "Manifest row count disagrees with its witness: expected $expectedRows row(s), found $actualRows."
-            return $verdict
+            # Deferred: the digest gets the final say (see .NOTES).
+            $rowsDisagreement = "Manifest row count disagrees with its witness: expected $expectedRows row(s), found $actualRows."
         }
     }
 
@@ -758,6 +776,21 @@ function Test-ManifestWitness {
             $verdict.Status = 'Mismatch'
             $verdict.Field  = 'XxH128'
             $verdict.Detail = "Manifest digest disagrees with its witness: expected $expectedHash, found $actualHash."
+            return $verdict
+        }
+    }
+
+    if ($rowsDisagreement) {
+        if ($keys.ContainsKey('XxH128')) {
+            # Bytes and digest both matched: the manifest is byte-identical to
+            # the one that was witnessed, so the count is the thing that is
+            # wrong, not the index. Warn and accept.
+            $verdict.Field   = 'Rows'
+            $verdict.Warning = "$rowsDisagreement The byte length and digest both match, so the index is intact — this is a row-counting difference, not damage."
+        } else {
+            $verdict.Status = 'Mismatch'
+            $verdict.Field  = 'Rows'
+            $verdict.Detail = "$rowsDisagreement The witness carries no digest to defer to."
             return $verdict
         }
     }

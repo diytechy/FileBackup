@@ -56,6 +56,18 @@ restamp_witness() {
     [ "$status" -eq 2 ]
 }
 
+@test "2: precondition — a FILE occupies the target path (SR-040)" {
+    # The PowerShell twin (TC-070) had to be fixed to agree here: an unclassified
+    # terminating error left its status at 1, the code reserved for data loss.
+    # Nothing is attempted in this case, so both restorers report 2.
+    local blocked="$BATS_TEST_TMPDIR/t2-file"
+    printf 'I am a file, not a folder\n' > "$blocked"
+    run bash "$RS" --target-root "$blocked" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"cannot create target"* ]]
+    [ "$(cat "$blocked")" = "I am a file, not a folder" ]
+}
+
 @test "2 outranks 3: a bad target with a damaged index still reports the usage failure (SR-040)" {
     # Precedence 2 > 3 — the invocation is wrong, so the index never gets a say.
     truncate -s -40 "$MANIFEST"

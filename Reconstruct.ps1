@@ -26,10 +26,14 @@
         0  Complete — every manifest row restored.
         1  Incomplete, CONTENT — the remaining rows' bytes are not in the pool.
         2  Precondition / usage — nothing attempted (bad arguments, missing or
-           unrecognizable manifest, target inside the backup, missing required
-           tool, insufficient capacity).
+           unrecognizable manifest, target inside the backup, an unusable target
+           path, missing required tool, insufficient capacity). Any terminating
+           error this script did not classify lands here too: nothing was
+           attempted, so it must not be reported as data loss (code 1).
         3  Manifest-witness verification failed — the index is untrustworthy;
-           NO file is written to the target (SR-039).
+           NO file is written to the target (SR-039). Verification runs before
+           the target folder and the log are created, so codes 2 and 3 leave the
+           target exactly as they found it — as reconstruct.sh does.
         4  Incomplete, HOST — rows failed for reasons on this machine, not in
            the backup (unreadable search folder, 7-Zip unavailable for an
            archive candidate, extraction/copy I/O error). Retry after fixing
@@ -68,6 +72,45 @@ $EXIT_HOST        = 4
 
 $logPath = $null
 
+# Log lines produced BEFORE the target (and therefore RECONSTRUCT.log) exists.
+# The index is verified before anything is written to the target (SR-039), so
+# its findings are held here and flushed once the log is opened.
+$pendingLog = New-Object System.Collections.Generic.List[string]
+
+function Add-ReconstructLog {
+    <#
+    .SYNOPSIS
+        Appends one timestamped line to RECONSTRUCT.log, buffering it when the
+        log does not exist yet (verification runs before the target is created).
+    #>
+    # Implements: SR-039, LLR-039
+    param([Parameter(Mandatory)][string]$Message)
+    $line = "$(Get-Date -Format 'O') - $Message"
+    if ($logPath) { $line | Out-File -LiteralPath $logPath -Append }
+    else { $script:pendingLog.Add($line) }
+}
+
+# Set by Exit-Reconstruct so the top-level trap can tell a failure we already
+# classified from an unexpected one.
+$classified = $false
+
+# Top-level error routing (SR-040). An unclassified terminating error — say a
+# FILE occupying the target path making New-Item throw — used to escape and
+# leave the process exit status at 1, which the table reserves for "content
+# unrecoverable / data loss". Nothing was attempted in such a case, so it is a
+# PRECONDITION failure (2), which is also what reconstruct.sh returns for the
+# same causes. In-process callers still see the original terminating error.
+trap {
+    if ($classified) { break }      # our own throw: preserve its exact wording
+    if ($ExitCode) {
+        $msg = $_.Exception.Message
+        if ($logPath) { "$(Get-Date -Format 'O') - ERROR: $msg" | Out-File -LiteralPath $logPath -Append }
+        [Console]::Error.WriteLine("reconstruct: $msg")
+        exit $EXIT_PRECONDITION
+    }
+    break
+}
+
 function Exit-Reconstruct {
     <#
     .SYNOPSIS
@@ -91,9 +134,13 @@ function Exit-Reconstruct {
         [Parameter(Mandatory)][int]$Code,
         [Parameter(Mandatory)][string]$Message
     )
+    # A pre-mutation refusal (codes 2 and 3) happens before the target — and its
+    # log — exists, on purpose (SR-039): the message goes to the console and the
+    # thrown error instead of a log file we must not create.
     if ($logPath) {
         "$(Get-Date -Format 'O') - ERROR: $Message" | Out-File -LiteralPath $logPath -Append
     }
+    $script:classified = $true
     if ($ExitCode) {
         [Console]::Error.WriteLine("reconstruct: $Message")
         exit $Code
@@ -265,13 +312,6 @@ if ($changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container) -a
     Exit-Reconstruct -Code $EXIT_PRECONDITION -Message 'TargetRoot must be outside the change folder root.'
 }
 
-if (-not (Test-Path -LiteralPath $TargetRoot)) {
-    New-Item -ItemType Directory -Path $TargetRoot -Force | Out-Null
-}
-
-$logPath = Join-Path $TargetRoot $ReconstructLogName
-"$(Get-Date -Format 'O') - Reconstruction starting" | Out-File -LiteralPath $logPath -Encoding UTF8
-
 function Read-RawManifest {
     <#
     .SYNOPSIS
@@ -280,9 +320,13 @@ function Read-RawManifest {
         witness sidecar is present) its bytes/rows/digest match that witness.
 
     .DESCRIPTION
-        Runs BEFORE the capacity pre-check and before any file is written, so a
-        damaged index refuses the restore rather than "succeeding" against a
-        shrunken job (SR-039). Three outcomes:
+        Runs BEFORE the target folder, the log, and the capacity pre-check exist,
+        so a damaged index refuses the restore rather than "succeeding" against a
+        shrunken job (SR-039) and leaves the target byte-for-byte untouched — not
+        even a RECONSTRUCT.log — exactly as reconstruct.sh does. Its own log
+        lines are therefore buffered (Add-ReconstructLog) and flushed once the
+        log exists; refusals go to the console and the thrown error. Three
+        outcomes:
 
           * header unrecognizable  -> exit 2 (this is not a manifest at all —
             the legacy corrupt-file guard, matching reconstruct.sh's wording)
@@ -314,17 +358,21 @@ function Read-RawManifest {
     switch ($verdict.Status) {
         'Verified' {
             if ($verdict.VersionUnknown) {
-                "$(Get-Date -Format 'O') - WARN: manifest witness declares format version $($verdict.Version) (newer than this build understands); verified the known fields only." |
-                    Out-File -LiteralPath $logPath -Append
+                Add-ReconstructLog "WARN: manifest witness declares format version $($verdict.Version) (newer than this build understands); verified the known fields only."
             }
-            "$(Get-Date -Format 'O') - $($verdict.Detail)" | Out-File -LiteralPath $logPath -Append
+            if ($verdict.Warning) {
+                # Rows-only divergence: the digest says the bytes are right, so
+                # this is a counting-semantics difference, not damage (SR-039).
+                Add-ReconstructLog "WARN: $($verdict.Warning)"
+                Write-Warning $verdict.Warning
+            }
+            Add-ReconstructLog $verdict.Detail
         }
         'Absent' {
             if ($RequireWitness) {
                 Exit-Reconstruct -Code $EXIT_WITNESS -Message "No manifest witness beside '$path' and -RequireWitness was given: the index cannot be verified."
             }
-            "$(Get-Date -Format 'O') - WARN: $($verdict.Detail) Restoring against an UNVERIFIED index (backup predates the witness contract)." |
-                Out-File -LiteralPath $logPath -Append
+            Add-ReconstructLog "WARN: $($verdict.Detail) Restoring against an UNVERIFIED index (backup predates the witness contract)."
             Write-Warning "Restoring against an unverified index: $($verdict.Detail)"
         }
         default {
@@ -349,6 +397,32 @@ foreach ($row in (Read-RawManifest -Folder $authorityFolder)) {
     $row | Add-Member -NotePropertyName SourceFolder -NotePropertyValue $authorityFolder -Force
     $main[$row.RelativePath] = $row
 }
+
+# ---- Create the target and open the log (first mutation of this run) ----
+# Everything above refuses with 2 or 3 without writing a single byte into the
+# target (SR-039). Failures here are PRECONDITION failures: nothing has been
+# attempted, and reconstruct.sh's `mkdir -p || die` returns 2 for the same
+# causes (a file occupying the target path, a read-only parent).
+if (Test-Path -LiteralPath $TargetRoot -PathType Leaf) {
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "Cannot create target folder '$TargetRoot': a file occupies that path."
+}
+if (-not (Test-Path -LiteralPath $TargetRoot -PathType Container)) {
+    try {
+        New-Item -ItemType Directory -Path $TargetRoot -Force -ErrorAction Stop | Out-Null
+    } catch {
+        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "Cannot create target folder '$TargetRoot': $($_.Exception.Message)"
+    }
+}
+
+$logPath = Join-Path $TargetRoot $ReconstructLogName
+try {
+    "$(Get-Date -Format 'O') - Reconstruction starting" | Out-File -LiteralPath $logPath -Encoding UTF8 -ErrorAction Stop
+} catch {
+    $logPath = $null
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "Cannot open the restore log in target folder '$TargetRoot': $($_.Exception.Message)"
+}
+foreach ($line in $pendingLog) { $line | Out-File -LiteralPath $logPath -Append }
+$pendingLog.Clear()
 
 # ---- Capacity pre-check (B11: skip compressed rows; lengths are uncompressed) ----
 $totalBytes = 0L

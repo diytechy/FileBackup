@@ -327,11 +327,15 @@ verify_manifest_witness() {
         fi
     fi
 
-    # Rows is the operator-legible number ("expected 412 rows, found 118").
+    # Rows is the operator-legible number ("expected 412 rows, found 118"). A
+    # row-count disagreement is DEFERRED: the digest gets the final say, so a
+    # counting-semantics difference between the writer and this reader can never
+    # alone condemn a manifest the digest proves intact (WP1 plan sec.6 dec. 3).
+    local rows_disagreement=''
     if [[ "$want_rows" =~ ^[0-9]+$ ]]; then
         have_rows="$(parse_manifest "$manifest" | wc -l | tr -d ' ')"
         if [[ "$have_rows" != "$want_rows" ]]; then
-            die_code 3 "manifest row count disagrees with its witness: expected $want_rows row(s), found $have_rows. The index is damaged; nothing was restored."
+            rows_disagreement="manifest row count disagrees with its witness: expected $want_rows row(s), found $have_rows."
         fi
     fi
 
@@ -341,6 +345,14 @@ verify_manifest_witness() {
         want_hash="$(printf '%s' "$want_hash" | tr '[:lower:]' '[:upper:]')"
         if [[ "$have_hash" != "$want_hash" ]]; then
             die_code 3 "manifest digest disagrees with its witness: expected $want_hash, found $have_hash. The index is damaged; nothing was restored."
+        fi
+    fi
+
+    if [[ -n "$rows_disagreement" ]]; then
+        if [[ -n "$want_hash" ]]; then
+            log "WARN: $rows_disagreement The byte length and digest both match, so the index is intact — this is a row-counting difference, not damage."
+        else
+            die_code 3 "$rows_disagreement The witness carries no digest to defer to. The index is damaged; nothing was restored."
         fi
     fi
 

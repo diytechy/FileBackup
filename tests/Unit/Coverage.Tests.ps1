@@ -505,12 +505,16 @@ Describe 'Manifest witness is infrastructure (SR-022, SR-038)' {
         }
         # The snapshot's witness is its OWN, not a copy of the backup root's: the
         # two manifests differ (blanked DataPaths), so the digests must differ too.
-        $rootDigest = (Test-ManifestWitness -FolderPath $bkp).Path
+        # Compare the DIGESTS the sidecars actually carry (an earlier revision of
+        # this test compared the sidecar's *path*, which can never be empty).
+        $rootDigest = ([regex]::Match(
+            [IO.File]::ReadAllText((Join-Path $bkp $witnessName)),
+            '(?m)^XxH128=(?<h>[0-9A-Fa-f]{32})$')).Groups['h'].Value
         $rootDigest | Should -Not -BeNullOrEmpty
-        $rootHash = Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv')
+        $rootDigest | Should -Be (Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv'))
         foreach ($snap in $snaps) {
             $snapHash = Get-FileXxHash -FilePath (Join-Path $snap.FullName 'MANIFEST.csv')
-            $snapHash | Should -Not -Be $rootHash
+            $snapHash | Should -Not -Be $rootDigest
             ([IO.File]::ReadAllText((Join-Path $snap.FullName $witnessName))) |
                 Should -Match ([regex]::Escape("XxH128=$snapHash"))
         }
@@ -608,13 +612,15 @@ Describe 'Manifest witness verification on restore (SR-039)' {
             Invoke-FB $cfg
             return $bkp
         }
-        # Files the restorer itself creates in the target (its own log) are not
-        # "restored files" — the contract is that no manifest ROW is written.
-        function Get-RestoredNames {
+        # A refusal writes NOTHING into the target — not a restored row, not even
+        # the restorer's own RECONSTRUCT.log, because verification runs before the
+        # target folder and log are created (SR-039). This is what makes README's
+        # "no file is written to the target" literally true, and it is what
+        # reconstruct.sh has always done.
+        function Get-TargetContents {
             param([string]$Target)
             if (-not (Test-Path -LiteralPath $Target)) { return @() }
-            @(Get-ChildItem -LiteralPath $Target -Recurse -File |
-                Where-Object { $_.Name -ne 'RECONSTRUCT.log' } | ForEach-Object { $_.Name })
+            @(Get-ChildItem -LiteralPath $Target -Recurse -File | ForEach-Object { $_.Name })
         }
     }
 
@@ -629,23 +635,27 @@ Describe 'Manifest witness verification on restore (SR-039)' {
         [IO.File]::WriteAllBytes($manifest, $pristine[0..($pristine.Length - 30)])
         $t1 = Join-Path $root 'r-trunc'
         { & $recon -TargetRoot $t1 } | Should -Throw -ExpectedMessage '*witness verification failed*'
-        Get-RestoredNames $t1 | Should -BeNullOrEmpty
+        # Nothing at all: the target folder was never even created.
+        Test-Path -LiteralPath $t1 | Should -BeFalse
 
         # 2. Byte-edited at the same length — slips past Bytes/Rows, caught by the digest.
         $edited = [byte[]]::new($pristine.Length)
         [Array]::Copy($pristine, $edited, $pristine.Length)
         $edited[$edited.Length - 6] = [byte]0x51
         [IO.File]::WriteAllBytes($manifest, $edited)
+        # An EXISTING target must come out untouched too — no RECONSTRUCT.log
+        # dropped into a folder the operator already had.
         $t2 = Join-Path $root 'r-edit'
+        New-Item -ItemType Directory -Path $t2 -Force | Out-Null
         { & $recon -TargetRoot $t2 } | Should -Throw -ExpectedMessage '*witness verification failed*'
-        Get-RestoredNames $t2 | Should -BeNullOrEmpty
+        Get-TargetContents $t2 | Should -BeNullOrEmpty
 
         # 3. Replaced by unrelated text — the header guard catches it first
         #    (exit 2 class), which is the legacy corrupt-file path.
         [IO.File]::WriteAllText($manifest, "hello, this is not a manifest at all`r`n")
         $t3 = Join-Path $root 'r-garbage'
         { & $recon -TargetRoot $t3 } | Should -Throw -ExpectedMessage '*not a FileBackup manifest*'
-        Get-RestoredNames $t3 | Should -BeNullOrEmpty
+        Test-Path -LiteralPath $t3 | Should -BeFalse
 
         # 4. Re-stamping the witness makes the SAME (restored) manifest verify.
         [IO.File]::WriteAllBytes($manifest, $pristine)
@@ -672,7 +682,7 @@ Describe 'Manifest witness verification on restore (SR-039)' {
         $tStrict = Join-Path $root 'r-strict'
         { & $recon -TargetRoot $tStrict -RequireWitness } |
             Should -Throw -ExpectedMessage '*RequireWitness*'
-        Get-RestoredNames $tStrict | Should -BeNullOrEmpty
+        Test-Path -LiteralPath $tStrict | Should -BeFalse
     }
 }
 
@@ -805,6 +815,21 @@ Describe 'Restore exit-code table (SR-040)' {
         Invoke-ReconProcess $recon @('-TargetRoot', (Join-Path $root 'r')) | Should -Be 2
     }
 
+    It 'returns 2 when a FILE occupies the target path (SR-040)' {
+        # An unclassified terminating error (New-Item over a file) used to escape
+        # and leave the status at 1 — which the table reserves for "content
+        # unrecoverable / data loss". Nothing was attempted, so it is a
+        # PRECONDITION failure, and reconstruct.sh's `mkdir -p || die` returns 2
+        # for exactly this cause: the two restorers must agree.
+        $root = Join-Path $TestDrive 'x2-file'
+        $bkp = New-ExitCodeOrigin $root
+        $blocked = Join-Path $root 'r-is-a-file'
+        [IO.File]::WriteAllText($blocked, 'I am a file, not a folder')
+        Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $blocked) | Should -Be 2
+        # The file is left exactly as it was.
+        [IO.File]::ReadAllText($blocked) | Should -Be 'I am a file, not a folder'
+    }
+
     It 'returns 3 when the manifest disagrees with its witness (SR-040)' {
         $root = Join-Path $TestDrive 'x3'
         $bkp = New-ExitCodeOrigin $root
@@ -813,9 +838,10 @@ Describe 'Restore exit-code table (SR-040)' {
         [IO.File]::WriteAllBytes($manifest, $bytes[0..($bytes.Length - 25)])
         $t = Join-Path $root 'r'
         Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $t) | Should -Be 3
-        # 3 means the index is untrustworthy: no manifest row reached the target.
-        @(Get-ChildItem -LiteralPath $t -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -ne 'RECONSTRUCT.log' }) | Should -BeNullOrEmpty
+        # 3 means the index is untrustworthy: NOTHING reached the target — not a
+        # manifest row, not even the restorer's own log, because verification
+        # runs before the target folder exists (SR-039).
+        Test-Path -LiteralPath $t | Should -BeFalse
     }
 
     It 'returns 4 when hash recovery needs a 7-Zip this host lacks (host class) (SR-040)' {

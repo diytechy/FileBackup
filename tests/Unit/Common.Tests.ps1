@@ -210,6 +210,34 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $v.Status         | Should -Be 'Verified'   # a newer witness must never condemn a good manifest
         $v.VersionUnknown | Should -BeTrue
     }
+
+    It 'accepts a Rows-only disagreement with a warning, because the digest is authoritative (SR-039)' {
+        # WP1 plan sec.6 decision 3: Rows is the operator-legible number, XxH128
+        # is the authority. If the bytes and the digest both match, the manifest
+        # is exactly the one that was witnessed — a differing count is a
+        # counting-semantics divergence, not damage, and must not condemn it.
+        $folder = Join-Path $TestDrive 'w6'
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Manifest -FolderPath $folder -Records @((New-WitnessRow 'a.txt'), (New-WitnessRow 'b.txt' 9))
+        $witness = Join-Path $folder $script:witnessName
+
+        # Rewrite ONLY the Rows line; Bytes and XxH128 still describe the manifest.
+        $text = [IO.File]::ReadAllText($witness) -replace 'Rows=2', 'Rows=7'
+        [IO.File]::WriteAllText($witness, $text)
+
+        $v = Test-ManifestWitness -FolderPath $folder
+        $v.Status  | Should -Be 'Verified'
+        $v.Field   | Should -Be 'Rows'
+        $v.Warning | Should -Match 'expected 7 row\(s\), found 2'
+
+        # ...but with no digest to defer to, the count is all there is: refuse.
+        $noDigest = ([IO.File]::ReadAllLines($witness) |
+            Where-Object { $_ -notmatch '^XxH128=' }) -join "`n"
+        [IO.File]::WriteAllText($witness, $noDigest + "`n")
+        $v = Test-ManifestWitness -FolderPath $folder
+        $v.Status | Should -Be 'Mismatch'
+        $v.Field  | Should -Be 'Rows'
+    }
 }
 
 Describe 'Common does not depend on Engine (SR-007)' {

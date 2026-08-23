@@ -60,7 +60,11 @@ function Test-IsInfrastructureFile {
         # Write-Manifest's witness sidecar — omitting it would produce false
         # orphan/not-in-DB WARNs every run (SR-038, SR-022). Root-level only:
         # a nested user file of the same name is still data (B6).
-        $script:Def.WitnessFilename
+        $script:Def.WitnessFilename,
+        # ...and its publish-by-rename staging file: a crash between
+        # WriteAllText and Move-Item leaves this behind, and a leftover must not
+        # be backed up as user data or warned about as an orphan (SR-038).
+        "$($script:Def.WitnessFilename).tmp"
     )
     return ($infra -contains $rel)
 }
