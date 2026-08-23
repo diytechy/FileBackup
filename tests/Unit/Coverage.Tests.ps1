@@ -27,6 +27,57 @@ BeforeAll {
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
     }
     function Invoke-FB { param([string]$Cfg) & $entry -ConfigPath $Cfg -NoMail -NonInteractive *>&1 | Out-Null }
+
+    # --- WP4 retention fixtures (TC-081, TC-084..087) ------------------------
+    function New-PruneTimeline {
+        <#
+        .SYNOPSIS
+            Builds a three-run store: shared content, superseded content and a
+            deleted file, so the NEWEST snapshot holds bytes an older snapshot
+            can only reach by hash (Save-SupersededData parks superseded bytes
+            in the newest snapshot — the expensive prune case).
+        #>
+        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $cfg = Join-Path $Root 'c.xml'
+        New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+        [IO.File]::WriteAllText((Join-Path $src 'keep.txt'),  'KEEP ' * 40)
+        [IO.File]::WriteAllText((Join-Path $src 'super.txt'), 'VERSION-ONE ' * 40)
+        [IO.File]::WriteAllText((Join-Path $src 'gone.txt'),  'DOOMED ' * 40)
+        # B6: a NESTED file named like infrastructure is user data and must
+        # travel through prune like any other content.
+        [IO.File]::WriteAllText((Join-Path $src 'sub\MANIFEST.csv'), 'nested,not,infrastructure' * 5)
+        & $run ([datetime]'2024-01-01 00:00:01')                        # state1
+        [IO.File]::WriteAllText((Join-Path $src 'super.txt'), 'VERSION-TWO ' * 40)
+        & $run ([datetime]'2024-02-02 00:00:02')                        # state2 => Snapshot(D1)
+        Remove-Item -LiteralPath (Join-Path $src 'gone.txt') -Force
+        & $run ([datetime]'2024-03-03 00:00:03')                        # state3 => Snapshot(D2)
+        return [pscustomobject]@{
+            Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg
+            Oldest = 'Snapshot_2024_01_01_00_00_01'; Newest = 'Snapshot_2024_02_02_00_00_02'
+        }
+    }
+    function Get-StoreFingerprint {
+        param([string[]]$Folder)
+        $out = @{}
+        foreach ($f in @(Get-ChildItem -LiteralPath $Folder -File -Recurse)) {
+            $out[$f.FullName] = "$($f.Length)|$(Get-FileXxHash -FilePath $f.FullName)"
+        }
+        return $out
+    }
+    function Get-StoreBytes {
+        param([string[]]$Folder)
+        return [long](Get-ChildItem -LiteralPath $Folder -File -Recurse | Measure-Object -Property Length -Sum).Sum
+    }
+    function Assert-StoreUnchanged {
+        param([hashtable]$Before, [string[]]$Folder)
+        $after = Get-StoreFingerprint -Folder $Folder
+        $after.Count | Should -Be $Before.Count
+        foreach ($k in $Before.Keys) { $after[$k] | Should -Be $Before[$k] }
+    }
 }
 
 Describe 'Dated point-in-time snapshot (SR-005)' {
@@ -1351,45 +1402,6 @@ Describe 'Snapshot inventory reports true dedup-aware reclaim (SR-047)' {
     # itself: because of dedup, a snapshot folder's size is NOT what removing it
     # frees. Get-BackupSnapshot reports the figure the real removal achieves,
     # and reports it without touching a single byte.
-    BeforeAll {
-        function New-PruneTimeline {
-            <#
-            .SYNOPSIS
-                Builds a three-run store: shared content, superseded content and
-                a deleted file, so the newest snapshot holds bytes an older
-                snapshot can only reach by hash.
-            #>
-            param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
-            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
-            $cfg = Join-Path $Root 'c.xml'
-            New-Item -ItemType Directory -Path $src -Force | Out-Null
-            New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
-            $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
-
-            [IO.File]::WriteAllText((Join-Path $src 'keep.txt'),  'KEEP ' * 40)
-            [IO.File]::WriteAllText((Join-Path $src 'super.txt'), 'VERSION-ONE ' * 40)
-            [IO.File]::WriteAllText((Join-Path $src 'gone.txt'),  'DOOMED ' * 40)
-            & $run ([datetime]'2024-01-01 00:00:01')                        # state1
-            [IO.File]::WriteAllText((Join-Path $src 'super.txt'), 'VERSION-TWO ' * 40)
-            & $run ([datetime]'2024-02-02 00:00:02')                        # state2 => Snapshot(D1)
-            Remove-Item -LiteralPath (Join-Path $src 'gone.txt') -Force
-            & $run ([datetime]'2024-03-03 00:00:03')                        # state3 => Snapshot(D2)
-            return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg }
-        }
-        function Get-StoreFingerprint {
-            param([string[]]$Folder)
-            $out = @{}
-            foreach ($f in @(Get-ChildItem -LiteralPath $Folder -File -Recurse)) {
-                $out[$f.FullName] = "$($f.Length)|$(Get-FileXxHash -FilePath $f.FullName)"
-            }
-            return $out
-        }
-        function Get-StoreBytes {
-            param([string[]]$Folder)
-            return [long](Get-ChildItem -LiteralPath $Folder -File -Recurse | Measure-Object -Property Length -Sum).Sum
-        }
-    }
-
     It 'reports one record per snapshot with all six fields, and modifies nothing (SR-047)' {
         $root = Join-Path $TestDrive 'tc087'
         $env  = New-PruneTimeline -Root $root
@@ -1449,5 +1461,113 @@ Describe 'Snapshot inventory reports true dedup-aware reclaim (SR-047)' {
         $plan.Problems.Count | Should -Be 1
         $plan.Problems[0].Code | Should -Be 2
         $plan.Items.Count | Should -Be 0
+    }
+}
+
+Describe 'Prune refuses before mutating (SR-046)' {
+    # TC-084. Each rail is induced on a real store, and every refusal must name
+    # its SR-040 code AND leave the tree byte-identical — FileBackupState.json,
+    # every manifest and every witness included. Manifests tampered with on
+    # purpose are re-stamped with Write-ManifestWitness, or the failure observed
+    # would be exit 3 instead of the one the case means to exercise (AGENTS.md §3).
+    BeforeAll {
+        function Get-Refusal {
+            param([pscustomobject]$Env, [string]$Name, [hashtable]$Extra = @{})
+            $plan = Get-SnapshotPrunePlan -BackupRoot $Env.Bkp -ChangeRoot $Env.Chg -Name $Name
+            return @(Assert-PrunePrecondition -BackupRoot $Env.Bkp -ChangeRoot $Env.Chg -Plan $plan @Extra)
+        }
+    }
+
+    It 'accepts a healthy store with no refusals at all (SR-046)' {
+        $root = Join-Path $TestDrive 'tc084-clean'
+        $env  = New-PruneTimeline -Root $root
+        (Get-Refusal -Env $env -Name $env.Newest).Count | Should -Be 0
+    }
+
+    It 'refuses <Kind> with code <Code>, leaving the store byte-identical (SR-046, SR-040)' -ForEach @(
+        @{ Kind = 'bad-target'; Code = 2; Target = 'Snapshot_1999_09_09_09_09_09'; Extra = @{}; Induce = { param($e) } }
+        @{ Kind = 'bad-target'; Code = 2; Target = '..\elsewhere';                 Extra = @{}; Induce = { param($e) } }
+        @{ Kind = 'run-state';  Code = 2; Target = $null; Extra = @{}; Induce = {
+                param($e) [IO.File]::WriteAllText((Join-Path $e.Bkp 'FileBackupState.json'), '{ not json') } }
+        @{ Kind = 'staging-busy'; Code = 2; Target = $null; Extra = @{}; Induce = {
+                param($e) New-Item -ItemType Directory -Path (Join-Path $e.Chg 'Temp') -Force | Out-Null } }
+        @{ Kind = 'unreferenced-data'; Code = 2; Target = $null; Extra = @{}; Induce = {
+                param($e) [IO.File]::WriteAllText((Join-Path (Join-Path $e.Chg $e.Newest) 'mystery.dat'), 'UNEXPLAINED BYTES') } }
+        @{ Kind = 'broken-pool'; Code = 2; Target = $null; Extra = @{}; Induce = {
+                param($e)
+                # A backup-root row left pointing at a file that is not there.
+                $rows = @(Read-Manifest -FolderPath $e.Bkp)
+                $rows[0].DataPath = 'no-such-file.txt'
+                Write-Manifest -FolderPath $e.Bkp -Records $rows } }
+        @{ Kind = 'form-mismatch'; Code = 2; Target = $null; Extra = @{}; Induce = {
+                param($e)
+                # Claim a plain data file is compressed: hash recovery would hand
+                # raw bytes to the 7-Zip branch (the finding-C family).
+                $rows = @(Read-Manifest -FolderPath $e.Bkp)
+                ($rows | Where-Object { $_.RelativePath -eq 'keep.txt' })[0].Compressed = 'Yes'
+                Write-Manifest -FolderPath $e.Bkp -Records $rows } }
+        @{ Kind = 'witness-mismatch'; Code = 3; Target = $null; Extra = @{}; Induce = {
+                param($e)
+                $m = Join-Path $e.Bkp 'MANIFEST.csv'
+                [IO.File]::AppendAllText($m, "`r`n")   # deliberately NOT re-stamped: this case IS the witness
+            } }
+        @{ Kind = 'witness-absent'; Code = 3; Target = $null; Extra = @{}; Induce = {
+                param($e) Remove-Item -LiteralPath (Get-ManifestWitnessPath -FolderPath $e.Bkp) -Force } }
+        @{ Kind = 'no-7zip'; Code = 2; Target = $null; Extra = @{ SevenZipPath = 'Z:\no\such\7z.exe' }; Compress = $true; Induce = { param($e) } }
+    ) {
+        $root = Join-Path $TestDrive ('tc084-' + $Kind + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+        $env  = New-PruneTimeline -Root $root -Compress ([bool]$Compress)
+        & $Induce $env
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
+
+        $target = if ($Target) { $Target } else { $env.Newest }
+        $refusals = Get-Refusal -Env $env -Name $target -Extra $Extra
+
+        @($refusals | Where-Object { $_.Kind -eq $Kind }).Count | Should -BeGreaterThan 0
+        @($refusals | Where-Object { $_.Kind -eq $Kind })[0].Code | Should -Be $Code
+        @($refusals | Where-Object { $_.Kind -eq $Kind })[0].Message | Should -Not -BeNullOrEmpty
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+    }
+
+    It '-AllowUnverifiedIndex converts the absent-witness refusal into a go (SR-046)' {
+        $root = Join-Path $TestDrive 'tc084-allowunverified'
+        $env  = New-PruneTimeline -Root $root
+        Remove-Item -LiteralPath (Get-ManifestWitnessPath -FolderPath $env.Bkp) -Force
+
+        (Get-Refusal -Env $env -Name $env.Newest).Count | Should -BeGreaterThan 0
+        (Get-Refusal -Env $env -Name $env.Newest -Extra @{ AllowUnverifiedIndex = $true }).Count | Should -Be 0
+    }
+
+    It '-DiscardUnreferencedData converts the unexplained-bytes refusal into a go (SR-046)' {
+        $root = Join-Path $TestDrive 'tc084-discard'
+        $env  = New-PruneTimeline -Root $root
+        [IO.File]::WriteAllText((Join-Path (Join-Path $env.Chg $env.Newest) 'mystery.dat'), 'UNEXPLAINED BYTES')
+
+        (Get-Refusal -Env $env -Name $env.Newest).Count | Should -BeGreaterThan 0
+        (Get-Refusal -Env $env -Name $env.Newest -Extra @{ DiscardUnreferencedData = $true }).Count | Should -Be 0
+    }
+
+    It 'still refuses a mismatched witness when -AllowUnverifiedIndex is passed (absent is not damaged) (SR-039)' {
+        $root = Join-Path $TestDrive 'tc084-tamper'
+        $env  = New-PruneTimeline -Root $root
+        [IO.File]::AppendAllText((Join-Path $env.Bkp 'MANIFEST.csv'), "`r`n")
+
+        $refusals = Get-Refusal -Env $env -Name $env.Newest -Extra @{ AllowUnverifiedIndex = $true }
+        @($refusals | Where-Object { $_.Kind -eq 'witness-mismatch' })[0].Code | Should -Be 3
+    }
+
+    It 'proves the surviving pool resolves with the target excluded, and does not without a re-home (SR-046)' {
+        $root = Join-Path $TestDrive 'tc084-poolproof'
+        $env  = New-PruneTimeline -Root $root
+        $newest = Join-Path $env.Chg $env.Newest
+
+        # As it stands the pool resolves...
+        Test-PoolResolves -BackupRoot $env.Bkp -ChangeRoot $env.Chg | Should -BeNullOrEmpty
+        # ...but pretending the newest snapshot is already gone breaks the older
+        # state, which is exactly the content the re-home has to rescue.
+        $withoutNewest = @(Test-PoolResolves -BackupRoot $env.Bkp -ChangeRoot $env.Chg -ExcludeFolder $newest)
+        $withoutNewest.Count | Should -BeGreaterThan 0
+        $withoutNewest[0].Code | Should -Be 2
+        $withoutNewest[0].Kind | Should -Be 'broken-pool'
     }
 }

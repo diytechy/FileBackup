@@ -124,6 +124,7 @@ Imports (internal): `Common`
 | Function | Exported | Implements |
 |---|:---:|---|
 | `Assert-NoUnknownConfigKey` | no | SR-042, LLR-042 |
+| `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
 | `Compare-SourceToBackup` | yes | SR-001, LLR-001 |
 | `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
@@ -161,6 +162,7 @@ Imports (internal): `Common`
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
 | `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |
+| `Test-PoolResolves` | yes | SR-046, SR-045, LLR-046 |
 | `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, LLR-001, LLR-013, LLR-024 |
 <!-- END GENERATED MODULE MAP -->
 

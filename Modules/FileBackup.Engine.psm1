@@ -1018,6 +1018,207 @@ function Get-SnapshotPrunePlan {
     return $plan
 }
 
+function Test-PoolResolves {
+    <#
+    .SYNOPSIS
+        Proves that every manifest row in a backup pool still resolves to real
+        bytes of the right form, optionally with one folder excluded — the
+        phase-3 proof that makes snapshot removal safe (SR-046).
+
+    .DESCRIPTION
+        A non-blank DataPath must name a file present in its own folder (that is
+        how both restorers resolve it — a non-blank DataPath never falls back to
+        hash recovery). A blank DataPath must find its (hash,length) somewhere in
+        the pool, and every located copy must agree in form with the row's
+        Compressed column: the restorers branch on the ROW, so a '.7z' file found
+        for a Compressed='No' row would restore archive bytes under the original
+        name (the finding-C family). A row whose RelativePath is itself '.7z' is
+        exempt from that second half — a legitimately stored already-compressed
+        source file is not a form disagreement.
+
+        Reports rather than throws, so the caller can name every unresolvable row
+        at once.
+
+    .PARAMETER BackupRoot
+        The live backup root.
+
+    .PARAMETER ChangeRoot
+        The change root holding the snapshot folders.
+
+    .PARAMETER ExcludeFolder
+        Full path of a folder to leave out of BOTH the index and the rows being
+        checked — the snapshot about to be removed.
+
+    .OUTPUTS
+        [pscustomobject] Code / Kind / Message, one per unresolvable row or form
+        disagreement. Empty means the pool resolves.
+    #>
+    # Implements: SR-046, SR-045, LLR-046
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [string]$ExcludeFolder
+    )
+    $problems  = New-Object System.Collections.Generic.List[object]
+    $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot |
+                   Where-Object { $_.FullName -ne $ExcludeFolder })
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots.FullName)
+
+    $isArchiveName = { param([string]$Path) [IO.Path]::GetExtension($Path) -ieq '.7z' }
+
+    foreach ($f in $index.Folders) {
+        if ($f.Folder -eq $ExcludeFolder) { continue }
+        foreach ($row in $f.Manifest) {
+            $wantsArchive = ($row.Compressed -eq 'Yes')
+            if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) {
+                $full = Join-Path $f.Folder $row.DataPath
+                if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                    $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
+                        Message = "'$($f.Name)': row '$($row.RelativePath)' points at '$($row.DataPath)', which is not in that folder." })
+                    continue
+                }
+                if ($wantsArchive -ne (& $isArchiveName $row.DataPath) -and -not (& $isArchiveName $row.RelativePath)) {
+                    $problems.Add([pscustomobject]@{ Code = 2; Kind = 'form-mismatch'
+                        Message = "'$($f.Name)': row '$($row.RelativePath)' is Compressed=$($row.Compressed) but its data file '$($row.DataPath)' has the opposite form." })
+                }
+                continue
+            }
+            if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }   # pre-existing unrestorable row; not prune's to judge
+            $key = "$($row.xxH2Hash)|$($row.Length)"
+            if (-not $index.Map.ContainsKey($key)) {
+                $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
+                    Message = "'$($f.Name)': row '$($row.RelativePath)' resolves by hash, but no copy of its content exists in the pool." })
+                continue
+            }
+            foreach ($location in $index.Map[$key].ToArray()) {
+                if ($wantsArchive -ne (& $isArchiveName $location.DataPath) -and -not (& $isArchiveName $row.RelativePath)) {
+                    $problems.Add([pscustomobject]@{ Code = 2; Kind = 'form-mismatch'
+                        Message = "'$($f.Name)': row '$($row.RelativePath)' is Compressed=$($row.Compressed) but the copy hash recovery would find, '$($location.DataPath)' in '$([IO.Path]::GetFileName($location.Folder))', has the opposite form." })
+                    break
+                }
+            }
+        }
+    }
+    return $problems.ToArray()
+}
+
+function Assert-PrunePrecondition {
+    <#
+    .SYNOPSIS
+        Every rail snapshot removal must clear, evaluated before a single byte
+        moves; returns the full set of refusals with their SR-040 codes (SR-046).
+
+    .DESCRIPTION
+        Returns rather than throws on the first problem — Remove-BackupSnapshot
+        applies the 2 > 3 > 4 > 1 precedence over the whole set, and -WhatIf can
+        report every refusal at once instead of one per invocation.
+
+        Rails: the plan's own problems (unknown target, an infrastructure name or
+        a colliding file at the destination); the SR-035 run-state gate; no Temp
+        staging folder in the change root (SR-017 mutual exclusion, so a
+        concurrent backup aborts on the existing guard); no unreferenced data
+        files in the target unless -DiscardUnreferencedData; the whole pool
+        already resolves (Test-PoolResolves — prune refuses to prune INTO a
+        broken or form-disagreeing pool and hands the repro on); free space at
+        every destination volume; 7-Zip when a compressed row must be verified;
+        and Test-ManifestWitness Verified for every manifest in the pool, with
+        Absent refused unless -AllowUnverifiedIndex (the deliberate inverse of
+        the restore default: restoring against an unverified index is
+        recoverable, deleting against one is not).
+
+    .PARAMETER Plan
+        The Get-SnapshotPrunePlan result for the target snapshot.
+
+    .OUTPUTS
+        [pscustomobject] Code / Kind / Message per refusal; empty means go.
+    #>
+    # Implements: SR-046, SR-035, SR-039, LLR-046
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][object]$Plan,
+        [string]$SevenZipPath,
+        [switch]$SkipContentVerify,
+        [switch]$AllowUnverifiedIndex,
+        [switch]$DiscardUnreferencedData
+    )
+    $refusals = New-Object System.Collections.Generic.List[object]
+    foreach ($problem in $Plan.Problems.ToArray()) { $refusals.Add($problem) }
+    if (-not $Plan.Folder) { return $refusals.ToArray() }
+
+    # SR-035 run-state gate: a store whose history cannot be dated safely must
+    # not be edited at all, let alone have a dated state deleted.
+    try {
+        $state = Read-BackupState -BackupRoot $BackupRoot
+        if (-not $state['LastBackupRun'] -and @(Read-Manifest -FolderPath $BackupRoot).Count -gt 0) {
+            $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'run-state'
+                Message = "The backup state at '$BackupRoot' has no LastBackupRun but its manifest has rows; snapshot history cannot be dated safely (SR-035)." })
+        }
+    } catch {
+        $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'run-state'
+            Message = "The backup state at '$BackupRoot' could not be read: $($_.Exception.Message)" })
+    }
+
+    $staging = Join-Path $ChangeRoot 'Temp'
+    if (Test-Path -LiteralPath $staging -PathType Container) {
+        $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'staging-busy'
+            Message = "A staging folder is present at '$staging' — a backup is running or a previous run failed. Prune and backup are mutually exclusive (SR-017)." })
+    }
+
+    if ($Plan.UnreferencedData.Count -gt 0 -and -not $DiscardUnreferencedData) {
+        $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'unreferenced-data'
+            Message = ("'$($Plan.Name)' holds $($Plan.UnreferencedData.Count) data file(s) its own manifest does not reference (" +
+                       (($Plan.UnreferencedData | Select-Object -First 3) -join ', ') +
+                       "). Those bytes are unexplained; pass -DiscardUnreferencedData to discard them deliberately.") })
+    }
+
+    foreach ($problem in (Test-PoolResolves -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot)) {
+        $refusals.Add([pscustomobject]@{ Code = 2; Kind = $problem.Kind
+            Message = "The pool does not resolve as it stands, so it must not be pruned: $($problem.Message)" })
+    }
+
+    $items = $Plan.Items.ToArray()
+    foreach ($group in ($items | Group-Object { Split-Path -Qualifier $_.DestinationFolder })) {
+        $needed = [long](@($group.Group | Measure-Object -Property Bytes -Sum).Sum)
+        $drive = $null
+        try { $drive = Get-PSDrive -Name ($group.Name.TrimEnd(':')) } catch {
+            Write-Verbose "Capacity pre-check skipped for '$($group.Name)': $($_.Exception.Message)"
+        }
+        if ($drive -and $drive.Free -lt $needed) {
+            $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'capacity'
+                Message = "Not enough free space on '$($group.Name)' to re-home '$($Plan.Name)': required $needed, free $($drive.Free)." })
+        }
+    }
+
+    if (-not $SkipContentVerify -and @($items | Where-Object { $_.Compressed -eq 'Yes' }).Count -gt 0) {
+        if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
+            $refusals.Add([pscustomobject]@{ Code = 2; Kind = 'no-7zip'
+                Message = "Re-homing '$($Plan.Name)' moves compressed data, whose content cannot be verified without 7-Zip (looked for '$SevenZipPath'). Install it or pass -SkipContentVerify." })
+        }
+    }
+
+    foreach ($f in $Plan.Index.Folders) {
+        $verdict = Test-ManifestWitness -FolderPath $f.Folder
+        switch ($verdict.Status) {
+            'Verified' { }
+            'Absent'   {
+                if (-not $AllowUnverifiedIndex) {
+                    $refusals.Add([pscustomobject]@{ Code = 3; Kind = 'witness-absent'
+                        Message = "'$($f.Name)' has no manifest witness, so its index cannot be proven intact. Deleting against an unverified index is not recoverable; pass -AllowUnverifiedIndex to accept that risk." })
+                }
+            }
+            default    {
+                $refusals.Add([pscustomobject]@{ Code = 3; Kind = 'witness-mismatch'
+                    Message = "'$($f.Name)': $($verdict.Detail)" })
+            }
+        }
+    }
+
+    return $refusals.ToArray()
+}
+
 function Get-BackupSnapshot {
     <#
     .SYNOPSIS
@@ -2112,6 +2313,7 @@ Export-ModuleMember -Function @(
     'Test-BackupManifest', 'Sync-BackupStorageLayout',
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
     'Get-SnapshotPrunePlan', 'Get-BackupSnapshot',
+    'Test-PoolResolves', 'Assert-PrunePrecondition',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',
