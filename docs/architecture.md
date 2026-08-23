@@ -175,7 +175,7 @@ Imports (internal): `Common`
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
-| `Sync-BackupStorageLayout` | yes | SR-012, SR-013, LLR-012, LLR-013 |
+| `Sync-BackupStorageLayout` | yes | SR-012, SR-013, SR-051, LLR-012, LLR-013, LLR-051 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
 | `Test-BackupManifest` | yes | — |
 | `Test-ConfigValueJsonType` | no | SR-042, LLR-042 |

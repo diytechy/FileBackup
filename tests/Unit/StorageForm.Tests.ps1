@@ -33,6 +33,14 @@ BeforeAll {
         return ($out | Out-String)
     }
 
+    function Invoke-FormBackupExitCode {
+        # Child process so the entry point's `exit` is observable without
+        # terminating this runspace (same pattern as TC-034).
+        param([string]$Cfg)
+        & (Get-Process -Id $PID).Path -NoProfile -File $script:entry -ConfigPath $Cfg -NoMail -NonInteractive *>&1 | Out-Null
+        return $LASTEXITCODE
+    }
+
     function Get-TreeFingerprint {
         param([string[]]$Folder)
         $out = @{}
@@ -179,19 +187,18 @@ Describe 'Sync-BackupStorageLayout trusts metadata over bytes (SR-049)' {
         }
     }
 
-    It 'swallows a failed transformation of a Compressed=Yes-over-raw row into a log line (SR-049)' {
+    It 'reports a failed transformation of a Compressed=Yes-over-raw row and FAILS the set (SR-049, SR-051)' {
         $root = Join-Path $TestDrive 'tc091c'
         $s = New-MalformedStore -Root $root
         # Config now says "do not compress", so the a.txt row (Compressed=Yes over
         # RAW bytes) is selected for transformation; Expand-FileWithSevenZip throws
-        # on bytes that are not an archive.
+        # on bytes that are not an archive. Before SR-051 the ERROR was swallowed
+        # into a log line and the set still reported success (shape c) — the
+        # phase-B repro. It must now fail the set.
         New-FormConfig -Path $s.Cfg -Src $s.Src -Bkp $s.Bkp -Chg $s.Chg -Compress $false
         $log = Invoke-FormBackup -Cfg $s.Cfg
         $log | Should -Match "Failed to decompress 'a\.txt\.7z'"
-        # ...and the set is nevertheless reported as successful (shape c): the
-        # ERROR is logged, the row is skipped by `continue`, and the run finishes.
-        $log | Should -Match "Backup set 'S' completed"
-        $log | Should -Not -Match "Backup set 'S' failed"
+        Invoke-FormBackupExitCode -Cfg $s.Cfg | Should -Be 1
     }
 
     It 'reports one finding per malformed row with its class (SR-049)' -Skip {
@@ -327,5 +334,107 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
         $target = Join-Path $TestDrive 'tc098-content-out'
         { & (Join-Path $s.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null } |
             Should -Throw -ExpectedMessage '*1 content-missing, 0 host*'
+    }
+}
+
+Describe 'Layout migration is refcount-safe (SR-051)' {
+    # TC-095 — the G10 data-loss defect. Dedup points two rows with identical
+    # content and different extensions at ONE physical data file; a configuration
+    # change that flips only ONE of them must not delete the file the other still
+    # references, and must not split one content into two physical copies.
+    It 'keeps every row of a shared-content pair resolvable across a compression flip (mode <Mode>) (SR-051, SR-002)' -ForEach @(
+        @{ Mode = 'Mirror';                  ContentAddressed = $false; StartCompressed = $false }
+        @{ Mode = 'Mirror+Compress';         ContentAddressed = $false; StartCompressed = $true  }
+        @{ Mode = 'HashAddressed';           ContentAddressed = $true;  StartCompressed = $false }
+        @{ Mode = 'HashAddressed+Compress';  ContentAddressed = $true;  StartCompressed = $true  }
+    ) {
+        $root = Join-Path $TestDrive "tc095-$Mode"
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        # 'seed' is the configuration the pair is stored under; 'flip' is the
+        # configuration change that makes the two rows disagree (start OFF) or
+        # agree (start ON — the shared-datapath-same-decision case, which must
+        # transform the shared file exactly ONCE).
+        $cfgSeed = Join-Path $root 'seed.xml'; $cfgFlip = Join-Path $root 'flip.xml'
+        New-FormConfig -Path $cfgSeed -Src $src -Bkp $bkp -Chg $chg -Compress $StartCompressed        -ContentAddressed $ContentAddressed
+        New-FormConfig -Path $cfgFlip -Src $src -Bkp $bkp -Chg $chg -Compress (-not $StartCompressed) -ContentAddressed $ContentAddressed
+
+        # Identical content under a compressible and an already-compressed
+        # extension: with compression ON they want OPPOSITE forms (SR-004). The
+        # second file is added in a LATER run, which is when Invoke-BackupFileGroup
+        # takes its reuse branch and points the new row at the EXISTING row's
+        # DataPath — that is how two rows come to share one physical file.
+        $payload = 'SHARED-CONTENT ' * 300
+        [IO.File]::WriteAllText((Join-Path $src 'same.txt'), $payload)
+        Invoke-FormBackup -Cfg $cfgSeed | Out-Null
+        [IO.File]::WriteAllText((Join-Path $src 'same.jpg'), $payload)
+        Invoke-FormBackup -Cfg $cfgSeed | Out-Null
+
+        $before = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        $shared = @($before | Where-Object { $_.RelativePath -in 'same.txt', 'same.jpg' })
+        $shared.Count | Should -Be 2
+        @($shared.DataPath | Select-Object -Unique).Count | Should -Be 1 -Because 'dedup points both rows at one file'
+
+        # Flip compression: only same.txt's wanted form can change (.jpg is on
+        # the SR-004 already-compressed list), so the two rows can end up split.
+        Invoke-FormBackup -Cfg $cfgFlip | Out-Null
+
+        $after = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        foreach ($rel in 'same.txt', 'same.jpg') {
+            $row = $after | Where-Object RelativePath -eq $rel
+            $row | Should -Not -BeNullOrEmpty
+            $row.DataPath | Should -Not -BeNullOrEmpty
+            Test-Path -LiteralPath (Join-Path $bkp $row.DataPath) -PathType Leaf |
+                Should -BeTrue -Because "row '$rel' must still resolve after the migration"
+        }
+        # No manifest row ANYWHERE in the pool points at bytes that are gone.
+        # (Only 'broken-pool' is asserted: a compression flip legitimately leaves
+        # blank snapshot rows whose Compressed no longer matches the surviving
+        # copy's form, which Test-PoolResolves reports as 'form-mismatch' and
+        # SR-050 makes harmless for a revision-2 kit. See the WP5 status entry.)
+        @(Test-PoolResolves -BackupRoot $bkp -ChangeRoot $chg | Where-Object Kind -eq 'broken-pool') |
+            Should -BeNullOrEmpty
+
+        # ...and the content is still stored exactly once per (hash,length).
+        $key = ($after | Where-Object RelativePath -eq 'same.txt').xxH2Hash
+        @(@($after | Where-Object xxH2Hash -eq $key).DataPath | Where-Object { $_ } | Select-Object -Unique).Count |
+            Should -Be 1 -Because 'a split transformation would have made two physical copies'
+
+        # The latest state still restores byte-exact, exit 0.
+        $target = Join-Path $root 'out'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        foreach ($rel in 'same.txt', 'same.jpg') {
+            (Get-FileHash -LiteralPath (Join-Path $target $rel) -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath (Join-Path $src $rel) -Algorithm SHA256).Hash
+        }
+    }
+
+    It 'retains a superseded path that a surviving row still references (SR-051)' {
+        # The Phase 2 refcount filter itself, driven directly: two rows share one
+        # data file and only one is transformed, so the old path must survive.
+        $root = Join-Path $TestDrive 'tc095-retain'
+        $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $bkp -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $bkp 'shared.dat'), ('BYTES ' * 100))
+        $hash = Get-FileXxHash -FilePath (Join-Path $bkp 'shared.dat')
+        $len  = (Get-Item -LiteralPath (Join-Path $bkp 'shared.dat')).Length
+        $mk = {
+            param($rel, $storedAs)
+            [pscustomobject]@{ DataPath = 'shared.dat'; RelativePath = $rel; Length = $len
+                LastWriteTime = (Get-Date); xxH2Hash = $hash; Compressed = 'No'
+                StoredAsHashSize = $storedAs; Duplicate = '0'; MediaMBPerSec = '' }
+        }
+        # One row is already at the target layout, the other is not — so exactly
+        # one of the two is selected for transformation while both reference the
+        # same physical file.
+        Write-Manifest -FolderPath $bkp -Records @((& $mk 'one.dat' 'Hash'), (& $mk 'two.dat' 'Original'))
+        Sync-BackupStorageLayout -BackupRoot $bkp -PreserveFolderTree $true -CompressEnabled $false `
+            -Log { param($m, $l) } | Out-Null
+
+        Test-Path -LiteralPath (Join-Path $bkp 'shared.dat') -PathType Leaf |
+            Should -BeTrue -Because 'a still-referenced superseded path must never be deleted'
+        foreach ($row in @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))) {
+            Test-Path -LiteralPath (Join-Path $bkp $row.DataPath) -PathType Leaf | Should -BeTrue
+        }
     }
 }
