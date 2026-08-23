@@ -91,7 +91,16 @@ last) — it is the record, not required reading for every pass.
   all flip to Implemented; three new rows record what WP5 surfaced but did not
   fix. Restore-kit revision bumped to **2** by WP5 itself (SR-050) and to **3**
   by the review fixes: snapshots written before a fix keep their old kit
-  permanently — README documents the exposure and the two remedies.
+  permanently — README documents the exposure and the two remedies. A **second
+  WP5 residual** landed 2026-08-23, found by the first real local container run
+  (Podman 5.5 turns out to be available on the driver's host even though Docker
+  is not): a zero-object pipeline into `ConvertTo-Json` emitted NOTHING instead
+  of `[]`, breaking the SR-049 findings document and the IF-001 snapshots
+  inventory on exactly the clean/empty store while every exit code stayed
+  correct; fixed with `-InputObject` at both emission sites, pinned by two new
+  unit tests, TC-102's harness JSON extraction de-greedied — the full container
+  build + smoke + TC-102 storage-form check now passes locally under Podman.
+  See the audit entry below.
 - **WP6 (docs batch) is done, docs-only, no code touched — the last item in
   the WP1→WP6 queue.** Release checklist regenerated from the registries
   ([release-checklist.md](release-checklist.md), now tracked; the stale
@@ -118,7 +127,9 @@ last) — it is the record, not required reading for every pass.
   SR-044 flip `Implemented`→`Verified`, the `--phase` ratchet re-arms to
   `core,bash-v1,container-v1`, and SR-048/SR-052 promote `Implemented`→
   `Verified` once TC-088, TC-101 (Linux half), and TC-102 go from `Draft` to
-  `Pass` in the Docker container job.
+  `Pass` in the Docker container job. (2026-08-23: the container build, smoke
+  test and TC-102 check pass **locally under Podman 5.5** — corroborating
+  evidence only; the registry flips and the ratchet still wait on the CI run.)
 - **`COVERAGE_THRESHOLD` = 80%**; **78.1% accepted** with documented exclusions
   (human 2026-06-05) — G3 coverage criterion met.
 - **SR tally (2026-08-21):** every in-phase `Verification=Test` SR is Verified
@@ -2772,4 +2783,62 @@ No restorer or kit file changed → **no KitRevision bump, no bats change**.
 
 Full tier not run for this change (narrow, engine-local, Smoke green); the
 driver should run it once WP6's docs work merges.
+
+---
+
+### DRIVER (Software + Test Engineer, Data-integrity hat) — WP5 residual #2: empty JSON documents — 2026-08-23
+
+**How it was found.** Podman 5.5 turns out to be installed on the driver's host
+(the earlier "Docker unavailable" notes were literally true but incomplete), so
+the container suite ran locally for the first time:
+`scripts/Invoke-Container.ps1 -Action BuildAndTest -Runtime Podman`. The build
+and the core smoke (compressed backup, restore kit, byte-exact restore,
+snapshot, both restores) passed; the appended TC-102 storage-form check failed
+on the **clean** store — the exact case the Docker CI job would have hit first.
+
+**The defect (engine, two emission sites).** Piping ZERO objects into
+`ConvertTo-Json` emits nothing at all — the cmdlet never runs — so
+`-AsArray`'s promised `[]` was never printed. Both one-shot JSON documents had
+the shape: the SR-049 findings document (`FileBackup.ps1`, `Invoke-VerifyAction`)
+and the IF-001/SR-047 snapshots inventory (`Invoke-RetentionAction`). A clean
+store's verify and an empty store's inventory printed NO document while every
+exit code stayed correct — precisely the states HomeHub will see most. Fixed by
+passing `-InputObject` (an empty array serializes to `[]`; note
+`-InputObject @() -AsArray` double-wraps to `[[]]`, so `-AsArray` is dropped —
+the argument is already the array).
+
+**A second, harness-side defect the fix exposed.** TC-102's extraction in
+`scripts/Invoke-Container.ps1` used a greedy `(?s)\[.*\]` over the container's
+mixed stdout, which ran from the document into the `[INFO]` tag of a later log
+line and handed `ConvertFrom-Json` trailing garbage. Replaced with line-based
+extraction (the document opens with a line that IS `[` and closes with a line
+that IS `]`, or is the single line `[]`) — the same convention the Pester
+snapshots-JSON test already used.
+
+**Tests (new pins, both at the process boundary where IF-001 consumes the
+output).** StorageForm.Tests.ps1: 'prints the findings document as parseable
+JSON, the literal [] when clean (SR-049)' — malformed store parses to a
+non-empty array carrying `Class`; clean store prints the literal `[]`.
+Coverage.Tests.ps1: 'prints the literal empty JSON document for a store with no
+snapshots (-Action Snapshots)'. Registry: TC-093 and TC-088 Expected updated;
+no id re-minted, no status flips (TC-102 stays `Draft` — the CI run remains the
+promotion criterion; the local Podman pass is corroborating evidence only).
+
+**Evidence (real, this host, 2026-08-23).**
+
+- `Invoke-Pester tests/Unit/StorageForm.Tests.ps1 tests/Unit/Coverage.Tests.ps1`
+  → **234 Passed / 0 Failed / 0 Skipped** in 279.55s (232 before; +2 pins).
+- `python scripts/trace.py --strict --phase core,bash-v1` →
+  `SN=30 SR=52 LLR=51 TC=101 orphans=0 integrity=0`, exit 0.
+- `Invoke-ScriptAnalyzer scripts/Invoke-Container.ps1` (repo settings) → clean.
+- `Invoke-Container.ps1 -Action BuildAndTest -Runtime Podman` after the fix →
+  **exit 0**: "Container storage-form check passed (TC-102): clean verify exits
+  0 and mutates nothing, a malformed row exits 1, repair makes it clean." and
+  "Container smoke test passed…". Image 372 MB; export refreshed to
+  `.artifacts/filebackup-dev-wp5fix.tar` (354.5 MiB), the pre-fix tar deleted.
+- `gen_release_checklist.py` re-run → byte-identical (no drift).
+
+**Scope note.** The restore kit is untouched (revision stays 3 — neither
+restorer changed); no SR/LLR text changed; the `--phase` ratchet stays at
+`core,bash-v1`. Rolled into WP5's batch-ratification package.
 

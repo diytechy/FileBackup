@@ -369,8 +369,11 @@ function Invoke-RetentionAction {
         # Straight to the console stream, NOT down the pipeline: this function's
         # output is its status code, and a JSON document mixed into that would
         # be captured by the caller instead of reaching stdout.
-        $document = Get-BackupSnapshot -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath |
-            ConvertTo-Json -Depth 4 -AsArray
+        # -InputObject, not the pipeline: piping ZERO objects into
+        # ConvertTo-Json emits nothing at all rather than '[]', and an empty
+        # store must still print the empty JSON document (IF-001 inventory).
+        $document = ConvertTo-Json -Depth 4 -InputObject @(
+            Get-BackupSnapshot -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath)
         [Console]::Out.WriteLine($document)
         return 0
     }
@@ -450,7 +453,10 @@ function Invoke-VerifyAction {
         return 2
     }
 
-    [Console]::Out.WriteLine(($findings | ConvertTo-Json -Depth 4 -AsArray))
+    # -InputObject, not the pipeline: piping ZERO objects into ConvertTo-Json
+    # emits nothing at all rather than '[]', and the clean-store case must
+    # still print the empty findings document (SR-049; caught by TC-102).
+    [Console]::Out.WriteLine((ConvertTo-Json -Depth 4 -InputObject $findings))
     foreach ($finding in $findings) {
         & $Log "[$($finding.Class)] '$($finding.FolderName)' row '$($finding.RelativePath)' (data '$($finding.DataPath)'): observed $($finding.Observed), index says $($finding.Expected)." 'WARN'
     }

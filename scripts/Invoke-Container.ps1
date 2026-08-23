@@ -179,7 +179,17 @@ function Test-ContainerStorageForm {
     }
     $clean = Invoke-ContainerAction @common -Word 'verify'
     if ($clean.Code -ne 0) { throw "verify on a clean store exited $($clean.Code); expected 0.`n$($clean.Output)" }
-    $json = [regex]::Match($clean.Output, '(?s)\[.*\]').Value
+    # The document shares stdout with timestamped log lines, so take it by
+    # LINE: ConvertTo-Json opens with a line that IS '[' and closes with one
+    # that IS ']', or the whole clean-store document is the single line '[]'.
+    # A greedy '\[.*\]' here ran from the document into the '[INFO]' tag of a
+    # later log line and handed ConvertFrom-Json trailing garbage.
+    $lines = $clean.Output -split "\r?\n"
+    $json = if ($lines -contains '[]') { '[]' } else {
+        $start = [array]::IndexOf($lines, '[')
+        $end   = [array]::IndexOf($lines, ']')
+        if ($start -ge 0 -and $end -gt $start) { $lines[$start..$end] -join "`n" } else { '' }
+    }
     if (-not $json) { throw "verify did not emit a JSON findings document.`n$($clean.Output)" }
     try { ConvertFrom-Json $json | Out-Null } catch { throw "verify's findings document is not parseable JSON: $($_.Exception.Message)" }
     foreach ($file in @(Get-ChildItem -LiteralPath $Backup, $Changes -File -Recurse)) {

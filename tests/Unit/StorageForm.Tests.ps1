@@ -697,6 +697,38 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
             Should -Throw -ExpectedMessage '*needs 7-Zip*'
     }
 
+    It 'prints the findings document as parseable JSON, the literal [] when clean (SR-049)' {
+        # WP5 residual, caught by TC-102's harness in the first real container
+        # run: piping ZERO objects into ConvertTo-Json emits nothing at all
+        # rather than '[]', so the clean store — the common case — broke the
+        # promised findings document while every exit code stayed correct.
+        # Pin both shapes at the process boundary, where IF-001 consumes them.
+        function Invoke-VerifyOutput {
+            param([string]$Cfg)
+            return ((& (Get-Process -Id $PID).Path -NoProfile -File $script:entry -ConfigPath $Cfg `
+                -Action Verify -NoMail -NonInteractive -ExitCode *>&1) | Out-String)
+        }
+
+        $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-json')
+        $lines = (Invoke-VerifyOutput -Cfg $s.Cfg) -split "`r?`n"
+        $start = [array]::IndexOf($lines, '[')
+        $end   = [array]::IndexOf($lines, ']')
+        $start | Should -BeGreaterThan -1 -Because 'the findings document opens the stream section'
+        $end | Should -BeGreaterThan $start
+        $doc = @(($lines[$start..$end] -join "`n") | ConvertFrom-Json)
+        $doc.Count | Should -BeGreaterThan 0
+        $doc[0].PSObject.Properties.Name | Should -Contain 'Class'
+
+        $root = Join-Path $TestDrive 'tc093-json-clean'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'plain.txt'), ('PLAIN ' * 40))
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+        (Invoke-VerifyOutput -Cfg $cfg) -split "`r?`n" | Should -Contain '[]'
+    }
+
     It 'creates nothing and does not require SourcePath (SR-049, SR-014)' {
         # WP5 review, finding m2. Verification mutates nothing -- which has to
         # include the ROOTS: routing it through the backup-run path resolver

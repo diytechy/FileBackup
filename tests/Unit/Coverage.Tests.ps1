@@ -2277,6 +2277,24 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
     }
 
+    It 'prints the literal empty JSON document for a store with no snapshots (-Action Snapshots)' {
+        # WP5 residual (surfaced by TC-102's harness): piping zero objects into
+        # ConvertTo-Json emits nothing at all rather than '[]', and the IF-001
+        # inventory contract promises a parseable document even when there is
+        # nothing to list.
+        $root = Join-Path $TestDrive 'tc088-empty'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'only.txt'), ('CONTENT ' * 10))
+        & $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null    # first run: no snapshot yet
+
+        $run = Invoke-FBAction -Cfg $cfg -Arguments @('-Action', 'Snapshots')
+        $run.Code | Should -Be 0
+        ($run.Output -split "`r?`n") | Should -Contain '[]'
+    }
+
     It 'prunes a named snapshot with exit 0, leaving every remaining state restorable (-Action Prune)' {
         $root = Join-Path $TestDrive 'tc088-prune'
         $env  = New-PruneTimeline -Root $root
