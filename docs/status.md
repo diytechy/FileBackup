@@ -86,6 +86,7 @@ option from migration cost.
 | restorer TargetRoot parity | `Reconstruct.ps1` falls back to a `Read-Host` prompt when `-TargetRoot` is omitted (no `-NonInteractive` path — a scripted restore hangs; same class as the fixed SR-016 finding), while `reconstruct.sh` requires `--target-root` and dies loudly. Divergence between the deliberately-equivalent restorers. | **HUMAN APPROVED 2026-08-24: align the behavior.** Fold into the D-2/D-3 kit bump (kit revision 6). Shape: keep the prompt for interactive use, add a non-interactive guard that fails loudly with usage instead of blocking. |
 | Windows reserved device names | `CON`, `NUL.txt` etc. pass the SR-055 portable-name guard; worst case a loud copy failure on Windows restore. | Extend SR-055's rules if it ever bites; candidate to fold into D-4's walk changes. |
 | `-RepairFromPruned` | Materializing bytes back into a pool that lost them (diagnosis half shipped in WP5). Convenience, not safety. | Deferred; build on WP4 primitives if wanted. |
+| O(N²) unreferenced-file scan | `Test-BackupManifest` re-pipes `$db` per on-disk file (Engine.psm1:566); runs on every backup via Sync step 6. Plausibly hangs a 500k-file library. | Fold into the option-3 WP (one hashtable, pattern exists at :761/:772/:1571). Found 2026-08-24 view-design review. |
 
 ## Scope (restated from the brief)
 
@@ -3419,4 +3420,53 @@ storage mode; candidate fix under no-backward-compat: stop defaulting the
 cache into the source tree. Restore-target `RECONSTRUCT.log` name collision
 noted as a residual nit. Decisions on pool subfolder + source-cache default
 location: pending, to be packaged with the option-3 design WP.
+
+### INDEPENDENT DESIGN REVIEW (opus subagent) — option-3 materialized view — 2026-08-24
+
+Verdict: option 3 sound; **recommends shipping it with a generated INDEX
+(single root-level INDEX.html + INDEX.tsv), NOT links initially** — a
+measured partial pushback on the "links where supported" mechanism.
+Grounds (all measured on real NTFS + real Linux this session):
+- **Links don't exist on the deployment filesystem** (exFAT bench/production
+  stand-ins), and NTFS symlinks need Developer Mode or elevation
+  (`SeCreateSymbolicLinkPrivilege` not granted to Users by default) — so the
+  fallback chain is needed on NTFS too. NTFS symlinks are unreadable from
+  Linux; exFAT stub-file fallbacks waste ~61 GiB at 500k files (128 KiB
+  clusters); rejected.
+- **Full link-view regeneration doesn't scale:** 2,514 links/s measured ⇒
+  ~5 min/run at 500k files on local SSD, 25–90 min on USB — which forces
+  incremental maintenance, i.e. a FIFTH diff-driven bookkeeping site of the
+  exact shape that produced D-1. Deciding argument. The index is one file,
+  one pass, free to regenerate.
+- **Hardlinks rejected three ways** (indistinguishable from real files to
+  every scanner — creating one even flips the pool file's own LinkType;
+  false candidates at every length in the restore pool scan; prune
+  PhysicalBytes/reclaim accounting lies). Junctions can't express per-file.
+Key design points settled: view lives OUTSIDE both roots as a same-volume
+sibling (`<BackupPath>_View`, volume match enforced via Get-VolumeIdentity)
+— zero exclusion edits across the six filesystem scans, both restorers keep
+a zero-line diff (bash `find` without `-L` is already link-immune — pin as
+intent; PS scan's symlink exposure is 0-byte-rows-only and benign); view is
+purely manifest-derived (9-column contract untouched), rebuilt as new
+pipeline step 16 (after Optimize), staleness via the existing manifest
+witness stamped into the view root, explicit `-Action View`; snapshots get
+NO view (prune accounting, staging rename, self-containment); view naming
+driven by the row's `Compressed` column, not set config (Test-ShouldCompress
+is per-file ⇒ mixed trees — likely implementation bug, pin in a test);
+`PreserveFolderTree` deleted ⇒ ConfigVersion 2, `BrowseView: off|index`
+(+`link` later) enum; **test matrix halves** (4 modes → ±Compress) + one
+focused G10-View suite — freed budget goes to the test-battery import.
+Browsability framing: today's Mirror OMITS the borrower's path entirely;
+any view lists all N paths — strictly more faithful than Mirror ever was.
+**Question for the human before the WP lands: what filesystem are the
+production 12 TB disks?** ext4/NTFS makes `link` feasible later; ≲50k files
+also voids the scaling objection. Enum grows without breakage either way.
+
+**NEW FINDING (critical-at-scale, unrelated to the view):**
+`Test-BackupManifest`'s unreferenced-file warning is **O(N²)** — `$db`
+re-piped per on-disk file (Engine.psm1:566), called on EVERY backup via
+Sync-BackupStorageLayout step 6 (Engine.psm1:618). At 500k files ≈ 2.5e11
+pipeline comparisons — plausibly stops a real library from backing up at
+all. Fix: one hashtable of referenced DataPaths (pattern already at
+:761,:772,:1571). Fold into the option-3 WP.
 
