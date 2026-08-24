@@ -83,6 +83,7 @@ option from migration cost.
 | F8 kit-less snapshot window | Sub-second crash window between the `Temp`→`Snapshot_*` rename and the kit copy leaves a valid snapshot without a kit. Recoverable via `-RefreshKits`. | Cheap fix candidate: copy the kit into staging BEFORE the rename. Unscheduled. |
 | DataPath-keyed CI maps | The DataPath-keyed membership hashtables are literal case-insensitive maps; failure modes are warning-suppression, not byte loss (noted at the `31a55f2` review). | One-look sweep when convenient; consider with the D-1 design work since it touches the same functions. |
 | no-7z double host record | An unreadable `.7z` candidate under no-7-Zip records CandidateError + DependencyMissing for one candidate. Cosmetic. | Fold into the D-2/D-3 kit bump. |
+| restorer TargetRoot parity | `Reconstruct.ps1` falls back to a `Read-Host` prompt when `-TargetRoot` is omitted (no `-NonInteractive` path — a scripted restore hangs; same class as the fixed SR-016 finding), while `reconstruct.sh` requires `--target-root` and dies loudly. Divergence between the deliberately-equivalent restorers. | **HUMAN APPROVED 2026-08-24: align the behavior.** Fold into the D-2/D-3 kit bump (kit revision 6). Shape: keep the prompt for interactive use, add a non-interactive guard that fails loudly with usage instead of blocking. |
 | Windows reserved device names | `CON`, `NUL.txt` etc. pass the SR-055 portable-name guard; worst case a loud copy failure on Windows restore. | Extend SR-055's rules if it ever bites; candidate to fold into D-4's walk changes. |
 | `-RepairFromPruned` | Materializing bytes back into a pool that lost them (diagnosis half shipped in WP5). Convenience, not safety. | Deferred; build on WP4 primitives if wanted. |
 
@@ -3366,4 +3367,22 @@ options: survival test asks "does a live BACKUP row still demand this
 content" instead of "is it still in the source", plus refuse to overwrite a
 Mirror DataPath another live row references. **Decision remains with the
 human (D-1 row above unchanged).**
+
+### HUMAN direction (tentative) + DRIVER — D-1 leaning option 3 + materialized view; restorer parity approved — 2026-08-24
+
+- **Restorer TargetRoot parity: APPROVED** ("yes it would be good to align
+  the behavior") — recorded in the parked table; folds into the D-2/D-3 kit
+  bump.
+- **D-1 direction (NOT yet a ruling):** the human leans toward **option 3 —
+  content-address all storage — with Mirror browsability recovered by a
+  symlink-or-similar materialized view** ("keeps the actual data
+  configuration consistent... best browsability out of the gate"), accepting
+  that compressed content browses as `.7z` ("still where it was expected,
+  just in a compressed form"). Open questions the human raised: does the
+  view need reconstruction each run, and does it leak complexity into other
+  paths. An opus design drill on the view mechanism (link tech per
+  filesystem — NTFS privileges, exFAT's no-links problem on the actual
+  HomeHub bench drives, ext4; lifecycle; pool-scan/restorer/prune/snapshot
+  interactions; config surface) is in progress; final D-1 ruling to follow
+  its report.
 
