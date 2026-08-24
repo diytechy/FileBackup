@@ -69,7 +69,7 @@ option from migration cost.
 
 | Item | What (verified 2026-08-24, entries below) | Decision needed | State |
 |---|---|---|---|
-| **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | Open — awaiting design ruling |
+| **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | **RULED 2026-08-24: option 3** — content-address all storage; Mirror browsability becomes a best-effort materialized view (links where the target filesystem supports them, manifest as the documented fallback where it does not, e.g. exFAT). Human: "This will give the backup database consistency… it prevents duplication, gives readability where it can, and gives consistency… hopefully deletes some of the machinery that is active today but creating more cornercases." View-mechanism design drill in progress; fix WP to follow the usual G1→G3 + independent review. |
 | **D-2 — restore verifies nothing** | Both restorers expand/copy a resolvable `DataPath` with no comparison against the row's `xxH2Hash` — wrong payload, same-length bit-flip, even truncation restore exit 0. `xxH2Hash` is the original-content hash, so verify-after-write + fall-through to the existing pool recovery is sound. Needed under ANY D-1 design (bit rot, partial writes). | Approve as a fix WP (small, both restorers, kit revision 6; pairs with D-3). MiniPC-Deployer's "three witnesses" restore is prior art. | Open — fix proposed, awaiting go |
 | **D-3 — CandidateError outranks ContentMissing** | One unrelated unexpandable `.7z` anywhere in the pool flips "your bytes are gone" (exit 1) into "fix this host" (exit 4). Every CandidateError the locators raise is by construction from a non-own candidate — the reorder needs no new state. | Approve with D-2 (same kit bump). Trivial precedence reorder, both locators. | Open — fix proposed, awaiting go |
 | **D-4 — hidden/dot files never backed up** | SYSTEMIC: no `Get-ChildItem` in Engine/Common/Reconstruct uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip, so the twin restorers disagree. Zero disclosure. | Approve `-Force` everywhere + a disclosed skipped-by-policy count, and RULE on the one design question: should Windows Hidden-attribute files be included by default (Linux dot-files clearly must be)? | Open — fix proposed, one ruling needed |
@@ -3385,4 +3385,38 @@ human (D-1 row above unchanged).**
   HomeHub bench drives, ext4; lifecycle; pool-scan/restorer/prune/snapshot
   interactions; config surface) is in progress; final D-1 ruling to follow
   its report.
+
+### HUMAN RULING — D-1/D-5 design: OPTION 3 — 2026-08-24
+
+**Content-address all storage.** Mirror browsability becomes a best-effort
+materialized view: links where the drive's filesystem supports them; where
+it does not (exFAT), the user refers to the manifest — accepted explicitly.
+Compressed content browsing as `.7z` links accepted explicitly. Rationale
+(human's words): backup database consistency, prevents duplication, gives
+readability where it can, deletes corner-case machinery. D-5 resolves with
+it (content registry/live index makes intra-run dedup natural). The D-1/D-5
+Open-items row updated to RULED. Scope details (view mechanism, config
+surface, test-matrix reshape) come from the in-flight opus view-design
+report; implementation runs as gated fix WPs with independent review
+(engine + restore surface).
+
+**Follow-on question opened by the human — infrastructure-filename
+collisions.** Verified current handling: (a) source side — the hash cache
+defaults INTO the source root (`Update-SourceManifest`,
+Engine.psm1:416-417,432-438): with the in-source default, a genuine user
+file named `MANIFEST.csv` at source root is silently treated as the tool's
+cache (never backed up, overwritten by the cache) — only an external
+`ManifestFolderPath` makes every source file data; (b) backup side, Mirror —
+a Mirror DataPath landing on a root-level infra name is refused loudly
+(SR-022, Engine.psm1:2861-2865; same guard on rename/re-home paths
+:1143-1145, :1791-1792); (c) nested infra-named files are data everywhere
+(B6, root-level-only skip). Under option 3 the backup-side collision class
+DISSOLVES (hash-names — `<16 glyphs> <10 glyphs>.ext` — can never equal an
+infra name; the SR-022 refusal and the B6 recovery hazard on the pool go
+away), and can be made structural by giving the pool a dedicated subfolder.
+The source-side cache collision does NOT dissolve — it is independent of
+storage mode; candidate fix under no-backward-compat: stop defaulting the
+cache into the source tree. Restore-target `RECONSTRUCT.log` name collision
+noted as a residual nit. Decisions on pool subfolder + source-cache default
+location: pending, to be packaged with the option-3 design WP.
 
