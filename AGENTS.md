@@ -199,6 +199,16 @@ Imports (internal): `Common`
 
 ## 3. Invariants — do not break
 
+> **Known open defects (verified 2026-08-24, fixes pending human design
+> rulings — see docs/status.md "Open items" and
+> [docs/defect-review-2026-08-24-mirror-dedup.md](docs/defect-review-2026-08-24-mirror-dedup.md)):**
+> D-1 Mirror-mode cross-path dedup can destroy the last copy of shared content
+> on an ordinary edit; D-2 both restorers trust a resolvable `DataPath`
+> without hashing; D-4 hidden/dot-prefixed source files are silently never
+> backed up (no `-Force` on any PowerShell-side enumeration). Until these are
+> fixed, the restore-correctness invariants below are ASPIRATIONAL in those
+> specific shapes; hash-addressed mode is proven immune to D-1/D-5.
+
 - **Manifest schema** (9 columns): `DataPath, RelativePath, Length, LastWriteTimeStr,
   xxH2Hash, Compressed, StoredAsHashSize, Duplicate, MediaMBPerSec`. Round-trip only via
   `Read-Manifest`/`Write-Manifest`.
