@@ -1,0 +1,285 @@
+name: tests
+
+on:
+  push:
+    branches: ['**']   # every branch — feature branches get CI without a PR
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint (PSScriptAnalyzer)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $settings = 'tests/PSScriptAnalyzerSettings.psd1'
+          $targets = Get-ChildItem -Recurse -Include *.ps1,*.psm1 `
+                       -Path FileBackup.ps1,Reconstruct.ps1,Modules,tests,scripts
+          $findings = foreach ($t in $targets) {
+              Invoke-ScriptAnalyzer -Path $t.FullName -Settings $settings
+          }
+          $findings | Format-Table Severity,RuleName,ScriptName,Line,Message -Auto | Out-String | Write-Host
+          if ($findings | Where-Object Severity -in 'Error','Warning') {
+              throw "PSScriptAnalyzer reported $($findings.Count) finding(s)."
+          }
+          Write-Host "Lint clean."
+
+  traceability:
+    name: Traceability (SN->SR->LLR->TC) + arch map
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trace registries (strict, 0 orphans + Test SRs Verified)
+        shell: pwsh
+        # --phase mirrors check.ps1: bash-v1 and container-v1 have shipped
+        # (container-v1's promotion evidence is the first green container job,
+        # run 32673687758, 2026-08-23); bash-v2 (SR-033) stays phase-deferred
+        # until it ships.
+        run: python scripts/trace.py --strict --require-verified --phase core,bash-v1,container-v1
+      - name: Doc navigability (0 broken intra-repo links)
+        shell: pwsh
+        run: python scripts/check_docs.py --ignore docs/test/report.md --ignore "docs/releases/*"
+      - name: Generated docs are current (map + flow + dependency diagram)
+        shell: pwsh
+        run: pwsh -File scripts/gen_arch_map.ps1 -Check
+      - name: Upload traceability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traceability-report
+          path: docs/test/report.md
+
+  unit:
+    name: Unit (Pester 5)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache System.IO.Hashing
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\PackageManagement\NuGet\Packages\System.IO.Hashing.8.0.0
+          key: sysiohashing-8.0.0-${{ runner.os }}
+
+      - name: Install deps + Pester
+        shell: pwsh
+        run: .\tests\Setup.ps1 -InstallDeps -InstallTestTools -NonInteractive
+
+      # TC-076 drives the shipped example config through a real compressed
+      # backup and SKIPs itself without 7-Zip. Fail here instead, so the unit
+      # lane can never go green while silently skipping it (same precondition
+      # the integration-subst job asserts).
+      - name: Verify 7-Zip
+        shell: pwsh
+        run: if (-not (Test-Path 'C:\Program Files\7-Zip\7z.exe')) { throw "7-Zip missing on runner" }
+
+      - name: Run Pester
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.0
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = 'tests/Unit'
+          $cfg.TestResult.Enabled = $true
+          # Workspace-relative, forward slashes: glob-based actions (dorny)
+          # treat backslashes in a ${{ runner.temp }} path as escape
+          # characters and match nothing (first-CI post-mortem, 2026-08-23).
+          # JUnit, not NUnitXml: dorny's dotnet-nunit parser crashes on
+          # Pester's NUnit-2.5 schema ("Cannot read properties of undefined");
+          # the java-junit parser is the one the Subst job proved works.
+          $cfg.TestResult.OutputPath = 'pester-results/pester.xml'
+          $cfg.TestResult.OutputFormat = 'JUnitXml'
+          $cfg.Output.Verbosity = 'Detailed'
+          $cfg.Run.Exit = $true
+          Invoke-Pester -Configuration $cfg
+
+      - name: Publish Pester results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: FileBackup unit (Pester)
+          path: pester-results/pester.xml
+          reporter: java-junit
+          fail-on-error: false
+
+  integration-subst:
+    name: Integration (Subst backend)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache System.IO.Hashing
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\PackageManagement\NuGet\Packages\System.IO.Hashing.8.0.0
+          key: sysiohashing-8.0.0-${{ runner.os }}
+
+      - name: Install deps (non-interactive)
+        shell: pwsh
+        run: .\tests\Setup.ps1 -InstallDeps -NonInteractive
+
+      - name: Verify 7-Zip
+        shell: pwsh
+        run: if (-not (Test-Path 'C:\Program Files\7-Zip\7z.exe')) { throw "7-Zip missing on runner" }
+
+      - name: Run integration tests (Subst)
+        shell: pwsh
+        # Workspace-relative result root: ${{ runner.temp }} expands with
+        # backslashes, which glob-based actions treat as escapes and match
+        # nothing (first-CI post-mortem, 2026-08-23).
+        run: |
+          .\tests\Run-All.ps1 -Backend Subst `
+              -ResultRoot fbtest -EmitJUnit -NonInteractive
+
+      - name: Upload raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-subst
+          path: fbtest/**
+
+      - name: Publish JUnit
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: FileBackup integration (Subst)
+          path: fbtest/**/results.xml
+          reporter: java-junit
+          fail-on-error: false
+
+  integration-vhdx:
+    name: Integration (VHDX backend, self-hosted)
+    runs-on: [self-hosted, windows, hyper-v]
+    if: ${{ vars.HAS_SELF_HOSTED_HYPERV == 'true' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: |
+          .\tests\Setup.ps1 -InstallDeps -NonInteractive
+          .\tests\Run-All.ps1 -Backend VHDX `
+              -ResultRoot $env:RUNNER_TEMP\fbtest -EmitJUnit -NonInteractive
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-vhdx
+          path: ${{ runner.temp }}\fbtest\**
+
+  # ---- bash restore variant (bash-v1) --------------------------------------
+  bash-restore:
+    name: Bash restore (Linux, bats) - reconstruct.sh
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash restore toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xxhash p7zip-full gawk shellcheck bats
+      - name: ShellCheck (warnings are errors, same bar as PSScriptAnalyzer)
+        # Scope to real shell scripts; .bats files use bats syntax ShellCheck
+        # cannot parse. helpers.bash carries its own SC2034 disable.
+        run: shellcheck -x bash/reconstruct.sh container/entrypoint.sh tests/bash/helpers.bash tests/bash/verify_restores.sh
+      - name: Run bats suites (hash conformance, manifest parse, restore, fail-loudly)
+        run: bats --print-output-on-failure tests/bash/
+
+  container:
+    name: Container build + compressed roundtrip + distribution proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Runner-hosted job (no `container:` key), so the registry:2 service's port
+    # maps to localhost -- Docker trusts localhost for plain HTTP by default.
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image, verify a byte-exact restore, and run the storage-form check (TC-102)
+        shell: pwsh
+        run: ./scripts/Invoke-Container.ps1 -Action BuildAndTest -Image filebackup:ci
+
+      - name: Export -> docker load roundtrip
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-Container.ps1 -Action Export -Image filebackup:ci -OutputPath .artifacts/filebackup-image.tar
+          docker rmi filebackup:ci
+          ./scripts/Invoke-Container.ps1 -Action Load -Image filebackup:ci -OutputPath .artifacts/filebackup-image.tar
+          ./scripts/Invoke-Container.ps1 -Action Test -Image filebackup:ci
+
+      - name: Wait for the throwaway registry to be ready
+        run: curl --retry 10 --retry-delay 2 --retry-connrefused -sf http://localhost:5000/v2/
+
+      - name: Publish/Pull roundtrip against a throwaway registry
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-Container.ps1 -Action Publish -Image filebackup:ci -RegistryImage localhost:5000/filebackup:ci
+          docker rmi localhost:5000/filebackup:ci filebackup:ci
+          ./scripts/Invoke-Container.ps1 -Action Pull -RegistryImage localhost:5000/filebackup:ci -Image filebackup:ci
+          ./scripts/Invoke-Container.ps1 -Action Test -Image filebackup:ci
+
+      - name: Clean up exported tar
+        if: always()
+        shell: pwsh
+        run: Remove-Item -Recurse -Force .artifacts -ErrorAction SilentlyContinue
+
+  bash-interop-make:
+    name: Bash interop - make fresh backups (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache System.IO.Hashing
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\PackageManagement\NuGet\Packages\System.IO.Hashing.8.0.0
+          key: sysiohashing-8.0.0-${{ runner.os }}
+      - name: Install deps (non-interactive)
+        shell: pwsh
+        run: .\tests\Setup.ps1 -InstallDeps -NonInteractive
+      - name: Generate FRESH backups (all 4 modes, kit intact) via the real engine
+        shell: pwsh
+        # Workspace-relative OutRoot (see the post-mortem note above): a
+        # backslashed ${{ runner.temp }} upload path can glob to NOTHING and
+        # upload-artifact's default if-no-files-found is only a warning.
+        run: pwsh -NoProfile -File scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot fresh
+      - name: Upload fresh backup set
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-backups
+          path: fresh/bash-restore/**
+          if-no-files-found: error
+          # HashAddressed short-names can BEGIN WITH A DOT, and v4 excludes
+          # hidden files by default — which silently dropped those data files
+          # from the artifact and broke exactly the snapshot origins that
+          # hash-recover through them (run 32672263476 post-mortem).
+          include-hidden-files: true
+
+  bash-interop-restore:
+    name: Bash interop - restore fresh backups (Linux)
+    runs-on: ubuntu-latest
+    needs: bash-interop-make
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash restore toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xxhash p7zip-full gawk
+      - name: Download the Windows-made backups
+        uses: actions/download-artifact@v4
+        with:
+          name: fresh-backups
+          path: fresh/bash-restore
+      - name: Restore every origin of every mode + byte-compare (windows->ubuntu proof)
+        run: bash tests/bash/verify_restores.sh fresh

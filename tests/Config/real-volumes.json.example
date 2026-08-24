@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy this file to real-volumes.json and customize. The harness will resolve volumes by FileSystemLabel and refuse any label that does not start with FBTEST-.",
+  "Source":  { "Label": "FBTEST-SRC", "MinSizeGB": 2 },
+  "Backup":  { "Label": "FBTEST-BKP", "MinSizeGB": 4 },
+  "Changes": { "Label": "FBTEST-CHG", "MinSizeGB": 4 },
+  "Recon":   { "Label": "FBTEST-RCN", "MinSizeGB": 4 }
+}

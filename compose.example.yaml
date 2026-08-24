@@ -1,0 +1,24 @@
+services:
+  filebackup:
+    build:
+      context: .
+    image: "${FILEBACKUP_IMAGE:-filebackup:local}"
+    user: "${FILEBACKUP_UID:-65532}:${FILEBACKUP_GID:-65532}"
+    read_only: true
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      FILEBACKUP_CONFIG_PATH: /config/FileBackup.json
+      FILEBACKUP_LOG_PATH: /logs/Backup_Global.log
+    volumes:
+      - ./container/FileBackup.example.json:/config/FileBackup.json:ro
+      - ${FILEBACKUP_SOURCE:?set FILEBACKUP_SOURCE}:/source:ro
+      - ${FILEBACKUP_STATE:?set FILEBACKUP_STATE}:/state
+      - ${FILEBACKUP_DESTINATION:?set FILEBACKUP_DESTINATION}:/backup
+      - ${FILEBACKUP_CHANGES:?set FILEBACKUP_CHANGES}:/changes
+      - ${FILEBACKUP_LOGS:?set FILEBACKUP_LOGS}:/logs
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev

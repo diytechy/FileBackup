@@ -1,0 +1,13 @@
+.git
+.githooks
+.github
+.claude
+.idea
+docs
+scripts
+tests
+coverage.xml
+.artifacts
+BuildAlbum
+*.log
+*.xml
