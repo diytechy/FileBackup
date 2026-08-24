@@ -49,10 +49,19 @@ last) — it is the record, not required reading for every pass.
 - **HUMAN RULING (2026-08-24): no system has adopted FileBackup yet, so
   BACKWARD COMPATIBILITY IS NOT REQUIRED** — store-format and behavior
   changes are free; migration constraints on the D-1 design options are void.
-- **Active gate:** G3. **Next actions, in order:** (1) the human rules on the
-  Open items below — chiefly the D-1/D-5 design decision — then the fix WPs
-  run the usual G1→G3 + independent-review passes; (2) G3 → G-Release
-  (human attestation; mechanized criteria are already clean); (3) IF-001
+- **D-1/D-5 DESIGN RULED (human, 2026-08-24): option 3 — content-address ALL
+  storage; Mirror removed; browsability via a generated INDEX.html/.tsv view
+  outside the backup root ("html index… also gives searchability").** Full
+  design record:
+  [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md).
+  Production disks recorded as NTFS (4 TB library; 6-or-8 TB backup) — a
+  `link` view stays feasible later but is deferred out of the v1 enum.
+- **Active gate:** G3. **Next actions, in order:** (1) remaining human
+  gos/rulings in Open items — D-2/D-3 fix go, D-4's Hidden-default ruling,
+  test-battery scope; (2) the **option-3 WP** (D-1/D-5 + folded items, per
+  the plan) and the **kit-bump WP** (D-2/D-3/D-4 + restorer parity, kit rev
+  6) run the usual G1→G3 + independent-review passes; (3) G3 → G-Release
+  (human attestation; mechanized criteria are already clean); (4) IF-001
   Experimental → Stable jointly with HomeHub — but not before D-1/D-2 are
   fixed, since they break IF-001's core restore promise.
 
@@ -69,7 +78,7 @@ option from migration cost.
 
 | Item | What (verified 2026-08-24, entries below) | Decision needed | State |
 |---|---|---|---|
-| **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | **RULED 2026-08-24: option 3** — content-address all storage; Mirror browsability becomes a best-effort materialized view (links where the target filesystem supports them, manifest as the documented fallback where it does not, e.g. exFAT). Human: "This will give the backup database consistency… it prevents duplication, gives readability where it can, and gives consistency… hopefully deletes some of the machinery that is active today but creating more cornercases." View-mechanism design drill in progress; fix WP to follow the usual G1→G3 + independent review. |
+| **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | **RULED 2026-08-24, complete: option 3 + INDEX view.** Content-address all storage (Mirror/`PreserveFolderTree` removed); browsability = generated `INDEX.html` + `INDEX.tsv` sibling view (human: "agreed with the html index, that also gives searchability"); `link` deferred out of the v1 enum despite NTFS production disks (4 TB library / 6-or-8 TB backup). Design record: [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md). Next: the option-3 WP runs G1→G3 + independent review. |
 | **D-2 — restore verifies nothing** | Both restorers expand/copy a resolvable `DataPath` with no comparison against the row's `xxH2Hash` — wrong payload, same-length bit-flip, even truncation restore exit 0. `xxH2Hash` is the original-content hash, so verify-after-write + fall-through to the existing pool recovery is sound. Needed under ANY D-1 design (bit rot, partial writes). | Approve as a fix WP (small, both restorers, kit revision 6; pairs with D-3). MiniPC-Deployer's "three witnesses" restore is prior art. | Open — fix proposed, awaiting go |
 | **D-3 — CandidateError outranks ContentMissing** | One unrelated unexpandable `.7z` anywhere in the pool flips "your bytes are gone" (exit 1) into "fix this host" (exit 4). Every CandidateError the locators raise is by construction from a non-own candidate — the reorder needs no new state. | Approve with D-2 (same kit bump). Trivial precedence reorder, both locators. | Open — fix proposed, awaiting go |
 | **D-4 — hidden/dot files never backed up** | SYSTEMIC: no `Get-ChildItem` in Engine/Common/Reconstruct uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip, so the twin restorers disagree. Zero disclosure. | Approve `-Force` everywhere + a disclosed skipped-by-policy count, and RULE on the one design question: should Windows Hidden-attribute files be included by default (Linux dot-files clearly must be)? | Open — fix proposed, one ruling needed |
@@ -3469,4 +3478,20 @@ Sync-BackupStorageLayout step 6 (Engine.psm1:618). At 500k files ≈ 2.5e11
 pipeline comparisons — plausibly stops a real library from backing up at
 all. Fix: one hashtable of referenced DataPaths (pattern already at
 :761,:772,:1571). Fold into the option-3 WP.
+
+### HUMAN RULING (final) — D-1/D-5 view mechanism: INDEX — 2026-08-24
+
+The human confirmed the reviewer's index recommendation ("agreed with the
+html index, that also gives searchability") and supplied the deployment
+fact: **production disks are NTFS** — 4 TB library source, 6-or-8 TB backup.
+NTFS keeps a later `link` enum value feasible; the ruled v1 is
+`BrowseView: off|index`, index default. Ruling recorded in the D-1/D-5
+Open-items row (now complete) and consolidated — together with the storage
+design, config v2, deletions, emergency predicates, test reshape, and folded
+items — into
+**[plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md)**,
+the pre-WP design record. AGENTS.md §3 gained a forward-pointer note (per
+the 2026-06-05 precedent: §3 keeps documenting current code until the WP's
+G3 rewrites it with the implementation). Next action: draft the option-3
+WP's G1 requirements pass when the human says go.
 

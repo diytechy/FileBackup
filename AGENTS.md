@@ -208,6 +208,15 @@ Imports (internal): `Common`
 > backed up (no `-Force` on any PowerShell-side enumeration). Until these are
 > fixed, the restore-correctness invariants below are ASPIRATIONAL in those
 > specific shapes; hash-addressed mode is proven immune to D-1/D-5.
+>
+> **Design RULED (human, 2026-08-24), not yet implemented:** D-1/D-5 are fixed
+> by **content-addressing ALL storage** (Mirror/`PreserveFolderTree` is
+> removed; browsability becomes a generated, non-authoritative `INDEX.html` +
+> `INDEX.tsv` view outside the backup root). Full design record:
+> [docs/plans/option3-content-addressed-storage-plan.md](docs/plans/option3-content-addressed-storage-plan.md).
+> This section keeps documenting the CURRENT code (per the 2026-06-05
+> precedent) — the invariants below are rewritten at that WP's G3, with the
+> code.
 
 - **Manifest schema** (9 columns): `DataPath, RelativePath, Length, LastWriteTimeStr,
   xxH2Hash, Compressed, StoredAsHashSize, Duplicate, MediaMBPerSec`. Round-trip only via
