@@ -3309,3 +3309,61 @@ while borrower lives) recorded in the verification transcripts and proposed
 for the fix WPs' test scope. MiniPC-Deployer's independent restore documents
 a "three witnesses must agree" verification pattern — prior art for D-2.
 
+### DRIVER + subagents (sonnet catalog, opus design analysis) — D-1/D-5 design drill: two-registry proposal — 2026-08-24
+
+Human floated a fourth D-1/D-5 design shape: split the persisted model into a
+source registry {path,hash,length,mtime}, a backup LOGICAL registry (same
+shape + archive flag), and a CONTENT registry mapping {hash,length} → physical
+file, so the storage label stops mattering. Two subagents drilled in
+(persisted-artifact catalog; adversarial design evaluation vs options 1–3).
+
+**Verdict: correct diagnosis, but ORTHOGONAL to D-1 — a schema normalization,
+not a fourth option.** `DataPath`/`Compressed`/`StoredAsHashSize` are indeed
+properties of `(hash,length)`, not of the row (`Invoke-BackupFileGroup` copies
+all three verbatim into the borrower, Engine.psm1:2829-2835; Sync's
+form-conflict apparatus exists to keep the replicas consistent). But content
+entries are immutable-by-construction only via the NAMING function
+(`Get-HashSizeFileName`) — with Mirror path-derived labels kept, the run-N+1
+edit produces a label collision whose every resolution IS option 1, 2, or 3.
+The split converts D-1 from silent overwrite into a detectable collision
+(real honesty win), not into immunity. It does kill D-5, deletes the
+overloaded blank-DataPath sentinel (strongest structural win), collapses
+prune to per-key, trivializes mode migration — maintainability wins, ~10×
+option 1's blast radius, and the naming decision still open at the end.
+Trilemma: path-derived labels + cross-path dedup + no rewrite machinery —
+pick two. Persisting today's derived `Get-BackupContentIndex` also converts
+a cannot-be-stale view into stored state that can lie — D-1's own bug class.
+Smallest honest version, if ever adopted (separately from the D-1 ruling):
+store the three storage columns once per `(hash,length)`, drop `Duplicate`
+as derived, keep `{hash,length}` on every logical row (never an opaque id),
+content registry stays an accelerator over the pool scan, never authority.
+
+**New facts settled by code reading (closes two "What was not proven" items
+in the 2026-08-24 defect review):**
+- **D-1 mechanism = (a), settled without the bench box.**
+  `Save-SupersededData` builds `$survivingContent` from the SOURCE manifest
+  (Engine.psm1:2996): B still holds hash H in the source, so the old bytes
+  are declared surviving and never staged; the Mirror in-place overwrite
+  (:2867) then destroys the last copy. The source-based survival test
+  AUTHORIZES the loss; `Optimize-ChangeFolders` is aggravation, not cause.
+- **`Reconstruct.ps1` shares D-2's gap** (Reconstruct.ps1:673-691 — expand/
+  copy from a resolvable DataPath, no post-write hash check), matching
+  `reconstruct.sh:645-698`. Restorer parity confirmed defect-for-defect.
+- **Registry catalog confirmed: no persisted hash→file map exists** — the
+  only content index is in-memory `Get-BackupContentIndex`
+  (Engine.psm1:785-868), rebuilt from pool manifests + `Test-Path` per call;
+  restorers resolve blanks by physical pool scan.
+
+**Analysis note for the pending ruling (opus reviewer, disagreeing with the
+driver's option-1 recommendation):** option 3's browsability cost is largely
+fictional in production — under dedup the borrower's path has no file at all,
+and under `CompressEnabled: true` (the bench config) the Mirror tree is a
+tree of `.7z` archives; an optional regenerable materialized view restores
+browsability under any option. Option 3 is mostly deletion (net-negative
+LOC) and retires the dual addressing semantics that produced the defect;
+option 1 stays defensible on blast radius. Emergency fix valid under ALL
+options: survival test asks "does a live BACKUP row still demand this
+content" instead of "is it still in the source", plus refuse to overwrite a
+Mirror DataPath another live row references. **Decision remains with the
+human (D-1 row above unchanged).**
+
