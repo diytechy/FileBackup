@@ -322,6 +322,11 @@ work-package order follows the table.
 | bash newline-in-filename rows (new, R7) | `reconstruct.sh`'s line-based FPAT parser cannot parse an RFC-4180 quoted field containing a newline — a legal Linux filename the engine can now write from a container backup; `Import-Csv` handles it, so the twin restorers diverge on the same manifest. Loud-ish (exit 1/4), not silent. | bash-v2 scope: refuse such rows with a clear message in bash, or refuse the filename at backup time on Linux. | Open → bash-v2 |
 | no-7-Zip raw-candidate skip (new, R10) | Both restorers `continue` past a `.7z`-named hash-recovery candidate when 7-Zip is absent, never testing its raw bytes — which needs no 7-Zip and is exactly the revision-3 exemption shape. A restore needing no actual decompression can exit 4 "install 7-Zip" unnecessarily. | Low impact (a genuinely compressed store dies earlier anyway). Fold into the next kit-revision batch with R6. | Open |
 | kit-less snapshot window (new, F8) | A crash inside `Complete-ChangeFolder` between the `Temp`→`Snapshot_*` rename and the kit-artifact copy loop yields a valid snapshot (manifest + witness) carrying NO restore kit (`Get-BackupKitRevision` = 0) — breaks the "every snapshot is self-contained" expectation; no byte loss. | Recoverable today via `-Action Verify -RefreshKits`. Candidate cheap fix: copy the kit into staging BEFORE the rename so the rename publishes a complete snapshot. Unscheduled. | Open |
+| **D-1 stale cross-path dedup reference (2026-08-24 bench, VERIFIED)** | Mirror mode: a row adopting another path's DataPath is never revisited when the owner changes; `Save-SupersededData`'s source-based survival test then skips preserving the old bytes and the copy branch overwrites them in place — last copy destroyed, borrower + every blank snapshot row orphaned, invisible to every default check (only `-Deep` sees it, post-mortem). Hash-addressed mode proven immune by repro. | **Design decision required (human):** (1) end cross-path sharing in Mirror mode — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard and simplifies; costs Mirror dedup space; (2) copy-on-write/heal borrowers on owner change — keeps Mirror dedup, adds a fourth refcount site; (3) content-address all storage, Mirror as a restore view — strongest invariant, store migration + loses browsability. Driver recommends (1) + a one-time migration healing existing shared Mirror rows. Interim mitigations regardless: fix `$survivingContent` to consult the BACKUP's surviving rows, and D-2's restore verification as backstop. | **Open — awaiting design ruling** |
+| **D-2 restore trusts DataPath (2026-08-24 bench, VERIFIED both restorers)** | Wrong payload, same-length bit-flip, and truncation all restore exit 0; `xxH2Hash` is the original-content hash so verify-after-write + fall-through to pool recovery is sound and symmetric with existing candidate testing. | Small fix, both restorers, kit revision bump; pairs with the "three witnesses" prior art in MiniPC-Deployer's restore. | Open — fix scheduled |
+| **D-3 CandidateError outranks ContentMissing (2026-08-24 bench, VERIFIED)** | One unrelated bad `.7z` anywhere in the pool flips "your bytes are gone" (1) into "fix this host" (4). Every CandidateError the locators raise is by construction from a non-own candidate, so the reorder needs no new state. | Trivial precedence reorder in both locators (DependencyMissing/StorageUnreadable stay above ContentMissing; CandidateError drops below), same kit bump as D-2. | Open — fix scheduled |
+| **D-4 hidden/dot-prefixed files never backed up (2026-08-24 bench, VERIFIED; systemic)** | No PowerShell-side `Get-ChildItem` in the repo uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip dot-files, so the twin restorers disagree. Silent omission with zero disclosure. | Small fix: `-Force` on all enumeration sites + a disclosed skipped-by-policy count per run; one design question (Windows Hidden-attribute semantics / per-set opt-out) for the human. | Open — fix scheduled, one design question |
+| **D-5 same-run duplicates stored in full (2026-08-24 bench, VERIFIED, Mirror-only)** | The dedup lookup consults only the prior backup; the `Duplicate` label and storage disagree. Same mechanism as D-1 from the safe side; resolves with whichever D-1 design is chosen. G2.8's existing assertion is VACUOUS (`-le 2`) and must be fixed regardless. | Fold into the D-1 design decision; fix the vacuous assertion immediately. | Open — folded into D-1 ruling |
 | Windows reserved device names (new, WP8 review minor 2) | `CON`, `NUL.txt`, `COM1.dat` etc. pass `Test-PortableRelativePath` as portable — SR-055 as ruled never claimed them, and the worst case is a loud copy failure on a Windows restore, but they are one more not-on-both-platforms name class. | Follow-up note only; extend SR-055's character rules if it ever bites. | Recorded |
 | no-7z double host record (WP8 review minor 3, accepted) | An UNREADABLE `.7z` candidate met with no 7-Zip records both CandidateError and DependencyMissing for one candidate in `Reconstruct.ps1`'s locator. Cosmetic: hostIssues aggregate, DependencyMissing outranks by design, and the reported cause is correct. | Accepted as-is — not worth a kit-revision-relevant edit on its own; fold into the next kit touch. | Accepted |
 
@@ -3531,4 +3536,74 @@ pre-authorized by the 2026-08-23 batch ratification:
 **Next:** push this commit — expected fully green — then advance G3 →
 G-Release (human attestation per the gate-advance procedure), and optionally
 move IF-001 Experimental → Stable jointly with HomeHub.
+
+---
+
+### VERIFICATION (3 agents: Opus on D-1/D-5, Sonnet on D-2/3/4, Sonnet on the drill inventory) — 2026-08-24 HomeHub defect review CONFIRMED — 2026-08-24
+
+The consumer-side defect review
+([defect-review-2026-08-24-mirror-dedup.md](defect-review-2026-08-24-mirror-dedup.md),
+committed `f2bcf11`) was independently verified against HEAD by three agents
+with local reproductions (scratchpad only; repo untouched). **All five
+defects CONFIRMED**; both of the review's "not proven" items settled:
+
+- **D-1 (data loss, Mirror ± Compress) — CONFIRMED and mechanism SETTLED:
+  it is the review's option (a), with the fatal reasoning in
+  `Save-SupersededData`, not `Optimize-ChangeFolders`.** `$survivingContent`
+  is built FROM THE SOURCE (`Engine.psm1:2996`) and the skip at `:3003`
+  infers the BACKUP keeps the bytes — false in exactly the borrower shape,
+  where the only backup row claiming the content points at the very file the
+  copy branch (`:2847`) then overwrites in place. The stale borrower row is
+  what AUTHORIZES destroying the last copy. Repro: three runs (A stored; B
+  adopts A's DataPath; A edited) → old bytes NOWHERE in the store, latest
+  restore exit 0 with WRONG bytes for B, both snapshot restores exit 1.
+- **Blind spot total:** default `-Action Verify` exits 0 "no disagreements";
+  `Test-BackupManifest` and the SR-053 heal never fire (the row is non-blank
+  and its file exists); only `-Deep` reports it (`PayloadMismatch`,
+  `Repairable: false` — a post-mortem, the bytes are already gone).
+- **Hash-addressed mode PROVEN immune by repro** (not just code-reading):
+  changed content lands at a new content-derived name; every historical
+  restore stays byte-exact; the eviction path refcounts correctly through a
+  4-run owner-change-then-delete-borrower sequence. **D-5 is also
+  Mirror-only** — in hash-addressed mode both copy-branch writes land on one
+  content-derived filename.
+- **D-2 (silent restore corruption) — CONFIRMED IN BOTH RESTORERS** (settles
+  the parity question): a resolvable `DataPath` is expanded/copied with no
+  hash comparison — wrong-payload archive, same-length bit-flip, and even a
+  LENGTH-CHANGED truncation all restore with exit 0 in `Reconstruct.ps1` and
+  `reconstruct.sh`. `xxH2Hash` is confirmed to be the ORIGINAL-content hash,
+  so verify-after-write + fall-through to the existing pool recovery is
+  sound. Fix shape: small, both restorers, kit-revision bump.
+- **D-3 — CONFIRMED** (repro: one unrelated garbage `.7z` flips
+  ContentMissing/exit 1 into CandidateError/exit 4). Key simplification:
+  `Find-DataFileByHash`/`find_by_hash` are only ever called when the row's
+  own file is blank or missing, so EVERY CandidateError they raise is by
+  construction from an unrelated candidate — the reorder needs no new state.
+  Fix shape: trivial precedence reorder in both locators.
+- **D-4 — CONFIRMED on Windows** (Hidden-attribute file in no manifest, run
+  reports success, zero disclosure) and code-confirmed for Linux dot-files.
+  **NEW, beyond the review: the gap is SYSTEMIC — no `Get-ChildItem`
+  anywhere in Engine/Common/Reconstruct uses `-Force`**, including the
+  restore-side pool scan and the prune residue scan; bash's `find` does not
+  skip dot-files, so the twin restorers even disagree. Fix shape: small
+  (`-Force` + a disclosed skip count), with one design question (per-set
+  configurability / Windows Hidden semantics).
+- **Minimal violated invariant (for the design decision):** no write may
+  change the bytes at a `DataPath` while any row anywhere claims a different
+  `(hash, length)` for it. Mirror addresses data files by PATH ("whatever
+  this source file holds now"); dedup hands that address to rows that mean
+  "these exact bytes". Hash-addressing satisfies the invariant structurally.
+
+**Drill inventory (HomeHub
+`scripts/verify/library-permutation-drill.sh`):** the assertion that caught
+D-1 — a second pass proving every blank-DataPath row's hash exists among the
+hashes actually verified this cycle — has NO FileBackup equivalent; and the
+one dedup-shape assertion FileBackup has (`G2.8 Dedup_singleDataPath`,
+`Count -le 2`) is VACUOUS — it passes under D-5's bug. Six-item prioritized
+import list and eight additional permutations (edit-the-borrower, multiple
+borrowers, nested dot-directories, Windows Hidden, same-length corruption,
+all-four-modes owner-edit, same-run vs prior-run duplicates, owner deleted
+while borrower lives) recorded in the verification transcripts and proposed
+for the fix WPs' test scope. MiniPC-Deployer's independent restore documents
+a "three witnesses must agree" verification pattern — prior art for D-2.
 
