@@ -125,8 +125,14 @@ sentinel. WP9 kills the first structurally.
 | Candidate | What it removes | State |
 |---|---|---|
 | **S1 — retire the `Compressed` claim; derive form from bytes** | 4 of `Get-StorageFormFinding`'s 7 classes (`FlagOverRaw`, `FlagOverArchive`, `NameLies`, `BlankRowFormDisagreement`) exist only to police a claim the bytes already answer. SR-050 already made BOTH restorers prefer the located file's PROVEN form — but only for hash-recovered rows; a row resolved through its own `DataPath` is still decided by the column (`Reconstruct.ps1:893`, `reconstruct.sh:823`). Extend proven-form there and the claim has no consumer left. The complete byte-derived rule is the one `Find-DataFileByHash` already implements, and D-2's verify-after-write makes it self-checking. Cost: a ~10-line 7z-magic sniffer in **Common** (the kit does not bundle Engine, so `Get-StoredFileForm` is unreachable there) plus a bash twin. Payoff ≈ 200 lines of audit/repair logic and one whole class of "the index lies about the bytes". The column stays in the 9-column contract as advisory — no parser or kit break. | **CANDIDATE — proposed as WP10, after WP9.** Not folded in: WP9's D-1/D-5 fix should land clean and separately reviewable. |
-| **S2 — retire storage-layout migration entirely** | After WP9, `Sync-BackupStorageLayout` (210 lines) keeps only the compression-flip axis, whose whole job is re-forming EXISTING objects when `CompressEnabled` toggles. If S1 lands, a mixed-form store is normal and nothing needs re-forming: `CompressEnabled` would govern only NEW writes. Deletes 210 + 50 (`Get-MigrationCapacityDemand`) lines, the SR-051 refcount machinery, the step-5.5 capacity preflight arm and a G4 suite arm — and deletes a risk class on its own terms, since every migration is a mass rewrite of a store that currently works. | **NEEDS A HUMAN RULING.** Trade-off: retroactive space reclamation is lost — turning compression on later would no longer re-pack what is already stored. SN-008/SR-012 promise that today. Pairs naturally with S1 as WP10. |
+| **S2 — retire storage-layout migration entirely** | `Sync-BackupStorageLayout` (210 lines) + `Get-MigrationCapacityDemand` (50) + the step-5.5 migration preflight + the SR-051 refcount apparatus, which existed only to make a migration safe. Also collapses two overlapping orphan scans into one. | **HUMAN RULED 2026-08-25: GO — and FOLDED INTO WP9** ("Retroactive space reclamation is not necessary... Similarly, retroactive decompression is also not necessary"). It does NOT depend on S1: a mixed-form store is already normal today because compression is per-file (SR-004) and every row's `Compressed` describes its own object. `CompressEnabled` now governs only content written after the flip. |
 | **S3 — re-homing becomes a same-name copy** | Under content addressing a data file's name is derived from its content, so a re-homed file's source and destination names are ALWAYS identical: `Get-ReHomedDataPathName` (30 lines) collapses to nothing and "does the destination already hold this content" becomes a filename test instead of an index lookup. The same lever may thin `Get-BackupContentIndex` + `Optimize-ChangeFolders` (168 lines between them), since identical content now shares a filename in every folder. | **TRIVIAL HALF FOLDED INTO WP9** step 8 (the `Get-ReHomedDataPathName` collapse). The index/Optimize half is to be MEASURED during WP9, not promised. |
+
+**Deferred by the same ruling:** retroactive re-packing, if ever wanted, becomes
+a **standalone offline script** (human's suggestion, 2026-08-25) — re-forms a
+store's objects to a new compression policy outside the engine, never on the
+backup path. Not scheduled, not built by WP9; recorded so the capability is not
+silently lost.
 
 **Deliberately NOT reopened:** the overloaded blank-`DataPath` sentinel (means
 "bytes lost", "deduped into another folder", and "heal pending" at once). It is
@@ -4007,4 +4013,35 @@ regenerated checklist + version bump) → G-Final. Phase-deferred by design:
 SR-033 (bash-v2). Still deliberately parked: `-RepairFromPruned`, the
 source-side manifest cache default, the two-registry normalization, the `link`
 view.
+
+### HUMAN — S2 ruling: no retroactive re-forming, either direction — 2026-08-25
+
+Verdict: **GO, and it folds into WP9.** "Retroactive space reclamation is not
+necessary, that could be housed as a separate script that can sit deferred.
+Similarly, retroactive decompression is also not necessary."
+
+Consequence: `Sync-BackupStorageLayout` (210 lines) and
+`Get-MigrationCapacityDemand` (50) are deleted **whole** in WP9 step 3, with the
+step-5.5 migration capacity preflight and the SR-051 refcount apparatus that
+existed only to make a migration safe. `CompressEnabled` becomes a rule for NEW
+content only.
+
+Driver note recorded at the ruling: **S2 does not depend on S1.** A mixed-form
+store is already normal today — compression is per-file (`Test-ShouldCompress`
+keys on extension, SR-004), so a store built under one config already holds both
+`.7z` and raw objects, and every row's `Compressed` column describes its OWN
+object. Both restorers branch per row, Verify audits per row, and prune's
+re-home carries the form with the bytes. Nothing reads a store-wide form, so
+nothing needs re-forming. WP9 therefore gets SMALLER, not bigger: step 3 turns
+from "delete one axis, keep the other" into a straight deletion, and deleting
+`Sync` also collapses two overlapping orphan scans (its own and
+`Test-BackupManifest`'s) into the single one SR-064 makes linear.
+
+Registry: SR-061 widened to carry the no-migration contract; LLR-060 retargeted
+from `Sync-BackupStorageLayout` to `Test-BackupManifest`/`Invoke-BackupSet`;
+TC-124 now pins that a `CompressEnabled` flip re-forms nothing and that the
+resulting mixed-form store audits CLEAN. SR-012/SR-013/SR-051 are superseded by
+SR-061 — their amend-vs-retire disposition is settled at WP9 G1 and recorded, so
+no Verified SR is silently dropped. Trace after the edits: orphans=0 integrity=0
+status-findings=0 phase-deferred=8.
 

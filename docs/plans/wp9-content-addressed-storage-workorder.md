@@ -114,36 +114,55 @@ already does not decide byte placement). **Zero restorer diff, zero bash-parser
 diff, zero interop-fixture churn.** Column retirement stays out of scope
 (option-3 plan §7).
 
-### 3.3 There is no migration — a legacy store is refused, not converted (**HUMAN RULED 2026-08-25**)
+### 3.3 There is no storage-layout migration at all (**HUMAN RULED 2026-08-25, twice**)
 
-**Ruling: "No storage exists currently here that must be maintained. Migration is
-a moot point."** So the `Original → Hash` conversion is **deleted, not kept**,
-and with it the two hard requirements an earlier draft of this plan carried
-(verify-before-name; rename-instead-of-copy). Both existed only to make an
-in-place conversion of an existing Mirror store safe, and there is no such store
-to protect.
+Two rulings, a day apart in the same session, remove the whole migration
+workstream:
+
+1. *"No storage exists currently here that must be maintained. Migration is a
+   moot point."* — kills the `Original → Hash` (tree-mode) conversion.
+2. *"Retroactive space reclamation is not necessary... Similarly, retroactive
+   decompression is also not necessary."* — kills the compression-flip axis too,
+   the last thing `Sync-BackupStorageLayout` did.
+
+**So `Sync-BackupStorageLayout` (210 lines) and `Get-MigrationCapacityDemand`
+(50 lines) are deleted whole**, along with the step-5.5 migration capacity
+preflight and the SR-051 refcount apparatus that existed *only* to make a
+migration safe. Two earlier requirements of this plan die with them:
+verify-before-name and rename-instead-of-copy protected an in-place conversion
+that no longer happens.
+
+**Why this is safe without S1 (the `Compressed`-claim retirement).** A
+mixed-form store is *already normal today*: compression is per-file
+(`Test-ShouldCompress` keys on extension, SR-004), so a store built under one
+config already holds both `.7z` and raw objects, and every row's `Compressed`
+column describes **its own** object. Nothing downstream reads a store-wide form:
+both restorers branch per row, `-Action Verify` audits per row, and prune's
+re-home carries the form with the bytes. Flipping `CompressEnabled` therefore
+needs no migration — it simply governs content written *after* the flip.
 
 What ships instead:
 
-- **`Sync-BackupStorageLayout` loses the tree-mode axis entirely** and keeps only
-  the compression-flip axis, which is still real (`CompressEnabled` can be
-  toggled on an existing store). B7's copy-then-delete order and SR-051's
-  never-delete-a-still-referenced-file rule are unchanged for that axis.
-- **A row stored in the legacy `Original` form is refused, loudly.** If a
-  manifest carries `StoredAsHashSize = 'Original'`, `-Action Backup` fails the
-  set before mutating anything, naming the condition and the remedy: *this store
-  was written by a pre-content-addressed build; back up to a fresh `BackupPath`.*
-  `-Action Verify` **reports** it as a finding rather than refusing — an audit
-  action that cannot audit is useless.
-- **Test fixtures follow.** `tests/fixtures/bash-restore/Mirror*` (two fixture
-  trees, Mirror and Mirror_Compress) are content-addressed stores' twins from a
-  layout that no longer exists; they are regenerated as content-addressed or
-  deleted at step 5 (`scripts/gen_bash_fixtures.ps1` owns them).
+- **Step 6 of the pipeline calls `Test-BackupManifest` directly** for the
+  sanitize half `Sync` used to wrap. Bonus simplification: `Sync` and
+  `Test-BackupManifest` each ran their **own** orphan scan over the same pool;
+  deleting `Sync` collapses two overlapping scans into the one SR-064 makes
+  linear.
+- **A legacy `Original`-form row is refused, loudly.** `-Action Backup` fails
+  the set before mutating anything, naming the remedy (*this store was written
+  by a pre-content-addressed build; back up to a fresh `BackupPath`*), while
+  `-Action Verify` **reports** it as a finding — an audit action that cannot
+  audit is useless.
+- **Retroactive re-packing, if ever wanted, is a separate deferred script**
+  (human's suggestion): a standalone utility that re-forms a store offline. It
+  is NOT part of the engine, does not run on the backup path, and is not built
+  by this WP. Recorded as deferred in status.md.
+- **Test fixtures follow.** `tests/fixtures/bash-restore/Mirror*` are regenerated
+  as content-addressed or deleted at step 5 (`scripts/gen_bash_fixtures.ps1`).
 
-Net effect on this WP: step 3 shrinks to a deletion plus one refusal,
-`Get-MigrationCapacityDemand` keeps only its compression term, and the two
-migration risks (pool poisoning, capacity refusal on a 4 TB store) **disappear
-from §7** — they were consequences of converting in place.
+Registry consequence: SR-012/SR-013's migration promise and SR-051 in its
+entirety are superseded by SR-061; their disposition (amend vs. retire) is
+settled at G1 and recorded — a Verified SR is never silently dropped.
 
 ### 3.4 Group form election (replaces the "form conflict" skip)
 
@@ -335,7 +354,7 @@ Step 1 is written **red first** — it reproduces D-1 and D-5 on today's code.
 |---|---|---|---|
 | **1** | **Red repros.** Owner-edit-of-a-duplicate across all four *current* modes (D-1) and a same-run duplicate copy counter (D-5). Both must FAIL on Mirror and PASS on HashAddressed today — that asymmetry is the proof the tests are real | `tests/Unit/Coverage.Tests.ps1`, `tests/Common/PoolAudit.ps1` | Pester output showing the Mirror failures and the hash-mode passes |
 | **2** | **Intra-run dedup + owner election** in `Invoke-BackupFileGroup` (still mode-aware at this step): elect the owner's form, write once, memo the group's DataPath in-process, adopt for the rest | `Engine.psm1:2834-2939` | D-5 repro green in both modes; copy counter = 1 |
-| **3** | **Delete the tree-mode migration axis** from `Sync-BackupStorageLayout` (compression-flip axis kept); apply the owner election there too and delete the form-conflict skip; refuse a legacy `Original` row loudly, report it under `-Action Verify` | `Engine.psm1:620-828`, `:3160-3208` | TC-124 green; existing G4 suite green |
+| **3** | **Delete `Sync-BackupStorageLayout` and `Get-MigrationCapacityDemand` whole** (~260 lines) plus the step-5.5 migration preflight and the SR-051 refcount apparatus; wire step 6 to `Test-BackupManifest` (collapsing two overlapping orphan scans into one); refuse a legacy `Original` row loudly and report it under `-Action Verify`; delete the migration tests rather than rewrite them | `Engine.psm1:620-828`, `:3160-3208`, `:3535-3541`; `StorageForm.Tests.ps1:436-560`, `Coverage.Tests.ps1:206,271`, `G4-Sanitization.ps1` | TC-124 green; a `CompressEnabled` flip re-forms nothing and the mixed-form store audits clean |
 | **4** | **Preservation reorder + exact survival test** (`Save-SupersededData` after step 11; survival from the final manifest) | `Engine.psm1:3010-3074, 3596-3625` | D-1 repro green **in Mirror too**; G9 rollback suite green |
 | **5** | **Delete Mirror.** `PreserveFolderTree` out of the engine signatures, the config key set, the shape check and the defaults materializer; hash naming unconditional; the SR-022 Mirror refusal and its dead twins removed; `StoredAsHashSize` pinned to `'Hash'` | `Engine.psm1` (G6 + G8 sites), `FileBackup.ps1` help, `container/*.json`, harness + every Mirror test site (G17), `tests/fixtures/bash-restore/Mirror*` regenerated or deleted via `scripts/gen_bash_fixtures.ps1` | Full unit + integration green on the **2-mode** matrix |
 | **6** | **Config v2:** `$script:ConfigSchemaVersion = 2`, named refusal for `PreserveFolderTree` (both formats), `BrowseView` / `ViewPath` accepted and validated | `Engine.psm1:3654-3705, 3790-3941`, `tests/Common/ConfigFixtures.ps1` | TC-125..TC-128 green; TC-077 updated |
@@ -365,7 +384,7 @@ integration budget roughly halves and funds the battery below.
 | TC-121 | Unit | Every new DataPath matches the hash-name grammar; `StoredAsHashSize` is `'Hash'` on every written row |
 | TC-122 | Integration | **SR-059 invariant.** Across a multi-run timeline, no byte at a DataPath any live row claims ever changes (per-run stat+hash census of the pool) |
 | TC-123 | Integration | No non-infrastructure file at the backup root fails the hash-name grammar (the §3.1 compensating control) |
-| TC-124 | Integration | **Legacy-store refusal.** A manifest carrying `StoredAsHashSize = 'Original'` fails `-Action Backup` before anything is staged or mutated, with the fresh-`BackupPath` remedy in the message; the same store under `-Action Verify` yields a finding and a non-zero audit status, never a refusal; a compression flip on a content-addressed store still migrates correctly (the surviving axis) |
+| TC-124 | Integration | **Legacy-store refusal + the no-migration contract.** A manifest carrying `StoredAsHashSize = 'Original'` fails `-Action Backup` before anything is staged or mutated, with the fresh-`BackupPath` remedy; the same store under `-Action Verify` yields a finding and a non-zero status, never a refusal. Flipping `CompressEnabled` re-forms **nothing** — existing objects keep their form, only new content follows the new setting, the mixed-form store restores byte-exact through both restorers, and Verify reports it **clean** |
 | TC-125 | Unit | `PreserveFolderTree` in a **JSON** config fails with the named diagnostic and status 2 |
 | TC-126 | Unit | `PreserveFolderTree` in a **CLIXML** config fails the same way (per §9 Q3), and `ConfigVersion: 1` is refused as too old |
 | TC-127 | Unit | `BrowseView` vocabulary: `off` / `index` accepted, `link` refused by name, anything else refused |
@@ -415,7 +434,7 @@ TC-116's deferred arm), and de-vacuuming `G2.8 Dedup_singleDataPath` (assert
 | # | Risk | Guard |
 |---|---|---|
 | R1 | A user who *does* hold a pre-v2 store meets a hard refusal | The message names the condition and the remedy (fresh `BackupPath`); `-Action Verify` still audits the old store, and both restorers still restore it unchanged (G7) — nothing about reading a legacy store breaks, only writing to it |
-| R2 | Deleting the tree-mode axis could take the compression-flip axis with it | Step 3 is its own commit; `StorageForm.Tests.ps1`'s SR-051 refcount suite (`:436`, `:539`) and the G4 sanitization suite both exercise the surviving axis |
+| R2 | Deleting `Sync` wholesale could take the **sanitize** half with it — blanking missing DataPaths and warning about orphans must survive, they are what SR-053's healing depends on | Step 3 is its own commit and moves that half to a direct `Test-BackupManifest` call; the WP7 self-healing suite (SR-053) and the G4 sanitization suite both fail loudly if it goes missing |
 | R3 | Election changes which physical form is stored for a mixed group ⇒ a stale `Compressed` on a sibling row restores 7z container bytes under the real name (the finding-B family) | TC-120; `Get-StoredFileForm` audit unchanged; `-Action Verify` covers the store |
 | R4 | Moving `Save-SupersededData` after step 11 could miss bytes `Move-RemovedFilesToStaging` already relocated | The survival test reads the **final** map; the G9 rollback suite is the existing net; add an eviction-and-supersession-in-one-run case to TC-118's timeline |
 | R5 | Deleting `PreserveFolderTree` touches ~45 test sites (G17) — a mechanical sweep that can silently *weaken* an assertion | Step 5 is its own commit; diff-review every deleted assertion; the coverage floor (78.1%) must not drop |
