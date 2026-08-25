@@ -86,11 +86,32 @@ last) — it is the record, not required reading for every pass.
   store exists that must be maintained, so the `Original → Hash` conversion is
   deleted rather than kept and a legacy-form store is refused with a
   fresh-`BackupPath` remedy.
-- **Active gate:** G3. **Next actions, in order:** (1) **WP9** (D-1/D-5 +
-  folded items + reserved names) runs G1→G3 + independent review, no
-  ratification pause; (2) G3 → G-Release (human attestation);
-  (3) IF-001 Experimental → Stable jointly with HomeHub — D-2 is now fixed;
-  D-1 still blocks it until WP9 lands.
+- **WP9 IS IN PROGRESS (2026-08-25, Windows host): 3 of 9 steps committed on
+  `New_Fix_Batch`,** each verified before commit and each with its reasoning in
+  its commit message (kit-bump precedent: one G3 audit entry at the end, detail
+  in the commits).
+  | Step | State | Commit |
+  |---|---|---|
+  | 1 — D-1/D-5 repros + `Get-ClaimedRowViolations` | **DONE** | `e302593` |
+  | 2 — owner election + intra-run memo (SR-060) | **DONE** | `9a1da7d` |
+  | 3 — delete storage-layout migration whole (SR-061) | **DONE** | `3ac3338` |
+  | 4 — `Save-SupersededData` reorder + exact survival test | next | |
+  | 5 — delete Mirror (~45 test sites, G17) | | |
+  | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | | |
+  | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | | |
+  | 8 / 8b — folded fixes + F8 + reserved names | | |
+  | 9 — docs, registries, generated maps, G3 audit entry | | |
+  Latest evidence (step 3, real output): `check.ps1 -Tier Full -Gate G3` all
+  steps passed; unit **364/364**; integration sweep **416 PASS / 0 FAIL** across
+  all four modes. Engine 4132 → **3872** lines. **D-5 is fixed in the
+  content-addressed modes; D-1 still reproduces under Mirror BY DESIGN — step 4
+  is what kills it**, and the change-detector Describe proving it dies with the
+  mode at step 5.
+- **Active gate:** G3. **Next actions, in order:** (1) finish **WP9** steps 4–9,
+  then its independent review (Claude subagent, then the OpenAI adversarial pass
+  via `codex exec` — both found real defects on the kit-bump WP); (2) G3 →
+  G-Release (human attestation); (3) IF-001 Experimental → Stable jointly with
+  HomeHub — D-2 is now fixed; D-1 clears when WP9 lands.
 
 ## Open items
 
@@ -4082,4 +4103,52 @@ Evidence (real output, this host): `Invoke-Pester tests\Unit\Coverage.Tests.ps1`
 → **176 passed / 0 failed**, with the asymmetry that makes the tests meaningful:
 borrower survives the owner edit on HashAddressed ±Compress and is LOST on
 Mirror ±Compress; one physical object same-run on HashAddressed, two on Mirror.
+
+### DRIVER — WP9 steps 2 and 3 — 2026-08-25
+
+Verdict: **both committed green.** Full reasoning is in the commit messages
+(`9a1da7d`, `3ac3338`); recorded here so a fresh session sees progress without
+reading the log.
+
+**Step 2 — owner election + intra-run memo (`9a1da7d`, SR-060, TC-120).** A
+`(hash,length)` group elects an OWNER (shortest RelativePath, **ordinal**
+tie-break so the stored object cannot depend on host locale) whose extension and
+compression answer define the single stored object; the first member writes it
+and the rest adopt it from an in-process memo. Two restraints worth keeping in
+view: the memo is deliberately **NOT** applied to Mirror — there each member's
+DataPath is its own RelativePath, so pointing several rows at one member's path
+is exactly the cross-path borrow that produces D-1, and applying it would
+manufacture fresh D-1 hazard in a mode about to be deleted; and `ChangedCount`
+still counts logical files, so the run's "changed files" figure keeps its
+meaning. Evidence: unit **371/371**.
+
+**Step 3 — migration deleted whole (`3ac3338`, SR-061).**
+`Sync-BackupStorageLayout` (210 lines) + `Get-MigrationCapacityDemand` (50) +
+the step-5.5 migration preflight + the SR-051 refcount apparatus. Step 6 calls
+`Test-BackupManifest` directly, collapsing two overlapping orphan scans into the
+one SR-064 will make linear. Evidence: `-Tier Full` all steps passed, unit
+**364/364**, integration **416/0**.
+
+**The finding worth carrying forward.** Deleting the migration broke NO
+guarantee — it broke four *fixtures* that had been quietly depending on
+migration to do something for them: `New-FlipTimeline` (the only "no-tampering"
+way to make a form disagreement), two SR-046 prune-rail tests, the SR-052
+status-1 capacity test, and G4.2's pre-merge store. The last is the sharpest:
+that fixture called itself "genuinely well-formed" while converting only the
+backup root, leaving snapshot blank rows claiming `Compressed=No` for content
+whose pool copy was now `.7z`. `-Action Verify` was right to report
+`BlankRowFormDisagreement`; the migration had been re-aligning the fixture's own
+inconsistency on the next run, so nobody ever saw it. And one test —
+`prunes a compression-flipped store` — had already gone **VACUOUS** and was
+passing while asserting nothing. **This is D-1's own shape at the test layer: a
+derived fact quietly re-aligned behind your back, so the underlying
+inconsistency stays invisible.** Every fixture was re-plumbed to construct its
+state directly rather than deleted, so no assertion was lost, and each carries a
+`.NOTES` saying the construction is deliberate.
+
+Also proven incidentally, and reassuring: every restore stayed byte-exact
+THROUGH that disagreement, because SR-050 makes both restorers trust the located
+file's proven form over the row's `Compressed` claim. The audit reports the
+inconsistency; the restore is immune to it. (That is S1's thesis, demonstrated
+without S1 being implemented.)
 
