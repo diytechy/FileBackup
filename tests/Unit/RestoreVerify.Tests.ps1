@@ -270,3 +270,28 @@ Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
         $log | Should -Match '\[ContentMismatch\]'
     }
 }
+
+Describe 'Non-interactive TargetRoot parity (SR-016, TC-115)' {
+    # Before kit revision 6, RECONSTRUCT.ps1 without -TargetRoot fell back to
+    # Read-Host — a scripted restore hung, while reconstruct.sh died loudly
+    # with usage. The twins now agree; the interactive prompt is kept for hand
+    # use (that arm is manual — asserting on a live Read-Host is not automatable).
+
+    It '-NonInteractive with no -TargetRoot exits 2 with usage and never blocks (TC-115)' {
+        $root = Join-Path $TestDrive 'ni-guard'
+        $s = New-RVStore -Root $root
+        $out = & (Get-Process -Id $PID).Path -NoProfile -File $s.Recon -NonInteractive -ExitCode *>&1 | Out-String
+        $LASTEXITCODE | Should -Be 2
+        $out | Should -Match 'Usage: RECONSTRUCT\.ps1'
+        $out | Should -Match '-TargetRoot is required'
+    }
+
+    It 'with -TargetRoot given, -NonInteractive changes nothing (TC-115)' {
+        $root = Join-Path $TestDrive 'ni-ok'
+        $s = New-RVStore -Root $root
+        $t = Join-Path $root 't'
+        & (Get-Process -Id $PID).Path -NoProfile -File $s.Recon -TargetRoot $t -NonInteractive -ExitCode *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        Get-Content -LiteralPath (Join-Path $t 'a.txt') -Raw | Should -Be 'ALPHA-CONTENT'
+    }
+}

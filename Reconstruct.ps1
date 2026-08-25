@@ -83,7 +83,13 @@ param(
     # Strict mode (SR-039): a MISSING manifest witness becomes an abort instead
     # of an 'unverified index' warning. Off by default so backups written before
     # the witness contract still restore.
-    [switch]$RequireWitness
+    [switch]$RequireWitness,
+    # Automation safety (SR-016, kit revision 6): never prompt. A missing
+    # -TargetRoot prints usage and exits 2 instead of blocking on Read-Host —
+    # the behavior reconstruct.sh has always had (--target-root is required).
+    # Redirected stdin triggers the same guard, so a scheduled run that forgot
+    # the switch still fails loudly rather than hanging.
+    [switch]$NonInteractive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -408,7 +414,46 @@ if ($isChangeFolder) {
 if ($BackupRootOverride) { $backupRoot = $BackupRootOverride }
 if ($ChangeRootOverride) { $changeRoot = $ChangeRootOverride }
 
+function Show-ReconstructUsage {
+    <#
+    .SYNOPSIS
+        The usage text printed when a non-interactive run omits -TargetRoot,
+        mirroring reconstruct.sh's usage() parameter-for-parameter so the twin
+        restorers document the same surface.
+    #>
+    # Implements: SR-016, LLR-016
+    return @'
+Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-BackupRootOverride DIR]
+                       [-ChangeRootOverride DIR] [-SevenZipPath PATH]
+                       [-RequireWitness] [-NonInteractive] [-ExitCode]
+
+  -TargetRoot DIR          Where to rebuild the tree (must be OUTSIDE the backup).
+  -BackupRootOverride DIR  Override the auto-detected backup root (the live data pool).
+  -ChangeRootOverride DIR  Override the folder that holds the Snapshot_<date> siblings.
+  -SevenZipPath PATH       Explicit 7z binary (else the configured default; needed
+                           only when the backup has compressed rows).
+  -RequireWitness          Refuse an origin with no MANIFEST.csv.meta witness instead
+                           of restoring it with an 'unverified index' warning.
+  -NonInteractive          Never prompt: a missing -TargetRoot becomes this usage
+                           text and exit 2 (reconstruct.sh's required --target-root
+                           is the twin).
+  -ExitCode                Exit the process with the SR-040 code instead of throwing.
+
+Exit: 0 complete; 1 incomplete, content unrecoverable; 2 usage/precondition;
+      3 manifest-witness verification failed (nothing written); 4 incomplete,
+      host problem (retry after fixing this machine). Precedence: 2 > 3 > 4 > 1.
+'@
+}
+
 if (-not $TargetRoot) {
+    if ($NonInteractive -or [System.Console]::IsInputRedirected) {
+        # Automation must never block (SR-016): fail loudly with usage — the
+        # exact behavior of reconstruct.sh's required --target-root. The prompt
+        # below remains for hand use (the 2026-08-24 ruling was align, not
+        # delete).
+        Write-Host (Show-ReconstructUsage)
+        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message '-TargetRoot is required (non-interactive run; no prompt).'
+    }
     $TargetRoot = Read-Host 'Enter target folder to reconstruct into'
 }
 

@@ -44,6 +44,16 @@ restamp_witness() {
     [ "$status" -eq 2 ]
 }
 
+@test "2: no --target-root dies loudly with usage — the RECONSTRUCT.ps1 -NonInteractive twin (SR-016 / TC-115)" {
+    # Pinned as the parity contract: reconstruct.sh has always required
+    # --target-root; kit revision 6 gives RECONSTRUCT.ps1 the same
+    # non-interactive behavior (usage + exit 2, never a prompt).
+    run bash "$RS"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"--target-root is required"* ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
 @test "2: precondition — no manifest in the origin (SR-040)" {
     local empty="$BATS_TEST_TMPDIR/empty"
     mkdir -p "$empty"
