@@ -311,7 +311,7 @@ function Initialize-Dependencies {
     } else {
         # Compression being OFF does not mean 7-Zip is unneeded: the backup may
         # still HOLD Compressed=Yes rows written under a previous configuration,
-        # and Sync-BackupStorageLayout needs 7-Zip to migrate them back to raw
+        # and a compressed row needs 7-Zip to be read back at all
         # (SR-012). Resolving it as $null here made that migration silently inert
         # -- "Cannot decompress ...: 7-Zip not found. Skipping transformation."
         # -- so a documented configuration change was never applied. Resolve it
@@ -617,216 +617,6 @@ function Test-BackupManifest {
     return $db
 }
 
-function Sync-BackupStorageLayout {
-    <#
-    .SYNOPSIS
-        Migrates backup data files to match the current PreserveFolderTree /
-        CompressEnabled configuration (e.g. Mirror <-> HashAddressed, compress
-        on/off).
-    .DESCRIPTION
-        Dedup means several manifest rows share ONE physical data file
-        (Invoke-BackupFileGroup points every member of a (hash,length) group at
-        the first member's DataPath, whatever each member's own extension says).
-        Migration is therefore refcount-safe on two axes (SR-051):
-
-          * rows sharing one (hash,length) are decided TOGETHER — a group whose
-            members disagree about the target form is reported as a form
-            conflict and left alone, rather than transformed apart into two
-            physical copies of one content;
-          * a superseded path that ANY post-transformation row still references
-            is retained rather than deleted, mirroring the reference counting
-            Move-RemovedFilesToStaging already performs for the same hazard (B9).
-
-        A transformation that cannot be completed fails the backup set rather
-        than only logging: leaving a row and its data file out of step is a
-        data-integrity fault, not a note.
-
-    .NOTES
-        B7: copies every transformed file to its new location and persists the
-        manifest BEFORE deleting any old file, so an interruption can never leave
-        the manifest pointing at a deleted path.
-
-    .PARAMETER OverallSuccess
-        Reference to the run's success flag; set to $false by a failed
-        transformation (SR-051). Optional so in-process/unit callers may omit it.
-    #>
-    # Implements: SR-012, SR-013, SR-051, LLR-012, LLR-013, LLR-051
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$BackupRoot,
-        [Parameter(Mandatory)][bool]$PreserveFolderTree,
-        [Parameter(Mandatory)][bool]$CompressEnabled,
-        [string]$SevenZipPath,
-        [Parameter(Mandatory)][scriptblock]$Log,
-        [AllowNull()][ref]$OverallSuccess
-    )
-    $db = Test-BackupManifest -FolderRoot $BackupRoot -Log $Log
-
-    $expectedStoredAs = if ($PreserveFolderTree) { 'Original' } else { 'Hash' }
-
-    # Identify rows needing transformation.
-    $rowsNeedingTransform = foreach ($row in $db) {
-        if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
-        $shouldCompress = Test-ShouldCompress -FileName $row.RelativePath -CompressEnabled $CompressEnabled
-        $needsTransform = ($row.StoredAsHashSize -ne $expectedStoredAs) -or (($row.Compressed -eq 'Yes') -ne $shouldCompress)
-        if ($needsTransform) { $row }
-    }
-    $rowsNeedingTransform = @($rowsNeedingTransform)
-
-    # SR-051 gate: rows sharing one (hash,length) share one physical data file,
-    # so the group is transformed together or not at all. Members can want
-    # different forms (identical content under a '.txt' and a '.jpg' name), which
-    # is exactly what the SR-004 extension-list merge produces at scale — and
-    # transforming them apart deletes the file the untouched row still points at.
-    $formWanted = @{}
-    foreach ($row in $db) {
-        if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
-        $key = "$($row.xxH2Hash)|$($row.Length)"
-        $want = Test-ShouldCompress -FileName $row.RelativePath -CompressEnabled $CompressEnabled
-        if (-not $formWanted.ContainsKey($key)) { $formWanted[$key] = New-Object System.Collections.Generic.List[bool] }
-        if (-not $formWanted[$key].Contains($want)) { $formWanted[$key].Add($want) }
-    }
-    $rowsNeedingTransform = @($rowsNeedingTransform | Where-Object {
-        $key = "$($_.xxH2Hash)|$($_.Length)"
-        if ($formWanted[$key].Count -gt 1) {
-            & $Log ("Form conflict for hash=$($_.xxH2Hash) len=$($_.Length): rows sharing this content disagree about compression " +
-                    "(e.g. '$($_.RelativePath)'). Leaving the group untransformed so dedup and every reference stay intact.") 'WARN'
-            $false
-        } else { $true }
-    })
-
-    # Phase 1: copy/compress each row to its new path, update metadata, remember
-    # the old path. The old path is remembered as (Full, Rel) rather than being
-    # re-derived by slicing $rootPrefix off the full path later: Join-Path does
-    # not guarantee the prefix survives verbatim, and the manifest-relative form
-    # is already in hand (WP5 review, finding m4).
-    $oldPathsToDelete = New-Object System.Collections.Generic.List[object]
-    # One shared data file is transformed ONCE; every row that pointed at it
-    # adopts the result, exactly as Invoke-BackupFileGroup points a whole group
-    # at one physical file (SR-051).
-    $transformedBySource = @{}
-    foreach ($row in $rowsNeedingTransform) {
-        $currentDataFull = Join-Path $BackupRoot $row.DataPath
-        if ($transformedBySource.ContainsKey($currentDataFull)) {
-            $done = $transformedBySource[$currentDataFull]
-            & $Log "Row '$($row.RelativePath)' shares '$($row.DataPath)'; adopting the group's transformed copy '$($done.DataPath)'." 'INFO'
-            $row.DataPath         = $done.DataPath
-            $row.Compressed       = $done.Compressed
-            $row.StoredAsHashSize = $done.StoredAsHashSize
-            continue
-        }
-        $shouldCompress  = Test-ShouldCompress -FileName $row.RelativePath -CompressEnabled $CompressEnabled
-
-        # Decompress to a temp file if it is compressed but should not be.
-        $workingFile = $currentDataFull
-        $tempWorking = $null
-        if ($row.Compressed -eq 'Yes' -and -not $shouldCompress) {
-            if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
-                # SR-051 says a transformation that cannot be completed leaves
-                # the requested layout unapplied and FAILS the set. A missing
-                # 7-Zip is exactly that case: WARN-and-continue reported success
-                # over a store the configuration no longer describes (WP5
-                # review, finding M1).
-                & $Log "Cannot decompress '$($row.DataPath)': 7-Zip not found at '$SevenZipPath'. Failing the set (SR-051)." 'ERROR'
-                if ($OverallSuccess) { $OverallSuccess.Value = $false }
-                continue
-            }
-            $tempWorking = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
-            try {
-                Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $currentDataFull -DestinationFile $tempWorking
-                $workingFile = $tempWorking
-            } catch {
-                # SR-051: a transformation that cannot be completed leaves the
-                # requested layout unapplied; that fails the set rather than
-                # being swallowed into a log line.
-                & $Log "Failed to decompress '$($row.DataPath)': $($_.Exception.Message)" 'ERROR'
-                if ($OverallSuccess) { $OverallSuccess.Value = $false }
-                continue
-            }
-        }
-
-        # Compute the new DataPath.
-        if ($expectedStoredAs -eq 'Hash') {
-            $ext = if ($shouldCompress) { '.7z' } else { [IO.Path]::GetExtension($row.RelativePath) }
-            $newDataPath = Get-HashSizeFileName -HashHex $row.xxH2Hash -Length $row.Length -Extension $ext
-        } else {
-            $newDataPath = $row.RelativePath
-            if ($shouldCompress) { $newDataPath = $row.RelativePath + '.7z' }
-        }
-        $newDataFull = Join-Path $BackupRoot $newDataPath
-
-        if ($newDataFull -eq $currentDataFull) {
-            & $Log "Row '$($row.RelativePath)' already at correct path '$newDataPath'." 'DEBUG'
-            if ($tempWorking) { Remove-Item -LiteralPath $tempWorking -Force -ErrorAction SilentlyContinue }
-            continue
-        }
-
-        try {
-            if ($shouldCompress -and $row.Compressed -ne 'Yes') {
-                & $Log "Compressing '$($row.DataPath)' -> '$newDataPath'" 'INFO'
-                Compress-FileWithSevenZip -SevenZipPath $SevenZipPath -SourceFile $workingFile -Destination7z $newDataFull
-            } else {
-                & $Log "Copying '$($row.DataPath)' -> '$newDataPath'" 'INFO'
-                $newDir = [System.IO.Path]::GetDirectoryName($newDataFull)
-                if (-not (Test-Path -LiteralPath $newDir)) {
-                    New-Item -ItemType Directory -Path $newDir -Force | Out-Null
-                }
-                Copy-Item -LiteralPath $workingFile -Destination $newDataFull -Force
-            }
-
-            $oldPathsToDelete.Add([pscustomobject]@{ Full = $currentDataFull; Rel = $row.DataPath })
-            $row.DataPath         = $newDataPath
-            $row.Compressed       = if ($shouldCompress) { 'Yes' } else { 'No' }
-            $row.StoredAsHashSize = $expectedStoredAs
-            $transformedBySource[$currentDataFull] = [pscustomobject]@{
-                DataPath = $newDataPath; Compressed = $row.Compressed; StoredAsHashSize = $expectedStoredAs
-            }
-        } catch {
-            & $Log "Failed to transform '$($row.RelativePath)': $($_.Exception.Message)" 'ERROR'
-            if ($OverallSuccess) { $OverallSuccess.Value = $false }
-        } finally {
-            if ($tempWorking) { Remove-Item -LiteralPath $tempWorking -Force -ErrorAction SilentlyContinue }
-        }
-    }
-
-    # Persist the manifest pointing at the NEW files before deleting any OLD file (B7).
-    Write-Manifest -FolderPath $BackupRoot -Records $db
-
-    # What the POST-transformation manifest still points at. One map serves both
-    # the Phase 2 retention filter (SR-051) and the orphan warning below.
-    $referencedPaths = @{}
-    foreach ($row in $db) { if ($row.DataPath) { $referencedPaths[$row.DataPath] = $true } }
-    $rootPrefix = (Resolve-Path -LiteralPath $BackupRoot).Path
-
-    # Phase 2: now it is safe to remove the superseded data files -- EXCEPT any
-    # a surviving row still references (SR-051 / B9's hazard). Deleting one of
-    # those is silent data loss that only surfaces at the next restore.
-    foreach ($old in $oldPathsToDelete) {
-        if (-not (Test-Path -LiteralPath $old.Full -PathType Leaf)) { continue }
-        if ($referencedPaths.ContainsKey($old.Rel)) {
-            & $Log "Retained '$($old.Rel)' after transformation: a manifest row still references it." 'INFO'
-            continue
-        }
-        Remove-Item -LiteralPath $old.Full -Force -ErrorAction SilentlyContinue
-        & $Log "Removed old datapath '$($old.Full)' after transformation." 'INFO'
-    }
-
-    # Warn about orphaned data files.
-    foreach ($dataFile in (Get-DataFile -Root $BackupRoot)) {
-        $rel = [IO.Path]::GetRelativePath($rootPrefix, $dataFile.FullName)
-        if (-not $referencedPaths[$rel]) {
-            & $Log "Orphaned datapath file found (not referenced by manifest): '$rel'" 'WARN'
-        }
-    }
-
-    & $Log "Sync-BackupStorageLayout completed. Transformed $($rowsNeedingTransform.Count) rows." 'INFO'
-    return $db
-}
-
-# endregion
-
-# region Change-folder de-duplication
-
 function Get-BackupContentIndex {
     <#
     .SYNOPSIS
@@ -1036,7 +826,7 @@ function Get-ReHomedDataPathName {
         form travels with the bytes, so prune never re-packs.
 
     .DESCRIPTION
-        Mirrors Invoke-BackupFileGroup / Sync-BackupStorageLayout exactly —
+        Mirrors Invoke-BackupFileGroup exactly —
         Get-HashSizeFileName when the row is stored hash-addressed ('.7z' when
         compressed, else the logical extension), otherwise the RelativePath
         (+'.7z' when compressed).
@@ -1760,7 +1550,8 @@ function Repair-BackupStorageForm {
         referenced the old path adopts the observed form. Repairing row by row
         renamed the file for the first row and then saw 'Missing' for the second,
         leaving it dangling and unrestorable — the same lesson
-        Sync-BackupStorageLayout learned in ddf52ab (WP5 review, finding H1).
+        the layout migration learned in ddf52ab (WP5 review, finding H1),
+        before that migration was deleted whole (SR-061).
 
         A rename that would produce a ROOT-LEVEL infrastructure name is refused
         (SR-022 / B6), and every touched folder is persisted through
@@ -2951,8 +2742,8 @@ function Invoke-BackupFileGroup {
                 Get-HashSizeFileName -HashHex $hash -Length $len -Extension $dataExt
             } elseif ($compressFlag) {
                 # Mirror mode + compression: the data file holds 7z bytes, so it
-                # must carry the .7z extension (matches Sync-BackupStorageLayout
-                # and lets hash-recovery detect that it needs decompression).
+                # must carry the .7z extension, which lets hash-recovery detect
+                # that it needs decompression.
                 "$rel.7z"
             } else {
                 $rel
@@ -3223,56 +3014,6 @@ function Complete-ChangeFolder {
 # endregion
 
 # region Per-set orchestrator
-
-function Get-MigrationCapacityDemand {
-    <#
-    .SYNOPSIS
-        Bytes a pending storage-layout migration will ADD to the backup volume
-        before it frees anything (SR-052). Pure: it reads no filesystem.
-
-    .DESCRIPTION
-        Sync-BackupStorageLayout copies every transformed row to its new location
-        and persists the manifest BEFORE deleting the old file (B7), so a
-        migration transiently needs a second copy of everything it moves. Sized
-        by the row's uncompressed Length, which is the upper bound in both
-        directions.
-
-        Rows sharing one (xxH2Hash,Length) are counted ONCE: SR-051 transforms
-        such a group through a single physical file.
-
-    .PARAMETER BackupDb
-        The backup manifest as it stands before the migration.
-
-    .PARAMETER PreserveFolderTree
-        The run's tree mode (see SR-012).
-
-    .PARAMETER CompressEnabled
-        The run's compression setting (see SR-004).
-
-    .OUTPUTS
-        [long] bytes.
-    #>
-    # Implements: SR-052, SR-012, LLR-052
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb,
-        [Parameter(Mandatory)][bool]$PreserveFolderTree,
-        [Parameter(Mandatory)][bool]$CompressEnabled
-    )
-    $expectedStoredAs = if ($PreserveFolderTree) { 'Original' } else { 'Hash' }
-    $counted = @{}
-    $total   = 0L
-    foreach ($row in @($BackupDb | Where-Object { $_ })) {
-        if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
-        $shouldCompress = Test-ShouldCompress -FileName $row.RelativePath -CompressEnabled $CompressEnabled
-        if (($row.StoredAsHashSize -eq $expectedStoredAs) -and (($row.Compressed -eq 'Yes') -eq $shouldCompress)) { continue }
-        $key = "$($row.xxH2Hash)|$($row.Length)"
-        if ($counted.ContainsKey($key)) { continue }
-        $counted[$key] = $true
-        $total += [long]$row.Length
-    }
-    return $total
-}
 
 function Get-BackupCapacityDemand {
     <#
@@ -3596,16 +3337,16 @@ function Invoke-BackupSet {
         throw $Message
     }
     $sameVolume = ((Get-VolumeIdentity -Path $paths.BkpPath) -eq (Get-VolumeIdentity -Path $paths.ChgPath))
-    try {
-        Assert-BackupCapacity -BackupPath $paths.BkpPath -ChangePath $paths.ChgPath -Log $log `
-            -BackupBytes (Get-MigrationCapacityDemand -BackupDb (Read-Manifest -FolderPath $paths.BkpPath) `
-                            -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled))
-    } catch { & $refuseCapacity $_.Exception.Message }
 
-    # 6. Sanitize / migrate backup storage layout
+    # 6. Sanitize the backup manifest (SR-061: there is no layout migration).
+    # Nothing already stored is ever re-formed, so this step no longer needs a
+    # capacity preflight of its own - the old 5.5 migration component is gone
+    # with the migration it sized. Step 9.4 still proves room for THIS RUN's
+    # content (SR-052). Blanking a missing DataPath and warning about orphans is
+    # what survives, and it is now the store's ONLY orphan scan (SR-064).
     & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."
     try {
-        $backupDb = Sync-BackupStorageLayout -BackupRoot $paths.BkpPath -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) -SevenZipPath $Deps['7z'] -Log $log -OverallSuccess $OverallSuccess
+        $backupDb = Test-BackupManifest -FolderRoot $paths.BkpPath -Log $log
     } catch {
         # Same discipline as step 5: a throw before Temp holds anything of
         # value must not strand it for the SR-017 guard.
@@ -4114,7 +3855,7 @@ Export-ModuleMember -Function @(
     'Get-LastBackupRun', 'Set-LastBackupRun',
     'Resolve-OptionalTool', 'Initialize-Dependencies', 'Get-MediaMBPerSec',
     'Test-HashRecalcDue', 'Update-SourceManifest', 'Copy-SourceFileToBackup',
-    'Test-BackupManifest', 'Sync-BackupStorageLayout',
+    'Test-BackupManifest',
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
     'Get-SnapshotPrunePlan', 'Get-BackupSnapshot', 'Get-PoolSnapshotFolder',
     'Test-StorageFormAgreement', 'Test-PoolResolves', 'Assert-PrunePrecondition',
@@ -4123,7 +3864,7 @@ Export-ModuleMember -Function @(
     'Test-BackupStorageForm', 'Repair-BackupStorageForm', 'Update-BackupSnapshotKit',
     'Invoke-PruneEntrySweep', 'Copy-ReHomedDataFile', 'Publish-PruneManifest',
     'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
-    'Get-MigrationCapacityDemand', 'Get-BackupCapacityDemand', 'Assert-BackupCapacity',
+    'Get-BackupCapacityDemand', 'Assert-BackupCapacity',
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',

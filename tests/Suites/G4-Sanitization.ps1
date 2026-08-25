@@ -1,6 +1,10 @@
 <#
-.SYNOPSIS  G4 - SanitizeBackupDatabase / config migration.
+.SYNOPSIS  G4 - manifest sanitization and the no-re-forming contract.
 .NOTES     Always runs - changes config between two backup runs.
+           SR-061 (WP9): there is NO storage-layout migration. A configuration
+           change governs content written AFTER it; nothing already stored is
+           ever re-formed. These cases assert that, where they used to assert
+           the migration.
            G4.2 is TC-097: the SR-004 extension-list merge at scale.
 #>
 function Invoke-G4 {
@@ -22,18 +26,39 @@ function Invoke-G4 {
         (Test-Path -LiteralPath (Join-Path $Env.BkpPath 'sub\img.bin'))
     }
 
-    # Migrate to HashAddressed
+    # Switch the configuration to HashAddressed. SR-061: this re-forms NOTHING
+    # that is already stored - it governs content written from here on.
     $cfgHash = Join-Path $Env.Root 'cfg-g4-hash.xml'
     Write-TestConfig $cfgHash $Env.SrcPath $Env.BkpPath $Env.ChgPath $false $true
+    New-TestFile (Join-Path $Env.SrcPath 'after.txt') 'written after the switch'
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfgHash | Out-Null
 
-    Assert-True $suite $group 'G4.1' 'AfterMigrate_originalNamesGone' {
-        # In hash-addressed mode files should NOT live at the original paths anymore.
-        -not (Test-Path -LiteralPath (Join-Path $Env.BkpPath 'doc.txt'))
-    }
-    Assert-True $suite $group 'G4.1' 'AfterMigrate_manifestStoredAsHash' {
+    Assert-True $suite $group 'G4.1' 'AfterSwitch_storedRowsUntouched' {
+        # The pre-switch rows keep their form AND their bytes: no re-forming.
         $row = Get-ManifestRow $manifest 'doc.txt'
-        $row -and $row.StoredAsHashSize -eq 'Hash'
+        (Test-Path -LiteralPath (Join-Path $Env.BkpPath 'doc.txt')) -and
+        $row -and $row.StoredAsHashSize -eq 'Original' -and $row.DataPath -eq 'doc.txt'
+    }
+    Assert-True $suite $group 'G4.1' 'AfterSwitch_newContentFollowsConfig' {
+        # ...while content written AFTER the switch is content-addressed.
+        $row = Get-ManifestRow $manifest 'after.txt'
+        $row -and $row.StoredAsHashSize -eq 'Hash' -and $row.DataPath -ne 'after.txt'
+    }
+    Assert-True $suite $group 'G4.1' 'AfterSwitch_mixedStoreRestores' {
+        # A mixed-form store is normal, and every row still restores byte-exact.
+        $target = Join-Path $Env.Root 'g4-mixed-restore'
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+        $failed = $null
+        try { Invoke-Reconstruct -ReconstructScript (Join-Path $Env.BkpPath 'RECONSTRUCT.ps1') -TargetRoot $target }
+        catch { $failed = $_.Exception.Message }
+        if ($failed) { return $false }
+        $bad = 0
+        foreach ($row in @(Import-Csv -LiteralPath $manifest)) {
+            $restored = Join-Path $target $row.RelativePath
+            if (-not (Test-Path -LiteralPath $restored -PathType Leaf)) { $bad++; continue }
+            if ((Get-FileXxHash -FilePath $restored) -ne $row.xxH2Hash) { $bad++ }
+        }
+        $bad -eq 0
     }
 
     Invoke-G4ExtensionMerge -Env $Env -BackupScript $BackupScript -Mode $Mode -Compress $Compress
@@ -51,13 +76,15 @@ function Invoke-G4ExtensionMerge {
         holds them as .7z with Compressed=Yes. That pre-merge state is
         constructed here as a genuinely well-formed store - real archives, real
         manifest rows, witness re-stamped - and the next run is what the merge
-        actually does to a real backup: Sync-BackupStorageLayout decompresses
-        every affected root row.
+        actually does to a real backup: under SR-061, NOTHING. The merge changes
+        which extensions get compressed on the way IN; it never re-packs what is
+        already stored, so those rows stay exactly as they are.
 
         Then the properties that matter: nothing dangles, EVERY state (both
-        snapshots and the latest) restores byte-exact with exit 0, a third run is
-        idempotent (SR-024 - run2 = run3, never run1 = run2, because run1 IS the
-        migration), and storage-form verification (SR-049) reports zero findings.
+        snapshots and the latest) restores byte-exact with exit 0, runs stay
+        idempotent (SR-024), and storage-form verification (SR-049) reports zero
+        findings - a row whose Compressed=Yes claim matches genuine archive
+        bytes is WELL-FORMED, whatever the current extension list says.
 
         The bash restorer's half of "both restorers" is TC-099 / TC-054 under
         bats; this Windows suite cannot drive it.
@@ -110,17 +137,44 @@ function Invoke-G4ExtensionMerge {
     $rows | Export-Csv -LiteralPath (Join-Path $Env.BkpPath 'MANIFEST.csv') -NoTypeInformation
     Write-ManifestWitness -FolderPath $Env.BkpPath | Out-Null
 
+    # A snapshot's BLANK-DataPath row carries no bytes of its own: its Compressed
+    # column describes the copy hash recovery would locate, which is the pool
+    # copy just converted above. Leaving those rows saying 'No' would make the
+    # fixture describe a store that is NOT well-formed, and -Action Verify says
+    # so (BlankRowFormDisagreement). Before WP9 this went unnoticed: the layout
+    # migration decompressed the root rows back to raw on the next run and
+    # silently re-aligned the divergence the fixture had created. SR-061 deleted
+    # that migration, so the fixture has to be honest about the state it builds.
+    foreach ($snapDir in @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory -Force |
+                           Where-Object Name -match '^Snapshot_')) {
+        $snapRows = @(Import-Csv -LiteralPath (Join-Path $snapDir.FullName 'MANIFEST.csv'))
+        $touched = 0
+        foreach ($row in $snapRows) {
+            if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+            if ($merged -notcontains [IO.Path]::GetExtension($row.RelativePath).ToLowerInvariant()) { continue }
+            $row.Compressed = 'Yes'
+            $touched++
+        }
+        if ($touched -gt 0) {
+            $snapRows | Export-Csv -LiteralPath (Join-Path $snapDir.FullName 'MANIFEST.csv') -NoTypeInformation
+            Write-ManifestWitness -FolderPath $snapDir.FullName | Out-Null
+        }
+    }
+
     Assert-True $suite $group 'G4.2' 'ExtMerge_preMergeStateBuilt' { $converted -eq $merged.Count }
 
-    # --- The merge-triggered migration: run on the MERGED list ---
+    # --- The run on the MERGED list: it must re-form nothing (SR-061) ---
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime ([datetime]'2025-04-04 00:00:04') | Out-Null
 
-    Assert-True $suite $group 'G4.2' 'ExtMerge_rootRowsDecompressed' {
+    Assert-True $suite $group 'G4.2' 'ExtMerge_rootRowsUntouched' {
         $after = @(Import-Csv -LiteralPath (Join-Path $Env.BkpPath 'MANIFEST.csv'))
         $affected = @($after | Where-Object { $merged -contains [IO.Path]::GetExtension($_.RelativePath).ToLowerInvariant() })
+        # Every affected row is still exactly as the pre-merge state left it:
+        # the extension-list change applies to new writes, never to stored bytes.
         $affected.Count -eq $merged.Count -and
-        @($affected | Where-Object { $_.Compressed -ne 'No' }).Count -eq 0 -and
-        @($affected | Where-Object { $_.DataPath -like '*.7z' }).Count -eq 0
+        @($affected | Where-Object { $_.Compressed -ne 'Yes' }).Count -eq 0 -and
+        @($affected | Where-Object { $_.DataPath -notlike '*.7z' }).Count -eq 0 -and
+        @($affected | Where-Object { -not (Test-Path -LiteralPath (Join-Path $Env.BkpPath $_.DataPath) -PathType Leaf) }).Count -eq 0
     }
     Assert-True $suite $group 'G4.2' 'ExtMerge_noDanglingReference' {
         @(Test-PoolResolves -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath |
@@ -160,9 +214,10 @@ function Invoke-G4ExtensionMerge {
         }
     }
 
-    # --- SR-024: run1 IS the migration, so the property is run2 = run3 ---
+    # --- SR-024 idempotence. Under SR-061 no run is "the migration" any more,
+    # so run2 = run3 is now simply the steady state rather than a concession.
     # Row CONTENT ordered by RelativePath: manifest row ORDER is not a documented
-    # contract (G7 owns determinism), and the migration run legitimately reorders.
+    # contract (G7 owns determinism).
     $rowDigest = {
         @(Import-Csv -LiteralPath (Join-Path $Env.BkpPath 'MANIFEST.csv') | Sort-Object RelativePath |
           ForEach-Object { ($_.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join '|' }) -join "`n"

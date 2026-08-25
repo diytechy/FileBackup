@@ -51,24 +51,21 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 12. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
 13. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
 14. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
-15. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
-16. `Get-MigrationCapacityDemand` — Bytes a pending storage-layout migration will ADD to the backup volume
-17. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
-18. `Sync-BackupStorageLayout` — Migrates backup data files to match the current PreserveFolderTree /
-19. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
-20. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
-21. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
-22. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
-23. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
-24. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
-25. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
-26. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
-27. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
-28. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
-29. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-30. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-31. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-32. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+15. `Test-BackupManifest` — Blanks DataPaths whose files are missing; warns about unreferenced files.
+16. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+17. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
+18. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
+19. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
+20. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
+21. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
+22. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
+23. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
+24. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+25. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+26. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
+27. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
+28. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+29. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -168,7 +165,6 @@ Imports (internal): `Common`
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
-| `Get-MigrationCapacityDemand` | yes | SR-052, SR-012, LLR-052 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
 | `Get-PruneCapacityRefusal` | yes | SR-046, SR-052, LLR-046 |
@@ -198,7 +194,6 @@ Imports (internal): `Common`
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
-| `Sync-BackupStorageLayout` | yes | SR-012, SR-013, SR-051, LLR-012, LLR-013, LLR-051 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
 | `Test-BackupManifest` | yes | — |
 | `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, LLR-049 |

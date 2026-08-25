@@ -91,6 +91,28 @@ BeforeAll {
         foreach ($k in $Before.Keys) { $after[$k] | Should -Be $Before[$k] }
     }
 
+    function Set-SnapshotBlankRowForm {
+        <#
+        .SYNOPSIS
+            Makes a snapshot's blank-DataPath rows claim a form the pool copy
+            does not have, re-stamping the SR-038 witness so the store fails the
+            way the test means to rather than exiting 3.
+        .NOTES
+            Constructed rather than produced by a CompressEnabled flip: SR-061
+            deleted the layout migration that used to re-form the backup root
+            while snapshots kept their form.
+        #>
+        param([string]$Folder, [string]$Compressed)
+        $rows = @(Import-Csv -LiteralPath (Join-Path $Folder 'MANIFEST.csv'))
+        $touched = 0
+        foreach ($row in $rows) {
+            if ([string]::IsNullOrWhiteSpace($row.DataPath)) { $row.Compressed = $Compressed; $touched++ }
+        }
+        if ($touched -eq 0) { throw "fixture: no blank-DataPath row in '$Folder'" }
+        $rows | Export-Csv -LiteralPath (Join-Path $Folder 'MANIFEST.csv') -NoTypeInformation
+        Write-ManifestWitness -FolderPath $Folder | Out-Null
+    }
+
     # --- WP9 step 1: the D-1 / D-5 timelines (TC-118, TC-119) ---------------
     . (Join-Path $repo 'tests\Common\PoolAudit.ps1')
 
@@ -273,30 +295,6 @@ Describe 'Compressed backup roundtrip (SR-004, SR-008)' {
     }
 }
 
-Describe 'Storage-layout migration roundtrip (SR-012, SR-013)' {
-    It 'migrates Mirror -> HashAddressed and still restores byte-for-byte' {
-        $src = Join-Path $TestDrive 'm12\src'; $bkp = Join-Path $TestDrive 'm12\bkp'; $chg = Join-Path $TestDrive 'm12\chg'
-        $cfgMirror = Join-Path $TestDrive 'm12\mirror.xml'
-        $cfgHash   = Join-Path $TestDrive 'm12\hash.xml'
-        New-Item -ItemType Directory -Path $src, (Split-Path $cfgMirror) -Force | Out-Null
-        $orig = Join-Path $src 'data.bin'
-        [IO.File]::WriteAllBytes($orig, [byte[]](1..200))
-
-        New-FBConfig -Path $cfgMirror -Src $src -Bkp $bkp -Chg $chg -ContentAddressed $false
-        Invoke-FB $cfgMirror
-        New-FBConfig -Path $cfgHash -Src $src -Bkp $bkp -Chg $chg -ContentAddressed $true
-        Invoke-FB $cfgHash   # triggers Sync-BackupStorageLayout migration
-
-        $row = Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Where-Object { $_.RelativePath -eq 'data.bin' }
-        $row.StoredAsHashSize | Should -Be 'Hash'
-
-        $recon  = Join-Path $bkp 'RECONSTRUCT.ps1'
-        $target = Join-Path $TestDrive 'm12-restore'
-        & $recon -TargetRoot $target *>&1 | Out-Null
-        (Get-FileHash -LiteralPath $orig).Hash | Should -Be (Get-FileHash -LiteralPath (Join-Path $target 'data.bin')).Hash
-    }
-}
-
 Describe 'Direct 7-Zip compress/expand (SR-004, SR-008)' {
     It 'round-trips a file through Compress-FileWithSevenZip / Expand-FileWithSevenZip' {
         $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
@@ -335,31 +333,6 @@ Describe 'Media metric degradation (SR-020)' {
         $f = Join-Path $TestDrive 'mm.bin'; [IO.File]::WriteAllBytes($f, [byte[]](1, 2, 3))
         Get-MediaMBPerSec -FilePath $f -FfprobePath $null | Should -BeNullOrEmpty
         Get-MediaMBPerSec -FilePath $f -FfprobePath 'Z:\no\ffprobe.exe' | Should -BeNullOrEmpty
-    }
-}
-
-Describe 'Storage-layout chain with compression (SR-012)' {
-    It 'survives Mirror -> Mirror+Compress -> HashAddressed+Compress with intact restore' {
-        $src = Join-Path $TestDrive 'ch\src'; $bkp = Join-Path $TestDrive 'ch\bkp'; $chg = Join-Path $TestDrive 'ch\chg'
-        New-Item -ItemType Directory -Path $src -Force | Out-Null
-        $orig = Join-Path $src 'doc.txt'
-        [IO.File]::WriteAllText($orig, ('compress-me ' * 300))
-
-        $stages = @(
-            @{ File = 'a.xml'; Compress = $false; Hash = $false },
-            @{ File = 'b.xml'; Compress = $true;  Hash = $false },
-            @{ File = 'c.xml'; Compress = $true;  Hash = $true }
-        )
-        foreach ($s in $stages) {
-            $cfg = Join-Path $TestDrive "ch\$($s.File)"
-            New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $s.Compress -ContentAddressed $s.Hash
-            Invoke-FB $cfg
-        }
-
-        $recon  = Join-Path $bkp 'RECONSTRUCT.ps1'
-        $target = Join-Path $TestDrive 'ch-restore'
-        & $recon -TargetRoot $target *>&1 | Out-Null
-        (Get-FileHash -LiteralPath $orig).Hash | Should -Be (Get-FileHash -LiteralPath (Join-Path $target 'doc.txt')).Hash
     }
 }
 
@@ -2698,10 +2671,12 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
     It 'prunes a compression-flipped store whose kits are revision 2 or newer (SR-046 as amended)' {
         $root = Join-Path $TestDrive 'wp7-flip'
         $env  = New-PruneTimeline -Root $root -Compress $true
-        # The documented-as-safe operation that used to wedge retention: flip
-        # CompressEnabled, run once (root migrates, snapshots keep their form).
-        New-FBConfig -Path $env.Cfg -Src $env.Src -Bkp $env.Bkp -Chg $env.Chg -Compress $false
-        Invoke-FB $env.Cfg
+        # The form disagreement retention has to cope with. It is CONSTRUCTED:
+        # SR-061 deleted the layout migration, so flipping CompressEnabled no
+        # longer re-forms the root while snapshots keep their form - a
+        # disagreement now comes only from damage or tampering. The rail still
+        # has to hold for such a store, which is what this pins.
+        Set-SnapshotBlankRowForm -Folder (Join-Path $env.Chg $env.Oldest) -Compressed 'No'
 
         $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest)
         $run.Code | Should -Be 0 -Because 'revision-2+ kits decide form from the file they locate (SR-050); the rail premise is gone'
@@ -2716,8 +2691,7 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
     It 'still refuses the form disagreement for a folder carrying a pre-revision-2 kit (SR-046)' {
         $root = Join-Path $TestDrive 'wp7-oldkit'
         $env  = New-PruneTimeline -Root $root -Compress $true
-        New-FBConfig -Path $env.Cfg -Src $env.Src -Bkp $env.Bkp -Chg $env.Chg -Compress $false
-        Invoke-FB $env.Cfg
+        Set-SnapshotBlankRowForm -Folder (Join-Path $env.Chg $env.Oldest) -Compressed 'No'
 
         # Regress the OLDEST snapshot's kit marker to revision 1: that kit
         # genuinely branches on the row, so its rows' form disagreement is real.
@@ -3035,5 +3009,62 @@ Describe 'One (hash,length) group elects one physical object (SR-060, TC-120)' {
         $t = Join-Path $root 'restored'
         & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
         foreach ($rel in 'x.txt', 'x.jpg') { [IO.File]::ReadAllText((Join-Path $t $rel)) | Should -Be $body }
+    }
+}
+
+Describe 'A compression flip re-forms nothing already stored (SR-061, TC-124)' {
+    # Replaces the deleted migration suites. The human ruled 2026-08-25 that
+    # retroactive re-packing is not required in EITHER direction, so
+    # CompressEnabled governs only content written after the flip. A mixed-form
+    # store is normal - compression has always been per-file (SR-004) - and every
+    # row's Compressed describes its OWN object, so nothing needs re-forming.
+    It 'leaves existing objects untouched, applies the new setting to new content, and audits clean (<Flip>)' -ForEach @(
+        @{ Flip = 'on-to-off'; Start = $true;  Then = $false }
+        @{ Flip = 'off-to-on'; Start = $false; Then = $true  }
+    ) {
+        $root = Join-Path $TestDrive ('flip-' + $Flip)
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        $cfgA = Join-Path $root 'a.xml'; $cfgB = Join-Path $root 'b.xml'
+        New-FBConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $Start -ContentAddressed $true
+        New-FBConfig -Path $cfgB -Src $src -Bkp $bkp -Chg $chg -Compress $Then  -ContentAddressed $true
+
+        $before = 'STORED-UNDER-THE-FIRST-SETTING ' * 40
+        [IO.File]::WriteAllText((Join-Path $src 'first.txt'), $before)
+        Invoke-FB $cfgA
+
+        $firstRow = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                      Where-Object RelativePath -eq 'first.txt')[0]
+        $firstObj = Join-Path $bkp $firstRow.DataPath
+        $firstFingerprint = "$((Get-Item -LiteralPath $firstObj).Length)|$(Get-FileXxHash -FilePath $firstObj)"
+
+        # Flip the setting and add new content.
+        $after = 'WRITTEN-UNDER-THE-SECOND-SETTING ' * 40
+        [IO.File]::WriteAllText((Join-Path $src 'second.txt'), $after)
+        Invoke-FB $cfgB
+
+        # (1) The pre-existing object is byte-identical, at the same path, with
+        # the same Compressed claim: no re-forming happened.
+        $rowsAfter = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        $firstAfter = @($rowsAfter | Where-Object RelativePath -eq 'first.txt')[0]
+        $firstAfter.DataPath   | Should -Be $firstRow.DataPath
+        $firstAfter.Compressed | Should -Be $firstRow.Compressed
+        Test-Path -LiteralPath $firstObj -PathType Leaf | Should -BeTrue
+        "$((Get-Item -LiteralPath $firstObj).Length)|$(Get-FileXxHash -FilePath $firstObj)" |
+            Should -Be $firstFingerprint -Because 'SR-061: nothing already stored is re-formed'
+
+        # (2) New content follows the NEW setting, so the store is mixed-form.
+        $secondAfter = @($rowsAfter | Where-Object RelativePath -eq 'second.txt')[0]
+        $secondAfter.Compressed | Should -Be $(if ($Then) { 'Yes' } else { 'No' })
+
+        # (3) A mixed-form store is NORMAL, not a finding.
+        & $entry -ConfigPath $cfgB -NoMail -NonInteractive -Action Verify -ExitCode *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0 -Because 'a mixed-form store is well-formed: each row describes its own object'
+
+        # (4) Everything still restores byte-exact.
+        $t = Join-Path $root 'restored'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t 'first.txt'))  | Should -Be $before
+        [IO.File]::ReadAllText((Join-Path $t 'second.txt')) | Should -Be $after
     }
 }

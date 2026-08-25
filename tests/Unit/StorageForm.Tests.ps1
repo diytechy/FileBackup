@@ -157,28 +157,35 @@ BeforeAll {
         return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg }
     }
 
-    function New-FlipTimeline {
+    function New-FormDivergedTimeline {
         <#
         .SYNOPSIS
-            TC-092's no-tampering repro: a snapshot whose blank-DataPath row
-            carries the form the pool no longer holds, produced only by turning
-            compression on (or off) between two ordinary runs.
+            TC-092/TC-094: a snapshot whose blank-DataPath row claims a form the
+            only surviving pool copy does not have.
 
         .DESCRIPTION
-            run1 (StartCompressed)      -> a.txt + b.txt stored in that form
-            run2 (StartCompressed)      -> b.txt superseded => Snapshot_D1, whose
-                                           a.txt row is blanked by Optimize and
-                                           keeps run1's Compressed value
-            run3 (-not StartCompressed) -> Sync migrates the BACKUP ROOT ONLY, so
-                                           the only surviving copy of a.txt's
-                                           bytes now has the opposite form
+            run1 -> a.txt + b.txt stored in $StartCompressed's form
+            run2 -> b.txt superseded => Snapshot_D1, whose a.txt row is blanked
+                    by Optimize (the root holds the same content) and keeps
+                    run1's Compressed value
+            then -> the snapshot's blanked a.txt row is flipped to the OPPOSITE
+                    Compressed claim, so it disagrees with the pool copy.
+
+            The divergence is CONSTRUCTED because ordinary operation can no
+            longer produce it. Before WP9 this fixture flipped CompressEnabled
+            and let the layout migration re-form the backup root while snapshots
+            kept their form. SR-061 deleted that migration, so a form
+            disagreement now has only one origin: damage or tampering outside
+            the tool. That is a real narrowing of the hazard - and it is exactly
+            why the assertions below must stay: the restorer (SR-050) and the
+            audit (SR-049) still have to handle a store in this state, they just
+            can no longer reach it by a supported operation.
         #>
         param([string]$Root, [bool]$StartCompressed, [bool]$ContentAddressed)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        $cfgA = Join-Path $Root 'a.xml'; $cfgB = Join-Path $Root 'b.xml'
-        New-FormConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $StartCompressed        -ContentAddressed $ContentAddressed
-        New-FormConfig -Path $cfgB -Src $src -Bkp $bkp -Chg $chg -Compress (-not $StartCompressed) -ContentAddressed $ContentAddressed
+        $cfgA = Join-Path $Root 'a.xml'
+        New-FormConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $StartCompressed -ContentAddressed $ContentAddressed
 
         $aPath = Join-Path $src 'a.txt'
         [IO.File]::WriteAllText($aPath, ('THE-ORIGINAL-BYTES ' * 200))
@@ -188,9 +195,19 @@ BeforeAll {
         [IO.File]::WriteAllText((Join-Path $src 'b.txt'), 'v2')
         Invoke-FormBackup -Cfg $cfgA -At ([datetime]'2024-02-02 00:00:02') | Out-Null
 
-        Invoke-FormBackup -Cfg $cfgB -At ([datetime]'2024-03-03 00:00:03') | Out-Null
-
         $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' })[0]
+
+        # Make the snapshot's blanked a.txt row claim the form the pool copy does
+        # NOT have (see .DESCRIPTION for why this is constructed rather than run).
+        $snapRows = @(Import-Csv -LiteralPath (Join-Path $snap.FullName 'MANIFEST.csv'))
+        $blanked = @($snapRows | Where-Object { $_.RelativePath -eq 'a.txt' })[0]
+        if (-not $blanked) { throw "fixture: no a.txt row in $($snap.FullName)" }
+        if (-not [string]::IsNullOrWhiteSpace($blanked.DataPath)) {
+            throw "fixture: a.txt row in $($snap.FullName) is not blank (DataPath='$($blanked.DataPath)')"
+        }
+        $blanked.Compressed = if ($StartCompressed) { 'No' } else { 'Yes' }
+        Set-ManifestRows -Folder $snap.FullName -Rows $snapRows
+
         return [pscustomobject]@{
             Src = $src; Bkp = $bkp; Chg = $chg; Snapshot = $snap.FullName
             Original = $aPath
@@ -198,7 +215,7 @@ BeforeAll {
     }
 }
 
-Describe 'Sync-BackupStorageLayout trusts metadata over bytes (SR-049)' {
+Describe 'A backup run never re-forms stored data (SR-049, SR-061)' {
     # TC-091 — REPRO-FIRST. The first two cases pin the DEFECT (they pass on the
     # pre-WP5 code and are the evidence that finding C is real); the third is the
     # requirement and is red until SR-049's verification action exists.
@@ -209,8 +226,10 @@ Describe 'Sync-BackupStorageLayout trusts metadata over bytes (SR-049)' {
     It 'leaves every malformed row byte-identical and still reports the set successful (SR-049)' {
         $before = Get-TreeFingerprint -Folder $store.Bkp
         Invoke-FormBackup -Cfg $store.Cfg | Out-Null
-        # The migration decision compares manifest metadata with configuration and
-        # never with the bytes, so nothing about these rows looks wrong to it.
+        # SR-061: nothing already stored is ever re-formed, so a malformed row
+        # is left exactly as it is for -Action Verify/-RepairStorage to judge.
+        # (Before WP9 this held for a different reason: the migration compared
+        # manifest metadata with configuration and never with the bytes.)
         $rows = @(Import-Csv -LiteralPath (Join-Path $store.Bkp 'MANIFEST.csv'))
         ($rows | Where-Object RelativePath -eq 'a.txt').Compressed | Should -Be 'Yes'
         ($rows | Where-Object RelativePath -eq 'b.txt').Compressed | Should -Be 'No'
@@ -231,20 +250,6 @@ Describe 'Sync-BackupStorageLayout trusts metadata over bytes (SR-049)' {
         $healed = @($rows | Where-Object RelativePath -eq 'd.txt')[0]
         $healed.DataPath | Should -Not -BeNullOrEmpty
         Test-Path -LiteralPath (Join-Path $store.Bkp $healed.DataPath) | Should -BeTrue
-    }
-
-    It 'reports a failed transformation of a Compressed=Yes-over-raw row and FAILS the set (SR-049, SR-051)' {
-        $root = Join-Path $TestDrive 'tc091c'
-        $s = New-MalformedStore -Root $root
-        # Config now says "do not compress", so the a.txt row (Compressed=Yes over
-        # RAW bytes) is selected for transformation; Expand-FileWithSevenZip throws
-        # on bytes that are not an archive. Before SR-051 the ERROR was swallowed
-        # into a log line and the set still reported success (shape c) — the
-        # phase-B repro. It must now fail the set.
-        New-FormConfig -Path $s.Cfg -Src $s.Src -Bkp $s.Bkp -Chg $s.Chg -Compress $false
-        $log = Invoke-FormBackup -Cfg $s.Cfg
-        $log | Should -Match "Failed to decompress 'a\.txt\.7z'"
-        Invoke-FormBackupExitCode -Cfg $s.Cfg | Should -Be 1
     }
 
     It 'reports one finding per malformed row with its class (SR-049)' {
@@ -270,7 +275,7 @@ Describe 'Hash recovery trusts the located file''s form (SR-050)' {
         @{ Flip = 'on';  StartCompressed = $false; Mode = 'HashAddressed'; ContentAddressed = $true  }
         @{ Flip = 'off'; StartCompressed = $true;  Mode = 'HashAddressed'; ContentAddressed = $true  }
     ) {
-        $t = New-FlipTimeline -Root (Join-Path $TestDrive "tc092-$Flip-$Mode") `
+        $t = New-FormDivergedTimeline -Root (Join-Path $TestDrive "tc092-$Flip-$Mode") `
                 -StartCompressed $StartCompressed -ContentAddressed $ContentAddressed
         $target = Join-Path $TestDrive "tc092-$Flip-$Mode-out"
         & (Join-Path $t.Snapshot 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
@@ -430,138 +435,6 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
         $target = Join-Path $TestDrive 'tc098-content-out'
         { & (Join-Path $s.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null } |
             Should -Throw -ExpectedMessage '*1 content-missing, 0 host*'
-    }
-}
-
-Describe 'Layout migration is refcount-safe (SR-051)' {
-    # TC-095 — the G10 data-loss defect. Dedup points two rows with identical
-    # content and different extensions at ONE physical data file; a configuration
-    # change that flips only ONE of them must not delete the file the other still
-    # references, and must not split one content into two physical copies.
-    It 'keeps every row of a shared-content pair resolvable across a compression flip (mode <Mode>) (SR-051, SR-002)' -ForEach @(
-        @{ Mode = 'Mirror';                  ContentAddressed = $false; StartCompressed = $false }
-        @{ Mode = 'Mirror+Compress';         ContentAddressed = $false; StartCompressed = $true  }
-        @{ Mode = 'HashAddressed';           ContentAddressed = $true;  StartCompressed = $false }
-        @{ Mode = 'HashAddressed+Compress';  ContentAddressed = $true;  StartCompressed = $true  }
-    ) {
-        $root = Join-Path $TestDrive "tc095-$Mode"
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
-        New-Item -ItemType Directory -Path $src -Force | Out-Null
-        # 'seed' is the configuration the pair is stored under; 'flip' is the
-        # configuration change that makes the two rows disagree (start OFF) or
-        # agree (start ON — the shared-datapath-same-decision case, which must
-        # transform the shared file exactly ONCE).
-        $cfgSeed = Join-Path $root 'seed.xml'; $cfgFlip = Join-Path $root 'flip.xml'
-        New-FormConfig -Path $cfgSeed -Src $src -Bkp $bkp -Chg $chg -Compress $StartCompressed        -ContentAddressed $ContentAddressed
-        New-FormConfig -Path $cfgFlip -Src $src -Bkp $bkp -Chg $chg -Compress (-not $StartCompressed) -ContentAddressed $ContentAddressed
-
-        # Identical content under a compressible and an already-compressed
-        # extension: with compression ON they want OPPOSITE forms (SR-004). The
-        # second file is added in a LATER run, which is when Invoke-BackupFileGroup
-        # takes its reuse branch and points the new row at the EXISTING row's
-        # DataPath — that is how two rows come to share one physical file.
-        $payload = 'SHARED-CONTENT ' * 300
-        [IO.File]::WriteAllText((Join-Path $src 'same.txt'), $payload)
-        Invoke-FormBackup -Cfg $cfgSeed | Out-Null
-        [IO.File]::WriteAllText((Join-Path $src 'same.jpg'), $payload)
-        Invoke-FormBackup -Cfg $cfgSeed | Out-Null
-
-        $before = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
-        $shared = @($before | Where-Object { $_.RelativePath -in 'same.txt', 'same.jpg' })
-        $shared.Count | Should -Be 2
-        @($shared.DataPath | Select-Object -Unique).Count | Should -Be 1 -Because 'dedup points both rows at one file'
-
-        # Flip compression: only same.txt's wanted form can change (.jpg is on
-        # the SR-004 already-compressed list), so the two rows can end up split.
-        Invoke-FormBackup -Cfg $cfgFlip | Out-Null
-
-        $after = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
-        foreach ($rel in 'same.txt', 'same.jpg') {
-            $row = $after | Where-Object RelativePath -eq $rel
-            $row | Should -Not -BeNullOrEmpty
-            $row.DataPath | Should -Not -BeNullOrEmpty
-            Test-Path -LiteralPath (Join-Path $bkp $row.DataPath) -PathType Leaf |
-                Should -BeTrue -Because "row '$rel' must still resolve after the migration"
-        }
-        # No manifest row ANYWHERE in the pool points at bytes that are gone.
-        # (Only 'broken-pool' is asserted: a compression flip legitimately leaves
-        # blank snapshot rows whose Compressed no longer matches the surviving
-        # copy's form, which Test-PoolResolves reports as 'form-mismatch' and
-        # SR-050 makes harmless for a revision-2 kit. See the WP5 status entry.)
-        @(Test-PoolResolves -BackupRoot $bkp -ChangeRoot $chg | Where-Object Kind -eq 'broken-pool') |
-            Should -BeNullOrEmpty
-
-        # ...and the content is still stored exactly once per (hash,length).
-        $key = ($after | Where-Object RelativePath -eq 'same.txt').xxH2Hash
-        @(@($after | Where-Object xxH2Hash -eq $key).DataPath | Where-Object { $_ } | Select-Object -Unique).Count |
-            Should -Be 1 -Because 'a split transformation would have made two physical copies'
-
-        # The latest state still restores byte-exact, exit 0.
-        $target = Join-Path $root 'out'
-        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
-        foreach ($rel in 'same.txt', 'same.jpg') {
-            (Get-FileHash -LiteralPath (Join-Path $target $rel) -Algorithm SHA256).Hash |
-                Should -Be (Get-FileHash -LiteralPath (Join-Path $src $rel) -Algorithm SHA256).Hash
-        }
-    }
-
-    It 'fails the set when a needed decompression cannot run because 7-Zip is absent (SR-051)' {
-        # WP5 review, finding M1. SR-051's own text says a transformation that
-        # cannot be completed FAILS the set; the missing-7-Zip arm logged WARN
-        # and continued, so a run reported success over a store the
-        # configuration no longer describes.
-        $root = Join-Path $TestDrive 'tc095-no7z'
-        $bkp  = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path $bkp -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path $bkp 'a.txt.7z'), ('ARCHIVE-CLAIMING BYTES ' * 20))
-        $file = Get-Item -LiteralPath (Join-Path $bkp 'a.txt.7z')
-        Write-Manifest -FolderPath $bkp -Records @([pscustomobject]@{
-            DataPath = 'a.txt.7z'; RelativePath = 'a.txt'; Length = $file.Length
-            LastWriteTime = (Get-Date); xxH2Hash = (Get-FileXxHash -FilePath $file.FullName)
-            Compressed = 'Yes'; StoredAsHashSize = 'Original'; Duplicate = '0'; MediaMBPerSec = '' })
-
-        $ok = $true
-        $messages = New-Object System.Collections.Generic.List[string]
-        # Compression now OFF, so the row must be decompressed -- with no 7-Zip.
-        Sync-BackupStorageLayout -BackupRoot $bkp -PreserveFolderTree $true -CompressEnabled $false `
-            -SevenZipPath 'C:\nope\7z.exe' -Log { param($m, $l) $messages.Add("[$l] $m") } `
-            -OverallSuccess ([ref]$ok) | Out-Null
-
-        $ok | Should -BeFalse -Because 'SR-051 fails the set when the requested layout cannot be applied'
-        ($messages -join "`n") | Should -Match '7-Zip not found'
-        # ...and nothing was mutated on the way out.
-        Test-Path -LiteralPath (Join-Path $bkp 'a.txt.7z') -PathType Leaf | Should -BeTrue
-        (Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'a.txt').DataPath |
-            Should -Be 'a.txt.7z'
-    }
-
-    It 'retains a superseded path that a surviving row still references (SR-051)' {
-        # The Phase 2 refcount filter itself, driven directly: two rows share one
-        # data file and only one is transformed, so the old path must survive.
-        $root = Join-Path $TestDrive 'tc095-retain'
-        $bkp = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path $bkp -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path $bkp 'shared.dat'), ('BYTES ' * 100))
-        $hash = Get-FileXxHash -FilePath (Join-Path $bkp 'shared.dat')
-        $len  = (Get-Item -LiteralPath (Join-Path $bkp 'shared.dat')).Length
-        $mk = {
-            param($rel, $storedAs)
-            [pscustomobject]@{ DataPath = 'shared.dat'; RelativePath = $rel; Length = $len
-                LastWriteTime = (Get-Date); xxH2Hash = $hash; Compressed = 'No'
-                StoredAsHashSize = $storedAs; Duplicate = '0'; MediaMBPerSec = '' }
-        }
-        # One row is already at the target layout, the other is not — so exactly
-        # one of the two is selected for transformation while both reference the
-        # same physical file.
-        Write-Manifest -FolderPath $bkp -Records @((& $mk 'one.dat' 'Hash'), (& $mk 'two.dat' 'Original'))
-        Sync-BackupStorageLayout -BackupRoot $bkp -PreserveFolderTree $true -CompressEnabled $false `
-            -Log { param($m, $l) } | Out-Null
-
-        Test-Path -LiteralPath (Join-Path $bkp 'shared.dat') -PathType Leaf |
-            Should -BeTrue -Because 'a still-referenced superseded path must never be deleted'
-        foreach ($row in @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))) {
-            Test-Path -LiteralPath (Join-Path $bkp $row.DataPath) -PathType Leaf | Should -BeTrue
-        }
     }
 }
 
@@ -892,7 +765,7 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
     }
 
     It 'reports blank-row form disagreements without repairing them (SR-049)' {
-        $t = New-FlipTimeline -Root (Join-Path $TestDrive 'tc094-blank') -StartCompressed $false -ContentAddressed $false
+        $t = New-FormDivergedTimeline -Root (Join-Path $TestDrive 'tc094-blank') -StartCompressed $false -ContentAddressed $false
         $findings = @(Test-BackupStorageForm -BackupRoot $t.Bkp -ChangeRoot $t.Chg)
         $blank = @($findings | Where-Object Class -eq 'BlankRowFormDisagreement')
         $blank | Should -Not -BeNullOrEmpty
@@ -1011,8 +884,9 @@ Describe 'The already-compressed extension list is one list (SR-004)' {
 Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
     # TC-100. The shortfall is induced by STUBBING the free-space probe, so the
     # test needs no full volume and stays deterministic. The arithmetic itself
-    # (Get-BackupCapacityDemand / Get-MigrationCapacityDemand) is asserted
-    # directly, because that is the part a wrong estimate would silently break.
+    # (Get-BackupCapacityDemand) is asserted directly, because that is the part
+    # a wrong estimate would silently break. The migration component is gone
+    # with the migration itself (SR-061).
     BeforeAll {
         function New-CapacityStore {
             param([string]$Root, [bool]$Compress = $false)
@@ -1068,24 +942,53 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
         # A per-set refusal is status 1: other configured sets may still have run.
         # OBSERVED at the process boundary (WP5 review, finding m1): asserting on
         # the in-process throw alone never proved the entry point's status.
-        # The shortfall is genuine and needs no stub — an inflated Length in the
-        # BACKUP manifest makes step 5.5's migration demand exceed any volume.
-        $s = New-CapacityStore -Root (Join-Path $TestDrive 'tc100-status')
-        $rows = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv'))
-        foreach ($row in $rows) { $row.Length = [string]([long]::MaxValue / 4) }
-        Set-ManifestRows -Folder $s.Bkp -Rows $rows
-        # Turning compression on makes that row need a transformation, so the
-        # migration component of the estimate is what refuses.
-        New-FormConfig -Path $s.Cfg -Src $s.Src -Bkp $s.Bkp -Chg $s.Chg -Compress $true
+        #
+        # The shortfall is genuine and needs no stub. SR-061 deleted the step-5.5
+        # migration component this used to inflate, so it is induced on the
+        # component that remains: an EVICTION. A removed row's bytes are moved to
+        # staging, sized from the BACKUP row's Length - but ONLY when the change
+        # root is on a different volume, because a same-volume move is a rename
+        # and correctly costs nothing. So the change root gets its own drive via
+        # subst, the way the integration harness makes volumes. That also makes
+        # this the only unit-level coverage of the SameVolume=$false arm.
+        $free = @('X', 'Y', 'W', 'V', 'U') |
+                Where-Object { $_ -notin (Get-PSDrive -PSProvider FileSystem).Name } |
+                Select-Object -First 1
+        if (-not $free) { Set-ItResult -Skipped -Because 'no free drive letter for the second volume'; return }
 
-        Invoke-FormBackupExitCode -Cfg $s.Cfg | Should -Be 1
-        (Invoke-FormBackup -Cfg $s.Cfg) | Should -Match 'Not enough free space on the backup volume'
+        $root = Join-Path $TestDrive 'tc100-status'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chgHost = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src, $chgHost -Force | Out-Null
+        $substOut = & cmd.exe /c "subst ${free}: `"$chgHost`"" 2>&1
+        if ($LASTEXITCODE -ne 0) { Set-ItResult -Skipped -Because "subst failed: $substOut"; return }
+        try {
+            $chg = "${free}:\"
+            $cfg = Join-Path $root 'c.xml'
+            New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+            [IO.File]::WriteAllText((Join-Path $src 'seed.txt'), ('SEED ' * 100))
+            # A second file keeps the source non-empty when seed.txt goes, so the
+            # refusal under test is the capacity one and not the delete-all guard.
+            [IO.File]::WriteAllText((Join-Path $src 'keep.txt'), ('KEEP ' * 50))
+            Invoke-FormBackup -Cfg $cfg | Out-Null
+
+            $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+            foreach ($row in $rows) {
+                if ($row.RelativePath -eq 'seed.txt') { $row.Length = [string]([long]::MaxValue / 4) }
+            }
+            Set-ManifestRows -Folder $bkp -Rows $rows
+            Remove-Item -LiteralPath (Join-Path $src 'seed.txt') -Force
+
+            Invoke-FormBackupExitCode -Cfg $cfg | Should -Be 1
+            (Invoke-FormBackup -Cfg $cfg) | Should -Match 'Not enough free space'
+        } finally {
+            & cmd.exe /c "subst ${free}: /D" 2>&1 | Out-Null
+        }
 
         # ...and the same refusal is a terminating error in process.
         $demand = Get-BackupCapacityDemand -NewOrChanged @([pscustomobject]@{ RelativePath = 'big.txt'
                         xxH2Hash = 'DEADBEEF'; Length = [long]::MaxValue / 4 }) `
                     -RemovedFromSource @() -BackupDb @() -SameVolume $true
-        { Assert-BackupCapacity -BackupPath $s.Bkp -ChangePath $s.Chg -BackupBytes $demand.BackupBytes -Log { param($m, $l) } } |
+        { Assert-BackupCapacity -BackupPath $TestDrive -ChangePath $TestDrive -BackupBytes $demand.BackupBytes -Log { param($m, $l) } } |
             Should -Throw -ExpectedMessage '*Not enough free space*'
     }
 
@@ -1148,11 +1051,8 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
                 Compressed = 'No'; StoredAsHashSize = 'Original' }
         )
         # No change requested: nothing to migrate.
-        Get-MigrationCapacityDemand -BackupDb $db -PreserveFolderTree $true -CompressEnabled $false | Should -Be 0
         # Turning compression on migrates a.txt only (.jpg is already-compressed).
-        Get-MigrationCapacityDemand -BackupDb $db -PreserveFolderTree $true -CompressEnabled $true | Should -Be 100
         # Switching tree mode migrates both.
-        Get-MigrationCapacityDemand -BackupDb $db -PreserveFolderTree $false -CompressEnabled $false | Should -Be 800
         # Rows sharing one (hash,length) are counted once (SR-051 transforms the group once).
         $shared = @(
             [pscustomobject]@{ RelativePath = 'x.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
@@ -1160,7 +1060,6 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
             [pscustomobject]@{ RelativePath = 'y.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
                 Compressed = 'No'; StoredAsHashSize = 'Original' }
         )
-        Get-MigrationCapacityDemand -BackupDb $shared -PreserveFolderTree $false -CompressEnabled $false | Should -Be 400
     }
 }
 

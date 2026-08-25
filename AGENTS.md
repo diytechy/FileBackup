@@ -152,7 +152,6 @@ Imports (internal): `Common`
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
-| `Get-MigrationCapacityDemand` | yes | SR-052, SR-012, LLR-052 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
 | `Get-PruneCapacityRefusal` | yes | SR-046, SR-052, LLR-046 |
@@ -182,7 +181,6 @@ Imports (internal): `Common`
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
-| `Sync-BackupStorageLayout` | yes | SR-012, SR-013, SR-051, LLR-012, LLR-013, LLR-051 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
 | `Test-BackupManifest` | yes | — |
 | `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, LLR-049 |
