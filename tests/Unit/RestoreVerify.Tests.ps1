@@ -187,3 +187,86 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
             Should -Match '1 content-missing, 1 host'
     }
 }
+
+Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
+    # TC-108. Before kit revision 6 both restorers trusted a resolvable
+    # DataPath: wrong payload, a same-length bit-flip, even truncation
+    # restored with exit 0.
+
+    It 'heals a wrong-payload data file from a surviving pool copy: exit 0, byte-exact, warning logged (TC-108)' {
+        $root = Join-Path $TestDrive 'd2-heal'
+        $s = New-RVStore -Root $root
+        # A good copy survives elsewhere in the pool under an unrelated name;
+        # the row's own data file carries same-length wrong bytes.
+        Copy-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Destination (Join-Path $s.Bkp 'spare.bin')
+        Set-Content -LiteralPath (Join-Path $s.Bkp 'a.txt') -Value 'WRONG-CONTENT' -NoNewline
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+        $code | Should -Be 0
+        Get-Content -LiteralPath (Join-Path $t 'a.txt') -Raw | Should -Be 'ALPHA-CONTENT'
+        # A silent heal that leaves no trace is not acceptable: the warning and
+        # the recovery must both be in the log.
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -Match '\[ContentMismatch\]'
+        $log | Should -Match 'after a verify mismatch'
+    }
+
+    It 'a same-length bit-flip with no surviving copy fails loudly naming the row: exit 1 (TC-108)' {
+        $root = Join-Path $TestDrive 'd2-flip'
+        $s = New-RVStore -Root $root
+        $bytes = [IO.File]::ReadAllBytes((Join-Path $s.Bkp 'a.txt'))
+        $bytes[-1] = $bytes[-1] -bxor 0xFF
+        [IO.File]::WriteAllBytes((Join-Path $s.Bkp 'a.txt'), $bytes)
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+        $code | Should -Be 1
+        (Get-Content -LiteralPath (Join-Path $root 'recon-out.txt') -Raw) |
+            Should -Match '1 content-missing, 0 host'
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -Match '\[ContentMismatch\].*a\.txt'
+        # The bad bytes were deleted, not left where good ones were asked for;
+        # every other row still restored (SR-029 salvage).
+        Test-Path (Join-Path $t 'a.txt') | Should -BeFalse
+        Get-Content -LiteralPath (Join-Path $t 'b.txt') -Raw | Should -Be ('BETA-CONTENT-X' * 4000)
+    }
+
+    It 'truncation is caught by the length check before any hashing (TC-108)' {
+        $root = Join-Path $TestDrive 'd2-trunc'
+        $s = New-RVStore -Root $root
+        Set-Content -LiteralPath (Join-Path $s.Bkp 'a.txt') -Value 'ALPHA' -NoNewline
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+        $code | Should -Be 1
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -Match '\[ContentMismatch\]'
+        $log | Should -Match 'got \(not hashed\)/5'
+    }
+
+    It "a valid archive with the WRONG payload at the row's own DataPath is healed from a pool copy (TC-108 archive arm)" {
+        $root = Join-Path $TestDrive 'd2-arch'
+        $s = New-RVStore -Root $root -Compress $true
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        $b = $rows | Where-Object RelativePath -eq 'b.txt'
+        $b.DataPath | Should -Match '\.7z$'
+        # Keep a good pool copy under an unrelated name, then repack the row's
+        # own archive with DIFFERENT bytes — a corrupt container exits 4, so
+        # the wrong-payload arm needs a genuinely valid archive (plan §6.1).
+        Copy-Item -LiteralPath (Join-Path $s.Bkp $b.DataPath) -Destination (Join-Path $s.Bkp 'spare.7z')
+        $work = Join-Path $root 'repack'
+        New-Item -ItemType Directory -Path $work | Out-Null
+        [IO.File]::WriteAllText((Join-Path $work 'b.txt'), ('OTHER-PAYLOAD-' * 4000))
+        Compress-FileWithSevenZip -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath `
+            -SourceFile (Join-Path $work 'b.txt') -Destination7z (Join-Path $work 'wrong.7z')
+        Move-Item -LiteralPath (Join-Path $work 'wrong.7z') -Destination (Join-Path $s.Bkp $b.DataPath) -Force
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+        $code | Should -Be 0
+        Get-Content -LiteralPath (Join-Path $t 'b.txt') -Raw | Should -Be ('BETA-CONTENT-X' * 4000)
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -Match '\[ContentMismatch\]'
+    }
+}

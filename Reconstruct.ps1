@@ -24,7 +24,9 @@
     "Restore exit codes"; reconstruct.sh returns the same numbers):
 
         0  Complete — every manifest row restored.
-        1  Incomplete, CONTENT — the remaining rows' bytes are not in the pool.
+        1  Incomplete, CONTENT — the remaining rows' bytes are not in the pool,
+           or nothing in the pool reproduces them (ContentMismatch: the written
+           file disagreed with the row's Length/xxH2Hash — SR-056).
         2  Precondition / usage — nothing attempted (bad arguments, missing or
            unrecognizable manifest, target inside the backup, an unusable target
            path, missing required tool, insufficient capacity). Any terminating
@@ -627,6 +629,74 @@ function ConvertTo-LocalRelativePath {
     return $Path.Replace('\', '/')
 }
 
+function Restore-OneRow {
+    <#
+    .SYNOPSIS
+        Writes one manifest row's bytes to its destination and verifies the
+        written file against the row's (Length, xxH2Hash) — SR-056.
+
+    .DESCRIPTION
+        The single write+verify implementation (kit revision 6): the restore
+        loop calls it once per row, and at most once more after a pool
+        recovery. Verification hashes the DESTINATION file — the locator (when
+        one was involved) proved the POOL file, not this write, so a truncated
+        write to a full target or an extraction that produced a different file
+        must not report success. Length is compared first (cheap); the hash
+        only when the length agrees. 0-byte rows hash like any other. A row
+        carrying no hash restores unverified, as it always did.
+
+        On a mismatch the bad destination file is DELETED before returning —
+        wrong bytes must not be left where the user asked for good ones.
+
+    .OUTPUTS
+        [pscustomobject] Outcome / Cause / Detail / Got:
+          Outcome 'ok'       — written and verified (or unverifiable row).
+          Outcome 'mismatch' — written bytes disagree with the row; destination
+                               deleted; Got carries "<hash>/<length>" actually
+                               written, for the ContentMismatch log line.
+          Outcome 'hostfail' — the write itself failed (extraction/copy/
+                               read-back I/O); Cause/Detail ready for
+                               Add-Unrestored, host class (SR-040).
+    #>
+    # Implements: SR-056, LLR-056
+    param(
+        [Parameter(Mandatory)][string]$SrcFull,
+        [Parameter(Mandatory)][string]$DestFull,
+        [Parameter(Mandatory)][bool]$NeedsExpand,
+        [Parameter(Mandatory)][pscustomobject]$Row
+    )
+    if ($NeedsExpand) {
+        try {
+            Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $SrcFull -DestinationFile $DestFull
+        } catch {
+            return [pscustomobject]@{ Outcome = 'hostfail'; Cause = 'CandidateError'
+                Detail = "7-Zip extraction failed from '$SrcFull': $($_.Exception.Message)"; Got = $null }
+        }
+    } else {
+        try {
+            Copy-Item -LiteralPath $SrcFull -Destination $DestFull -Force
+        } catch {
+            return [pscustomobject]@{ Outcome = 'hostfail'; Cause = 'CandidateError'
+                Detail = "Copy from '$SrcFull' failed: $($_.Exception.Message)"; Got = $null }
+        }
+    }
+    if (-not $Row.xxH2Hash -or '' -eq "$($Row.Length)") {
+        return [pscustomobject]@{ Outcome = 'ok'; Cause = $null; Detail = $null; Got = $null }
+    }
+    try {
+        $gotLen  = (Get-Item -LiteralPath $DestFull -Force).Length
+        $gotHash = if ($gotLen -eq [long]$Row.Length) { Get-FileXxHash -FilePath $DestFull } else { '(not hashed)' }
+    } catch {
+        return [pscustomobject]@{ Outcome = 'hostfail'; Cause = 'CandidateError'
+            Detail = "Restored file '$DestFull' could not be read back for verification: $($_.Exception.Message)"; Got = $null }
+    }
+    if ($gotLen -eq [long]$Row.Length -and $gotHash -eq $Row.xxH2Hash) {
+        return [pscustomobject]@{ Outcome = 'ok'; Cause = $null; Detail = $null; Got = $null }
+    }
+    Remove-Item -LiteralPath $DestFull -Force -ErrorAction SilentlyContinue
+    return [pscustomobject]@{ Outcome = 'mismatch'; Cause = 'ContentMismatch'; Detail = $null; Got = "$gotHash/$gotLen" }
+}
+
 foreach ($rel in $main.Keys) {
     $row     = $main[$rel]
     $destFull = Join-Path $TargetRoot (ConvertTo-LocalRelativePath $rel)
@@ -697,22 +767,51 @@ foreach ($rel in $main.Keys) {
     # only a row resolved through its own DataPath is decided by its Compressed.
     $needsExpand = if ($null -ne $locatedForm) { $locatedForm -eq 'Archive' } else { $row.Compressed -eq 'Yes' }
 
-    if ($needsExpand) {
-        try {
-            Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $srcFull -DestinationFile $destFull
-        } catch {
-            Add-Unrestored -RelativePath $rel -Cause 'CandidateError' `
-                -Detail "7-Zip extraction failed from '$srcFull': $($_.Exception.Message)"
+    # SR-056 (kit revision 6): EVERY restored row — expanded or copied, own
+    # DataPath or hash-recovered — is verified against (Length, xxH2Hash) after
+    # the write; on a mismatch the bad file is deleted, the (hash,length) pool
+    # recovery is attempted at most ONCE, and the result verified again. A row
+    # that still cannot be verified is counted into the SR-029 accounting as
+    # ContentMismatch (content class, exit 1) — never reported as success.
+    $r = Restore-OneRow -SrcFull $srcFull -DestFull $destFull -NeedsExpand $needsExpand -Row $row
+    if ($r.Outcome -eq 'hostfail') {
+        Add-Unrestored -RelativePath $rel -Cause $r.Cause -Detail $r.Detail
+        continue
+    }
+    if ($r.Outcome -eq 'mismatch') {
+        "$(Get-Date -Format 'O') - WARN: [ContentMismatch] '$rel' — restored bytes do not match the manifest (expected $($row.xxH2Hash)/$($row.Length), got $($r.Got)); attempting pool recovery." |
+            Out-File -LiteralPath $logPath -Append
+        if ($null -ne $locatedForm) {
+            # This row was ALREADY resolved through the pool locator, which
+            # hashes every candidate before returning it: the mismatch is in
+            # the write, and re-running the same search cannot produce a
+            # different source. One recovery attempt per row (SR-056).
+            Add-Unrestored -RelativePath $rel -Cause 'ContentMismatch' `
+                -Detail "the pool-recovered source '$srcFull' did not reproduce (hash=$($row.xxH2Hash), length=$($row.Length)) at the destination (got $($r.Got))."
             continue
         }
-    } else {
-        try {
-            Copy-Item -LiteralPath $srcFull -Destination $destFull -Force
-        } catch {
-            Add-Unrestored -RelativePath $rel -Cause 'CandidateError' `
-                -Detail "Copy from '$srcFull' failed: $($_.Exception.Message)"
+        $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
+        if ($found.Cause -eq 'Found') {
+            "$(Get-Date -Format 'O') - Hash-recovered $rel from '$($found.Path)' after a verify mismatch (form: $($found.Form))" |
+                Out-File -LiteralPath $logPath -Append
+            $r2 = Restore-OneRow -SrcFull $found.Path -DestFull $destFull -NeedsExpand ($found.Form -eq 'Archive') -Row $row
+            if ($r2.Outcome -eq 'hostfail') {
+                Add-Unrestored -RelativePath $rel -Cause $r2.Cause -Detail $r2.Detail
+            } elseif ($r2.Outcome -eq 'mismatch') {
+                Add-Unrestored -RelativePath $rel -Cause 'ContentMismatch' `
+                    -Detail "neither the row's data file nor the pool copy '$($found.Path)' reproduces (hash=$($row.xxH2Hash), length=$($row.Length)) at the destination (got $($r2.Got))."
+            }
             continue
         }
+        if ($found.Cause -eq 'ContentMissing') {
+            Add-Unrestored -RelativePath $rel -Cause 'ContentMismatch' `
+                -Detail "the bytes at '$srcFull' do not reproduce (hash=$($row.xxH2Hash), length=$($row.Length)), and no pool copy does. $($found.Detail)"
+        } else {
+            # DependencyMissing / StorageUnreadable: the pool may still hold a
+            # good copy this host could not check — stay host class (SR-040).
+            Add-Unrestored -RelativePath $rel -Cause $found.Cause -Detail $found.Detail
+        }
+        continue
     }
 }
 
