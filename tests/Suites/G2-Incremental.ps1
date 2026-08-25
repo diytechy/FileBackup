@@ -48,13 +48,35 @@ function Invoke-G2 {
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
     Assert-ManifestRow $suite $group 'G2.6' 'Readd_rowPresent' $manifest 'dup2.txt' $true
 
-    # G2.8 duplicate detection
+    # G2.8 duplicate detection — MODE-AWARE and EXACT (TC-019, de-vacuumed
+    # 2026-08-24: the old `-le 2` passed under D-5 and would pass with dedup
+    # removed entirely).
     Reset-TestEnvironment $Env
     New-TestFile (Join-Path $Env.SrcPath 'd1.txt') 'SHARED'
     New-TestFile (Join-Path $Env.SrcPath 'd2.txt') 'SHARED'
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
     Assert-True $suite $group 'G2.8' 'Dedup_singleDataPath' {
-        $rows = Import-Csv -LiteralPath $manifest | Where-Object { $_.RelativePath -in 'd1.txt','d2.txt' }
-        $rows -and ($rows | Select-Object -ExpandProperty DataPath -Unique).Count -le 2
+        $rows = @(Import-Csv -LiteralPath $manifest | Where-Object { $_.RelativePath -in 'd1.txt', 'd2.txt' })
+        if ($rows.Count -ne 2) { return $false }
+        $paths  = @($rows | Where-Object DataPath | Select-Object -ExpandProperty DataPath -Unique)
+        $copies = Get-PoolContentCopyCount -Folders @($Env.BkpPath) `
+            -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length)
+        if ($Mode -eq 'HashAddressed') {
+            # True dedup: ONE distinct DataPath and ONE physical pool copy.
+            $paths.Count -eq 1 -and $copies -eq 1
+        } else {
+            # Mirror stores same-run duplicates TWICE today — that is defect
+            # D-5, fixed by the option-3 WP (which deletes Mirror). Asserted
+            # exactly as a labelled change-detector: when option-3 lands this
+            # arm dies with the mode instead of silently passing.
+            $paths.Count -eq 2 -and $copies -eq 2
+        }
+    }
+
+    # TC-116: orphan-detection second pass — every blank-DataPath row in every
+    # manifest must be backed by a BYTE-VERIFIED pool copy (the assertion that
+    # caught D-1 on the HomeHub bench; stronger than -Action Verify).
+    Assert-True $suite $group 'G2.audit' 'BlankRows_byteVerified' {
+        @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
     }
 }

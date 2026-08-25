@@ -253,6 +253,9 @@ jobs:
         # backslashed ${{ runner.temp }} upload path can glob to NOTHING and
         # upload-artifact's default if-no-files-found is only a warning.
         run: pwsh -NoProfile -File scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot fresh
+      - name: Damage a store + record the PowerShell restorer's verdicts (TC-110)
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/make_damaged_interop.ps1 -OutRoot fresh
       - name: Upload fresh backup set
         uses: actions/upload-artifact@v4
         with:
@@ -263,6 +266,13 @@ jobs:
           # hidden files by default — which silently dropped those data files
           # from the artifact and broke exactly the snapshot origins that
           # hash-recover through them (run 32672263476 post-mortem).
+          include-hidden-files: true
+      - name: Upload damaged stores + expected verdicts
+        uses: actions/upload-artifact@v4
+        with:
+          name: damaged-stores
+          path: fresh/damage/**
+          if-no-files-found: error
           include-hidden-files: true
 
   bash-interop-restore:
@@ -283,3 +293,10 @@ jobs:
           path: fresh/bash-restore
       - name: Restore every origin of every mode + byte-compare (windows->ubuntu proof)
         run: bash tests/bash/verify_restores.sh fresh
+      - name: Download the damaged stores
+        uses: actions/download-artifact@v4
+        with:
+          name: damaged-stores
+          path: fresh/damage
+      - name: Verdict parity on damaged stores — both restorers, same exits, same bytes (TC-110)
+        run: bash tests/bash/verify_damage_interop.sh fresh

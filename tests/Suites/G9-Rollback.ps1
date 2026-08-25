@@ -92,6 +92,13 @@ function Invoke-G9 {
     Assert-True $suite $group 'G9.5' 'Latest_dup1_present'   { TextEq (Join-Path $r0 'dup1.txt') 'SHARED' }
     Assert-True $suite $group 'G9.5' 'Latest_renamed_present'{ TextEq (Join-Path $r0 'renamed.txt') 'RENAMEME' }
     Assert-True $suite $group 'G9.5' 'Latest_orig_absent'    { -not (Test-Path -LiteralPath (Join-Path $r0 'orig.txt')) }
+
+    # TC-116: orphan-detection second pass over the full rollback timeline —
+    # every blank-DataPath row in every manifest backed by a BYTE-VERIFIED
+    # pool copy (the assertion that caught D-1; see PoolAudit.ps1).
+    Assert-True $suite $group 'G9.audit' 'BlankRows_byteVerified' {
+        @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
+    }
 }
 
 function Get-G9PhysicalCopyCount {
@@ -259,5 +266,11 @@ function Invoke-G9Prune {
     Assert-True $suite $group 'G9.11' 'Cycle_latest_restores_after_prunes' {
         (TextAt (Join-Path $rLatest 'steady.txt') 'STEADY') -and
         (-not (Test-Path -LiteralPath (Join-Path $rLatest 'f.txt')))
+    }
+
+    # TC-116: the second pass must also hold AFTER pruning — a prune that
+    # orphaned a blank row would be invisible to every default check.
+    Assert-True $suite $group 'G9P.audit' 'BlankRows_byteVerified_postPrune' {
+        @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
     }
 }

@@ -51,6 +51,9 @@ Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
 Import-Module (Join-Path $repo 'Modules\FileBackup.Engine.psm1') -Force
 . (Join-Path $here 'Common\Harness.ps1')
 . (Join-Path $here 'Common\VolumeBackend.ps1')
+# Pool-audit tooling (TC-116): the byte-verified orphan second pass called at
+# the end of the G2/G3/G9 timelines, and the copy counter behind G2.8.
+. (Join-Path $here 'Common\PoolAudit.ps1')
 foreach ($id in @('G1','G2','G3','G4','G5','G6','G7','G8','G9')) {
     $suiteFile = Get-ChildItem -LiteralPath (Join-Path $here 'Suites') -Filter "$id-*.ps1" |
                  Select-Object -First 1

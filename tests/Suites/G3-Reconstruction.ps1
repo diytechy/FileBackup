@@ -67,4 +67,9 @@ function Invoke-G3 {
             return $false  # should have thrown
         } catch { return $true }
     }
+
+    # TC-116: orphan-detection second pass over this timeline (see PoolAudit.ps1).
+    Assert-True $suite $group 'G3.audit' 'BlankRows_byteVerified' {
+        @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
+    }
 }
