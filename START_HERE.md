@@ -56,8 +56,9 @@ pause for human approval — **without breaking the working tool.**
 - **Primary users:** technical Windows users / the author (scheduled + ad-hoc
   `pwsh` runs), Linux recovery users, and agents modifying the tool.
 - **Must-have outcomes:** correct backup + **bit-exact restore from the backup
-  folder alone**; dedup; the four storage modes; change-folder history; mail
-  (optional).
+  folder alone**; dedup; the storage modes; change-folder history; mail
+  (optional). *(The four-mode matrix collapses to ±Compress when WP9 removes
+  Mirror/`PreserveFolderTree` — see docs/status.md.)*
 - **Hard constraints:** the backup engine currently requires PowerShell 7+;
   **Common module must never depend on Engine**; restore kit self-contained
   (Windows and POSIX entry points plus their documented runtime dependencies);

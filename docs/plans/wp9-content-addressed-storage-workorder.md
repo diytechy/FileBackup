@@ -236,6 +236,7 @@ recommendation: **refuse it by name** (config failure, status 2) in
 | manifest row order | `Sort-Object` before `Write-Manifest` (partly done at `:3630`), pinned by a determinism test |
 | Source-side manifest cache default | **Out of this WP** — an independent config change with no D-1/D-5 coupling; stays an Open item (§9 Q5) |
 | Windows reserved device names | **IN** — the 2026-08-25 ratification moved the deferred kit-bump plan §11 Q2 into this WP; see §3.10 |
+| **F8 kit-less snapshot window** | **FOLDED IN** (driver call 2026-08-25): a crash between the `Temp`→`Snapshot_*` rename and the kit copy leaves a valid snapshot with no restore kit. Fix: copy the kit into staging **before** the rename. This WP already opens `Complete-ChangeFolder`'s neighbourhood, and the standing directive says the queue ships whole |
 
 ### 3.10 Windows reserved device names — the deferred SR-055 extension, now IN
 
@@ -261,7 +262,17 @@ one more component predicate.
 
 ---
 
-## 4. Registry rows (apply at G1/G2)
+## 4. Registry rows — **already committed** (2026-08-25, `Phase=ca-v1`)
+
+> **These rows are in the registries now, not waiting for G1.** That is the
+> anti-loss mechanism: `trace.py`'s orphan rules are phase-blind, so every one of
+> these SRs already carries its LLR and TC rows, while `--require-verified
+> --phase core,bash-v1,container-v1,kitbump-v6` reports them as **phase-deferred**
+> (8 rows: SR-033 bash-v2 + the seven `ca-v1` rows) instead of demanding they be
+> Verified. Nothing can be quietly dropped: the moment `ca-v1` joins the ratchet
+> in `scripts/check.ps1`, every row below must be Verified/Pass or the G3 check
+> fails. SR rows are `Status=Draft`, LLRs `Planned`, TCs `Draft` — the same
+> pattern SR-033/TC-057 (bash-v2) has used since 2026-07.
 
 ### 4.1 `stakeholder-needs.md`
 
@@ -328,7 +339,7 @@ Step 1 is written **red first** — it reproduces D-1 and D-5 on today's code.
 | **5** | **Delete Mirror.** `PreserveFolderTree` out of the engine signatures, the config key set, the shape check and the defaults materializer; hash naming unconditional; the SR-022 Mirror refusal and its dead twins removed; `StoredAsHashSize` pinned to `'Hash'` | `Engine.psm1` (G6 + G8 sites), `FileBackup.ps1` help, `container/*.json`, harness + every Mirror test site (G17), `tests/fixtures/bash-restore/Mirror*` regenerated or deleted via `scripts/gen_bash_fixtures.ps1` | Full unit + integration green on the **2-mode** matrix |
 | **6** | **Config v2:** `$script:ConfigSchemaVersion = 2`, named refusal for `PreserveFolderTree` (both formats), `BrowseView` / `ViewPath` accepted and validated | `Engine.psm1:3654-3705, 3790-3941`, `tests/Common/ConfigFixtures.ps1` | TC-125..TC-128 green; TC-077 updated |
 | **7** | **The view:** `New-BrowseViewIndex` + `.viewstamp` + pipeline step 16 + `-Action View` dispatch + the volume/containment refusals | `Engine.psm1` (new function), `FileBackup.ps1` | New **G10-View** suite green (§6) |
-| **8** | **Folded fixes:** linear unreferenced audit, `New-RelativePathMap` sweep, deterministic row order | `Engine.psm1:584-618` + sweep sites | TC-132..TC-134 green; G7 determinism suite green |
+| **8** | **Folded fixes:** linear unreferenced audit, `New-RelativePathMap` sweep, deterministic row order, and **F8** (copy the restore kit into staging *before* the `Temp`→`Snapshot_*` rename, closing the kit-less-snapshot window) | `Engine.psm1:584-618`, `Complete-ChangeFolder`/`Update-BackupSnapshotKit` + sweep sites | TC-132 green; G7 determinism suite green; a kill between rename and kit copy leaves no kit-less snapshot |
 | **8b** | **Reserved device names (§3.10):** one component predicate in `Test-PortableRelativePath`; SR-055/LLR-055 amended, TC-117 added. Independent of everything above — can land any time after step 1 | `Engine.psm1:72-111`, registries | TC-117 green; SR-055's existing skip/freeze/fail behavior unchanged |
 | **9** | **Docs + generated artifacts + registries:** AGENTS.md §2/§3/§6, README, regenerated `docs/architecture.md` maps, `docs/interfaces.md` / IF-001 if the container contract names modes, registry rows flipped to Verified, status.md audit entry | docs, registries | `check.ps1 -Gate G3` all steps pass; `trace.py --strict --require-verified` 0/0/0 |
 

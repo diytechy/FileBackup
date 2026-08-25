@@ -372,3 +372,26 @@ the engine stays *PowerShell*-only, but no longer Windows-only — it now also
 runs on Linux inside the `container-v1` image (SN-024/SR-034); a *bash* backup
 engine still awaits its own bash-v2 go-ahead.
 
+## Parked items closed by the kit-bump WP (moved out of status.md 2026-08-25)
+
+Both shipped in kit revision 6 (2026-08-24) and were ratified with that WP on
+2026-08-25; the narrative is in status.md's audit log for those dates.
+
+| Item | What | Disposition |
+|---|---|---|
+| no-7z double host record | An unreadable `.7z` candidate under no-7-Zip records CandidateError + DependencyMissing for one candidate. Cosmetic. | **DONE 2026-08-24** — single `StorageUnreadable` record (kit rev 6, TC-111). |
+| restorer TargetRoot parity | `Reconstruct.ps1` falls back to a `Read-Host` prompt when `-TargetRoot` is omitted (no `-NonInteractive` path — a scripted restore hangs; same class as the fixed SR-016 finding), while `reconstruct.sh` requires `--target-root` and dies loudly. Divergence between the deliberately-equivalent restorers. | **HUMAN APPROVED 2026-08-24: align the behavior.** **DONE 2026-08-24** — `-NonInteractive` + redirected-stdin guard, usage + exit 2, prompt kept (kit rev 6, TC-115). |
+
+## D-2 / D-3 / D-4 — closed (moved out of status.md 2026-08-25)
+
+All three were implemented in kit revision 6 (2026-08-24), survived two
+independent reviews, and were **ratified by the human on 2026-08-25**. Rows kept
+verbatim for the record; the narrative is in status.md's audit log for those
+dates. D-1 and D-5 remain live as WP9.
+
+| Item | What (verified 2026-08-24) | Decision needed | State |
+|---|---|---|---|
+| **D-2 — restore verifies nothing** | Both restorers expand/copy a resolvable `DataPath` with no comparison against the row's `xxH2Hash` — wrong payload, same-length bit-flip, even truncation restore exit 0. `xxH2Hash` is the original-content hash, so verify-after-write + fall-through to the existing pool recovery is sound. Needed under ANY D-1 design (bit rot, partial writes). | Approve as a fix WP (small, both restorers, kit revision 6; pairs with D-3). MiniPC-Deployer's "three witnesses" restore is prior art. | **HUMAN GO 2026-08-24** ("Sounds good") — **IMPLEMENTED 2026-08-24 (kit rev 6, both restorers; G3 entry below); pending independent review + ratification.** |
+| **D-3 — CandidateError outranks ContentMissing** | One unrelated unexpandable `.7z` anywhere in the pool flips "your bytes are gone" (exit 1) into "fix this host" (exit 4). Every CandidateError the locators raise is by construction from a non-own candidate — the reorder needs no new state. | Approve with D-2 (same kit bump). Trivial precedence reorder, both locators. | **HUMAN GO 2026-08-24** ("Agreed") — **IMPLEMENTED 2026-08-24 (honest reclassification per plan §2.1; G3 entry below); pending review + ratification.** |
+| **D-4 — hidden/dot files never backed up** | SYSTEMIC: no `Get-ChildItem` in Engine/Common/Reconstruct uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip, so the twin restorers disagree. Zero disclosure. | Approve `-Force` everywhere + a disclosed skipped-by-policy count, and RULE on the one design question: should Windows Hidden-attribute files be included by default (Linux dot-files clearly must be)? | **HUMAN RULED 2026-08-24: hidden AND dot files are backed up by default.** **IMPLEMENTED 2026-08-24 (`-Force` at all nine sites + AST guard; G3 entry below). NOTE: the "ExcludeFolder" exclusion machinery named in the ruling entry does not exist as user config — README states exclusion = scoping SourcePath; a real exclusion knob would be new scope.** Pending review + ratification. |
+
