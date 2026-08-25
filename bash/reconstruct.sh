@@ -40,7 +40,9 @@
 # Reconstruct.ps1 -ExitCode returns the same numbers):
 #
 #   0  complete — every manifest row restored.
-#   1  INCOMPLETE, CONTENT — the remaining rows' bytes are not in the data pool.
+#   1  INCOMPLETE, CONTENT — the remaining rows' bytes are not in the data
+#      pool, or nothing in the pool reproduces them (ContentMismatch: the
+#      written file disagreed with the row's Length/xxH2Hash — SR-056).
 #   2  usage or precondition failure (bad args, missing or unrecognizable
 #      manifest, target inside backup, missing tool, insufficient capacity).
 #   3  manifest-witness verification failed — the index itself is untrustworthy;
@@ -161,6 +163,41 @@ sevenzip_to_file() {
     if [[ -z "$first" ]]; then rm -rf "$tmpd"; return 1; fi
     mv -f -- "$first" "$dest" 2>/dev/null || { rm -rf "$tmpd"; return 1; }
     rm -rf "$tmpd"
+}
+
+# restore_one <src> <dest> <needs_expand> <want_hash> <want_len> : the single
+# write+verify implementation (SR-056, kit revision 6) — mirrors Reconstruct
+# .ps1's Restore-OneRow. The restore loop calls it once per row, and at most
+# once more after a pool recovery. Verification hashes the DESTINATION file:
+# the locator (when one was involved) proved the POOL file, not this write.
+# Length is compared first (cheap); the hash only when the length agrees.
+# 0-byte rows hash like any other; a row with no hash restores unverified.
+# On a mismatch the bad destination file is DELETED before returning.
+#
+# Returns 0 ok; 10 mismatch (RESTORE_GOT carries "<hash>/<len>" written);
+# 20 extraction failed; 21 copy failed. Called DIRECTLY (never via command
+# substitution) so the RESTORE_GOT global survives.
+# Implements: SR-056 (LLR-056)
+RESTORE_GOT=''
+restore_one() {
+    local src="$1" dest="$2" needs_expand="$3" want_hash="$4" want_len="$5" sz h
+    RESTORE_GOT=''
+    if (( needs_expand )); then
+        if ! sevenzip_to_file "$src" "$dest"; then rm -f -- "$dest" 2>/dev/null; return 20; fi
+    else
+        cp -f -- "$src" "$dest" 2>/dev/null || return 21
+    fi
+    if [[ -z "$want_hash" || ! "$want_len" =~ ^[0-9]+$ ]]; then return 0; fi
+    sz="$(stat -c '%s' -- "$dest" 2>/dev/null || echo -1)"
+    if [[ "$sz" == "$want_len" ]]; then
+        h="$(hash_file "$dest" 2>/dev/null || printf 'unreadable')"
+    else
+        h='(not hashed)'
+    fi
+    if [[ "$sz" == "$want_len" && "$h" == "$want_hash" ]]; then return 0; fi
+    RESTORE_GOT="$h/$sz"
+    rm -f -- "$dest" 2>/dev/null
+    return 10
 }
 
 # ---------------------------------------------------------------------------
@@ -614,7 +651,7 @@ main() {
     # Failures are split by class so the exit code separates "your bytes are
     # gone" (1) from "fix this host and retry" (4) — SR-040.
     local -a unrestored=() unrestored_host=()
-    local rel dest destdir src found fcause frest fdetail fpath located_form needs_expand recovered
+    local rel dest destdir src found fcause frest fdetail fpath located_form needs_expand recovered rc
     for (( i=0; i<nrows; i++ )); do
         # The PROVEN form of a hash-recovered file, which outranks the row's
         # Compressed column for that row (SR-050). Empty for a non-blank
@@ -698,20 +735,59 @@ main() {
             [[ "${d_comp[i]}" == "Yes" ]] && needs_expand=1 || needs_expand=0
         fi
 
-        if (( needs_expand )); then
-            if ! sevenzip_to_file "$src" "$dest"; then
-                # An extraction failure is a HOST problem: the archive is in the
-                # backup, this machine could not open it (SR-040).
-                log "WARN: [CandidateError] '$rel' — 7z extraction failed (from '$src')."
-                rm -f -- "$dest" 2>/dev/null
-                unrestored_host+=("$rel"); continue
-            fi
-        else
-            if ! cp -f -- "$src" "$dest" 2>/dev/null; then
-                log "WARN: [CandidateError] '$rel' — copy failed (from '$src')."
-                unrestored_host+=("$rel"); continue
-            fi
-        fi
+        # SR-056 (kit revision 6): EVERY restored row — expanded or copied, own
+        # DataPath or hash-recovered — is verified against (Length, xxH2Hash)
+        # after the write; on a mismatch the bad file is deleted, the
+        # (hash,length) pool recovery attempted at most ONCE, and the result
+        # verified again. A row that still cannot be verified counts into the
+        # fail-loudly accounting as ContentMismatch (content class, exit 1) —
+        # never reported as success. An extraction/copy failure on the row's
+        # own file stays a HOST problem (SR-040), unchanged.
+        rc=0; restore_one "$src" "$dest" "$needs_expand" "${d_hash[i]}" "${d_len[i]}" || rc=$?
+        case "$rc" in
+            0) ;;
+            20) log "WARN: [CandidateError] '$rel' — 7z extraction failed (from '$src')."
+                unrestored_host+=("$rel") ;;
+            21) log "WARN: [CandidateError] '$rel' — copy failed (from '$src')."
+                unrestored_host+=("$rel") ;;
+            10)
+                log "WARN: [ContentMismatch] '$rel' — restored bytes do not match the manifest (expected ${d_hash[i]}/${d_len[i]}, got $RESTORE_GOT); attempting pool recovery."
+                if [[ -n "$located_form" ]]; then
+                    # Already resolved through the locator, which hashes every
+                    # candidate before returning it: re-running the same search
+                    # cannot produce a different source. One recovery attempt
+                    # per row (SR-056).
+                    log "WARN: [ContentMismatch] '$rel' — the pool-recovered source '$src' did not reproduce the row at the destination (got $RESTORE_GOT)."
+                    unrestored+=("$rel"); continue
+                fi
+                found="$(find_by_hash "${d_hash[i]}" "${d_len[i]}")"
+                fcause="${found%%$'\037'*}"
+                frest="${found#*$'\037'}"
+                fdetail="${frest%%$'\037'*}"
+                fpath="${frest#*$'\037'}"
+                if [[ "$fcause" == 'Found' ]]; then
+                    log "Hash-recovered '$rel' from '$fpath' after a verify mismatch (form: $fdetail)"
+                    [[ "$fdetail" == 'Archive' ]] && needs_expand=1 || needs_expand=0
+                    rc=0; restore_one "$fpath" "$dest" "$needs_expand" "${d_hash[i]}" "${d_len[i]}" || rc=$?
+                    case "$rc" in
+                        0) ;;
+                        10) log "WARN: [ContentMismatch] '$rel' — neither the row's data file nor the pool copy '$fpath' reproduces the row at the destination (got $RESTORE_GOT)."
+                            unrestored+=("$rel") ;;
+                        20) log "WARN: [CandidateError] '$rel' — 7z extraction failed (from '$fpath')."
+                            unrestored_host+=("$rel") ;;
+                        *)  log "WARN: [CandidateError] '$rel' — copy failed (from '$fpath')."
+                            unrestored_host+=("$rel") ;;
+                    esac
+                elif [[ "$fcause" == 'ContentMissing' ]]; then
+                    log "WARN: [ContentMismatch] '$rel' — the bytes at '$src' do not reproduce the row, and no pool copy does. $fdetail"
+                    unrestored+=("$rel")
+                else
+                    # DependencyMissing / StorageUnreadable: the pool may still
+                    # hold a good copy this host could not check — host class.
+                    log "WARN: [$fcause] '$rel' — $fdetail"
+                    unrestored_host+=("$rel")
+                fi ;;
+        esac
     done
 
     # --- Fail loudly on any unrestored row (SR-029 / SR-031 / SR-040) ---

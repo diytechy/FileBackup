@@ -108,13 +108,17 @@ restore_work() {  # <outdir>
     [ "$(hash_upper "$BATS_TEST_TMPDIR/g/real.7z")" = "$h" ]
 }
 
-@test "an unexpandable, unmatching .7z candidate is still a HOST failure, exit 4 (TC-099, SR-040)" {
+@test "an unexpandable, unmatching .7z candidate is CONTENT damage, exit 1, candidate named (TC-099, SR-040, kit rev 6)" {
+    # Until kit revision 6 this shape exited 4 (host) — but no candidate the
+    # locator inspects is the row's own file, so an archive that will not
+    # expand is damaged data a retry cannot fix (D-3 ruling, 2026-08-24).
     use_fixture Mirror
     rm -f "$WORK/hello.txt"
     printf 'neither an archive nor the payload' > "$WORK/hello.txt.7z"
     bend_row 'hello.txt' '' 'Yes'
     restore_work "$BATS_TEST_TMPDIR/e"
-    [ "$status" -eq 4 ] || { echo "expected 4, got $status"; echo "$output"; false; }
+    [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
+    [[ "$output" == *"could not be expanded"* ]]
 }
 
 @test "genuinely absent content is still the CONTENT class, exit 1 (TC-099, SR-040)" {
