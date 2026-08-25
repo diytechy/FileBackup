@@ -95,7 +95,7 @@ last) — it is the record, not required reading for every pass.
   | 1 — D-1/D-5 repros + `Get-ClaimedRowViolations` | **DONE** | `e302593` |
   | 2 — owner election + intra-run memo (SR-060) | **DONE** | `9a1da7d` |
   | 3 — delete storage-layout migration whole (SR-061) | **DONE** | `3ac3338` |
-  | 4 — `Save-SupersededData` reorder + exact survival test (SR-059) | **DONE** | (this session; hash backfilled next update) |
+  | 4 — `Save-SupersededData` reorder + exact survival test (SR-059) | **DONE** | `b6077b8` |
   | 5 — delete Mirror (~45 test sites, G17) | next | |
   | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | | |
   | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | | |
