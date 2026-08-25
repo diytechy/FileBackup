@@ -90,6 +90,77 @@ BeforeAll {
         $after.Count | Should -Be $Before.Count
         foreach ($k in $Before.Keys) { $after[$k] | Should -Be $Before[$k] }
     }
+
+    # --- WP9 step 1: the D-1 / D-5 timelines (TC-118, TC-119) ---------------
+    . (Join-Path $repo 'tests\Common\PoolAudit.ps1')
+
+    function New-BorrowTimeline {
+        <#
+        .SYNOPSIS
+            The D-1 shape exactly as the HomeHub bench produced it: ONE owner,
+            a later cross-run duplicate that borrows the owner's DataPath, then
+            an ordinary edit of the owner.
+
+        .NOTES
+            The owner must be the ONLY prior copy. A second same-run copy
+            MASKS D-1 — the borrower's adopted DataPath may then name the
+            untouched sibling, and even when it names the edited file the
+            surviving sibling keeps the content alive. That is why the bench
+            drill only saw this once cycle 10 introduced a twin of a
+            single-copy file, and it is why the D-5 timeline below is kept
+            separate rather than folded in.
+        #>
+        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $cfg = Join-Path $Root 'c.xml'
+        New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+        $one = 'SHARED-CONTENT-ONE ' * 60
+        $two = 'OWNER-CONTENT-TWO '  * 60
+
+        # run1 - the owner is the only holder of this content.
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
+        & $run ([datetime]'2024-01-01 00:00:01')
+
+        # run2 - an identical copy arrives LATER, so it is matched against the
+        # PRIOR backup and adopts the owner's DataPath verbatim, writing no
+        # bytes of its own. That is the borrow D-1 needs.
+        [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $one)
+        & $run ([datetime]'2024-02-02 00:00:02')      # => Snapshot_2024_01_01_00_00_01
+
+        # run3 - an ORDINARY edit of the owner. In Mirror the destination is the
+        # owner's own path, so this overwrites the bytes the borrower still
+        # claims; the borrower did not change, so nothing revisits its row.
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $two)
+        & $run ([datetime]'2024-03-03 00:00:03')      # => Snapshot_2024_02_02_00_00_02
+
+        return [pscustomobject]@{
+            Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one; Two = $two
+            SnapAfterRun1 = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+            SnapAfterRun2 = Join-Path $chg 'Snapshot_2024_02_02_00_00_02'
+        }
+    }
+
+    function New-SameRunDuplicateStore {
+        <#
+        .SYNOPSIS
+            The D-5 shape: two identical files FIRST SEEN IN ONE RUN, where the
+            dedup lookup consults only the prior backup and so finds nothing.
+        #>
+        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $cfg = Join-Path $Root 'c.xml'
+        New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        $one = 'SAME-RUN-DUPLICATE ' * 60
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'sub\b.bin'), $one)
+        & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-01-01 00:00:01') *>&1 | Out-Null
+        return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one }
+    }
 }
 
 Describe 'Dated point-in-time snapshot (SR-005)' {
@@ -2802,5 +2873,101 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         & (Join-Path $env.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
         [IO.File]::ReadAllText((Join-Path $target 'keep.txt')) |
             Should -Be ('KEEP ' * 40) -Because 'DataPath is a locator hint; (hash,length) is the content authority'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# WP9 step 1 — D-1 / D-5 repros (TC-118, TC-119, SR-059, SR-060).
+#
+# Two Describes on purpose:
+#   * the CONTRACT block asserts the behavior WP9 delivers, and passes today
+#     only in the content-addressed modes;
+#   * the CHANGE-DETECTOR block asserts that the two defects really do
+#     reproduce on Mirror today, so the repro is proven rather than asserted.
+#     It dies with the mode at WP9 step 5 — the same convention G2.8 uses.
+# The asymmetry between the two blocks IS the evidence that the contract block
+# tests something real.
+# ---------------------------------------------------------------------------
+
+Describe 'Shared content survives an owner edit (D-1, SR-059, TC-118)' {
+    It 'keeps the borrower restorable after the owner is edited (<Mode>)' -ForEach @(
+        @{ Mode = 'HashAddressed';           Compress = $false; CA = $true }
+        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  CA = $true }
+    ) {
+        $root = Join-Path $TestDrive ('d1\' + ($Mode -replace '\W', ''))
+        $t = New-BorrowTimeline -Root $root -Compress $Compress -ContentAddressed $CA
+
+        # (1) Store level: no row claims bytes that are not there. This is the
+        # detector D-1 needed and nothing had - the borrowed file is PRESENT
+        # after the owner's edit, so no blank-row or Test-Path check sees it.
+        @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+        @(Get-BlankRowPoolViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+
+        # (2) Latest state: the owner moved on, the borrower still holds the
+        # original content.
+        $latest = Join-Path $root 'r-latest'
+        & (Join-Path $t.Bkp 'RECONSTRUCT.ps1') -TargetRoot $latest *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $latest 'a.bin'))        | Should -Be $t.Two
+        [IO.File]::ReadAllText((Join-Path $latest 'sub\twin.bin')) | Should -Be $t.One
+
+        # (3) Point in time: the snapshot of the pre-edit state gives the
+        # ORIGINAL content for both paths.
+        $pre = Join-Path $root 'r-pre-edit'
+        & (Join-Path $t.SnapAfterRun2 'RECONSTRUCT.ps1') -TargetRoot $pre *>&1 | Out-Null
+        foreach ($rel in 'a.bin', 'sub\twin.bin') {
+            [IO.File]::ReadAllText((Join-Path $pre $rel)) | Should -Be $t.One
+        }
+    }
+}
+
+Describe 'Same-run duplicates are stored once (D-5, SR-060, TC-119)' {
+    It 'writes ONE physical object for content first seen in one run (<Mode>)' -ForEach @(
+        @{ Mode = 'HashAddressed';           Compress = $false; CA = $true }
+        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  CA = $true }
+    ) {
+        $root = Join-Path $TestDrive ('d5\' + ($Mode -replace '\W', ''))
+        $t = New-SameRunDuplicateStore -Root $root -Compress $Compress -ContentAddressed $CA
+
+        $rows = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv') |
+                  Where-Object { $_.RelativePath -in 'a.bin', 'sub\b.bin' })
+        $rows.Count | Should -Be 2
+        @($rows | Select-Object -ExpandProperty DataPath -Unique).Count |
+            Should -Be 1 -Because 'identical content resolves to one physical object, whenever it was first seen'
+        Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
+            Should -Be 1 -Because 'the pool holds exactly one copy of the shared bytes'
+    }
+}
+
+Describe 'D-1/D-5 change-detectors: both defects reproduce on Mirror today' {
+    # DELETE THIS WHOLE Describe WITH THE MODE at WP9 step 5. It exists to prove
+    # the two Describes above test something real: the identical timelines that
+    # pass content-addressed are corrupt or wasteful under Mirror. Written as an
+    # assertion of the defect (G2.8's convention) so the suite stays green per
+    # commit instead of carrying a known-red test through four steps.
+    It 'loses the borrower''s content when the owner is edited (<Mode>)' -ForEach @(
+        @{ Mode = 'Mirror';           Compress = $false; CA = $false }
+        @{ Mode = 'Mirror+Compress';  Compress = $true;  CA = $false }
+    ) {
+        $root = Join-Path $TestDrive ('d1x\' + ($Mode -replace '\W', ''))
+        $t = New-BorrowTimeline -Root $root -Compress $Compress -ContentAddressed $CA
+
+        # D-1: the borrower's row still claims (hash,length) at a DataPath whose
+        # bytes are now the owner's NEW content. The file is present, so nothing
+        # else in the system notices.
+        @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) |
+            Should -Not -BeNullOrEmpty -Because 'D-1: the owner edit overwrote bytes another row still claims'
+    }
+
+    It 'stores same-run duplicates twice (<Mode>)' -ForEach @(
+        @{ Mode = 'Mirror';           Compress = $false; CA = $false }
+        @{ Mode = 'Mirror+Compress';  Compress = $true;  CA = $false }
+    ) {
+        $root = Join-Path $TestDrive ('d5x\' + ($Mode -replace '\W', ''))
+        $t = New-SameRunDuplicateStore -Root $root -Compress $Compress -ContentAddressed $CA
+
+        $row = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv') |
+                 Where-Object { $_.RelativePath -eq 'sub\b.bin' })[0]
+        Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $row.xxH2Hash -Length ([long]$row.Length) |
+            Should -Be 2 -Because 'D-5: the dedup lookup consults only the PRIOR backup, so a same-run pair is stored twice'
     }
 }

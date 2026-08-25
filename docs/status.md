@@ -4045,3 +4045,41 @@ SR-061 — their amend-vs-retire disposition is settled at WP9 G1 and recorded, 
 no Verified SR is silently dropped. Trace after the edits: orphans=0 integrity=0
 status-findings=0 phase-deferred=8.
 
+### DRIVER — WP9 step 1: D-1/D-5 repros land (TC-118, TC-119) — 2026-08-25
+
+Verdict: **step 1 complete, suite green.** No engine code touched yet.
+
+Landed:
+- **`Get-ClaimedRowViolations`** in `tests/Common/PoolAudit.ps1` — the detector
+  D-1 actually needed. Every existing check asks whether a row's file is
+  PRESENT; D-1 leaves it present and changes its BYTES, so `Test-Path`,
+  `Test-PoolResolves` and a non-`-Deep` Verify all sail past it. The new helper
+  proves every non-blank row's own DataPath reproduces that row's
+  `(hash,length)`, deriving form from the bytes (hash raw first, expand only on
+  failure) rather than trusting the `Compressed` column — S1's rule, applied
+  early where it is free.
+- **Two contract Describes** (content-addressed modes) plus a **change-detector
+  Describe** asserting that both defects reproduce under Mirror, following the
+  `G2.8` convention so the suite stays green per commit rather than carrying a
+  known-red test through four steps. The change-detector block is deleted whole
+  with the mode at step 5.
+
+**Finding, recorded in TC-118 and in the helper's `.NOTES`: a second same-run
+copy MASKS D-1.** The first repro used two identical files in run 1 and a third
+borrowing later — and the defect did not fire. With more than one prior copy the
+borrower's adopted DataPath may name the untouched sibling, and even when it
+names the edited file the surviving sibling keeps the content alive. **D-1
+requires the borrowed-from file to be the ONLY prior holder of the content** —
+i.e. a duplicate PAIR where one member is edited, which is exactly the review's
+real-world examples (a photo in two folders, a document and its pre-edit copy,
+an installer kept in two places). Three-or-more copies are self-protecting by
+accident. This is why the bench drill only saw it at cycle 10. The two timelines
+are therefore kept SEPARATE (`New-BorrowTimeline` for D-1,
+`New-SameRunDuplicateStore` for D-5); folding them back together silently
+destroys the repro.
+
+Evidence (real output, this host): `Invoke-Pester tests\Unit\Coverage.Tests.ps1`
+→ **176 passed / 0 failed**, with the asymmetry that makes the tests meaningful:
+borrower survives the owner edit on HashAddressed ±Compress and is LOST on
+Mirror ±Compress; one physical object same-run on HashAddressed, two on Mirror.
+

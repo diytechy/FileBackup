@@ -110,3 +110,68 @@ function Get-PoolContentCopyCount {
     $verified = Get-PoolByteVerifiedHashes -Folders $Folders -SevenZipPath $SevenZipPath
     return [int]$verified["$Hash|$Length"]
 }
+
+function Get-ClaimedRowViolations {
+    <#
+    .SYNOPSIS
+        TC-118/TC-122 (SR-059): every NON-blank-DataPath row in every manifest
+        (backup root and every snapshot) must find, at its own DataPath, bytes
+        that reproduce that row's (xxH2Hash, Length). Returns one violation
+        string per failing row (empty = clean).
+
+    .DESCRIPTION
+        The companion to Get-BlankRowPoolViolations, and the detector the
+        HomeHub drill did NOT have: D-1 damage leaves the row's file PRESENT
+        (so nothing blanks it) while its bytes now belong to a different
+        (hash,length) — invisible to Test-Path, to Test-PoolResolves and to a
+        non-Deep -Action Verify.
+
+        Form is PROVEN from the bytes, never taken from the Compressed column,
+        exactly as Find-DataFileByHash does: the file's own bytes are hashed
+        first (which is the answer for raw storage, including a source file
+        that genuinely IS an archive), and only if that fails is the file
+        expanded and its payload hashed.
+    #>
+    param([string]$BackupRoot, [string]$ChangeRoot, [string]$SevenZipPath)
+    if (-not $SevenZipPath) { $SevenZipPath = (Get-FileBackupDefaults).SevenZipDefaultPath }
+    $folders    = Get-PoolFolderList -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot
+    $violations = @()
+    foreach ($folder in $folders) {
+        $manifest = Join-Path $folder 'MANIFEST.csv'
+        if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { continue }
+        foreach ($row in @(Import-Csv -LiteralPath $manifest)) {
+            if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+            if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
+            $full = Join-Path $folder $row.DataPath
+            if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                $violations += "'$($row.RelativePath)' in '$folder': DataPath '$($row.DataPath)' names no file"
+                continue
+            }
+            $want = "$($row.xxH2Hash)|$($row.Length)"
+            $got  = $null
+            try { $got = "$(Get-FileXxHash -FilePath $full)|$((Get-Item -LiteralPath $full -Force).Length)" }
+            catch {
+                $violations += "'$($row.RelativePath)' in '$folder': DataPath '$($row.DataPath)' could not be read: $($_.Exception.Message)"
+                continue
+            }
+            if ($got -eq $want) { continue }
+            # Not raw storage of this row's content — try it as an archive.
+            $expanded = $null
+            if ($SevenZipPath -and (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
+                $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                try {
+                    Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $full -DestinationFile $tmp
+                    $expanded = "$(Get-FileXxHash -FilePath $tmp)|$((Get-Item -LiteralPath $tmp -Force).Length)"
+                } catch {
+                    Write-Verbose "PoolAudit: '$full' is neither this row's raw bytes nor an expandable archive: $($_.Exception.Message)"
+                } finally {
+                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                }
+            }
+            if ($expanded -eq $want) { continue }
+            $violations += ("'$($row.RelativePath)' in '$folder': DataPath '$($row.DataPath)' holds " +
+                            "$(if ($expanded) { "payload $expanded" } else { "bytes $got" }) but the row claims $want")
+        }
+    }
+    return $violations
+}
