@@ -236,6 +236,7 @@ recommendation: **refuse it by name** (config failure, status 2) in
 | manifest row order | `Sort-Object` before `Write-Manifest` (partly done at `:3630`), pinned by a determinism test |
 | Source-side manifest cache default | **Out of this WP** — an independent config change with no D-1/D-5 coupling; stays an Open item (§9 Q5) |
 | Windows reserved device names | **IN** — the 2026-08-25 ratification moved the deferred kit-bump plan §11 Q2 into this WP; see §3.10 |
+| **S3 (trivial half) — re-homing is a same-name copy** | **FOLDED IN** (2026-08-25 architecture read): a content-addressed name is derived from content, so a re-homed file's source and destination names are always identical — `Get-ReHomedDataPathName` (30 lines) collapses and the "already re-homed?" question becomes a filename test. The `Get-BackupContentIndex`/`Optimize-ChangeFolders` half is to be MEASURED here, not promised. See status.md "Simplification candidates" |
 | **F8 kit-less snapshot window** | **FOLDED IN** (driver call 2026-08-25): a crash between the `Temp`→`Snapshot_*` rename and the kit copy leaves a valid snapshot with no restore kit. Fix: copy the kit into staging **before** the rename. This WP already opens `Complete-ChangeFolder`'s neighbourhood, and the standing directive says the queue ships whole |
 
 ### 3.10 Windows reserved device names — the deferred SR-055 extension, now IN
