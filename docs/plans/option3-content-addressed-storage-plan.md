@@ -6,6 +6,10 @@ still run the full gated process (G1 requirements pass → G2 decomposition → 
 implementation + independent review — engine and restore surface, so the
 independent pre-gate review is mandatory per process.md §6). Nothing here is
 implemented yet; AGENTS.md continues to describe the current code until G3.
+**Implementation work order (2026-08-25):**
+[wp9-content-addressed-storage-workorder.md](wp9-content-addressed-storage-workorder.md)
+— ordered G3 steps, registry rows, test reshape, and the driver decisions this
+record left open (pool subfolder, manifest columns, migration, view scale).
 
 **Ruling (human, 2026-08-24, verbatim intent):** content-address all storage;
 Mirror browsability becomes a best-effort, non-authoritative view; where the

@@ -70,16 +70,28 @@ last) — it is the record, not required reading for every pass.
   bats **64/64**, shellcheck clean, `check.ps1 -Tier Full` all steps passed,
   trace 0/0/0 with ratchet `core,bash-v1,container-v1,kitbump-v6`
   (phase-deferred=1: SR-033). Eight commits on `New_Fix_Batch`; full G3
-  audit entry below. **Pending: independent review (in progress) + human
-  ratification; plan §11 questions 2 (reserved names, DEFERRED) and
-  confirmations 1/3/4/5 remain with the human.**
-- **Active gate:** G3. **Next actions, in order:** (1) independent-review
-  verdict + human ratification of the kit-bump G3 (above); (2) the
-  **option-3 WP** (D-1/D-5 + folded items;
-  [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md))
-  runs G1→G3 + independent review; (3) G3 → G-Release (human attestation);
-  (4) IF-001 Experimental → Stable jointly with HomeHub — D-2 is now fixed;
-  D-1 still blocks it until option-3 lands.
+  audit entry below. **RATIFIED by the human 2026-08-25** (two independent
+  reviews answered; entry at the end of the log), together with a standing
+  directive: **no further ratification pauses** — the queued work ships as a
+  full solution before HomeHub builds; independent review is retained as a
+  quality bar. Reserved device names (plan §11 Q2) moved **IN** to the
+  option-3 WP by that ruling.
+- **WP9 WORK ORDER DRAFTED (2026-08-25):**
+  [plans/wp9-content-addressed-storage-workorder.md](plans/wp9-content-addressed-storage-workorder.md)
+  — the implementation plan for D-1/D-5 (option 3), grounded at `553638c`:
+  ordered G3 steps, registry rows (SN-034, SR-058..064, LLR-058..064,
+  TC-118..134 + TC-117 reserved names), the test reshape, and seven recorded
+  driver decisions. Three findings the design record did not have: a single
+  `INDEX.html` is ~100 MB at library scale (per-folder pages proposed —
+  **veto-flagged, it refines the human's HTML-index ruling**); the Mirror→Hash
+  migration must **verify bytes before naming them by hash** or it poisons the
+  pool with the D-1 damage already on disk; and it must **rename, not copy**,
+  or the SR-052 preflight correctly refuses a 4 TB store on a 6 TB disk.
+- **Active gate:** G3. **Next actions, in order:** (1) **WP9** (D-1/D-5 +
+  folded items + reserved names) runs G1→G3 + independent review, no
+  ratification pause; (2) G3 → G-Release (human attestation);
+  (3) IF-001 Experimental → Stable jointly with HomeHub — D-2 is now fixed;
+  D-1 still blocks it until WP9 lands.
 
 ## Open items
 
@@ -3857,3 +3869,43 @@ ratification done"). Standing directive recorded verbatim in intent:
   Q1/Q3/Q4/Q5 as shipped. The independent-review step is retained (it is a
   quality bar, not a ratification bar, and it caught real blockers twice);
   gate EVIDENCE keeps being recorded here as always.
+
+### DRIVER — WP9 (D-1/D-5 content-addressed storage) work order — 2026-08-25
+
+Verdict: **plan drafted, no code touched.**
+[plans/wp9-content-addressed-storage-workorder.md](plans/wp9-content-addressed-storage-workorder.md)
+turns the ruled option-3 design into an executable work order, pinned and
+line-verified at `553638c` (18-row grounding table). Ids allocated: SN-034,
+SR-058..SR-064, LLR-058..LLR-064, TC-118..TC-134, plus TC-117 and the
+SR-055/LLR-055 amendment for the reserved-device-names item this session's
+ratification moved IN.
+
+Three things the design record did not have, all from reading the code this pass:
+- **The view does not scale as ruled.** One `INDEX.html` over ~500k rows is
+  ~100 MB of markup, regenerated every run. Proposed: `INDEX.tsv` always +
+  per-folder HTML pages + root search under a 50k-row threshold — the ruling's
+  intent (browse + search, no links) at library scale. **Veto-flagged: it
+  refines a mechanism the human chose personally.**
+- **Migration must verify before it names.** An existing Mirror store may
+  already hold D-1 damage; renaming those bytes to a content-addressed name
+  would poison the pool permanently (every future hash recovery finds a file
+  whose name lies). Migration hashes first, blanks + reports a mismatch, and so
+  doubles as the first honest audit of the damage already on disk.
+- **Migration must rename, not copy.** B7's copy-then-delete demands a second
+  full copy, so `Get-MigrationCapacityDemand` + `Assert-BackupCapacity` would
+  (correctly) refuse to convert a 4 TB store on a 6 TB disk. A same-volume
+  rename costs ~0 and is crash-safe by construction — the renamed file is
+  self-identifying.
+
+Driver decisions recorded (§9, each open to veto under the standing directive):
+flat pool root (no `pool/` subfolder — hash-name grammar already kills the
+collision family); 9-column manifest untouched with `StoredAsHashSize` frozen at
+`'Hash'`; owner-election replaces Sync's form-conflict skip;
+`Save-SupersededData` moves after the copy/evict steps so its survival test is
+exact; `BrowseView` defaults `off` with `index` in the shipped examples;
+`PreserveFolderTree` refused **by name in CLIXML too** (it is exempt from the
+closed schema, so it would otherwise be silently ignored); source-side manifest
+cache default stays out of this WP.
+
+**Next:** WP9 G1 (registry rows + SN-008 rewrite), then G2, then the ordered G3
+steps — all on a Windows host.
