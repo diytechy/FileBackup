@@ -410,12 +410,18 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
             Should -Be (Get-FileHash -LiteralPath (Join-Path $src 'real.7z') -Algorithm SHA256).Hash
     }
 
-    It 'still reports an unexpandable, unmatching .7z candidate as a HOST failure (SR-040, SR-050)' {
+    It 'reports an unexpandable, unmatching .7z candidate as CONTENT damage naming the candidate (SR-040, kit rev 6)' {
+        # Until kit revision 6 this shape was reported as a HOST failure — but no
+        # candidate the locator inspects is the row's own file, so an archive
+        # that will not expand is damaged data a retry cannot fix (D-3 ruling,
+        # 2026-08-24). The old pin asserted '*0 content-missing, 1 host*'.
         $s = New-BlankRowStore -Root (Join-Path $TestDrive 'tc098-host') -DataName 'x.txt.7z' `
                 -Compressed 'Yes' -Corrupt
         $target = Join-Path $TestDrive 'tc098-host-out'
         { & (Join-Path $s.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null } |
-            Should -Throw -ExpectedMessage '*0 content-missing, 1 host*'
+            Should -Throw -ExpectedMessage '*1 content-missing, 0 host*'
+        (Get-Content -LiteralPath (Join-Path $target 'RECONSTRUCT.log') -Raw) |
+            Should -Match 'could not be expanded'
     }
 
     It 'still reports genuinely absent content as the CONTENT class (SR-040, SR-050)' {

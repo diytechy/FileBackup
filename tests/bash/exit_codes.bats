@@ -154,6 +154,51 @@ restamp_witness() {
     [[ "$output" == *"1 content-missing, 1 host"* ]]
 }
 
+@test "1: an unrelated unexpandable .7z in the pool is data damage, not a host problem (kit rev 6, SR-040 / TC-112)" {
+    # D-3: with 7z PRESENT, a garbage archive candidate met during hash recovery
+    # used to flip "your bytes are gone" (1) into "fix this host" (4). No
+    # candidate the locator inspects is the row's own file, so an unexpandable
+    # archive there is damaged data: ContentMissing, exit 1, candidate named.
+    command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
+    local bad="$BATS_TEST_TMPDIR/d3content"
+    mkdir -p "$bad"
+    printf 'payload-bytes\n' > "$bad/orig.txt"
+    local h len
+    h="$(hash_upper "$bad/orig.txt")"; len="$(stat -c '%s' "$bad/orig.txt")"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+    } > "$bad/MANIFEST.csv"
+    rm -f "$bad/orig.txt"
+    printf 'not-an-archive-at-all\n' > "$bad/noise.7z"
+    restamp_witness "$bad/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/td3" --from "$bad"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ContentMissing"* ]]
+    [[ "$output" == *"could not be expanded"* ]]
+    [[ "$output" == *"noise.7z"* ]]
+    [[ "$output" != *"CandidateError"* ]]
+}
+
+@test "4: a row's OWN archive failing to expand is still host class (kit rev 6 non-regression, SR-040 / TC-112)" {
+    # The restore loop's CandidateError is untouched by D-3: the row resolves
+    # through its own DataPath, so extraction failure is about THIS host.
+    command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
+    local bad="$BATS_TEST_TMPDIR/d3own"
+    mkdir -p "$bad"
+    printf 'garbage-not-7z\n' > "$bad/own.7z"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      printf '"own.7z","payload.txt","999","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","Yes","HashSize","0",""\r\n'
+    } > "$bad/MANIFEST.csv"
+    restamp_witness "$bad/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/td3own" --from "$bad"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"CandidateError"* ]]
+}
+
 @test "the usage text documents the whole table (SR-040)" {
     run bash "$RS" --help
     [ "$status" -eq 0 ]

@@ -47,7 +47,9 @@
 #      NO file is written to the target (SR-039).
 #   4  INCOMPLETE, HOST — rows failed for reasons on this machine, not in the
 #      backup (unreadable search folder, 7z unavailable for an archive
-#      candidate, extraction/copy I/O error). Retry after fixing the host.
+#      candidate, extraction/copy I/O error on the row's OWN file). Retry after
+#      fixing the host. Since kit revision 6 a POOL candidate that fails to
+#      expand is data damage (ContentMissing, exit 1), not a host problem.
 #
 # Precedence when several apply: 2 > 3 > 4 > 1.
 #
@@ -219,13 +221,23 @@ infra_skip() {
 # extracts it. Mirrors Find-DataFileByHash.
 #
 # Echoes ONE line:  <cause>\037<detail>\037<path>   where cause is
-#   Found | ContentMissing | DependencyMissing | StorageUnreadable | CandidateError
+#   Found | ContentMissing | DependencyMissing | StorageUnreadable
 # so the caller can tell "your bytes are gone" (exit 1) from "fix this host and
 # retry" (exit 4) — SR-040. The cause travels in the OUTPUT rather than a global
 # because callers use command substitution, which runs this in a subshell where
-# any global assignment would be discarded. The three host causes are only
+# any global assignment would be discarded. The two host causes are only
 # reported when nothing matched: a successful recovery must never be downgraded
 # by an unrelated bad folder.
+#
+# This locator never returns CandidateError (kit revision 6; SR-040 amendment
+# 2026-08-24): it is only ever called when the row's own file is blank or
+# missing, so no candidate it inspects is the row's own file — an archive
+# candidate that fails to EXPAND is data damage, and a retry on this host cannot
+# change the outcome. Such candidates are named inside ContentMissing's detail
+# instead. (Reconstruct.ps1 additionally reports a candidate whose bytes cannot
+# be READ as StorageUnreadable; this shell has no distinct read-error arm —
+# stat/hash failures fall through to non-match — a recorded asymmetry, LLR-040.)
+# Only the restore loop raises CandidateError, for a row's OWN file.
 #
 # On Found the DETAIL field carries the located file's proven FORM — 'Archive'
 # (the payload matched after expanding it) or 'Raw' (the file itself hashed) —
@@ -242,7 +254,7 @@ infra_skip() {
 # Mirrors Reconstruct.ps1 exactly.
 find_by_hash() {
     local want_hash="$1" want_len="$2" folder f sz tmp h expand_failed
-    local host_dep='' host_storage='' host_candidate=''
+    local host_dep='' host_storage='' expand_fail_first='' expand_fail_n=0
     for folder in "${SEARCH_FOLDERS[@]}"; do
         if [[ ! -d "$folder" || ! -r "$folder" ]]; then
             host_storage="search folder '$folder' is absent or unreadable"
@@ -287,7 +299,9 @@ find_by_hash() {
                     if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
                 fi
                 if (( expand_failed )); then
-                    host_candidate="archive candidate '$f' could not be expanded"
+                    # Data damage, not a host condition — see the header comment.
+                    (( expand_fail_n++ ))
+                    [[ -n "$expand_fail_first" ]] || expand_fail_first="$f"
                 fi
             else
                 sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
@@ -297,11 +311,13 @@ find_by_hash() {
             fi
         done < <(find "$folder" -type f -print0 2>/dev/null)
     done
-    # A missing dependency outranks the others: it is the one with a precise
+    # A missing dependency outranks the other: it is the one with a precise
     # remediation. Mirrors Find-DataFileByHash's ordering.
     if   [[ -n "$host_dep"       ]]; then printf 'DependencyMissing\037%s\037' "$host_dep"
     elif [[ -n "$host_storage"   ]]; then printf 'StorageUnreadable\037%s\037' "$host_storage"
-    elif [[ -n "$host_candidate" ]]; then printf 'CandidateError\037%s\037'    "$host_candidate"
+    elif (( expand_fail_n > 0 )); then
+        printf 'ContentMissing\037no file with (hash=%s, len=%s) survives in the data pool. %d archive candidate(s) could not be expanded (data damage, not a host problem): '\''%s'\''\037' \
+            "$want_hash" "$want_len" "$expand_fail_n" "$expand_fail_first"
     else printf 'ContentMissing\037no file with (hash=%s, len=%s) survives in the data pool\037' "$want_hash" "$want_len"
     fi
     return 1

@@ -38,9 +38,11 @@
            (capacity, 7-Zip) run after target+log creation, identically in
            both restorers.
         4  Incomplete, HOST — rows failed for reasons on this machine, not in
-           the backup (unreadable search folder, 7-Zip unavailable for an
-           archive candidate, extraction/copy I/O error). Retry after fixing
-           the host.
+           the backup (unreadable search folder or candidate, 7-Zip unavailable
+           for an archive candidate, extraction/copy I/O error on the row's OWN
+           file). Retry after fixing the host. Since kit revision 6 a POOL
+           candidate that fails to expand is data damage (ContentMissing, 1),
+           not a host problem — only the restore loop raises CandidateError.
 
     Precedence when several apply: 2 > 3 > 4 > 1.
 
@@ -224,13 +226,24 @@ function Find-DataFileByHash {
           Found              — Path holds the data source; Form is 'Archive'
                                (extract it) or 'Raw' (copy it).
           ContentMissing     — the pool was searched cleanly; the bytes are gone.
+                               Archive candidates that failed to EXPAND are named
+                               in the Detail: this locator is only ever called
+                               when the row's own file is blank or missing, so no
+                               candidate it inspects is the row's own file — an
+                               unexpandable archive here is data damage, and a
+                               retry on this host cannot change the outcome
+                               (kit revision 6; SR-040 amendment 2026-08-24).
           DependencyMissing  — an archive candidate was met with no usable 7-Zip.
-          StorageUnreadable  — a search folder is absent or could not be read.
-          CandidateError     — a candidate failed to extract (I/O or archive error).
+          StorageUnreadable  — a search folder is absent or could not be read, or
+                               a candidate's bytes could not be READ at all
+                               (I/O error, lock, permission) — reading may
+                               succeed on a healthy host, so exit 4 is honest.
 
-        The three non-ContentMissing causes are HOST problems (exit 4): the
+        The two non-ContentMissing causes are HOST problems (exit 4): the
         backup may still hold the bytes, so a wrapper should retry rather than
         report data loss. They are only reported when the scan found nothing.
+        The locator never returns CandidateError — that cause is raised only by
+        the restore loop, for a row's OWN file failing to extract or copy.
     #>
     # Implements: SR-040, SR-050, LLR-040, LLR-050
     param([string]$Hash, [long]$Length, [string[]]$SearchFolders, [string]$SevenZipPath)
@@ -239,6 +252,10 @@ function Find-DataFileByHash {
     # Host-class problems met along the way, reported only if nothing matched — a
     # successful recovery must never be downgraded by an unrelated bad folder.
     $hostIssues = New-Object System.Collections.Generic.List[pscustomobject]
+    # Archive candidates that failed to EXPAND. Not a host issue: no candidate
+    # here is the row's own file, so an unexpandable archive proves nothing about
+    # this host — it is damaged data, reported inside ContentMissing's detail.
+    $failedExpand = New-Object System.Collections.Generic.List[string]
 
     foreach ($folder in $SearchFolders) {
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
@@ -264,14 +281,17 @@ function Find-DataFileByHash {
                     # '.7z' name, or a genuine '.7z' source stored verbatim —
                     # and testing that needs no 7-Zip at all (kit revision 5).
                     # Only a candidate whose raw bytes do NOT match still needs
-                    # the dependency.
+                    # the dependency. A candidate that cannot be READ records
+                    # exactly ONE cause (StorageUnreadable): 7-Zip could not
+                    # have helped read a file that cannot be read (kit rev 6).
                     try {
                         if ($f.Length -eq $Length -and (Get-FileXxHash -FilePath $f.FullName) -eq $Hash) {
                             return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Raw'; Detail = '' }
                         }
                     } catch {
-                        $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                        $hostIssues.Add([pscustomobject]@{ Cause = 'StorageUnreadable'
                             Detail = "Candidate '$($f.FullName)' could not be read: $($_.Exception.Message)" })
+                        continue
                     }
                     $hostIssues.Add([pscustomobject]@{ Cause = 'DependencyMissing'
                         Detail = "An archive candidate '$($f.FullName)' needs 7-Zip, which was not found at '$SevenZipPath'." })
@@ -302,12 +322,12 @@ function Find-DataFileByHash {
                         return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Raw'; Detail = '' }
                     }
                 } catch {
-                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                    $hostIssues.Add([pscustomobject]@{ Cause = 'StorageUnreadable'
                         Detail = "Candidate '$($f.FullName)' could not be read: $($_.Exception.Message)" })
                 }
                 if ($expandError) {
-                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
-                        Detail = "Archive candidate '$($f.FullName)' could not be expanded: $expandError" })
+                    # Data damage, not a host condition — see $failedExpand above.
+                    $failedExpand.Add("'$($f.FullName)': $expandError")
                 }
             } elseif ($f.Length -eq $Length) {
                 try {
@@ -315,26 +335,31 @@ function Find-DataFileByHash {
                         return [pscustomobject]@{ Path = $f.FullName; Cause = 'Found'; Form = 'Raw'; Detail = '' }
                     }
                 } catch {
-                    $hostIssues.Add([pscustomobject]@{ Cause = 'CandidateError'
+                    $hostIssues.Add([pscustomobject]@{ Cause = 'StorageUnreadable'
                         Detail = "Candidate '$($f.FullName)' could not be read: $($_.Exception.Message)" })
                 }
             }
         }
     }
 
-    # A missing dependency outranks the others: it is the one with a precise
+    # A missing dependency outranks the other: it is the one with a precise
     # remediation ("install 7-Zip"), so it is what the operator should be told.
-    foreach ($preferred in 'DependencyMissing', 'StorageUnreadable', 'CandidateError') {
+    foreach ($preferred in 'DependencyMissing', 'StorageUnreadable') {
         $issue = $hostIssues | Where-Object { $_.Cause -eq $preferred } | Select-Object -First 1
         if ($issue) {
             return [pscustomobject]@{ Path = $null; Cause = $issue.Cause; Form = $null; Detail = $issue.Detail }
         }
     }
+    $detail = "No file with (hash=$Hash, length=$Length) survives anywhere in the data pool."
+    if ($failedExpand.Count -gt 0) {
+        $detail += " $($failedExpand.Count) archive candidate(s) could not be expanded" +
+            " (data damage, not a host problem): $($failedExpand[0])."
+    }
     return [pscustomobject]@{
         Path   = $null
         Cause  = 'ContentMissing'
         Form   = $null
-        Detail = "No file with (hash=$Hash, length=$Length) survives anywhere in the data pool."
+        Detail = $detail
     }
 }
 
