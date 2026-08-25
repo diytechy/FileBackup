@@ -53,7 +53,7 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 5
+# KitRevision: 6
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -69,8 +69,15 @@
 # dictionary case-sensitively there. Revision 5 tests a '.7z'-named recovery
 # candidate's raw bytes even when 7-Zip is absent (raw needs no 7-Zip), so a
 # restore that requires no actual decompression no longer exits 4 demanding
-# 7-Zip. Restoring a snapshot with its OWN older kit still carries the
-# defects fixed after it.
+# 7-Zip. Revision 6 verifies EVERY written file against the row's
+# (Length, xxH2Hash) — healing a mismatch from the pool once, else failing
+# loudly as ContentMismatch (SR-056); reclassifies an unexpandable POOL
+# candidate as content damage (exit 1) rather than a host problem, while a
+# row's own file failing to extract stays exit 4; scans the pool with -Force
+# so dot-named and Hidden data files are recoverable by (hash,length)
+# (SR-057); and adds the -NonInteractive guard (usage + exit 2) in place of a
+# blocking prompt (SR-016). Restoring a snapshot with its OWN older kit still
+# carries the defects fixed after it.
 
 param(
     [string]$TargetRoot,

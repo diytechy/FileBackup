@@ -58,7 +58,7 @@
 # Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
 #             LLR-032, LLR-039, LLR-040, LLR-050)
 #
-# KitRevision: 5
+# KitRevision: 6
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from
@@ -70,8 +70,15 @@
 # and falls back to (hash,length) pool recovery when a row's named data file is
 # missing. Revision 5 tests a '.7z'-named recovery candidate's raw bytes even
 # when 7z is absent (raw needs no 7z), so a restore that requires no actual
-# decompression no longer exits 4 demanding it. Restoring a snapshot with its
-# OWN older kit still carries the defects fixed after it.
+# decompression no longer exits 4 demanding it. Revision 6 verifies EVERY
+# written file against the row's (Length, xxH2Hash) — healing a mismatch from
+# the pool once, else failing loudly as ContentMismatch (SR-056); and
+# reclassifies an unexpandable POOL candidate as content damage (exit 1)
+# rather than a host problem, while a row's own file failing to extract stays
+# exit 4. (The -Force pool-scan and non-interactive-guard halves of revision 6
+# are PowerShell-side: find(1) never skipped dot files and --target-root was
+# always required here.) Restoring a snapshot with its OWN older kit still
+# carries the defects fixed after it.
 
 set -uo pipefail
 

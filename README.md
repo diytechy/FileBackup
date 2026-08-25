@@ -301,7 +301,16 @@ as unrecoverable even when the bytes survived elsewhere in the pool, and (in
 of a folder tree. Revision 4 fixes all three. Kits **before revision 5** gave up
 on a `.7z`-named recovery candidate whenever 7-Zip was absent — even when the
 candidate was a raw file whose own bytes were the answer, needing no 7-Zip at
-all. (The revision is the `# KitRevision:` line near the top
+all. Kits **before revision 6** restored whatever bytes a resolvable
+`DataPath` held **without checking them** — a wrong payload, a same-length
+bit-flip, even a truncated file restored with exit 0 — could not see hidden
+or dot-named files in the data pool (making exactly the hash-addressed names
+that begin with a dot unrecoverable), and reported one unrelated unexpandable
+`.7z` in the pool as a host problem (exit 4) instead of data damage (exit 1).
+Revision 6 verifies every written file against the manifest's hash and
+length, heals a mismatch from the pool when a good copy survives, scans the
+pool with hidden files included, and fails with honest exit codes. (The
+revision is the `# KitRevision:` line near the top
 of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
 alongside every `BlankRowFormDisagreement` finding.)
 

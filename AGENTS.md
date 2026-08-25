@@ -199,15 +199,18 @@ Imports (internal): `Common`
 
 ## 3. Invariants — do not break
 
-> **Known open defects (verified 2026-08-24, fixes pending human design
-> rulings — see docs/status.md "Open items" and
+> **Known open defects (verified 2026-08-24 — see docs/status.md "Open items"
+> and
 > [docs/defect-review-2026-08-24-mirror-dedup.md](docs/defect-review-2026-08-24-mirror-dedup.md)):**
 > D-1 Mirror-mode cross-path dedup can destroy the last copy of shared content
-> on an ordinary edit; D-2 both restorers trust a resolvable `DataPath`
-> without hashing; D-4 hidden/dot-prefixed source files are silently never
-> backed up (no `-Force` on any PowerShell-side enumeration). Until these are
-> fixed, the restore-correctness invariants below are ASPIRATIONAL in those
-> specific shapes; hash-addressed mode is proven immune to D-1/D-5.
+> on an ordinary edit (with D-5, its same-run face, owned by the option-3 WP
+> below). **Fixed in kit revision 6 (2026-08-24):** D-2 — both restorers now
+> verify every written file against the row's `(Length, xxH2Hash)` and heal
+> from the pool once (`ContentMismatch`, SR-056); D-3 — a pool candidate that
+> fails to expand is reported as content damage (exit 1), not a host problem;
+> D-4 — every PowerShell-side enumeration carries `-Force`, so hidden/dot
+> files are backed up and locatable (SR-057). Hash-addressed mode is proven
+> immune to D-1/D-5.
 >
 > **Design RULED (human, 2026-08-24), not yet implemented:** D-1/D-5 are fixed
 > by **content-addressing ALL storage** (Mirror/`PreserveFolderTree` is
@@ -318,8 +321,17 @@ Imports (internal): `Common`
   separators and keys the manifest dictionary case-sensitively on non-Windows
   hosts. Revision 5 tests a `.7z`-named recovery candidate's raw bytes even
   with no 7-Zip installed (raw needs none), so a restore requiring no actual
-  decompression no longer fails demanding it. An older kit still carries the
-  defects fixed after it.
+  decompression no longer fails demanding it. Revision 6 (2026-08-24, the
+  D-2/D-3/D-4 kit bump) makes both restorers **verify every file they write**
+  against the row's `(Length, xxH2Hash)` — healing a mismatch from the pool
+  once, else failing loudly as `ContentMismatch` (SR-056); reclassifies an
+  unexpandable **pool candidate** as content damage (exit 1) instead of a
+  host problem (the row's *own* file failing to extract stays exit 4); scans
+  the restore pool with `-Force` so dot-named and Hidden data files are
+  recoverable by `(hash, length)`; and gives `RECONSTRUCT.ps1` a
+  `-NonInteractive` guard (usage + exit 2, matching `reconstruct.sh`'s
+  required `--target-root`) instead of a blocking prompt. An older kit still
+  carries the defects fixed after it.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the six kit artifacts and **never**
   `MANIFEST.csv.meta`.

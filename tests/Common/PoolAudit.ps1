@@ -32,14 +32,23 @@ function Get-PoolByteVerifiedHashes {
             try {
                 $key = "$(Get-FileXxHash -FilePath $f.FullName)|$($f.Length)"
                 $set[$key] = 1 + [int]$set[$key]
-            } catch { }
+            } catch {
+                # An unreadable pool file simply contributes no verified hash —
+                # any blank row depending on it then FAILS the audit, which is
+                # the honest outcome; the audit itself must not die here.
+                Write-Verbose "PoolAudit: could not hash '$($f.FullName)': $($_.Exception.Message)"
+            }
             if ($f.Extension -ieq '.7z' -and $SevenZipPath -and (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
                 $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
                 try {
                     Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $f.FullName -DestinationFile $tmp
                     $key = "$(Get-FileXxHash -FilePath $tmp)|$((Get-Item -LiteralPath $tmp -Force).Length)"
                     $set[$key] = 1 + [int]$set[$key]
-                } catch { } finally {
+                } catch {
+                    # A .7z that will not expand contributes only its raw hash
+                    # (already recorded above) — same rationale as the raw arm.
+                    Write-Verbose "PoolAudit: could not expand '$($f.FullName)': $($_.Exception.Message)"
+                } finally {
                     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
                 }
             }
