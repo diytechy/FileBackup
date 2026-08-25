@@ -61,14 +61,25 @@ last) — it is the record, not required reading for every pass.
   AND expanded). **Session constraint:** the 2026-08-24 planning session ran
   on macOS (no pwsh/Pester/bats) — plans + registries advance here; **G3
   implementation and every test run require a Windows host session.**
-- **Active gate:** G3. **Next actions, in order:** (1) the **kit-bump WP**
-  (D-2/D-3/D-4 + restorer parity + folded nits, kit rev 6; plan:
-  [plans/kitbump-rev6-plan.md](plans/kitbump-rev6-plan.md)) and the
-  **option-3 WP** (D-1/D-5 + folded items, per the plan) run the usual
-  G1→G3 + independent-review passes — implementation on Windows; (3) G3 → G-Release
-  (human attestation; mechanized criteria are already clean); (4) IF-001
-  Experimental → Stable jointly with HomeHub — but not before D-1/D-2 are
-  fixed, since they break IF-001's core restore promise.
+- **KIT-BUMP WP G3 IMPLEMENTED (2026-08-24, Windows host, this session):**
+  D-2 verify-after-write in BOTH restorers, D-3 exit-code reclassification,
+  D-4 `-Force` at all nine sites + AST guard, TargetRoot `-NonInteractive`
+  parity, no-7z single-record nit, kit revision **6**, the approved test
+  battery (TC-108..116 incl. the byte-verified orphan second pass and the
+  de-vacuumed G2.8). Evidence: unit **357/357**, integration **412/0/4**,
+  bats **64/64**, shellcheck clean, `check.ps1 -Tier Full` all steps passed,
+  trace 0/0/0 with ratchet `core,bash-v1,container-v1,kitbump-v6`
+  (phase-deferred=1: SR-033). Eight commits on `New_Fix_Batch`; full G3
+  audit entry below. **Pending: independent review (in progress) + human
+  ratification; plan §11 questions 2 (reserved names, DEFERRED) and
+  confirmations 1/3/4/5 remain with the human.**
+- **Active gate:** G3. **Next actions, in order:** (1) independent-review
+  verdict + human ratification of the kit-bump G3 (above); (2) the
+  **option-3 WP** (D-1/D-5 + folded items;
+  [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md))
+  runs G1→G3 + independent review; (3) G3 → G-Release (human attestation);
+  (4) IF-001 Experimental → Stable jointly with HomeHub — D-2 is now fixed;
+  D-1 still blocks it until option-3 lands.
 
 ## Open items
 
@@ -84,9 +95,9 @@ option from migration cost.
 | Item | What (verified 2026-08-24, entries below) | Decision needed | State |
 |---|---|---|---|
 | **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | **RULED 2026-08-24, complete: option 3 + INDEX view.** Content-address all storage (Mirror/`PreserveFolderTree` removed); browsability = generated `INDEX.html` + `INDEX.tsv` sibling view (human: "agreed with the html index, that also gives searchability"); `link` deferred out of the v1 enum despite NTFS production disks (4 TB library / 6-or-8 TB backup). Design record: [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md). Next: the option-3 WP runs G1→G3 + independent review. |
-| **D-2 — restore verifies nothing** | Both restorers expand/copy a resolvable `DataPath` with no comparison against the row's `xxH2Hash` — wrong payload, same-length bit-flip, even truncation restore exit 0. `xxH2Hash` is the original-content hash, so verify-after-write + fall-through to the existing pool recovery is sound. Needed under ANY D-1 design (bit rot, partial writes). | Approve as a fix WP (small, both restorers, kit revision 6; pairs with D-3). MiniPC-Deployer's "three witnesses" restore is prior art. | **HUMAN GO 2026-08-24** ("Sounds good") — runs as the kit-bump WP (kit rev 6), G3 on a Windows host. |
-| **D-3 — CandidateError outranks ContentMissing** | One unrelated unexpandable `.7z` anywhere in the pool flips "your bytes are gone" (exit 1) into "fix this host" (exit 4). Every CandidateError the locators raise is by construction from a non-own candidate — the reorder needs no new state. | Approve with D-2 (same kit bump). Trivial precedence reorder, both locators. | **HUMAN GO 2026-08-24** ("Agreed") — batched with D-2 in the kit-bump WP. |
-| **D-4 — hidden/dot files never backed up** | SYSTEMIC: no `Get-ChildItem` in Engine/Common/Reconstruct uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip, so the twin restorers disagree. Zero disclosure. | Approve `-Force` everywhere + a disclosed skipped-by-policy count, and RULE on the one design question: should Windows Hidden-attribute files be included by default (Linux dot-files clearly must be)? | **HUMAN RULED 2026-08-24: hidden AND dot files are backed up by default.** Design impact recorded in the audit entry below (simplest form: `-Force` everywhere, no new config knob in v1; disclosure narrows to SR-055 portable-name skips). In the kit-bump WP. |
+| **D-2 — restore verifies nothing** | Both restorers expand/copy a resolvable `DataPath` with no comparison against the row's `xxH2Hash` — wrong payload, same-length bit-flip, even truncation restore exit 0. `xxH2Hash` is the original-content hash, so verify-after-write + fall-through to the existing pool recovery is sound. Needed under ANY D-1 design (bit rot, partial writes). | Approve as a fix WP (small, both restorers, kit revision 6; pairs with D-3). MiniPC-Deployer's "three witnesses" restore is prior art. | **HUMAN GO 2026-08-24** ("Sounds good") — **IMPLEMENTED 2026-08-24 (kit rev 6, both restorers; G3 entry below); pending independent review + ratification.** |
+| **D-3 — CandidateError outranks ContentMissing** | One unrelated unexpandable `.7z` anywhere in the pool flips "your bytes are gone" (exit 1) into "fix this host" (exit 4). Every CandidateError the locators raise is by construction from a non-own candidate — the reorder needs no new state. | Approve with D-2 (same kit bump). Trivial precedence reorder, both locators. | **HUMAN GO 2026-08-24** ("Agreed") — **IMPLEMENTED 2026-08-24 (honest reclassification per plan §2.1; G3 entry below); pending review + ratification.** |
+| **D-4 — hidden/dot files never backed up** | SYSTEMIC: no `Get-ChildItem` in Engine/Common/Reconstruct uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip, so the twin restorers disagree. Zero disclosure. | Approve `-Force` everywhere + a disclosed skipped-by-policy count, and RULE on the one design question: should Windows Hidden-attribute files be included by default (Linux dot-files clearly must be)? | **HUMAN RULED 2026-08-24: hidden AND dot files are backed up by default.** **IMPLEMENTED 2026-08-24 (`-Force` at all nine sites + AST guard; G3 entry below). NOTE: the "ExcludeFolder" exclusion machinery named in the ruling entry does not exist as user config — README states exclusion = scoping SourcePath; a real exclusion knob would be new scope.** Pending review + ratification. |
 | **Test-battery import** | The HomeHub drill assertion that caught D-1 (blank-row hashes cross-checked against the verified pool) has no FileBackup equivalent, and `G2.8 Dedup_singleDataPath` is VACUOUS (`-le 2` passes under D-5). Six-item prioritized import list + eight extra permutations recorded in the 2026-08-24 verification entry. | Approve as the test scope of the D-1..D-4 fix WPs (owner-edit across all 4 modes, orphan-detection second pass as tooling, wrong-bytes-at-DataPath both restorers, unrelated-bad-`.7z`, dot/Hidden sources, fix the vacuous assertion). | **HUMAN APPROVED 2026-08-24 + EXPANDED** ("Yes definitely, and expand it applicable to cover a larger test area") — the six-item list is the floor, not the ceiling; the WP plans define the expanded matrix. HomeHub drill script offered for pull-onto-this-PC if needed for the orphan-second-pass port. |
 
 ### Parked / minor (no input needed now)
@@ -96,8 +107,8 @@ option from migration cost.
 | manifest row order | No-op runs can reorder manifest ROWS with identical content; G7 doesn't catch ordering. | Low: sort before `Write-Manifest`, or declare order out of contract. Fold into any convenient WP. |
 | F8 kit-less snapshot window | Sub-second crash window between the `Temp`→`Snapshot_*` rename and the kit copy leaves a valid snapshot without a kit. Recoverable via `-RefreshKits`. | Cheap fix candidate: copy the kit into staging BEFORE the rename. Unscheduled. |
 | DataPath-keyed CI maps | The DataPath-keyed membership hashtables are literal case-insensitive maps; failure modes are warning-suppression, not byte loss (noted at the `31a55f2` review). | One-look sweep when convenient; consider with the D-1 design work since it touches the same functions. |
-| no-7z double host record | An unreadable `.7z` candidate under no-7-Zip records CandidateError + DependencyMissing for one candidate. Cosmetic. | Fold into the D-2/D-3 kit bump. |
-| restorer TargetRoot parity | `Reconstruct.ps1` falls back to a `Read-Host` prompt when `-TargetRoot` is omitted (no `-NonInteractive` path — a scripted restore hangs; same class as the fixed SR-016 finding), while `reconstruct.sh` requires `--target-root` and dies loudly. Divergence between the deliberately-equivalent restorers. | **HUMAN APPROVED 2026-08-24: align the behavior.** Fold into the D-2/D-3 kit bump (kit revision 6). Shape: keep the prompt for interactive use, add a non-interactive guard that fails loudly with usage instead of blocking. |
+| no-7z double host record | An unreadable `.7z` candidate under no-7-Zip records CandidateError + DependencyMissing for one candidate. Cosmetic. | **DONE 2026-08-24** — single `StorageUnreadable` record (kit rev 6, TC-111). |
+| restorer TargetRoot parity | `Reconstruct.ps1` falls back to a `Read-Host` prompt when `-TargetRoot` is omitted (no `-NonInteractive` path — a scripted restore hangs; same class as the fixed SR-016 finding), while `reconstruct.sh` requires `--target-root` and dies loudly. Divergence between the deliberately-equivalent restorers. | **HUMAN APPROVED 2026-08-24: align the behavior.** **DONE 2026-08-24** — `-NonInteractive` + redirected-stdin guard, usage + exit 2, prompt kept (kit rev 6, TC-115). |
 | Windows reserved device names | `CON`, `NUL.txt` etc. pass the SR-055 portable-name guard; worst case a loud copy failure on Windows restore. | Extend SR-055's rules if it ever bites; candidate to fold into D-4's walk changes. |
 | `-RepairFromPruned` | Materializing bytes back into a pool that lost them (diagnosis half shipped in WP5). Convenience, not safety. | Deferred; build on WP4 primitives if wanted. |
 | O(N²) unreferenced-file scan | `Test-BackupManifest` re-pipes `$db` per on-disk file (Engine.psm1:566); runs on every backup via Sync step 6. Plausibly hangs a 500k-file library. | Fold into the option-3 WP (one hashtable, pattern exists at :761/:772/:1571). Found 2026-08-24 view-design review. |
@@ -3619,3 +3630,94 @@ G3 — none block the option-3 WP):**
 **Next:** Windows-host session executes the plan §4 work order (G3 +
 independent review); registry flips (SR-056/057 → Verified, ratchet gains
 `kitbump-v6`) land with the real green battery.
+
+### DRIVER (Software + Test + Data-integrity hats) — kit-bump WP G3 — 2026-08-24 (Windows host)
+
+Verdict: implemented + validated end-to-end on this Windows host; independent
+review to follow (mandatory, restore surface). Executed
+[plans/kitbump-rev6-plan.md](plans/kitbump-rev6-plan.md) §4 work items 2–9 as
+eight commits, one green commit each (37af918 D-3; 0670c9b D-2 PS; 018dff8
+D-2 bash; b4d8eff TargetRoot parity; 3c83bd5 D-4; 9f082e7 test battery;
+763b46c kit revision 6; registry closure with this entry).
+
+**Baseline reproduced first** (plan §7): unit 341/341 · integration 372/0/4 ·
+bats 56/56 · shellcheck clean · trace 0/0/0 (phase-deferred=3) — exactly the
+2026-08-23 floor.
+
+What shipped (all per the pinned plan; no storage-path file touched):
+- **D-3 (reclassification, §2.1a):** both locators' return set is now
+  `Found | DependencyMissing | StorageUnreadable | ContentMissing`; an
+  unexpandable pool candidate travels inside ContentMissing's detail (exit 1,
+  candidate named); an unreadable candidate is StorageUnreadable (exit 4);
+  the no-7z double record collapsed to one cause (§2.1b). The restore loop's
+  own-file CandidateError stays exit 4. Two WP5-era pins asserting the old
+  host classification updated (Pester + bats), as the ruling requires.
+- **D-2 (verify-after-write):** one write+verify implementation per restorer
+  (`Restore-OneRow` / `restore_one`) — Length first then xxH2Hash of the
+  DESTINATION, every row including hash-recovered ones; on mismatch the bad
+  file is deleted and the (hash,length) recovery runs at most once, verified
+  again; final failure = content-class `ContentMismatch` into the SR-029
+  accounting. Recovery-time DependencyMissing/StorageUnreadable pass through
+  as host class (driver refinement, recorded: truthful and SR-040-consistent).
+- **TargetRoot parity:** `-NonInteractive` (+ redirected-stdin defense) →
+  `Show-ReconstructUsage` + exit 2, mirroring `reconstruct.sh` usage
+  parameter-for-parameter; interactive prompt kept.
+- **D-4:** `-Force` at all nine enumerated sites with per-site why-comments;
+  AST anti-regression guard (no `Get-ChildItem` without `-Force` in
+  Engine/Common/Reconstruct/FileBackup.ps1); bash `find` no-skip and no `-L`
+  pinned as intent; README disclosure incl. attributes-not-preserved.
+- **Test battery (floor + expansion):** TC-108/109 damage matrix both
+  restorers; TC-110 damaged-store interop (heal=0 / gone=1 verdict + byte
+  parity, proven locally Windows→WSL; CI cross-artifact proof lands on push);
+  TC-111/112 exit-code honesty; TC-113 G5.8 hidden/dot end-to-end ×4 modes;
+  TC-114 site probes; TC-115 parity; TC-116 `tests/Common/PoolAudit.ps1` —
+  the byte-verified orphan second pass (the assertion that caught D-1) wired
+  into G2/G3/G9/G9Prune; G2.8 de-vacuumed mode-aware-exact (Mirror arm = the
+  labelled D-5 change-detector, per §6.4).
+- **Kit revision 6** stamped in both restorers together; README + AGENTS.md
+  §3 updated; D-1/D-5 forward-pointer intact.
+
+Evidence (real output, this host): `check.ps1 -Tier Full` → lint PASS ·
+trace PASS · docs PASS · map PASS · Pester unit **357/357** · integration
+**412 PASS / 0 FAIL / 4 SKIP** → "All steps passed" (the one lint failure
+along the way — two empty-catch diagnostics in new PoolAudit.ps1 — was fixed
+and re-proven in 763b46c). WSL Fedora: `shellcheck` clean, `bats tests/bash/`
+**64/64** with an explicit exit-code check. `trace.py --strict
+--require-verified --phase core,bash-v1,container-v1,kitbump-v6` →
+`SN=33 SR=57 LLR=56 TC=115, 0 orphans / 0 integrity / 0 status-findings /
+1 phase-deferred` (SR-033 only). Registry closure: SR-056/057 → Verified,
+LLR-056/057 → Implemented, TC-108..116 + TC-019 → Pass; ratchet re-armed
+with `kitbump-v6` in check.ps1 + CI.
+
+Findings recorded along the way (honesty items):
+- [PROCESS] My first "bats 58/58" claim after the D-3 commit was wrong — a
+  `| tail` pipe masked bats' exit code and hid the flipped TC-099 pin; fixed
+  the pin in 018dff8 and every later bats invocation checks the exit
+  explicitly. Lesson recorded here per "never report a green you didn't run."
+- [DOC] **The `ExcludeFolder` "deliberate exclusion machinery" named in the
+  D-4 ruling entry does not exist as user configuration** — it is a
+  prune-internal parameter. No exclusion key exists at all. README now states
+  the truth (exclusion = scoping `SourcePath`); SR-057's wording corrected at
+  closure (dated). If the human wants a real exclusion setting, that is new
+  scope for a future WP.
+- [TRANSIENT] One full-sweep run crashed Mirror/G9 with a
+  `Backup_Global.log` file-lock collision; did not reproduce across three
+  later full sweeps (results.csv detail preserved in the D-4 commit message).
+- [SCOPE] **Reserved device names (plan open question 2) DEFERRED**, not
+  implemented: the plan author leaned IN, but the registry pass withheld
+  SR-055/TC-117 pending the human's answer and it adds a new refusal class
+  (a Linux source holding `NUL.txt` starts failing loudly) — under the HIGH
+  dial that ships only with an explicit ruling. Cheap either way; still open.
+- [SCOPE] Committed bats fixtures NOT regenerated: the fixture sources hold
+  no hidden/dot files, so the D-4 walk change cannot alter them; regeneration
+  stays deterministic and untouched.
+
+Plan §11 open questions, status after this G3: (1) SN-033 minted — veto still
+possible; (2) reserved names — **still needs the ruling** (deferred, above);
+(3) verify-after-write shipped with NO opt-out as recommended — confirm;
+(4) G2.8 Mirror change-detector arm shipped as recommended — confirm;
+(5) restored files come back without Hidden/System attributes — shipped +
+README-documented as recommended — confirm.
+
+**Next:** independent reviewer pass (fresh context, adversarial, restore
+surface — plan §4 item 10), then human ratification of this G3.

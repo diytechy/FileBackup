@@ -107,7 +107,7 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # 052 flipped Verified and TC-060/079/080/088/101/102 flipped Pass in the
     # SAME commit that armed this ratchet. bash-v2 (SR-033) remains the one
     # phase-deferred row.
-    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1') }
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 
