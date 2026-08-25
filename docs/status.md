@@ -81,12 +81,11 @@ last) — it is the record, not required reading for every pass.
   — the implementation plan for D-1/D-5 (option 3), grounded at `553638c`:
   ordered G3 steps, registry rows (SN-034, SR-058..064, LLR-058..064,
   TC-118..134 + TC-117 reserved names), the test reshape, and seven recorded
-  driver decisions. Three findings the design record did not have: a single
-  `INDEX.html` is ~100 MB at library scale (per-folder pages proposed —
-  **veto-flagged, it refines the human's HTML-index ruling**); the Mirror→Hash
-  migration must **verify bytes before naming them by hash** or it poisons the
-  pool with the D-1 damage already on disk; and it must **rename, not copy**,
-  or the SR-052 preflight correctly refuses a 4 TB store on a 6 TB disk.
+  driver decisions. Two of them were RULED by the human 2026-08-25 (entry
+  below): the **per-folder view is APPROVED**, and **migration is MOOT** — no
+  store exists that must be maintained, so the `Original → Hash` conversion is
+  deleted rather than kept and a legacy-form store is refused with a
+  fresh-`BackupPath` remedy.
 - **Active gate:** G3. **Next actions, in order:** (1) **WP9** (D-1/D-5 +
   folded items + reserved names) runs G1→G3 + independent review, no
   ratification pause; (2) G3 → G-Release (human attestation);
@@ -3909,3 +3908,26 @@ cache default stays out of this WP.
 
 **Next:** WP9 G1 (registry rows + SN-008 rewrite), then G2, then the ordered G3
 steps — all on a Windows host.
+
+### HUMAN — WP9 design rulings — 2026-08-25
+
+Two rulings on the WP9 work order's §9:
+- **Q1 view shape: APPROVED.** "Agreed, I did not think of file expansion, your
+  recommendation sounds much more reasonable." WP9 ships `INDEX.tsv` always +
+  **per-folder** `INDEX.html` pages + root search under a 50 000-row threshold,
+  instead of one flat ~100 MB page. The 2026-08-24 HTML-index ruling stands;
+  this is its scaling shape.
+- **Q4 migration: MOOT.** "No storage exists currently here that must be
+  maintained." The `Original → Hash` conversion is **deleted, not kept**;
+  `Sync-BackupStorageLayout` keeps only its compression-flip axis; a manifest
+  row carrying `StoredAsHashSize = 'Original'` fails the backup set before any
+  mutation, naming the fresh-`BackupPath` remedy, while `-Action Verify` still
+  reports it as a finding (an audit that cannot audit is useless). Both
+  restorers still read a legacy store unchanged.
+
+Consequences recorded in the work order: the verify-before-name and
+rename-not-copy requirements disappear with the migration they protected, WP9
+step 3 shrinks to a deletion plus one refusal, `Get-MigrationCapacityDemand`
+keeps only its compression term, risks R1/R2 are replaced, SR-061 and TC-124 are
+rewritten, and `tests/fixtures/bash-restore/Mirror*` is regenerated or deleted at
+step 5 (`scripts/gen_bash_fixtures.ps1`).

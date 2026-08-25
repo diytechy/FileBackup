@@ -114,33 +114,36 @@ already does not decide byte placement). **Zero restorer diff, zero bash-parser
 diff, zero interop-fixture churn.** Column retirement stays out of scope
 (option-3 plan §7).
 
-### 3.3 Migration is **one-way and rename-based** — and it is the D-1 damage detector (driver call; discloses a real one-time cost — §9 Q4)
+### 3.3 There is no migration — a legacy store is refused, not converted (**HUMAN RULED 2026-08-25**)
 
-No-backward-compat permits deleting migration entirely, but an existing Mirror
-store (the bench box's, and any the author holds) would then have to be re-backed
-up from source, discarding its snapshot history. Keeping the **`Original → Hash`
-direction only** is nearly free and converts such a store in place. Two hard
-requirements on it:
+**Ruling: "No storage exists currently here that must be maintained. Migration is
+a moot point."** So the `Original → Hash` conversion is **deleted, not kept**,
+and with it the two hard requirements an earlier draft of this plan carried
+(verify-before-name; rename-instead-of-copy). Both existed only to make an
+in-place conversion of an existing Mirror store safe, and there is no such store
+to protect.
 
-- **Verify before you name.** A Mirror store may *already* contain D-1 damage —
-  bytes that no longer hash to the row's `xxH2Hash`. Copying those bytes to a
-  content-addressed name would **poison the pool**: every future hash recovery
-  would find a file whose name lies. So migration hashes the bytes first
-  (expanding `.7z` rows through 7-Zip). A mismatch blanks the row's DataPath and
-  is reported as a finding — it heals through the existing SR-053 blank-row path
-  on the next run if the source still holds the content. **This makes the
-  migration the first honest audit of the D-1 damage already on disk.**
-- **Rename, don't copy, when the form is unchanged.** Mirror→Hash with no
-  compression flip is a same-volume rename. B7's copy-then-delete would demand a
-  *second full copy* of the store — on a 6 TB disk holding 4 TB the SR-052
-  preflight would (correctly) refuse the migration outright. Rename makes the
-  demand ~0 and stays crash-safe by construction: a crash between the rename and
-  the manifest write leaves a file **whose name is its own hash**, which the
-  hash-recovery locator resolves. Compression flips still copy (B7 unchanged).
+What ships instead:
 
-Cost to disclose: verification hashes the whole store once (~4 TB ≈ 2–3 h,
-disk-bound) on the first run after the upgrade. `-Action Verify -Deep` already
-does the same work, so the code path is familiar.
+- **`Sync-BackupStorageLayout` loses the tree-mode axis entirely** and keeps only
+  the compression-flip axis, which is still real (`CompressEnabled` can be
+  toggled on an existing store). B7's copy-then-delete order and SR-051's
+  never-delete-a-still-referenced-file rule are unchanged for that axis.
+- **A row stored in the legacy `Original` form is refused, loudly.** If a
+  manifest carries `StoredAsHashSize = 'Original'`, `-Action Backup` fails the
+  set before mutating anything, naming the condition and the remedy: *this store
+  was written by a pre-content-addressed build; back up to a fresh `BackupPath`.*
+  `-Action Verify` **reports** it as a finding rather than refusing — an audit
+  action that cannot audit is useless.
+- **Test fixtures follow.** `tests/fixtures/bash-restore/Mirror*` (two fixture
+  trees, Mirror and Mirror_Compress) are content-addressed stores' twins from a
+  layout that no longer exists; they are regenerated as content-addressed or
+  deleted at step 5 (`scripts/gen_bash_fixtures.ps1` owns them).
+
+Net effect on this WP: step 3 shrinks to a deletion plus one refusal,
+`Get-MigrationCapacityDemand` keeps only its compression term, and the two
+migration risks (pool poisoning, capacity refusal on a 4 TB store) **disappear
+from §7** — they were consequences of converting in place.
 
 ### 3.4 Group form election (replaces the "form conflict" skip)
 
@@ -168,9 +171,11 @@ be **exact** — "does any row in the final manifest still demand this
 authorized D-1's overwrite. Frozen rows (SR-055 / SR-057) and evicted rows are
 then accounted for correctly, which the source-based test never could.
 
-### 3.6 The view: TSV always, HTML **per folder** (refines a ruled item — §9 Q1, veto-flagged)
+### 3.6 The view: TSV always, HTML **per folder** (**HUMAN APPROVED 2026-08-25**)
 
-The human ruled "HTML index, not links". One scale fact the ruling did not have:
+The human ruled "HTML index, not links" on 2026-08-24 and **approved this
+refinement on 2026-08-25** ("Agreed, I did not think of file expansion").
+The scale fact behind it:
 a single `INDEX.html` over the production library (~500k files) is roughly
 **100 MB of markup** — no browser opens that comfortably, and it would be
 regenerated every run. Proposal that keeps the ruling's intent (browsable +
@@ -279,19 +284,18 @@ one more component predicate.
 | SR-058 | Content addressing is the only storage layout | SN-002;SN-008 | Every data file the system stores shall be named `Get-HashSizeFileName(hash,length,ext)`; no configuration selects a mirrored layout | Test |
 | SR-059 | Stored objects are immutable and name-proven | SN-034;SN-005 | No run shall change the bytes at a DataPath any live manifest row still claims; an object shall only be created at a content-addressed name its own bytes hash to | Test |
 | SR-060 | Dedup covers content first seen within one run | SN-002 | Identical `(hash,length)` content appearing several times in one run shall be stored once, with every logical name referencing that one object | Test |
-| SR-061 | Legacy-form migration is content-verified and non-destructive | SN-008;SN-030 | A row stored in the legacy `Original` form shall be migrated only after its bytes are proven to hash to the row's `(xxH2Hash,Length)`; a mismatch shall blank the DataPath and be reported, never renamed into the pool; where the form is unchanged the migration shall rename in place rather than copy | Test |
+| SR-061 | A legacy-form store is refused, not converted | SN-008;SN-030 | A manifest row stored in the legacy `Original` form shall fail the backup set before any mutation, naming the condition and the remedy (a fresh `BackupPath`); `-Action Verify` shall report it as a finding rather than refuse. There is no in-place conversion (human ruling 2026-08-25: no store exists that must be maintained) | Test |
 | SR-062 | Generated browse view | SN-008 | When `BrowseView` is `index`, the system shall generate a manifest-derived index outside both roots (TSV always; per-folder HTML), covering every logical path including duplicates, refreshed when the manifest witness changes and on `-Action View`; nothing in the engine or the restorers shall read it | Test |
 | SR-063 | Configuration contract v2 | SN-027;SN-008 | `ConfigVersion` shall be 2; `PreserveFolderTree` shall be refused **by name** in every config format; `BrowseView` (`off`\|`index`) and `ViewPath` shall be accepted, `ViewPath` refused when it is not on the backup volume or lies inside either root | Test |
 | SR-064 | Store audits scale linearly | SN-001;SN-030 | The unreferenced-data-file audit shall be O(N) in manifest rows plus on-disk files | Test |
 
 **Amendments:** SR-003 (dedup key now covers within-run occurrences; states the
-owner-election rule); SR-012 / SR-013 (migration is one-way to content-addressed;
-`StoredAsHashSize` is the constant `'Hash'`); SR-022 (drop the Mirror-name
+owner-election rule); SR-012 / SR-013 (no layout migration exists; `StoredAsHashSize` is
+the constant `'Hash'`; the compression-flip migration is unchanged); SR-022 (drop the Mirror-name
 refusal clause — the root-only infrastructure classification itself stays, for
 the source walk and the pool walks); SR-042 (version 2, key-set change); SR-051
 (form election replaces the conflict skip; the never-delete-a-referenced-file
-half is unchanged); SR-052 (a rename-based migration demands ~0 bytes — state
-it); SR-010 / SR-028 (superseded preservation happens after the copy/evict steps
+half is unchanged); SR-052 (the migration demand keeps only its compression term); SR-010 / SR-028 (superseded preservation happens after the copy/evict steps
 and tests survival against the **final** manifest).
 
 ### 4.3 `low-level-requirements.csv` (`LLR-ID,SR-Refs,Title,Module,CodeSymbol,Detail,TestRefs,Status`)
@@ -300,7 +304,7 @@ and tests survival against the **final** manifest).
 |---|---|---|---|
 | LLR-058 | SR-058;SR-060;SR-003 | Engine | `Invoke-BackupFileGroup` (owner election + intra-run memo; `PreserveFolderTree` param deleted) |
 | LLR-059 | SR-010;SR-028;SR-059 | Engine | `Save-SupersededData` (moved after evict; survival tested against the final manifest) |
-| LLR-060 | SR-061;SR-051;SR-012 | Engine | `Sync-BackupStorageLayout` (verified, one-way, rename-first migration) |
+| LLR-060 | SR-061;SR-051;SR-012 | Engine | `Sync-BackupStorageLayout` (tree-mode axis deleted; compression-flip axis kept; legacy `Original` row refused) |
 | LLR-061 | SR-062 | Engine | `New-BrowseViewIndex` (**new**; Engine-side only — Common must never grow view code, AGENTS.md §3) |
 | LLR-062 | SR-064 | Engine | `Test-BackupManifest` (linear referenced-path map) |
 | LLR-063 | SR-063;SR-042 | Engine | `Assert-NoUnknownConfigKey` / `Test-BackupConfigurationShape` / `Resolve-BackupSetDefaults` |
@@ -319,9 +323,9 @@ Step 1 is written **red first** — it reproduces D-1 and D-5 on today's code.
 |---|---|---|---|
 | **1** | **Red repros.** Owner-edit-of-a-duplicate across all four *current* modes (D-1) and a same-run duplicate copy counter (D-5). Both must FAIL on Mirror and PASS on HashAddressed today — that asymmetry is the proof the tests are real | `tests/Unit/Coverage.Tests.ps1`, `tests/Common/PoolAudit.ps1` | Pester output showing the Mirror failures and the hash-mode passes |
 | **2** | **Intra-run dedup + owner election** in `Invoke-BackupFileGroup` (still mode-aware at this step): elect the owner's form, write once, memo the group's DataPath in-process, adopt for the rest | `Engine.psm1:2834-2939` | D-5 repro green in both modes; copy counter = 1 |
-| **3** | **Verified, one-way, rename-first migration** in `Sync-BackupStorageLayout`; apply the same election and delete the form-conflict skip; blank + report bytes that fail verification | `Engine.psm1:620-828`, `:3160-3208` | TC-122 / TC-124 green; existing G4 suite green |
+| **3** | **Delete the tree-mode migration axis** from `Sync-BackupStorageLayout` (compression-flip axis kept); apply the owner election there too and delete the form-conflict skip; refuse a legacy `Original` row loudly, report it under `-Action Verify` | `Engine.psm1:620-828`, `:3160-3208` | TC-124 green; existing G4 suite green |
 | **4** | **Preservation reorder + exact survival test** (`Save-SupersededData` after step 11; survival from the final manifest) | `Engine.psm1:3010-3074, 3596-3625` | D-1 repro green **in Mirror too**; G9 rollback suite green |
-| **5** | **Delete Mirror.** `PreserveFolderTree` out of the engine signatures, the config key set, the shape check and the defaults materializer; hash naming unconditional; the SR-022 Mirror refusal and its dead twins removed; `StoredAsHashSize` pinned to `'Hash'` | `Engine.psm1` (G6 + G8 sites), `FileBackup.ps1` help, `container/*.json`, harness + every Mirror test site (G17) | Full unit + integration green on the **2-mode** matrix |
+| **5** | **Delete Mirror.** `PreserveFolderTree` out of the engine signatures, the config key set, the shape check and the defaults materializer; hash naming unconditional; the SR-022 Mirror refusal and its dead twins removed; `StoredAsHashSize` pinned to `'Hash'` | `Engine.psm1` (G6 + G8 sites), `FileBackup.ps1` help, `container/*.json`, harness + every Mirror test site (G17), `tests/fixtures/bash-restore/Mirror*` regenerated or deleted via `scripts/gen_bash_fixtures.ps1` | Full unit + integration green on the **2-mode** matrix |
 | **6** | **Config v2:** `$script:ConfigSchemaVersion = 2`, named refusal for `PreserveFolderTree` (both formats), `BrowseView` / `ViewPath` accepted and validated | `Engine.psm1:3654-3705, 3790-3941`, `tests/Common/ConfigFixtures.ps1` | TC-125..TC-128 green; TC-077 updated |
 | **7** | **The view:** `New-BrowseViewIndex` + `.viewstamp` + pipeline step 16 + `-Action View` dispatch + the volume/containment refusals | `Engine.psm1` (new function), `FileBackup.ps1` | New **G10-View** suite green (§6) |
 | **8** | **Folded fixes:** linear unreferenced audit, `New-RelativePathMap` sweep, deterministic row order | `Engine.psm1:584-618` + sweep sites | TC-132..TC-134 green; G7 determinism suite green |
@@ -349,7 +353,7 @@ integration budget roughly halves and funds the battery below.
 | TC-121 | Unit | Every new DataPath matches the hash-name grammar; `StoredAsHashSize` is `'Hash'` on every written row |
 | TC-122 | Integration | **SR-059 invariant.** Across a multi-run timeline, no byte at a DataPath any live row claims ever changes (per-run stat+hash census of the pool) |
 | TC-123 | Integration | No non-infrastructure file at the backup root fails the hash-name grammar (the §3.1 compensating control) |
-| TC-124 | Integration | **Migration.** A legacy Mirror store (fixture) converts by rename with capacity demand ≈ 0 and restores byte-identical afterwards; a **deliberately D-1-damaged** Mirror fixture converts with the bad row **blanked and reported**, never renamed into the pool; a kill between rename and manifest write still restores |
+| TC-124 | Integration | **Legacy-store refusal.** A manifest carrying `StoredAsHashSize = 'Original'` fails `-Action Backup` before anything is staged or mutated, with the fresh-`BackupPath` remedy in the message; the same store under `-Action Verify` yields a finding and a non-zero audit status, never a refusal; a compression flip on a content-addressed store still migrates correctly (the surviving axis) |
 | TC-125 | Unit | `PreserveFolderTree` in a **JSON** config fails with the named diagnostic and status 2 |
 | TC-126 | Unit | `PreserveFolderTree` in a **CLIXML** config fails the same way (per §9 Q3), and `ConfigVersion: 1` is refused as too old |
 | TC-127 | Unit | `BrowseView` vocabulary: `off` / `index` accepted, `link` refused by name, anything else refused |
@@ -373,8 +377,8 @@ TC-116's deferred arm), and de-vacuuming `G2.8 Dedup_singleDataPath` (assert
 
 | # | Risk | Guard |
 |---|---|---|
-| R1 | **Poisoning the pool** — migrating unverified bytes to a hash name makes every future hash recovery return a file whose name lies | §3.3 verify-before-name; TC-124's damaged fixture |
-| R2 | A rename-based migration crashing mid-way leaves manifest ↔ disk disagreement | The renamed file *is* self-identifying; `Find-DataFileByHash` resolves it; TC-124 kills the process between rename and manifest write |
+| R1 | A user who *does* hold a pre-v2 store meets a hard refusal | The message names the condition and the remedy (fresh `BackupPath`); `-Action Verify` still audits the old store, and both restorers still restore it unchanged (G7) — nothing about reading a legacy store breaks, only writing to it |
+| R2 | Deleting the tree-mode axis could take the compression-flip axis with it | Step 3 is its own commit; `StorageForm.Tests.ps1`'s SR-051 refcount suite (`:436`, `:539`) and the G4 sanitization suite both exercise the surviving axis |
 | R3 | Election changes which physical form is stored for a mixed group ⇒ a stale `Compressed` on a sibling row restores 7z container bytes under the real name (the finding-B family) | TC-120; `Get-StoredFileForm` audit unchanged; `-Action Verify` covers the store |
 | R4 | Moving `Save-SupersededData` after step 11 could miss bytes `Move-RemovedFilesToStaging` already relocated | The survival test reads the **final** map; the G9 rollback suite is the existing net; add an eviction-and-supersession-in-one-run case to TC-118's timeline |
 | R5 | Deleting `PreserveFolderTree` touches ~45 test sites (G17) — a mechanical sweep that can silently *weaken* an assertion | Step 5 is its own commit; diff-review every deleted assertion; the coverage floor (78.1%) must not drop |
@@ -402,16 +406,14 @@ required for every one of these** (status.md session constraint).
 ## 9. Decisions taken (recorded under the 2026-08-25 standing directive; each open to veto)
 
 The directive removed the ratification bar, so these are **driver calls that
-ship** unless the human countermands. Q1 is flagged loudly: it refines a design
-mechanism the human chose personally, so it is called out at the top of the WP's
-first status.md entry rather than buried here.
+ship** unless the human countermands. **Q1 and Q4 were answered by the human on
+2026-08-25** and are recorded here as settled; the rest stand as driver calls.
 
-1. **View shape (§3.6) — VETO-FLAGGED, refines a human ruling.** A single
-   `INDEX.html` over ~500k files is ~100 MB of markup and will not open in a
-   browser, and it would be regenerated every run. Shipping **`INDEX.tsv`
-   always + per-folder HTML pages + root search under a 50 000-row threshold**,
-   which delivers the ruling's intent (browse + search, no links) at library
-   scale. Say the word and it reverts to one flat page.
+1. **View shape (§3.6) — HUMAN APPROVED 2026-08-25.** A single `INDEX.html`
+   over ~500k files is ~100 MB of markup and will not open in a browser.
+   **`INDEX.tsv` always + per-folder HTML pages + root search under a
+   50 000-row threshold** is approved ("Agreed, I did not think of file
+   expansion") — the 2026-08-24 ruling's intent at library scale.
 2. **`BrowseView` default when the key is absent: `off`.** No per-run cost is
    incurred by a config that never asked for a view; the shipped example config
    and the container example both set `"index"`, so a user following the docs
@@ -423,11 +425,11 @@ first status.md entry rather than buried here.
    engine content-addresses everything. Silent divergence between what the
    config says and what the store does is the exact failure class this WP
    exists to kill, so it fails loudly (status 2) in both formats.
-4. **Migration (§3.3): keep the one-way `Original → Hash` conversion**, with its
-   one-time full-store verification hash (~2–3 h on 4 TB). Deleting migration
-   would be faster to build but would discard every existing snapshot's history
-   — and the verification pass is also the only audit that finds the D-1 damage
-   already sitting on an existing Mirror store.
+4. **Migration (§3.3) — HUMAN RULED 2026-08-25: moot.** "No storage exists
+   currently here that must be maintained." The `Original → Hash` conversion is
+   deleted rather than kept; a legacy-form store is refused with the
+   fresh-`BackupPath` remedy, and `-Action Verify` still audits it. This removes
+   the whole verify-before-name / rename-not-copy workstream and its two risks.
 5. **Source-side manifest cache default stays OUT** (option-3 §6): an
    independent config change with no D-1/D-5 coupling. It remains an Open item
    in status.md so it is not lost.
