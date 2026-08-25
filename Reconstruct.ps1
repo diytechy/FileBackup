@@ -273,7 +273,10 @@ function Find-DataFileByHash {
         }
         $folderNorm = [System.IO.Path]::GetFullPath($folder).TrimEnd('\', '/')
         $enumErrors = $null
-        $candidates = Get-ChildItem -LiteralPath $folder -File -Recurse -ErrorAction SilentlyContinue -ErrorVariable enumErrors |
+        # -Force (SR-057): hash-addressed short names can BEGIN WITH A DOT, and a
+        # pool file carrying a Hidden attribute was invisible here — making its
+        # content unrecoverable by (hash,length) until kit revision 6 (D-4).
+        $candidates = Get-ChildItem -LiteralPath $folder -File -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable enumErrors |
             Where-Object {
                 -not ($_.Name -match $skip -and
                       [System.IO.Path]::GetDirectoryName($_.FullName) -eq $folderNorm)
@@ -623,7 +626,8 @@ if ($null -eq $freeBytes) {
 # injects a $null folder.
 $searchFolders = New-Object System.Collections.Generic.List[string]
 if ($haveSnapshotTree) {
-    Get-ChildItem -LiteralPath $changeRoot -Directory -ErrorAction SilentlyContinue |
+    # -Force (SR-057): a hidden snapshot folder must not drop out of the pool.
+    Get-ChildItem -LiteralPath $changeRoot -Directory -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match $ChangeFolderPattern } |
         Sort-Object Name -Descending |
         ForEach-Object { $searchFolders.Add($_.FullName) }

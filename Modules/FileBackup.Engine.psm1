@@ -118,7 +118,9 @@ function Get-DataFile {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Root)
     $resolved = (Resolve-Path -LiteralPath $Root).Path
-    Get-ChildItem -LiteralPath $resolved -Recurse -File |
+    # -Force (SR-057): hidden/dot files are data — without it they were never
+    # backed up, and -Recurse skipped hidden DIRECTORIES entirely (D-4).
+    Get-ChildItem -LiteralPath $resolved -Recurse -File -Force |
         Where-Object { -not (Test-IsInfrastructureFile -Root $resolved -FullPath $_.FullName) }
 }
 
@@ -435,7 +437,9 @@ function Update-SourceManifest {
     $files = if ($manifestFolder -eq $sourcePath) {
         Get-DataFile -Root $sourcePath
     } else {
-        Get-ChildItem -LiteralPath $sourcePath -Recurse -File
+        # -Force (SR-057): the external-cache branch bypasses Get-DataFile and
+        # must include hidden/dot entries the same way (D-4).
+        Get-ChildItem -LiteralPath $sourcePath -Recurse -File -Force
     }
 
     $updated = New-Object System.Collections.Generic.List[object]
@@ -889,7 +893,8 @@ function Optimize-ChangeFolders {
     & $Log "Starting Optimize-ChangeFolders for '$ChangeRoot' and backup '$BackupRoot'." 'INFO'
     $changeFolderRegex = $script:Def.ChangeFolderRegex
 
-    $changeDirs = Get-ChildItem -LiteralPath $ChangeRoot -Directory |
+    # -Force (SR-057): a hidden Snapshot_* folder must not escape sanitization.
+    $changeDirs = Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force |
                   Where-Object { $_.Name -match $changeFolderRegex } |
                   Sort-Object Name
     if (-not $changeDirs -or $changeDirs.Count -eq 0) {
@@ -960,7 +965,9 @@ function Get-PoolSnapshotFolder {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ChangeRoot)
     if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { return @() }
-    return @(Get-ChildItem -LiteralPath $ChangeRoot -Directory |
+    # -Force (SR-057): the data POOL is built from this list — a hidden snapshot
+    # folder would silently drop out of recovery and prune alike (D-4).
+    return @(Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force |
              Where-Object { $_.Name -match $script:Def.ChangeFolderRegex } |
              Sort-Object Name)
 }
@@ -1087,7 +1094,9 @@ function Get-SnapshotPrunePlan {
 
     # Everything in the folder disappears with it — data files and the snapshot's
     # own restore-kit copies alike.
-    $plan.PhysicalBytes = [long](Get-ChildItem -LiteralPath $targetFolder -File -Recurse |
+    # -Force (SR-057): hidden files are deleted with the folder — omitting them
+    # makes the reclaim figure lie.
+    $plan.PhysicalBytes = [long](Get-ChildItem -LiteralPath $targetFolder -File -Recurse -Force |
         Measure-Object -Property Length -Sum).Sum
 
     # Bytes in the target that its own manifest does not reference are unexplained
@@ -2199,7 +2208,8 @@ function Invoke-PruneEntrySweep {
             if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $referenced[(& $normalize $row.DataPath)] = $true }
         }
         $prefix = (Resolve-Path -LiteralPath $folder).Path
-        foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Recurse -Filter '*.fbprune.tmp')) {
+        # -Force (SR-057): hidden residue would otherwise never be swept.
+        foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Recurse -Force -Filter '*.fbprune.tmp')) {
             $rel = & $normalize $file.FullName.Substring($prefix.Length)
             if ($referenced[$rel]) { continue }   # real content that merely ends in '.fbprune.tmp'
             & $Log "Removing an interrupted prune's staged copy '$($file.FullName)'." 'WARN'

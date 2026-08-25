@@ -467,7 +467,9 @@ function Expand-FileWithSevenZip {
             throw "7-Zip extraction failed for '$Archive'. Error: $err"
         }
 
-        $extracted = Get-ChildItem -LiteralPath $tempDir -File | Select-Object -First 1
+        # -Force (SR-057): 7-Zip can restore a Hidden attribute on the payload,
+        # which would make this pick return $null and throw "No file extracted".
+        $extracted = Get-ChildItem -LiteralPath $tempDir -File -Force | Select-Object -First 1
         if (-not $extracted) {
             throw "No file extracted from archive '$Archive'"
         }

@@ -271,6 +271,85 @@ Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
     }
 }
 
+Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-114)' {
+    # Site-specific probes for the D-4 -Force sweep; the end-to-end capture
+    # across all four modes is suite case G5.8 (TC-113).
+
+    It 'no Get-ChildItem in the maintained surface lacks -Force — the anti-regression guard (TC-114)' {
+        # The only cheap defense against enumeration site #10 arriving later
+        # without -Force. AST-based so a line-wrapped call cannot dodge a grep.
+        $offenders = foreach ($f in 'Modules\FileBackup.Engine.psm1', 'Modules\FileBackup.Common.psm1',
+                                     'Reconstruct.ps1', 'FileBackup.ps1') {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo $f), [ref]$null, [ref]$null)
+            $calls = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
+                                    $n.GetCommandName() -eq 'Get-ChildItem' }, $true)
+            foreach ($cmd in $calls) {
+                $hasForce = @($cmd.CommandElements | Where-Object {
+                    $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'Force' })
+                if (-not $hasForce) { "${f}:$($cmd.Extent.StartLineNumber)" }
+            }
+        }
+        $offenders | Should -BeNullOrEmpty
+    }
+
+    It 'a DOT-NAMED pool data file is found by (hash,length) recovery (TC-114)' {
+        # Hash-addressed short names can begin with a dot — the exact shape
+        # that broke the 2026-08-23 CI artifact upload.
+        $root = Join-Path $TestDrive 'd4-dotpool'
+        $s = New-RVStore -Root $root
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        ($rows | Where-Object RelativePath -eq 'a.txt').DataPath = ''
+        Move-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Destination (Join-Path $s.Bkp '.pool-copy.bin')
+        Set-ManifestRows -Folder $s.Bkp -Rows $rows
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+        $code | Should -Be 0
+        Get-Content -LiteralPath (Join-Path $t 'a.txt') -Raw | Should -Be 'ALPHA-CONTENT'
+    }
+
+    It 'a pool data file carrying the Windows HIDDEN attribute is found by (hash,length) recovery (TC-114)' {
+        $root = Join-Path $TestDrive 'd4-hidpool'
+        $s = New-RVStore -Root $root
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        ($rows | Where-Object RelativePath -eq 'a.txt').DataPath = ''
+        $pool = Join-Path $s.Bkp 'pool-copy.bin'
+        Move-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Destination $pool
+        (Get-Item -LiteralPath $pool -Force).Attributes = ((Get-Item -LiteralPath $pool -Force).Attributes -bor [IO.FileAttributes]::Hidden)
+        Set-ManifestRows -Folder $s.Bkp -Rows $rows
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+        $code | Should -Be 0
+        Get-Content -LiteralPath (Join-Path $t 'a.txt') -Raw | Should -Be 'ALPHA-CONTENT'
+    }
+
+    It 'Expand-FileWithSevenZip picks up a payload 7-Zip restored with the Hidden attribute (TC-114)' {
+        $root = Join-Path $TestDrive 'd4-hidzip'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $srcFile = Join-Path $root 'payload.txt'
+        [IO.File]::WriteAllText($srcFile, 'HIDDEN-PAYLOAD')
+        (Get-Item -LiteralPath $srcFile -Force).Attributes = ((Get-Item -LiteralPath $srcFile -Force).Attributes -bor [IO.FileAttributes]::Hidden)
+        $archive = Join-Path $root 'payload.7z'
+        Compress-FileWithSevenZip -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath `
+            -SourceFile $srcFile -Destination7z $archive
+        $dest = Join-Path $root 'out.txt'
+        # Before -Force this threw "No file extracted" when 7-Zip restored the
+        # Hidden attribute on the extracted temp file.
+        Expand-FileWithSevenZip -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath `
+            -Archive $archive -DestinationFile $dest
+        Get-Content -LiteralPath $dest -Raw -Force | Should -Be 'HIDDEN-PAYLOAD'
+    }
+
+    It 'a HIDDEN Snapshot_* folder is still part of the pool (Get-PoolSnapshotFolder, TC-114)' {
+        $chg = Join-Path $TestDrive 'd4-hidsnap'
+        $snap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        New-Item -ItemType Directory -Path $snap -Force | Out-Null
+        (Get-Item -LiteralPath $snap -Force).Attributes = ((Get-Item -LiteralPath $snap -Force).Attributes -bor [IO.FileAttributes]::Hidden)
+        @(Get-PoolSnapshotFolder -ChangeRoot $chg).Name | Should -Contain 'Snapshot_2024_01_01_00_00_01'
+    }
+}
+
 Describe 'Non-interactive TargetRoot parity (SR-016, TC-115)' {
     # Before kit revision 6, RECONSTRUCT.ps1 without -TargetRoot fell back to
     # Read-Host — a scripted restore hung, while reconstruct.sh died loudly

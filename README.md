@@ -592,6 +592,18 @@ backup), and a run that changes nothing creates none.
 location, which by default is the source root itself. Set `SourceStatePath` to
 keep both out of the tree being backed up.
 
+**Hidden and dot-prefixed files are backed up** (since kit revision 6 —
+before it, no PowerShell-side walk saw them at all). That deliberately
+includes Windows noise files (`desktop.ini`, `Thumbs.db`), macOS `.DS_Store`,
+dot-directories like `.git`, `$RECYCLE.BIN` if it is inside your source, and
+files carrying the System attribute: for a data-safety tool, capturing too
+much beats silently capturing too little. There is currently no per-set
+exclusion setting — to keep such trees out of a backup, point `SourcePath` at
+a folder that does not contain them. Attributes themselves are **not**
+preserved: a file restored from the backup has the right bytes at the right
+path, but comes back without its Hidden/System flags (the manifest's nine
+columns have nowhere to record them).
+
 ### Manifest columns
 
 `DataPath` · `RelativePath` · `Length` · `LastWriteTimeStr` · `xxH2Hash` · `Compressed` ·

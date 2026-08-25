@@ -347,6 +347,10 @@ find_by_hash() {
                 if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
             fi
         done < <(find "$folder" -type f -print0 2>/dev/null)
+        # PINNED AS INTENT (SR-057): `find` never skips dot/hidden entries, so
+        # the bash walk needs no -Force twin — and it deliberately runs WITHOUT
+        # -L, so symlinks are never followed (link-immunity, option-3 design
+        # record §3). Do not "improve" either property.
     done
     # A missing dependency outranks the other: it is the one with a precise
     # remediation. Mirrors Find-DataFileByHash's ordering.

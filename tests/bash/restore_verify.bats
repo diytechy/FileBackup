@@ -69,6 +69,20 @@ one_row_store() {
     [[ "$output" == *"(not hashed)/4"* ]]
 }
 
+@test "0: a DOT-NAMED pool file is found by hash recovery (SR-057 regression pin / TC-114 twin)" {
+    # find(1) never skipped dot files, so this has always worked on Linux —
+    # pinned so it stays true (the PowerShell scan needed -Force, kit rev 6).
+    local s="$BATS_TEST_TMPDIR/dotpool"
+    one_row_store "$s" 'DOT-POOL-PAYLOAD'
+    mv "$s/data.bin" "$s/.pool-copy.bin"
+    sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
+    restamp_witness "$s/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tdot" --from "$s"
+    [ "$status" -eq 0 ]
+    printf 'DOT-POOL-PAYLOAD' | diff - "$BATS_TEST_TMPDIR/tdot/restored.txt"
+}
+
 @test "0: a valid archive with the WRONG payload at the row's own DataPath is healed from a pool copy (SR-056 / TC-109)" {
     command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
     local zbin; zbin="$(command -v 7z || command -v 7za || command -v 7zz)"
