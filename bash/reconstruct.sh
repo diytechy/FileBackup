@@ -311,9 +311,10 @@ infra_skip() {
 # missing, so no candidate it inspects is the row's own file — an archive
 # candidate that fails to EXPAND is data damage, and a retry on this host cannot
 # change the outcome. Such candidates are named inside ContentMissing's detail
-# instead. (Reconstruct.ps1 additionally reports a candidate whose bytes cannot
-# be READ as StorageUnreadable; this shell has no distinct read-error arm —
-# stat/hash failures fall through to non-match — a recorded asymmetry, LLR-040.)
+# instead. A candidate whose bytes cannot be READ (hash_file fails) is
+# StorageUnreadable — matching Reconstruct.ps1; before the 2026-08-25 Terra
+# review fix it silently fell through to non-match, letting an unreadable pool
+# file misreport surviving content as gone (exit 1 instead of 4).
 # Only the restore loop raises CandidateError, for a row's OWN file.
 #
 # On Found the DETAIL field carries the located file's proven FORM — 'Archive'
@@ -346,7 +347,12 @@ find_by_hash() {
                     # and testing that needs no 7z at all (kit revision 5).
                     sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
                     if [[ "$sz" == "$want_len" ]]; then
-                        h="$(hash_file "$f")"
+                        # A candidate that cannot be read records exactly ONE
+                        # cause — 7z could not have helped read it (kit rev 6).
+                        if ! h="$(hash_file "$f")"; then
+                            host_storage="candidate '$f' could not be read"
+                            continue
+                        fi
                         if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
                     fi
                     host_dep="archive candidate '$f' needs 7z, which is not installed"
@@ -372,8 +378,13 @@ find_by_hash() {
                 # dropping it (SR-050; WP5 review finding H2).
                 sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
                 if [[ "$sz" == "$want_len" ]]; then
-                    h="$(hash_file "$f")"
-                    if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
+                    if ! h="$(hash_file "$f")"; then
+                        # Unreadable raw bytes: host class (Reconstruct.ps1
+                        # parity); the expand verdict below still stands.
+                        host_storage="candidate '$f' could not be read"
+                        h=''
+                    fi
+                    if [[ -n "$h" && "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
                 fi
                 if (( expand_failed )); then
                     if sevenzip_usable; then
@@ -390,7 +401,12 @@ find_by_hash() {
             else
                 sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
                 [[ "$sz" == "$want_len" ]] || continue
-                h="$(hash_file "$f")"
+                if ! h="$(hash_file "$f")"; then
+                    # Unreadable candidate = host class, not "bytes are gone"
+                    # (Reconstruct.ps1 parity; 2026-08-25 Terra review T1).
+                    host_storage="candidate '$f' could not be read"
+                    continue
+                fi
                 if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
             fi
         done < <(find "$folder" -type f -print0 2>/dev/null)
@@ -697,10 +713,20 @@ main() {
     # --- Build the data pool for hash recovery: snapshots (desc) then backup root ---
     SEARCH_FOLDERS=()
     if [[ -n "$change_root" && -d "$change_root" ]]; then
-        while IFS= read -r sn; do
-            [[ -n "$sn" ]] && SEARCH_FOLDERS+=("$sn")
-        done < <(find "$change_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
-                    | grep -E "$SNAPSHOT_RE" | sort -r | sed "s#^#$change_root/#")
+        if [[ -r "$change_root" && -x "$change_root" ]]; then
+            while IFS= read -r sn; do
+                [[ -n "$sn" ]] && SEARCH_FOLDERS+=("$sn")
+            done < <(find "$change_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+                        | grep -E "$SNAPSHOT_RE" | sort -r | sed "s#^#$change_root/#")
+        else
+            # The snapshot tree exists but cannot be LISTED: silently shrinking
+            # the pool would let a blank row whose only copy lives in a snapshot
+            # report "your bytes are gone" (exit 1) for a host problem. The
+            # unlistable root goes in as-is so find_by_hash's readability check
+            # surfaces StorageUnreadable / exit 4 (2026-08-25 Terra review, T2;
+            # Reconstruct.ps1 does the same).
+            SEARCH_FOLDERS+=("$change_root")
+        fi
     fi
     SEARCH_FOLDERS+=("$backup_root")
 

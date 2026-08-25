@@ -3806,3 +3806,54 @@ residual for any future harness with fault injection.
 **Awaiting human ratification of this G3** (with the reviewer's
 CHANGES-REQUESTED now answered) — plus the standing plan §11 items:
 Q2 reserved-device-names ruling; confirmations for Q1/Q3/Q4/Q5.
+
+### SECOND INDEPENDENT REVIEW (OpenAI gpt-5.6-terra, medium effort, via codex exec, human-directed) — kit-bump WP — 2026-08-25
+
+Verdict as delivered: **3 findings, all P1, no P0** (adversarial charter over
+`git diff kitbump-base...HEAD`, the whole 10-commit batch):
+- **T1 (VALID, fixed):** bash `find_by_hash` silently treated an UNREADABLE
+  raw pool candidate as absent — `hash_file` failure fell through to
+  non-match, so a blank row whose only copy is unreadable reported
+  ContentMissing/exit 1 ("your bytes are gone") for a host problem;
+  Reconstruct.ps1 already said StorageUnreadable/exit 4. Fixed at all three
+  raw-hash sites (single-record, PS parity); the "recorded asymmetry" note
+  in the locator header and LLR-040 replaced with the implemented arm.
+- **T2 (VALID, fixed):** BOTH restorers suppressed a snapshot-TREE listing
+  failure (`-ErrorAction SilentlyContinue` / `2>/dev/null`) — an unlistable
+  change root silently shrank the recovery pool to the backup root, turning
+  "host cannot list the snapshots" into exit 1. Fixed: the unlistable root
+  itself joins the search list, so the locator's own readability check
+  surfaces StorageUnreadable/exit 4, both restorers.
+- **T3 (DECLINED, recorded):** a TOCTOU — pool file replaced between the
+  locator's hash-proof and the copy is classified WriteMismatch/exit 4
+  without a second search, though on a then-quiescent store the truthful
+  verdict might be exit 1. Declined: the store carries no concurrent-writer
+  guarantee, nothing wrong is left on disk (the mismatched destination is
+  deleted), and exit 4's retry semantics CONVERGE to the truthful verdict on
+  a quiescent store — while a second search would reopen the ambiguity the
+  first independent review's major 3 closed. Revisit only if a
+  concurrent-access guarantee is ever added.
+
+Evidence (real, this host): bats **69/69** (+2: unreadable candidate ⇒ 4;
+unlistable snapshot tree ⇒ 4 with a listable-tree heal sanity arm),
+shellcheck clean; RestoreVerify.Tests **20/20** (+1 PS unlistable-tree
+test via Deny ACE); trace 0/0/0 (phase-deferred=1). Full tier below.
+
+### HUMAN — kit-bump WP G3 RATIFIED + full-solution directive — 2026-08-25
+
+Verdict: **APPROVE / RATIFIED** ("I will give you my blessing to consider
+ratification done"). Standing directive recorded verbatim in intent:
+- **No more ratification pauses for the queued work.** "Everything that is
+  queued to be addressed and fixed should be fixed, without any arbitrary
+  ratification bars, so that a full solution can be implemented, tested,
+  and handed off to HomeHub for actual hardware-in-the-loop testing."
+- **HomeHub HOLDS until the full solution is ready** — it must not build an
+  incomplete FileBackup.
+- Driver reading of scope, recorded: the option-3 WP (D-1/D-5
+  content-addressed storage, Mirror/PreserveFolderTree removal, INDEX view,
+  config v2) plus its folded items (O(N²) unreferenced-file scan, manifest
+  row order, DataPath-keyed map sweep) and the previously-deferred plan §11
+  Q2 (reserved device names — now IN); the blanket ratification also covers
+  Q1/Q3/Q4/Q5 as shipped. The independent-review step is retained (it is a
+  quality bar, not a ratification bar, and it caught real blockers twice);
+  gate EVIDENCE keeps being recorded here as always.

@@ -391,6 +391,31 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         $log | Should -Not -Match '\[ContentMissing\]'
     }
 
+    It 'an UNLISTABLE snapshot tree surfaces as StorageUnreadable / exit 4, never a silently smaller pool (SR-040, Terra review T2)' {
+        # A blank row whose only copy lives in a snapshot must not report
+        # "your bytes are gone" (exit 1) when the snapshot TREE cannot be
+        # listed — that is a host problem the operator can fix.
+        $root = Join-Path $TestDrive 't2-badchg'
+        $s = New-RVStore -Root $root
+        $snap = Join-Path $s.Chg 'Snapshot_2024_01_01_00_00_01'
+        New-Item -ItemType Directory -Path $snap -Force | Out-Null
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        Move-Item -LiteralPath (Join-Path $s.Bkp $a.DataPath) -Destination (Join-Path $snap 'moved.bin')
+        $a.DataPath = ''
+        Set-ManifestRows -Folder $s.Bkp -Rows $rows
+        icacls $s.Chg /deny "${env:USERNAME}:(R)" | Out-Null
+        try {
+            $t = Join-Path $root 't'
+            $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+            $code | Should -Be 4
+            $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+            $log | Should -Match '\[StorageUnreadable\]'
+        } finally {
+            icacls $s.Chg /remove:d "${env:USERNAME}" | Out-Null
+        }
+    }
+
     It 'a HIDDEN Snapshot_* folder is still part of the pool (Get-PoolSnapshotFolder, TC-114)' {
         $chg = Join-Path $TestDrive 'd4-hidsnap'
         $snap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'

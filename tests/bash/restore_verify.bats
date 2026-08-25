@@ -116,6 +116,43 @@ one_row_store() {
     [ ! -e "$BATS_TEST_TMPDIR/tbadlen/restored.txt" ]
 }
 
+@test "4: an UNREADABLE pool candidate is a host problem, not 'bytes are gone' (SR-040, Terra review T1)" {
+    # Before this fix hash_file's failure fell through to non-match and the
+    # locator reported ContentMissing/exit 1 while the bytes may well survive.
+    [[ $EUID -ne 0 ]] || skip "running as root reads through chmod 000"
+    local s="$BATS_TEST_TMPDIR/unreadable"
+    one_row_store "$s" 'UNREADABLE-CANDIDATE'
+    sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
+    restamp_witness "$s/MANIFEST.csv"
+    chmod 000 "$s/data.bin"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tunread" --from "$s"
+    chmod 644 "$s/data.bin"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"StorageUnreadable"* ]]
+    [[ "$output" == *"could not be read"* ]]
+}
+
+@test "4: an UNLISTABLE snapshot tree surfaces as StorageUnreadable, never a silently smaller pool (SR-040, Terra review T2)" {
+    [[ $EUID -ne 0 ]] || skip "running as root lists through chmod 000"
+    local s="$BATS_TEST_TMPDIR/badchg"
+    one_row_store "$s" 'SNAPSHOT-ONLY-BYTES'
+    mkdir -p "$s/changes/Snapshot_2024_01_01_00_00_01"
+    mv "$s/data.bin" "$s/changes/Snapshot_2024_01_01_00_00_01/data.bin"
+    sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
+    restamp_witness "$s/MANIFEST.csv"
+
+    # Sanity: with the tree listable, the blank row heals from the snapshot.
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tchg-ok" --from "$s" --backup-root "$s" --change-root "$s/changes"
+    [ "$status" -eq 0 ]
+
+    chmod 000 "$s/changes"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tchg-bad" --from "$s" --backup-root "$s" --change-root "$s/changes"
+    chmod 755 "$s/changes"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"StorageUnreadable"* ]]
+}
+
 @test "0: a DOT-NAMED pool file is found by hash recovery (SR-057 regression pin / TC-114 twin)" {
     # find(1) never skipped dot files, so this has always worked on Linux —
     # pinned so it stays true (the PowerShell scan needed -Force, kit rev 6).

@@ -693,10 +693,20 @@ if ($null -eq $freeBytes) {
 $searchFolders = New-Object System.Collections.Generic.List[string]
 if ($haveSnapshotTree) {
     # -Force (SR-057): a hidden snapshot folder must not drop out of the pool.
-    Get-ChildItem -LiteralPath $changeRoot -Directory -Force -ErrorAction SilentlyContinue |
+    $snapEnumErr = $null
+    Get-ChildItem -LiteralPath $changeRoot -Directory -Force -ErrorAction SilentlyContinue -ErrorVariable snapEnumErr |
         Where-Object { $_.Name -match $ChangeFolderPattern } |
         Sort-Object Name -Descending |
         ForEach-Object { $searchFolders.Add($_.FullName) }
+    if ($snapEnumErr) {
+        # The snapshot tree exists but could not be LISTED: the pool is
+        # incomplete in an unknowable way, and silently continuing would let
+        # a blank row whose only copy lives in a snapshot report "your bytes
+        # are gone" (exit 1) for what is a host problem. Adding the unlistable
+        # root itself makes the locator surface StorageUnreadable (exit 4)
+        # instead (2026-08-25 Terra review, T2).
+        $searchFolders.Add($changeRoot)
+    }
 }
 $searchFolders.Add($backupRoot)
 
