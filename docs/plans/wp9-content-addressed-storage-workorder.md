@@ -27,7 +27,7 @@ records**, not questions that block — each is flagged for veto, and Q1 is
 flagged loudly because it refines a ruling the human made personally.
 
 **Ids allocated (provisional until G2 closes):** SN-034, SR-058..SR-064,
-LLR-058..LLR-064, TC-118..TC-134, plus **TC-117 + the SR-055/LLR-055 amendment**
+LLR-058..LLR-064, TC-118..TC-135, plus **TC-117 + the SR-055/LLR-055 amendment**
 already drafted for the reserved-device-names item the ratification entry moved
 **IN** to this WP (§3.10), plus amendments to SN-008, SR-003, SR-010, SR-012,
 SR-013, SR-022, SR-028, SR-042, SR-051, SR-052.
@@ -310,7 +310,7 @@ and tests survival against the **final** manifest).
 | LLR-063 | SR-063;SR-042 | Engine | `Assert-NoUnknownConfigKey` / `Test-BackupConfigurationShape` / `Resolve-BackupSetDefaults` |
 | LLR-064 | SR-062 | FileBackup.ps1 | `Invoke-ViewAction` + `-Action View` dispatch |
 
-### 4.4 `test-cases.csv` — TC-118..TC-134, detailed in §6
+### 4.4 `test-cases.csv` — TC-118..TC-135, detailed in §6
 
 ---
 
@@ -340,7 +340,7 @@ entry says so explicitly. Decide at step 9, not before.
 
 ---
 
-## 6. Test plan (G2 artifacts; TC-118..TC-134)
+## 6. Test plan (G2 artifacts; TC-118..TC-135)
 
 **Matrix collapse.** `Run-All.ps1 -Modes` drops to `Plain,Compress`; the
 integration budget roughly halves and funds the battery below.
@@ -364,6 +364,31 @@ integration budget roughly halves and funds the battery below.
 | TC-132 | Unit | The unreferenced-data audit is linear (behavioral/timing proof at 10k rows) |
 | TC-133 | Integration | Snapshots get **no** view (invariant) |
 | TC-134 | Integration | bats twin: `reconstruct.sh` restores a content-addressed store built by this WP, and its `find … -type f` (no `-L`) link-immunity is pinned **as intent** |
+| TC-135 | Integration | **Owner deleted while a borrower lives** (B9's refcount, untested today): removing the shorter-path member of a dedup group evicts nothing the surviving member still needs — the borrower restores byte-exact from the live backup, and the snapshot restores the removed path's bytes |
+
+### 6.1 Drill permutation coverage — what is already ported, what WP9 owes
+
+The HomeHub drill (`scripts/verify/library-permutation-drill.sh`) was never
+copied into this repo; its **assertions** were ported in the kit-bump WP. Status
+of the eight permutations recorded in the 2026-08-24 verification entry:
+
+| Permutation | State @ `553638c` | Owner |
+|---|---|---|
+| Blank-row hashes vs the verified pool (*the assertion that caught D-1*) | **Ported and strengthened** — `tests/Common/PoolAudit.ps1` proves by reading and hashing bytes (and expanding `.7z` payloads), not by `Test-Path`; run at the end of the G2/G3/G9/G9Prune timelines | TC-116 (shipped) |
+| Nested dot-directories | **Ported** (`.config/nested/deep.txt`, all modes) | TC-113 (shipped) |
+| Windows Hidden (files + directories, System attribute) | **Ported** | TC-113 / TC-114 (shipped) |
+| Same-length corruption | **Ported** (`same-length-bitflip`, both restorers + cross-artifact interop) | TC-108 / TC-109 / TC-110 (shipped) |
+| All-four-modes owner-edit (**the D-1 shape**) | **NOT ported** — deliberately: it cannot pass while Mirror exists. TC-116's row records the deferral | **WP9 TC-118** |
+| Same-run vs prior-run duplicates | **Half ported** — `G2.8 Dedup_singleDataPath` is de-vacuumed (one DataPath + one physical copy in hash mode; the Mirror arm is a *labelled change-detector* that documents D-5). Prior-run dedup was already covered | **WP9 TC-119** (same-run half, properly) |
+| Edit-the-borrower | **NOT ported** — no equivalent anywhere | **WP9 TC-118**, added arm |
+| Multiple borrowers | **NOT ported** — no equivalent anywhere | **WP9 TC-118**, added arm |
+| Owner deleted while borrower lives (B9 eviction refcount) | **NOT ported** — only the *migration*-side refcount is tested (`StorageForm.Tests.ps1:436,539`, SR-051); `Move-RemovedFilesToStaging`'s own refcount has no named test | **WP9 TC-135** (new) |
+
+TC-118 therefore runs as a **timeline**, not a single case: two identical files →
+edit the owner → edit the borrower → add a third copy → remove the owner while a
+borrower still lives, asserting after every step that each path restores its
+own-era bytes from the right snapshot and that `Get-BlankRowPoolViolations`
+reports nothing.
 
 **Battery import** (status.md, approved + expanded 2026-08-24) — now unblocked by
 the freed budget: owner-edit across the surviving modes (TC-118), the
