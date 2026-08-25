@@ -86,7 +86,7 @@ last) — it is the record, not required reading for every pass.
   store exists that must be maintained, so the `Original → Hash` conversion is
   deleted rather than kept and a legacy-form store is refused with a
   fresh-`BackupPath` remedy.
-- **WP9 IS IN PROGRESS (2026-08-25, Windows host): 3 of 9 steps committed on
+- **WP9 IS IN PROGRESS (2026-08-25, Windows host): 4 of 9 steps committed on
   `New_Fix_Batch`,** each verified before commit and each with its reasoning in
   its commit message (kit-bump precedent: one G3 audit entry at the end, detail
   in the commits).
@@ -95,18 +95,53 @@ last) — it is the record, not required reading for every pass.
   | 1 — D-1/D-5 repros + `Get-ClaimedRowViolations` | **DONE** | `e302593` |
   | 2 — owner election + intra-run memo (SR-060) | **DONE** | `9a1da7d` |
   | 3 — delete storage-layout migration whole (SR-061) | **DONE** | `3ac3338` |
-  | 4 — `Save-SupersededData` reorder + exact survival test | next | |
-  | 5 — delete Mirror (~45 test sites, G17) | | |
+  | 4 — `Save-SupersededData` reorder + exact survival test (SR-059) | **DONE** | (this session; hash backfilled next update) |
+  | 5 — delete Mirror (~45 test sites, G17) | next | |
   | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | | |
   | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | | |
   | 8 / 8b — folded fixes + F8 + reserved names | | |
   | 9 — docs, registries, generated maps, G3 audit entry | | |
-  Latest evidence (step 3, real output): `check.ps1 -Tier Full -Gate G3` all
-  steps passed; unit **364/364**; integration sweep **416 PASS / 0 FAIL** across
-  all four modes. Engine 4132 → **3872** lines. **D-5 is fixed in the
-  content-addressed modes; D-1 still reproduces under Mirror BY DESIGN — step 4
-  is what kills it**, and the change-detector Describe proving it dies with the
-  mode at step 5.
+  Latest evidence (step 4, real output): unit **374/374** (was 364); integration
+  sweep **424 PASS / 0 FAIL / 4 SKIP** across all four modes (was 416 — the
+  eight new G9 `ClaimedRows_byteVerified[_postPrune]` audits, which Mirror
+  passes too); trace 0/0/0 (phase-deferred=8); `check.ps1 -Tier Full -Gate G3`
+  all steps passed. **D-5 is fixed in the content-addressed modes; the exact
+  survival test (SR-059) is in** — content-addressed sets preserve superseded
+  bytes AFTER copy/evict against the FINAL manifest's DataPath claims, which
+  fixes two red-first-proven D-1-family holes: the source-based test moved out
+  a pool object a FROZEN row (SR-055/SR-057) still claimed, and it moved out
+  the old object of a row whose step-10 copy FAILED — pre-change, a live-root
+  restore then failed with content-missing. **D-1 under Mirror still
+  reproduces BY DESIGN and now dies only with the mode at step 5.**
+  **INDEPENDENT REVIEW of step 4 (Claude subagent, 2026-08-25):**
+  REQUEST-CHANGES scoped to test robustness; **no engine defect found** — the
+  reviewer independently reproduced both exactness holes on pre-change code
+  (the failed-copy one as a real `content-missing` restore failure), verified
+  Mirror byte-identical, verified SR-041 aggregation in the new position, and
+  re-ran the full gate. Accepted and landed in the step-4 commit: MAJ-1 (the
+  frozen-claim test gains a non-vacuity guard — it passed identically when
+  the Deny ACE did nothing), MIN-1 (failed-copy arm automated), MIN-4 (unit
+  count corrected), MIN-5 (LLR-059 claim-direction wording), nits n2/n3/n4.
+  Deferred with owners: MIN-2 → **step 5** (TC-073 must gain a
+  content-addressed arm when Mirror dies, or the 11.5 failure aggregation
+  loses its only coverage); MIN-3 → **step 9** (AGENTS.md §2 hand-written
+  pipeline text is stale for steps 5.5/6/9.5/11.5 — also stale since step 3;
+  the generated regions are fresh). Verify at **step 5/6**: whether the
+  SR-061 legacy-`Original`-row refusal is fully implemented — reviewer MIN-5
+  could not find the refusal itself, only the writer (step 3 shipped the
+  no-migration contract half of TC-124). Reviewer n6 recorded under Open
+  items.
+  **DRIVER DECISION at step 4 (recorded, open to veto):** the work order's
+  step-4 exit line "D-1 repro green in Mirror too" is structurally
+  unachievable — under Mirror the borrower's live row claims content at the
+  very path step 10 overwrites, so `Get-ClaimedRowViolations` must fail there
+  wherever preservation runs (and a naive reorder would stage post-edit bytes
+  and delete the live object). Step 4 is therefore mode-gated: Mirror keeps
+  the legacy source-based call at step 9.5 byte-identical (both die at step
+  5); content-addressed sets get the exact test at step 11.5. This matches
+  the work order's own §2 ("D-1's hazard class is deleted, not guarded") and
+  this file's earlier step-3 note; the Mirror change-detector Describes stay
+  green and are deleted with the mode.
 - **Active gate:** G3. **Next actions, in order:** (1) finish **WP9** steps 4–9,
   then its independent review (Claude subagent, then the OpenAI adversarial pass
   via `codex exec` — both found real defects on the kit-bump WP); (2) G3 →
@@ -133,6 +168,7 @@ answered. D-2/D-3/D-4 closed and moved to
 |---|---|---|---|
 | **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | **RULED + PLANNED + PRIMED.** Design ruled 2026-08-24 (option 3: content-address all storage, Mirror/`PreserveFolderTree` removed, browsability = generated index; `link` deferred). Implementation work order drafted 2026-08-25: [plans/wp9-content-addressed-storage-workorder.md](plans/wp9-content-addressed-storage-workorder.md). Two further human rulings 2026-08-25: the **view is per-folder HTML + `INDEX.tsv` + threshold search** (a single flat page measures ~100 MB at library scale), and **migration is MOOT** (no store must be maintained) so the `Original -> Hash` conversion is deleted and a legacy-form store is refused with a fresh-`BackupPath` remedy. Registry rows are IN the machine source of truth as `Phase=ca-v1` (SN-034, SR-058..064, LLR-058..064, TC-117..135) so nothing can be lost; they flip to Verified when WP9 lands. Next: WP9 G1->G3 + independent review, no ratification pause. |
 | **Test-battery import** | The HomeHub drill assertion that caught D-1 (blank-row hashes cross-checked against the verified pool) has no FileBackup equivalent, and `G2.8 Dedup_singleDataPath` is VACUOUS (`-le 2` passes under D-5). Six-item prioritized import list + eight extra permutations recorded in the 2026-08-24 verification entry. | Approve as the test scope of the D-1..D-4 fix WPs (owner-edit across all 4 modes, orphan-detection second pass as tooling, wrong-bytes-at-DataPath both restorers, unrelated-bad-`.7z`, dot/Hidden sources, fix the vacuous assertion). | **APPROVED 2026-08-24 + EXPANDED; PART-PORTED, REMAINDER PRIMED.** Ported in the kit-bump WP: the byte-verified orphan second pass (`tests/Common/PoolAudit.ps1`, TC-116 - stronger than the drill's, it proves by hashing bytes), nested dot-directories + Windows Hidden (TC-113/114), same-length corruption (TC-108/109/110), and the de-vacuumed `G2.8` (now one DataPath + one physical copy in hash mode, with the Mirror arm left as a labelled D-5 change-detector). NOT ported, and impossible to port while Mirror exists: all-four-modes owner-edit, edit-the-borrower, multiple-borrowers, and owner-deleted-while-borrower-lives (B9's eviction refcount, which has no named test today). Those are now **TC-118 / TC-119 / TC-135 rows in test-cases.csv**, owned by WP9 - see its §6.1 coverage table. The HomeHub drill SCRIPT itself was never pulled into this repo; only its assertions. |
+| **`Copy-SourceFileToBackup` succeeds into a directory destination** (step-4 review n6, 2026-08-25) | If the destination path names an existing DIRECTORY, `Copy-Item` copies the file *into* it and the function reports success, so the manifest row is written naming a directory. Present on pre- and post-step-4 code alike (not caused by WP9); `Get-ClaimedRowViolations` does catch the resulting state ("names no file"). Contrived to reach in a content-addressed pool. | None — found incidentally by the independent reviewer while probing step 4. | **OPEN — small.** Candidate for WP9 step 8 (folded fixes) or a follow-on nit; decide at step 8. |
 
 ### Simplification candidates (2026-08-25 architecture read, human-prompted)
 

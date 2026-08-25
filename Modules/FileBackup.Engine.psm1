@@ -2868,48 +2868,84 @@ function Move-RemovedFilesToStaging {
 function Save-SupersededData {
     <#
     .SYNOPSIS
-        Preserves the prior bytes of files whose content is being replaced this
-        run, into the staging snapshot, BEFORE Invoke-BackupFileGroup overwrites
-        (Mirror) or orphans (HashAddressed) them.
+        Preserves the prior bytes of files whose content was replaced this run
+        into the staging snapshot, unless a live manifest row still claims them.
     .DESCRIPTION
         For each changed file that already existed in the backup with different
-        content, the old data file is moved into staging IF that exact content
-        ((hash,length)) is not present anywhere in the new source state. When the
-        old content still exists elsewhere (e.g. a surviving duplicate), it stays
-        in the backup and the snapshot recovers it by hash. This is what makes a
-        point-in-time restore reproduce old content in every storage mode.
+        content, the old data file is moved into staging UNLESS it must stay in
+        the pool. Two survival tests exist while the legacy Mirror layout is
+        still alive (WP9 step 5 deletes it, and this function's -SourceDb arm
+        with it):
+
+        -FinalRows (content-addressed sets) — the EXACT test (SR-059). Called
+        AFTER the copy and evict steps: content addressing never overwrites an
+        existing object, so preservation can wait for the FINAL manifest and
+        ask the real question — does any surviving row still claim the old
+        object's DataPath. That is the same claim semantics as eviction's B9
+        refcount, and under content addressing a DataPath claim IS a
+        (hash,length) demand, because the name is derived from the content.
+        Frozen rows (SR-055/SR-057) and rows whose copy failed keep their
+        claim in the final map, so their objects now correctly stay in the
+        pool — the source-based approximation moved them out (the D-1 defect
+        family, review 2026-08-24).
+
+        -SourceDb (Mirror sets only) — the legacy approximation. Mirror
+        overwrites IN PLACE at the copy step, so preservation must run before
+        it, when no final manifest exists yet; content ((hash,length)) present
+        in the new source state is assumed to survive in the backup. This is
+        the test that authorized D-1's overwrite; it dies with the mode.
+
+        Old content that survives in the pool is NOT staged: the snapshot
+        recovers it by hash at restore, exactly as eviction's still-referenced
+        branch already works.
 
         A failed move does NOT abort the run (SR-041): it is logged as an ERROR,
         counted, and the loop continues, so the run still finalizes its staging
         folder instead of orphaning it (SR-017). Same shape as
         Invoke-BackupFileGroup's existing per-entry handling.
     #>
-    # Implements: SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041
+    # Implements: SR-010, SR-028, SR-041, SR-059, LLR-010, LLR-028, LLR-041, LLR-059
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$NewOrChanged,
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb,
-        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
+        [AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
+        [AllowNull()][AllowEmptyCollection()][object[]]$FinalRows,
         [Parameter(Mandatory)][string]$BkpPath,
         [Parameter(Mandatory)][string]$StagingFolder,
         [Parameter(Mandatory)][scriptblock]$Log,
         [Parameter(Mandatory)][ref]$OverallSuccess
     )
+    $useExact = $PSBoundParameters.ContainsKey('FinalRows')
+    if (-not ($useExact -xor $PSBoundParameters.ContainsKey('SourceDb'))) {
+        throw 'Save-SupersededData: pass exactly one of -FinalRows (exact survival, SR-059) or -SourceDb (legacy Mirror approximation).'
+    }
     if (-not $NewOrChanged) { return }
     $failures = 0
     # Filesystem-faithful keys (SR-034): a case-insensitive map here returns the
     # WRONG row for a case-differing Linux pair, and its content "surviving"
     # skips staging the superseded bytes the snapshot needs (review 83cc5f1 R1).
     $backupByRel = New-RelativePathMap; foreach ($b in $BackupDb) { if ($b.RelativePath) { $backupByRel[$b.RelativePath] = $b } }
-    # Content (hash|length) present in the NEW source state survives in the backup.
-    $survivingContent = @{}; foreach ($s in $SourceDb) { $survivingContent["$($s.xxH2Hash)|$($s.Length)"] = $true }
+    if ($useExact) {
+        # A DataPath any FINAL row still claims stays in the pool (SR-059).
+        # Deliberately a plain case-insensitive set: this mirrors eviction's B9
+        # refcount (string -eq), not the SR-034 RelativePath identity above.
+        $claimedData = @{}
+        foreach ($r in $FinalRows) { if (-not [string]::IsNullOrWhiteSpace($r.DataPath)) { $claimedData[$r.DataPath] = $true } }
+    } else {
+        # Content (hash|length) present in the NEW source state is assumed to
+        # survive in the backup — the Mirror-era approximation.
+        $survivingContent = @{}; foreach ($s in $SourceDb) { $survivingContent["$($s.xxH2Hash)|$($s.Length)"] = $true }
+    }
 
     foreach ($chg in $NewOrChanged) {
         $old = $backupByRel[$chg.RelativePath]
         if (-not $old) { continue }                                  # brand-new file: nothing superseded
         if ($old.xxH2Hash -eq $chg.xxH2Hash -and $old.Length -eq $chg.Length) { continue }  # same content
         if ([string]::IsNullOrWhiteSpace($old.DataPath)) { continue }
-        if ($survivingContent["$($old.xxH2Hash)|$($old.Length)"]) { continue }  # old content still live elsewhere
+        $survives = if ($useExact) { $claimedData.ContainsKey($old.DataPath) }
+                    else { [bool]$survivingContent["$($old.xxH2Hash)|$($old.Length)"] }
+        if ($survives) { continue }  # a live row still claims the old object / old content still live elsewhere
         $srcDataFull = Join-Path $BkpPath $old.DataPath
         if (-not (Test-Path -LiteralPath $srcDataFull -PathType Leaf)) { continue }  # already moved / shared
         $destFull = Join-Path $StagingFolder $old.DataPath
@@ -3186,8 +3222,9 @@ function Invoke-BackupSet {
     <#
     .SYNOPSIS
         Orchestrates the full backup pipeline for one set (AGENTS.md §2): walk +
-        hash the source, sync storage layout, preserve superseded bytes, copy new
-        data, evict removed files, finalize the dated snapshot, persist run state.
+        hash the source, sanitize the backup manifest, copy new data, evict
+        removed files, preserve superseded bytes no live row still claims,
+        finalize the dated snapshot, persist run state.
     #>
     # Implements: SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055
     [CmdletBinding()]
@@ -3274,7 +3311,7 @@ function Invoke-BackupSet {
         # A source file that cannot be read (open for write, AV hold) fails the
         # set loudly — but must not strand the still-empty staging folder, or
         # every LATER run refuses on the SR-017 stale-Temp guard instead of the
-        # real cause. Temp holds nothing of value until step 9.5.
+        # real cause. Temp holds nothing of value until the preserve/evict steps.
         Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
         throw
     }
@@ -3405,13 +3442,19 @@ function Invoke-BackupSet {
             -BackupBytes $demand.BackupBytes -ChangeBytes $demand.ChangeBytes
     } catch { & $refuseCapacity $_.Exception.Message }
 
-    # 9.5 Preserve superseded bytes into the snapshot BEFORE they are overwritten
-    # (Mirror) or orphaned (HashAddressed) — required for point-in-time restore.
-    # A move failure here is aggregated, not thrown (SR-041): the run must reach
+    # 9.5 Mirror only — dies with the mode at WP9 step 5. Mirror's copy step
+    # overwrites IN PLACE (the destination is the row's own path), so superseded
+    # bytes must be preserved BEFORE step 10, when the final manifest cannot
+    # exist yet — forcing the source-based survival approximation that D-1
+    # documents (defect review 2026-08-24). Content-addressed sets preserve at
+    # step 11.5 with the exact test instead (SR-059).
+    # A move failure is aggregated, not thrown (SR-041): the run must reach
     # step 13 so the staging folder is finalized or discarded rather than
     # orphaned for the next run's SR-017 guard.
-    Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb -SourceDb $sourceDb `
-        -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
+    if ([bool]$Set.PreserveFolderTree) {
+        Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb -SourceDb $sourceDb `
+            -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
+    }
 
     # 10. Copy new/changed files
     foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
@@ -3430,6 +3473,20 @@ function Invoke-BackupSet {
         -BkpPath $paths.BkpPath -StagingFolder $stagingFolder `
         -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) -Log $log `
         -OverallSuccess $OverallSuccess
+
+    # 11.5 Preserve superseded bytes into the snapshot (SR-059, LLR-059).
+    # Content addressing never overwrites an existing object at step 10, so
+    # preservation can run AFTER the copy/evict steps and ask the exact
+    # question: does any row of the FINAL manifest still claim the old object?
+    # Frozen rows (SR-055/SR-057) and rows whose copy failed keep their claim,
+    # so their bytes now correctly stay in the pool — the source-based
+    # approximation at step 9.5 moved them out (the D-1 family). Failures
+    # aggregate, not throw (SR-041), same as above.
+    if (-not [bool]$Set.PreserveFolderTree) {
+        Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb `
+            -FinalRows @($backupMap.Values) `
+            -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
+    }
 
     # 12. Save updated backup manifest
     $backupDbFinal = $backupMap.Values | Sort-Object { $_.RelativePath.Length } -Descending

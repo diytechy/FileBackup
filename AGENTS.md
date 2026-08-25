@@ -177,7 +177,7 @@ Imports (internal): `Common`
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
-| `Save-SupersededData` | yes | SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041 |
+| `Save-SupersededData` | yes | SR-010, SR-028, SR-041, SR-059, LLR-010, LLR-028, LLR-041, LLR-059 |
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |

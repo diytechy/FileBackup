@@ -99,6 +99,13 @@ function Invoke-G9 {
     Assert-True $suite $group 'G9.audit' 'BlankRows_byteVerified' {
         @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
     }
+    # WP9 step 4 (SR-059): the claimed-row companion — every NON-blank row's
+    # own DataPath must reproduce that row's (hash,length). This timeline's
+    # borrow shape (the run-3 rename) never edits the borrowed-from path, so
+    # the audit must hold in every mode, Mirror included.
+    Assert-True $suite $group 'G9.audit' 'ClaimedRows_byteVerified' {
+        @(Get-ClaimedRowViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
+    }
 }
 
 function Get-G9PhysicalCopyCount {
@@ -272,5 +279,11 @@ function Invoke-G9Prune {
     # orphaned a blank row would be invisible to every default check.
     Assert-True $suite $group 'G9P.audit' 'BlankRows_byteVerified_postPrune' {
         @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
+    }
+    # WP9 step 4 (SR-059): re-homes rewrite DataPaths, so the claimed-row
+    # audit after the prune cycle proves every rewritten claim still resolves
+    # to its own bytes.
+    Assert-True $suite $group 'G9P.audit' 'ClaimedRows_byteVerified_postPrune' {
+        @(Get-ClaimedRowViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
     }
 }

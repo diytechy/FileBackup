@@ -57,15 +57,16 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 18. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
 19. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
 20. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
-21. `Save-SupersededData` — Preserves the prior bytes of files whose content is being replaced this
+21. `Save-SupersededData` — Preserves the prior bytes of files whose content was replaced this run
 22. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
 23. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
-24. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
-25. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
-26. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-27. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-28. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-29. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+24. `Save-SupersededData` — Preserves the prior bytes of files whose content was replaced this run
+25. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+26. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+27. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
+28. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
+29. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+30. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -190,7 +191,7 @@ Imports (internal): `Common`
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, LLR-014 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
-| `Save-SupersededData` | yes | SR-010, SR-028, SR-041, LLR-010, LLR-028, LLR-041 |
+| `Save-SupersededData` | yes | SR-010, SR-028, SR-041, SR-059, LLR-010, LLR-028, LLR-041, LLR-059 |
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |

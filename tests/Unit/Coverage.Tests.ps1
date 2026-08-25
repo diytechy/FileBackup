@@ -183,6 +183,130 @@ BeforeAll {
         & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-01-01 00:00:01') *>&1 | Out-Null
         return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one }
     }
+
+    # --- WP9 step 4: exact-survival timelines (SR-059, LLR-059) --------------
+
+    function New-FrozenClaimTimeline {
+        <#
+        .SYNOPSIS
+            The frozen-claim shape (SR-057 x SR-059): a duplicate pair whose
+            second member lives in a directory that later becomes unreadable
+            (Deny ACE), then an ordinary edit of the only WALKABLE holder.
+            After that run the frozen row is the ONLY live claim on the shared
+            object - a claim the source-based survival test cannot see,
+            because the frozen file is exactly the one the walk could not
+            visit.
+        .NOTES
+            The fixture owns the Deny ACE lifecycle: applied before run 2 and
+            removed in a finally immediately after it (the freeze has already
+            happened by then), so no failure path can strand an ACE that
+            breaks TestDrive cleanup (review 2026-08-25, nit n2). Callers
+            must still prove the ACE actually bit - see the non-vacuity guard
+            in the It (review MAJ-1).
+        #>
+        param([string]$Root, [bool]$Compress = $false)
+        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $cfg = Join-Path $Root 'c.xml'
+        New-Item -ItemType Directory -Path $src, (Join-Path $src 'locked') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+        $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+        $one = 'FROZEN-SHARED-ONE ' * 60
+        $two = 'EDITED-AWAY-TWO '   * 60
+
+        # run1 - the pair shares one object; the walkable file is the owner.
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'locked\pair.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
+        & $run ([datetime]'2024-01-01 00:00:01')
+
+        # run2 - the directory becomes unenumerable (SR-057: rows under it
+        # freeze, the set fails loudly) while the only walkable holder edits
+        # away from the shared content.
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $two)
+        $denied = Join-Path $src 'locked'
+        icacls $denied /deny "${env:USERNAME}:(OI)(CI)(R)" | Out-Null
+        try {
+            & $run ([datetime]'2024-02-02 00:00:02')  # => Snapshot_2024_01_01_00_00_01
+        } finally {
+            icacls $denied /remove:d "${env:USERNAME}" | Out-Null
+        }
+
+        return [pscustomobject]@{
+            Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one; Two = $two
+            PreEditSnap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        }
+    }
+
+    function New-EvictSupersedeTimeline {
+        <#
+        .SYNOPSIS
+            Work-order risk R4: supersession and eviction share one object in
+            ONE run - a duplicate pair where the same run deletes one member
+            and edits the other. Exactly one staged copy must land in the
+            snapshot, whichever loop reaches the object first.
+        #>
+        param([string]$Root, [bool]$Compress = $false)
+        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $cfg = Join-Path $Root 'c.xml'
+        New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+        $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+        $one = 'EVICT-AND-SUPERSEDE ' * 60
+        $two = 'MOVED-ON-CONTENT '    * 60
+
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'sub\b.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
+        & $run ([datetime]'2024-01-01 00:00:01')
+
+        Remove-Item -LiteralPath (Join-Path $src 'sub\b.bin') -Force
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $two)
+        & $run ([datetime]'2024-02-02 00:00:02')      # => Snapshot_2024_01_01_00_00_01
+
+        return [pscustomobject]@{
+            Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one; Two = $two
+            Snap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        }
+    }
+
+    function New-MemberRemovedTimeline {
+        <#
+        .SYNOPSIS
+            TC-135: one member of a dedup pair is DELETED while the other
+            lives on — the owner (the borrowed-from path) by default, the
+            borrower with -RemoveBorrower. B9's eviction refcount must keep
+            the shared object in the pool for the survivor, and the snapshot
+            must still restore the removed path's bytes.
+        #>
+        param([string]$Root, [bool]$Compress = $false, [switch]$RemoveBorrower)
+        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $cfg = Join-Path $Root 'c.xml'
+        New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+        $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
+
+        $one = 'MEMBER-REMOVED-SHARED ' * 60
+
+        # run1 - the owner is the only holder; run2 - a twin borrows the
+        # owner's object; run3 - one member is deleted, the other lives.
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
+        & $run ([datetime]'2024-01-01 00:00:01')
+        [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $one)
+        & $run ([datetime]'2024-02-02 00:00:02')      # => Snapshot_2024_01_01_00_00_01
+        $removedRel  = if ($RemoveBorrower) { 'sub\twin.bin' } else { 'a.bin' }
+        $survivorRel = if ($RemoveBorrower) { 'a.bin' } else { 'sub\twin.bin' }
+        Remove-Item -LiteralPath (Join-Path $src $removedRel) -Force
+        & $run ([datetime]'2024-03-03 00:00:03')      # => Snapshot_2024_02_02_00_00_02
+
+        return [pscustomobject]@{
+            Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one
+            RemovedRel = $removedRel; SurvivorRel = $survivorRel
+            SnapAfterRun2 = Join-Path $chg 'Snapshot_2024_02_02_00_00_02'
+        }
+    }
 }
 
 Describe 'Dated point-in-time snapshot (SR-005)' {
@@ -2943,6 +3067,177 @@ Describe 'D-1/D-5 change-detectors: both defects reproduce on Mirror today' {
                  Where-Object { $_.RelativePath -eq 'sub\b.bin' })[0]
         Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $row.xxH2Hash -Length ([long]$row.Length) |
             Should -Be 2 -Because 'D-5: the dedup lookup consults only the PRIOR backup, so a same-run pair is stored twice'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# WP9 step 4 — the exact survival test (SR-059, LLR-059).
+#
+# In the content-addressed modes Save-SupersededData now runs AFTER the
+# copy/evict steps and asks the exact question — does any row of the FINAL
+# manifest still claim the old object — instead of predicting survival from
+# the source walk. The frozen-claim It is the distinguisher: it fails on the
+# source-based test (which moves out an object a frozen row still claims) and
+# passes on the exact one. The other two Its pin behavior that must hold under
+# BOTH orders, so the reorder cannot regress it.
+# ---------------------------------------------------------------------------
+
+Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059, LLR-059)' {
+    It 'keeps the pool object a FROZEN row still claims when the last walkable holder edits away (SR-057, TC-118 frozen-claim arm, <Mode>)' -ForEach @(
+        @{ Mode = 'HashAddressed';          Compress = $false }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true }
+    ) {
+        $root = Join-Path $TestDrive ('frz\' + ($Mode -replace '\W', ''))
+        $t = New-FrozenClaimTimeline -Root $root -Compress $Compress
+
+        # (0) Non-vacuity guard (review 2026-08-25, MAJ-1): if the Deny ACE
+        # does not bite (privileged CI identity, silent icacls failure), this
+        # timeline degenerates to an ordinary edit and every assertion below
+        # passes without testing SR-059 at all. Prove SR-057 actually froze
+        # the pair before trusting anything else.
+        (Get-Content -LiteralPath (Join-Path $t.Chg 'backup.log') -Raw) |
+            Should -Match 'Cannot enumerate' -Because 'the fixture is vacuous unless SR-057 actually fired'
+
+        # (1) The distinguisher: the frozen row's DataPath must still hold
+        # its bytes. The source-based test could not see this claim - the
+        # frozen file is exactly the one the walk could not visit - and
+        # moved the object into the snapshot, leaving the live row
+        # pointing at nothing.
+        @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+        @(Get-BlankRowPoolViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+
+        # (2) Latest state: the edit landed; the frozen path still restores.
+        $latest = Join-Path $root 'r-latest'
+        & (Join-Path $t.Bkp 'RECONSTRUCT.ps1') -TargetRoot $latest *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $latest 'a.bin'))           | Should -Be $t.Two
+        [IO.File]::ReadAllText((Join-Path $latest 'locked\pair.bin')) | Should -Be $t.One
+
+        # (3) Point in time: the pre-edit snapshot reproduces the shared
+        # content for both paths (hash-recovered from the live pool).
+        $pre = Join-Path $root 'r-pre'
+        & (Join-Path $t.PreEditSnap 'RECONSTRUCT.ps1') -TargetRoot $pre *>&1 | Out-Null
+        foreach ($rel in 'a.bin', 'locked\pair.bin') {
+            [IO.File]::ReadAllText((Join-Path $pre $rel)) | Should -Be $t.One
+        }
+    }
+
+    It 'parks exactly one staged copy when eviction and supersession share content in one run (R4, TC-118 arm, <Mode>)' -ForEach @(
+        @{ Mode = 'HashAddressed';          Compress = $false }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true }
+    ) {
+        $root = Join-Path $TestDrive ('r4\' + ($Mode -replace '\W', ''))
+        $t = New-EvictSupersedeTimeline -Root $root -Compress $Compress
+
+        @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+        @(Get-BlankRowPoolViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+
+        # The old object left the pool (no final row claims it) and exactly
+        # ONE copy landed in the snapshot - whichever loop moved it, the
+        # other found it already gone.
+        $snapRow = @(Import-Csv -LiteralPath (Join-Path $t.Snap 'MANIFEST.csv') |
+                     Where-Object RelativePath -eq 'a.bin')[0]
+        Get-PoolContentCopyCount -Folders @($t.Bkp)  -Hash $snapRow.xxH2Hash -Length ([long]$snapRow.Length) |
+            Should -Be 0 -Because 'nothing in the final manifest claims the superseded content'
+        Get-PoolContentCopyCount -Folders @($t.Snap) -Hash $snapRow.xxH2Hash -Length ([long]$snapRow.Length) |
+            Should -Be 1 -Because 'exactly one parked copy serves both loops; zero would be the R4 missed-bytes failure'
+
+        $latest = Join-Path $root 'r-latest'
+        & (Join-Path $t.Bkp 'RECONSTRUCT.ps1') -TargetRoot $latest *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $latest 'a.bin')) | Should -Be $t.Two
+        Test-Path -LiteralPath (Join-Path $latest 'sub\b.bin') | Should -BeFalse
+
+        $pre = Join-Path $root 'r-pre'
+        & (Join-Path $t.Snap 'RECONSTRUCT.ps1') -TargetRoot $pre *>&1 | Out-Null
+        foreach ($rel in 'a.bin', 'sub\b.bin') {
+            [IO.File]::ReadAllText((Join-Path $pre $rel)) | Should -Be $t.One
+        }
+    }
+
+    It 'keeps the old object in the pool when the replacement copy FAILS (TC-118 failed-copy arm, <Mode>)' -ForEach @(
+        @{ Mode = 'HashAddressed';          Compress = $false }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true }
+    ) {
+        # The severest exactness win (review 2026-08-25, MIN-1; red-first
+        # proven by the reviewer's pre-change probe): a failed step-10 copy
+        # leaves the OLD row live in the final manifest, so the exact test
+        # keeps its object. The source-based test moved it out - the new
+        # content is in the source, the old is not - and the live root then
+        # failed to restore with content-missing.
+        $root = Join-Path $TestDrive ('fcpy\' + ($Mode -replace '\W', ''))
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+
+        $one = 'FAILED-COPY-OLD ' * 60
+        $two = 'FAILED-COPY-NEW ' * 60
+        [IO.File]::WriteAllText((Join-Path $src 'f.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
+        & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-01-01 00:00:01') *>&1 | Out-Null
+
+        # Pre-create and lock the NEW content's destination so step 10's copy
+        # fails exactly the way a real locked file (AV hold) does.
+        [IO.File]::WriteAllText((Join-Path $src 'f.bin'), $two)
+        $probe = Join-Path $src 'f.bin'
+        $destName = Get-HashSizeFileName -HashHex (Get-FileXxHash -FilePath $probe) `
+            -Length (Get-Item -LiteralPath $probe).Length `
+            -Extension $(if ($Compress) { '.7z' } else { '.bin' })
+        $blockPath = Join-Path $bkp $destName
+        [IO.File]::WriteAllText($blockPath, 'BLOCKER')
+        $lock = [IO.File]::Open($blockPath, 'Open', 'Read', 'None')
+        try {
+            # Child process so the exit code is observable.
+            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+            $LASTEXITCODE | Should -Be 1 -Because 'a failed copy must fail the set loudly (SR-014)'
+        } finally {
+            $lock.Dispose()
+        }
+        Remove-Item -LiteralPath $blockPath -Force
+
+        (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) |
+            Should -Match 'Failed to copy/compress' -Because 'the fixture is vacuous unless the copy actually failed'
+
+        # The old row is still live, so its object must still be in the pool.
+        @(Get-ClaimedRowViolations -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
+        @(Get-BlankRowPoolViolations -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
+
+        $latest = Join-Path $root 'r-latest'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $latest *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $latest 'f.bin')) |
+            Should -Be $one -Because 'the backup could not take the new bytes, so it must still restore the old ones'
+    }
+}
+
+Describe 'One dedup member deleted while the other lives (B9, SR-006, TC-135)' {
+    It 'keeps the shared object when the <Removed> is deleted and the snapshot restores the removed path (<Mode>)' -ForEach @(
+        @{ Mode = 'HashAddressed';          Compress = $false; RemoveBorrower = $false; Removed = 'owner' }
+        @{ Mode = 'HashAddressed';          Compress = $false; RemoveBorrower = $true;  Removed = 'borrower' }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  RemoveBorrower = $false; Removed = 'owner' }
+        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  RemoveBorrower = $true;  Removed = 'borrower' }
+    ) {
+        $root = Join-Path $TestDrive ('tc135\' + $Removed + '\' + ($Mode -replace '\W', ''))
+        $t = New-MemberRemovedTimeline -Root $root -Compress $Compress -RemoveBorrower:$RemoveBorrower
+
+        @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+        @(Get-BlankRowPoolViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+
+        # B9: evicting the removed member's row must NOT take the object the
+        # survivor still claims.
+        $rows = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv') |
+                  Where-Object RelativePath -eq $t.SurvivorRel)
+        $rows.Count | Should -Be 1
+        Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
+            Should -Be 1 -Because 'the survivor still claims the object, so eviction must leave it in the pool'
+
+        $latest = Join-Path $root 'r-latest'
+        & (Join-Path $t.Bkp 'RECONSTRUCT.ps1') -TargetRoot $latest *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $latest $t.SurvivorRel)) | Should -Be $t.One
+        Test-Path -LiteralPath (Join-Path $latest $t.RemovedRel) | Should -BeFalse
+
+        $preRemove = Join-Path $root 'r-pre'
+        & (Join-Path $t.SnapAfterRun2 'RECONSTRUCT.ps1') -TargetRoot $preRemove *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $preRemove 'a.bin'))        | Should -Be $t.One
+        [IO.File]::ReadAllText((Join-Path $preRemove 'sub\twin.bin')) | Should -Be $t.One
     }
 }
 
