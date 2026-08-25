@@ -2971,3 +2971,69 @@ Describe 'D-1/D-5 change-detectors: both defects reproduce on Mirror today' {
             Should -Be 2 -Because 'D-5: the dedup lookup consults only the PRIOR backup, so a same-run pair is stored twice'
     }
 }
+
+Describe 'One (hash,length) group elects one physical object (SR-060, TC-120)' {
+    # Step 2's own proof. Members of a group can disagree about BOTH inputs to
+    # the stored form - extension and compressibility - and content addressing
+    # has room for only one object, so the owner decides and every row must
+    # describe the object that was actually written.
+    It 'stores one object for identical bytes under different extensions' {
+        $root = Join-Path $TestDrive 'elect-ext'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -ContentAddressed $true
+        $body = 'SAME-BYTES-DIFFERENT-NAMES ' * 40
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), $body)
+        [IO.File]::WriteAllText((Join-Path $src 'a.dat'), $body)
+        Invoke-FB $cfg
+
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                  Where-Object { $_.RelativePath -in 'a.txt', 'a.dat' })
+        $rows.Count | Should -Be 2
+        $paths = @($rows | Select-Object -ExpandProperty DataPath -Unique)
+        $paths.Count | Should -Be 1 -Because 'one (hash,length) means one physical object'
+        # 'a.dat' and 'a.txt' are the same length, so the ORDINAL tie-break
+        # elects 'a.dat' - and the stored object carries the owner's extension.
+        $paths[0] | Should -BeLike '*.dat'
+        Get-PoolContentCopyCount -Folders @($bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
+            Should -Be 1
+
+        $t = Join-Path $root 'restored'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+        foreach ($rel in 'a.txt', 'a.dat') { [IO.File]::ReadAllText((Join-Path $t $rel)) | Should -Be $body }
+    }
+
+    It 'stores one object when the members disagree about compressibility' {
+        $root = Join-Path $TestDrive 'elect-comp'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true -ContentAddressed $true
+        # Identical bytes under a compressible and a non-compressible extension:
+        # Test-ShouldCompress says YES for .txt and NO for .jpg (SR-004).
+        $body = 'MIXED-COMPRESSIBILITY ' * 40
+        [IO.File]::WriteAllText((Join-Path $src 'x.txt'), $body)
+        [IO.File]::WriteAllText((Join-Path $src 'x.jpg'), $body)
+        Invoke-FB $cfg
+
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                  Where-Object { $_.RelativePath -in 'x.txt', 'x.jpg' })
+        $rows.Count | Should -Be 2
+        @($rows | Select-Object -ExpandProperty DataPath -Unique).Count | Should -Be 1
+        # 'x.jpg' wins the ordinal tie-break, so the group is stored RAW and
+        # EVERY row must say so - a row whose Compressed disagrees with the
+        # object it names is the finding-B family (SR-049/SR-050).
+        @($rows | Select-Object -ExpandProperty Compressed -Unique) | Should -Be 'No'
+        Get-PoolContentCopyCount -Folders @($bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
+            Should -Be 1
+
+        # And -Action Verify must consider that store clean.
+        $verify = & $entry -ConfigPath $cfg -NoMail -NonInteractive -Action Verify -ExitCode *>&1
+        $LASTEXITCODE | Should -Be 0 -Because "the store is consistent: $verify"
+
+        $t = Join-Path $root 'restored'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+        foreach ($rel in 'x.txt', 'x.jpg') { [IO.File]::ReadAllText((Join-Path $t $rel)) | Should -Be $body }
+    }
+}

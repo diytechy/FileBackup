@@ -2837,8 +2837,27 @@ function Invoke-BackupFileGroup {
         Backs up one (hash,length) group: reuses an existing backup data file if
         present, otherwise copies/compresses once and points every logical name
         at it.
+
+    .DESCRIPTION
+        Content-addressed storage keeps exactly ONE physical object per
+        (hash,length), so the group must agree on that object's form before any
+        of it is written (SR-060). Members can disagree: identical bytes under
+        'a.txt' and 'a.dat' have different extensions, and under CompressEnabled
+        'x.txt' and 'x.jpg' get different Test-ShouldCompress answers. The group
+        therefore elects an OWNER — shortest RelativePath, ordinal tie-break,
+        the same election Update-SourceManifest already uses to assign
+        Duplicate — and the owner's extension and compression answer define the
+        single object. The first member writes it; the rest adopt it from an
+        in-process memo instead of re-copying the same bytes to the same name
+        (D-5's other face: the pre-WP9 lookup consulted only the PRIOR backup,
+        so a group first seen in ONE run wrote once per member).
+
+        The memo is deliberately NOT applied to the legacy Mirror layout, where
+        each member's DataPath is its own RelativePath: pointing several rows at
+        one member's path there is exactly the cross-path borrow that produces
+        D-1. Mirror keeps writing per path until it is deleted (WP9 step 5).
     #>
-    # Implements: SR-003, SR-053, LLR-003, LLR-053
+    # Implements: SR-003, SR-053, SR-060, LLR-003, LLR-053, LLR-058
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Group,
@@ -2869,10 +2888,49 @@ function Invoke-BackupFileGroup {
         $_.xxH2Hash -eq $hash -and $_.Length -eq $len -and -not [string]::IsNullOrWhiteSpace($_.DataPath) })
     $storedAsHash = -not $PreserveFolderTree
 
+    # Owner election (SR-060): shortest RelativePath wins, ties broken ORDINALLY
+    # — CompareOrdinal rather than PowerShell's culture-aware comparison, so the
+    # elected object does not depend on the host's locale (SR-024 determinism).
+    $owner = $Group[0]
+    foreach ($candidate in $Group) {
+        if ($candidate.RelativePath.Length -lt $owner.RelativePath.Length) { $owner = $candidate; continue }
+        if ($candidate.RelativePath.Length -eq $owner.RelativePath.Length -and
+            [string]::CompareOrdinal($candidate.RelativePath, $owner.RelativePath) -lt 0) { $owner = $candidate }
+    }
+    $ownerExt      = [IO.Path]::GetExtension($owner.RelativePath)
+    $ownerSrcFull  = Join-Path $SrcPath $owner.RelativePath
+    $ownerCompress = Test-ShouldCompress -FileName $ownerSrcFull -CompressEnabled $CompressEnabled
+    # The group's single stored object, once written this run (SR-060). Null
+    # until the first member writes; Mirror never sets it (see .DESCRIPTION).
+    $writtenThisRun = $null
+
     foreach ($entry in $Group) {
-        $rel          = $entry.RelativePath
-        $ext          = [IO.Path]::GetExtension($rel)
-        $compressFlag = Test-ShouldCompress -FileName (Join-Path $SrcPath $rel) -CompressEnabled $CompressEnabled
+        $rel = $entry.RelativePath
+        # Content addressing stores ONE object for the group, so its form is the
+        # OWNER's, not each member's. Mirror still stores per path.
+        $ext          = if ($storedAsHash) { $ownerExt } else { [IO.Path]::GetExtension($rel) }
+        $compressFlag = if ($storedAsHash) { $ownerCompress } else {
+            Test-ShouldCompress -FileName (Join-Path $SrcPath $rel) -CompressEnabled $CompressEnabled }
+
+        # Adopt this run's own write before consulting the prior backup: the
+        # object we just created is the one this group's rows must name.
+        if ($null -ne $writtenThisRun) {
+            $BackupMap.Value[$rel] = [pscustomobject]@{
+                DataPath         = $writtenThisRun.DataPath
+                RelativePath     = $rel
+                Length           = $len
+                LastWriteTime    = $entry.LastWriteTime
+                xxH2Hash         = $hash
+                Compressed       = $writtenThisRun.Compressed
+                StoredAsHashSize = $writtenThisRun.StoredAsHashSize
+                Duplicate        = $entry.Duplicate
+                MediaMBPerSec    = $entry.MediaMBPerSec
+            }
+            # Counted like the write it replaces, so the run's "changed files"
+            # figure keeps meaning logical files rather than physical copies.
+            $ChangedCount.Value++
+            continue
+        }
 
         if ($existingBackupWithHash.Count -gt 0) {
             $existing = $existingBackupWithHash[0]
@@ -2899,7 +2957,9 @@ function Invoke-BackupFileGroup {
             } else {
                 $rel
             }
-            $srcFull  = Join-Path $SrcPath $rel
+            # Every member of a (hash,length) group holds identical bytes, so the
+            # elected owner's file is the source for the group's single object.
+            $srcFull  = if ($storedAsHash) { $ownerSrcFull } else { Join-Path $SrcPath $rel }
             $destFull = Join-Path $BkpPath $dataPath
 
             # A Mirror-mode DataPath is the row's own RelativePath, so a source
@@ -2934,6 +2994,13 @@ function Invoke-BackupFileGroup {
                 MediaMBPerSec    = $entry.MediaMBPerSec
             }
             $ChangedCount.Value++
+            if ($storedAsHash) {
+                $writtenThisRun = [pscustomobject]@{
+                    DataPath         = $dataPath
+                    Compressed       = if ($compressFlag) { 'Yes' } else { 'No' }
+                    StoredAsHashSize = 'Hash'
+                }
+            }
         }
     }
 }
