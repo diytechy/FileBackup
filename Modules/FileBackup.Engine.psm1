@@ -114,12 +114,35 @@ function Get-DataFile {
     <#
     .SYNOPSIS
         Enumerates real data files under a root, skipping root-level infrastructure.
+
+    .DESCRIPTION
+        With -EnumerationErrorOut, an unlistable directory (Deny ACE — the
+        shape of 'System Volume Information' or another user's $RECYCLE.BIN,
+        both now VISIBLE under -Force) is reported as a record instead of
+        aborting the walk; the caller decides how loudly to fail (source walks
+        mark the set failed, SR-057). Without it the walk stays strict — a
+        pool walk that cannot read our own store must keep throwing.
     #>
+    # Implements: SR-057, LLR-057
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Root)
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [AllowNull()][System.Collections.Generic.List[object]]$EnumerationErrorOut
+    )
     $resolved = (Resolve-Path -LiteralPath $Root).Path
     # -Force (SR-057): hidden/dot files are data — without it they were never
     # backed up, and -Recurse skipped hidden DIRECTORIES entirely (D-4).
+    if ($null -ne $EnumerationErrorOut) {
+        $enumErr = $null
+        $found = Get-ChildItem -LiteralPath $resolved -Recurse -File -Force `
+            -ErrorAction SilentlyContinue -ErrorVariable enumErr |
+            Where-Object { -not (Test-IsInfrastructureFile -Root $resolved -FullPath $_.FullName) }
+        foreach ($e in @($enumErr)) {
+            $EnumerationErrorOut.Add([pscustomobject]@{
+                Path = "$($e.TargetObject)"; Message = $e.Exception.Message })
+        }
+        return $found
+    }
     Get-ChildItem -LiteralPath $resolved -Recurse -File -Force |
         Where-Object { -not (Test-IsInfrastructureFile -Root $resolved -FullPath $_.FullName) }
 }
@@ -412,7 +435,13 @@ function Update-SourceManifest {
         # must happen HERE, before hashing — a name Windows cannot open (e.g. a
         # trailing dot) would otherwise abort the whole set on a read error
         # instead of being reported as the name problem it is.
-        [AllowNull()][System.Collections.Generic.List[object]]$UnportableOut
+        [AllowNull()][System.Collections.Generic.List[object]]$UnportableOut,
+        # SR-057: receives one record per directory the walk could not
+        # enumerate (Deny ACE on a hidden/system dir made visible by -Force).
+        # The caller fails the set loudly but still backs up everything
+        # reachable — one unlistable 'System Volume Information' must not turn
+        # into a run that writes NO manifest at all (2026-08-24 review, B1).
+        [AllowNull()][System.Collections.Generic.List[object]]$UnreadableOut
     )
     $sourcePath = (Resolve-Path -LiteralPath $SourcePath).Path
     if ([string]::IsNullOrWhiteSpace($ManifestFolderPath)) {
@@ -435,11 +464,23 @@ function Update-SourceManifest {
     # keep nested files with those names. With an external cache every source
     # file is user data, including a root-level MANIFEST.csv.
     $files = if ($manifestFolder -eq $sourcePath) {
-        Get-DataFile -Root $sourcePath
+        Get-DataFile -Root $sourcePath -EnumerationErrorOut $UnreadableOut
     } else {
         # -Force (SR-057): the external-cache branch bypasses Get-DataFile and
-        # must include hidden/dot entries the same way (D-4).
-        Get-ChildItem -LiteralPath $sourcePath -Recurse -File -Force
+        # must include hidden/dot entries the same way (D-4) — including the
+        # tolerate-and-report handling of an unlistable directory.
+        if ($null -ne $UnreadableOut) {
+            $enumErr = $null
+            $walked = Get-ChildItem -LiteralPath $sourcePath -Recurse -File -Force `
+                -ErrorAction SilentlyContinue -ErrorVariable enumErr
+            foreach ($e in @($enumErr)) {
+                $UnreadableOut.Add([pscustomobject]@{
+                    Path = "$($e.TargetObject)"; Message = $e.Exception.Message })
+            }
+            $walked
+        } else {
+            Get-ChildItem -LiteralPath $sourcePath -Recurse -File -Force
+        }
     }
 
     $updated = New-Object System.Collections.Generic.List[object]
@@ -3416,9 +3457,11 @@ function Invoke-BackupSet {
     # 5. Update source manifest (B4: forced rehash when scheduled)
     & $log "Updating source manifest cache at '$($paths.SrcStatePath)'."
     $unportableNames = New-Object System.Collections.Generic.List[object]
+    $unreadableDirs  = New-Object System.Collections.Generic.List[object]
     try {
         $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -ManifestFolderPath $paths.SrcStatePath `
-            -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc -UnportableOut $unportableNames
+            -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc -UnportableOut $unportableNames `
+            -UnreadableOut $unreadableDirs
     } catch {
         # A source file that cannot be read (open for write, AV hold) fails the
         # set loudly — but must not strand the still-empty staging folder, or
@@ -3441,6 +3484,25 @@ function Invoke-BackupSet {
         & $log "Skipping '$($skipped.RelativePath)': $($skipped.Reason). Rename it at the source; this set is marked failed (SR-055)." 'ERROR'
         $unportable[$skipped.RelativePath] = $true
         $OverallSuccess.Value = $false
+    }
+
+    # 5.2 Unreadable-directory guard (SR-057, 2026-08-24 review B1): -Force
+    # made previously invisible hidden/system directories enumerable, and one
+    # with a Deny ACE ('System Volume Information', another user's
+    # $RECYCLE.BIN) must not abort the run with NO manifest written. The walk
+    # reported it; the set fails LOUDLY here, everything reachable is still
+    # backed up, and rows under the unreadable path are frozen (not evicted) —
+    # we cannot know whether their files still exist.
+    $unreadablePrefixes = New-Object System.Collections.Generic.List[string]
+    foreach ($bad in $unreadableDirs) {
+        & $log "Cannot enumerate '$($bad.Path)': $($bad.Message). Files beneath it are NOT backed up this run and existing rows there are frozen; this set is marked failed (SR-057). Point SourcePath below it, or grant read access." 'ERROR'
+        $OverallSuccess.Value = $false
+        $badFull = "$($bad.Path)"
+        $srcRoot = (Resolve-Path -LiteralPath $paths.SrcPath).Path
+        if ($badFull.StartsWith($srcRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $relPrefix = $badFull.Substring($srcRoot.Length).TrimStart('\', '/')
+            if ($relPrefix) { $unreadablePrefixes.Add($relPrefix + [IO.Path]::DirectorySeparatorChar) }
+        }
     }
 
     # A previously populated source becoming completely empty is commonly an
@@ -3491,11 +3553,20 @@ function Invoke-BackupSet {
     # 8. Diff
     $diff = Compare-SourceToBackup -SourceDb $sourceDb -BackupDb $backupDb
     # A file skipped by the SR-055 portable-name guard must not read as
-    # "removed from source" — its existing row (if any) stays frozen.
-    if ($unportable.Count -gt 0) {
+    # "removed from source" — its existing row (if any) stays frozen. Same for
+    # every row under an unreadable directory (SR-057, step 5.2): the walk
+    # could not see those files, which is not evidence they are gone.
+    if ($unportable.Count -gt 0 -or $unreadablePrefixes.Count -gt 0) {
         $stillRemoved = New-Object System.Collections.Generic.List[object]
         foreach ($removedRow in $diff.RemovedFromSource) {
-            if (-not $unportable.ContainsKey($removedRow.RelativePath)) { $stillRemoved.Add($removedRow) }
+            if ($unportable.ContainsKey($removedRow.RelativePath)) { continue }
+            $underUnreadable = $false
+            foreach ($prefix in $unreadablePrefixes) {
+                if ($removedRow.RelativePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $underUnreadable = $true; break
+                }
+            }
+            if (-not $underUnreadable) { $stillRemoved.Add($removedRow) }
         }
         $diff.RemovedFromSource = $stillRemoved
     }

@@ -42,9 +42,12 @@
         4  Incomplete, HOST — rows failed for reasons on this machine, not in
            the backup (unreadable search folder or candidate, 7-Zip unavailable
            for an archive candidate, extraction/copy I/O error on the row's OWN
-           file). Retry after fixing the host. Since kit revision 6 a POOL
-           candidate that fails to expand is data damage (ContentMissing, 1),
-           not a host problem — only the restore loop raises CandidateError.
+           file, or a WriteMismatch — a hash-PROVEN pool source whose written
+           destination disagrees: the backup holds the bytes, the write is
+           broken). Retry after fixing the host. Since kit revision 6 a POOL
+           candidate that fails to expand while 7-Zip passes its self-test is
+           data damage (ContentMissing, 1) — only the restore loop raises
+           CandidateError.
 
     Precedence when several apply: 2 > 3 > 4 > 1.
 
@@ -201,6 +204,43 @@ $ChangeFolderPattern = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
 
 $folderName = [System.IO.Path]::GetFileName($here)
 
+# Cached by Test-SevenZipUsable: $null = not yet probed.
+$script:sevenZipUsable = $null
+function Test-SevenZipUsable {
+    <#
+    .SYNOPSIS
+        Proves this HOST can run 7-Zip end-to-end: compresses a tiny probe
+        file and expands it back. Cached for the process.
+
+    .DESCRIPTION
+        Separates "7-Zip ran and rejected that archive" (data damage,
+        ContentMissing/exit 1) from "7-Zip cannot run or cannot write its
+        output here" (broken binary, full temp dir — a HOST problem, exit 4).
+        Without this split, a failing 7-Zip made the locator report intact
+        pool bytes as gone — the one message a backup tool must never emit
+        wrongly (2026-08-24 independent review, blocker 2).
+    #>
+    # Implements: SR-040, LLR-040
+    param([string]$SevenZipPath)
+    if ($null -ne $script:sevenZipUsable) { return $script:sevenZipUsable }
+    $work = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+    try {
+        New-Item -ItemType Directory -Path $work | Out-Null
+        $probe = Join-Path $work 'probe.txt'
+        [IO.File]::WriteAllText($probe, 'selftest')
+        Compress-FileWithSevenZip -SevenZipPath $SevenZipPath -SourceFile $probe `
+            -Destination7z (Join-Path $work 'probe.7z')
+        Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive (Join-Path $work 'probe.7z') `
+            -DestinationFile (Join-Path $work 'out.txt')
+        $script:sevenZipUsable = ([IO.File]::ReadAllText((Join-Path $work 'out.txt')) -eq 'selftest')
+    } catch {
+        $script:sevenZipUsable = $false
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    return $script:sevenZipUsable
+}
+
 function Find-DataFileByHash {
     <#
     .SYNOPSIS
@@ -344,8 +384,17 @@ function Find-DataFileByHash {
                         Detail = "Candidate '$($f.FullName)' could not be read: $($_.Exception.Message)" })
                 }
                 if ($expandError) {
-                    # Data damage, not a host condition — see $failedExpand above.
-                    $failedExpand.Add("'$($f.FullName)': $expandError")
+                    if (Test-SevenZipUsable -SevenZipPath $SevenZipPath) {
+                        # 7-Zip provably works here, so the archive itself is
+                        # damaged — see $failedExpand above.
+                        $failedExpand.Add("'$($f.FullName)': $expandError")
+                    } else {
+                        # 7-Zip cannot run/write on THIS host: the candidate is
+                        # untested, not disproven. Exit-4 territory, with the
+                        # precise remediation (2026-08-24 review, blocker 2).
+                        $hostIssues.Add([pscustomobject]@{ Cause = 'DependencyMissing'
+                            Detail = "7-Zip at '$SevenZipPath' is present but NOT usable on this host (self-test failed); archive candidate '$($f.FullName)' could not be tested: $expandError" })
+                    }
                 }
             } elseif ($f.Length -eq $Length) {
                 try {
@@ -371,7 +420,7 @@ function Find-DataFileByHash {
     $detail = "No file with (hash=$Hash, length=$Length) survives anywhere in the data pool."
     if ($failedExpand.Count -gt 0) {
         $detail += " $($failedExpand.Count) archive candidate(s) could not be expanded" +
-            " (data damage, not a host problem): $($failedExpand[0])."
+            " (7-Zip passed its self-test on this host, so the archive itself is damaged): $($failedExpand[0])."
     }
     return [pscustomobject]@{
         Path   = $null
@@ -462,6 +511,16 @@ if (-not $TargetRoot) {
         # below remains for hand use (the 2026-08-24 ruling was align, not
         # delete).
         Write-Host (Show-ReconstructUsage)
+        if ($NonInteractive -and -not $ExitCode) {
+            # -NonInteractive DECLARES a scripted caller: deliver the SR-040
+            # code at the process boundary even without -ExitCode, so a
+            # scheduled `pwsh -File` invocation reads 2 (usage), not the
+            # throw path's 1 — the code reserved for data loss (2026-08-24
+            # review, minor 8). No in-process caller passes -NonInteractive.
+            $script:classified = $true
+            [Console]::Error.WriteLine('reconstruct: -TargetRoot is required (non-interactive run; no prompt).')
+            exit $EXIT_PRECONDITION
+        }
         Exit-Reconstruct -Code $EXIT_PRECONDITION -Message '-TargetRoot is required (non-interactive run; no prompt).'
     }
     $TargetRoot = Read-Host 'Enter target folder to reconstruct into'
@@ -839,11 +898,12 @@ foreach ($rel in $main.Keys) {
             Out-File -LiteralPath $logPath -Append
         if ($null -ne $locatedForm) {
             # This row was ALREADY resolved through the pool locator, which
-            # hashes every candidate before returning it: the mismatch is in
-            # the write, and re-running the same search cannot produce a
-            # different source. One recovery attempt per row (SR-056).
-            Add-Unrestored -RelativePath $rel -Cause 'ContentMismatch' `
-                -Detail "the pool-recovered source '$srcFull' did not reproduce (hash=$($row.xxH2Hash), length=$($row.Length)) at the destination (got $($r.Got))."
+            # hashes every candidate before returning it: the pool provably
+            # holds the bytes and the WRITE is what failed — a host condition
+            # (exit 4), not data loss; re-running the same search cannot
+            # produce a different source (2026-08-24 review, major 3).
+            Add-Unrestored -RelativePath $rel -Cause 'WriteMismatch' `
+                -Detail "the pool source '$srcFull' was PROVEN by hash, but the written destination disagrees (got $($r.Got)) — a destination/write problem on this host."
             continue
         }
         $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
@@ -854,8 +914,11 @@ foreach ($rel in $main.Keys) {
             if ($r2.Outcome -eq 'hostfail') {
                 Add-Unrestored -RelativePath $rel -Cause $r2.Cause -Detail $r2.Detail
             } elseif ($r2.Outcome -eq 'mismatch') {
-                Add-Unrestored -RelativePath $rel -Cause 'ContentMismatch' `
-                    -Detail "neither the row's data file nor the pool copy '$($found.Path)' reproduces (hash=$($row.xxH2Hash), length=$($row.Length)) at the destination (got $($r2.Got))."
+                # The recovery source was hash-proven by the locator, so this
+                # second mismatch is a write problem on this host (exit 4) —
+                # the backup demonstrably still holds the bytes.
+                Add-Unrestored -RelativePath $rel -Cause 'WriteMismatch' `
+                    -Detail "the pool copy '$($found.Path)' was PROVEN by hash, but the written destination disagrees (got $($r2.Got)) — a destination/write problem on this host."
             }
             continue
         }
@@ -875,7 +938,7 @@ if ($unrestored.Count -gt 0) {
     # Classify: content-class rows mean the bytes are gone (exit 1); host-class
     # rows mean this machine is the problem (exit 4) and a wrapper should retry.
     # 4 outranks 1 because it is the actionable one (SR-040 precedence).
-    $hostCauses = @('DependencyMissing', 'StorageUnreadable', 'CandidateError')
+    $hostCauses = @('DependencyMissing', 'StorageUnreadable', 'CandidateError', 'WriteMismatch')
     $hostRows    = @($unrestored | Where-Object { $_.Cause -in $hostCauses })
     $contentRows = @($unrestored | Where-Object { $_.Cause -notin $hostCauses })
     $code = if ($hostRows.Count -gt 0) { $EXIT_HOST } else { $EXIT_CONTENT }

@@ -32,6 +32,13 @@ for shape in heal gone; do
     else
         echo "OK[$shape]: both restorers exit $got_exit"
     fi
+    # No extras: bash must produce exactly the files PowerShell produced.
+    want_n="$(awk -F'\t' -v s="$shape" '$1=="file" && $2==s' "$expected" | wc -l | tr -d ' ')"
+    got_n="$(find "$target" -type f ! -name 'RECONSTRUCT.log' 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "$got_n" != "$want_n" ]]; then
+        echo "FAIL[$shape]: restored file-count mismatch (PowerShell $want_n, bash $got_n)"
+        fails=$((fails+1))
+    fi
     # Byte parity for every file the PowerShell restorer produced.
     while IFS=$'\t' read -r kind s rel want_hash; do
         [[ "$kind" == "file" && "$s" == "$shape" ]] || continue

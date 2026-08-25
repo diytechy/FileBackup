@@ -69,6 +69,53 @@ one_row_store() {
     [[ "$output" == *"(not hashed)/4"* ]]
 }
 
+@test "4: a 7z that cannot run is a HOST problem, never lost content (SR-040, kit rev 6 review fix)" {
+    # A working 7z on the same store proves the bytes are fine, so a failing
+    # one must exit 4 (self-test separates broken-host from damaged-archive).
+    local s="$BATS_TEST_TMPDIR/broken7z"
+    one_row_store "$s" 'PAYLOAD-FOR-BROKEN7Z'
+    rm -f "$s/data.bin"
+    sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
+    restamp_witness "$s/MANIFEST.csv"
+    printf 'garbage-not-archive' > "$s/noise.7z"
+    printf '#!/bin/sh\nexit 2\n' > "$BATS_TEST_TMPDIR/fake7z"
+    chmod +x "$BATS_TEST_TMPDIR/fake7z"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tb7z" --from "$s" --seven-zip "$BATS_TEST_TMPDIR/fake7z"
+    [ "$status" -eq 4 ]
+    [[ "$output" == *"not usable on this host"* ]]
+    [[ "$output" != *"ContentMissing"* ]]
+}
+
+@test "restore_one: a read-back failure is HOST class (rc=22) and KEEPS the file (SR-056, review major 4)" {
+    # White-box: source the script (main guard keeps it inert), then break
+    # hash_file — the verify read-back must not report data loss or delete
+    # the restored file (that is Reconstruct.ps1's behavior too).
+    source "$RS"
+    hash_file() { return 1; }
+    local d="$BATS_TEST_TMPDIR/rb"
+    mkdir -p "$d"
+    printf 'x' > "$d/src.bin"
+    local rc=0
+    restore_one "$d/src.bin" "$d/dest.bin" 0 'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' 1 || rc=$?
+    [ "$rc" -eq 22 ]
+    [ -f "$d/dest.bin" ]
+}
+
+@test "2: a non-numeric Length is refused as a PRECONDITION before anything is written (review minor 7)" {
+    # Parity: RECONSTRUCT.ps1's casts refuse the same index shape as class 2;
+    # restoring such a row unverified would silently disable SR-056 for it.
+    local s="$BATS_TEST_TMPDIR/badlen"
+    one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
+    sed -i "s/\"$STORE_LEN\"/\"abc\"/" "$s/MANIFEST.csv"
+    restamp_witness "$s/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tbadlen" --from "$s"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"non-numeric Length"* ]]
+    [ ! -e "$BATS_TEST_TMPDIR/tbadlen/restored.txt" ]
+}
+
 @test "0: a DOT-NAMED pool file is found by hash recovery (SR-057 regression pin / TC-114 twin)" {
     # find(1) never skipped dot files, so this has always worked on Linux —
     # pinned so it stays true (the PowerShell scan needed -Force, kit rev 6).

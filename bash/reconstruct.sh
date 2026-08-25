@@ -48,10 +48,13 @@
 #   3  manifest-witness verification failed — the index itself is untrustworthy;
 #      NO file is written to the target (SR-039).
 #   4  INCOMPLETE, HOST — rows failed for reasons on this machine, not in the
-#      backup (unreadable search folder, 7z unavailable for an archive
-#      candidate, extraction/copy I/O error on the row's OWN file). Retry after
-#      fixing the host. Since kit revision 6 a POOL candidate that fails to
-#      expand is data damage (ContentMissing, exit 1), not a host problem.
+#      backup (unreadable search folder, 7z unavailable/unusable for an
+#      archive candidate, extraction/copy I/O error on the row's OWN file, or
+#      a WriteMismatch — a hash-PROVEN pool source whose written destination
+#      disagrees: the backup holds the bytes, the write is broken). Retry
+#      after fixing the host. Since kit revision 6 a POOL candidate that
+#      fails to expand while 7z passes its self-test is data damage
+#      (ContentMissing, exit 1).
 #
 # Precedence when several apply: 2 > 3 > 4 > 1.
 #
@@ -172,6 +175,32 @@ sevenzip_to_file() {
     rm -rf "$tmpd"
 }
 
+# sevenzip_usable : proves this HOST can run 7z end-to-end (compress a tiny
+# probe, expand it back). Separates "7z ran and rejected that archive" (data
+# damage, ContentMissing/exit 1) from "7z cannot run or write here" (a HOST
+# problem, exit 4) — without the split, a broken 7z made the locator report
+# intact pool bytes as gone (2026-08-24 independent review, blocker 2).
+# Cached per shell; find_by_hash runs in a subshell, so the cache lives for
+# one locator call — one probe per locator call that meets an expand failure.
+# Implements: SR-040 (LLR-040)
+SEVENZIP_USABLE=''
+sevenzip_usable() {
+    if [[ -z "$SEVENZIP_USABLE" ]]; then
+        local w
+        w="$(mktemp -d)"
+        printf 'selftest' > "$w/p.txt"
+        if (cd "$w" && "$SEVEN_ZIP" a -bd -y p.7z p.txt >/dev/null 2>&1) \
+           && sevenzip_to_file "$w/p.7z" "$w/o.txt" \
+           && [[ "$(cat "$w/o.txt" 2>/dev/null)" == 'selftest' ]]; then
+            SEVENZIP_USABLE=0
+        else
+            SEVENZIP_USABLE=1
+        fi
+        rm -rf "$w"
+    fi
+    return "$SEVENZIP_USABLE"
+}
+
 # restore_one <src> <dest> <needs_expand> <want_hash> <want_len> : the single
 # write+verify implementation (SR-056, kit revision 6) — mirrors Reconstruct
 # .ps1's Restore-OneRow. The restore loop calls it once per row, and at most
@@ -181,9 +210,12 @@ sevenzip_to_file() {
 # 0-byte rows hash like any other; a row with no hash restores unverified.
 # On a mismatch the bad destination file is DELETED before returning.
 #
-# Returns 0 ok; 10 mismatch (RESTORE_GOT carries "<hash>/<len>" written);
-# 20 extraction failed; 21 copy failed. Called DIRECTLY (never via command
-# substitution) so the RESTORE_GOT global survives.
+# Returns 0 ok; 10 mismatch (RESTORE_GOT carries "<hash>/<len>" written, the
+# bad destination is DELETED); 20 extraction failed; 21 copy failed; 22 the
+# written file could not be read back for verification (stat/hash failure —
+# a HOST condition; the file is KEPT, matching Restore-OneRow). Called
+# DIRECTLY (never via command substitution) so the RESTORE_GOT global
+# survives.
 # Implements: SR-056 (LLR-056)
 RESTORE_GOT=''
 restore_one() {
@@ -196,8 +228,9 @@ restore_one() {
     fi
     if [[ -z "$want_hash" || ! "$want_len" =~ ^[0-9]+$ ]]; then return 0; fi
     sz="$(stat -c '%s' -- "$dest" 2>/dev/null || echo -1)"
+    if [[ "$sz" == "-1" ]]; then return 22; fi
     if [[ "$sz" == "$want_len" ]]; then
-        h="$(hash_file "$dest" 2>/dev/null || printf 'unreadable')"
+        h="$(hash_file "$dest" 2>/dev/null)" || return 22
     else
         h='(not hashed)'
     fi
@@ -343,9 +376,16 @@ find_by_hash() {
                     if [[ "$h" == "$want_hash" ]]; then printf 'Found\037Raw\037%s' "$f"; return 0; fi
                 fi
                 if (( expand_failed )); then
-                    # Data damage, not a host condition — see the header comment.
-                    (( expand_fail_n++ ))
-                    [[ -n "$expand_fail_first" ]] || expand_fail_first="$f"
+                    if sevenzip_usable; then
+                        # 7z provably works here — the archive itself is
+                        # damaged. See the header comment.
+                        (( expand_fail_n++ ))
+                        [[ -n "$expand_fail_first" ]] || expand_fail_first="$f"
+                    else
+                        # 7z cannot run/write on THIS host: the candidate is
+                        # untested, not disproven (exit 4, precise remediation).
+                        host_dep="7z at '${SEVEN_ZIP}' is present but not usable on this host (self-test failed); archive candidate '$f' could not be tested"
+                    fi
                 fi
             else
                 sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
@@ -364,7 +404,7 @@ find_by_hash() {
     if   [[ -n "$host_dep"       ]]; then printf 'DependencyMissing\037%s\037' "$host_dep"
     elif [[ -n "$host_storage"   ]]; then printf 'StorageUnreadable\037%s\037' "$host_storage"
     elif (( expand_fail_n > 0 )); then
-        printf 'ContentMissing\037no file with (hash=%s, len=%s) survives in the data pool. %d archive candidate(s) could not be expanded (data damage, not a host problem): '\''%s'\''\037' \
+        printf 'ContentMissing\037no file with (hash=%s, len=%s) survives in the data pool. %d archive candidate(s) could not be expanded (7z passed its self-test on this host, so the archive itself is damaged): '\''%s'\''\037' \
             "$want_hash" "$want_len" "$expand_fail_n" "$expand_fail_first"
     else printf 'ContentMissing\037no file with (hash=%s, len=%s) survives in the data pool\037' "$want_hash" "$want_len"
     fi
@@ -628,6 +668,17 @@ main() {
     local nrows=${#d_rel[@]}
     log "Manifest rows: $nrows"
 
+    # A non-empty, non-numeric Length is an unusable index value — refuse as a
+    # PRECONDITION (exit 2) before writing anything, matching RECONSTRUCT.ps1
+    # (whose capacity/verify casts throw the same class). Restoring such a row
+    # unverified would silently disable SR-056 for it (2026-08-24 review, minor 7).
+    local pre_i
+    for (( pre_i=0; pre_i<nrows; pre_i++ )); do
+        if [[ -n "${d_len[pre_i]}" && ! "${d_len[pre_i]}" =~ ^[0-9]+$ ]]; then
+            die "manifest row '${d_rel[pre_i]}' carries a non-numeric Length '${d_len[pre_i]}' — the index is unusable; nothing was restored."
+        fi
+    done
+
     # --- Capacity pre-check (B11: exclude compressed rows; lengths are uncompressed) ---
     local need=0 any_comp=0 i
     for (( i=0; i<nrows; i++ )); do
@@ -761,15 +812,17 @@ main() {
                 unrestored_host+=("$rel") ;;
             21) log "WARN: [CandidateError] '$rel' — copy failed (from '$src')."
                 unrestored_host+=("$rel") ;;
+            22) log "WARN: [CandidateError] '$rel' — restored file could not be read back for verification (host problem; file kept)."
+                unrestored_host+=("$rel") ;;
             10)
                 log "WARN: [ContentMismatch] '$rel' — restored bytes do not match the manifest (expected ${d_hash[i]}/${d_len[i]}, got $RESTORE_GOT); attempting pool recovery."
                 if [[ -n "$located_form" ]]; then
                     # Already resolved through the locator, which hashes every
-                    # candidate before returning it: re-running the same search
-                    # cannot produce a different source. One recovery attempt
-                    # per row (SR-056).
-                    log "WARN: [ContentMismatch] '$rel' — the pool-recovered source '$src' did not reproduce the row at the destination (got $RESTORE_GOT)."
-                    unrestored+=("$rel"); continue
+                    # candidate before returning it: the pool PROVABLY holds
+                    # the bytes and the WRITE is what failed — host class
+                    # (exit 4), not data loss (2026-08-24 review, major 3).
+                    log "WARN: [WriteMismatch] '$rel' — the pool source '$src' was proven by hash, but the written destination disagrees (got $RESTORE_GOT) — a destination/write problem on this host."
+                    unrestored_host+=("$rel"); continue
                 fi
                 found="$(find_by_hash "${d_hash[i]}" "${d_len[i]}")"
                 fcause="${found%%$'\037'*}"
@@ -782,9 +835,15 @@ main() {
                     rc=0; restore_one "$fpath" "$dest" "$needs_expand" "${d_hash[i]}" "${d_len[i]}" || rc=$?
                     case "$rc" in
                         0) ;;
-                        10) log "WARN: [ContentMismatch] '$rel' — neither the row's data file nor the pool copy '$fpath' reproduces the row at the destination (got $RESTORE_GOT)."
-                            unrestored+=("$rel") ;;
+                        10) # The recovery source was hash-proven by the
+                            # locator: this second mismatch is a write problem
+                            # on this host (exit 4) — the backup demonstrably
+                            # still holds the bytes.
+                            log "WARN: [WriteMismatch] '$rel' — the pool copy '$fpath' was proven by hash, but the written destination disagrees (got $RESTORE_GOT) — a destination/write problem on this host."
+                            unrestored_host+=("$rel") ;;
                         20) log "WARN: [CandidateError] '$rel' — 7z extraction failed (from '$fpath')."
+                            unrestored_host+=("$rel") ;;
+                        22) log "WARN: [CandidateError] '$rel' — restored file could not be read back for verification (host problem; file kept)."
                             unrestored_host+=("$rel") ;;
                         *)  log "WARN: [CandidateError] '$rel' — copy failed (from '$fpath')."
                             unrestored_host+=("$rel") ;;

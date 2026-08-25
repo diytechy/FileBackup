@@ -3721,3 +3721,88 @@ README-documented as recommended — confirm.
 
 **Next:** independent reviewer pass (fresh context, adversarial, restore
 surface — plan §4 item 10), then human ratification of this G3.
+
+### INDEPENDENT REVIEWER (opus subagent) — kit-bump WP G3 — 2026-08-24
+
+Verdict: **CHANGES-REQUESTED** (2 BLOCKER, 3 MAJOR, 5 MINOR) — while
+confirming the WP does what it claims (all shipped greens re-ran and
+reproduced: unit 357/357, bats 64/64, targeted Run-All G2/G3/G5/G9 272/0
+incl. every new audit assert; storage path verified untouched by
+`git diff 4ec589c..HEAD`; no in-process caller can reach the prompt).
+Findings, all with real repros:
+- [BLOCKER 1] `-Force` on the source walk turned an unlistable hidden/system
+  directory (Deny ACE — the `System Volume Information` shape) from
+  silently-invisible into a WHOLE-SET abort with **no manifest written** —
+  worse than rev 5 for a drive-root source.
+- [BLOCKER 2] The D-3 locator folded EVERY expand failure into
+  ContentMissing — including a broken/unrunnable 7-Zip, where the same store
+  restores fine once 7-Zip works: "your bytes are gone" (exit 1) asserted
+  falsely for a host fault rev 5 classified correctly (exit 4).
+- [MAJOR 3] A mismatch on a locator-HASH-PROVEN source was content-class
+  exit 1, though the pool demonstrably holds the bytes (a write problem →
+  host class). [MAJOR 4] bash `restore_one` treated a destination READ-BACK
+  failure as a mismatch — false data-loss verdict AND deleted the restored
+  file, diverging from the PS twin. [MAJOR 5] the SR-056/LLR-056 text
+  ("recovery attempted once for any mismatch") did not match the implemented
+  zero-recovery-for-locator-resolved-rows refinement, and only part of the
+  deviation was recorded.
+- [MINOR 6..10] TC-116 named a function that does not exist
+  (`Assert-BlankRowsBackedByVerifiedHashes` vs the shipped
+  `Get-BlankRowPoolViolations`); malformed `Length` handled differently by
+  the twins (PS refuses class 2, bash restored unverified exit 0);
+  `-NonInteractive` without `-ExitCode` delivered the usage failure as
+  process exit 1 (the data-loss code); `scripts/Invoke-Container.ps1`
+  enumerations lacked `-Force` and sat outside the AST guard;
+  `verify_damage_interop.sh` did not assert the absence of extra files.
+
+### DRIVER — kit-bump WP G3 round 2: all review findings fixed — 2026-08-24
+
+Verdict: all 10 findings addressed; full battery re-run green. Fixes:
+- **B1:** `Get-DataFile`/`Update-SourceManifest` gained `-EnumerationErrorOut`
+  / `-UnreadableOut` (the SR-055 pattern): an unlistable directory is
+  reported, the SET FAILS LOUDLY (exit 1) with a per-directory ERROR naming
+  the remediation, everything reachable is still backed up, the manifest is
+  written, and rows under the unreadable path are FROZEN (not evicted — the
+  walk saw nothing there, which is not evidence of deletion). Pool walks
+  (no sink passed) stay strict. Test: Deny-ACE hidden+system dir → exit 1 +
+  manifest written + reachable row present + "Cannot enumerate" logged.
+- **B2:** `Test-SevenZipUsable` / `sevenzip_usable` — a cached compress+
+  expand self-test. An expand failure is data damage (ContentMissing detail,
+  exit 1) only when 7-Zip PROVES usable; an unusable 7-Zip is
+  DependencyMissing (exit 4) with the candidate named as untested. The
+  "data damage, not a host problem" detail wording replaced with the honest
+  self-test statement. Tests: fake-7z stores exit 4 with "not usable on this
+  host", both restorers.
+- **M3:** new HOST-class cause **WriteMismatch** (both restorers, exit-code
+  docs updated): a mismatch whose source was hash-proven by the locator —
+  first-attempt on a recovered row, or the post-recovery verify — reports
+  the write problem it is, not data loss.
+- **M4:** bash `restore_one` rc=22 — read-back failure is host-class
+  (CandidateError log) and KEEPS the file, matching `Restore-OneRow`.
+  White-box bats test (broken `hash_file` → rc 22, file present).
+- **M5 + minor 6:** SR-056/SR-040/LLR-056/LLR-040 amended (dated) to the
+  implemented semantics incl. WriteMismatch and the self-test; TC-116
+  renamed to the shipped `Get-BlankRowPoolViolations`.
+- **Minor 7:** bash refuses a non-empty non-numeric `Length` as a
+  PRECONDITION (exit 2) before writing anything, matching the PS class;
+  bats test. **Minor 8:** `-NonInteractive` without `-ExitCode` now exits
+  the process with 2 (documented: `-NonInteractive` declares a scripted
+  caller); test. **Minor 9:** `scripts/Invoke-Container.ps1` enumerations
+  gained `-Force` and the file joined the AST guard list. **Minor 10:**
+  `verify_damage_interop.sh` asserts file-count parity (no extras).
+
+Evidence (real output, this host, post-fix): RestoreVerify.Tests
+**19/19**; WSL bats **67/67** (+3), shellcheck clean incl. the interop
+verifier; `check.ps1 -Tier Full` → unit **360/360**, integration
+**412 PASS / 0 FAIL / 4 SKIP**, all steps green after regenerating the
+architecture map (the only red was map staleness from the Get-DataFile
+signature); `trace.py --strict --require-verified --phase
+core,bash-v1,container-v1,kitbump-v6` → 0 orphans / 0 integrity /
+0 status-findings / 1 phase-deferred. Not automatable: a true
+WriteMismatch repro (write-side corruption of a proven source) — the
+classification logic is covered by code path review; recorded as a
+residual for any future harness with fault injection.
+
+**Awaiting human ratification of this G3** (with the reviewer's
+CHANGES-REQUESTED now answered) — plus the standing plan §11 items:
+Q2 reserved-device-names ruling; confirmations for Q1/Q3/Q4/Q5.

@@ -279,7 +279,7 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         # The only cheap defense against enumeration site #10 arriving later
         # without -Force. AST-based so a line-wrapped call cannot dodge a grep.
         $offenders = foreach ($f in 'Modules\FileBackup.Engine.psm1', 'Modules\FileBackup.Common.psm1',
-                                     'Reconstruct.ps1', 'FileBackup.ps1') {
+                                     'Reconstruct.ps1', 'FileBackup.ps1', 'scripts\Invoke-Container.ps1') {
             $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $repo $f), [ref]$null, [ref]$null)
             $calls = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and
                                     $n.GetCommandName() -eq 'Get-ChildItem' }, $true)
@@ -341,6 +341,56 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         Get-Content -LiteralPath $dest -Raw -Force | Should -Be 'HIDDEN-PAYLOAD'
     }
 
+    It 'one Deny-ACE hidden directory fails the set LOUDLY but still writes the manifest (SR-057, review B1)' {
+        # -Force made 'System Volume Information'-shaped directories visible;
+        # before this fix one of them aborted the whole run with NO manifest.
+        $root = Join-Path $TestDrive 'b1-denied'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'good.txt') -Value 'REACHABLE' -NoNewline
+        $denied = Join-Path $src 'DeniedDir'
+        New-Item -ItemType Directory -Path $denied | Out-Null
+        (Get-Item -LiteralPath $denied -Force).Attributes = 'Hidden, System, Directory'
+        icacls $denied /deny "${env:USERNAME}:(OI)(CI)(R)" | Out-Null
+        try {
+            $cfg = Join-Path $root 'cfg.xml'
+            New-RVConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+            $LASTEXITCODE | Should -Be 1
+            $manifest = Join-Path $bkp 'MANIFEST.csv'
+            Test-Path -LiteralPath $manifest | Should -BeTrue -Because 'the run must salvage everything reachable'
+            @(Import-Csv -LiteralPath $manifest | Where-Object RelativePath -eq 'good.txt').Count | Should -Be 1
+            (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) | Should -Match 'Cannot enumerate'
+        } finally {
+            icacls $denied /remove:d "${env:USERNAME}" | Out-Null
+        }
+    }
+
+    It 'a 7-Zip that cannot run is reported as a HOST problem, never as lost content (SR-040, review B2)' {
+        # The same store with a working 7-Zip proves the bytes are fine; a
+        # failing 7-Zip must therefore exit 4 (DependencyMissing after the
+        # self-test), not 1 — "your bytes are gone" was a lie here.
+        $root = Join-Path $TestDrive 'b2-broken7z'
+        $s = New-RVStore -Root $root
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        $a.DataPath = ''
+        Remove-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Force
+        Set-ManifestRows -Folder $s.Bkp -Rows $rows
+        # An archive-named candidate forces the expand attempt; the "7-Zip" is
+        # an existing file that cannot execute, so expand AND self-test fail.
+        [IO.File]::WriteAllText((Join-Path $s.Bkp 'noise.7z'), 'garbage-not-archive')
+        $fake7z = Join-Path $root 'fake7z.exe'
+        [IO.File]::WriteAllText($fake7z, 'not an executable')
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t -Extra @('-SevenZipPath', $fake7z)
+        $code | Should -Be 4
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -Match 'NOT usable on this host'
+        $log | Should -Not -Match '\[ContentMissing\]'
+    }
+
     It 'a HIDDEN Snapshot_* folder is still part of the pool (Get-PoolSnapshotFolder, TC-114)' {
         $chg = Join-Path $TestDrive 'd4-hidsnap'
         $snap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
@@ -363,6 +413,13 @@ Describe 'Non-interactive TargetRoot parity (SR-016, TC-115)' {
         $LASTEXITCODE | Should -Be 2
         $out | Should -Match 'Usage: RECONSTRUCT\.ps1'
         $out | Should -Match '-TargetRoot is required'
+    }
+
+    It '-NonInteractive without -ExitCode still exits the process with 2, not the throw path''s 1 (TC-115, review minor 8)' {
+        $root = Join-Path $TestDrive 'ni-noexitcode'
+        $s = New-RVStore -Root $root
+        & (Get-Process -Id $PID).Path -NoProfile -File $s.Recon -NonInteractive *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 2
     }
 
     It 'with -TargetRoot given, -NonInteractive changes nothing (TC-115)' {

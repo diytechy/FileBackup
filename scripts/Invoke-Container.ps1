@@ -174,7 +174,7 @@ function Test-ContainerStorageForm {
 
     # --- clean store: exit 0, parseable JSON, nothing modified ---
     $before = @{}
-    foreach ($file in @(Get-ChildItem -LiteralPath $Backup, $Changes -File -Recurse)) {
+    foreach ($file in @(Get-ChildItem -LiteralPath $Backup, $Changes -File -Recurse -Force)) {
         $before[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
     }
     $clean = Invoke-ContainerAction @common -Word 'verify'
@@ -192,7 +192,7 @@ function Test-ContainerStorageForm {
     }
     if (-not $json) { throw "verify did not emit a JSON findings document.`n$($clean.Output)" }
     try { ConvertFrom-Json $json | Out-Null } catch { throw "verify's findings document is not parseable JSON: $($_.Exception.Message)" }
-    foreach ($file in @(Get-ChildItem -LiteralPath $Backup, $Changes -File -Recurse)) {
+    foreach ($file in @(Get-ChildItem -LiteralPath $Backup, $Changes -File -Recurse -Force)) {
         $now = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
         if ($before[$file.FullName] -ne $now) { throw "verify modified '$($file.FullName)'; it must mutate nothing." }
     }
@@ -342,7 +342,8 @@ function Invoke-ContainerSmokeTest {
         # Incremental run: same mounts, same image -- the second container invocation.
         Invoke-ContainerCommand -Arguments $runArgs.ToArray()
 
-        $snapshotDirs = @(Get-ChildItem -LiteralPath $changes -Directory -ErrorAction SilentlyContinue |
+        # -Force (SR-057): a hidden snapshot folder must not escape this count.
+        $snapshotDirs = @(Get-ChildItem -LiteralPath $changes -Directory -Force -ErrorAction SilentlyContinue |
             Where-Object Name -match '^Snapshot_\d')
         if ($snapshotDirs.Count -ne 1) {
             throw "Expected exactly one Snapshot_<date> folder under changes after the incremental run; found $($snapshotDirs.Count)."
