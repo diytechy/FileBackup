@@ -3554,3 +3554,68 @@ Session note: this session runs on macOS (no pwsh/bats/shellcheck) — per
 plan + G1/G2 registry passes (trace.py-verified here); G3 implementation and
 the full battery are staged for a Windows host session, per the bash-variant
 executing-agent precedent.
+
+### DRIVER (System + Test Engineer hats; opus plan subagent + sonnet registry subagent) — kit-bump WP: plan + G1/G2 registry pass — 2026-08-24
+
+Executed on macOS (docs/registries only — no code, no test runs possible here).
+
+**Plan (opus subagent, driver-reviewed):**
+[plans/kitbump-rev6-plan.md](plans/kitbump-rev6-plan.md) — pinned D-2 verify
+contract (Length+xxH2Hash after every write, one pool-recovery retry, new
+`ContentMismatch` cause into SR-029 accounting); D-3 implemented as an honest
+RECLASSIFICATION (the locators' `CandidateError` becomes unreachable once
+ContentMissing outranks it, so the return set shrinks: expand-failures are
+data damage ⇒ ContentMissing, read-failures ⇒ new `StorageUnreadable` host
+class; the restore loop's own-file CandidateError stays exit 4 — the "both
+locators" phrasing must NOT be applied there); all NINE `Get-ChildItem`
+sites enumerated for the `-Force` sweep; TargetRoot `-NonInteractive` guard
+(exit 2 + usage); kit revision 6 stamping; 10 commit-ordered work items;
+Windows-host baseline preamble + acceptance checklist. Driver ratifies the
+agent's two judgment calls: reserved-device-names IN (deferrable, open
+question), manifest-row-order OUT (option-3 plan owns Write-Manifest).
+Two knowingly-red-test traps caught and re-scoped: G2.8 becomes a MODE-AWARE
+exact assertion (a strict single-DataPath assert would be red on Mirror until
+option-3 lands — D-5 is option-3's fix); floor item 1's Mirror owner-edit
+arms (the D-1 shape) likewise belong to the option-3 WP — this WP lands the
+HashAddressed regression-guard arms.
+
+**G1/G2 registry pass (sonnet subagent, driver-verified):** minted SN-033,
+SR-056 (restore verifies bytes written), SR-057 (hidden/dot/system captured
+at every enumeration site), LLR-056/057, TC-108..116; dated amendments to
+SR-040/016/029/001/007, LLR-040/050/016, TC-019 (statuses unchanged — the
+flips happen with the code at the Windows G3). Deviation from plan §5,
+recorded: SR-056/057 carry **Phase=kitbump-v6** (bash-v1 precedent) so the
+G3 ratchet stays clean pre-implementation. TC-117 + the SR-055 reserved-name
+amendment NOT landed (open question). Evidence (real, this host):
+`trace.py --strict` → SN=33 SR=57 LLR=56 TC=115, 0 orphans / 0 integrity;
+`--require-verified --phase core,bash-v1,container-v1` → 0 status-findings,
+phase-deferred=3 (SR-033 + SR-056/057, as designed).
+
+**Registry-hygiene defects found (pre-existing) and repaired, driver-verified
+by field-level dump before touching:** SR-040's row was MISSING its
+AcceptanceCriteria field entirely — every later column sat one slot left
+(true Status slot blank, `Verified` in Verification, `Test` in Priority);
+field restored with a written acceptance criterion and the shift note.
+TC-024 carried three unquoted commas in Expected (12 fields against the
+9-column header); re-quoted, `Yes,Pass` back in their columns. All three
+CSVs now length-validate row-for-row; trailing newline preserved.
+
+**Open questions for the human (plan §11, needed before/during the Windows
+G3 — none block the option-3 WP):**
+1. SN-033 minted (driver call) — veto if you'd rather SR-056 hang off
+   SN-005/006/026 alone.
+2. Reserved device names (CON/NUL/COM1…) into SR-055's refusal in this WP —
+   currently IN per plan; costs: a Linux source holding `NUL.txt` starts
+   failing the set loudly. Confirm or defer.
+3. Verify-after-write ships with NO opt-out (it roughly doubles restore read
+   volume). Driver recommends: no opt-out — restores are rare, this is the
+   data-safety product's core promise. Confirm.
+4. G2.8's Mirror arm asserts today's duplicate-copy truth as a labelled
+   change-detector until option-3 deletes it. Confirm.
+5. Restored files come back WITHOUT Hidden/System attributes (the 9-column
+   schema has nowhere to record them; adding a column breaks the §3
+   invariant). Driver recommends: accept + document in README. Confirm.
+
+**Next:** Windows-host session executes the plan §4 work order (G3 +
+independent review); registry flips (SR-056/057 → Verified, ratchet gains
+`kitbump-v6`) land with the real green battery.
