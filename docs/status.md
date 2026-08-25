@@ -56,11 +56,16 @@ last) — it is the record, not required reading for every pass.
   [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md).
   Production disks recorded as NTFS (4 TB library; 6-or-8 TB backup) — a
   `link` view stays feasible later but is deferred out of the v1 enum.
-- **Active gate:** G3. **Next actions, in order:** (1) remaining human
-  gos/rulings in Open items — D-2/D-3 fix go, D-4's Hidden-default ruling,
-  test-battery scope; (2) the **option-3 WP** (D-1/D-5 + folded items, per
-  the plan) and the **kit-bump WP** (D-2/D-3/D-4 + restorer parity, kit rev
-  6) run the usual G1→G3 + independent-review passes; (3) G3 → G-Release
+- **ALL 2026-08-24 DECISIONS ARE NOW IN** (D-1/D-5 option 3 + INDEX; D-2 go;
+  D-3 go; D-4 ruled hidden+dot backed up by default; test-battery approved
+  AND expanded). **Session constraint:** the 2026-08-24 planning session ran
+  on macOS (no pwsh/Pester/bats) — plans + registries advance here; **G3
+  implementation and every test run require a Windows host session.**
+- **Active gate:** G3. **Next actions, in order:** (1) the **kit-bump WP**
+  (D-2/D-3/D-4 + restorer parity + folded nits, kit rev 6; plan:
+  [plans/kitbump-rev6-plan.md](plans/kitbump-rev6-plan.md)) and the
+  **option-3 WP** (D-1/D-5 + folded items, per the plan) run the usual
+  G1→G3 + independent-review passes — implementation on Windows; (3) G3 → G-Release
   (human attestation; mechanized criteria are already clean); (4) IF-001
   Experimental → Stable jointly with HomeHub — but not before D-1/D-2 are
   fixed, since they break IF-001's core restore promise.
@@ -79,10 +84,10 @@ option from migration cost.
 | Item | What (verified 2026-08-24, entries below) | Decision needed | State |
 |---|---|---|---|
 | **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | **RULED 2026-08-24, complete: option 3 + INDEX view.** Content-address all storage (Mirror/`PreserveFolderTree` removed); browsability = generated `INDEX.html` + `INDEX.tsv` sibling view (human: "agreed with the html index, that also gives searchability"); `link` deferred out of the v1 enum despite NTFS production disks (4 TB library / 6-or-8 TB backup). Design record: [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md). Next: the option-3 WP runs G1→G3 + independent review. |
-| **D-2 — restore verifies nothing** | Both restorers expand/copy a resolvable `DataPath` with no comparison against the row's `xxH2Hash` — wrong payload, same-length bit-flip, even truncation restore exit 0. `xxH2Hash` is the original-content hash, so verify-after-write + fall-through to the existing pool recovery is sound. Needed under ANY D-1 design (bit rot, partial writes). | Approve as a fix WP (small, both restorers, kit revision 6; pairs with D-3). MiniPC-Deployer's "three witnesses" restore is prior art. | Open — fix proposed, awaiting go |
-| **D-3 — CandidateError outranks ContentMissing** | One unrelated unexpandable `.7z` anywhere in the pool flips "your bytes are gone" (exit 1) into "fix this host" (exit 4). Every CandidateError the locators raise is by construction from a non-own candidate — the reorder needs no new state. | Approve with D-2 (same kit bump). Trivial precedence reorder, both locators. | Open — fix proposed, awaiting go |
-| **D-4 — hidden/dot files never backed up** | SYSTEMIC: no `Get-ChildItem` in Engine/Common/Reconstruct uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip, so the twin restorers disagree. Zero disclosure. | Approve `-Force` everywhere + a disclosed skipped-by-policy count, and RULE on the one design question: should Windows Hidden-attribute files be included by default (Linux dot-files clearly must be)? | Open — fix proposed, one ruling needed |
-| **Test-battery import** | The HomeHub drill assertion that caught D-1 (blank-row hashes cross-checked against the verified pool) has no FileBackup equivalent, and `G2.8 Dedup_singleDataPath` is VACUOUS (`-le 2` passes under D-5). Six-item prioritized import list + eight extra permutations recorded in the 2026-08-24 verification entry. | Approve as the test scope of the D-1..D-4 fix WPs (owner-edit across all 4 modes, orphan-detection second pass as tooling, wrong-bytes-at-DataPath both restorers, unrelated-bad-`.7z`, dot/Hidden sources, fix the vacuous assertion). | Open — scope proposed |
+| **D-2 — restore verifies nothing** | Both restorers expand/copy a resolvable `DataPath` with no comparison against the row's `xxH2Hash` — wrong payload, same-length bit-flip, even truncation restore exit 0. `xxH2Hash` is the original-content hash, so verify-after-write + fall-through to the existing pool recovery is sound. Needed under ANY D-1 design (bit rot, partial writes). | Approve as a fix WP (small, both restorers, kit revision 6; pairs with D-3). MiniPC-Deployer's "three witnesses" restore is prior art. | **HUMAN GO 2026-08-24** ("Sounds good") — runs as the kit-bump WP (kit rev 6), G3 on a Windows host. |
+| **D-3 — CandidateError outranks ContentMissing** | One unrelated unexpandable `.7z` anywhere in the pool flips "your bytes are gone" (exit 1) into "fix this host" (exit 4). Every CandidateError the locators raise is by construction from a non-own candidate — the reorder needs no new state. | Approve with D-2 (same kit bump). Trivial precedence reorder, both locators. | **HUMAN GO 2026-08-24** ("Agreed") — batched with D-2 in the kit-bump WP. |
+| **D-4 — hidden/dot files never backed up** | SYSTEMIC: no `Get-ChildItem` in Engine/Common/Reconstruct uses `-Force` — source walks, restore pool scan, prune residue scan; bash `find` does not skip, so the twin restorers disagree. Zero disclosure. | Approve `-Force` everywhere + a disclosed skipped-by-policy count, and RULE on the one design question: should Windows Hidden-attribute files be included by default (Linux dot-files clearly must be)? | **HUMAN RULED 2026-08-24: hidden AND dot files are backed up by default.** Design impact recorded in the audit entry below (simplest form: `-Force` everywhere, no new config knob in v1; disclosure narrows to SR-055 portable-name skips). In the kit-bump WP. |
+| **Test-battery import** | The HomeHub drill assertion that caught D-1 (blank-row hashes cross-checked against the verified pool) has no FileBackup equivalent, and `G2.8 Dedup_singleDataPath` is VACUOUS (`-le 2` passes under D-5). Six-item prioritized import list + eight extra permutations recorded in the 2026-08-24 verification entry. | Approve as the test scope of the D-1..D-4 fix WPs (owner-edit across all 4 modes, orphan-detection second pass as tooling, wrong-bytes-at-DataPath both restorers, unrelated-bad-`.7z`, dot/Hidden sources, fix the vacuous assertion). | **HUMAN APPROVED 2026-08-24 + EXPANDED** ("Yes definitely, and expand it applicable to cover a larger test area") — the six-item list is the floor, not the ceiling; the WP plans define the expanded matrix. HomeHub drill script offered for pull-onto-this-PC if needed for the orphan-second-pass port. |
 
 ### Parked / minor (no input needed now)
 
@@ -3495,3 +3500,57 @@ the 2026-06-05 precedent: §3 keeps documenting current code until the WP's
 G3 rewrites it with the implementation). Next action: draft the option-3
 WP's G1 requirements pass when the human says go.
 
+
+### HUMAN — D-2/D-3 go, D-4 ruling, test-battery approval — 2026-08-24
+
+Delivered in one message ("Spin up opus / sonnet agents as appropriate"):
+
+- **D-2: GO** ("Sounds good") — verify-after-write in both restorers, kit
+  revision 6.
+- **D-3: GO** ("Agreed") — precedence reorder, batched with D-2.
+- **D-4 RULED: hidden and dot files ARE backed up by default** ("Yes ideally
+  hidden and dot files are backed up"), with the follow-up question "how does
+  that affect the design?" — answered in the driver entry below.
+- **Test-battery import: APPROVED and EXPANDED** ("Yes definitely, and expand
+  it applicable to cover a larger test area"). The HomeHub drill script
+  (`scripts/verify/library-permutation-drill.sh`, on another machine) was
+  offered for local pull if the port needs the original.
+
+### DRIVER (System Engineer + Data-integrity hats) — D-4 design impact of the include-by-default ruling — 2026-08-24
+
+The ruling collapses D-4 to its simplest design — the decision REMOVES
+machinery rather than adding it:
+
+1. **No new config surface in v1.** Include-by-default means `-Force` on every
+   `Get-ChildItem` in Engine/Common/Reconstruct (source walks, restore pool
+   scan, prune residue scan) and nothing else. No `IncludeHidden` knob, no
+   per-set policy, no skipped-by-policy accounting for hiddenness. Deliberate
+   exclusion stays where it already lives (`ExcludeFolder` machinery — works
+   for `.git`, `$RECYCLE.BIN` etc. if a user wants them out).
+2. **The disclosure requirement narrows.** The proposed "skipped-by-policy
+   count" now covers only the one remaining skip class: SR-055 portable-name
+   skips, which already fail the set loudly. Nothing is silently skipped.
+3. **Restorer parity converges for free.** bash `find` never skipped
+   dot-files; PowerShell moving to `-Force` makes the twins agree with a
+   zero-line bash diff on the walk itself.
+4. **It closes an adjacent latent hazard beyond the source walk:**
+   hash-addressed short names can BEGIN WITH A DOT (the exact shape that broke
+   CI artifact upload on 2026-08-23), and any pool file carrying a Hidden
+   attribute is invisible to today's PS pool scan — a dot/hidden data file in
+   the pool is unrecoverable by hash until `-Force` lands on the restore side
+   too. The ruling fixes backup and restore blind spots symmetrically.
+5. **New backup content classes, accepted:** Windows noise files
+   (`desktop.ini`, `Thumbs.db`) and macOS `.DS_Store` now enter backups by
+   default — data-safety bias, README note + ExcludeFolder pointer. System-
+   attribute files also surface; reparse-point/symlink traversal semantics are
+   NOT changed by `-Force` (existing behavior stands; pin as intent).
+6. **Interactions:** root-level infra files are excluded by NAME allowlist,
+   not attribute — unaffected. Option-3 WP: no conflict; the `-Force` walk
+   survives content-addressing unchanged. Windows-reserved-device-names parked
+   item folds into the same walk change as planned.
+
+Session note: this session runs on macOS (no pwsh/bats/shellcheck) — per
+"never report a green you didn't run", this session delivers the kit-bump WP
+plan + G1/G2 registry passes (trace.py-verified here); G3 implementation and
+the full battery are staged for a Windows host session, per the bash-variant
+executing-agent precedent.
