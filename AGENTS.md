@@ -139,6 +139,7 @@ Imports (internal): _none_
 | `Get-FreeSpaceBytes` | yes | SR-052, SR-023, LLR-052, LLR-023 |
 | `Get-HashSizeFileName` | yes | SR-003, SR-021, LLR-003, LLR-021 |
 | `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
+| `Get-StoredObjectForm` | yes | SR-068, LLR-068 |
 | `Get-VolumeIdentity` | yes | SR-052, LLR-052 |
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |
@@ -282,6 +283,15 @@ Imports (internal): `Common`
   (`G4-Sanitization` `Legacy_restoreRefused`, `tests/bash/restore_fidelity.bats`,
   TC-138). The collapse that followed: `Get-ReHomedDataPathName` is gone, and a
   re-homed object's destination name is simply its source `DataPath`.
+- **The stored form comes from the bytes, not the index** (SR-068, kit revision
+  8). Neither restorer consults `Compressed` for any correctness decision. No
+  7-Zip signature means raw; a signature means an archive **unless** the object's
+  length equals the row's `Length` and its own bytes hash to the row's
+  `xxH2Hash` - which is the user's OWN already-compressed file stored raw, since
+  SR-004 never re-compresses one and such a source may be named anything. That
+  is the only test that separates an archive we made from an archive we were
+  given, and `Get-StorageFormFinding` already used it on the audit side. The
+  column stays in the schema, feeding the restore capacity ESTIMATE only.
 - **A copy failure is retried, then loud** (SR-067). The SR-060 candidate loop
   only falls back to other MEMBERS of a content group, so a file whose content
   is unique used to get exactly one attempt and a momentary lock cost it the

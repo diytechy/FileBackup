@@ -59,7 +59,10 @@
 #   4  INCOMPLETE, HOST — rows failed for reasons on this machine, not in the
 #      backup (unreadable search folder, 7z unavailable/unusable for an
 #      archive candidate, extraction/copy I/O error on the row's OWN file, or
-#      a WriteMismatch — a hash-PROVEN pool source whose written destination
+#      an extraction failure on an ARCHIVE-SHAPED object (kit revision 8: an
+#      object with no 7-Zip signature that reproduces neither form is content
+#      damage, exit 1, not a retriable host problem - SR-068/SR-040), or
+#      a WriteMismatch - a hash-PROVEN pool source whose written destination
 #      disagrees: the backup holds the bytes, the write is broken). Retry
 #      after fixing the host. Since kit revision 6 a POOL candidate that
 #      fails to expand while 7z passes its self-test is data damage
@@ -340,6 +343,30 @@ apply_dir_sidecar() {
         log "NOTE: $skipped_attr directory row(s) carry Windows folder attributes (Hidden/System/ReadOnly/NotContentIndexed). They have no POSIX equivalent and were NOT applied."
     fi
     return 0
+}
+
+# stored_object_form <path> <want_hash> <want_len> : 'Archive' or 'Raw', decided
+# from the BYTES rather than the row's Compressed column (SR-068). Twin of
+# Common's Get-StoredObjectForm; see that function for the reasoning.
+#
+#   1. No 7-Zip signature in the first six bytes -> Raw, conclusively (the
+#      engine never writes a compressed object without one).
+#   2. Signature present: either an archive WE created, or the user's OWN
+#      already-compressed file stored raw (SR-004 never re-compresses those, and
+#      such a source can be named anything, so the extension proves nothing).
+#      Length differing from the row's settles it as Archive; lengths equal ask
+#      the hash, and a match means the bytes ARE the content, i.e. Raw.
+stored_object_form() {
+    local f="$1" want_hash="$2" want_len="$3" sig sz
+    [[ -f "$f" ]] || { printf 'Missing'; return 0; }
+    # od rather than head|xxd: no pipeline, and it is in coreutils everywhere.
+    sig="$(od -An -N6 -tx1 -- "$f" 2>/dev/null | tr -d ' \n')"
+    if [[ "$sig" != '377abcaf271c' ]]; then printf 'Raw'; return 0; fi
+    [[ "$want_len" =~ ^[0-9]+$ ]] || { printf 'Archive'; return 0; }
+    sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+    [[ "$sz" == "$want_len" ]] || { printf 'Archive'; return 0; }
+    [[ -n "$want_hash" ]] || { printf 'Archive'; return 0; }
+    if [[ "$(hash_file "$f" 2>/dev/null)" == "$want_hash" ]]; then printf 'Raw'; else printf 'Archive'; fi
 }
 
 # stamp_mtime <dest> <lastwritetimestr> <rel> : apply the row's OWN modification
@@ -852,7 +879,7 @@ main() {
     # Failures are split by class so the exit code separates "your bytes are
     # gone" (1) from "fix this host and retry" (4) — SR-040.
     local -a unrestored=() unrestored_host=()
-    local rel dest destdir src found fcause frest fdetail fpath located_form needs_expand recovered rc
+    local rel dest destdir src found fcause frest fdetail fpath located_form own_form needs_expand recovered rc
     for (( i=0; i<nrows; i++ )); do
         # The PROVEN form of a hash-recovered file, which outranks the row's
         # Compressed column for that row (SR-050). Empty for a non-blank
@@ -928,12 +955,15 @@ main() {
             fi
         fi
 
-        # SR-050: a hash-recovered file is decided by the form the locator PROVED;
-        # only a row resolved through its own DataPath is decided by its Compressed.
+        # SR-050 proved the form for a hash-recovered row; SR-068 (kit revision
+        # 8) extends that to a row resolved through its OWN DataPath, which was
+        # the last decision either restorer took on the Compressed column's
+        # word. The column is now an input to the capacity ESTIMATE only.
         if [[ -n "$located_form" ]]; then
             [[ "$located_form" == 'Archive' ]] && needs_expand=1 || needs_expand=0
         else
-            [[ "${d_comp[i]}" == "Yes" ]] && needs_expand=1 || needs_expand=0
+            own_form="$(stored_object_form "$src" "${d_hash[i]}" "${d_len[i]}")"
+            [[ "$own_form" == 'Archive' ]] && needs_expand=1 || needs_expand=0
         fi
 
         # SR-056 (kit revision 6): EVERY restored row — expanded or copied, own

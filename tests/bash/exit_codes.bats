@@ -197,7 +197,15 @@ restamp_witness() {
     command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
     local bad="$BATS_TEST_TMPDIR/d3own"
     mkdir -p "$bad"
-    printf 'garbage-not-7z\n' > "$bad/own.7z"
+    # A REAL archive, then truncated: keeps the 7-Zip signature and destroys
+    # the archive, which is the interrupted-write shape and, since kit
+    # revision 8 (SR-068), the only shape that still reaches an extraction
+    # attempt. The form now comes from the BYTES, so unsignatured garbage is
+    # content damage rather than a host problem - pinned by the next case.
+    printf 'payload-for-a-real-archive\n' > "$bad/p.txt"
+    ( cd "$bad" && 7z a -bso0 -bsp0 own.7z p.txt >/dev/null 2>&1 )
+    rm -f "$bad/p.txt"
+    truncate -s 24 "$bad/own.7z"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
       printf '"own.7z","payload.txt","999","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","Yes","HashSize","0",""\r\n'
@@ -207,6 +215,26 @@ restamp_witness() {
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/td3own" --from "$bad"
     [ "$status" -eq 4 ]
     [[ "$output" == *"CandidateError"* ]]
+}
+
+@test "1: a row's OWN object with no 7z signature is CONTENT damage, not host (SR-068 / TC-141)" {
+    # The other side of kit revision 8's rule, ratified 2026-08-26. These
+    # bytes carry no signature and reproduce neither form, so nothing about
+    # this host is wrong and no retry can help: exit 1, not 4. Before SR-068
+    # the Compressed column sent this down the expand path and 7-Zip took the
+    # blame, telling wrappers to retry corruption forever.
+    local bad="$BATS_TEST_TMPDIR/d3raw"
+    mkdir -p "$bad"
+    printf 'garbage-with-no-signature\n' > "$bad/own.7z"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      printf '"own.7z","payload.txt","999","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","Yes","Hash","0",""\r\n'
+    } > "$bad/MANIFEST.csv"
+    restamp_witness "$bad/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/td3raw" --from "$bad"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"ContentMismatch"* ]]
 }
 
 @test "the usage text documents the whole table (SR-040)" {

@@ -109,7 +109,15 @@ error unless you pass `-ExitCode` (which `RECONSTRUCT.bat` does for you).
 | **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool. | Real data loss: check an older backup. |
 | **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, a legacy path-addressed store (see `StoredAsHashSize` below), target inside the backup, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
 | **3** | Witness verification failed | The index itself is untrustworthy; **no file is written to the target.** | The manifest is damaged — restore from a snapshot or another copy. |
-| **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error. | **Retriable** — fix the host and run again. |
+| **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error on an **archive-shaped** object. | **Retriable** — fix the host and run again. |
+
+Since kit revision 8 the split between **1** and **4** is decided by the stored
+bytes rather than by the manifest's `Compressed` column. An object carrying no
+7-Zip signature that reproduces neither form is damage (**1**), not a failed
+extraction (**4**): no retry on a healthy machine fixes it, and classifying it as
+retriable sent wrappers into loops over corruption. An object that *does* look
+like an archive and will not open is still **4**, because this host's 7-Zip
+genuinely may be at fault.
 
 When several apply the precedence is **2 > 3 > 4 > 1**: codes 2 and 3 abort
 before anything is written — the manifest's header and witness are checked before
@@ -703,7 +711,7 @@ next successful run rewrites both. It fails in the safe direction on purpose.
 | `DataPath` | The stored object holding its bytes, named by content: `"<hash16> <len10><ext>"`. **Blank** means "recover by content hash" — the bytes live in another folder of the pool and the restorer finds them by `(hash, length)`. |
 | `Length` · `xxH2Hash` | The original content's size and xxHash128. Together they are the dedup key, the restore lookup key, and the post-write verification the restorer performs on every file. |
 | `LastWriteTimeStr` | The source file's modification time, used with `Length` to skip re-hashing an unchanged file. |
-| `Compressed` | Whether *this row's own* stored object is a `.7z`. Compression is decided per file, so a tree is normally mixed. |
+| `Compressed` | Whether *this row's own* stored object is a `.7z`. Compression is decided per file, so a tree is normally mixed. **Advisory since kit revision 8**: a restore decides the real form from the object's bytes (SR-068), so a wrong value here cannot produce a wrong restore. It still feeds the restore's free-space estimate, which is approximate by design. |
 | `StoredAsHashSize` | Always `Hash`. Kept in the schema because every restorer and every existing store reads it; `Original` identifies a pre-2026-08 path-addressed store. Such a store is refused outright as of kit revision 7 â€” by a backup, by a restore (exit 2), and reported as a finding by `-Action Verify`. There is no conversion: back up to a fresh `BackupPath`, and restore the old store with the kit bundled inside it. |
 | `Duplicate` | This row shares its object with another row. |
 | `MediaMBPerSec` | Optional media bitrate, when `ffprobe` is available. Informational. |

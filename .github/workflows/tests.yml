@@ -43,7 +43,7 @@ jobs:
         # (container-v1's promotion evidence is the first green container job,
         # run 32673687758, 2026-08-23); bash-v2 (SR-033) stays phase-deferred
         # until it ships.
-        run: python scripts/trace.py --strict --require-verified --phase core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1
+        run: python scripts/trace.py --strict --require-verified --phase core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1,form-v1
       - name: Doc navigability (0 broken intra-repo links)
         shell: pwsh
         run: python scripts/check_docs.py --ignore docs/test/report.md --ignore "docs/releases/*"

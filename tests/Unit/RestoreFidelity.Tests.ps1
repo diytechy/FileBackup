@@ -221,6 +221,92 @@ Describe 'Directory sidecar (SR-065)' {
     }
 }
 
+Describe 'The stored form is decided by the bytes, not the Compressed column (SR-068)' -ForEach @(
+    @{ Mode = 'Plain'; Compress = $false }, @{ Mode = 'Compress'; Compress = $true }
+) {
+    It 'restores byte-exact with EVERY row''s Compressed value flipped (TC-141, <Mode>)' {
+        # The decisive case. Before SR-068 a row resolved through its own
+        # DataPath was expanded-or-copied on the column's word, so flipping the
+        # column produced 7z container bytes written under the real filename
+        # (exit 0, silently wrong) or a failed expand of raw bytes.
+        $root = Join-Path $TestDrive ('form-flip-' + $Mode)
+        $s = New-FidelityStore -Root $root -Compress $Compress
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        foreach ($r in $rows) { $r.Compressed = if ($r.Compressed -eq 'Yes') { 'No' } else { 'Yes' } }
+        Set-FidelityManifest -Folder $s.Bkp -Rows $rows
+
+        $t = Join-Path $root 'restored'
+        (Invoke-FidelityRestore -Recon $s.Recon -TargetRoot $t).Code | Should -Be 0
+        foreach ($rel in 'twin-a.txt', 'twin-b.txt', 'uniq.txt', 'hidden-dir\secret.txt') {
+            (Get-FileXxHash -FilePath (Join-Path $t $rel)) |
+                Should -Be (Get-FileXxHash -FilePath (Join-Path $s.Src $rel)) -Because "$rel must survive a lying column"
+        }
+    }
+
+    It 'an already-compressed SOURCE file is never expanded, column right or wrong (TC-141, <Mode>)' {
+        # The case the human asked about: a real .7z in the SOURCE is stored RAW
+        # (SR-004 declines to re-compress it), so its stored bytes ARE a 7z
+        # archive while the row correctly says Compressed='No'. Sniffing alone
+        # would call it an archive and expand the user's own file; only "do
+        # these bytes already reproduce the row?" gets it right.
+        if (-not $sevenZip -or -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            Set-ItResult -Skipped -Because '7-Zip is not available on this host'
+        }
+        $root = Join-Path $TestDrive ('form-source7z-' + $Mode)
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        # A GENUINE archive in the source. '.7z' is on the non-compressible list,
+        # so SR-004 stores it raw - which is exactly the shape that makes a
+        # magic-byte sniff insufficient. (The restorer never consults the stored
+        # object's name, so the extension is not what saves it here; the row's
+        # own hash is.)
+        $payload = Join-Path $root 'payload.txt'
+        Set-Content -LiteralPath $payload -Value ('INSIDE-THE-USERS-ARCHIVE ' * 200) -NoNewline
+        Compress-FileWithSevenZip -SevenZipPath $sevenZip -SourceFile $payload `
+            -Destination7z (Join-Path $src 'backup-of-mine.7z')
+        Set-Content -LiteralPath (Join-Path $src 'plain.txt') -Value ('PLAIN ' * 500) -NoNewline
+
+        $cfg = Join-Path $root 'cfg.xml'
+        New-FidelityConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
+        & $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+        $rows = @(Import-Csv -LiteralPath $manifest)
+        $arc = @($rows | Where-Object RelativePath -eq 'backup-of-mine.7z')[0]
+        $arc.Compressed | Should -Be 'No' -Because 'SR-004 does not re-compress an already-compressed source'
+
+        # Correct column: restores byte-exact, NOT expanded.
+        $t1 = Join-Path $root 'restored-correct'
+        (Invoke-FidelityRestore -Recon (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t1).Code | Should -Be 0
+        (Get-FileXxHash -FilePath (Join-Path $t1 'backup-of-mine.7z')) |
+            Should -Be (Get-FileXxHash -FilePath (Join-Path $src 'backup-of-mine.7z'))
+
+        # LYING column ('Yes'): the bytes still win, so the user's archive comes
+        # back as their archive rather than being unpacked over its own name.
+        $arc.Compressed = 'Yes'
+        Set-FidelityManifest -Folder $bkp -Rows $rows
+        $t2 = Join-Path $root 'restored-lying'
+        (Invoke-FidelityRestore -Recon (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t2).Code | Should -Be 0
+        (Get-FileXxHash -FilePath (Join-Path $t2 'backup-of-mine.7z')) |
+            Should -Be (Get-FileXxHash -FilePath (Join-Path $src 'backup-of-mine.7z'))
+    }
+
+    It 'genuine damage is still reported, not silently reinterpreted (TC-141, <Mode>)' {
+        # Deriving the form must not become a licence to accept anything: bytes
+        # that reproduce NEITHER form are damage and must fail loudly.
+        $root = Join-Path $TestDrive ('form-damage-' + $Mode)
+        $s = New-FidelityStore -Root $root -Compress $Compress
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        $victim = @($rows | Where-Object RelativePath -eq 'uniq.txt')[0]
+        [IO.File]::WriteAllText((Join-Path $s.Bkp $victim.DataPath), 'NEITHER RAW CONTENT NOR AN ARCHIVE')
+
+        $t = Join-Path $root 'restored'
+        $r = Invoke-FidelityRestore -Recon $s.Recon -TargetRoot $t
+        $r.Code | Should -Be 1 -Because 'unreproducible bytes are content damage'
+        $r.Output | Should -Match 'INCOMPLETE'
+    }
+}
+
 Describe 'A legacy path-addressed store is refused by the restorer (SR-061)' -ForEach @(
     @{ Marker = 'stored-as-original' }, @{ Marker = 'path-addressed-datapath' }
 ) {

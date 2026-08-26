@@ -56,7 +56,7 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 7
+# KitRevision: 8
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -86,8 +86,17 @@
 # LastWriteTimeStr from its own manifest row, which is what makes a
 # deduplicated row keep its OWN timestamp instead of the pool object's
 # (SR-066); and applies the DIRECTORIES.csv sidecar, recreating empty
-# directories and re-applying folder attributes (SR-065). Restoring a snapshot
-# with its OWN older kit still carries the defects fixed after it.
+# directories and re-applying folder attributes (SR-065). Revision 8 decides a
+# row's stored form from the BYTES for a row resolved through its own DataPath
+# too, not just for a hash-recovered one (SR-068): the Compressed column is no
+# longer consulted for any correctness decision, only as an input to the
+# capacity ESTIMATE, so a manifest whose column disagrees with its bytes can no
+# longer produce a wrong restore. That narrows SR-040's host class by design
+# (human-ratified 2026-08-26): a row's own object is exit 4 only when it is
+# ARCHIVE-SHAPED and will not open; unsignatured bytes that reproduce neither
+# form are content damage, exit 1, because no retry fixes them.
+# Restoring a snapshot with its OWN older kit
+# still carries the defects fixed after it.
 
 param(
     [string]$TargetRoot,
@@ -1053,9 +1062,19 @@ foreach ($rel in $main.Keys) {
         }
     }
 
-    # SR-050: a hash-recovered file is decided by the form the locator PROVED;
-    # only a row resolved through its own DataPath is decided by its Compressed.
-    $needsExpand = if ($null -ne $locatedForm) { $locatedForm -eq 'Archive' } else { $row.Compressed -eq 'Yes' }
+    # SR-050 proved the form for a hash-recovered row. SR-068 (kit revision 8)
+    # extends that to a row resolved through its OWN DataPath, which was the
+    # last decision either restorer took on the Compressed column's word: the
+    # column is a claim about bytes stored apart from them, and D-1 is what that
+    # costs. Get-StoredObjectForm reads the bytes and, for an archive-shaped
+    # object, asks whether they already reproduce the row - which is the only
+    # thing that separates an archive WE created from the user's own
+    # already-compressed file stored raw (SR-004 never re-compresses those).
+    $needsExpand = if ($null -ne $locatedForm) {
+        $locatedForm -eq 'Archive'
+    } else {
+        (Get-StoredObjectForm -Path $srcFull -ExpectedHash $row.xxH2Hash -ExpectedLength $row.Length) -eq 'Archive'
+    }
 
     # SR-056 (kit revision 6): EVERY restored row — expanded or copied, own
     # DataPath or hash-recovered — is verified against (Length, xxH2Hash) after

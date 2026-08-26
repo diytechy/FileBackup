@@ -505,6 +505,92 @@ function Expand-FileWithSevenZip {
     }
 }
 
+function Get-StoredObjectForm {
+    <#
+    .SYNOPSIS
+        Decides whether a stored object holds the row's content RAW or as an
+        archive this tool created - from the bytes, never from the manifest's
+        Compressed column (SR-068).
+
+    .DESCRIPTION
+        The column is a CLAIM about the bytes, and the whole lesson of D-1 is
+        that a claim stored apart from what it describes can drift from it.
+        SR-050 already made a hash-recovered row trust the form its locator
+        PROVED; this is the same authority for a row resolved through its own
+        DataPath, which was the last decision either restorer took on the
+        column's word.
+
+        The rule, cheapest test first:
+
+          1. No 7-Zip signature in the first six bytes -> Raw, conclusively.
+             The engine never writes a compressed object without it, so this
+             settles the overwhelming majority for the cost of six bytes.
+          2. Signature present. The object is EITHER one we created OR the
+             user's own already-compressed file stored raw (SR-004 declines to
+             re-compress those, and such a source can be named anything -
+             'archive.7z.bak', a '.pack', an installer payload - so the
+             extension proves nothing):
+               a. length != the row's Length -> Archive. Raw storage keeps the
+                  original bytes, so the lengths would agree. A stat, no hashing.
+               b. lengths agree -> hash the file. Matching the row's xxH2Hash
+                  means the bytes ARE the content: the user's own archive,
+                  stored Raw. Otherwise it is an Archive we created.
+
+        Get-StorageFormFinding reaches the same answer the same way on the audit
+        side; this is that rule made available to the KIT, which cannot see
+        Engine.
+
+    .PARAMETER Path
+        The stored object.
+
+    .PARAMETER ExpectedHash
+        The row's xxH2Hash - the ORIGINAL content's hash.
+
+    .PARAMETER ExpectedLength
+        The row's Length - the ORIGINAL content's length.
+
+    .OUTPUTS
+        [string] 'Archive', 'Raw', or 'Missing'.
+    #>
+    # Implements: SR-068, LLR-068
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [AllowNull()][AllowEmptyString()][string]$ExpectedHash,
+        [AllowNull()][string]$ExpectedLength
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'Missing' }
+
+    $magic = [byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C)
+    $head  = New-Object byte[] $magic.Length
+    $read  = 0
+    try {
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open,
+                                     [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        try { $read = $fs.Read($head, 0, $magic.Length) } finally { $fs.Dispose() }
+    } catch {
+        # Unreadable here is not a form question; let the caller's copy/expand
+        # attempt fail with the real error rather than guessing a form.
+        return 'Raw'
+    }
+    if ($read -lt $magic.Length) { return 'Raw' }
+    for ($i = 0; $i -lt $magic.Length; $i++) {
+        if ($head[$i] -ne $magic[$i]) { return 'Raw' }
+    }
+
+    # Archive-shaped. Only the row's own (hash,length) can say whose archive.
+    $len = 0L
+    if (-not [long]::TryParse("$ExpectedLength", [ref]$len)) { return 'Archive' }
+    if ((Get-Item -LiteralPath $Path -Force).Length -ne $len) { return 'Archive' }
+    if ([string]::IsNullOrWhiteSpace($ExpectedHash)) { return 'Archive' }
+    try {
+        if ((Get-FileXxHash -FilePath $Path) -eq $ExpectedHash) { return 'Raw' }
+    } catch {
+        return 'Archive'
+    }
+    return 'Archive'
+}
+
 # endregion
 
 # region Directory sidecar (SR-065)
@@ -1079,6 +1165,7 @@ Export-ModuleMember -Function @(
     'Get-FileXxHash',
     'ConvertTo-ManifestDateString',
     'ConvertFrom-ManifestDateString',
+    'Get-StoredObjectForm',
     'Get-DirectoryAttributeToken',
     'ConvertTo-DirectoryAttributeFlag',
     'Convert-HexToShortName',

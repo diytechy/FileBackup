@@ -171,3 +171,52 @@ legacy_store() {
     [[ "$output" == *"legacy path-addressed store"* ]]
     [ ! -f "$t/sub/old.txt" ]
 }
+
+# form_store <dir> <compressed-cell> : one row whose stored object is RAW content
+# while the manifest's Compressed cell says whatever the caller asks. SR-068 says
+# the bytes decide, so a lying cell must change nothing.
+form_store() {
+    local dir="$1" cell="$2" h len
+    mkdir -p "$dir"
+    printf 'RAW-CONTENT-NOT-AN-ARCHIVE' > "$dir/data.bin"
+    h="$(hash_upper "$dir/data.bin")"; len="$(stat -c '%s' "$dir/data.bin")"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"
+'
+      printf '"data.bin","restored.txt","%s","d","%s","%s","Hash","0",""
+' "$len" "$h" "$cell"
+    } > "$dir/MANIFEST.csv"
+    restamp_witness "$dir/MANIFEST.csv"
+}
+
+@test "a LYING Compressed=Yes over raw bytes still restores byte-exact (SR-068 / TC-141)" {
+    local s="$BATS_TEST_TMPDIR/formlie" t="$BATS_TEST_TMPDIR/tformlie"
+    form_store "$s" 'Yes'
+
+    run bash "$RS" --target-root "$t" --from "$s"
+    [ "$status" -eq 0 ]
+    [ "$(cat "$t/restored.txt")" = 'RAW-CONTENT-NOT-AN-ARCHIVE' ]
+}
+
+@test "an already-compressed SOURCE file stored raw is never expanded (SR-068 / TC-141)" {
+    command -v 7z >/dev/null 2>&1 || skip "7z not available"
+    local s="$BATS_TEST_TMPDIR/form7z" t="$BATS_TEST_TMPDIR/tform7z" h len
+    mkdir -p "$s" "$BATS_TEST_TMPDIR/mk"
+    printf 'INSIDE-THE-USERS-ARCHIVE' > "$BATS_TEST_TMPDIR/mk/payload.txt"
+    ( cd "$BATS_TEST_TMPDIR/mk" && 7z a -bso0 -bsp0 mine.7z payload.txt >/dev/null 2>&1 )
+    # Stored RAW: the object's bytes ARE a 7z archive, and the row says so
+    # correctly with Compressed=No. Sniffing alone would expand the user's file.
+    cp "$BATS_TEST_TMPDIR/mk/mine.7z" "$s/data.bin"
+    h="$(hash_upper "$s/data.bin")"; len="$(stat -c '%s' "$s/data.bin")"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"
+'
+      printf '"data.bin","mine.7z","%s","d","%s","No","Hash","0",""
+' "$len" "$h"
+    } > "$s/MANIFEST.csv"
+    restamp_witness "$s/MANIFEST.csv"
+
+    run bash "$RS" --target-root "$t" --from "$s"
+    [ "$status" -eq 0 ]
+    [ "$(hash_upper "$t/mine.7z")" = "$h" ]
+}

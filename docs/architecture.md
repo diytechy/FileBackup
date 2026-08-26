@@ -134,6 +134,7 @@ Imports (internal): _none_
 | `Get-FreeSpaceBytes` | yes | SR-052, SR-023, LLR-052, LLR-023 |
 | `Get-HashSizeFileName` | yes | SR-003, SR-021, LLR-003, LLR-021 |
 | `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
+| `Get-StoredObjectForm` | yes | SR-068, LLR-068 |
 | `Get-VolumeIdentity` | yes | SR-052, LLR-052 |
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |

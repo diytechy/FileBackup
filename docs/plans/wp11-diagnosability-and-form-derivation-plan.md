@@ -195,3 +195,32 @@ flipped) is the direct regression test for the whole change.
 
 Part A must not wait on Part B: if the intermittent recurs while Part B is in
 flight, Part A is what tells us whether Part B caused it.
+
+---
+
+## Outcome (2026-08-26)
+
+**Part A found it on the first instrumented run, and A.1's hypothesis was
+right for the wrong component.** The fixture builder ignoring `$LASTEXITCODE`
+was real and is fixed, but the *cause* of the failed fixture runs was one level
+down: `Reset-TestEnvironment` wiped the volumes with
+`-ErrorAction SilentlyContinue` and never verified the result, so a transiently
+failed delete left a `Temp` folder behind and SR-017's stale-staging guard then
+refused every backup in the next scenario. Both halves are fixed; two
+consecutive sweeps after: 240 PASS / 0 FAIL / 2 SKIP.
+
+**Part B shipped as planned, with one consequence the plan did not foresee.**
+Deriving the form narrowed SR-040's host class: a row's own object is exit 4
+only when it is ARCHIVE-SHAPED and will not open, because unsignatured bytes
+that reproduce neither form are damage no retry can fix. That is a change to a
+wrapper-facing contract, so it was put to the human and **ratified 2026-08-26**
+(noting HomeHub never invokes the recovery scripts directly). SR-040 amended,
+TC-111/TC-112 updated to pin both sides of the narrowed rule.
+
+B.2.3 stands: the audit classes were **not** deleted, so S1's predicted ~200-line
+saving is not realised and the payoff is the correctness one. The reclassify-and
+-stop-repairing follow-up remains unstarted and optional.
+
+Final: `check.ps1 -Tier Full -Gate G3` all steps passed - lint clean, trace
+0/0/0 (1 phase-deferred, SR-033), unit 437/437, integration 240 PASS / 0 FAIL /
+2 SKIP; Ubuntu WSL bats 79/79, shellcheck clean.

@@ -170,7 +170,10 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $b = $rows | Where-Object RelativePath -eq 'b.txt'
         $b.DataPath | Should -Match '\.7z$'
-        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath), [byte[]](5..99))
+        # Archive-SHAPED but unopenable (SR-068): the bytes say archive, so an
+        # extraction IS attempted, and failing it is about this host's 7-Zip.
+        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath),
+            ([byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C) + [byte[]](5..99)))
         Write-ManifestWitness -FolderPath $s.Bkp | Out-Null
 
         $t = Join-Path $root 't'
@@ -178,6 +181,29 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $code | Should -Be 4
         $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
         $log | Should -Match '\[CandidateError\]'
+    }
+
+    It "a row's OWN object that is NOT archive-shaped and reproduces nothing is CONTENT damage / exit 1 (TC-111, SR-068)" {
+        # The other side of the same rule, ratified 2026-08-26. Before SR-068
+        # this object was expanded on the Compressed column's word, 7-Zip
+        # failed, and the run reported exit 4 - telling a wrapper to retry, on a
+        # healthy host, something no retry can fix. These bytes carry no
+        # signature and reproduce neither form, so nothing about this machine is
+        # wrong: it is damage, and exit 1 says so.
+        $root = Join-Path $TestDrive 'd3-own-raw'
+        $s = New-RVStore -Root $root -Compress $true
+        $rows = @(Import-Csv -LiteralPath $s.Manifest)
+        $b = $rows | Where-Object RelativePath -eq 'b.txt'
+        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath), [byte[]](5..99))
+        Write-ManifestWitness -FolderPath $s.Bkp | Out-Null
+
+        $t = Join-Path $root 't'
+        $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+        $code | Should -Be 1
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -Match '\[ContentMismatch\]'
+        # Damage is per row: the untouched file still restores.
+        Get-Content -LiteralPath (Join-Path $t 'a.txt') -Raw | Should -Be 'ALPHA-CONTENT'
     }
 
     It 'a genuine host failure alongside a content failure still reports 4 (SR-040 precedence, TC-111)' {
@@ -193,7 +219,9 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
         # b.txt: host class — its own archive is garbage.
         $b.DataPath | Should -Match '\.7z$'
-        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath), [byte[]](5..99))
+        # Archive-shaped, so the extraction attempt still makes it host class.
+        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath),
+            ([byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C) + [byte[]](5..99)))
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
         $t = Join-Path $root 't'
