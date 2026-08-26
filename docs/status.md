@@ -78,9 +78,17 @@ last) — it is the record, not required reading for every pass.
   is gone), LLR-051 retargeted, TC-023/TC-095 retired with the tests they named,
   TC-097/TC-100 re-pointed, and the vacuous `StorageForm` capacity-estimate `It`
   deleted rather than left inert.
-- **Next actions, in order:** (1) the **WP9 independent review** — a Claude
-  subagent, then the OpenAI adversarial pass via `codex exec` (both found real
-  defects on the kit-bump WP); (2) G3 → G-Release (human attestation); (3) IF-001
+- **WP9 INDEPENDENT REVIEW DONE (Claude subagent, 2026-08-25): REQUEST-CHANGES,
+  and it was right.** It reproduced a **data-loss** defect the driver's own
+  review missed — a `ViewPath` that CONTAINS a storage root, or IS `SourcePath`,
+  passed the one-directional containment rail and was then wiped, destroying the
+  store or the user's source on a run that reported success — plus a vacuous
+  TC-119 (the intra-run memo could be deleted outright with all 405 tests still
+  green). Both are FIXED and re-verified by re-breaking them; two MIN findings
+  and five nits are fixed or recorded. Full entry at the end of the log.
+- **Next actions, in order:** (1) the OpenAI adversarial pass via `codex exec`
+  (it found real defects on the kit-bump WP, and the Claude pass has now proven
+  its worth here too); (2) G3 → G-Release (human attestation); (3) IF-001
   Experimental → Stable jointly with HomeHub — D-2 is fixed and D-1 is now
   cleared, and IF-001's contract text was updated at step 9 for config v2,
   unconditional content addressing, and the ruling that the browse view is
@@ -97,15 +105,25 @@ free and shapes the test-battery import; D-2 + D-3 (+ the two parked kit
 nits) share one kit-revision bump; the no-backward-compat ruling frees every
 option from migration cost.
 
-### Live items — the WP9 queue is empty; two new rows opened the same day
+### Live items — the WP9 queue is empty; four new rows opened the same day
 
 Every row that stood here is closed. D-2/D-3/D-4 moved to
 [resolved-items.md](resolved-items.md) on 2026-08-25; **D-1/D-5, the
 test-battery import and the step-4 review's n6 nit moved there when WP9 landed
-(2026-08-25)**. Two NEW rows were opened later that day by the README metadata
-sweep — see "Live items (opened 2026-08-25 by the README metadata sweep)" below;
-one of them asks a real question (whether to restore `LastWriteTimeStr`). Under
-the 2026-08-25 standing directive nothing here blocks on ratification.
+(2026-08-25)**. Four NEW rows were opened later that day, in the two tables
+below: two by the **WP9 independent review** (a bats guard for legacy-store
+restore, and the `7z a` kit-revision call) and two by the **README metadata
+sweep** (the dedup metadata leak, and directory metadata). Two of them ask real
+questions — whether to restore `LastWriteTimeStr`, and whether to spend a kit
+revision on `7z a`. Under the 2026-08-25 standing directive nothing here blocks
+on ratification.
+
+### Live items (opened 2026-08-25 by the WP9 independent review)
+
+| Item | What | Decision asked | State |
+|---|---|---|---|
+| **No bats guard for restoring a LEGACY store** (review MIN-2) | Step 5b deleted the Mirror bats fixtures, and no remaining fixture has a `DataPath` containing a path separator, so `reconstruct.sh`'s path-addressed branch - the line that makes a pre-WP9 store restorable on Linux - is correct-by-reading but uncovered. `G4-Sanitization`'s `Legacy_storeStillRestores` proves only the PowerShell restorer. | Build one small CONSTRUCTED legacy bats fixture (the same honesty pattern the rewritten B6 case uses), or drop the bash half of the claim. **Driver recommends the fixture** - SR-061 tells users their old store still restores, and that promise is made for BOTH restorers. | **OPEN.** AGENTS.md §3 now states the narrower truth rather than the claim, so nothing in the docs overclaims while this is open. |
+| **`7z a` merges into an existing archive** (review nit-4) | `Compress-FileWithSevenZip` uses `a` (add), not a replace, so an orphaned prior object at a reused content-addressed name would be appended to rather than overwritten. Neither the reviewer nor the driver could weaponise it: every member of a group has identical bytes, so any duplicate archive member carries the same payload, and kit rev 6's write-verification would catch a mismatch. | Add `Remove-Item` before the `a`. The fix belongs in **Common**, which is kit-bundled, so it costs a **kit revision bump to 7** - which is why it was not taken as a side effect. | **OPEN - small, needs the kit-rev call.** Mitigated Engine-side already: the MIN-1 retry path clears its destination between attempts. |
 
 ### Simplification candidates (2026-08-25 architecture read, human-prompted)
 
@@ -4298,3 +4316,155 @@ inside the ratchet, so every WP9 row is held to Verified/Pass from here on.
 adversarial pass via `codex exec`. Both found real defects on the kit-bump WP,
 and under the standing directive review is retained as a quality bar even though
 ratification no longer pauses the work.
+
+### INDEPENDENT REVIEW of WP9 (Claude subagent, whole-WP audit) — 2026-08-25
+
+Verdict: **REQUEST-CHANGES.** One reproduced **data-loss** defect and one
+reproduced vacuous-test hole in the very mechanism WP9 exists to add. The core
+of the WP survived a determined attack: the reviewer independently re-derived
+`Save-SupersededData`'s exactness across eight timelines, proved the SR-051
+retarget honest (disabling the refcount turns all eight TC-135 arms red;
+neutralising the preservation guard turns twelve TC-118 arms red), confirmed
+owner election is locale-independent and cannot hand a row another content's
+`DataPath`, confirmed the sanitize half survived the migration deletion, and
+confirmed **no kit byte changed** (`git diff 553638c..HEAD` over the five kit
+artifacts is empty), so revision 6 is honest. It also reproduced the driver's
+numbers exactly: unit 405/405, integration 236/0/2, trace 0/0/0.
+
+**MAJ-1 — the browse view could delete the store, or the user's source, on a run
+that reported success. REPRODUCED, then re-reproduced independently before any
+fix.** `Resolve-ViewRootPath`'s containment rail tested only ONE direction (view
+*inside* an owned path) and never considered the source paths at all, while
+`New-BrowseViewIndex` wipes the view root unconditionally. Two shapes therefore
+passed validation and then deleted user data:
+
+- `ViewPath` an **ancestor** of `BackupPath`/`ChangePath` — the run backed
+  everything up and step 16 then deleted the backup root, the change root, every
+  `Snapshot_*` and `backup.log`. Verified here: `backup root exists? False /
+  MANIFEST exists? False / change root exists? False`, with only `INDEX.tsv`
+  left standing.
+- `ViewPath` **equal to `SourcePath`** — the source tree was destroyed and the
+  entry point exited 0. Verified here with an external `SourceStatePath`:
+  `source a.txt still exists? False`.
+
+The volume rail cannot help, because in an ordinary local deployment the source
+IS on the backup volume. This violated SR-051 as written and contradicted both
+AGENTS.md §3's "a failure to generate it is a warning, never a failed backup"
+and the docstring calling the root-level-`MANIFEST.csv` check "the
+never-delete-user-data guard" — it guarded exactly one shape.
+
+**Fixed with two independent guards, deliberately not one.** (1) The rail is now
+bidirectional and covers `SourcePath`/`SourceStatePath` as well as both storage
+roots: inside, equal-to, or *containing* any of them is refused by name, and the
+comparison is by path COMPONENT so a `src-sibling` folder is still accepted.
+(2) `New-BrowseViewIndex` now requires **positive ownership** before it deletes
+anything: a non-empty view root must already carry `.viewstamp`, `INDEX.tsv` or
+`INDEX.html`, or the wipe is refused. The second guard holds even when a caller
+bypasses the rails — that is the point of having it. Path resolution also moved
+BEFORE the wipe, so a mis-pointed root fails at its cause rather than somewhere
+downstream. Both repro shapes now refuse with the store and the source intact.
+Pinned by a new TC-128 arm (contains-a-root, contains-both-roots, IS-SourcePath,
+IS-SourceStatePath, plus the prefix-sibling that must still pass) and a new
+`View.Tests.ps1` Describe that calls the generator directly past the rails with
+a `tax-return.pdf` in the way, and drives the store-swallowing shape end to end
+through the entry point.
+
+**MAJ-2 — TC-119 was VACUOUS with respect to the intra-run memo. REPRODUCED, and
+the fix re-verified by re-breaking it.** The reviewer disabled the memo outright
+and the entire 405-test suite stayed green. The cause is structural: under
+content addressing the second member writes to the *same* filename with the
+*same* bytes, so every assertion that measures the RESULT — one pool file, one
+distinct `DataPath` — passes identically whether one write happened or two.
+SR-060's own acceptance criterion says "one copy/compress **operation**", and
+nothing asserted it; D-5's cost defect could have returned silently, at 50 full
+copies for a file duplicated 50 times in one run.
+
+Fixed by making the behaviour **observable** rather than by asserting harder:
+`Invoke-BackupFileGroup` now logs one line per PHYSICAL write (`Stored object
+'<name>' for hash=… len=… from '<source>' (group of N)`), which is worth having
+operationally in its own right, and TC-119 counts those lines. Re-verified: with
+the memo disabled the assertion reports `Expected 1 … but got 2` in **both**
+modes; with it restored, green.
+
+**MIN-1 — one unreadable file failed its whole content group.** The elected
+owner's file was the SOLE copy source, so a locked or vanished owner left every
+one of its content twins unbacked-up — and the error named the twin rather than
+the file that could not be read. Pre-WP9 each member copied its own file, so
+this was a WP9 regression. Fixed: the copy now falls through the group's other
+members (identical bytes by the dedup key, and the destination name derives from
+the content and the owner's FORM, so it does not move), clearing a partial
+destination between attempts, and the WARN names the file that actually failed.
+
+**A further defect the MIN-1 test surfaced, not in the review: `Copy-Item`'s
+failure could be non-terminating, and `Copy-SourceFileToBackup` then returned
+success with no file written** — a manifest row naming a file that was never
+copied. Latent in production because `FileBackup.ps1` sets
+`$ErrorActionPreference = 'Stop'`, but correctness must not depend on a caller's
+preference, and it also disarmed the MIN-1 fallback (the first attempt
+"succeeded"). Now `-ErrorAction Stop` at the call site. The Plain arm of the new
+MIN-1 test was red until this was fixed.
+
+**MIN-2 — the bash half of "both restorers still restore a legacy store" lost its
+guard.** Step 5b deleted the Mirror fixtures, and no remaining bats fixture has a
+`DataPath` containing a path separator, so `reconstruct.sh`'s path-addressed
+branch is correct-by-reading but uncovered. **AGENTS.md §3 now says exactly
+that** rather than claiming a proof that no longer exists; a constructed legacy
+bats fixture is recorded as a live item rather than pretended.
+
+**MIN-3 / nits — the step-9 registry sweep missed seven places.** All corrected:
+SR-052 no longer requires sizing migration copies; LLR-052's migration component
+and its "step 9.5" are now step 11.5; LLR-059's Mirror arm is gone; LLR-061,
+SR-062 and TC-131 now say the `.viewstamp` is keyed on a SHA-256 of canonical
+manifest ROWS, not the manifest witness (the code was right, the registry was
+wrong); the step-9.4 comment no longer describes step 6 re-forming rows;
+`Get-ReHomedDataPathName`'s "collapses at step 8" became the measurement that
+actually happened; and `Resolve-BackupSetPaths`' `-ReadOnly` docstring no longer
+claims the view is unvalidated. SR-064's criterion now states its one deliberate
+difference from the quadratic audit (nit-1: existence is decided from the
+enumerated data-file set, which skips root-level infrastructure names —
+unreachable, but no longer overclaimed). nit-2: the embedded search index is
+escaped for `<`/`>` before it lands in a `<script>` block. nit-3:
+`Get-UnjustifiedPoolNames` now recurses. nit-5: G9's `Prune_last_succeeds`
+surfaces the mechanism's own refusal Message instead of "Condition returned
+false". SR-063's requirement and TC-128's expectation now describe the
+bidirectional rail and the ownership guard.
+
+**nit-4 NOT taken (recorded).** `Compress-FileWithSevenZip` uses `7z a`, which
+merges into an existing archive rather than replacing it. The reviewer could not
+weaponise it and neither could I — every member of a group has identical bytes,
+so a duplicate archive member carries the same payload, and rev-6's
+write-verification would catch a mismatch. The clean fix lives in **Common**,
+which is kit-bundled, so it costs a kit revision bump; the MIN-1 retry path
+clears its destination Engine-side instead. Left as a live item so the kit-rev
+decision is made deliberately rather than as a side effect.
+
+**Driver note on the review itself.** Both MAJ findings are things the driver's
+own self-review missed, and both are in step 7's work — the one step that added
+a NEW filesystem-writing surface. The lesson recorded for future WPs: when a
+step starts writing outside the storage roots, the containment rail needs an
+adversarial pass of its own, and a "cosmetic" component that holds a recursive
+delete is not cosmetic.
+
+**Evidence after the fixes (real output).**
+
+```
+==== PSScriptAnalyzer ====                       [PASS]
+Traceability: SN=34 SR=63 LLR=61 TC=132 orphans=0 integrity=0 status-findings=0 phase-deferred=1
+check_docs: OK - 26 doc(s), 94 intra-repo link(s), 0 broken.
+[OK]  Generated regions current in docsrchitecture.md / AGENTS.md
+Tests Passed: 411, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+  PASS: 236   FAIL: 0   SKIP: 2                  (integration, 2-mode matrix)
+================ check.ps1 (tier Full, gate G3) ================
+All steps passed.
+
+$ shellcheck -S warning bash/reconstruct.sh   -> SHELLCHECK_CLEAN
+$ bats tests/bash                             -> 68 ok, 0 not ok
+```
+
+Unit went **405 -> 411**: the TC-128 containment arm, three `View.Tests.ps1`
+ownership-guard cases, and the two MIN-1 arms. Integration is unchanged at
+**236 / 0 / 2**.
+
+**Not yet closed, and recorded as live items rather than quietly dropped:**
+MIN-2 (a constructed legacy bats fixture) and nit-4 (the `7z a` replace, which
+costs a kit-revision bump). Both are in the Open-items table above.

@@ -194,7 +194,14 @@ function Invoke-G9Prune {
 
     # -- the sole remaining snapshot: retention to zero is legitimate --
     $last = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $snaps[2])
-    Assert-True $suite $group 'G9.9' 'Prune_last_succeeds' { $last[0].Status -eq 'Pruned' }
+    # Surface the mechanism's own Message on failure (WP9 review, nit-5):
+    # a bare 'Condition returned false' turns a real refusal - capacity,
+    # staging-busy, a witness mismatch - into an undiagnosable red.
+    if ($last[0].Status -eq 'Pruned') {
+        Add-TestResult $suite $group 'G9.9' 'Prune_last_succeeds' 'PASS' ''
+    } else {
+        Add-TestResult $suite $group 'G9.9' 'Prune_last_succeeds' 'FAIL' "Status=$($last[0].Status): $($last[0].Message)"
+    }
     Assert-True $suite $group 'G9.9' 'Prune_no_snapshots_left' { @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath).Count -eq 0 }
     $r0b = RestoreTo $Env $Env.BkpPath 'g9p-r0b'
     Assert-True $suite $group 'G9.9' 'Prune_latest_still_restores' { TextAt (Join-Path $r0b 'a.txt') 'A5' }

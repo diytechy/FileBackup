@@ -341,8 +341,16 @@ browsable by eye. The browse view is the answer: a generated, read-only index of
 what is in the backup, written **outside** the backup root.
 
 Turn it on per set with `BrowseView = 'index'`. It is written to `ViewPath`,
-which defaults to `<BackupPath>_View` and must be outside both the backup and
-change roots and on the backup volume.
+which defaults to `<BackupPath>_View`.
+
+> **`ViewPath` must be a folder of its own.** The view is **wiped and
+> regenerated from scratch** on every refresh, so that folder must contain
+> nothing you care about. FileBackup enforces this rather than trusting it:
+> a `ViewPath` that overlaps your source, backup or change roots — inside
+> one, equal to one, or *containing* one — is refused before the run
+> starts, as is one on a different volume; and the generator itself
+> refuses to wipe any folder that does not already look like a view it
+> made.
 
 ```powershell
 # rebuild the view on demand (a normal backup run refreshes it automatically)

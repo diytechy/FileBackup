@@ -587,7 +587,14 @@ function Copy-SourceFileToBackup {
             if (-not (Test-Path -LiteralPath $dir)) {
                 New-Item -ItemType Directory -Path $dir -Force | Out-Null
             }
-            Copy-Item -LiteralPath $SourceFilePath -Destination $BackupFilePath -Force
+            # -ErrorAction Stop, not the caller's preference: a NON-terminating
+            # Copy-Item failure (an unreadable or vanished source) skipped this
+            # try/catch entirely and the function returned 0 - "copied" with no
+            # file written, and a manifest row naming it. The entry point does
+            # set 'Stop', so this was latent there; correctness must not depend
+            # on a caller's preference (found 2026-08-25 while testing the WP9
+            # review's MIN-1 fallback, which the silent success also disarmed).
+            Copy-Item -LiteralPath $SourceFilePath -Destination $BackupFilePath -Force -ErrorAction Stop
         }
         return 0
     }
@@ -880,9 +887,10 @@ function Get-ReHomedDataPathName {
         no longer write 'Original' rows, but prune still serves LEGACY stores
         (SR-061 refuses only -Action Backup), and re-homing a legacy row under
         a synthesized hash name would leave its row claiming a form the name
-        contradicts. The arm collapses with the whole function at WP9 step 8
-        (S3): under pure content addressing source and destination names are
-        always identical.
+        contradicts. WP9 step 8 MEASURED this arm rather than collapsing it (S3): under pure
+        content addressing source and destination names ARE always identical,
+        but prune and repair still serve legacy stores, so the arm dies only if
+        legacy-store prune support is deliberately dropped.
 
     .PARAMETER Row
         The source manifest row whose bytes are being re-homed.
@@ -2542,7 +2550,8 @@ function Resolve-BackupSetPaths {
         (resolved full path when BrowseView is 'index', else $null). Under
         -ReadOnly, SrcPath and SrcStatePath are $null when the source is absent
         and ChgPath may name a folder that does not exist (there are then no
-        snapshots to audit); the view is not validated read-only.
+        snapshots to audit). The view IS still rail-checked read-only - the
+        checks are pure path arithmetic and -Action View goes through here.
     #>
     # Implements: SR-014, SR-049, SR-063, LLR-014, LLR-063
     [CmdletBinding()]
@@ -2564,7 +2573,8 @@ function Resolve-BackupSetPaths {
             SrcStatePath = $srcPath
             BkpPath = $bkpPath
             ChgPath = $chgPath
-            ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath
+            ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath `
+                -SrcPath $srcPath -SrcStatePath $srcPath
         }
     }
 
@@ -2622,25 +2632,55 @@ function Resolve-BackupSetPaths {
         SrcStatePath = $srcStatePath
         BkpPath = $bkpPath
         ChgPath = $chgPath
-        ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath
+        ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath `
+            -SrcPath $srcPath -SrcStatePath $srcStatePath
     }
 }
 
 function Resolve-ViewRootPath {
     <#
     .SYNOPSIS
-        Resolves and rail-checks a set's view root (SR-063, work order §3.7):
-        $null when the set has no view; otherwise the full path, refused when
-        it lies inside either storage root (it would be walked as data) or off
-        the backup volume (its per-file <a href>s are relative links into the
-        pool). BrowseView 'off' pays nothing and validates nothing.
+        Resolves and rail-checks a set's view root (SR-063): $null when the set
+        has no view; otherwise the full path, refused when it OVERLAPS any path
+        the set owns - in EITHER direction - or lies off the backup volume.
+        BrowseView 'off' pays nothing and validates nothing.
+
+    .DESCRIPTION
+        The view root is WIPED and regenerated on every refresh
+        (New-BrowseViewIndex), so containment here is a data-safety rail, not
+        tidiness. It must be checked BOTH ways, against BOTH storage roots AND
+        the source paths:
+
+          - view INSIDE an owned path -> the engine would walk the view as data;
+          - view CONTAINING an owned path, or equal to one -> the wipe deletes
+            that path. A ViewPath naming an ancestor of BackupPath destroys the
+            whole store; one naming SourcePath destroys the user's source tree;
+            and the run still reports success. Both were reproduced on
+            2026-08-25 (WP9 independent review, MAJ-1) - the one-directional
+            rail that shipped at step 7 caught neither.
+
+        The source paths matter as much as the storage roots: SourcePath is the
+        thing this tool exists to protect, and the volume rail cannot help,
+        because in an ordinary local deployment the source is ON the backup
+        volume. New-BrowseViewIndex carries an independent second guard - it
+        refuses to wipe a directory that is not already a view - so a caller
+        that bypasses this function still cannot delete user data.
+
+    .PARAMETER SrcPath
+        The set's resolved source root, when known; $null under -ReadOnly with
+        an offline source, which simply drops that pair of comparisons.
+
+    .PARAMETER SrcStatePath
+        The set's resolved source-state (hash cache) location, when known.
     #>
     # Implements: SR-063, LLR-063
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,
         [Parameter(Mandatory)][string]$BkpPath,
-        [Parameter(Mandatory)][string]$ChgPath
+        [Parameter(Mandatory)][string]$ChgPath,
+        [AllowNull()][string]$SrcPath,
+        [AllowNull()][string]$SrcStatePath
     )
     if ([string]$Set.BrowseView -ne 'index') { return $null }
 
@@ -2649,9 +2689,24 @@ function Resolve-ViewRootPath {
     $viewRaw = [string]$Set.ViewPath
     if ([string]::IsNullOrWhiteSpace($viewRaw)) { $viewRaw = $BkpPath.TrimEnd('\', '/') + '_View' }
     $viewFull = [IO.Path]::GetFullPath($viewRaw)
-    foreach ($ownedPath in @($BkpPath, $ChgPath)) {
-        if ($viewFull -eq $ownedPath -or $viewFull.StartsWith($ownedPath.TrimEnd('\', '/') + $separator, $comparison)) {
-            throw "ViewPath '$viewFull' for set '$($Set.Name)' must lie outside backup/change storage '$ownedPath': the engine would walk the view as data."
+    $isWithin = {
+        param([string]$Candidate, [string]$Root)
+        return $Candidate.StartsWith($Root.TrimEnd('\', '/') + $separator, $comparison)
+    }
+    $owned = [ordered]@{ 'backup/change storage' = @($BkpPath, $ChgPath) }
+    $sourcePaths = @(@($SrcPath, $SrcStatePath) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($sourcePaths.Count -gt 0) { $owned['the source tree'] = $sourcePaths }
+    foreach ($label in $owned.Keys) {
+        foreach ($ownedPath in $owned[$label]) {
+            if ($viewFull -eq $ownedPath) {
+                throw "ViewPath '$viewFull' for set '$($Set.Name)' IS $label '$ownedPath'. The view root is WIPED and regenerated on every refresh, so this would delete it. Point ViewPath at a folder of its own."
+            }
+            if (& $isWithin $viewFull $ownedPath) {
+                throw "ViewPath '$viewFull' for set '$($Set.Name)' must lie outside $label '$ownedPath': the engine would walk the view as data."
+            }
+            if (& $isWithin $ownedPath $viewFull) {
+                throw "ViewPath '$viewFull' for set '$($Set.Name)' CONTAINS $label '$ownedPath'. The view root is WIPED and regenerated on every refresh, so this would delete it. Point ViewPath at a folder of its own."
+            }
         }
     }
     $bkpVolume  = Get-VolumeIdentity -Path $BkpPath
@@ -2851,16 +2906,51 @@ function Invoke-BackupFileGroup {
             # existing object is ever overwritten in place (SR-059).
             $dataExt  = if ($ownerCompress) { '.7z' } else { $ownerExt }
             $dataPath = Get-HashSizeFileName -HashHex $hash -Length $len -Extension $dataExt
-            # Every member of a (hash,length) group holds identical bytes, so the
-            # elected owner's file is the source for the group's single object.
             $destFull = Join-Path $BkpPath $dataPath
 
-            $result = Copy-SourceFileToBackup -SourceFilePath $ownerSrcFull -BackupFilePath $destFull -ShouldCompress:$ownerCompress -SevenZipPath $SevenZipPath
+            # Every member of a (hash,length) group holds identical bytes, so
+            # ANY member's file can supply them. Try the elected owner first
+            # (its extension and compressibility already chose the object's
+            # form), then fall back to the other members: before this, one
+            # locked owner failed the WHOLE group, so a perfectly readable file
+            # went unbacked-up because a DIFFERENT file was open - and the
+            # error named the wrong file (WP9 review, MIN-1). The destination
+            # name never changes, because it derives from the content and the
+            # owner's form, not from whichever file was readable.
+            $sourceCandidates = [System.Collections.Generic.List[string]]::new()
+            $sourceCandidates.Add($ownerSrcFull)
+            foreach ($member in @($entry) + $Group) {
+                $candidate = Join-Path $SrcPath $member.RelativePath
+                if (-not $sourceCandidates.Contains($candidate)) { $sourceCandidates.Add($candidate) }
+            }
+            $result = $null
+            $usedSource = $null
+            foreach ($candidate in $sourceCandidates) {
+                if ($null -ne $result) {
+                    # A failed attempt can leave a partial object behind; clear
+                    # it so the retry writes a fresh file rather than landing on
+                    # (or, for 7-Zip's 'a', merging into) the debris.
+                    Remove-Item -LiteralPath $destFull -Force -ErrorAction SilentlyContinue
+                }
+                $result = Copy-SourceFileToBackup -SourceFilePath $candidate -BackupFilePath $destFull -ShouldCompress:$ownerCompress -SevenZipPath $SevenZipPath
+                if ($result -isnot [string]) { $usedSource = $candidate; break }
+                if ($sourceCandidates.Count -gt 1) {
+                    & $Log "Could not read '$candidate' for hash=$hash len=$len : $result" 'WARN'
+                }
+            }
             if ($result -is [string]) {
-                & $Log "Failed to copy/compress '$rel' -> '$dataPath' : $result" 'ERROR'
+                & $Log ("Failed to copy/compress '$rel' -> '$dataPath' : $result " +
+                        "(no readable source among $($sourceCandidates.Count) member(s) of this content group)") 'ERROR'
                 $OverallSuccess.Value = $false
                 continue
             }
+            # One line per PHYSICAL write. Operationally useful, and it is what
+            # makes SR-060's "one copy/compress operation" observable at all:
+            # under content addressing a second write lands on the same name
+            # with the same bytes, so the RESULT cannot distinguish one write
+            # from two and TC-119 was blind to the memo (WP9 review, MAJ-2).
+            & $Log ("Stored object '$dataPath' for hash=$hash len=$len from '$usedSource' " +
+                    "(group of $($Group.Count))." ) 'DEBUG'
 
             $BackupMap.Value[$rel] = [pscustomobject]@{
                 DataPath         = $dataPath
@@ -3382,15 +3472,35 @@ function New-BrowseViewIndex {
         }
     }
 
+    # Resolve BEFORE the wipe: afterwards a mis-pointed ViewRoot may no longer
+    # resolve at all (WP9 review MAJ-1), and the failure then lands far from its
+    # cause.
+    $bkpFull  = (Resolve-Path -LiteralPath $BackupRoot).Path
+
+    # POSITIVE OWNERSHIP is the second, independent guard on the wipe: this
+    # function deletes ONLY a directory it can prove is one of its own views.
+    # Resolve-ViewRootPath's containment rails are the first guard; this one
+    # holds even when a caller bypasses them, and it is what turns "the operator
+    # pointed ViewPath at the wrong folder" from data loss into a refusal. An
+    # empty directory (or one that does not exist yet) is fair game - there is
+    # nothing to lose - and so is one already carrying our own artifacts.
     # Wipe + recreate: regeneration must drop removed rows, and the stamp is
     # written LAST so a torn run reads as stale next time.
     if (Test-Path -LiteralPath $ViewRoot) {
-        Get-ChildItem -LiteralPath $ViewRoot -Force | Remove-Item -Recurse -Force
+        $existing = @(Get-ChildItem -LiteralPath $ViewRoot -Force)
+        $ours = @('.viewstamp', 'INDEX.tsv', 'INDEX.html')
+        if ($existing.Count -gt 0 -and -not ($existing | Where-Object { $ours -contains $_.Name })) {
+            $plural = if ($existing.Count -eq 1) { 'entry that is' } else { 'entries that are' }
+            throw ("View root '$ViewRoot' holds $($existing.Count) $plural not a " +
+                   'generated view (no .viewstamp, INDEX.tsv or INDEX.html among them). ' +
+                   'Refusing to wipe it: a view root is regenerated from scratch on every ' +
+                   'refresh, so it must be a folder of its own. Point ViewPath elsewhere.')
+        }
+        $existing | Remove-Item -Recurse -Force
     } else {
         New-Item -ItemType Directory -Path $ViewRoot -Force | Out-Null
     }
     $viewFull = (Resolve-Path -LiteralPath $ViewRoot).Path
-    $bkpFull  = (Resolve-Path -LiteralPath $BackupRoot).Path
 
     # INDEX.tsv — authoritative, greppable, tiny per row (the scripting surface).
     $tsv = New-Object System.Text.StringBuilder
@@ -3469,7 +3579,14 @@ function New-BrowseViewIndex {
                        (& $href $viewFull $row.DataPath),
                        $(if ($row.Compressed -eq 'Yes') { '.7z' } else { '' }))
                 })
-                $json = ConvertTo-Json -InputObject $searchRows -Compress -Depth 3
+                # ConvertTo-Json does NOT escape '<' or '>' in PowerShell 7 and
+                # this lands inside a <script> block, so a row named
+                # '</script>...' would close it early (WP9 review, nit-2).
+                # SR-055 keeps those characters out of any row this build
+                # writes, so it takes a hand-edited manifest to reach - but
+                # every other field on the page is encoded, and matching that
+                # costs one line.
+                $json = (ConvertTo-Json -InputObject $searchRows -Compress -Depth 3) -replace '<', '\u003c' -replace '>', '\u003e'
                 [void]$h.AppendLine('<h2>Search</h2><input id="q" type="text" placeholder="type part of a path..." size="60"><ul id="hits"></ul>')
                 [void]$h.AppendLine("<script>var R=$json;")
                 [void]$h.AppendLine('document.getElementById("q").addEventListener("input",function(){var q=this.value.toLowerCase();var o=document.getElementById("hits");o.innerHTML="";if(q.length<2)return;var n=0;for(var i=0;i<R.length&&n<200;i++){if(R[i][0].toLowerCase().indexOf(q)>=0){var li=document.createElement("li");var a=document.createElement("a");a.href=R[i][1];a.textContent=R[i][0]+R[i][2];li.appendChild(a);o.appendChild(li);n++;}}});</script>')
@@ -3700,13 +3817,14 @@ function Invoke-BackupSet {
     foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
     $changedCount = 0
 
-    # 9.4 Capacity preflight, content component (SR-052): the last point at which
+    # 9.4 Capacity preflight (SR-052): the last point at which
     # none of THIS RUN'S CONTENT has been written. A refusal here fails this SET
     # (status 1) with no data file added, no manifest row changed and no staging
     # folder left behind; other sets still run (SR-014). It is not a promise that
-    # the tree is byte-identical to the pre-run state — step 6's migration may
-    # already have re-formed existing rows, which is why 5.5 proves ITS room
-    # first (WP5 review, finding m5).
+    # the tree is byte-identical to the pre-run state: step 6 may have blanked
+    # a row whose data file went missing (SR-053's heal input). It no longer
+    # re-forms anything - the migration that once did died at WP9 step 3
+    # (SR-061), and its own 5.5 preflight with it (WP5 review, finding m5).
     $demand = Get-BackupCapacityDemand -NewOrChanged $diff.NewOrChanged `
                 -RemovedFromSource $diff.RemovedFromSource -BackupDb $backupDb -SameVolume $sameVolume
     try {

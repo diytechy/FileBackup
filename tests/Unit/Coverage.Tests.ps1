@@ -210,7 +210,10 @@ BeforeAll {
         [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
         [IO.File]::WriteAllText((Join-Path $src 'sub\b.bin'), $one)
         & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-01-01 00:00:01') *>&1 | Out-Null
-        return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one }
+        return [pscustomobject]@{
+            Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one
+            Log = Join-Path $chg 'backup.log'
+        }
     }
 
     # --- WP9 step 4: exact-survival timelines (SR-059, LLR-059) --------------
@@ -3291,6 +3294,83 @@ Describe 'Same-run duplicates are stored once (D-5, SR-060, TC-119)' {
             Should -Be 1 -Because 'identical content resolves to one physical object, whenever it was first seen'
         Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
             Should -Be 1 -Because 'the pool holds exactly one copy of the shared bytes'
+
+        # SR-060 asks for ONE copy/compress OPERATION, not just one resulting
+        # file - and under content addressing those are different claims: a
+        # second write lands on the same name with the same bytes, so every
+        # assertion above passes identically with the intra-run memo disabled.
+        # That blindness was real (WP9 review, MAJ-2): the memo could be
+        # deleted outright and the whole 405-test suite stayed green while
+        # every duplicate was silently re-copied - D-5's cost defect returning
+        # unnoticed. The engine now logs one line per PHYSICAL write; count it.
+        $writes = @(Get-Content -LiteralPath $t.Log |
+                    Where-Object { $_ -match ([regex]::Escape("hash=$($rows[0].xxH2Hash) len=$($rows[0].Length)")) -and
+                                   $_ -match 'Stored object' })
+        $writes.Count | Should -Be 1 -Because 'the second member must adopt the memo, not re-copy the same bytes'
+    }
+}
+
+Describe 'An unreadable owner does not fail its whole content group (WP9 review MIN-1)' {
+    # Owner election picks ONE member's file as the source for the group's
+    # single stored object. Before this fix that was the ONLY source tried, so
+    # one unreadable file left every one of its content twins unbacked-up - and
+    # the error named the twin rather than the file that could not be read.
+    # Every member of a (hash,length) group holds identical bytes by
+    # definition, so any member can supply them.
+    #
+    # Driven at Invoke-BackupFileGroup rather than end-to-end on purpose: an
+    # exclusive lock taken before a run also blocks HASHING, so the set would
+    # fail at the source walk and never reach the copy branch. Removing the
+    # owner's file after the group is built reaches it deterministically, and
+    # is the same shape as a file that vanishes mid-run.
+    It 'stores the shared content from a readable member (<Mode>)' -ForEach @(
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true  }
+    ) {
+        $root = Join-Path $TestDrive ('min1\' + ($Mode -replace '\W', ''))
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path (Join-Path $src 'sub'), $bkp -Force | Out-Null
+        $shared = 'UNREADABLE-OWNER-SHARED ' * 60
+        # 'a.bin' is shorter than 'sub\twin.bin', so it is the elected owner.
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $shared)
+        [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $shared)
+        $hash = Get-FileXxHash -FilePath (Join-Path $src 'a.bin')
+        $len  = (Get-Item -LiteralPath (Join-Path $src 'a.bin')).Length
+
+        $group = @('a.bin', 'sub\twin.bin') | ForEach-Object {
+            [pscustomobject]@{
+                RelativePath = $_; Length = $len; xxH2Hash = $hash
+                LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
+            }
+        }
+        # The owner becomes unreadable AFTER hashing - the copy branch's problem.
+        Remove-Item -LiteralPath (Join-Path $src 'a.bin') -Force
+
+        $map = @{}; $changed = 0; $ok = $true; $lines = New-Object System.Collections.Generic.List[string]
+        $log = { param($m, $l = 'INFO') $lines.Add("[$l] $m") }
+        Invoke-BackupFileGroup -Group $group -SrcPath $src -BkpPath $bkp `
+            -CompressEnabled $Compress -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath `
+            -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
+            -Log $log -OverallSuccess ([ref]$ok)
+
+        $ok | Should -BeTrue -Because 'a readable member supplied the bytes'
+        $map.Keys | Should -HaveCount 2
+        $map['a.bin'].DataPath | Should -Be $map['sub\twin.bin'].DataPath
+
+        # The bytes really are the group's content, proven from disk.
+        $stored = Join-Path $bkp $map['sub\twin.bin'].DataPath
+        Test-Path -LiteralPath $stored | Should -BeTrue
+        if ($Compress) {
+            $tmp = Join-Path $root 'expanded.bin'
+            Expand-FileWithSevenZip -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath -Archive $stored -DestinationFile $tmp
+            Get-FileXxHash -FilePath $tmp | Should -Be $hash
+        } else {
+            Get-FileXxHash -FilePath $stored | Should -Be $hash
+        }
+
+        # And the diagnostic names the file that could not be read, not a twin.
+        @($lines | Where-Object { $_ -match 'Could not read' -and $_ -match 'a\.bin' }) |
+            Should -Not -BeNullOrEmpty -Because 'the WARN must name the unreadable OWNER'
     }
 }
 

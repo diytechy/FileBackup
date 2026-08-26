@@ -257,7 +257,10 @@ function Get-UnjustifiedPoolNames {
 
     foreach ($folder in (Get-PoolFolderList -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot)) {
         $root = (Resolve-Path -LiteralPath $folder).Path.TrimEnd('\', '/')
-        foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Force)) {
+        # -Recurse (WP9 review, nit-3): pool objects are flat at a folder's
+        # root today, but an audit that cannot SEE a nested object cannot
+        # hold it to the naming contract either.
+        foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Recurse -Force)) {
             if ($file.Name -match $skip -and
                 ([IO.Path]::GetDirectoryName($file.FullName)).TrimEnd('\', '/') -eq $root) { continue }
 

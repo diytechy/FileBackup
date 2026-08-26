@@ -266,8 +266,12 @@ Imports (internal): `Common`
   its OWN object. There is no storage-layout migration — a store whose manifest
   carries the legacy `StoredAsHashSize='Original'` fails its backup set before
   any mutation, naming the remedy (a fresh `BackupPath`), and is reported as a
-  finding under `-Action Verify`. Both restorers still restore such a store
-  unchanged: reading a legacy store never breaks, only writing to one.
+  finding under `-Action Verify`. Reading a legacy store never breaks — only
+  writing to one. That claim is regression-guarded for `Reconstruct.ps1`
+  (`G4-Sanitization` `Legacy_storeStillRestores`); the bash twin's guard went
+  with the Mirror fixtures at WP9 step 5b, so `reconstruct.sh`'s path-addressed
+  branch is correct-by-reading but currently uncovered (WP9 review MIN-2, open
+  in docs/status.md).
 - **The browse view is cosmetic and lives outside both roots** (SR-062). When
   `BrowseView` is `index`, `New-BrowseViewIndex` writes `INDEX.tsv` plus
   per-folder `INDEX.html` pages under `ViewPath` (default `<BackupPath>_View`).

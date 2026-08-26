@@ -396,6 +396,42 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
         { Resolve-BackupSetPaths -Set $offSet } | Should -Not -Throw
     }
 
+    It 'refuses a ViewPath that CONTAINS a storage root or the source tree (SR-063, TC-128, WP9 review MAJ-1)' {
+        # The rail shipped one-directional: it caught "view inside an owned
+        # path" and missed "view CONTAINING one", which is the destructive
+        # direction - the view root is wiped on every refresh, so a ViewPath
+        # naming an ancestor of BackupPath deleted the whole store and one
+        # naming SourcePath deleted the user's files, on a run that reported
+        # success. Both reproduced on 2026-08-25 before this arm existed.
+        $root = Join-Path $TestDrive 'tc128-ancestor'
+        $store = Join-Path $root 'store'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $store 'bkp'; $chg = Join-Path $store 'chg'
+        $state = Join-Path $root 'state'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, $state -Force | Out-Null
+        $mk = { param($vp) [pscustomobject]@{
+            Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            SourceStatePath = $state; BrowseView = 'index'; ViewPath = $vp } }
+
+        # ancestor of BOTH storage roots
+        { Resolve-BackupSetPaths -Set (& $mk $store) } |
+            Should -Throw -ExpectedMessage '*CONTAINS backup/change storage*'
+        # ancestor of everything, storage and source alike
+        { Resolve-BackupSetPaths -Set (& $mk $root) } |
+            Should -Throw -ExpectedMessage '*CONTAINS*'
+        # IS the source tree, and IS the source-state cache
+        { Resolve-BackupSetPaths -Set (& $mk $src) } |
+            Should -Throw -ExpectedMessage '*IS the source tree*'
+        { Resolve-BackupSetPaths -Set (& $mk $state) } |
+            Should -Throw -ExpectedMessage '*IS the source tree*'
+        # A sibling whose name merely shares a prefix is NOT a container:
+        # the check must compare path COMPONENTS, not raw string prefixes.
+        { Resolve-BackupSetPaths -Set (& $mk ($src + '-sibling')) } |
+            Should -Not -Throw -Because 'src-sibling neither contains nor sits inside src'
+        # and the legitimate shape still resolves
+        (Resolve-BackupSetPaths -Set (& $mk (Join-Path $root 'view'))).ViewPath |
+            Should -Be ([IO.Path]::GetFullPath((Join-Path $root 'view')))
+    }
+
     It 'refuses a ViewPath on a different volume; the default beside the backup root resolves (SR-063, TC-128)' {
         $free = @('X', 'Y', 'W', 'V', 'U') |
                 Where-Object { $_ -notin (Get-PSDrive -PSProvider FileSystem).Name } |

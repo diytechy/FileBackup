@@ -224,3 +224,58 @@ Describe 'Snapshots get no view (SR-062, TC-133)' {
         }
     }
 }
+
+Describe 'The view generator never deletes anything that is not a view (SR-062, SR-051, WP9 review MAJ-1)' {
+    # The wipe-and-regenerate cycle is the most destructive operation in the
+    # pipeline, and it used to run behind a single one-directional containment
+    # rail. This Describe pins the SECOND, independent guard: positive
+    # ownership. It must hold even when the rails are bypassed entirely, which
+    # is why it calls New-BrowseViewIndex directly rather than going through
+    # Resolve-BackupSetPaths.
+    It 'refuses to wipe a directory holding ordinary user files, and touches nothing' {
+        $root = Join-Path $TestDrive 'vguard-user'
+        $bkp = Join-Path $root 'bkp'; $view = Join-Path $root 'precious'
+        New-Item -ItemType Directory -Path $bkp, (Join-Path $view 'photos') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $view 'tax-return.pdf'), 'DO NOT DELETE')
+        [IO.File]::WriteAllText((Join-Path $view 'photos\p.jpg'), 'ALSO DO NOT DELETE')
+        Write-Manifest -FolderPath $bkp -Records @()
+
+        { New-BrowseViewIndex -BackupRoot $bkp -ViewRoot $view -Log { param($m, $l) } -Force } |
+            Should -Throw -ExpectedMessage '*not a generated view*'
+
+        [IO.File]::ReadAllText((Join-Path $view 'tax-return.pdf'))   | Should -Be 'DO NOT DELETE'
+        [IO.File]::ReadAllText((Join-Path $view 'photos\p.jpg'))     | Should -Be 'ALSO DO NOT DELETE'
+    }
+
+    It 'still regenerates a real view root, and an empty one, without complaint' {
+        $t = New-ViewStore -Root (Join-Path $TestDrive 'vguard-real')
+        # The store's own view root already carries .viewstamp/INDEX.* - proving
+        # the guard recognises its own artifacts rather than refusing forever.
+        [IO.File]::WriteAllText((Join-Path $t.Src 'b.bin'), 'NEW CONTENT')
+        Invoke-VB $t.Cfg
+        Test-Path -LiteralPath (Join-Path $t.View 'INDEX.tsv') | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $t.View 'INDEX.tsv') -Raw) | Should -Match 'b\.bin'
+
+        $empty = Join-Path $TestDrive 'vguard-empty'
+        New-Item -ItemType Directory -Path $empty -Force | Out-Null
+        { New-BrowseViewIndex -BackupRoot $t.Bkp -ViewRoot $empty -Log { param($m, $l) } -Force } |
+            Should -Not -Throw -Because 'an empty directory has nothing to lose'
+    }
+
+    It 'a backup run whose ViewPath would swallow the store refuses and leaves both roots intact' {
+        # End-to-end through the entry point: the shape that destroyed a whole
+        # store on 2026-08-25 must now fail the SET with everything still there.
+        $root = Join-Path $TestDrive 'vguard-e2e'
+        $store = Join-Path $root 'FB'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $store 'bkp'; $chg = Join-Path $store 'chg'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'PAYLOAD')
+        $cfg = Join-Path $root 'c.xml'
+        New-ViewConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -ViewPath $store
+
+        Invoke-VBExit -Cfg $cfg | Should -Not -Be 0
+        Test-Path -LiteralPath $bkp | Should -BeTrue
+        Test-Path -LiteralPath $chg | Should -BeTrue
+        [IO.File]::ReadAllText((Join-Path $src 'a.txt')) | Should -Be 'PAYLOAD'
+    }
+}
