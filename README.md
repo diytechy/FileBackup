@@ -654,25 +654,134 @@ dot-directories like `.git`, `$RECYCLE.BIN` if it is inside your source, and
 files carrying the System attribute: for a data-safety tool, capturing too
 much beats silently capturing too little. There is currently no per-set
 exclusion setting — to keep such trees out of a backup, point `SourcePath` at
-a folder that does not contain them. Attributes themselves are **not**
-preserved: a file restored from the backup has the right bytes at the right
-path, but comes back without its Hidden/System flags (the manifest's nine
-columns have nowhere to record them).
+a folder that does not contain them. What comes *back* is a subtler question —
+attributes are not in the index at all, so see "What is **not** recorded" below
+before assuming a Hidden file or folder returns Hidden.
+
+### What FileBackup records, and where
+
+Everything FileBackup knows lives in plain text beside your data — there is no
+database and nothing in the registry or your user profile. Nine artifacts, all
+named below so you can recognise every file the tool creates:
+
+| File | Where | What it holds |
+|---|---|---|
+| `MANIFEST.csv` | backup root, and each `Snapshot_<date>` folder | **The index.** One row per logical file, nine columns (below). A snapshot's copy is that point in time's complete index. |
+| `MANIFEST.csv.meta` | beside every `MANIFEST.csv` | **The witness** — `Version`, `Rows`, `Bytes`, `XxH128`, `Written`. Lets a restore prove the index it is about to trust is the index that was written. |
+| `MANIFEST.csv` + `MANIFEST.csv.meta` | the **source-state** location (`SourceStatePath`; the source root by default) | **The hash cache.** The same format, used to decide what changed without re-reading every byte. Point `SourceStatePath` somewhere else to keep it out of the tree being backed up. |
+| `FileBackupState.json` | backup root | Two dates: `LastHashRun` (when the last full re-hash swept) and `LastBackupRun` (which dates the next snapshot). Written by rename, so a crash cannot leave it torn. |
+| `RECONSTRUCT.paths.json` | backup root | The source/backup/change paths this store was written with, so a restore in place needs no arguments. Ignored once the folder is moved elsewhere. |
+| `backup.log` | change root | The run log: what was hashed, copied, staged, refused. |
+| `RECONSTRUCT.log` | the **restore target** | Written by a restore, not a backup — the per-file record of what was recovered and how. |
+| `.viewstamp` | the view root (`ViewPath`), only with `BrowseView: index` | A digest of the manifest rows the browse view mirrors, so a stale view is rebuilt rather than trusted. |
+| `RECONSTRUCT.ps1` · `RECONSTRUCT.bat` · `reconstruct.sh` · `FileBackup.Common.psm1` · `System.IO.Hashing.dll` | backup root and every snapshot | The restore kit — the reason a backup folder needs nothing else to give your files back. |
+
+Those names are **infrastructure at the root only**. A file of your own called
+`MANIFEST.csv` in a subfolder is ordinary data and is backed up as such.
+
+One detail about the witness is deliberate and worth knowing: `MANIFEST.csv` is
+written in place, and only the witness beside it is published by atomic rename.
+A crash between the two therefore leaves a witness that *disagrees* with the
+index — which refuses the restore (exit 3) rather than quietly passing, and the
+next successful run rewrites both. It fails in the safe direction on purpose.
 
 ### Manifest columns
 
-`DataPath` · `RelativePath` · `Length` · `LastWriteTimeStr` · `xxH2Hash` · `Compressed` ·
-`StoredAsHashSize` · `Duplicate` · `MediaMBPerSec`. A blank `DataPath` means "recover by
-content hash" — the restore script scans for a matching file (decompressing `.7z`
-candidates as needed).
+| Column | Meaning |
+|---|---|
+| `RelativePath` | The file's path under `SourcePath` — its identity. |
+| `DataPath` | The stored object holding its bytes, named by content: `"<hash16> <len10><ext>"`. **Blank** means "recover by content hash" — the bytes live in another folder of the pool and the restorer finds them by `(hash, length)`. |
+| `Length` · `xxH2Hash` | The original content's size and xxHash128. Together they are the dedup key, the restore lookup key, and the post-write verification the restorer performs on every file. |
+| `LastWriteTimeStr` | The source file's modification time, used with `Length` to skip re-hashing an unchanged file. |
+| `Compressed` | Whether *this row's own* stored object is a `.7z`. Compression is decided per file, so a tree is normally mixed. |
+| `StoredAsHashSize` | Always `Hash`. Kept in the schema because every restorer and every existing store reads it; `Original` identifies a pre-2026-08 path-addressed store, which is refused. |
+| `Duplicate` | This row shares its object with another row. |
+| `MediaMBPerSec` | Optional media bitrate, when `ffprobe` is available. Informational. |
 
-Every `MANIFEST.csv` is accompanied by **`MANIFEST.csv.meta`**, a five-line
-`Key=Value` witness (`Version`, `Rows`, `Bytes`, `XxH128`, `Written`) written by
-the same code path that writes the manifest and published by atomic rename — the
-rename publishes the *witness*; `MANIFEST.csv` itself is written in place, so a
-crash between the two leaves a stale witness that refuses the restore rather than
-one that silently passes. The witness is what lets a restore prove the index it is
-about to trust is the index that was written. See "Restore exit codes" above.
+### What is **not** recorded — read this before relying on a restore
+
+The contract is **bytes at paths**: every file comes back with exactly its
+original content at exactly its original relative path, or the restore fails
+loudly. Everything else about a file is outside that contract.
+
+- **File attributes and timestamps are not in the index, and are not restored
+  from it.** They ride along only as a side effect of how the bytes were copied.
+  For a file whose content is unique that usually means Hidden, System,
+  ReadOnly and the modification time survive intact. **For a deduplicated file
+  it means something sharper: every row sharing one stored object comes back
+  with the attributes and timestamp of whichever file created that object.**
+  Two identical files — one ordinary, one Hidden+ReadOnly — restore as two
+  copies of whichever one was stored first. The manifest still records each
+  row's own `LastWriteTimeStr` correctly; the restorer simply does not apply it.
+  If your workflow depends on attributes or mtimes, verify them after a restore.
+- **Directories carry no metadata at all.** Only files have manifest rows, so a
+  restored directory is created with default attributes: **a Hidden or System
+  folder comes back as an ordinary visible folder** (its files keep their own
+  attributes as above). An **empty directory is not recreated** — nothing
+  records that it existed.
+- **Security descriptors are not captured** — no ACLs, owners, auditing or
+  integrity labels. A restored tree inherits permissions from wherever you
+  restore it. FileBackup is a content backup, not a system-state backup.
+- **Junctions, symbolic links and other reparse points are not followed and not
+  recorded.** The walk does not descend through them, so content that exists
+  only behind a junction inside your source is **not backed up**, and the link
+  itself does not reappear in a restored tree. If a linked folder matters,
+  give it its own `BackupSet`.
+- **Alternate data streams are outside the contract.** `Length` and `xxH2Hash`
+  cover a file's primary stream only, so editing a stream is not even seen as a
+  change. A stream may incidentally ride along on an uncompressed copy; nothing
+  guarantees it and you should not rely on it.
+- **Nothing about the volume itself** — no partition layout, boot data, drive
+  letters or volume GUIDs.
+
+### Volume roots and `System Volume Information`
+
+Pointing `SourcePath` at a **volume root** (`D:\`) rather than a data folder
+(`D:\Data`) puts three Windows-owned directories inside your backup scope:
+`System Volume Information`, `$RECYCLE.BIN`, and — on a system volume —
+`Recovery`. The first is the one that bites.
+
+`System Volume Information` exists at the root of essentially every NTFS, ReFS
+and exFAT volume, and its ACL grants access to `SYSTEM` alone: not
+Administrators, not you. It holds volume-scoped machine bookkeeping — Volume
+Shadow Copy / System Restore data, the NTFS distributed-link-tracking database
+(`tracking.log`), disk-quota indices, Windows Search catalogue data, and on
+removable drives `WPSettings.dat` and `IndexerVolumeGuid`.
+
+**What happens today:** hidden and system directories became visible to the
+walk in 2026-08 (kit revision 6), so FileBackup *sees* the folder, cannot list
+it, and treats that as a real failure. Every run logs
+
+> `Cannot enumerate 'D:\System Volume Information': Access to the path is denied. Files beneath it are NOT backed up this run and existing rows there are frozen; this set is marked failed (SR-057). Point SourcePath below it, or grant read access.`
+
+and the **set exits 1**. Everything readable is still backed up and manifested;
+rows under the unreadable path are *frozen*, not evicted, so a permissions
+problem is never mistaken for "the user deleted these files".
+
+**The blast radius if it were simply ignored** — that is, skipped silently
+instead of failing:
+
+- **Nothing recoverable is lost.** Its contents are volume-scoped state that
+  only means anything on the volume that produced it: shadow-copy differentials
+  reference that volume's live block layout, the tracking database keys on that
+  volume's object IDs, the indexer catalogue describes files by that volume's
+  GUID. Restoring any of it onto another volume is meaningless, and Windows
+  recreates and re-owns the folder itself in any case. You cannot recover
+  Previous Versions or System Restore points by copying this folder around;
+  that is what a system-image tool is for.
+- **The real cost is the false negative.** The code path that would hide
+  `System Volume Information` cannot tell it apart from any *other* directory a
+  permission denies — a colleague's profile folder, an EFS-encrypted tree, a
+  share subtree whose ACLs changed last night. Silently skipping this one means
+  silently skipping those too, and "the backup said 0 errors" while quietly
+  capturing less than you asked for is precisely the class of defect the
+  `-Force` work fixed. The loud failure is the deliberate trade.
+
+**What to do instead:** point `SourcePath` at the data you actually want
+(`D:\Data`, not `D:\`). That is the same answer as for every other exclusion —
+there is no per-set exclude list, and scoping `SourcePath` is the supported
+mechanism. If a volume root is genuinely what you mean to back up, grant your
+account read access to the folder and the run goes green.
 
 ---
 

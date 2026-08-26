@@ -97,14 +97,15 @@ free and shapes the test-battery import; D-2 + D-3 (+ the two parked kit
 nits) share one kit-revision bump; the no-backward-compat ruling frees every
 option from migration cost.
 
-### Live items — none
+### Live items — the WP9 queue is empty; two new rows opened the same day
 
 Every row that stood here is closed. D-2/D-3/D-4 moved to
 [resolved-items.md](resolved-items.md) on 2026-08-25; **D-1/D-5, the
 test-battery import and the step-4 review's n6 nit moved there when WP9 landed
-(2026-08-25)**. Nothing in this file is waiting on a human decision — under the
-2026-08-25 standing directive the queued work ships as a full solution, with
-independent review retained as a quality bar.
+(2026-08-25)**. Two NEW rows were opened later that day by the README metadata
+sweep — see "Live items (opened 2026-08-25 by the README metadata sweep)" below;
+one of them asks a real question (whether to restore `LastWriteTimeStr`). Under
+the 2026-08-25 standing directive nothing here blocks on ratification.
 
 ### Simplification candidates (2026-08-25 architecture read, human-prompted)
 
@@ -138,6 +139,13 @@ exact bug class. Deferred for a reason, not from inertia.
 make interchangeability a product requirement), the SR-038 witness sidecar, the
 capacity preflights, and the frozen-row handling for unportable/unreadable
 paths. Each is one mechanism answering one real, traced failure.
+
+### Live items (opened 2026-08-25 by the README metadata sweep)
+
+| Item | What (reproduced 2026-08-25) | Decision asked | State |
+|---|---|---|---|
+| **Dedup leaks one file's attributes and mtime onto its content twins** | Every row sharing one pool object restores with the metadata of whichever file created that object, because attributes and timestamps are never in the index — they ride along on the copy. Reproduced: `aaa.txt` (Archive, mtime 2001-01-01) and `bbb.txt` (Hidden+ReadOnly, mtime 2002-02-02) with identical content restore as TWO copies of `aaa.txt`'s metadata; `bbb.txt` silently loses Hidden, ReadOnly and its 2002 timestamp. Same in Plain and Compress. **Bytes are always exact — this is fidelity, not data loss.** The sharper half: `LastWriteTimeStr` IS in the manifest, correct per row, and neither restorer applies it, so the fix for the timestamp half is small and needs no schema change. Attributes have nowhere to be recorded in the 9-column contract, so that half is a real scope question. | (1) Stamp `LastWriteTimeStr` on every restored file in BOTH restorers — closes the timestamp half, one kit revision, no schema change; (2) also record attributes — needs a schema change or a sidecar, and the 9-column contract is an AGENTS.md §3 invariant; (3) accept and document only. **Driver recommends (1), then (3) for attributes.** | **OPEN — documented, not fixed.** README now states the behaviour truthfully under "What is **not** recorded" (it previously claimed attributes are never preserved, which was wrong in both directions). Not folded into WP9: WP9 is complete and under independent review, and this predates it — the same leak exists on every prior version. |
+| **Directory metadata and empty directories are not captured** | Only files have manifest rows, so a restored Hidden/System FOLDER comes back ordinary, and an empty directory is not recreated at all. Reproduced 2026-08-25. Consistent with the bytes-at-paths contract, but it was undocumented. | None — documented in README. Raise only if directory fidelity becomes a requirement (it would need a new row type or a sidecar). | **DOCUMENTED.** |
 
 ### Parked / minor (no input needed now)
 
