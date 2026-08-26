@@ -6,7 +6,7 @@
 REPO="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 RS="$REPO/bash/reconstruct.sh"
 FIXTURES="$REPO/tests/fixtures"
-MODES=(Mirror Mirror_Compress HashAddressed HashAddressed_Compress)
+MODES=(HashAddressed HashAddressed_Compress)
 
 # xxHash128 of a file as UPPERCASE hex (the on-disk manifest form).
 hash_upper() { xxh128sum -- "$1" | awk '{print $1}' | tr 'a-f' 'A-F'; }
@@ -29,4 +29,21 @@ origin_for() {  # <mode> <origin_name>
     local mode="$1" name="$2"
     if [[ "$name" == root ]]; then printf '%s' "$FIXTURES/bash-restore/$mode/backup"
     else printf '%s' "$FIXTURES/bash-restore/$mode/backup/changes/$name"; fi
+}
+
+# Expected content hash of one logical path, from a mode's expected/root.tsv.
+expected_hash() {  # <mode> <posix_relpath>
+    awk -F'\t' -v rel="$2" '$1==rel{print $2}' "$FIXTURES/bash-restore/$1/expected/root.tsv"
+}
+
+# First ROOT-LEVEL pool file whose raw bytes hash to the given content hash.
+# Content addressing derives names from bytes, so tests locate objects by
+# CONTENT rather than assuming a path (WP9 step 5: Mirror deleted).
+pool_file_by_hash() {  # <backup_root> <upper_hash>
+    local bk="$1" want="$2" f
+    for f in "$bk"/*; do
+        [[ -f "$f" ]] || continue
+        [[ "$(hash_upper "$f")" == "$want" ]] && { printf '%s' "$f"; return 0; }
+    done
+    return 1
 }

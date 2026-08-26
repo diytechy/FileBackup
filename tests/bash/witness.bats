@@ -9,7 +9,7 @@ setup() {
     load helpers
     # Work on a WRITABLE copy so we can damage the index.
     WORK="$BATS_TEST_TMPDIR/work"
-    cp -r "$FIXTURES/bash-restore/Mirror/backup" "$WORK"
+    cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$WORK"
     BK="$WORK"; CH="$WORK/changes"
     MANIFEST="$BK/MANIFEST.csv"
     WITNESS="$BK/MANIFEST.csv.meta"

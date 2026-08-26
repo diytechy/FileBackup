@@ -47,7 +47,9 @@
     windows->ubuntu interop job. Implies -SkipHashConformance unless overridden.
 
 .PARAMETER Modes
-    Storage-mode combos to build. Default: all four.
+    Compression combos to build. Default: both. (Storage is always
+    content-addressed since WP9 step 5 deleted Mirror; the fixture directory
+    names keep the descriptive HashAddressed prefix.)
 
 .NOTES
     Windows / PowerShell 7+ only (it drives the real engine). The fixtures it
@@ -57,7 +59,7 @@
 param(
     [string]$OutRoot,
     [switch]$Fresh,
-    [string[]]$Modes = @('Mirror', 'Mirror+Compress', 'HashAddressed', 'HashAddressed+Compress'),
+    [string[]]$Modes = @('HashAddressed', 'HashAddressed+Compress'),
     [switch]$SkipHashConformance
 )
 
@@ -94,7 +96,7 @@ function New-DeterministicBinary {
 }
 
 function Write-FixtureConfig {
-    param([string]$ConfigPath, [string]$Src, [string]$Bkp, [string]$Chg, [bool]$Compress, [bool]$ContentAddressed)
+    param([string]$ConfigPath, [string]$Src, [string]$Bkp, [string]$Chg, [bool]$Compress)
     $set = [pscustomobject]@{
         Name               = 'FixtureSet'
         SourcePath         = $Src
@@ -102,7 +104,6 @@ function Write-FixtureConfig {
         ChangePath         = $Chg
         HashRecalcFreq     = 'A'
         CompressEnabled    = $Compress
-        PreserveFolderTree = -not $ContentAddressed
     }
     @{ Secrets = [pscustomobject]@{ ToEmail = $null; FromEmail = $null; SmtpServer = $null; SmtpPort = 0; Credential = $null }
        BackupSets = @($set) } | Export-Clixml -LiteralPath $ConfigPath
@@ -182,7 +183,7 @@ function Remove-KitBloat {
 
 function Get-ModeFlags {
     param([string]$Mode)
-    @{ Compress = $Mode -like '*Compress*'; ContentAddressed = $Mode -like 'HashAddressed*' }
+    @{ Compress = $Mode -like '*Compress*' }
 }
 
 # --- Build bash-restore fixtures -------------------------------------------
@@ -199,7 +200,7 @@ try {
         $chg = Join-Path $work "$modeSafe\backup\changes"   # nested: enables Linux grandparent auto-detect too
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         $cfg = Join-Path $work "$modeSafe\config.xml"
-        Write-FixtureConfig -ConfigPath $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $flags.Compress -ContentAddressed $flags.ContentAddressed
+        Write-FixtureConfig -ConfigPath $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $flags.Compress
 
         Set-SourceTimelineStep -Src $src -Step 1; Invoke-FixtureBackup -ConfigPath $cfg -When $T1
         Set-SourceTimelineStep -Src $src -Step 2; Invoke-FixtureBackup -ConfigPath $cfg -When $T2

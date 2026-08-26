@@ -7,7 +7,7 @@ setup() {
     load helpers
     # Work on a WRITABLE copy so we can destroy data sources.
     WORK="$BATS_TEST_TMPDIR/work"
-    cp -r "$FIXTURES/bash-restore/Mirror/backup" "$WORK"
+    cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$WORK"
     BK="$WORK"; CH="$WORK/changes"
 }
 
@@ -17,7 +17,9 @@ setup() {
 }
 
 @test "missing data source: salvages the rest and exits non-zero naming the count (TC-055, SR-031)" {
-    rm -f "$BK/hello.txt"                          # destroy one non-blank-DataPath row's source
+    # Destroy one non-blank-DataPath row's source — resolved by CONTENT, since
+    # pool objects are hash-named (WP9 step 5).
+    rm -f -- "$(pool_file_by_hash "$BK" "$(expected_hash HashAddressed 'hello.txt')")"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tampered" --from "$BK" --backup-root "$BK" --change-root "$CH"
     [ "$status" -eq 1 ]
     [[ "$output" == *"INCOMPLETE"* ]]
@@ -34,7 +36,7 @@ setup() {
     # In Snapshot_T1, recur.txt is a blank-DataPath row recovered by hash from the
     # backup-root copy. Destroy that sole copy -> unrecoverable -> loud failure,
     # while the snapshot's own superseded rows (hello.txt, data.bin) still restore.
-    rm -f "$BK/recur.txt"
+    rm -f -- "$(pool_file_by_hash "$BK" "$(expected_hash HashAddressed 'recur.txt')")"
     local snap="$CH/Snapshot_2024_01_01_09_00_00"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/hu" --from "$snap" --backup-root "$BK" --change-root "$CH"
     [ "$status" -eq 1 ]

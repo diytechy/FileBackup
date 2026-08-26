@@ -4,8 +4,8 @@
     PowerShell restorer's verdicts for the Linux half to compare against.
 
 .DESCRIPTION
-    Takes the FRESH Mirror backup produced by gen_bash_fixtures.ps1 -Fresh
-    (kit intact) and derives two damaged stores under <OutRoot>/damage:
+    Takes the FRESH HashAddressed backup produced by gen_bash_fixtures.ps1
+    -Fresh (kit intact) and derives two damaged stores under <OutRoot>/damage:
 
       heal/  — one data file's bytes replaced by same-length WRONG bytes,
                with a good copy parked elsewhere in the pool: the kit-rev-6
@@ -27,9 +27,9 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
 
-$src = Join-Path $OutRoot 'bash-restore\Mirror\backup'
+$src = Join-Path $OutRoot 'bash-restore\HashAddressed\backup'
 if (-not (Test-Path -LiteralPath $src -PathType Container)) {
-    throw "Fresh Mirror backup not found at '$src' — run scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot $OutRoot first."
+    throw "Fresh HashAddressed backup not found at '$src' — run scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot $OutRoot first."
 }
 $damageRoot = Join-Path $OutRoot 'damage'
 Remove-Item -LiteralPath $damageRoot -Recurse -Force -ErrorAction SilentlyContinue

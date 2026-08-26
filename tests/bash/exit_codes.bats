@@ -12,7 +12,7 @@
 setup() {
     load helpers
     WORK="$BATS_TEST_TMPDIR/work"
-    cp -r "$FIXTURES/bash-restore/Mirror/backup" "$WORK"
+    cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$WORK"
     BK="$WORK"; CH="$WORK/changes"
     MANIFEST="$BK/MANIFEST.csv"
 }
@@ -32,7 +32,7 @@ restamp_witness() {
 }
 
 @test "1: content class — a row's only data source is gone (SR-040)" {
-    rm -f "$BK/hello.txt"
+    rm -f -- "$(pool_file_by_hash "$BK" "$(expected_hash HashAddressed 'hello.txt')")"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t1" --from "$BK" --backup-root "$BK" --change-root "$CH"
     [ "$status" -eq 1 ]
     [[ "$output" == *"INCOMPLETE"* ]]

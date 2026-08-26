@@ -49,7 +49,7 @@ restore_work() {  # <outdir>
 }
 
 @test "row says Compressed=No but the located file is a .7z: restores the payload (TC-099, SR-050)" {
-    use_fixture Mirror_Compress
+    use_fixture HashAddressed_Compress
     bend_row 'hello.txt' '' 'No'
     restore_work "$BATS_TEST_TMPDIR/a"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
@@ -57,7 +57,7 @@ restore_work() {  # <outdir>
 }
 
 @test "row says Compressed=Yes but the located file is raw: copies it (TC-099, SR-050)" {
-    use_fixture Mirror
+    use_fixture HashAddressed
     bend_row 'hello.txt' '' 'Yes'
     restore_work "$BATS_TEST_TMPDIR/b"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
@@ -65,8 +65,8 @@ restore_work() {  # <outdir>
 }
 
 @test "a .7z-named file holding RAW bytes is recovered, not called a candidate error (TC-099, SR-050)" {
-    use_fixture Mirror
-    mv "$WORK/hello.txt" "$WORK/hello.txt.7z"
+    use_fixture HashAddressed
+    mv -- "$(pool_file_by_hash "$WORK" "$HELLO_HASH")" "$WORK/hello-raw.7z"
     bend_row 'hello.txt' '' 'Yes'
     restore_work "$BATS_TEST_TMPDIR/c"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
@@ -74,10 +74,10 @@ restore_work() {  # <outdir>
 }
 
 @test "a NON-blank DataPath row is still decided by its own Compressed (TC-099, SR-050)" {
-    use_fixture Mirror_Compress
+    use_fixture HashAddressed_Compress
     restore_work "$BATS_TEST_TMPDIR/d"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
-    verify_tree "$BATS_TEST_TMPDIR/d" "$FIXTURES/bash-restore/Mirror_Compress/expected/root.tsv"
+    verify_tree "$BATS_TEST_TMPDIR/d" "$FIXTURES/bash-restore/HashAddressed_Compress/expected/root.tsv"
 }
 
 @test "a blank row for a GENUINE .7z source file is recovered, not called missing (TC-099, SR-050)" {
@@ -86,7 +86,7 @@ restore_work() {  # <outdir>
     # something that is not the row's content; before the fix the candidate was
     # dropped without its own bytes ever being tested, so the row was
     # unrecoverable while every checker called the store clean.
-    use_fixture Mirror
+    use_fixture HashAddressed
     [ -n "${SEVEN_ZIP:-}" ] || SEVEN_ZIP="$(command -v 7z || command -v 7za || command -v 7zz)"
     [ -n "$SEVEN_ZIP" ] || skip "no 7z on this host"
 
@@ -112,9 +112,9 @@ restore_work() {  # <outdir>
     # Until kit revision 6 this shape exited 4 (host) — but no candidate the
     # locator inspects is the row's own file, so an archive that will not
     # expand is damaged data a retry cannot fix (D-3 ruling, 2026-08-24).
-    use_fixture Mirror
-    rm -f "$WORK/hello.txt"
-    printf 'neither an archive nor the payload' > "$WORK/hello.txt.7z"
+    use_fixture HashAddressed
+    rm -f -- "$(pool_file_by_hash "$WORK" "$HELLO_HASH")"
+    printf 'neither an archive nor the payload' > "$WORK/hello-decoy.7z"
     bend_row 'hello.txt' '' 'Yes'
     restore_work "$BATS_TEST_TMPDIR/e"
     [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
@@ -122,8 +122,8 @@ restore_work() {  # <outdir>
 }
 
 @test "genuinely absent content is still the CONTENT class, exit 1 (TC-099, SR-040)" {
-    use_fixture Mirror
-    rm -f "$WORK/hello.txt"
+    use_fixture HashAddressed
+    rm -f -- "$(pool_file_by_hash "$WORK" "$HELLO_HASH")"
     bend_row 'hello.txt' '' 'No'
     restore_work "$BATS_TEST_TMPDIR/f"
     [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
