@@ -15,9 +15,6 @@
     Work area is created under %TEMP%\FileBackupDemo (never the repo); the
     report is written there as TimelineReport.md and echoed to the console.
 
-.PARAMETER Mode
-    Storage layout: Mirror (default) or HashAddressed.
-
 .PARAMETER Compress
     Enable 7-Zip compression for the demo backup set.
 
@@ -30,7 +27,6 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Mirror','HashAddressed')][string]$Mode = 'Mirror',
     [switch]$Compress,
     [string]$ReportPath
 )
@@ -50,7 +46,7 @@ if (-not $ReportPath) { $ReportPath = Join-Path $work 'TimelineReport.md' }
 
 $set = [pscustomobject]@{
     Name = 'Demo'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
-    HashRecalcFreq = 'A'; CompressEnabled = [bool]$Compress; PreserveFolderTree = ($Mode -eq 'Mirror')
+    HashRecalcFreq = 'A'; CompressEnabled = [bool]$Compress
 }
 @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
 
@@ -130,7 +126,7 @@ function Invoke-TimelineRun([datetime]$When, [string[]]$Events) {
 # =============================== the timeline ===============================
 $script:anyFail = $false
 $script:prevState = @{}
-$title = "$Mode$(if ($Compress) {'+Compress'})"
+$title = "content-addressed$(if ($Compress) {'+Compress'})"
 Out-Line "# FileBackup timeline demonstration — $title"
 Out-Line ''
 Out-Line ("Generated {0} by scripts/demo_timeline.ps1. Every verification below is a real" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))

@@ -33,8 +33,10 @@ outside this contract when run in the container.
 **Config schema v1** (`SR-042`, published as
 [`container/FileBackup.schema.json`](../container/FileBackup.schema.json)):
 a required integer `ConfigVersion` (currently **1**); a **closed** schema — any
-unrecognized key aborts the run, naming the key; JSON booleans for
-`CompressEnabled` / `PreserveFolderTree`; optional `SourceStatePath` (default
+unrecognized key aborts the run, naming the key; a JSON boolean
+`CompressEnabled` (`PreserveFolderTree` was removed at WP9 step 5 — storage is
+always content-addressed, and a config still carrying the key is refused as an
+unrecognized key); optional `SourceStatePath` (default
 `SourcePath`) and `AllowEmptySource` (default `false`); no
 `Secrets.Credential` (JSON can't carry a `PSCredential` — containerized runs are
 always `-NoMail`). CLIXML remains the unversioned legacy native-Windows form;

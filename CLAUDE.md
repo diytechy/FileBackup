@@ -22,9 +22,9 @@ This file is the thin bridge between them.
 - **PowerShell 7+ (`pwsh`) on Windows only.** Windows PowerShell 5.1 is not
   supported. Entry point `FileBackup.ps1`; standalone restore `Reconstruct.ps1`.
 - **Tests are Pester**, driven by [tests/Run-All.ps1](tests/Run-All.ps1) (suite
-  groups G1–G9 × four Mirror/HashAddressed ± Compress modes; `-EmitJUnit`
-  for CI, `-NonInteractive` for unattended). Lint config:
-  `tests/PSScriptAnalyzerSettings.psd1`.
+  groups G1–G9 × Plain/Compress — storage is always content-addressed since
+  WP9 deleted Mirror; `-EmitJUnit` for CI, `-NonInteractive` for unattended).
+  Lint config: `tests/PSScriptAnalyzerSettings.psd1`.
 - **Traceability tooling is Python** (stdlib, no pip): `python scripts/trace.py
   --strict` joins the registries and reports orphans (`--require-verified` adds
   the G3 status criterion); `python scripts/gen_release_checklist.py` builds the

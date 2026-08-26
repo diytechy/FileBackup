@@ -96,16 +96,41 @@ last) — it is the record, not required reading for every pass.
   | 2 — owner election + intra-run memo (SR-060) | **DONE** | `9a1da7d` |
   | 3 — delete storage-layout migration whole (SR-061) | **DONE** | `3ac3338` |
   | 4 — `Save-SupersededData` reorder + exact survival test (SR-059) | **DONE** | `b6077b8` |
-  | 5 — delete Mirror (~45 test sites, G17) | next | |
-  | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | | |
+  | 5 — delete Mirror (SR-058 + the recovered SR-061 refusal) | **DONE** | `44deeb5` (5a engine+PS), `cce8855` (5b bash), 5c docs (this session) |
+  | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | next | |
   | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | | |
   | 8 / 8b — folded fixes + F8 + reserved names | | |
   | 9 — docs, registries, generated maps, G3 audit entry | | |
-  Latest evidence (step 4, real output): unit **374/374** (was 364); integration
-  sweep **424 PASS / 0 FAIL / 4 SKIP** across all four modes (was 416 — the
-  eight new G9 `ClaimedRows_byteVerified[_postPrune]` audits, which Mirror
-  passes too); trace 0/0/0 (phase-deferred=8); `check.ps1 -Tier Full -Gate G3`
-  all steps passed. **D-5 is fixed in the content-addressed modes; the exact
+  Latest evidence (step 5, real output): `check.ps1 -Tier Full -Gate G3` all
+  steps passed on the **2-mode matrix** (Plain/Compress); unit **358/358** —
+  also green under `$ErrorActionPreference='Stop'`; integration **218 PASS /
+  0 FAIL / 2 SKIP**; bats (WSL Fedora) **68/68**, shellcheck clean,
+  `verify_damage_interop` verdict parity on the regenerated content-addressed
+  damaged stores; trace 0/0/0 (phase-deferred=8). **MIRROR IS DELETED**
+  (SR-058): hash naming unconditional, `StoredAsHashSize` pinned `'Hash'`,
+  `PreserveFolderTree` out of the engine/config/schema/docs, fixtures
+  regenerated (TC-134), and the **SR-061 legacy-store refusal + the
+  LegacyStoredForm Verify finding are IMPLEMENTED** — the step-3 deliverable
+  the step-4 review found missing (G4.1 is its integration contract; a legacy
+  store still restores, R1). D-1's hazard class is deleted, not guarded.
+  **Step-5 driver records (open to veto):** (1) the SR-022 "dead twins"
+  (prune re-home + repair rename infrastructure-name guards) are KEPT —
+  row-driven, and prune/repair still serve legacy stores where a row named
+  `MANIFEST.csv` would otherwise be re-homed ONTO the real index; they die at
+  step 8 with the S3 collapse. (2) Two Coverage tests were found passing
+  VACUOUSLY (their mirror-path tampering had been failing non-terminating
+  since the switch; `check.ps1`'s EAP=Stop exposed them as intermittent
+  harness reds) — both now resolve pool objects from the manifest, and the
+  whole suite is proven green under EAP=Stop. (3) TC-058's nested-infra pin
+  and the TC-084 infra-name prune refusal survive as CONSTRUCTED legacy
+  shapes. **DEFERRED TO STEP 9 (the registry-closure commit):** SR-003
+  params' mode axis; SR-012/SR-013 amend + SR-051/LLR-012/LLR-013/LLR-051
+  retire (they still describe the deleted layout/migration as Verified);
+  TC-023/TC-095 retire; the ~14 TC rows whose Permutations still carry
+  `mode=set{Mirror,...}`; the vacuous StorageForm capacity-estimate It
+  (flagged in-file); AGENTS.md §2/§3 hand-written text (also stale from
+  step 3); the kit-rev decision (kit bytes untouched at step 5;
+  `Reconstruct.ps1:259`'s Mirror comment is step 9's call). **D-5 is fixed in the content-addressed modes; the exact
   survival test (SR-059) is in** — content-addressed sets preserve superseded
   bytes AFTER copy/evict against the FINAL manifest's DataPath claims, which
   fixes two red-first-proven D-1-family holes: the source-based test moved out

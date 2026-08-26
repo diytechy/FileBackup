@@ -27,7 +27,6 @@
             ChangePath         = 'E:\Backups\DataChanges'
             HashRecalcFreq     = 'W'    # A/E/D/W/M/Y/N — when to re-hash unchanged files
             CompressEnabled    = $true  # store data files as .7z
-            PreserveFolderTree = $false # $true mirrors tree; $false uses "<hash> <size>" names
         }
     )
 } | Export-Clixml -Path "$HOME\BackupConfig.xml"

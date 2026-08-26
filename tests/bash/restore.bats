@@ -75,3 +75,13 @@ restore_mode_autodetect() {
     [ "$status" -eq 2 ]
     [[ "$output" == *"inside the backup"* ]]
 }
+
+@test "reconstruct.sh scans the pool with plain 'find ... -type f', never -L: symlink immunity is INTENT (TC-134)" {
+    # Source-text pin (the bash sibling of the repo's AST guards): every find
+    # in the restorer must walk real files only — following symlinks would let
+    # a link inside a store smuggle bytes from outside the pool into recovery.
+    run grep -nE '(^|[^[:alnum:]])find[[:space:]]+(-L|-H)' "$RS"
+    [ "$status" -ne 0 ]
+    run grep -cE 'find "[^"]+" .*-type f' "$RS"
+    [ "$output" -ge 2 ]
+}

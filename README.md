@@ -378,7 +378,6 @@ exempt from `ConfigVersion`, the closed schema, and the credential rule.
             ChangePath         = 'E:\Backups\DataChanges'
             HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
             CompressEnabled    = $true
-            PreserveFolderTree = $false   # $true = mirror tree; $false = "<hash> <size>" names
             AllowEmptySource   = $false   # true only for an intentional delete-all
         }
     )
@@ -398,8 +397,7 @@ The equivalent container-oriented JSON is:
     "BackupPath": "/backup",
     "ChangePath": "/changes",
     "HashRecalcFreq": "W",
-    "CompressEnabled": true,
-    "PreserveFolderTree": false
+    "CompressEnabled": true
   }]
 }
 ```
@@ -416,8 +414,15 @@ before backup processing instead of writing raw bytes described as compressed.
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
 | `SourceStatePath` | Optional writable folder for the source hash-cache `MANIFEST.csv`. Omit for legacy in-source storage; containers should set a unique path outside the read-only source, backup, and change trees. |
 | `CompressEnabled` | `$true`/`true` stores data files as `.7z` (already-compressed extensions are exempt). JSON must use a real boolean, not a quoted string. |
-| `PreserveFolderTree` | `$true`/`true` mirrors the source tree under the backup root; `$false`/`false` stores content-addressed `<hashShort> <sizeShort>.<ext>` files referenced via the manifest. |
 | `AllowEmptySource` | Defaults to `$false`/`false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `true` only for an intentional delete-all. |
+
+Storage is always content-addressed: every data file is stored once per unique
+content under a `<hashShort> <sizeShort>.<ext>` name and referenced via the
+manifest. (The former `PreserveFolderTree` mirror layout was removed — an
+in-place edit of one of two identical files could destroy the last copy of
+their shared content. A store written by a pre-content-addressed build still
+restores and verifies, but backing up onto it is refused; use a fresh
+`BackupPath`.)
 
 ### Already-compressed extensions
 
@@ -687,10 +692,10 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
 - **Unexpected empty source.** A previously populated set fails before mutating the backup
   when its source becomes empty (often an unavailable share). Set `AllowEmptySource = $true`
   on that set only when deleting every backed-up file is intentional.
-- **Never delete or "clean up" files inside the backup root or snapshot folders.** In
-  Mirror mode the backup root looks like an ordinary copy of your source, but it is a
-  managed pool: deduplication means one file there can be the only physical copy that other
-  rows and older snapshots recover by content hash. If a data file does go missing
+- **Never delete or "clean up" files inside the backup root or snapshot folders.** The
+  backup root is a managed pool of content-addressed objects: deduplication means one file
+  there can be the only physical copy that other rows and older snapshots recover by
+  content hash. If a data file does go missing
   (antivirus quarantine and cloud-sync "free up space" features are the usual culprits —
   exclude backup and change paths from both), the next backup run re-copies it from the
   source as long as the source still holds that content, and `-Action Verify` reports any
