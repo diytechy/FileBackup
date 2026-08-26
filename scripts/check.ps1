@@ -108,9 +108,13 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # SAME commit that armed this ratchet.
     # ca-v1 shipped 2026-08-25 (WP9, content-addressed storage): SR-058..064
     # flipped Verified and TC-117..135 flipped Pass in the SAME commit that armed
-    # it here and in .github/workflows/tests.yml. bash-v2 (SR-033) remains the one
-    # phase-deferred row.
-    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1') }
+    # it here and in .github/workflows/tests.yml.
+    # fidelity-v1 shipped 2026-08-26 (kit revision 7, restore fidelity beyond
+    # bytes): SR-065/066 flipped Verified and TC-136..139 flipped Pass in the
+    # SAME commit that armed it, on a green Full tier (unit 424/424, integration
+    # 240 PASS / 0 FAIL / 2 SKIP) plus 76/76 bats and a clean shellcheck.
+    # bash-v2 (SR-033) remains the one phase-deferred row.
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 

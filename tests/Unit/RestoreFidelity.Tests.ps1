@@ -86,7 +86,7 @@ BeforeAll {
 Describe 'Restored files carry their own modification time (SR-066)' -ForEach @(
     @{ Mode = 'Plain'; Compress = $false }, @{ Mode = 'Compress'; Compress = $true }
 ) {
-    It 'a deduplicated twin keeps its OWN mtime, not the pool object owner-s (TC-136, <Mode>)' {
+    It 'a deduplicated twin keeps its OWN mtime, not the pool object owner''s (TC-136, <Mode>)' {
         $root = Join-Path $TestDrive ('mtime-' + $Mode)
         $s = New-FidelityStore -Root $root -Compress $Compress
         $t = Join-Path $root 'restored'
@@ -176,6 +176,26 @@ Describe 'Directory sidecar (SR-065)' {
         Get-Content -LiteralPath (Join-Path $t2 'hidden-dir\secret.txt') -Raw | Should -Be 'HIDDEN-PAYLOAD'
         # Pre-SR-065 behaviour, exactly: no empty directory, no attributes.
         Test-Path -LiteralPath (Join-Path $t2 'empty-dir') | Should -BeFalse
+    }
+
+    It 'a store carrying a sidecar still audits CLEAN, in the root and in a snapshot (TC-137)' {
+        # The sidecar is a new root-level file in every folder the store owns.
+        # Get-DataFile filters through Test-IsInfrastructureFile, so SR-064's
+        # unreferenced-data audit must not see it - if it did, every store with
+        # an empty directory would report an orphan on every run, and prune's
+        # unreferenced-data rail would refuse every snapshot.
+        $root = Join-Path $TestDrive 'dirs-audit'
+        $s = New-FidelityStore -Root $root
+        Set-Content -LiteralPath (Join-Path $s.Src 'uniq.txt') -Value ('CHANGED-Q' * 4000) -NoNewline
+        & $entry -ConfigPath $s.Cfg -NoMail -NonInteractive *>&1 | Out-Null
+        $snap = @(Get-ChildItem -LiteralPath $s.Chg -Directory -Force |
+                    Where-Object { $_.Name -like 'Snapshot_*' })[0]
+        Test-Path -LiteralPath (Join-Path $snap.FullName $sidecarName) | Should -BeTrue
+
+        $verifyOut = & $pwshExe -NoProfile -File $entry -ConfigPath $s.Cfg -NoMail `
+                        -NonInteractive -Action Verify -ExitCode *>&1 | Out-String
+        $LASTEXITCODE | Should -Be 0
+        $verifyOut | Should -Not -Match 'DIRECTORIES\.csv'
     }
 
     It 'a snapshot carries the sidecar of the state it preserves, not the live one (TC-137)' {

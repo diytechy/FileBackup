@@ -93,14 +93,18 @@ Describe 'Compare-SourceToBackup' {
 Describe 'Test-IsInfrastructureFile' {
     It 'flags root-level infrastructure files' {
         $root = Join-Path $TestDrive 'bk'; New-Item -ItemType Directory -Path $root | Out-Null
-        foreach ($n in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll') {
+        # DIRECTORIES.csv (SR-065) is load-bearing on this list: Get-DataFile
+        # filters through here, so prune's unreferenced-data rail, the SR-064
+        # orphan audit and Optimize-ChangeFolders would all treat the sidecar as
+        # a stray data file without it.
+        foreach ($n in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','DIRECTORIES.csv') {
             $p = Join-Path $root $n; Set-Content -LiteralPath $p -Value 'x'
             Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeTrue
         }
     }
     It 'does NOT flag nested files that share the name (B6)' {
         $root = Join-Path $TestDrive 'bk2'; New-Item -ItemType Directory -Path (Join-Path $root 'sub') -Force | Out-Null
-        foreach ($n in 'MANIFEST.csv', 'MANIFEST.csv.meta') {
+        foreach ($n in 'MANIFEST.csv', 'MANIFEST.csv.meta', 'DIRECTORIES.csv') {
             $p = Join-Path $root "sub\$n"; Set-Content -LiteralPath $p -Value 'x'
             Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeFalse
         }

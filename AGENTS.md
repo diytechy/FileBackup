@@ -270,11 +270,29 @@ Imports (internal): `Common`
   carries the legacy `StoredAsHashSize='Original'` fails its backup set before
   any mutation, naming the remedy (a fresh `BackupPath`), and is reported as a
   finding under `-Action Verify`. Reading a legacy store never breaks — only
-  writing to one. That claim is regression-guarded for `Reconstruct.ps1`
-  (`G4-Sanitization` `Legacy_storeStillRestores`); the bash twin's guard went
-  with the Mirror fixtures at WP9 step 5b, so `reconstruct.sh`'s path-addressed
-  branch is correct-by-reading but currently uncovered (WP9 review MIN-2, open
-  in docs/status.md).
+  writing to one. **That is no longer true as of kit revision 7** (human ruling
+  2026-08-26): reading one is refused as well. Both restorers scan the authority
+  manifest before the target exists and exit 2, writing nothing, when a row
+  carries `StoredAsHashSize='Original'` or a `DataPath` containing a path
+  separator. Support was WITHDRAWN, not lost: WP9 review MIN-2 found the bash
+  half of "both restorers still restore a legacy store" untested, and dropping
+  an unneeded promise beat building a fixture for it. Guarded on both sides now
+  (`G4-Sanitization` `Legacy_restoreRefused`, `tests/bash/restore_fidelity.bats`,
+  TC-138). The collapse that followed: `Get-ReHomedDataPathName` is gone, and a
+  re-homed object's destination name is simply its source `DataPath`.
+- **Restore fidelity beyond bytes** (SR-065, SR-066, kit revision 7). The
+  contract is still bytes at paths, with two additions. Every restored file is
+  stamped with its OWN row's `LastWriteTimeStr` once that file passes its SR-056
+  verification; before this, dedup twins all inherited the stored object's
+  timestamp. And `DIRECTORIES.csv`, an **advisory, unwitnessed** sidecar beside
+  each manifest, carries one row per directory that holds no file beneath it or
+  carries `Hidden`/`System`/`ReadOnly`/`NotContentIndexed`; both restorers apply
+  it LAST, after every file is written and verified. Absent, unreadable or
+  malformed, it leaves exactly the pre-SR-065 behaviour and never fails a
+  restore, which is why a store written by an older engine is unaffected.
+  `reconstruct.sh` creates the directories and reports the Windows attributes as
+  inapplicable on POSIX rather than dropping them silently. FILE attributes
+  remain out of contract (README "What is **not** recorded").
 - **The browse view is cosmetic and lives outside both roots** (SR-062). When
   `BrowseView` is `index`, `New-BrowseViewIndex` writes `INDEX.tsv` plus
   per-folder `INDEX.html` pages under `ViewPath` (default `<BackupPath>_View`).

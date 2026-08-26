@@ -24,6 +24,45 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **HEADLINE - WP10 IS COMPLETE (2026-08-26, Windows host + Ubuntu WSL for the
+  POSIX half). Restore kit revision 7.** One session's human rulings on the four
+  open items, shipped together because they shared one kit revision:
+  **(1) legacy path-addressed READ support WITHDRAWN** (SR-061 amended): both
+  restorers refuse a store marked `StoredAsHashSize='Original'` or carrying a
+  path-separator `DataPath`, exit 2, nothing written. This closes review MIN-2
+  by dropping the promise rather than building a fixture for it, on the human's
+  instruction that no support, verification or testing remain around older
+  stores. **(2) The S3 collapse taken**: `Get-ReHomedDataPathName` deleted, the
+  re-homed destination name is now just the source `DataPath`. **(3) nit-4
+  taken**: `Compress-FileWithSevenZip` clears its destination before `7z a`.
+  **(4) SR-066**: each restored file carries its OWN `LastWriteTimeStr`, closing
+  the dedup timestamp leak; the FILE-attribute half stays out of contract and
+  documented. **(5) SR-065**: `DIRECTORIES.csv`, an advisory unwitnessed
+  sidecar, records and restores empty directories plus the four folder attribute
+  bits `SetFileAttributes` can apply (`Hidden`/`System`/`ReadOnly`/
+  `NotContentIndexed`); `reconstruct.sh` creates the directories and reports the
+  attributes as inapplicable on POSIX rather than dropping them silently.
+- **Evidence (real output, this session).** `check.ps1 -Tier Full -Gate G3`
+  **all steps passed**: PSScriptAnalyzer clean, trace **0 orphans / 0 integrity /
+  0 status-findings**, doc navigability and generated-doc freshness clean, Pester
+  unit **424/424**, integration **240 PASS / 0 FAIL / 2 SKIP**. Ubuntu WSL:
+  **bats 76/76** (up from 68 - `tests/bash/restore_fidelity.bats` adds the eight
+  POSIX twins) and `shellcheck bash/reconstruct.sh` clean. The ratchet is armed
+  to `core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1` in both
+  `check.ps1` and CI, with SR-065/066 Verified and TC-136..139 Pass in the same
+  commit. SR-033 (`bash-v2`) remains the one phase-deferred row. **One honest
+  caveat:** across three Full runs the Deny-ACE SR-057 case failed once (see the
+  intermittent item below); it is pre-existing, not WP10's, and re-ran clean
+  (unit **425/425** isolated, integration **240 PASS / 0 FAIL / 2 SKIP**
+  isolated). An earlier Full run also showed four G9 prune failures that were
+  purely my own machine contention - two Pester suites running against the same
+  host - and did not reproduce on a clean sweep.
+- **Registries.** New: SN-031, SR-065, SR-066 (phase `fidelity-v1`), LLR-065,
+  LLR-066, TC-136..TC-139. Amended: SR-061, LLR-060, LLR-045, LLR-004, TC-124.
+  Docs: README's records table (now ten artifacts) and its "What is **not**
+  recorded" section rewritten - the mtime and directory bullets moved from
+  *never* to *recorded*, with the remaining gaps stated exactly; AGENTS.md sec.3
+  carries the new invariant and the withdrawn legacy claim.
 - **Where things stand (2026-08-25).** The retrofit and the WP1→WP9 queue are
   COMPLETE. WP1→WP8 were implemented, independently reviewed, human-ratified and
   proven on CI; the kit-bump WP (D-2/D-3/D-4, restore-kit revision **6**) was
@@ -105,7 +144,11 @@ free and shapes the test-battery import; D-2 + D-3 (+ the two parked kit
 nits) share one kit-revision bump; the no-backward-compat ruling frees every
 option from migration cost.
 
-### Live items — the WP9 queue is empty; four new rows opened the same day
+### Live items — the four 2026-08-25 rows closed 2026-08-26 by WP10; one new intermittent opened
+
+**All four rows below were closed on 2026-08-26 (WP10, kit revision 7); they
+stay here, with their dispositions, until the next sweep moves them to
+[resolved-items.md](resolved-items.md).**
 
 Every row that stood here is closed. D-2/D-3/D-4 moved to
 [resolved-items.md](resolved-items.md) on 2026-08-25; **D-1/D-5, the
@@ -122,8 +165,14 @@ on ratification.
 
 | Item | What | Decision asked | State |
 |---|---|---|---|
-| **No bats guard for restoring a LEGACY store** (review MIN-2) | Step 5b deleted the Mirror bats fixtures, and no remaining fixture has a `DataPath` containing a path separator, so `reconstruct.sh`'s path-addressed branch - the line that makes a pre-WP9 store restorable on Linux - is correct-by-reading but uncovered. `G4-Sanitization`'s `Legacy_storeStillRestores` proves only the PowerShell restorer. | Build one small CONSTRUCTED legacy bats fixture (the same honesty pattern the rewritten B6 case uses), or drop the bash half of the claim. **Driver recommends the fixture** - SR-061 tells users their old store still restores, and that promise is made for BOTH restorers. | **OPEN.** AGENTS.md §3 now states the narrower truth rather than the claim, so nothing in the docs overclaims while this is open. |
-| **`7z a` merges into an existing archive** (review nit-4) | `Compress-FileWithSevenZip` uses `a` (add), not a replace, so an orphaned prior object at a reused content-addressed name would be appended to rather than overwritten. Neither the reviewer nor the driver could weaponise it: every member of a group has identical bytes, so any duplicate archive member carries the same payload, and kit rev 6's write-verification would catch a mismatch. | Add `Remove-Item` before the `a`. The fix belongs in **Common**, which is kit-bundled, so it costs a **kit revision bump to 7** - which is why it was not taken as a side effect. | **OPEN - small, needs the kit-rev call.** Mitigated Engine-side already: the MIN-1 retry path clears its destination between attempts. |
+| **No bats guard for restoring a LEGACY store** (review MIN-2) | Step 5b deleted the Mirror bats fixtures, and no remaining fixture has a `DataPath` containing a path separator, so `reconstruct.sh`'s path-addressed branch - the line that makes a pre-WP9 store restorable on Linux - is correct-by-reading but uncovered. `G4-Sanitization`'s `Legacy_storeStillRestores` proves only the PowerShell restorer. | Build one small CONSTRUCTED legacy bats fixture (the same honesty pattern the rewritten B6 case uses), or drop the bash half of the claim. **Driver recommends the fixture** - SR-061 tells users their old store still restores, and that promise is made for BOTH restorers. | **CLOSED 2026-08-26 by WITHDRAWAL, not by a fixture.** The human ruled that no support, verification or testing should remain around older stores. Kit revision 7 refuses a legacy store on the READ side too, in both restorers, and the claim the fixture would have covered no longer exists. Guarded by `Legacy_restoreRefused` (G4.1) and `tests/bash/restore_fidelity.bats` (TC-138) |
+| **`7z a` merges into an existing archive** (review nit-4) | `Compress-FileWithSevenZip` uses `a` (add), not a replace, so an orphaned prior object at a reused content-addressed name would be appended to rather than overwritten. Neither the reviewer nor the driver could weaponise it: every member of a group has identical bytes, so any duplicate archive member carries the same payload, and kit rev 6's write-verification would catch a mismatch. | Add `Remove-Item` before the `a`. The fix belongs in **Common**, which is kit-bundled, so it costs a **kit revision bump to 7** - which is why it was not taken as a side effect. | **CLOSED 2026-08-26.** `Remove-Item` before the `a`, taken with the kit-revision-7 bump the legacy refusal was already spending. The reachable case is an UNREFERENCED object at the name (the write path asks the prior manifest, not the disk), and the dangerous variant is interrupted-7-Zip debris rather than a valid twin. TC-139 |
+
+### Live item (opened 2026-08-26 by WP10's verification runs) â€” INTERMITTENT, pre-existing
+
+| Item | What | Decision asked | State |
+|---|---|---|---|
+| **A Deny-ACE directory can intermittently empty the whole source walk (SR-057)** | `RestoreVerify.Tests.ps1`'s `one Deny-ACE hidden directory fails the set LOUDLY but still writes the manifest` failed ONCE in three Full runs on 2026-08-26: the manifest was written and the run exited 1 as designed, but it held **zero** rows instead of the one reachable `good.txt`. `Get-DataFile`'s `Get-ChildItem -Recurse -File -Force -ErrorAction SilentlyContinue` appears to occasionally abandon the whole enumeration when it meets the Deny ACE, rather than skipping that one directory - which is exactly the failure mode SR-057/B1 exists to prevent, arriving by a different route. **Not introduced by WP10**: `Get-SourceDirectoryRecord`'s walk runs at step 12.5, AFTER the manifest is written, and cannot change it. Re-ran clean: the test alone passes, and the whole unit suite alone passes **425/425**. | Reproduce it deliberately (a loop over the Deny-ACE case under load), then decide whether `Get-DataFile` should enumerate directory-by-directory so one denied directory can only cost its own subtree. The salvage promise is only as good as the walk underneath it. | **OPEN.** Low frequency, high consequence: the run still fails loudly (exit 1) and evicts nothing - frozen rows are protected by the same SR-057 handling - so this degrades a salvage, it does not lose data. |
 
 ### Simplification candidates (2026-08-25 architecture read, human-prompted)
 
@@ -138,7 +187,7 @@ sentinel. WP9 kills the first structurally.
 |---|---|---|
 | **S1 — retire the `Compressed` claim; derive form from bytes** | 4 of `Get-StorageFormFinding`'s 7 classes (`FlagOverRaw`, `FlagOverArchive`, `NameLies`, `BlankRowFormDisagreement`) exist only to police a claim the bytes already answer. SR-050 already made BOTH restorers prefer the located file's PROVEN form — but only for hash-recovered rows; a row resolved through its own `DataPath` is still decided by the column (`Reconstruct.ps1:893`, `reconstruct.sh:823`). Extend proven-form there and the claim has no consumer left. The complete byte-derived rule is the one `Find-DataFileByHash` already implements, and D-2's verify-after-write makes it self-checking. Cost: a ~10-line 7z-magic sniffer in **Common** (the kit does not bundle Engine, so `Get-StoredFileForm` is unreachable there) plus a bash twin. Payoff ≈ 200 lines of audit/repair logic and one whole class of "the index lies about the bytes". The column stays in the 9-column contract as advisory — no parser or kit break. | **CANDIDATE — proposed as WP10, after WP9.** Not folded in: WP9's D-1/D-5 fix should land clean and separately reviewable. |
 | **S2 — retire storage-layout migration entirely** | `Sync-BackupStorageLayout` (210 lines) + `Get-MigrationCapacityDemand` (50) + the step-5.5 migration preflight + the SR-051 refcount apparatus, which existed only to make a migration safe. Also collapses two overlapping orphan scans into one. | **HUMAN RULED 2026-08-25: GO — and FOLDED INTO WP9** ("Retroactive space reclamation is not necessary... Similarly, retroactive decompression is also not necessary"). It does NOT depend on S1: a mixed-form store is already normal today because compression is per-file (SR-004) and every row's `Compressed` describes its own object. `CompressEnabled` now governs only content written after the flip. |
-| **S3 — re-homing becomes a same-name copy** | Under content addressing a data file's name is derived from its content, so a re-homed file's source and destination names are ALWAYS identical: `Get-ReHomedDataPathName` (30 lines) collapses to nothing and "does the destination already hold this content" becomes a filename test instead of an index lookup. The same lever may thin `Get-BackupContentIndex` + `Optimize-ChangeFolders` (168 lines between them), since identical content now shares a filename in every folder. | **MEASURED AT WP9 step 8, NOT COLLAPSED — and that is the finding.** `Get-ReHomedDataPathName` keeps its 8-line legacy arm deliberately: prune and repair still serve LEGACY path-addressed stores (SR-061 refuses only WRITING to one), where a row named `MANIFEST.csv` would otherwise be re-homed ONTO the real index. The collapse becomes free only if legacy-store prune support is deliberately dropped — a separate decision, not a WP9 side effect. The index/Optimize half is untouched. |
+| **S3 — re-homing becomes a same-name copy** | Under content addressing a data file's name is derived from its content, so a re-homed file's source and destination names are ALWAYS identical: `Get-ReHomedDataPathName` (30 lines) collapses to nothing and "does the destination already hold this content" becomes a filename test instead of an index lookup. The same lever may thin `Get-BackupContentIndex` + `Optimize-ChangeFolders` (168 lines between them), since identical content now shares a filename in every folder. | **COLLAPSED 2026-08-26**, once the legacy-store decision made it free. `Get-ReHomedDataPathName` is deleted whole and the caller now uses `$sourceRow.DataPath` - the destination name is always the source name under content addressing. The `Get-BackupContentIndex`/`Optimize-ChangeFolders` half (168 lines) is still UNMEASURED and remains a candidate, not a promise. |
 
 **Deferred by the same ruling:** retroactive re-packing, if ever wanted, becomes
 a **standalone offline script** (human's suggestion, 2026-08-25) — re-forms a
@@ -162,8 +211,8 @@ paths. Each is one mechanism answering one real, traced failure.
 
 | Item | What (reproduced 2026-08-25) | Decision asked | State |
 |---|---|---|---|
-| **Dedup leaks one file's attributes and mtime onto its content twins** | Every row sharing one pool object restores with the metadata of whichever file created that object, because attributes and timestamps are never in the index — they ride along on the copy. Reproduced: `aaa.txt` (Archive, mtime 2001-01-01) and `bbb.txt` (Hidden+ReadOnly, mtime 2002-02-02) with identical content restore as TWO copies of `aaa.txt`'s metadata; `bbb.txt` silently loses Hidden, ReadOnly and its 2002 timestamp. Same in Plain and Compress. **Bytes are always exact — this is fidelity, not data loss.** The sharper half: `LastWriteTimeStr` IS in the manifest, correct per row, and neither restorer applies it, so the fix for the timestamp half is small and needs no schema change. Attributes have nowhere to be recorded in the 9-column contract, so that half is a real scope question. | (1) Stamp `LastWriteTimeStr` on every restored file in BOTH restorers — closes the timestamp half, one kit revision, no schema change; (2) also record attributes — needs a schema change or a sidecar, and the 9-column contract is an AGENTS.md §3 invariant; (3) accept and document only. **Driver recommends (1), then (3) for attributes.** | **OPEN — documented, not fixed.** README now states the behaviour truthfully under "What is **not** recorded" (it previously claimed attributes are never preserved, which was wrong in both directions). Not folded into WP9: WP9 is complete and under independent review, and this predates it — the same leak exists on every prior version. |
-| **Directory metadata and empty directories are not captured** | Only files have manifest rows, so a restored Hidden/System FOLDER comes back ordinary, and an empty directory is not recreated at all. Reproduced 2026-08-25. Consistent with the bytes-at-paths contract, but it was undocumented. | None — documented in README. Raise only if directory fidelity becomes a requirement (it would need a new row type or a sidecar). | **DOCUMENTED.** |
+| **Dedup leaks one file's attributes and mtime onto its content twins** | Every row sharing one pool object restores with the metadata of whichever file created that object, because attributes and timestamps are never in the index — they ride along on the copy. Reproduced: `aaa.txt` (Archive, mtime 2001-01-01) and `bbb.txt` (Hidden+ReadOnly, mtime 2002-02-02) with identical content restore as TWO copies of `aaa.txt`'s metadata; `bbb.txt` silently loses Hidden, ReadOnly and its 2002 timestamp. Same in Plain and Compress. **Bytes are always exact — this is fidelity, not data loss.** The sharper half: `LastWriteTimeStr` IS in the manifest, correct per row, and neither restorer applies it, so the fix for the timestamp half is small and needs no schema change. Attributes have nowhere to be recorded in the 9-column contract, so that half is a real scope question. | (1) Stamp `LastWriteTimeStr` on every restored file in BOTH restorers — closes the timestamp half, one kit revision, no schema change; (2) also record attributes — needs a schema change or a sidecar, and the 9-column contract is an AGENTS.md §3 invariant; (3) accept and document only. **Driver recommends (1), then (3) for attributes.** | **MTIME HALF CLOSED 2026-08-26 (SR-066); attribute half ACCEPTED and documented.** The human chose option (1) then (3): both restorers now stamp each row's own `LastWriteTimeStr` after its SR-056 verification, so a twin keeps its own time. FILE attributes stay outside the 9-column contract and README says so plainly. TC-136 |
+| **Directory metadata and empty directories are not captured** | Only files have manifest rows, so a restored Hidden/System FOLDER comes back ordinary, and an empty directory is not recreated at all. Reproduced 2026-08-25. Consistent with the bytes-at-paths contract, but it was undocumented. | None — documented in README. Raise only if directory fidelity becomes a requirement (it would need a new row type or a sidecar). | **CLOSED 2026-08-26 (SR-065), option B.** `DIRECTORIES.csv`, advisory and unwitnessed, records every directory that is empty of files or carries Hidden/System/ReadOnly/NotContentIndexed - the four bits `SetFileAttributes` can apply to a directory. Directory timestamps stayed out of scope at the human's direction. TC-137 |
 
 ### Parked / minor (no input needed now)
 

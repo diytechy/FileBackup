@@ -107,7 +107,7 @@ error unless you pass `-ExitCode` (which `RECONSTRUCT.bat` does for you).
 |---|---|---|---|
 | **0** | Complete | Every manifest row restored. | Nothing. |
 | **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool. | Real data loss: check an older backup. |
-| **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, target inside the backup, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
+| **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, a legacy path-addressed store (see `StoredAsHashSize` below), target inside the backup, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
 | **3** | Witness verification failed | The index itself is untrustworthy; **no file is written to the target.** | The manifest is damaged — restore from a snapshot or another copy. |
 | **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error. | **Retriable** — fix the host and run again. |
 
@@ -663,13 +663,14 @@ files carrying the System attribute: for a data-safety tool, capturing too
 much beats silently capturing too little. There is currently no per-set
 exclusion setting — to keep such trees out of a backup, point `SourcePath` at
 a folder that does not contain them. What comes *back* is a subtler question —
-attributes are not in the index at all, so see "What is **not** recorded" below
-before assuming a Hidden file or folder returns Hidden.
+FILE attributes are not in the index at all, so see "What is **not** recorded"
+below before assuming a Hidden file returns Hidden. A hidden *folder* does come
+back hidden (kit revision 7); a hidden file does not.
 
 ### What FileBackup records, and where
 
 Everything FileBackup knows lives in plain text beside your data — there is no
-database and nothing in the registry or your user profile. Nine artifacts, all
+database and nothing in the registry or your user profile. Ten artifacts, all
 named below so you can recognise every file the tool creates:
 
 | File | Where | What it holds |
@@ -677,6 +678,7 @@ named below so you can recognise every file the tool creates:
 | `MANIFEST.csv` | backup root, and each `Snapshot_<date>` folder | **The index.** One row per logical file, nine columns (below). A snapshot's copy is that point in time's complete index. |
 | `MANIFEST.csv.meta` | beside every `MANIFEST.csv` | **The witness** — `Version`, `Rows`, `Bytes`, `XxH128`, `Written`. Lets a restore prove the index it is about to trust is the index that was written. |
 | `MANIFEST.csv` + `MANIFEST.csv.meta` | the **source-state** location (`SourceStatePath`; the source root by default) | **The hash cache.** The same format, used to decide what changed without re-reading every byte. Point `SourceStatePath` somewhere else to keep it out of the tree being backed up. |
+| `DIRECTORIES.csv` | backup root, and each `Snapshot_<date>` folder, when there is anything to say | **The directory sidecar.** One row per folder that holds no file anywhere beneath it, or that carries a `Hidden`, `System`, `ReadOnly` or `NotContentIndexed` attribute - the two things a one-row-per-file index cannot express. Advisory: it is not witnessed, and a restore never fails over it. A tree with no empty or attributed folder gets no such file at all. |
 | `FileBackupState.json` | backup root | Two dates: `LastHashRun` (when the last full re-hash swept) and `LastBackupRun` (which dates the next snapshot). Written by rename, so a crash cannot leave it torn. |
 | `RECONSTRUCT.paths.json` | backup root | The source/backup/change paths this store was written with, so a restore in place needs no arguments. Ignored once the folder is moved elsewhere. |
 | `backup.log` | change root | The run log: what was hashed, copied, staged, refused. |
@@ -702,7 +704,7 @@ next successful run rewrites both. It fails in the safe direction on purpose.
 | `Length` · `xxH2Hash` | The original content's size and xxHash128. Together they are the dedup key, the restore lookup key, and the post-write verification the restorer performs on every file. |
 | `LastWriteTimeStr` | The source file's modification time, used with `Length` to skip re-hashing an unchanged file. |
 | `Compressed` | Whether *this row's own* stored object is a `.7z`. Compression is decided per file, so a tree is normally mixed. |
-| `StoredAsHashSize` | Always `Hash`. Kept in the schema because every restorer and every existing store reads it; `Original` identifies a pre-2026-08 path-addressed store, which is refused. |
+| `StoredAsHashSize` | Always `Hash`. Kept in the schema because every restorer and every existing store reads it; `Original` identifies a pre-2026-08 path-addressed store. Such a store is refused outright as of kit revision 7 â€” by a backup, by a restore (exit 2), and reported as a finding by `-Action Verify`. There is no conversion: back up to a fresh `BackupPath`, and restore the old store with the kit bundled inside it. |
 | `Duplicate` | This row shares its object with another row. |
 | `MediaMBPerSec` | Optional media bitrate, when `ffprobe` is available. Informational. |
 
@@ -712,21 +714,29 @@ The contract is **bytes at paths**: every file comes back with exactly its
 original content at exactly its original relative path, or the restore fails
 loudly. Everything else about a file is outside that contract.
 
-- **File attributes and timestamps are not in the index, and are not restored
-  from it.** They ride along only as a side effect of how the bytes were copied.
-  For a file whose content is unique that usually means Hidden, System,
-  ReadOnly and the modification time survive intact. **For a deduplicated file
-  it means something sharper: every row sharing one stored object comes back
-  with the attributes and timestamp of whichever file created that object.**
-  Two identical files — one ordinary, one Hidden+ReadOnly — restore as two
-  copies of whichever one was stored first. The manifest still records each
-  row's own `LastWriteTimeStr` correctly; the restorer simply does not apply it.
-  If your workflow depends on attributes or mtimes, verify them after a restore.
-- **Directories carry no metadata at all.** Only files have manifest rows, so a
-  restored directory is created with default attributes: **a Hidden or System
-  folder comes back as an ordinary visible folder** (its files keep their own
-  attributes as above). An **empty directory is not recreated** — nothing
-  records that it existed.
+- **File ATTRIBUTES are not in the index, and are not restored from it.** They
+  ride along only as a side effect of how the bytes were copied. For a file
+  whose content is unique that usually means Hidden, System and ReadOnly
+  survive intact. **For a deduplicated file it means something sharper: every
+  row sharing one stored object comes back with the attributes of whichever
+  file created that object.** Two identical files â€” one ordinary, one
+  Hidden+ReadOnly â€” restore as two copies of whichever one was stored first. If
+  your workflow depends on file attributes, verify them after a restore.
+- **Modification times ARE restored, per row** (kit revision 7). Each file is
+  stamped with its own `LastWriteTimeStr` from the manifest once its bytes are
+  verified, so a deduplicated twin no longer inherits the stored object's
+  timestamp. A blank or unreadable value is logged and the file still restores.
+  Creation time and last-access time are not recorded and are not restored.
+- **Directories: empty ones, and their attributes, ARE recorded** (kit revision
+  7) in the `DIRECTORIES.csv` sidecar â€” an empty directory is recreated, and a
+  `Hidden`, `System`, `ReadOnly` or `NotContentIndexed` folder comes back with
+  those bits on Windows. Four bits, no more: they are the only ones
+  `SetFileAttributes` can apply to a directory. **Directory timestamps, owners
+  and permissions are still not recorded**; NTFS compression and EFS encryption
+  on a folder cannot be re-applied through that API and are not restored; and on
+  Linux `reconstruct.sh` creates the directories but logs the Windows attributes
+  as inapplicable rather than pretending. A backup written before this carries
+  no sidecar and restores exactly as it always did.
 - **Security descriptors are not captured** — no ACLs, owners, auditing or
   integrity labels. A restored tree inherits permissions from wherever you
   restore it. FileBackup is a content backup, not a system-state backup.
