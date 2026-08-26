@@ -327,6 +327,81 @@ Describe 'A transiently unreadable source file is retried, not lost (SR-067)' {
         ($lines -join "`n") | Should -Match 'after 3 attempt\(s\)'
     }
 
+    It 'END-TO-END: a file that vanishes between the walk and the copy is omitted, not faked (TC-140)' {
+        # The unit cases above build the group by hand. This one drives the real
+        # entry point and deletes the file inside the actual window, to prove the
+        # whole pipeline - not just the copy stage - handles a file that was
+        # enumerated and hashed and then disappeared before its bytes were read.
+        #
+        # The seam is Update-SourceManifest's source hash cache: it is written at
+        # the end of step 5 and strictly precedes step 10's copies. A SEPARATE
+        # process polls for it and deletes the victim the instant it appears - a
+        # separate process because the parent runspace is blocked on the backup
+        # child and cannot pump a FileSystemWatcher event until it returns (the
+        # first version of this test failed for exactly that reason and never
+        # entered the window at all).
+        #
+        # Ordering is guaranteed; callback LATENCY is not, so the test proves it
+        # entered the window before asserting anything, and SKIPS rather than
+        # failing if a loaded host starved the sniper. It can therefore never go
+        # falsely green: the assertions only run once the precondition holds.
+        $root  = Join-Path $TestDrive 'vanish-midrun'
+        $src   = Join-Path $root 'src';   $bkp   = Join-Path $root 'bkp'
+        $chg   = Join-Path $root 'chg';   $state = Join-Path $root 'state'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, $state -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'keep.txt')   -Value ('KEEP '   * 500) -NoNewline
+        Set-Content -LiteralPath (Join-Path $src 'vanish.txt') -Value ('VANISH ' * 500) -NoNewline
+
+        $victim = Join-Path $src 'vanish.txt'
+        $cache  = Join-Path $state 'MANIFEST.csv'
+        $stamp  = Join-Path $root 'sniped.at'
+        $sniperScript = Join-Path $root 'sniper.ps1'
+        @"
+`$deadline = (Get-Date).AddSeconds(60)
+while ((Get-Date) -lt `$deadline) {
+    if (Test-Path -LiteralPath '$cache') {
+        Remove-Item -LiteralPath '$victim' -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath '$victim')) { Set-Content -LiteralPath '$stamp' -Value 'x' }
+        break
+    }
+    Start-Sleep -Milliseconds 1
+}
+"@ | Set-Content -LiteralPath $sniperScript -Encoding UTF8
+        $sniper = Start-Process -FilePath $pwshExe -ArgumentList @('-NoProfile', '-File', $sniperScript) `
+                                -PassThru -WindowStyle Hidden
+
+        $cfg = Join-Path $root 'cfg.xml'
+        $set = [pscustomobject]@{
+            Name = 'V'; SourcePath = $src; SourceStatePath = $state; BackupPath = $bkp
+            ChangePath = $chg; HashRecalcFreq = 'A'; CompressEnabled = $false
+        }
+        @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
+
+        & $pwshExe -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+        $code = $LASTEXITCODE
+        $sniper | Wait-Process -Timeout 70 -ErrorAction SilentlyContinue
+
+        # Precondition: the walk DID see the file (so it was hashed) and the
+        # sniper DID delete it before the copy stage reached it.
+        $walked = @(Import-Csv -LiteralPath $cache | Where-Object RelativePath -eq 'vanish.txt').Count
+        if (-not (Test-Path -LiteralPath $stamp) -or $walked -ne 1) {
+            Set-ItResult -Skipped -Because 'the sniper did not enter the walk-to-copy window on this host'
+        }
+
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        @($rows | Where-Object RelativePath -eq 'vanish.txt').Count |
+            Should -Be 0 -Because 'the manifest must never name content the store does not hold'
+        @($rows | Where-Object RelativePath -eq 'keep.txt').Count |
+            Should -Be 1 -Because 'one vanished file must not cost the healthy ones'
+        $code | Should -Be 1 -Because 'a file present at the walk and absent from the backup fails the set'
+        $log = Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw
+        $log | Should -Match 'This file is NOT in the backup'
+        $log | Should -Match 'after 3 attempt\(s\)'
+        # The stored object for the healthy file really exists on disk.
+        $keepRow = @($rows | Where-Object RelativePath -eq 'keep.txt')[0]
+        Test-Path -LiteralPath (Join-Path $bkp $keepRow.DataPath) | Should -BeTrue
+    }
+
     It 'a deterministic failure is not retried at all, so the budget survives it (TC-140)' {
         # A DIRECTORY occupying the destination cannot become a file by waiting.
         Test-CopyFailureIsTransient -Message "destination 'x' is a directory; refusing to copy into it" |
