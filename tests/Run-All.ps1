@@ -74,6 +74,11 @@ Write-Host "FileBackup test run - backend: $Backend"   -ForegroundColor Cyan
 Write-Host "Result root: $runRoot"
 Write-Host "=========================================" -ForegroundColor Cyan
 
+# WP11 Part A: where Save-FailureArtifact preserves a failed section's logs and
+# manifests, because the shared env is reset between sections and a post-mortem
+# is otherwise impossible.
+$script:ArtifactRoot = Join-Path $runRoot 'artifacts'
+
 $envRoot = Join-Path $runRoot 'env'
 $Env = New-TestEnvironment -Backend $Backend -Root $envRoot
 

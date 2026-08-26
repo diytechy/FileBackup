@@ -28,22 +28,22 @@ function Invoke-G9 {
     New-RandomBinaryFile (Join-Path $S 'keep.bin') 2048
     New-TestFile (Join-Path $S 'pic.jpg') 'pretend-jpeg'     # already-compressed extension
     New-TestFile (Join-Path $S 'orig.txt') 'RENAMEME'        # will be renamed at run3
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D1 | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D1 | Out-Null
     $keepHash = (Get-FileHash -LiteralPath (Join-Path $S 'keep.bin') -Algorithm SHA256).Hash
 
     # ---- run2 @D2 : modify a.txt, delete dup2.txt, add new.txt (state2) ⇒ Snapshot(D1) ----
     New-TestFile (Join-Path $S 'a.txt') 'A2'
     Remove-Item -LiteralPath (Join-Path $S 'dup2.txt') -Force
     New-TestFile (Join-Path $S 'new.txt') 'NEW'
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D2 | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D2 | Out-Null
 
     # ---- run3 @D3 : modify a.txt again + rename orig.txt -> renamed.txt (state3) ⇒ Snapshot(D2) ----
     New-TestFile (Join-Path $S 'a.txt') 'A3'
     Move-Item -LiteralPath (Join-Path $S 'orig.txt') -Destination (Join-Path $S 'renamed.txt')
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D3 | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D3 | Out-Null
 
     # ---- run4 @D4 : no-op (state4 == state3) ⇒ NO snapshot ----
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D4 | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D4 | Out-Null
 
     # ---- Lifecycle (SR-005): snapshots for D1 & D2 exist; none for D3 (no-op run4) ----
     $snapD1 = Join-Path $Env.ChgPath (SnapName $D1)
@@ -158,19 +158,36 @@ function Invoke-G9Prune {
     New-TestFile (Join-Path $S 'a.txt') 'A1'
     New-TestFile (Join-Path $S 'sub\MANIFEST.csv') 'NESTED-NOT-INFRASTRUCTURE'   # B6
     New-RandomBinaryFile (Join-Path $S 'keep.bin') 2048
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D[0] | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D[0] | Out-Null
     foreach ($i in 1..4) {
         New-TestFile (Join-Path $S 'a.txt') ('A' + ($i + 1))
-        Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D[$i] | Out-Null
+        Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D[$i] | Out-Null
     }
     # Snapshots exist for D1..D4 (each named by the superseded run's date); the
     # live backup root is state5.
     $snaps = @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.Name })
-    Assert-True $suite $group 'G9.6' 'Prune_timeline_has_four_snapshots' { $snaps.Count -eq 4 }
+    if ($snaps.Count -eq 4) {
+        Add-TestResult $suite $group 'G9.6' 'Prune_timeline_has_four_snapshots' 'PASS' ''
+    } else {
+        # WP11 A4: the count and the NAMES, because "false" told three separate
+        # investigations nothing. A short timeline means an earlier fixture
+        # backup did not make its snapshot - look for the [backup exit N] line.
+        Add-TestResult $suite $group 'G9.6' 'Prune_timeline_has_four_snapshots' 'FAIL' `
+            "expected 4 snapshots, saw $($snaps.Count): $($snaps -join ', ')"
+        Save-FailureArtifact -Env $Env -Tag "G9.6-timeline-$suite"
+    }
 
     # -- oldest: nothing else can only-reach its content, so zero bytes copied --
     $oldest = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $snaps[0])
-    Assert-True $suite $group 'G9.6' 'Prune_oldest_succeeds'   { $oldest[0].Status -eq 'Pruned' -and $oldest[0].Code -eq 0 }
+    if ($oldest[0].Status -eq 'Pruned' -and $oldest[0].Code -eq 0) {
+        Add-TestResult $suite $group 'G9.6' 'Prune_oldest_succeeds' 'PASS' ''
+    } else {
+        # WP11 A3: a refused prune already carries the rail that tripped; the
+        # old Assert-True threw that away and reported 'Condition returned false'.
+        Add-TestResult $suite $group 'G9.6' 'Prune_oldest_succeeds' 'FAIL' `
+            "Status=$($oldest[0].Status) Code=$($oldest[0].Code): $($oldest[0].Message)"
+        Save-FailureArtifact -Env $Env -Tag "G9.6-oldest-$suite"
+    }
     Assert-True $suite $group 'G9.6' 'Prune_oldest_copies_zero'{ $oldest[0].BytesReHomed -eq 0 }
     Assert-True $suite $group 'G9.6' 'Prune_oldest_folder_gone'{ -not (Test-Path -LiteralPath (Join-Path $Env.ChgPath $snaps[0])) }
 
@@ -202,7 +219,14 @@ function Invoke-G9Prune {
     } else {
         Add-TestResult $suite $group 'G9.9' 'Prune_last_succeeds' 'FAIL' "Status=$($last[0].Status): $($last[0].Message)"
     }
-    Assert-True $suite $group 'G9.9' 'Prune_no_snapshots_left' { @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath).Count -eq 0 }
+    $leftover = @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.Name })
+    if ($leftover.Count -eq 0) {
+        Add-TestResult $suite $group 'G9.9' 'Prune_no_snapshots_left' 'PASS' ''
+    } else {
+        Add-TestResult $suite $group 'G9.9' 'Prune_no_snapshots_left' 'FAIL' `
+            "expected no snapshots, $($leftover.Count) left: $($leftover -join ', ')"
+        Save-FailureArtifact -Env $Env -Tag "G9.9-leftover-$suite"
+    }
     $r0b = RestoreTo $Env $Env.BkpPath 'g9p-r0b'
     Assert-True $suite $group 'G9.9' 'Prune_latest_still_restores' { TextAt (Join-Path $r0b 'a.txt') 'A5' }
     Assert-True $suite $group 'G9.9' 'Prune_latest_keeps_binary' {
@@ -217,21 +241,26 @@ function Invoke-G9Prune {
     $C = 'CYCLE-CONTENT ' + ('data ' * 50)
     New-TestFile (Join-Path $S 'steady.txt') 'STEADY'
     New-TestFile (Join-Path $S 'f.txt') $C
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[0] | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[0] | Out-Null
     Remove-Item -LiteralPath (Join-Path $S 'f.txt') -Force
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[1] | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[1] | Out-Null
     New-TestFile (Join-Path $S 'f.txt') $C                       # reintroduced, identical
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[2] | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[2] | Out-Null
     Remove-Item -LiteralPath (Join-Path $S 'f.txt') -Force
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[3] | Out-Null
+    Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg2 -BackupTime $D[3] | Out-Null
 
     $probe = Join-Path $Env.Root 'g9c-probe.tmp'
     New-TestFile $probe $C
     $cHash = Get-FileXxHash -FilePath $probe
     $cLen  = (Get-Item -LiteralPath $probe).Length
     Remove-Item -LiteralPath $probe -Force
-    Assert-True $suite $group 'G9.10' 'Cycle_one_copy_before_prune' {
-        (Get-G9PhysicalCopyCount -Env $Env -Hash $cHash -Length $cLen) -eq 1
+    $cyclePhysical = Get-G9PhysicalCopyCount -Env $Env -Hash $cHash -Length $cLen
+    if ($cyclePhysical -eq 1) {
+        Add-TestResult $suite $group 'G9.10' 'Cycle_one_copy_before_prune' 'PASS' ''
+    } else {
+        Add-TestResult $suite $group 'G9.10' 'Cycle_one_copy_before_prune' 'FAIL' `
+            "expected exactly 1 physical copy of the cycled content, saw $cyclePhysical"
+        Save-FailureArtifact -Env $Env -Tag "G9.10-copies-$suite"
     }
 
     # Prune the snapshot that physically holds the single copy: the content must
@@ -245,7 +274,13 @@ function Invoke-G9Prune {
     Assert-True $suite $group 'G9.10' 'Cycle_keeper_snapshot_identified' { $null -ne $keeper }
     if ($keeper) {
         $pruned = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $keeper)
-        Assert-True $suite $group 'G9.10' 'Cycle_prune_keeper_succeeds' { $pruned[0].Status -eq 'Pruned' }
+        if ($pruned[0].Status -eq 'Pruned') {
+            Add-TestResult $suite $group 'G9.10' 'Cycle_prune_keeper_succeeds' 'PASS' ''
+        } else {
+            Add-TestResult $suite $group 'G9.10' 'Cycle_prune_keeper_succeeds' 'FAIL' `
+                "Status=$($pruned[0].Status) Code=$($pruned[0].Code): $($pruned[0].Message)"
+            Save-FailureArtifact -Env $Env -Tag "G9.10-keeper-$suite"
+        }
         Assert-True $suite $group 'G9.10' 'Cycle_one_copy_after_prune' {
             (Get-G9PhysicalCopyCount -Env $Env -Hash $cHash -Length $cLen) -eq 1
         }
@@ -270,8 +305,12 @@ function Invoke-G9Prune {
     if ($remaining.Count -gt 0) {
         $oldestPlan = Get-SnapshotPrunePlan -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $remaining[0]
         $oldestRun  = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $remaining[0])
-        Assert-True $suite $group 'G9.11' 'Cycle_oldest_first_copies_zero' {
-            $oldestPlan.BytesReHomed -eq 0 -and $oldestRun[0].Status -eq 'Pruned'
+        if ($oldestPlan.BytesReHomed -eq 0 -and $oldestRun[0].Status -eq 'Pruned') {
+            Add-TestResult $suite $group 'G9.11' 'Cycle_oldest_first_copies_zero' 'PASS' ''
+        } else {
+            Add-TestResult $suite $group 'G9.11' 'Cycle_oldest_first_copies_zero' 'FAIL' `
+                "BytesReHomed=$($oldestPlan.BytesReHomed) (expected 0), Status=$($oldestRun[0].Status) Code=$($oldestRun[0].Code): $($oldestRun[0].Message)"
+            Save-FailureArtifact -Env $Env -Tag "G9.11-oldestfirst-$suite"
         }
     }
     $rLatest = RestoreTo $Env $Env.BkpPath 'g9c-latest'
@@ -282,8 +321,13 @@ function Invoke-G9Prune {
 
     # TC-116: the second pass must also hold AFTER pruning — a prune that
     # orphaned a blank row would be invisible to every default check.
-    Assert-True $suite $group 'G9P.audit' 'BlankRows_byteVerified_postPrune' {
-        @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
+    $blankViolations = @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath)
+    if ($blankViolations.Count -eq 0) {
+        Add-TestResult $suite $group 'G9P.audit' 'BlankRows_byteVerified_postPrune' 'PASS' ''
+    } else {
+        Add-TestResult $suite $group 'G9P.audit' 'BlankRows_byteVerified_postPrune' 'FAIL' `
+            "$($blankViolations.Count) blank-row violation(s): $(($blankViolations | Select-Object -First 3) -join ' ; ')"
+        Save-FailureArtifact -Env $Env -Tag "G9P-blankrows-$suite"
     }
     # WP9 step 4 (SR-059): re-homes rewrite DataPaths, so the claimed-row
     # audit after the prune cycle proves every rewritten claim still resolves

@@ -175,11 +175,43 @@ function Remove-TestEnvironment {
 
 function Reset-TestEnvironment {
     <#
-        Clears the four volumes between scenarios without re-mounting.
+    .SYNOPSIS
+        Clears the four volumes between scenarios without re-mounting, and
+        PROVES they are clear.
+
+    .DESCRIPTION
+        WP11 Part A. This used to be one Remove-Item with
+        -ErrorAction SilentlyContinue and no verification, so a removal that
+        transiently failed left the environment dirty and said nothing. The next
+        section then ran against that dirt - and the most damaging leftover is a
+        'Temp' folder, because SR-017's stale-staging guard makes every
+        subsequent backup REFUSE, which is how the 2026-08-26 Full-tier
+        intermittent presented: G9 fixture backups exiting 1 and their
+        assertions failing several steps downstream with 'Condition returned
+        false'. G5.1 creates such a Temp on purpose, and prune takes a Temp lock
+        of its own, so there is always something here worth failing to delete.
+
+        Now: bounded retries for a transient lock, then a LOUD, named failure
+        listing exactly what survived. A dirty environment must never be handed
+        silently to the next scenario - that trades one visible failure for an
+        unbounded number of misleading ones.
     #>
     param([pscustomobject]$Env)
     foreach ($p in @($Env.SrcPath, $Env.BkpPath, $Env.ChgPath, $Env.ReconPath)) {
-        Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        $left = @()
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+            Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            $left = @(Get-ChildItem -LiteralPath $p -Force -ErrorAction SilentlyContinue)
+            if ($left.Count -eq 0) { break }
+            Start-Sleep -Milliseconds (100 * $attempt)
+        }
+        if ($left.Count -gt 0) {
+            $names = ($left | ForEach-Object { $_.Name }) -join ', '
+            Add-TestResult 'harness' 'Environment' 'reset' 'EnvironmentNotClean' 'FAIL' `
+                ("could not clear '$p' after 5 attempts; $($left.Count) item(s) survived: $names. " +
+                 "Every assertion in the scenario that follows is built on a dirty environment - " +
+                 "a surviving 'Temp' makes each backup refuse on the SR-017 stale-staging guard.")
+        }
     }
 }
