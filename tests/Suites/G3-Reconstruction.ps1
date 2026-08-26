@@ -3,10 +3,10 @@
 #>
 function Invoke-G3 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G3-Reconstruction'
     $cfg = Join-Path $Env.Root 'cfg-g3.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
     Reset-TestEnvironment $Env
     $srcFiles = @(

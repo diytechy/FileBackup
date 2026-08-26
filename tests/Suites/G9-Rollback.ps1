@@ -2,17 +2,17 @@
 .SYNOPSIS  G9 - Dated-snapshot rollback over a controlled timeline.
 .NOTES     Invoked by Run-All.ps1. Verifies SR-005 (snapshot lifecycle/naming),
            SR-010 (point-in-time restore), SR-028 (mixed content + delta storage)
-           across the 4 storage modes, using injected backup dates (-BackupTime)
-           so each snapshot has a distinct, predictable name.
+           across both compression combos, using injected backup dates
+           (-BackupTime) so each snapshot has a distinct, predictable name.
 #>
 function Invoke-G9 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G9-Rollback'
     $cfg = Join-Path $Env.Root 'cfg-g9.xml'
 
     Reset-TestEnvironment $Env
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
     $D1 = [datetime]'2024-01-01 00:00:01'
     $D2 = [datetime]'2024-02-02 00:00:02'
@@ -100,9 +100,7 @@ function Invoke-G9 {
         @(Get-BlankRowPoolViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
     }
     # WP9 step 4 (SR-059): the claimed-row companion — every NON-blank row's
-    # own DataPath must reproduce that row's (hash,length). This timeline's
-    # borrow shape (the run-3 rename) never edits the borrowed-from path, so
-    # the audit must hold in every mode, Mirror included.
+    # own DataPath must reproduce that row's (hash,length).
     Assert-True $suite $group 'G9.audit' 'ClaimedRows_byteVerified' {
         @(Get-ClaimedRowViolations -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath).Count -eq 0
     }
@@ -135,7 +133,7 @@ function Invoke-G9Prune {
                it physically holds, and must never refuse the newest or the last.
     #>
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G9-Rollback'
 
     function SnapName([datetime]$d) { 'Snapshot_' + $d.ToString('yyyy_MM_dd_HH_mm_ss') }
@@ -152,7 +150,7 @@ function Invoke-G9Prune {
     # ================= TC-090: prune at every timeline position =================
     Reset-TestEnvironment $Env
     $cfg = Join-Path $Env.Root 'cfg-g9p.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
     $S = $Env.SrcPath
     $D = @([datetime]'2025-01-01 00:00:01', [datetime]'2025-02-02 00:00:02', [datetime]'2025-03-03 00:00:03',
            [datetime]'2025-04-04 00:00:04', [datetime]'2025-05-05 00:00:05')
@@ -208,7 +206,7 @@ function Invoke-G9Prune {
     # ============ TC-082: TC-049's cycle, extended with prunes =================
     Reset-TestEnvironment $Env
     $cfg2 = Join-Path $Env.Root 'cfg-g9c.xml'
-    Write-TestConfig $cfg2 $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg2 $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
     $C = 'CYCLE-CONTENT ' + ('data ' * 50)
     New-TestFile (Join-Path $S 'steady.txt') 'STEADY'
     New-TestFile (Join-Path $S 'f.txt') $C

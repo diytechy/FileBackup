@@ -584,14 +584,32 @@ function Copy-SourceFileToBackup {
 function Test-BackupManifest {
     <#
     .SYNOPSIS
-        Blanks DataPaths whose files are missing; warns about unreferenced files.
+        Refuses a legacy path-addressed store (SR-061), then blanks DataPaths
+        whose files are missing and warns about unreferenced files.
     #>
+    # Implements: SR-061, LLR-060
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
     $db = Read-Manifest -FolderPath $FolderRoot
+
+    # SR-061: a row in the legacy path-addressed 'Original' form marks a store
+    # written by a pre-content-addressed build. There is no in-place conversion
+    # (human ruling 2026-08-25: no store exists that must be maintained), and
+    # writing on would interleave two addressing semantics — the copy step
+    # adopts and propagates existing DataPaths verbatim. Refuse BEFORE the
+    # sanitize pass below rewrites the manifest; the throw reaches the step-6
+    # catch in Invoke-BackupSet, which discards the still-empty staging folder.
+    # -Action Verify still audits such a store (the LegacyStoredForm finding).
+    $legacy = @($db | Where-Object { $_.StoredAsHashSize -eq 'Original' })
+    if ($legacy.Count -gt 0) {
+        throw ("Backup manifest at '$FolderRoot' holds $($legacy.Count) row(s) in the legacy path-addressed form " +
+               "(StoredAsHashSize='Original'), e.g. '$($legacy[0].RelativePath)'. This store was written by a " +
+               'pre-content-addressed build and cannot be written to (SR-061). Back up to a fresh BackupPath; ' +
+               'the old store stays restorable as-is and -Action Verify can still audit it.')
+    }
 
     $existingPaths = @{}
     Get-DataFile -Root $FolderRoot |
@@ -826,10 +844,17 @@ function Get-ReHomedDataPathName {
         form travels with the bytes, so prune never re-packs.
 
     .DESCRIPTION
-        Mirrors Invoke-BackupFileGroup exactly —
         Get-HashSizeFileName when the row is stored hash-addressed ('.7z' when
         compressed, else the logical extension), otherwise the RelativePath
         (+'.7z' when compressed).
+
+        The path-addressed arm deliberately SURVIVES WP9 step 5: the engine can
+        no longer write 'Original' rows, but prune still serves LEGACY stores
+        (SR-061 refuses only -Action Backup), and re-homing a legacy row under
+        a synthesized hash name would leave its row claiming a form the name
+        contradicts. The arm collapses with the whole function at WP9 step 8
+        (S3): under pure content addressing source and destination names are
+        always identical.
 
     .PARAMETER Row
         The source manifest row whose bytes are being re-homed.
@@ -1485,7 +1510,7 @@ function Test-BackupStorageForm {
         [pscustomobject[]] the findings, backup root first then snapshots in name
         order. Empty means the pool's storage form is coherent.
     #>
-    # Implements: SR-049, SR-038, SR-040, LLR-049
+    # Implements: SR-049, SR-038, SR-040, SR-061, LLR-049, LLR-060
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -1518,6 +1543,24 @@ function Test-BackupStorageForm {
     $all = New-Object System.Collections.Generic.List[object]
     foreach ($folder in @($BackupRoot) + $snapshots) {
         $manifest = Read-Manifest -FolderPath $folder
+        # SR-061: rows in the legacy path-addressed form mark a store written
+        # by a pre-content-addressed build. Backup REFUSES such a store
+        # (Test-BackupManifest); an audit that refused would be useless, so
+        # Verify reports it — one per-folder finding (exit 1), never a throw.
+        # Added here, not in Get-StorageFormFinding, so the per-row form
+        # classes keep their one-finding-per-row contract and -RepairStorage
+        # (which consumes the per-row scan) never sees it.
+        $legacyRows = @($manifest | Where-Object { $_.StoredAsHashSize -eq 'Original' })
+        if ($legacyRows.Count -gt 0) {
+            $all.Add([pscustomobject]@{
+                Folder = $folder; FolderName = [IO.Path]::GetFileName($folder)
+                RelativePath = $legacyRows[0].RelativePath; DataPath = $legacyRows[0].DataPath
+                Class = 'LegacyStoredForm'
+                Observed = "$($legacyRows.Count) row(s) stored in the legacy path-addressed form (StoredAsHashSize='Original')"
+                Expected = "every row content-addressed ('Hash'); this store was written by a pre-content-addressed build — back up to a fresh BackupPath (SR-061)"
+                Repairable = $false; KitRevision = Get-BackupKitRevision -Folder $folder
+            })
+        }
         foreach ($f in @(Get-StorageFormFinding -Folder $folder -Manifest $manifest -Index $index -Deep:$Deep -SevenZipPath $SevenZipPath)) {
             $all.Add($f)
         }
@@ -2643,18 +2686,20 @@ function Invoke-BackupFileGroup {
         (D-5's other face: the pre-WP9 lookup consulted only the PRIOR backup,
         so a group first seen in ONE run wrote once per member).
 
-        The memo is deliberately NOT applied to the legacy Mirror layout, where
-        each member's DataPath is its own RelativePath: pointing several rows at
-        one member's path there is exactly the cross-path borrow that produces
-        D-1. Mirror keeps writing per path until it is deleted (WP9 step 5).
+        The destination is always the content-derived hash name (SR-058):
+        different content means a different name, so an existing stored object
+        is never overwritten in place — D-1's hazard class is deleted, not
+        guarded. A hash-grammar name ('<hash16> <len10><ext>') also cannot
+        spell a root-level infrastructure name, which is why the Mirror-era
+        SR-022 refusal that lived in this branch is gone (TC-123 audits the
+        grammar at the root as the compensating control).
     #>
-    # Implements: SR-003, SR-053, SR-060, LLR-003, LLR-053, LLR-058
+    # Implements: SR-003, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Group,
         [Parameter(Mandatory)][string]$SrcPath,
         [Parameter(Mandatory)][string]$BkpPath,
-        [Parameter(Mandatory)][bool]$PreserveFolderTree,
         [Parameter(Mandatory)][bool]$CompressEnabled,
         [string]$SevenZipPath,
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb,
@@ -2677,7 +2722,6 @@ function Invoke-BackupFileGroup {
     # are excluded, so the group falls through to the copy branch instead.
     $existingBackupWithHash = @($BackupDb | Where-Object {
         $_.xxH2Hash -eq $hash -and $_.Length -eq $len -and -not [string]::IsNullOrWhiteSpace($_.DataPath) })
-    $storedAsHash = -not $PreserveFolderTree
 
     # Owner election (SR-060): shortest RelativePath wins, ties broken ORDINALLY
     # — CompareOrdinal rather than PowerShell's culture-aware comparison, so the
@@ -2692,16 +2736,11 @@ function Invoke-BackupFileGroup {
     $ownerSrcFull  = Join-Path $SrcPath $owner.RelativePath
     $ownerCompress = Test-ShouldCompress -FileName $ownerSrcFull -CompressEnabled $CompressEnabled
     # The group's single stored object, once written this run (SR-060). Null
-    # until the first member writes; Mirror never sets it (see .DESCRIPTION).
+    # until the first member writes.
     $writtenThisRun = $null
 
     foreach ($entry in $Group) {
         $rel = $entry.RelativePath
-        # Content addressing stores ONE object for the group, so its form is the
-        # OWNER's, not each member's. Mirror still stores per path.
-        $ext          = if ($storedAsHash) { $ownerExt } else { [IO.Path]::GetExtension($rel) }
-        $compressFlag = if ($storedAsHash) { $ownerCompress } else {
-            Test-ShouldCompress -FileName (Join-Path $SrcPath $rel) -CompressEnabled $CompressEnabled }
 
         # Adopt this run's own write before consulting the prior backup: the
         # object we just created is the one this group's rows must name.
@@ -2737,36 +2776,16 @@ function Invoke-BackupFileGroup {
                 MediaMBPerSec    = $entry.MediaMBPerSec
             }
         } else {
-            $dataPath = if ($storedAsHash) {
-                $dataExt = if ($compressFlag) { '.7z' } else { $ext }
-                Get-HashSizeFileName -HashHex $hash -Length $len -Extension $dataExt
-            } elseif ($compressFlag) {
-                # Mirror mode + compression: the data file holds 7z bytes, so it
-                # must carry the .7z extension, which lets hash-recovery detect
-                # that it needs decompression.
-                "$rel.7z"
-            } else {
-                $rel
-            }
+            # The single object's name derives from the content and the OWNER's
+            # form (SR-058/SR-060): different content, different name, so no
+            # existing object is ever overwritten in place (SR-059).
+            $dataExt  = if ($ownerCompress) { '.7z' } else { $ownerExt }
+            $dataPath = Get-HashSizeFileName -HashHex $hash -Length $len -Extension $dataExt
             # Every member of a (hash,length) group holds identical bytes, so the
             # elected owner's file is the source for the group's single object.
-            $srcFull  = if ($storedAsHash) { $ownerSrcFull } else { Join-Path $SrcPath $rel }
             $destFull = Join-Path $BkpPath $dataPath
 
-            # A Mirror-mode DataPath is the row's own RelativePath, so a source
-            # file legitimately named like ROOT-LEVEL infrastructure
-            # (MANIFEST.csv, RECONSTRUCT.ps1, ...) would land where step 12/13
-            # write the real index/kit — which then overwrite the user's bytes
-            # while the manifest row keeps pointing there. Prune (re-home) and
-            # repair (rename) already refuse this collision; the copy path must
-            # refuse it too, not corrupt (SR-022).
-            if (Test-IsInfrastructureFile -Root $BkpPath -FullPath ([IO.Path]::GetFullPath($destFull))) {
-                & $Log "Refusing to store '$rel': its Mirror-mode data path is the root-level infrastructure name '$dataPath' (SR-022). Rename the source file, nest it in a folder, or use hash-addressed storage for this set." 'ERROR'
-                $OverallSuccess.Value = $false
-                continue
-            }
-
-            $result = Copy-SourceFileToBackup -SourceFilePath $srcFull -BackupFilePath $destFull -ShouldCompress:$compressFlag -SevenZipPath $SevenZipPath
+            $result = Copy-SourceFileToBackup -SourceFilePath $ownerSrcFull -BackupFilePath $destFull -ShouldCompress:$ownerCompress -SevenZipPath $SevenZipPath
             if ($result -is [string]) {
                 & $Log "Failed to copy/compress '$rel' -> '$dataPath' : $result" 'ERROR'
                 $OverallSuccess.Value = $false
@@ -2779,18 +2798,16 @@ function Invoke-BackupFileGroup {
                 Length           = $len
                 LastWriteTime    = $entry.LastWriteTime
                 xxH2Hash         = $hash
-                Compressed       = if ($compressFlag) { 'Yes' } else { 'No' }
-                StoredAsHashSize = if ($storedAsHash) { 'Hash' } else { 'Original' }
+                Compressed       = if ($ownerCompress) { 'Yes' } else { 'No' }
+                StoredAsHashSize = 'Hash'
                 Duplicate        = $entry.Duplicate
                 MediaMBPerSec    = $entry.MediaMBPerSec
             }
             $ChangedCount.Value++
-            if ($storedAsHash) {
-                $writtenThisRun = [pscustomobject]@{
-                    DataPath         = $dataPath
-                    Compressed       = if ($compressFlag) { 'Yes' } else { 'No' }
-                    StoredAsHashSize = 'Hash'
-                }
+            $writtenThisRun = [pscustomobject]@{
+                DataPath         = $dataPath
+                Compressed       = if ($ownerCompress) { 'Yes' } else { 'No' }
+                StoredAsHashSize = 'Hash'
             }
         }
     }
@@ -2873,27 +2890,15 @@ function Save-SupersededData {
     .DESCRIPTION
         For each changed file that already existed in the backup with different
         content, the old data file is moved into staging UNLESS it must stay in
-        the pool. Two survival tests exist while the legacy Mirror layout is
-        still alive (WP9 step 5 deletes it, and this function's -SourceDb arm
-        with it):
-
-        -FinalRows (content-addressed sets) — the EXACT test (SR-059). Called
-        AFTER the copy and evict steps: content addressing never overwrites an
-        existing object, so preservation can wait for the FINAL manifest and
-        ask the real question — does any surviving row still claim the old
-        object's DataPath. That is the same claim semantics as eviction's B9
-        refcount, and under content addressing a DataPath claim IS a
-        (hash,length) demand, because the name is derived from the content.
+        the pool — the EXACT survival test (SR-059). Called AFTER the copy and
+        evict steps: content addressing never overwrites an existing object,
+        so preservation can wait for the FINAL manifest and ask the real
+        question — does any surviving row still claim the old object's
+        DataPath. That is the same claim semantics as eviction's B9 refcount.
         Frozen rows (SR-055/SR-057) and rows whose copy failed keep their
-        claim in the final map, so their objects now correctly stay in the
-        pool — the source-based approximation moved them out (the D-1 defect
+        claim in the final map, so their objects correctly stay in the pool —
+        the pre-WP9 source-based approximation moved them out (the D-1 defect
         family, review 2026-08-24).
-
-        -SourceDb (Mirror sets only) — the legacy approximation. Mirror
-        overwrites IN PLACE at the copy step, so preservation must run before
-        it, when no final manifest exists yet; content ((hash,length)) present
-        in the new source state is assumed to survive in the backup. This is
-        the test that authorized D-1's overwrite; it dies with the mode.
 
         Old content that survives in the pool is NOT staged: the snapshot
         recovers it by hash at restore, exactly as eviction's still-referenced
@@ -2909,43 +2914,30 @@ function Save-SupersededData {
     param(
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$NewOrChanged,
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$BackupDb,
-        [AllowNull()][AllowEmptyCollection()][object[]]$SourceDb,
-        [AllowNull()][AllowEmptyCollection()][object[]]$FinalRows,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$FinalRows,
         [Parameter(Mandatory)][string]$BkpPath,
         [Parameter(Mandatory)][string]$StagingFolder,
         [Parameter(Mandatory)][scriptblock]$Log,
         [Parameter(Mandatory)][ref]$OverallSuccess
     )
-    $useExact = $PSBoundParameters.ContainsKey('FinalRows')
-    if (-not ($useExact -xor $PSBoundParameters.ContainsKey('SourceDb'))) {
-        throw 'Save-SupersededData: pass exactly one of -FinalRows (exact survival, SR-059) or -SourceDb (legacy Mirror approximation).'
-    }
     if (-not $NewOrChanged) { return }
     $failures = 0
     # Filesystem-faithful keys (SR-034): a case-insensitive map here returns the
     # WRONG row for a case-differing Linux pair, and its content "surviving"
     # skips staging the superseded bytes the snapshot needs (review 83cc5f1 R1).
     $backupByRel = New-RelativePathMap; foreach ($b in $BackupDb) { if ($b.RelativePath) { $backupByRel[$b.RelativePath] = $b } }
-    if ($useExact) {
-        # A DataPath any FINAL row still claims stays in the pool (SR-059).
-        # Deliberately a plain case-insensitive set: this mirrors eviction's B9
-        # refcount (string -eq), not the SR-034 RelativePath identity above.
-        $claimedData = @{}
-        foreach ($r in $FinalRows) { if (-not [string]::IsNullOrWhiteSpace($r.DataPath)) { $claimedData[$r.DataPath] = $true } }
-    } else {
-        # Content (hash|length) present in the NEW source state is assumed to
-        # survive in the backup — the Mirror-era approximation.
-        $survivingContent = @{}; foreach ($s in $SourceDb) { $survivingContent["$($s.xxH2Hash)|$($s.Length)"] = $true }
-    }
+    # A DataPath any FINAL row still claims stays in the pool (SR-059).
+    # Deliberately a plain case-insensitive set: this mirrors eviction's B9
+    # refcount (string -eq), not the SR-034 RelativePath identity above.
+    $claimedData = @{}
+    foreach ($r in $FinalRows) { if (-not [string]::IsNullOrWhiteSpace($r.DataPath)) { $claimedData[$r.DataPath] = $true } }
 
     foreach ($chg in $NewOrChanged) {
         $old = $backupByRel[$chg.RelativePath]
         if (-not $old) { continue }                                  # brand-new file: nothing superseded
         if ($old.xxH2Hash -eq $chg.xxH2Hash -and $old.Length -eq $chg.Length) { continue }  # same content
         if ([string]::IsNullOrWhiteSpace($old.DataPath)) { continue }
-        $survives = if ($useExact) { $claimedData.ContainsKey($old.DataPath) }
-                    else { [bool]$survivingContent["$($old.xxH2Hash)|$($old.Length)"] }
-        if ($survives) { continue }  # a live row still claims the old object / old content still live elsewhere
+        if ($claimedData.ContainsKey($old.DataPath)) { continue }    # a live row still claims the old object
         $srcDataFull = Join-Path $BkpPath $old.DataPath
         if (-not (Test-Path -LiteralPath $srcDataFull -PathType Leaf)) { continue }  # already moved / shared
         $destFull = Join-Path $StagingFolder $old.DataPath
@@ -3442,26 +3434,12 @@ function Invoke-BackupSet {
             -BackupBytes $demand.BackupBytes -ChangeBytes $demand.ChangeBytes
     } catch { & $refuseCapacity $_.Exception.Message }
 
-    # 9.5 Mirror only — dies with the mode at WP9 step 5. Mirror's copy step
-    # overwrites IN PLACE (the destination is the row's own path), so superseded
-    # bytes must be preserved BEFORE step 10, when the final manifest cannot
-    # exist yet — forcing the source-based survival approximation that D-1
-    # documents (defect review 2026-08-24). Content-addressed sets preserve at
-    # step 11.5 with the exact test instead (SR-059).
-    # A move failure is aggregated, not thrown (SR-041): the run must reach
-    # step 13 so the staging folder is finalized or discarded rather than
-    # orphaned for the next run's SR-017 guard.
-    if ([bool]$Set.PreserveFolderTree) {
-        Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb -SourceDb $sourceDb `
-            -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
-    }
-
     # 10. Copy new/changed files
     foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
         Invoke-BackupFileGroup `
             -Group $grp.Group `
             -SrcPath $paths.SrcPath -BkpPath $paths.BkpPath `
-            -PreserveFolderTree ([bool]$Set.PreserveFolderTree) -CompressEnabled ([bool]$Set.CompressEnabled) `
+            -CompressEnabled ([bool]$Set.CompressEnabled) `
             -SevenZipPath $Deps['7z'] -BackupDb $backupDb `
             -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) `
             -Log $log -OverallSuccess $OverallSuccess
@@ -3476,17 +3454,17 @@ function Invoke-BackupSet {
 
     # 11.5 Preserve superseded bytes into the snapshot (SR-059, LLR-059).
     # Content addressing never overwrites an existing object at step 10, so
-    # preservation can run AFTER the copy/evict steps and ask the exact
+    # preservation runs AFTER the copy/evict steps and asks the exact
     # question: does any row of the FINAL manifest still claim the old object?
     # Frozen rows (SR-055/SR-057) and rows whose copy failed keep their claim,
-    # so their bytes now correctly stay in the pool — the source-based
-    # approximation at step 9.5 moved them out (the D-1 family). Failures
-    # aggregate, not throw (SR-041), same as above.
-    if (-not [bool]$Set.PreserveFolderTree) {
-        Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb `
-            -FinalRows @($backupMap.Values) `
-            -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
-    }
+    # so their bytes correctly stay in the pool — the pre-WP9 source-based
+    # approximation moved them out (the D-1 family). A move failure is
+    # aggregated, not thrown (SR-041): the run must reach step 13 so the
+    # staging folder is finalized or discarded rather than orphaned for the
+    # next run's SR-017 guard.
+    Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb `
+        -FinalRows @($backupMap.Values) `
+        -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
 
     # 12. Save updated backup manifest
     $backupDbFinal = $backupMap.Values | Sort-Object { $_.RelativePath.Length } -Descending
@@ -3535,7 +3513,7 @@ function Assert-NoUnknownConfigKey {
 
     $topLevelKeys = 'ConfigVersion', 'BackupSets', 'Tools', 'Secrets'
     $setKeys      = 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq',
-                    'CompressEnabled', 'PreserveFolderTree', 'SourceStatePath', 'AllowEmptySource'
+                    'CompressEnabled', 'SourceStatePath', 'AllowEmptySource'
     $toolsKeys    = 'SevenZipPath', 'FfprobePath'
     $secretsKeys  = 'ToEmail', 'FromEmail', 'SmtpServer', 'SmtpPort', 'Credential'
 
@@ -3657,16 +3635,16 @@ function Test-BackupConfigurationShape {
     .SYNOPSIS
         Validates the BackupSets shape shared by the JSON and CLIXML config
         branches (SR-042): at least one set, five non-empty required strings,
-        presence of the two boolean fields, and a recognized HashRecalcFreq.
+        presence of CompressEnabled, and a recognized HashRecalcFreq.
         Message wording matches the pre-SR-042 checks verbatim so existing
         callers and tests are unaffected.
     .PARAMETER StrictTypes
         JSON only. Additionally type-checks EVERY schema-defined value against
         its JSON type before any coercion runs, so none of PowerShell's silent
         conversions can change the meaning of the document: [bool]'false' is
-        $true (a quoted "false" for CompressEnabled/PreserveFolderTree/
-        AllowEmptySource would enable the feature the operator disabled — and
-        for AllowEmptySource that disarms the SR-036 delete-all refusal), and
+        $true (a quoted "false" for CompressEnabled/AllowEmptySource would
+        enable the feature the operator disabled — and for AllowEmptySource
+        that disarms the SR-036 delete-all refusal), and
         [string]@('x','y') is 'x y' (an array where a path belongs would become
         a literal two-word path). Covers every set string, the three set
         booleans, the optional Tools/Secrets strings, Secrets.SmtpPort as an
@@ -3720,7 +3698,7 @@ function Test-BackupConfigurationShape {
                 throw "Every backup set must define a non-empty '$field'."
             }
         }
-        foreach ($field in 'CompressEnabled', 'PreserveFolderTree') {
+        foreach ($field in @('CompressEnabled')) {
             if ($set.PSObject.Properties.Name -notcontains $field) {
                 throw "Backup set '$($set.Name)' must define '$field' as true or false."
             }
@@ -3799,7 +3777,6 @@ function Resolve-BackupSetDefaults {
             ChangePath         = [string]$set.ChangePath
             HashRecalcFreq     = ([string]$set.HashRecalcFreq).ToUpperInvariant()
             CompressEnabled    = [bool]$set.CompressEnabled
-            PreserveFolderTree = [bool]$set.PreserveFolderTree
             AllowEmptySource   = $allowEmptySource
         }
     }

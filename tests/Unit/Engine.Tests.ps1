@@ -182,7 +182,7 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
             ConfigVersion = 1
             BackupSets = @(@{
                 Name = 'JSON'; SourcePath = $source; BackupPath = $backup; ChangePath = $changes
-                HashRecalcFreq = 'N'; CompressEnabled = $false; PreserveFolderTree = $false
+                HashRecalcFreq = 'N'; CompressEnabled = $false
             })
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $config -Encoding UTF8
 
@@ -238,14 +238,14 @@ Describe 'Configuration loader accepts the documented contract (SR-042)' {
     }
 
     It 'wraps a single bare BackupSets object, as the published schema''s anyOf allows (SR-042)' {
-        $path = New-FixtureConfig -Json '{"ConfigVersion":1,"BackupSets":{"Name":"bare","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false}}'
+        $path = New-FixtureConfig -Json '{"ConfigVersion":1,"BackupSets":{"Name":"bare","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false}}'
         $result = Import-BackupConfiguration -Path $path
         $result.Sets.Count | Should -Be 1
         $result.Sets[0].Name | Should -Be 'bare'
     }
 
     It 'accepts an integral-valued ConfigVersion number (JSON has one number type: 1.0 IS 1) (SR-042)' {
-        $path = New-FixtureConfig -Json '{"ConfigVersion":1.0,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false}]}'
+        $path = New-FixtureConfig -Json '{"ConfigVersion":1.0,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false}]}'
         (Import-BackupConfiguration -Path $path).ConfigVersion | Should -Be 1
     }
 
@@ -256,7 +256,7 @@ Describe 'Configuration loader accepts the documented contract (SR-042)' {
             BackupSets    = @(
                 [ordered]@{
                     Name = 'S'; SourcePath = 'C:\src'; BackupPath = 'C:\bkp'; ChangePath = 'C:\chg'
-                    HashRecalcFreq = 'n'; CompressEnabled = $true; PreserveFolderTree = $false
+                    HashRecalcFreq = 'n'; CompressEnabled = $true
                 }
             )
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $path -Encoding UTF8
@@ -271,7 +271,7 @@ Describe 'Configuration loader accepts the documented contract (SR-042)' {
         $path = Join-Path $TestDrive 'clixml-config.xml'
         $set = [pscustomobject]@{
             Name = 'TestSet'; SourcePath = 'C:\src'; BackupPath = 'C:\bkp'; ChangePath = 'C:\chg'
-            HashRecalcFreq = 'A'; CompressEnabled = $true; PreserveFolderTree = $false
+            HashRecalcFreq = 'A'; CompressEnabled = $true
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $path
 
@@ -304,7 +304,7 @@ Describe 'Configuration loader fails loudly and names the key (SR-042)' {
     It 'refuses a quoted "false" for AllowEmptySource rather than coercing it TRUE and disarming the SR-036 delete-all refusal (SR-042)' {
         # The reviewer's reproduction: [bool]'false' is $true in PowerShell, so
         # before this check the run silently emptied the backup root and exited 0.
-        $path = New-DefectiveConfig -Json '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false,"AllowEmptySource":"false"}]}'
+        $path = New-DefectiveConfig -Json '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"AllowEmptySource":"false"}]}'
         # -Match (regex), not -ExpectedMessage (wildcard): [0] is a character
         # class to a wildcard pattern, so it would not pin the JSON path.
         $err = { Import-BackupConfiguration -Path $path } | Should -Throw -PassThru
@@ -312,8 +312,8 @@ Describe 'Configuration loader fails loudly and names the key (SR-042)' {
     }
 
     It 'names the offending set by its real index, not a literal [?] (SR-042)' {
-        $good = '{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true,"PreserveFolderTree":false}'
-        $bad  = '{"Name":"b","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false","PreserveFolderTree":false}'
+        $good = '{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}'
+        $bad  = '{"Name":"b","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false"}'
         $path = New-DefectiveConfig -Json "{`"ConfigVersion`":1,`"BackupSets`":[$good,$bad]}"
         $err = { Import-BackupConfiguration -Path $path } | Should -Throw -PassThru
         $err.Exception.Message | Should -Match '\$\.BackupSets\[1\]\.CompressEnabled'

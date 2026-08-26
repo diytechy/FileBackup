@@ -27,8 +27,10 @@ function Get-PoolByteVerifiedHashes {
     foreach ($folder in $Folders) {
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
         $root = (Resolve-Path -LiteralPath $folder).Path.TrimEnd('\', '/')
-        foreach ($f in @(Get-ChildItem -LiteralPath $root -File -Recurse -Force)) {
-            if ($f.Name -match $skip -and [IO.Path]::GetDirectoryName($f.FullName) -eq $root) { continue }
+        foreach ($f in @(Get-ChildItem -LiteralPath $folder -File -Recurse -Force)) {
+            # Trimmed both sides: at a bare drive root GetDirectoryName keeps
+            # the trailing slash the resolved root trims (WP9 step-5 finding).
+            if ($f.Name -match $skip -and ([IO.Path]::GetDirectoryName($f.FullName)).TrimEnd('\', '/') -eq $root) { continue }
             try {
                 $key = "$(Get-FileXxHash -FilePath $f.FullName)|$($f.Length)"
                 $set[$key] = 1 + [int]$set[$key]
@@ -109,6 +111,50 @@ function Get-PoolContentCopyCount {
     if (-not $SevenZipPath) { $SevenZipPath = (Get-FileBackupDefaults).SevenZipDefaultPath }
     $verified = Get-PoolByteVerifiedHashes -Folders $Folders -SevenZipPath $SevenZipPath
     return [int]$verified["$Hash|$Length"]
+}
+
+function Get-HashNameGrammarViolations {
+    <#
+    .SYNOPSIS
+        TC-123 (SR-058): every non-infrastructure file at the backup root must
+        carry the content-addressed name grammar "<hash16> <len10><ext>" —
+        16 alphabet glyphs, one space, 10 alphabet glyphs, then the extension —
+        and pool objects are flat at the root, never nested.
+
+    .DESCRIPTION
+        The work-order §3.1 compensating control for the deleted SR-022
+        copy-branch refusal: a grammar name can never spell a root-level
+        infrastructure name, so proving the grammar at the root proves that
+        collision class stays dead. Assumes ChangePath lies OUTSIDE the backup
+        root (the harness default) — snapshot folders are not walked here.
+    #>
+    param([string]$BackupRoot)
+    $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    $violations = @()
+    $root = (Resolve-Path -LiteralPath $BackupRoot).Path.TrimEnd('\', '/')
+    foreach ($f in @(Get-ChildItem -LiteralPath $BackupRoot -File -Recurse -Force)) {
+        # Trim BOTH sides: at a bare drive root (the subst harness),
+        # GetDirectoryName returns 'X:\' while the resolved root trims to 'X:'.
+        $isRootLevel = (([IO.Path]::GetDirectoryName($f.FullName)).TrimEnd('\', '/') -eq $root)
+        if ($isRootLevel -and $f.Name -match $skip) { continue }
+        if (-not $isRootLevel) {
+            $violations += "'$($f.FullName)': pool objects are flat at the backup root; nothing may nest below it"
+            continue
+        }
+        $name = $f.Name
+        $ok = $false
+        if ($name.Length -ge 27 -and $name[16] -eq ' ') {
+            # Both encoded halves must decode under the short-name alphabet;
+            # whatever follows position 27 is the extension.
+            try {
+                [void](Convert-ShortNameToHex -ShortName $name.Substring(0, 16))
+                [void](Convert-ShortNameToHex -ShortName $name.Substring(17, 10))
+                $ok = $true
+            } catch { $ok = $false }
+        }
+        if (-not $ok) { $violations += "'$name' at the backup root does not match the content-addressed name grammar" }
+    }
+    return $violations
 }
 
 function Get-ClaimedRowViolations {

@@ -19,10 +19,10 @@ BeforeAll {
 
     function New-FBConfig {
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg,
-              [bool]$Compress = $false, [bool]$ContentAddressed = $false, [string]$Name = 'S')
+              [bool]$Compress = $false, [string]$Name = 'S')
         $set = [pscustomobject]@{
             Name = $Name; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
-            HashRecalcFreq = 'A'; CompressEnabled = $Compress; PreserveFolderTree = (-not $ContentAddressed)
+            HashRecalcFreq = 'A'; CompressEnabled = $Compress
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
     }
@@ -37,12 +37,12 @@ BeforeAll {
             can only reach by hash (Save-SupersededData parks superseded bytes
             in the newest snapshot — the expensive prune case).
         #>
-        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false,
+        param([string]$Root, [bool]$Compress = $false,
               [bool]$SuffixNamedUserFiles = $false)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
 
         [IO.File]::WriteAllText((Join-Path $src 'keep.txt'),  'KEEP ' * 40)
@@ -52,9 +52,11 @@ BeforeAll {
         # travel through prune like any other content.
         [IO.File]::WriteAllText((Join-Path $src 'sub\MANIFEST.csv'), 'nested,not,infrastructure' * 5)
         # WP4 review finding H1: a genuine user file whose name ends in the
-        # prune mechanism's staging suffix. In Mirror mode it is stored at its
-        # verbatim path, so a bare-suffix sweep destroyed it in every folder at
-        # once. Root-level AND nested, because the sweep recursed.
+        # prune mechanism's staging suffix. Mirror stored it at its verbatim
+        # path, so a bare-suffix sweep destroyed it in every folder at once
+        # (root-level AND nested, because the sweep recursed). The committed
+        # sweep must stay name-precise even now that pool objects are
+        # hash-named.
         if ($SuffixNamedUserFiles) {
             [IO.File]::WriteAllText((Join-Path $src 'notes.fbprune.tmp'), 'USER CONTENT THAT MERELY LOOKS LIKE RESIDUE ' * 3)
             [IO.File]::WriteAllText((Join-Path $src 'sub\notes.fbprune.tmp'), 'NESTED USER CONTENT ' * 7)
@@ -132,11 +134,11 @@ BeforeAll {
             single-copy file, and it is why the D-5 timeline below is kept
             separate rather than folded in.
         #>
-        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+        param([string]$Root, [bool]$Compress = $false)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
 
         $one = 'SHARED-CONTENT-ONE ' * 60
@@ -153,9 +155,10 @@ BeforeAll {
         [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $one)
         & $run ([datetime]'2024-02-02 00:00:02')      # => Snapshot_2024_01_01_00_00_01
 
-        # run3 - an ORDINARY edit of the owner. In Mirror the destination is the
-        # owner's own path, so this overwrites the bytes the borrower still
-        # claims; the borrower did not change, so nothing revisits its row.
+        # run3 - an ORDINARY edit of the owner. Under the deleted Mirror layout
+        # the destination was the owner's own path, overwriting the bytes the
+        # borrower still claimed (D-1); content addressing writes a NEW object
+        # instead, and this timeline is what proves the borrower survives.
         [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $two)
         & $run ([datetime]'2024-03-03 00:00:03')      # => Snapshot_2024_02_02_00_00_02
 
@@ -172,11 +175,11 @@ BeforeAll {
             The D-5 shape: two identical files FIRST SEEN IN ONE RUN, where the
             dedup lookup consults only the prior backup and so finds nothing.
         #>
-        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+        param([string]$Root, [bool]$Compress = $false)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         $one = 'SAME-RUN-DUPLICATE ' * 60
         [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
         [IO.File]::WriteAllText((Join-Path $src 'sub\b.bin'), $one)
@@ -208,7 +211,7 @@ BeforeAll {
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'locked') -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
 
         $one = 'FROZEN-SHARED-ONE ' * 60
@@ -250,7 +253,7 @@ BeforeAll {
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
 
         $one = 'EVICT-AND-SUPERSEDE ' * 60
@@ -284,7 +287,7 @@ BeforeAll {
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         $run = { param([datetime]$d) & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $d *>&1 | Out-Null }
 
         $one = 'MEMBER-REMOVED-SHARED ' * 60
@@ -360,9 +363,9 @@ Describe 'Independent multi-set processing (SR-014)' {
 
         $bad = [pscustomobject]@{ Name='Bad'; SourcePath=(Join-Path $TestDrive 's14\does-not-exist')
             BackupPath=(Join-Path $TestDrive 's14\bbkp'); ChangePath=(Join-Path $TestDrive 's14\bchg')
-            HashRecalcFreq='A'; CompressEnabled=$false; PreserveFolderTree=$true }
+            HashRecalcFreq='A'; CompressEnabled=$false }
         $goodSet = [pscustomobject]@{ Name='Good'; SourcePath=$good; BackupPath=$bkp; ChangePath=$chg
-            HashRecalcFreq='A'; CompressEnabled=$false; PreserveFolderTree=$true }
+            HashRecalcFreq='A'; CompressEnabled=$false }
         @{ Secrets=$null; BackupSets=@($bad, $goodSet) } | Export-Clixml -LiteralPath $cfg
 
         # Child process so we can read the exit code without affecting this runspace.
@@ -495,16 +498,14 @@ Describe 'Clean cutover from Pre_*_Changes (SR-028)' {
 
 Describe 'Point-in-time restore from a dated snapshot (SR-010)' {
     It 'restores a modified file at its OLD version from the snapshot, latest from the root (<Mode>)' -ForEach @(
-        @{ Mode = 'Mirror';              Compress = $false; CA = $false }
-        @{ Mode = 'Mirror+Compress';     Compress = $true;  CA = $false }
-        @{ Mode = 'HashAddressed';       Compress = $false; CA = $true  }
-        @{ Mode = 'HashAddressed+Comp';  Compress = $true;  CA = $true  }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true  }
     ) {
         $root = Join-Path $TestDrive ("pit\" + ($Mode -replace '\W', ''))
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src, $root -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $CA
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
 
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'VERSION-ONE'); Invoke-FB $cfg   # run1 (no snapshot)
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'VERSION-TWO'); Invoke-FB $cfg   # run2 ⇒ Snapshot of state-1
@@ -633,8 +634,10 @@ Describe 'Restore fails loudly when content is unrecoverable (SR-029)' {
         { & $recon -TargetRoot $tOk } | Should -Not -Throw
         [IO.File]::ReadAllText((Join-Path $tOk 'doomed.txt')) | Should -Be 'DOOMED'
 
-        # Destroy doomed.txt's only data source (Mirror mode: the mirrored file).
-        Remove-Item -LiteralPath (Join-Path $bkp 'doomed.txt') -Force
+        # Destroy doomed.txt's only data source (its content-addressed pool object).
+        $doomedData = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                        Where-Object RelativePath -eq 'doomed.txt')[0].DataPath
+        Remove-Item -LiteralPath (Join-Path $bkp $doomedData) -Force
         $tBad = Join-Path $root 'r-bad'
         { & $recon -TargetRoot $tBad } | Should -Throw -ExpectedMessage '*1 file(s) could not be restored*'
         # The recoverable row was still restored before the failure surfaced.
@@ -801,19 +804,21 @@ Describe 'Restore target guard (SR-009)' {
     }
 }
 
-Describe 'Hash recovery of a nested infra-named row (SR-022, SR-010)' {
+Describe 'Hash recovery of a nested infra-named pool file (SR-022, SR-010)' {
     # 2026-07-03 bash-v1 finding (human-approved fix): Find-DataFileByHash applied
-    # the infrastructure-name skip RECURSIVELY, so a nested user file named like
-    # infrastructure (B6: sub\MANIFEST.csv) was unrecoverable from a Mirror-mode
-    # snapshot — its only surviving copy is the Mirror data file of the same name.
-    # The contract (AGENTS.md §3) is root-level-only. The skip is an optimization,
-    # not a correctness mechanism: recovery matches on (xxH2Hash, Length).
-    It 'restores a Mirror snapshot whose blanked sub\MANIFEST.csv row recovers from the backup root (B6, TC-058)' {
+    # the infrastructure-name skip RECURSIVELY, so a NESTED pool file named like
+    # infrastructure (B6) was invisible to hash recovery. The contract
+    # (AGENTS.md §3) is root-level-only; the skip is an optimization, not a
+    # correctness mechanism: recovery matches on (xxH2Hash, Length). The engine
+    # no longer produces nested pool files (hash names are flat at the root),
+    # so the legacy-store shape is CONSTRUCTED — the restorer deliberately
+    # still serves legacy stores (work-order R1), where it occurs naturally.
+    It 'recovers a blanked row whose only copy is a NESTED infra-named pool file (B6, TC-058)' {
         $root = Join-Path $TestDrive 'nestedinfra'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg    # Mirror, no compress
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
 
         [IO.File]::WriteAllText((Join-Path $src 'sub\MANIFEST.csv'), 'NESTED-USER-DATA')
         [IO.File]::WriteAllText((Join-Path $src 'other.txt'), 'v1')
@@ -821,8 +826,18 @@ Describe 'Hash recovery of a nested infra-named row (SR-022, SR-010)' {
         [IO.File]::WriteAllText((Join-Path $src 'other.txt'), 'v2')
         Invoke-FB $cfg                                            # run2 ⇒ Snapshot of state-1
 
-        # In the snapshot, the unchanged sub\MANIFEST.csv row is blanked (bytes
-        # live only as the backup root's Mirror data file bkp\sub\MANIFEST.csv).
+        # Construct the legacy shape: the content's pool object renamed to a
+        # NESTED infrastructure name inside the backup root, its row blanked
+        # (witness re-stamped) — hash recovery is the only way back, and it
+        # must scan past the nested name because the skip is root-level-only.
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        $nested = @($rows | Where-Object RelativePath -eq 'sub\MANIFEST.csv')[0]
+        New-Item -ItemType Directory -Path (Join-Path $bkp 'sub') -Force | Out-Null
+        Move-Item -LiteralPath (Join-Path $bkp $nested.DataPath) -Destination (Join-Path $bkp 'sub\MANIFEST.csv') -Force
+        $nested.DataPath = ''
+        $rows | Export-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -NoTypeInformation
+        Write-ManifestWitness -FolderPath $bkp | Out-Null
+
         $snap = Get-ChildItem -LiteralPath $chg -Directory |
                 Where-Object { $_.Name -match '^Snapshot_' } | Select-Object -First 1
         $snap | Should -Not -BeNullOrEmpty
@@ -992,8 +1007,10 @@ Describe 'Hash-recovery failure causes are distinguishable (SR-040)' {
         [IO.File]::WriteAllText((Join-Path $src 'lost.txt'), 'LOST')
         Invoke-FB $cfg
 
-        # Destroy one row's only data source (Mirror mode).
-        Remove-Item -LiteralPath (Join-Path $bkp 'lost.txt') -Force
+        # Destroy one row's only data source (its content-addressed pool object).
+        $lostData = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                      Where-Object RelativePath -eq 'lost.txt')[0].DataPath
+        Remove-Item -LiteralPath (Join-Path $bkp $lostData) -Force
         $t = Join-Path $root 'r'
         { & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t } |
             Should -Throw -ExpectedMessage '*1 file(s) could not be restored (1 content-missing, 0 host)*'
@@ -1038,7 +1055,9 @@ Describe 'Restore exit-code table (SR-040)' {
     It 'returns 1 when a row only data source is gone (content class) (SR-040)' {
         $root = Join-Path $TestDrive 'x1'
         $bkp = New-ExitCodeOrigin $root
-        Remove-Item -LiteralPath (Join-Path $bkp 'a.txt') -Force
+        $aData = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                   Where-Object RelativePath -eq 'a.txt')[0].DataPath
+        Remove-Item -LiteralPath (Join-Path $bkp $aData) -Force
         Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', (Join-Path $root 'r')) |
             Should -Be 1
     }
@@ -1093,13 +1112,14 @@ Describe 'Restore exit-code table (SR-040)' {
         # the up-front 7-Zip precondition (exit 2) does not fire — the dependency
         # is discovered during recovery, which is a HOST problem, not lost data.
         $rows = Import-Csv -LiteralPath $manifest
+        $aData = $rows[0].DataPath
         $rows[0].DataPath = ''
         $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
         Write-ManifestWitness -FolderPath $bkp | Out-Null
         # The candidate must NOT carry the row's own bytes: since kit revision 5
         # a raw match under a '.7z' name recovers WITHOUT 7-Zip (TC-107), so
         # the dependency failure needs genuinely different candidate bytes.
-        Remove-Item -LiteralPath (Join-Path $bkp 'a.txt') -Force
+        Remove-Item -LiteralPath (Join-Path $bkp $aData) -Force
         [IO.File]::WriteAllText((Join-Path $bkp 'a.7z'), 'OTHER BYTES ENTIRELY')
 
         Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') `
@@ -1112,7 +1132,9 @@ Describe 'Restore exit-code table (SR-040)' {
         # the six Should -Throw assertions keep working unchanged.
         $root = Join-Path $TestDrive 'x-inproc'
         $bkp = New-ExitCodeOrigin $root
-        Remove-Item -LiteralPath (Join-Path $bkp 'a.txt') -Force
+        $aData = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                   Where-Object RelativePath -eq 'a.txt')[0].DataPath
+        Remove-Item -LiteralPath (Join-Path $bkp $aData) -Force
         { & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot (Join-Path $root 'r') } |
             Should -Throw -ExpectedMessage '*1 file(s) could not be restored*'
     }
@@ -1129,7 +1151,7 @@ Describe 'Move loops aggregate failures (SR-041)' {
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg    # Mirror, no compress
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
 
         # Run 1: four files, two of which this run will supersede/remove.
         [IO.File]::WriteAllText((Join-Path $src 'super.txt'),  'OLD-SUPERSEDED')
@@ -1137,19 +1159,27 @@ Describe 'Move loops aggregate failures (SR-041)' {
         [IO.File]::WriteAllText((Join-Path $src 'super2.txt'), 'OLD-SUPERSEDED-2')
         [IO.File]::WriteAllText((Join-Path $src 'gone2.txt'),  'OLD-REMOVED-2')
         Invoke-FB $cfg
+        # Resolve every pool object BEFORE run 2 replaces the rows: the loops
+        # move these hash-named objects, and the assertions below read them.
+        $r1data = @{}
+        foreach ($row in @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))) {
+            $r1data[$row.RelativePath] = $row.DataPath
+        }
 
-        # Set up run 2: supersede one file (Save-SupersededData path) and remove
-        # another (Move-RemovedFilesToStaging path), so BOTH loops have work.
+        # Set up run 2: supersede one file (Save-SupersededData, the step-11.5
+        # post-evict position — this is that arm's failure-aggregation
+        # coverage, step-4 review MIN-2) and remove another
+        # (Move-RemovedFilesToStaging), so BOTH loops have work.
         [IO.File]::WriteAllText((Join-Path $src 'super.txt'),  'NEW-CONTENT')
         [IO.File]::WriteAllText((Join-Path $src 'super2.txt'), 'NEW-CONTENT-2')
         Remove-Item -LiteralPath (Join-Path $src 'gone.txt')  -Force
         Remove-Item -LiteralPath (Join-Path $src 'gone2.txt') -Force
 
-        # Hold TWO backup data files open with no sharing, so their moves fail —
+        # Hold TWO pool objects open with no sharing, so their moves fail —
         # one in each loop. FileShare::None makes Move-Item throw exactly the way
         # a real locked file (AV scanner, open handle) does.
-        $lock1 = [IO.File]::Open((Join-Path $bkp 'super.txt'), 'Open', 'Read', 'None')
-        $lock2 = [IO.File]::Open((Join-Path $bkp 'gone.txt'),  'Open', 'Read', 'None')
+        $lock1 = [IO.File]::Open((Join-Path $bkp $r1data['super.txt']), 'Open', 'Read', 'None')
+        $lock2 = [IO.File]::Open((Join-Path $bkp $r1data['gone.txt']),  'Open', 'Read', 'None')
         try {
             # Child process so the exit code is observable.
             & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
@@ -1176,8 +1206,8 @@ Describe 'Move loops aggregate failures (SR-041)' {
         $snaps = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' })
         $snaps.Count | Should -Be 1
         $snap = $snaps[0].FullName
-        [IO.File]::ReadAllText((Join-Path $snap 'super2.txt')) | Should -Be 'OLD-SUPERSEDED-2'
-        [IO.File]::ReadAllText((Join-Path $snap 'gone2.txt'))  | Should -Be 'OLD-REMOVED-2'
+        [IO.File]::ReadAllText((Join-Path $snap $r1data['super2.txt'])) | Should -Be 'OLD-SUPERSEDED-2'
+        [IO.File]::ReadAllText((Join-Path $snap $r1data['gone2.txt']))  | Should -Be 'OLD-REMOVED-2'
 
         # 5. The snapshot was still FINALIZED (it has its own manifest + witness)
         #    rather than being abandoned mid-flight.
@@ -1328,7 +1358,7 @@ Describe 'Entry-point status codes (SR-043)' {
                 BackupSets    = @(
                     [ordered]@{
                         Name = $Name; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
-                        HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true
+                        HashRecalcFreq = 'A'; CompressEnabled = $false
                     }
                 )
             } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding UTF8
@@ -1379,7 +1409,7 @@ Describe 'Entry-point status codes (SR-043)' {
         New-Item -ItemType Directory -Path (Split-Path $seededLog) -Force | Out-Null
         [IO.File]::WriteAllText($seededLog, "PREVIOUS RUN EVIDENCE`r`n")
         $badCfg = Join-Path $root 'bad.json'
-        [IO.File]::WriteAllText($badCfg, '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false","PreserveFolderTree":false}]}')
+        [IO.File]::WriteAllText($badCfg, '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false"}]}')
 
         & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $badCfg `
             -GlobalLogPath $seededLog -NoMail -NonInteractive -ExitCode *>&1 | Out-Null
@@ -1460,8 +1490,8 @@ Describe 'Entry-point status codes (SR-043)' {
         [ordered]@{
             ConfigVersion = 1
             BackupSets    = @(
-                [ordered]@{ Name = 'A'; SourcePath = $srcA; BackupPath = $bkpA; ChangePath = (Join-Path $root 'chgA'); HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true }
-                [ordered]@{ Name = 'B'; SourcePath = $srcB; BackupPath = $bkpB; ChangePath = (Join-Path $root 'chgB'); HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true }
+                [ordered]@{ Name = 'A'; SourcePath = $srcA; BackupPath = $bkpA; ChangePath = (Join-Path $root 'chgA'); HashRecalcFreq = 'A'; CompressEnabled = $false }
+                [ordered]@{ Name = 'B'; SourcePath = $srcB; BackupPath = $bkpB; ChangePath = (Join-Path $root 'chgB'); HashRecalcFreq = 'A'; CompressEnabled = $false }
             )
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cfg -Encoding UTF8
 
@@ -1481,7 +1511,7 @@ Describe 'Optimize-ChangeFolders is unchanged by the shared index (SR-026)' {
     BeforeAll {
         function New-PoolRow {
             param([string]$DataPath, [string]$RelativePath, [long]$Length,
-                  [string]$Hash, [string]$Compressed = 'No', [string]$StoredAs = 'Original')
+                  [string]$Hash, [string]$Compressed = 'No', [string]$StoredAs = 'Hash')
             [pscustomobject]@{
                 DataPath = $DataPath; RelativePath = $RelativePath; Length = $Length
                 LastWriteTime = [datetime]'2024-01-01 00:00:00'; xxH2Hash = $Hash
@@ -1713,7 +1743,12 @@ Describe 'Prune refuses before mutating (SR-046)' {
                 param($e)
                 # Make the endangered row's re-homed name a ROOT-LEVEL
                 # infrastructure name at the destination — hash recovery skips
-                # those (B6), so re-homing onto one would hide the bytes.
+                # those (B6), so re-homing onto one would hide the bytes. Only
+                # a LEGACY path-addressed row can produce such a name (a hash
+                # name structurally cannot), so the row is constructed as
+                # 'Original': prune still serves legacy stores (SR-061 refuses
+                # only Backup), and this guard is why the re-home refusal
+                # survives WP9 step 5.
                 $plan   = Get-SnapshotPrunePlan -BackupRoot $e.Bkp -ChangeRoot $e.Chg -Name $e.Newest
                 $item   = $plan.Items.ToArray()[0]
                 $folder = Join-Path $e.Chg $e.Newest
@@ -1721,6 +1756,7 @@ Describe 'Prune refuses before mutating (SR-046)' {
                 $rows = @(Read-Manifest -FolderPath $folder)
                 $row  = @($rows | Where-Object { $_.DataPath -eq $item.SourceDataPath })[0]
                 $row.DataPath = 'backup.log'; $row.RelativePath = 'backup.log'
+                $row.StoredAsHashSize = 'Original'
                 Write-Manifest -FolderPath $folder -Records $rows } }
     ) {
         $root = Join-Path $TestDrive ('tc084-' + $Kind + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
@@ -1852,10 +1888,8 @@ Describe 'Prune re-homes the last copy before deleting (SR-045)' {
     }
 
     It 'in <Mode> re-homes the endangered bytes and every remaining state still restores byte-exact (SR-045)' -ForEach @(
-        @{ Mode = 'Mirror';                  Compress = $false; Hashed = $false }
-        @{ Mode = 'Mirror+Compress';         Compress = $true;  Hashed = $false }
-        @{ Mode = 'HashAddressed';           Compress = $false; Hashed = $true  }
-        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  Hashed = $true  }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true  }
     ) {
         $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
         if ($Compress -and -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
@@ -1863,7 +1897,7 @@ Describe 'Prune re-homes the last copy before deleting (SR-045)' {
             return
         }
         $root = Join-Path $TestDrive ('tc081-' + $Mode.Replace('+', '-'))
-        $env  = New-PruneTimeline -Root $root -Compress $Compress -ContentAddressed $Hashed
+        $env  = New-PruneTimeline -Root $root -Compress $Compress
 
         $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
         $plan.Items.Count | Should -BeGreaterThan 0
@@ -1957,10 +1991,8 @@ Describe 'Prune re-homes the last copy before deleting (SR-045)' {
 Describe 'Prune changes only the storage-form columns (SR-045)' {
     # TC-086: a column-wise before/after diff of EVERY manifest in the pool.
     It 'in <Mode> leaves the row sets and the six logical columns identical (SR-045)' -ForEach @(
-        @{ Mode = 'Mirror';                  Compress = $false; Hashed = $false }
-        @{ Mode = 'Mirror+Compress';         Compress = $true;  Hashed = $false }
-        @{ Mode = 'HashAddressed';           Compress = $false; Hashed = $true  }
-        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  Hashed = $true  }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true  }
     ) {
         $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
         if ($Compress -and -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
@@ -1968,7 +2000,7 @@ Describe 'Prune changes only the storage-form columns (SR-045)' {
             return
         }
         $root = Join-Path $TestDrive ('tc086-' + $Mode.Replace('+', '-'))
-        $env  = New-PruneTimeline -Root $root -Compress $Compress -ContentAddressed $Hashed
+        $env  = New-PruneTimeline -Root $root -Compress $Compress
         $survivors = @($env.Bkp, (Join-Path $env.Chg $env.Oldest))
 
         $before = @{}
@@ -2232,7 +2264,12 @@ Describe 'The entry sweep removes residue only, never user content (SR-046)' {
     BeforeAll {
         function Get-SuffixFile {
             param([pscustomobject]$Env)
-            return @((Join-Path $Env.Bkp 'notes.fbprune.tmp'), (Join-Path $Env.Bkp 'sub\notes.fbprune.tmp'))
+            # The user files' POOL OBJECTS. Hash-named since WP9 step 5, so a
+            # bare-suffix sweep cannot even see them by name any more — these
+            # resolved paths prove the bytes survive regardless of naming.
+            $rows = @(Import-Csv -LiteralPath (Join-Path $Env.Bkp 'MANIFEST.csv') |
+                      Where-Object { $_.RelativePath -in 'notes.fbprune.tmp', 'sub\notes.fbprune.tmp' })
+            return @($rows | ForEach-Object { Join-Path $Env.Bkp $_.DataPath } | Select-Object -Unique)
         }
         function Assert-SuffixFilesIntact {
             param([pscustomobject]$Env, [hashtable]$Expected)
@@ -2284,8 +2321,10 @@ Describe 'The entry sweep removes residue only, never user content (SR-046)' {
     It 'still sweeps a genuine staged copy sitting beside the user file in the same folder' {
         $root = Join-Path $TestDrive 'h1-mixed'
         $env  = New-PruneTimeline -Root $root -SuffixNamedUserFiles $true
-        $residue = Join-Path $env.Bkp 'keep.txt.fbprune.tmp'       # unreferenced: real residue
-        Copy-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination $residue
+        $keepData = @(Import-Csv -LiteralPath (Join-Path $env.Bkp 'MANIFEST.csv') |
+                      Where-Object RelativePath -eq 'keep.txt')[0].DataPath
+        $residue = Join-Path $env.Bkp ($keepData + '.fbprune.tmp')  # unreferenced: real residue
+        Copy-Item -LiteralPath (Join-Path $env.Bkp $keepData) -Destination $residue
 
         $removed = Invoke-PruneEntrySweep -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Log { param($m, $l) }
         $removed | Should -Be 1
@@ -2302,8 +2341,10 @@ Describe 'Prune mutates only inside the transaction (SR-046)' {
     It 'a refused prune leaves an interrupted run''s residue exactly where it was' {
         $root = Join-Path $TestDrive 'h2-refused'
         $env  = New-PruneTimeline -Root $root
-        $staged  = (Join-Path $env.Bkp 'keep.txt') + '.fbprune.tmp'
-        Copy-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination $staged
+        $keepData = @(Import-Csv -LiteralPath (Join-Path $env.Bkp 'MANIFEST.csv') |
+                      Where-Object RelativePath -eq 'keep.txt')[0].DataPath
+        $staged  = (Join-Path $env.Bkp $keepData) + '.fbprune.tmp'
+        Copy-Item -LiteralPath (Join-Path $env.Bkp $keepData) -Destination $staged
         $pruning = Join-Path $env.Chg ('Pruning_' + $env.Oldest + '_other')
         New-Item -ItemType Directory -Path $pruning -Force | Out-Null
 
@@ -2317,8 +2358,10 @@ Describe 'Prune mutates only inside the transaction (SR-046)' {
     It '-WhatIf sweeps nothing and reports nothing it did not do' {
         $root = Join-Path $TestDrive 'h2-whatif'
         $env  = New-PruneTimeline -Root $root
-        $staged = (Join-Path $env.Bkp 'keep.txt') + '.fbprune.tmp'
-        Copy-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination $staged
+        $keepData = @(Import-Csv -LiteralPath (Join-Path $env.Bkp 'MANIFEST.csv') |
+                      Where-Object RelativePath -eq 'keep.txt')[0].DataPath
+        $staged = (Join-Path $env.Bkp $keepData) + '.fbprune.tmp'
+        Copy-Item -LiteralPath (Join-Path $env.Bkp $keepData) -Destination $staged
         $pruning = Join-Path $env.Chg ('Pruning_' + $env.Newest)
         New-Item -ItemType Directory -Path $pruning -Force | Out-Null
 
@@ -2616,11 +2659,13 @@ Describe 'WP8 portable names and raw-candidate recovery (SR-055, SR-050)' {
         # the one Windows can host via the \\?\ prefix, so the whole scenario
         # runs on this platform.
         $goodRow = @(Read-Manifest -FolderPath $bkp | Where-Object RelativePath -eq 'good.txt')[0]
-        [IO.File]::Copy("\\?\$bkp\good.txt", "\\?\$bkp\bad.", $true)
+        # The frozen row shares good.txt's content-addressed object (dedup-legal
+        # and what a pre-guard Linux-written CA store would really hold; an
+        # 'Original' row would instead trip the SR-061 legacy-store refusal).
         $badRow = [pscustomobject]@{
-            DataPath = 'bad.'; RelativePath = 'bad.'; Length = $goodRow.Length
+            DataPath = $goodRow.DataPath; RelativePath = 'bad.'; Length = $goodRow.Length
             LastWriteTime = $goodRow.LastWriteTime; xxH2Hash = $goodRow.xxH2Hash
-            Compressed = 'No'; StoredAsHashSize = 'Original'; Duplicate = ''; MediaMBPerSec = ''
+            Compressed = $goodRow.Compressed; StoredAsHashSize = 'Hash'; Duplicate = ''; MediaMBPerSec = ''
         }
         Write-Manifest -FolderPath $bkp -Records (@(Read-Manifest -FolderPath $bkp) + $badRow)
         [IO.File]::WriteAllText("\\?\$src\bad.", ('GOOD ' * 40))
@@ -2633,7 +2678,7 @@ Describe 'WP8 portable names and raw-candidate recovery (SR-055, SR-050)' {
         $after = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
         @($after | Where-Object RelativePath -eq 'also-good.txt').Count | Should -Be 1 -Because 'the rest of the set still backs up'
         @($after | Where-Object RelativePath -eq 'bad.').Count | Should -Be 1 -Because 'the prior row is frozen, not evicted'
-        Test-Path -LiteralPath "\\?\$bkp\bad." | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $bkp $goodRow.DataPath) | Should -BeTrue -Because 'the frozen row''s shared object stays in the pool'
     }
 
     It 'hash-recovers a raw .7z-named candidate with no 7-Zip installed (SR-050, kit revision 5)' {
@@ -2696,7 +2741,9 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         # The verified initiating class: something outside FileBackup (AV
         # quarantine, cloud dehydration, a tidying operator) deletes the data
         # file inside the backup root. The source is untouched.
-        Remove-Item -LiteralPath (Join-Path $bkp 'unique.txt') -Force
+        $uniqueData = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
+                        Where-Object RelativePath -eq 'unique.txt')[0].DataPath
+        Remove-Item -LiteralPath (Join-Path $bkp $uniqueData) -Force
         # R5 shape in the same run: a NEW source file with the same content
         # must not adopt the blanked row.
         Copy-Item -LiteralPath (Join-Path $src 'unique.txt') -Destination (Join-Path $src 'copy.txt')
@@ -2720,8 +2767,16 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         $env  = New-PruneTimeline -Root $root
         # Kill the LAST copies of gone.txt's content: eviction parked its bytes
         # in the newest snapshot; the oldest snapshot's row reaches them only
-        # by hash. Deleting every physical copy leaves rows with no bytes.
-        Get-ChildItem -LiteralPath $env.Chg -Recurse -File -Filter 'gone.txt' | Remove-Item -Force
+        # by hash. The parked object is hash-named, so resolve its name from
+        # the snapshot manifests before deleting every physical copy.
+        $goneData = @(Get-ChildItem -LiteralPath $env.Chg -Directory |
+                      Where-Object Name -match '^Snapshot_' |
+                      ForEach-Object { Import-Csv -LiteralPath (Join-Path $_.FullName 'MANIFEST.csv') } |
+                      Where-Object { $_.RelativePath -eq 'gone.txt' -and $_.DataPath } |
+                      Select-Object -ExpandProperty DataPath -Unique)
+        foreach ($dp in $goneData) {
+            Get-ChildItem -LiteralPath $env.Chg -Recurse -File -Filter ([IO.Path]::GetFileName($dp)) | Remove-Item -Force
+        }
 
         $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Verify')
         $run.Code | Should -Be 1 -Because 'a store with unrestorable rows must not verify clean'
@@ -2761,15 +2816,17 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         Invoke-FB $cfg
 
         # A second physical copy of the same content under its own row.
+        # ('Hash', not the legacy 'Original': Verify would otherwise add a
+        # LegacyStoredForm finding this test is not about.)
         $rowA = @(Read-Manifest -FolderPath $bkp | Where-Object RelativePath -eq 'a.txt')[0]
-        Copy-Item -LiteralPath (Join-Path $bkp 'a.txt') -Destination (Join-Path $bkp 'spare.bin')
+        Copy-Item -LiteralPath (Join-Path $bkp $rowA.DataPath) -Destination (Join-Path $bkp 'spare.bin')
         $spare = [pscustomobject]@{
             DataPath = 'spare.bin'; RelativePath = 'spare.src'; Length = $rowA.Length
             LastWriteTime = $rowA.LastWriteTime; xxH2Hash = $rowA.xxH2Hash
-            Compressed = 'No'; StoredAsHashSize = 'Original'; Duplicate = ''; MediaMBPerSec = ''
+            Compressed = 'No'; StoredAsHashSize = 'Hash'; Duplicate = ''; MediaMBPerSec = ''
         }
         Write-Manifest -FolderPath $bkp -Records (@(Read-Manifest -FolderPath $bkp) + $spare)
-        [IO.File]::Delete((Join-Path $bkp 'a.txt'))
+        [IO.File]::Delete((Join-Path $bkp $rowA.DataPath))
 
         $parse = {
             param($output)
@@ -2892,7 +2949,12 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         Invoke-FBExit -Cfg $cfg | Should -Be 0 -Because 'with the lock gone the next scheduled run just works'
     }
 
-    It 'refuses a Mirror source file whose data path is a root-level infrastructure name, without corrupting the store (SR-022)' {
+    It 'backs up a source file named like ROOT-LEVEL infrastructure as ordinary data (SR-022, SR-058)' {
+        # Pre-WP9, Mirror had to REFUSE this file: its mirror-path destination
+        # was the real index at the backup root. Content addressing stores it
+        # at a hash name that structurally cannot collide with infrastructure
+        # (the TC-123 grammar), so the refusal class is gone and the file is
+        # simply backed up and restored like any other data.
         $root = Join-Path $TestDrive 'wg-infra'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $state = Join-Path $root 'state'; $cfg = Join-Path $root 'c.xml'
@@ -2902,20 +2964,23 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         $set = [pscustomobject]@{
             Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
             SourceStatePath = $state
-            HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true
+            HashRecalcFreq = 'A'; CompressEnabled = $false
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
         [IO.File]::WriteAllText((Join-Path $src 'MANIFEST.csv'), 'user,data,that,is,not,an,index')
         [IO.File]::WriteAllText((Join-Path $src 'ok.txt'), ('FINE ' * 40))
 
-        Invoke-FBExit -Cfg $cfg | Should -Be 1 -Because 'the colliding file is refused, not silently corrupted'
+        Invoke-FBExit -Cfg $cfg | Should -Be 0 -Because 'a hash-named object cannot collide with the index, so nothing is refused'
 
         $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
         @($rows | Where-Object RelativePath -eq 'ok.txt').Count | Should -Be 1
-        @($rows | Where-Object RelativePath -eq 'MANIFEST.csv').Count |
-            Should -Be 0 -Because 'a row pointing at the index would restore index bytes as user data'
-        # No FileBackupState torn-write residue either (publish-by-rename).
-        Test-Path -LiteralPath (Join-Path $bkp 'FileBackupState.json.tmp') | Should -BeFalse
+        $mrow = @($rows | Where-Object RelativePath -eq 'MANIFEST.csv')
+        $mrow.Count | Should -Be 1
+        $mrow[0].DataPath | Should -Not -Be 'MANIFEST.csv' -Because 'the object must never sit at the index name'
+        # Restore returns the USER'S bytes at that name, not the engine index.
+        $t = Join-Path $root 'restored'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t 'MANIFEST.csv')) | Should -Be 'user,data,that,is,not,an,index'
     }
 
     It 'restores a COPIED backup folder from the copy, not from the still-live original the sidecar records (B10, SR-010)' {
@@ -2964,8 +3029,10 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         $env  = New-PruneTimeline -Root $root
         # The Optimize crash window: the file a row NAMES is gone while
         # byte-identical content survives elsewhere in the pool. Renaming the
-        # root file reproduces exactly that shape.
-        Move-Item -LiteralPath (Join-Path $env.Bkp 'keep.txt') -Destination (Join-Path $env.Bkp 'keep.survives')
+        # root object reproduces exactly that shape.
+        $keepData = @(Import-Csv -LiteralPath (Join-Path $env.Bkp 'MANIFEST.csv') |
+                      Where-Object RelativePath -eq 'keep.txt')[0].DataPath
+        Move-Item -LiteralPath (Join-Path $env.Bkp $keepData) -Destination (Join-Path $env.Bkp 'keep.survives')
 
         $target = Join-Path $root 'restored'
         & (Join-Path $env.Bkp 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
@@ -2977,23 +3044,19 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
 # ---------------------------------------------------------------------------
 # WP9 step 1 — D-1 / D-5 repros (TC-118, TC-119, SR-059, SR-060).
 #
-# Two Describes on purpose:
-#   * the CONTRACT block asserts the behavior WP9 delivers, and passes today
-#     only in the content-addressed modes;
-#   * the CHANGE-DETECTOR block asserts that the two defects really do
-#     reproduce on Mirror today, so the repro is proven rather than asserted.
-#     It dies with the mode at WP9 step 5 — the same convention G2.8 uses.
-# The asymmetry between the two blocks IS the evidence that the contract block
-# tests something real.
+# The step-1 CHANGE-DETECTOR Describe (asserting both defects reproduce on
+# Mirror — the proof the contract blocks test something real) was deleted with
+# the mode at WP9 step 5, exactly as its own marker directed; commits e302593
+# and 9a1da7d hold the recorded asymmetry evidence.
 # ---------------------------------------------------------------------------
 
 Describe 'Shared content survives an owner edit (D-1, SR-059, TC-118)' {
     It 'keeps the borrower restorable after the owner is edited (<Mode>)' -ForEach @(
-        @{ Mode = 'HashAddressed';           Compress = $false; CA = $true }
-        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  CA = $true }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true }
     ) {
         $root = Join-Path $TestDrive ('d1\' + ($Mode -replace '\W', ''))
-        $t = New-BorrowTimeline -Root $root -Compress $Compress -ContentAddressed $CA
+        $t = New-BorrowTimeline -Root $root -Compress $Compress
 
         # (1) Store level: no row claims bytes that are not there. This is the
         # detector D-1 needed and nothing had - the borrowed file is PRESENT
@@ -3020,11 +3083,11 @@ Describe 'Shared content survives an owner edit (D-1, SR-059, TC-118)' {
 
 Describe 'Same-run duplicates are stored once (D-5, SR-060, TC-119)' {
     It 'writes ONE physical object for content first seen in one run (<Mode>)' -ForEach @(
-        @{ Mode = 'HashAddressed';           Compress = $false; CA = $true }
-        @{ Mode = 'HashAddressed+Compress';  Compress = $true;  CA = $true }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true }
     ) {
         $root = Join-Path $TestDrive ('d5\' + ($Mode -replace '\W', ''))
-        $t = New-SameRunDuplicateStore -Root $root -Compress $Compress -ContentAddressed $CA
+        $t = New-SameRunDuplicateStore -Root $root -Compress $Compress
 
         $rows = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv') |
                   Where-Object { $_.RelativePath -in 'a.bin', 'sub\b.bin' })
@@ -3036,37 +3099,19 @@ Describe 'Same-run duplicates are stored once (D-5, SR-060, TC-119)' {
     }
 }
 
-Describe 'D-1/D-5 change-detectors: both defects reproduce on Mirror today' {
-    # DELETE THIS WHOLE Describe WITH THE MODE at WP9 step 5. It exists to prove
-    # the two Describes above test something real: the identical timelines that
-    # pass content-addressed are corrupt or wasteful under Mirror. Written as an
-    # assertion of the defect (G2.8's convention) so the suite stays green per
-    # commit instead of carrying a known-red test through four steps.
-    It 'loses the borrower''s content when the owner is edited (<Mode>)' -ForEach @(
-        @{ Mode = 'Mirror';           Compress = $false; CA = $false }
-        @{ Mode = 'Mirror+Compress';  Compress = $true;  CA = $false }
+Describe 'Every stored row is content-addressed (SR-058, TC-121)' {
+    It 'names every DataPath by the hash grammar and stamps StoredAsHashSize=Hash (<Mode>)' -ForEach @(
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true }
     ) {
-        $root = Join-Path $TestDrive ('d1x\' + ($Mode -replace '\W', ''))
-        $t = New-BorrowTimeline -Root $root -Compress $Compress -ContentAddressed $CA
-
-        # D-1: the borrower's row still claims (hash,length) at a DataPath whose
-        # bytes are now the owner's NEW content. The file is present, so nothing
-        # else in the system notices.
-        @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) |
-            Should -Not -BeNullOrEmpty -Because 'D-1: the owner edit overwrote bytes another row still claims'
-    }
-
-    It 'stores same-run duplicates twice (<Mode>)' -ForEach @(
-        @{ Mode = 'Mirror';           Compress = $false; CA = $false }
-        @{ Mode = 'Mirror+Compress';  Compress = $true;  CA = $false }
-    ) {
-        $root = Join-Path $TestDrive ('d5x\' + ($Mode -replace '\W', ''))
-        $t = New-SameRunDuplicateStore -Root $root -Compress $Compress -ContentAddressed $CA
-
-        $row = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv') |
-                 Where-Object { $_.RelativePath -eq 'sub\b.bin' })[0]
-        Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $row.xxH2Hash -Length ([long]$row.Length) |
-            Should -Be 2 -Because 'D-5: the dedup lookup consults only the PRIOR backup, so a same-run pair is stored twice'
+        $root = Join-Path $TestDrive ('tc121\' + $Mode)
+        $t = New-SameRunDuplicateStore -Root $root -Compress $Compress
+        foreach ($row in @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv'))) {
+            $row.StoredAsHashSize | Should -Be 'Hash'
+            $row.DataPath | Should -Not -BeNullOrEmpty
+        }
+        @(Get-HashNameGrammarViolations -BackupRoot $t.Bkp) |
+            Should -BeNullOrEmpty -Because 'no configuration selects any other layout (SR-058)'
     }
 }
 
@@ -3084,8 +3129,8 @@ Describe 'D-1/D-5 change-detectors: both defects reproduce on Mirror today' {
 
 Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059, LLR-059)' {
     It 'keeps the pool object a FROZEN row still claims when the last walkable holder edits away (SR-057, TC-118 frozen-claim arm, <Mode>)' -ForEach @(
-        @{ Mode = 'HashAddressed';          Compress = $false }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true }
     ) {
         $root = Join-Path $TestDrive ('frz\' + ($Mode -replace '\W', ''))
         $t = New-FrozenClaimTimeline -Root $root -Compress $Compress
@@ -3122,8 +3167,8 @@ Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059,
     }
 
     It 'parks exactly one staged copy when eviction and supersession share content in one run (R4, TC-118 arm, <Mode>)' -ForEach @(
-        @{ Mode = 'HashAddressed';          Compress = $false }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true }
     ) {
         $root = Join-Path $TestDrive ('r4\' + ($Mode -replace '\W', ''))
         $t = New-EvictSupersedeTimeline -Root $root -Compress $Compress
@@ -3154,8 +3199,8 @@ Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059,
     }
 
     It 'keeps the old object in the pool when the replacement copy FAILS (TC-118 failed-copy arm, <Mode>)' -ForEach @(
-        @{ Mode = 'HashAddressed';          Compress = $false }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true }
     ) {
         # The severest exactness win (review 2026-08-25, MIN-1; red-first
         # proven by the reviewer's pre-change probe): a failed step-10 copy
@@ -3167,7 +3212,7 @@ Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059,
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $true
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
 
         $one = 'FAILED-COPY-OLD ' * 60
         $two = 'FAILED-COPY-NEW ' * 60
@@ -3210,10 +3255,10 @@ Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059,
 
 Describe 'One dedup member deleted while the other lives (B9, SR-006, TC-135)' {
     It 'keeps the shared object when the <Removed> is deleted and the snapshot restores the removed path (<Mode>)' -ForEach @(
-        @{ Mode = 'HashAddressed';          Compress = $false; RemoveBorrower = $false; Removed = 'owner' }
-        @{ Mode = 'HashAddressed';          Compress = $false; RemoveBorrower = $true;  Removed = 'borrower' }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  RemoveBorrower = $false; Removed = 'owner' }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  RemoveBorrower = $true;  Removed = 'borrower' }
+        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $false; Removed = 'owner' }
+        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $true;  Removed = 'borrower' }
+        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $false; Removed = 'owner' }
+        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $true;  Removed = 'borrower' }
     ) {
         $root = Join-Path $TestDrive ('tc135\' + $Removed + '\' + ($Mode -replace '\W', ''))
         $t = New-MemberRemovedTimeline -Root $root -Compress $Compress -RemoveBorrower:$RemoveBorrower
@@ -3251,7 +3296,7 @@ Describe 'One (hash,length) group elects one physical object (SR-060, TC-120)' {
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -ContentAddressed $true
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
         $body = 'SAME-BYTES-DIFFERENT-NAMES ' * 40
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), $body)
         [IO.File]::WriteAllText((Join-Path $src 'a.dat'), $body)
@@ -3278,7 +3323,7 @@ Describe 'One (hash,length) group elects one physical object (SR-060, TC-120)' {
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true -ContentAddressed $true
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
         # Identical bytes under a compressible and a non-compressible extension:
         # Test-ShouldCompress says YES for .txt and NO for .jpg (SR-004).
         $body = 'MIXED-COMPRESSIBILITY ' * 40
@@ -3321,8 +3366,8 @@ Describe 'A compression flip re-forms nothing already stored (SR-061, TC-124)' {
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         $cfgA = Join-Path $root 'a.xml'; $cfgB = Join-Path $root 'b.xml'
-        New-FBConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $Start -ContentAddressed $true
-        New-FBConfig -Path $cfgB -Src $src -Bkp $bkp -Chg $chg -Compress $Then  -ContentAddressed $true
+        New-FBConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $Start
+        New-FBConfig -Path $cfgB -Src $src -Bkp $bkp -Chg $chg -Compress $Then 
 
         $before = 'STORED-UNDER-THE-FIRST-SETTING ' * 40
         [IO.File]::WriteAllText((Join-Path $src 'first.txt'), $before)

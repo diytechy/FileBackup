@@ -20,7 +20,6 @@ BeforeAll {
         $set = [pscustomobject]@{
             Name = 'S'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
-            PreserveFolderTree = $true
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
     }
@@ -28,9 +27,10 @@ BeforeAll {
     function New-RVStore {
         <#
         .SYNOPSIS
-            A real Mirror backup of two known files under $Root, returning the
-            paths a tampering test needs. The deployed RECONSTRUCT.ps1 is the
-            restorer under test (copied verbatim from the repo at backup time).
+            A real content-addressed backup of two known files under $Root,
+            returning the paths a tampering test needs. The deployed
+            RECONSTRUCT.ps1 is the restorer under test (copied verbatim from
+            the repo at backup time).
         #>
         param([string]$Root, [bool]$Compress = $false)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
@@ -47,6 +47,19 @@ BeforeAll {
             Manifest = Join-Path $bkp 'MANIFEST.csv'
             Recon    = Join-Path $bkp 'RECONSTRUCT.ps1'
         }
+    }
+
+    function Get-RVPoolPath {
+        <#
+        .SYNOPSIS
+            The pool object backing a manifest row. Storage is content-addressed,
+            so a row's bytes live at its hash-named DataPath, never at its
+            RelativePath -- resolve this BEFORE any edit blanks the column.
+        #>
+        param([string]$Bkp, [string]$RelativePath)
+        $row = @(Import-Csv -LiteralPath (Join-Path $Bkp 'MANIFEST.csv') |
+                    Where-Object RelativePath -eq $RelativePath)[0]
+        return (Join-Path $Bkp $row.DataPath)
     }
 
     function Set-ManifestRows {
@@ -80,8 +93,9 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         # bytes are gone" (1) into "fix this host" (4).
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Force
+        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
         [IO.File]::WriteAllBytes((Join-Path $s.Bkp 'noise.7z'), [byte[]](1..64))
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
@@ -102,8 +116,9 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $s = New-RVStore -Root $root
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Force
+        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
         # A same-length candidate the locator must hash — held open with no
         # sharing, so the read throws (I/O/lock class, not data damage).
@@ -125,8 +140,9 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $s = New-RVStore -Root $root
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Force
+        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
         # A same-length .7z-named candidate, locked: with no 7-Zip the raw test
         # throws — 7-Zip could not have helped read a file that cannot be read,
@@ -198,8 +214,9 @@ Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
         $s = New-RVStore -Root $root
         # A good copy survives elsewhere in the pool under an unrelated name;
         # the row's own data file carries same-length wrong bytes.
-        Copy-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Destination (Join-Path $s.Bkp 'spare.bin')
-        Set-Content -LiteralPath (Join-Path $s.Bkp 'a.txt') -Value 'WRONG-CONTENT' -NoNewline
+        $aData = Get-RVPoolPath -Bkp $s.Bkp -RelativePath 'a.txt'
+        Copy-Item -LiteralPath $aData -Destination (Join-Path $s.Bkp 'spare.bin')
+        Set-Content -LiteralPath $aData -Value 'WRONG-CONTENT' -NoNewline
 
         $t = Join-Path $root 't'
         $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
@@ -215,9 +232,10 @@ Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
     It 'a same-length bit-flip with no surviving copy fails loudly naming the row: exit 1 (TC-108)' {
         $root = Join-Path $TestDrive 'd2-flip'
         $s = New-RVStore -Root $root
-        $bytes = [IO.File]::ReadAllBytes((Join-Path $s.Bkp 'a.txt'))
+        $aData = Get-RVPoolPath -Bkp $s.Bkp -RelativePath 'a.txt'
+        $bytes = [IO.File]::ReadAllBytes($aData)
         $bytes[-1] = $bytes[-1] -bxor 0xFF
-        [IO.File]::WriteAllBytes((Join-Path $s.Bkp 'a.txt'), $bytes)
+        [IO.File]::WriteAllBytes($aData, $bytes)
 
         $t = Join-Path $root 't'
         $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
@@ -235,7 +253,7 @@ Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
     It 'truncation is caught by the length check before any hashing (TC-108)' {
         $root = Join-Path $TestDrive 'd2-trunc'
         $s = New-RVStore -Root $root
-        Set-Content -LiteralPath (Join-Path $s.Bkp 'a.txt') -Value 'ALPHA' -NoNewline
+        Set-Content -LiteralPath (Get-RVPoolPath -Bkp $s.Bkp -RelativePath 'a.txt') -Value 'ALPHA' -NoNewline
 
         $t = Join-Path $root 't'
         $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
@@ -298,8 +316,10 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         $root = Join-Path $TestDrive 'd4-dotpool'
         $s = New-RVStore -Root $root
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
-        ($rows | Where-Object RelativePath -eq 'a.txt').DataPath = ''
-        Move-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Destination (Join-Path $s.Bkp '.pool-copy.bin')
+        $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        $aData = $a.DataPath
+        $a.DataPath = ''
+        Move-Item -LiteralPath (Join-Path $s.Bkp $aData) -Destination (Join-Path $s.Bkp '.pool-copy.bin')
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
         $t = Join-Path $root 't'
@@ -312,9 +332,11 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         $root = Join-Path $TestDrive 'd4-hidpool'
         $s = New-RVStore -Root $root
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
-        ($rows | Where-Object RelativePath -eq 'a.txt').DataPath = ''
+        $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        $aData = $a.DataPath
+        $a.DataPath = ''
         $pool = Join-Path $s.Bkp 'pool-copy.bin'
-        Move-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Destination $pool
+        Move-Item -LiteralPath (Join-Path $s.Bkp $aData) -Destination $pool
         (Get-Item -LiteralPath $pool -Force).Attributes = ((Get-Item -LiteralPath $pool -Force).Attributes -bor [IO.FileAttributes]::Hidden)
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
@@ -374,8 +396,9 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         $s = New-RVStore -Root $root
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
+        $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp 'a.txt') -Force
+        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
         # An archive-named candidate forces the expand attempt; the "7-Zip" is
         # an existing file that cannot execute, so expand AND self-test fail.

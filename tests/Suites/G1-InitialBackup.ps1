@@ -4,13 +4,13 @@
 #>
 function Invoke-G1 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G1-InitialBackup'
 
     # ---- G1.1 Empty source ----
     Reset-TestEnvironment $Env
     $cfg = Join-Path $Env.Root 'cfg-g1.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
     Assert-True $suite $group 'G1.1' 'EmptySource_completes' {
         try { Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null; $true }

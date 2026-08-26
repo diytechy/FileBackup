@@ -4,7 +4,7 @@
 #>
 function Invoke-G8 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G8-RealVolume'
 
     if ($Env.Backend -ne 'RealUSB') {
@@ -13,7 +13,7 @@ function Invoke-G8 {
     }
 
     $cfg = Join-Path $env:TEMP 'cfg-g8.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
     # G8.1 capacity sanity
     Assert-True $suite $group 'G8.1' 'VolumesPresent_andLabeled' {

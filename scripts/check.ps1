@@ -34,7 +34,7 @@
     expected then and must not fail the harness).
 
 .PARAMETER Modes
-    Integration storage-mode combos (forwarded to Run-All.ps1). Default: all four.
+    Integration compression combos (forwarded to Run-All.ps1). Default: both.
 
 .NOTES
     Mirrors the kit's scripts/check.py contract (gate + exit code), wired to the
@@ -44,7 +44,7 @@
 param(
     [ValidateSet('Smoke','Full','Release')][string]$Tier = 'Smoke',
     [ValidateSet('','G1','G2','G3','all')][string]$Gate = '',
-    [string]$Modes = 'Mirror,Mirror+Compress,HashAddressed,HashAddressed+Compress'
+    [string]$Modes = 'Plain,Compress'
 )
 
 $ErrorActionPreference = 'Stop'

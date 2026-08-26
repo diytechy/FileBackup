@@ -135,7 +135,7 @@ function New-HugeSparseFile {
 function Write-TestConfig {
     param(
         [string]$ConfigPath, [string]$SrcPath, [string]$BkpPath, [string]$ChgPath,
-        [bool]$Compress, [bool]$ContentAddressed, [string]$HashRecalcFreq = 'A',
+        [bool]$Compress, [string]$HashRecalcFreq = 'A',
         [string]$Name = 'TestSet'
     )
     $secrets = [pscustomobject]@{
@@ -152,7 +152,6 @@ function Write-TestConfig {
         ChangePath         = $ChgPath
         HashRecalcFreq     = $HashRecalcFreq
         CompressEnabled    = $Compress
-        PreserveFolderTree = -not $ContentAddressed
     }
     @{ Secrets = $secrets; BackupSets = @($set) } | Export-Clixml -LiteralPath $ConfigPath
 }

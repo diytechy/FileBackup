@@ -84,7 +84,6 @@ function New-SmokeConfiguration {
                 ChangePath = '/changes'
                 HashRecalcFreq = 'N'
                 CompressEnabled = $true
-                PreserveFolderTree = $false
                 AllowEmptySource = $false
             }
         )

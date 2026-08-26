@@ -17,7 +17,7 @@ BeforeAll {
         )
         $set = [pscustomobject]@{
             Name = 'Safety'; SourcePath = $Source; BackupPath = $Backup; ChangePath = $Changes
-            HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true
+            HashRecalcFreq = 'A'; CompressEnabled = $false
             AllowEmptySource = $AllowEmptySource
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
@@ -27,6 +27,15 @@ BeforeAll {
         param([string]$Config)
         & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $Config -NoMail -NonInteractive *>&1 | Out-Null
         return $LASTEXITCODE
+    }
+
+    function Get-StoredText {
+        # Storage is content-addressed: a row's bytes live at the hash-named
+        # pool object its manifest DataPath names, never at its RelativePath.
+        param([string]$Backup, [string]$RelativePath)
+        $row = @(Import-Csv -LiteralPath (Join-Path $Backup 'MANIFEST.csv') |
+                    Where-Object RelativePath -eq $RelativePath)[0]
+        return [IO.File]::ReadAllText((Join-Path $Backup $row.DataPath))
     }
 }
 
@@ -45,7 +54,7 @@ Describe 'Backup history safety gates (SR-035, SR-036)' {
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'NEW')
 
         (Invoke-SafetyBackup $cfg) | Should -Be 1
-        [IO.File]::ReadAllText((Join-Path $bkp 'f.txt')) | Should -Be 'OLD'
+        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
         (Get-FileHash -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Hash | Should -Be $manifestHash
         @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_').Count | Should -Be 0
     }
@@ -62,7 +71,7 @@ Describe 'Backup history safety gates (SR-035, SR-036)' {
         [IO.File]::WriteAllText((Join-Path $bkp 'FileBackupState.json'), '{broken')
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'NEW')
         (Invoke-SafetyBackup $cfg) | Should -Be 1
-        [IO.File]::ReadAllText((Join-Path $bkp 'f.txt')) | Should -Be 'OLD'
+        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
     }
 
     It 'blocks an unexpected empty source and permits an explicit delete-all override (SR-036)' {
@@ -76,7 +85,7 @@ Describe 'Backup history safety gates (SR-035, SR-036)' {
 
         Remove-Item -LiteralPath (Join-Path $src 'f.txt') -Force
         (Invoke-SafetyBackup $cfg) | Should -Be 1
-        [IO.File]::ReadAllText((Join-Path $bkp 'f.txt')) | Should -Be 'KEEP'
+        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'KEEP'
         @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Count | Should -Be 1
 
         New-SafetyConfig -Path $cfg -Source $src -Backup $bkp -Changes $chg -AllowEmptySource $true

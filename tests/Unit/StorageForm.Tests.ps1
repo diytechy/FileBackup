@@ -14,12 +14,12 @@ BeforeAll {
     $script:sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
 
     function New-FormConfig {
+        # Storage is always content-addressed (SR-061): there is no layout axis.
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg,
-              [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+              [bool]$Compress = $false)
         $set = [pscustomobject]@{
             Name = 'S'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
-            PreserveFolderTree = (-not $ContentAddressed)
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
     }
@@ -102,27 +102,27 @@ BeforeAll {
     function New-MalformedStore {
         <#
         .SYNOPSIS
-            A real Mirror backup of four files, then each row bent into one of
-            TC-091's four malformed shapes. The bytes are ground truth; only the
-            manifest and the data-file NAMES are tampered with.
+            A real content-addressed backup of four files, then each row bent
+            into one of TC-091's four malformed shapes. The bytes are ground
+            truth; only the manifest and the data-file NAMES are tampered with.
 
             a.txt  flag-over-raw     Compressed=Yes, DataPath 'a.txt.7z', RAW bytes
             b.txt  flag-over-archive Compressed=No,  DataPath 'b.txt',    ARCHIVE bytes
             c.txt  name-lies         Compressed=No,  DataPath 'c.txt.7z', RAW bytes
             d.txt  dangling-datapath Compressed=No,  DataPath 'd.txt',    no file
         #>
-        param([string]$Root, [bool]$Compress = $false, [bool]$ContentAddressed = $false)
+        param([string]$Root, [bool]$Compress = $false)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         foreach ($n in 'a', 'b', 'c', 'd') {
             [IO.File]::WriteAllText((Join-Path $src "$n.txt"), ("CONTENT-$n " * 40))
         }
         Invoke-FormBackup -Cfg $cfg | Out-Null
 
         # The shapes are written EXPLICITLY (bytes and DataPath both), so the
-        # fixture means the same thing in all four storage modes rather than
+        # fixture means the same thing with and without compression rather than
         # inheriting whatever form the seed run happened to produce.
         $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
         foreach ($row in $rows) {
@@ -181,11 +181,11 @@ BeforeAll {
             audit (SR-049) still have to handle a store in this state, they just
             can no longer reach it by a supported operation.
         #>
-        param([string]$Root, [bool]$StartCompressed, [bool]$ContentAddressed)
+        param([string]$Root, [bool]$StartCompressed)
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         $cfgA = Join-Path $Root 'a.xml'
-        New-FormConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $StartCompressed -ContentAddressed $ContentAddressed
+        New-FormConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $StartCompressed
 
         $aPath = Join-Path $src 'a.txt'
         [IO.File]::WriteAllText($aPath, ('THE-ORIGINAL-BYTES ' * 200))
@@ -234,22 +234,25 @@ Describe 'A backup run never re-forms stored data (SR-049, SR-061)' {
         ($rows | Where-Object RelativePath -eq 'a.txt').Compressed | Should -Be 'Yes'
         ($rows | Where-Object RelativePath -eq 'b.txt').Compressed | Should -Be 'No'
         ($rows | Where-Object RelativePath -eq 'c.txt').DataPath   | Should -Be 'c.txt.7z'
+        # WP7 (SR-053): the DANGLING shape is the exception to "untouched" — a
+        # row whose data file is missing is healed from the still-matching
+        # source by the run itself. Healing restores missing BYTES; it never
+        # rewrites the three FORM-malformed rows above (that is Verify/Repair's
+        # job, and the assertions below prove they stayed byte-identical).
+        # The healed copy is NAMED by the store (SR-061: a hash-size name), so
+        # it is identified from its own row rather than by assuming a path.
+        $healed = @($rows | Where-Object RelativePath -eq 'd.txt')[0]
+        $healed.DataPath | Should -Not -BeNullOrEmpty
+        $healedFull = Join-Path $store.Bkp $healed.DataPath
+        Test-Path -LiteralPath $healedFull | Should -BeTrue
         # Infrastructure (manifest, witness, run state, kit) is rewritten by every
         # run; the DATA files are what must be byte-identical. Get-DataFile applies
         # exactly the SR-022 root-level-only rule the engine itself uses.
         $after = Get-TreeFingerprint -Folder $store.Bkp
         foreach ($f in @(Get-DataFile -Root $store.Bkp)) {
-            if ($f.Name -eq 'd.txt') { continue }   # healed below — deliberately not byte-identical
+            if ($f.FullName -ieq $healedFull) { continue }   # healed above — deliberately not byte-identical
             $after[$f.FullName] | Should -Be $before[$f.FullName] -Because "data file '$($f.Name)' must be untouched"
         }
-        # WP7 (SR-053): the DANGLING shape is the exception to "untouched" — a
-        # row whose data file is missing is healed from the still-matching
-        # source by the run itself. Healing restores missing BYTES; it never
-        # rewrites the three FORM-malformed rows above (that is Verify/Repair's
-        # job, and the assertions above prove they stayed byte-identical).
-        $healed = @($rows | Where-Object RelativePath -eq 'd.txt')[0]
-        $healed.DataPath | Should -Not -BeNullOrEmpty
-        Test-Path -LiteralPath (Join-Path $store.Bkp $healed.DataPath) | Should -BeTrue
     }
 
     It 'reports one finding per malformed row with its class (SR-049)' {
@@ -269,15 +272,13 @@ Describe 'Hash recovery trusts the located file''s form (SR-050)' {
     # TC-092 — the no-tampering repro. Before the SR-050 fix the first case exits
     # 0 having written 7z container bytes under the original filename (silent
     # corruption) and the second exits 4 with a misfiled host-class cause.
-    It 'restores a snapshot byte-exact after compression is turned <Flip> (mode <Mode>) (SR-050)' -ForEach @(
-        @{ Flip = 'on';  StartCompressed = $false; Mode = 'Mirror';        ContentAddressed = $false }
-        @{ Flip = 'off'; StartCompressed = $true;  Mode = 'Mirror';        ContentAddressed = $false }
-        @{ Flip = 'on';  StartCompressed = $false; Mode = 'HashAddressed'; ContentAddressed = $true  }
-        @{ Flip = 'off'; StartCompressed = $true;  Mode = 'HashAddressed'; ContentAddressed = $true  }
+    It 'restores a snapshot byte-exact after compression is turned <Flip> (SR-050)' -ForEach @(
+        @{ Flip = 'on';  StartCompressed = $false }
+        @{ Flip = 'off'; StartCompressed = $true  }
     ) {
-        $t = New-FormDivergedTimeline -Root (Join-Path $TestDrive "tc092-$Flip-$Mode") `
-                -StartCompressed $StartCompressed -ContentAddressed $ContentAddressed
-        $target = Join-Path $TestDrive "tc092-$Flip-$Mode-out"
+        $t = New-FormDivergedTimeline -Root (Join-Path $TestDrive "tc092-$Flip") `
+                -StartCompressed $StartCompressed
+        $target = Join-Path $TestDrive "tc092-$Flip-out"
         & (Join-Path $t.Snapshot 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
         $restored = Join-Path $target 'a.txt'
         Test-Path -LiteralPath $restored -PathType Leaf | Should -BeTrue
@@ -442,16 +443,14 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
     # TC-093 — the audit itself: one finding per disagreeing row across the
     # backup root AND every snapshot, nothing touched, outcome on the SR-040 table.
     It 'reports zero findings for a clean backup in mode <Mode> and exits 0 (SR-049)' -ForEach @(
-        @{ Mode = 'Mirror';                 Compress = $false; ContentAddressed = $false }
-        @{ Mode = 'Mirror+Compress';        Compress = $true;  ContentAddressed = $false }
-        @{ Mode = 'HashAddressed';          Compress = $false; ContentAddressed = $true  }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  ContentAddressed = $true  }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true  }
     ) {
         $root = Join-Path $TestDrive "tc093-$Mode"
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
-        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         [IO.File]::WriteAllText((Join-Path $src 'text.txt'), ('COMPRESSIBLE ' * 200))
         # REAL 7z bytes, under a '.7z' name and under a name that hides it: both
         # are already-compressed SOURCE files stored raw, and a clean-store
@@ -473,10 +472,8 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
     }
 
     It 'leaves an already-compressed source under a non-.7z name alone, in mode <Mode> (SR-049, SR-004)' -ForEach @(
-        @{ Mode = 'Mirror';                 Compress = $false; ContentAddressed = $false }
-        @{ Mode = 'Mirror+Compress';        Compress = $true;  ContentAddressed = $false }
-        @{ Mode = 'HashAddressed';          Compress = $false; ContentAddressed = $true  }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  ContentAddressed = $true  }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true  }
     ) {
         # WP5 re-review, residual HIGH. The exemption used to be keyed on the
         # RelativePath ending in '.7z', while the observed form comes from the
@@ -490,7 +487,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress -ContentAddressed $ContentAddressed
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
         New-ArchiveShapedFile -Path (Join-Path $src 'archive.7z.bak')
         [IO.File]::WriteAllText((Join-Path $src 'plain.txt'), ('PLAIN ' * 200))
         Invoke-FormBackup -Cfg $cfg | Out-Null
@@ -661,12 +658,10 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
     }
 
     It 'repairs every unambiguous finding and re-verifies clean, in mode <Mode> (SR-049)' -ForEach @(
-        @{ Mode = 'Mirror';                 Compress = $false; ContentAddressed = $false }
-        @{ Mode = 'Mirror+Compress';        Compress = $true;  ContentAddressed = $false }
-        @{ Mode = 'HashAddressed';          Compress = $false; ContentAddressed = $true  }
-        @{ Mode = 'HashAddressed+Compress'; Compress = $true;  ContentAddressed = $true  }
+        @{ Mode = 'Plain';    Compress = $false }
+        @{ Mode = 'Compress'; Compress = $true  }
     ) {
-        $s = New-MalformedStore -Root (Join-Path $TestDrive "tc094-$Mode") -Compress $Compress -ContentAddressed $ContentAddressed
+        $s = New-MalformedStore -Root (Join-Path $TestDrive "tc094-$Mode") -Compress $Compress
         $logical = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv'))
         $payloads = @{}
         foreach ($row in $logical) {
@@ -765,7 +760,7 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
     }
 
     It 'reports blank-row form disagreements without repairing them (SR-049)' {
-        $t = New-FormDivergedTimeline -Root (Join-Path $TestDrive 'tc094-blank') -StartCompressed $false -ContentAddressed $false
+        $t = New-FormDivergedTimeline -Root (Join-Path $TestDrive 'tc094-blank') -StartCompressed $false
         $findings = @(Test-BackupStorageForm -BackupRoot $t.Bkp -ChangeRoot $t.Chg)
         $blank = @($findings | Where-Object Class -eq 'BlankRowFormDisagreement')
         $blank | Should -Not -BeNullOrEmpty
@@ -915,7 +910,7 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
                 # The volume reports one byte free; everything else is real.
                 Mock Get-FreeSpaceBytes { return 1L }
                 $cfgSet = [pscustomobject]@{ Name = 'S'; SourcePath = $Set.Src; BackupPath = $Set.Bkp
-                    ChangePath = $Set.Chg; HashRecalcFreq = 'A'; CompressEnabled = $false; PreserveFolderTree = $true }
+                    ChangePath = $Set.Chg; HashRecalcFreq = 'A'; CompressEnabled = $false }
                 $ok = $true
                 Invoke-BackupSet -Set $cfgSet -Deps @{ '7z' = $null; 'ffprobe' = $null; 'xxhash' = $true } `
                     -OverallSuccess ([ref]$ok) -LogPaths (New-Object System.Collections.Generic.List[string])
@@ -1044,21 +1039,27 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
     }
 
     It 'includes a pending storage-layout migration in the estimate (SR-052, SR-012)' {
+        # NOTE (WP9 step 5): this case's PREMISE is gone. SR-061 deleted the
+        # storage-layout migration, so there is no migration component left to
+        # include in the estimate, and the assertions that measured it were
+        # removed with it — the body below is inert fixture data and asserts
+        # NOTHING. Left in place rather than deleted silently: the human owns
+        # the call on whether the case retires with the migration.
+        # The rows carry StoredAsHashSize='Hash' because 'Original' now names a
+        # store the engine refuses outright (SR-061); the column is not read by
+        # Get-BackupCapacityDemand, which keys on (hash|length) and SameVolume.
         $db = @(
             [pscustomobject]@{ RelativePath = 'a.txt'; DataPath = 'a.txt'; xxH2Hash = 'H1'; Length = 100L
-                Compressed = 'No'; StoredAsHashSize = 'Original' }
+                Compressed = 'No'; StoredAsHashSize = 'Hash' }
             [pscustomobject]@{ RelativePath = 'b.jpg'; DataPath = 'b.jpg'; xxH2Hash = 'H2'; Length = 700L
-                Compressed = 'No'; StoredAsHashSize = 'Original' }
+                Compressed = 'No'; StoredAsHashSize = 'Hash' }
         )
-        # No change requested: nothing to migrate.
-        # Turning compression on migrates a.txt only (.jpg is already-compressed).
-        # Switching tree mode migrates both.
-        # Rows sharing one (hash,length) are counted once (SR-051 transforms the group once).
+        # Rows sharing one (hash,length) are counted once.
         $shared = @(
             [pscustomobject]@{ RelativePath = 'x.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
-                Compressed = 'No'; StoredAsHashSize = 'Original' }
+                Compressed = 'No'; StoredAsHashSize = 'Hash' }
             [pscustomobject]@{ RelativePath = 'y.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
-                Compressed = 'No'; StoredAsHashSize = 'Original' }
+                Compressed = 'No'; StoredAsHashSize = 'Hash' }
         )
     }
 }

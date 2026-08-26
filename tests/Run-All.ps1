@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Master test driver. Sweeps storage modes & compression across each suite (G1-G8).
+    Master test driver. Sweeps compression across each suite (G1-G9).
 
 .PARAMETER Backend
     Subst | VHDX | RealUSB
@@ -12,8 +12,10 @@
     Comma list of group IDs to run, e.g. "G1,G3". Default: all.
 
 .PARAMETER Modes
-    Comma list of "<Mode>+<Compress>" combos. Default: all four:
-        Mirror, Mirror+Compress, HashAddressed, HashAddressed+Compress
+    Comma list of compression combos. Default: both:
+        Plain, Compress
+    (Storage is always content-addressed since WP9 step 5 deleted Mirror; the
+    old mode axis is gone.)
 
 .PARAMETER EmitJUnit
     Also write results.xml in JUnit format (for CI).
@@ -26,7 +28,7 @@ param(
     [ValidateSet('Subst','VHDX','RealUSB')][string]$Backend = 'Subst',
     [string]$ResultRoot = (Join-Path $env:TEMP "FileBackupTests"),
     [string]$Groups = 'G1,G2,G3,G4,G5,G6,G7,G8,G9',
-    [string]$Modes  = 'Mirror,Mirror+Compress,HashAddressed,HashAddressed+Compress',
+    [string]$Modes  = 'Plain,Compress',
     [switch]$EmitJUnit,
     [switch]$NonInteractive
 )
@@ -76,11 +78,13 @@ $envRoot = Join-Path $runRoot 'env'
 $Env = New-TestEnvironment -Backend $Backend -Root $envRoot
 
 # ---------- decode modes ----------
+# One axis left: compression. 'Compress' (or anything '+Compress') turns it
+# on; the label itself is what the suites print as the mode name.
 $modeCombos = $Modes -split ',' | ForEach-Object {
-    $parts = $_.Trim() -split '\+'
+    $label = $_.Trim()
     [pscustomobject]@{
-        Mode     = $parts[0]
-        Compress = ($parts.Count -gt 1 -and $parts[1] -eq 'Compress')
+        Mode     = $label
+        Compress = ($label -eq 'Compress' -or $label -like '*+Compress')
     }
 }
 

@@ -31,7 +31,7 @@
       "additionalProperties": false,
       "required": [
         "Name", "SourcePath", "BackupPath", "ChangePath", "HashRecalcFreq",
-        "CompressEnabled", "PreserveFolderTree"
+        "CompressEnabled"
       ],
       "properties": {
         "Name":               { "type": "string", "minLength": 1 },
@@ -43,7 +43,6 @@
           "enum": ["A", "E", "D", "W", "M", "Y", "N", "a", "e", "d", "w", "m", "y", "n"]
         },
         "CompressEnabled":    { "type": "boolean" },
-        "PreserveFolderTree": { "type": "boolean" },
         "SourceStatePath": {
           "type": "string",
           "description": "Optional; defaults to SourcePath. Required in practice for a read-only container source."

@@ -6,7 +6,7 @@
 #>
 function Invoke-G6 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G6-HashFrequency'
 
     $engine = Join-Path (Split-Path $BackupScript -Parent) 'Modules\FileBackup.Engine.psm1'

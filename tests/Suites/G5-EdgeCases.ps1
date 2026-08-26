@@ -3,10 +3,10 @@
 #>
 function Invoke-G5 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G5-EdgeCases'
     $cfg = Join-Path $Env.Root 'cfg-g5.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
     # G5.1 pre-existing Temp staging folder must abort
     Reset-TestEnvironment $Env

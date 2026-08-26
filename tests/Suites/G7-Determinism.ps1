@@ -3,10 +3,10 @@
 #>
 function Invoke-G7 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G7-Determinism'
     $cfg = Join-Path $Env.Root 'cfg-g7.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
     # Twin runs on identical source — manifest row content must match
     Reset-TestEnvironment $Env

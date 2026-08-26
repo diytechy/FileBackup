@@ -1,65 +1,80 @@
 <#
 .SYNOPSIS  G4 - manifest sanitization and the no-re-forming contract.
-.NOTES     Always runs - changes config between two backup runs.
-           SR-061 (WP9): there is NO storage-layout migration. A configuration
-           change governs content written AFTER it; nothing already stored is
-           ever re-formed. These cases assert that, where they used to assert
-           the migration.
+.NOTES     SR-061 (WP9): there is NO storage-layout migration and no layout
+           axis at all - storage is always content-addressed. G4.1 is TC-124's
+           refusal half: a store carrying the legacy path-addressed form can
+           only come from a pre-WP9 build; -Action Backup refuses it before
+           any mutation, -Action Verify reports it as a finding.
            G4.2 is TC-097: the SR-004 extension-list merge at scale.
 #>
 function Invoke-G4 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G4-Sanitization'
     $manifest = Join-Path $Env.BkpPath 'MANIFEST.csv'
+    $pwshExe  = (Get-Process -Id $PID).Path
 
-    # Seed in Mirror, Compress=Off
+    # G4.1 - the SR-061 legacy-store contract (TC-124, refusal half). The
+    # legacy shape is CONSTRUCTED - flip one row, re-stamp the witness (the
+    # same honesty pattern as the other tampering fixtures) - because a
+    # post-WP9 engine can no longer produce it.
     Reset-TestEnvironment $Env
-    $cfgMirror = Join-Path $Env.Root 'cfg-g4-mirror.xml'
-    Write-TestConfig $cfgMirror $Env.SrcPath $Env.BkpPath $Env.ChgPath $false $false
+    $cfg = Join-Path $Env.Root 'cfg-g4.xml'
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
     New-TestFile (Join-Path $Env.SrcPath 'doc.txt')      'document content'
     New-TestFile (Join-Path $Env.SrcPath 'sub\img.bin')  'binary blob'
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfgMirror | Out-Null
+    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
 
-    Assert-True $suite $group 'G4.1' 'AfterMirror_filesAtOriginalPath' {
-        (Test-Path -LiteralPath (Join-Path $Env.BkpPath 'doc.txt')) -and
-        (Test-Path -LiteralPath (Join-Path $Env.BkpPath 'sub\img.bin'))
+    $rows = @(Import-Csv -LiteralPath $manifest)
+    @($rows | Where-Object RelativePath -eq 'doc.txt')[0].StoredAsHashSize = 'Original'
+    $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+    Write-ManifestWitness -FolderPath $Env.BkpPath | Out-Null
+    $manifestBefore  = Get-Content -LiteralPath $manifest -Raw
+    $snapshotsBefore = @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory -Force -ErrorAction SilentlyContinue).Count
+
+    # Backup must REFUSE, mutating nothing (SR-061): same manifest bytes, no
+    # new snapshot, no stranded Temp for the next run's SR-017 guard.
+    New-TestFile (Join-Path $Env.SrcPath 'doc.txt') 'edited after the store went legacy'
+    $backupOut = (& $pwshExe -NoProfile -File $BackupScript -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-String)
+    $backupCode = $LASTEXITCODE
+    Assert-True $suite $group 'G4.1' 'Legacy_backupRefused' { $backupCode -eq 1 }
+    Assert-True $suite $group 'G4.1' 'Legacy_refusalNamesRemedy' {
+        $backupOut -match 'legacy path-addressed' -and $backupOut -match 'fresh BackupPath'
+    }
+    Assert-True $suite $group 'G4.1' 'Legacy_nothingMutated' {
+        (Get-Content -LiteralPath $manifest -Raw) -eq $manifestBefore -and
+        @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory -Force -ErrorAction SilentlyContinue).Count -eq $snapshotsBefore -and
+        -not (Test-Path -LiteralPath (Join-Path $Env.ChgPath 'Temp'))
     }
 
-    # Switch the configuration to HashAddressed. SR-061: this re-forms NOTHING
-    # that is already stored - it governs content written from here on.
-    $cfgHash = Join-Path $Env.Root 'cfg-g4-hash.xml'
-    Write-TestConfig $cfgHash $Env.SrcPath $Env.BkpPath $Env.ChgPath $false $true
-    New-TestFile (Join-Path $Env.SrcPath 'after.txt') 'written after the switch'
-    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfgHash | Out-Null
+    # Verify must REPORT (exit 1, LegacyStoredForm finding), never refuse - an
+    # audit action that cannot audit is useless.
+    $verifyOut = (& $pwshExe -NoProfile -File $BackupScript -ConfigPath $cfg -NoMail -NonInteractive -Action Verify -ExitCode *>&1 | Out-String)
+    $verifyCode = $LASTEXITCODE
+    Assert-True $suite $group 'G4.1' 'Legacy_verifyReportsFinding' {
+        $verifyCode -eq 1 -and $verifyOut -match 'LegacyStoredForm'
+    }
 
-    Assert-True $suite $group 'G4.1' 'AfterSwitch_storedRowsUntouched' {
-        # The pre-switch rows keep their form AND their bytes: no re-forming.
-        $row = Get-ManifestRow $manifest 'doc.txt'
-        (Test-Path -LiteralPath (Join-Path $Env.BkpPath 'doc.txt')) -and
-        $row -and $row.StoredAsHashSize -eq 'Original' -and $row.DataPath -eq 'doc.txt'
-    }
-    Assert-True $suite $group 'G4.1' 'AfterSwitch_newContentFollowsConfig' {
-        # ...while content written AFTER the switch is content-addressed.
-        $row = Get-ManifestRow $manifest 'after.txt'
-        $row -and $row.StoredAsHashSize -eq 'Hash' -and $row.DataPath -ne 'after.txt'
-    }
-    Assert-True $suite $group 'G4.1' 'AfterSwitch_mixedStoreRestores' {
-        # A mixed-form store is normal, and every row still restores byte-exact.
-        $target = Join-Path $Env.Root 'g4-mixed-restore'
+    # The legacy store stays RESTORABLE as-is (work-order risk R1): refusal
+    # applies to writing, never to reading.
+    Assert-True $suite $group 'G4.1' 'Legacy_storeStillRestores' {
+        $target = Join-Path $Env.Root 'g4-legacy-restore'
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
         $failed = $null
         try { Invoke-Reconstruct -ReconstructScript (Join-Path $Env.BkpPath 'RECONSTRUCT.ps1') -TargetRoot $target }
         catch { $failed = $_.Exception.Message }
         if ($failed) { return $false }
-        $bad = 0
-        foreach ($row in @(Import-Csv -LiteralPath $manifest)) {
-            $restored = Join-Path $target $row.RelativePath
-            if (-not (Test-Path -LiteralPath $restored -PathType Leaf)) { $bad++; continue }
-            if ((Get-FileXxHash -FilePath $restored) -ne $row.xxH2Hash) { $bad++ }
-        }
-        $bad -eq 0
+        (Get-FileXxHash -FilePath (Join-Path $target 'doc.txt')) -eq (Get-ManifestRow $manifest 'doc.txt').xxH2Hash -and
+        (Get-FileXxHash -FilePath (Join-Path $target 'sub\img.bin')) -eq (Get-ManifestRow $manifest 'sub\img.bin').xxH2Hash
     }
+
+    # Un-flip the row: the refusal is precise, and the healed store backs up.
+    $rows = @(Import-Csv -LiteralPath $manifest)
+    @($rows | Where-Object RelativePath -eq 'doc.txt')[0].StoredAsHashSize = 'Hash'
+    $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+    Write-ManifestWitness -FolderPath $Env.BkpPath | Out-Null
+    & $pwshExe -NoProfile -File $BackupScript -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+    Assert-True $suite $group 'G4.1' 'Legacy_unflippedStoreBacksUp' { $LASTEXITCODE -eq 0 }
 
     Invoke-G4ExtensionMerge -Env $Env -BackupScript $BackupScript -Mode $Mode -Compress $Compress
 }
@@ -90,7 +105,7 @@ function Invoke-G4ExtensionMerge {
         bats; this Windows suite cannot drive it.
     #>
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G4-Sanitization'
     $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
     if (-not $sevenZip -or -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
@@ -100,10 +115,9 @@ function Invoke-G4ExtensionMerge {
 
     Reset-TestEnvironment $Env
     # Compression must be ON - the merge only means anything for a compressing
-    # backup. The storage-mode axis still varies with $Mode.
-    $contentAddressed = ($Mode -ne 'Mirror')
+    # backup - so this scenario is the same under both sweep labels.
     $cfg = Join-Path $Env.Root 'cfg-g4-extmerge.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $true $contentAddressed
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $true
 
     $merged = @('.jar', '.tgz', '.zst', '.gif', '.webm', '.ogg', '.sav', '.pack')
     foreach ($ext in $merged) {

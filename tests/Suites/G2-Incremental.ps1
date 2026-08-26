@@ -3,11 +3,11 @@
 #>
 function Invoke-G2 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
-    $suite = $Mode + ($(if ($Compress) {'+Compress'} else {''}))
+    $suite = $Mode
     $group = 'G2-Incremental'
     $manifest = Join-Path $Env.BkpPath 'MANIFEST.csv'
     $cfg = Join-Path $Env.Root 'cfg-g2.xml'
-    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress ($Mode -eq 'HashAddressed')
+    Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
     # Seed
     Reset-TestEnvironment $Env
@@ -48,9 +48,10 @@ function Invoke-G2 {
     Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
     Assert-ManifestRow $suite $group 'G2.6' 'Readd_rowPresent' $manifest 'dup2.txt' $true
 
-    # G2.8 duplicate detection — MODE-AWARE and EXACT (TC-019, de-vacuumed
-    # 2026-08-24: the old `-le 2` passed under D-5 and would pass with dedup
-    # removed entirely).
+    # G2.8 duplicate detection — EXACT (TC-019, de-vacuumed 2026-08-24: the
+    # old `-le 2` passed under D-5 and would pass with dedup removed
+    # entirely). The Mirror change-detector arm that documented D-5 died with
+    # the mode at WP9 step 5.
     Reset-TestEnvironment $Env
     New-TestFile (Join-Path $Env.SrcPath 'd1.txt') 'SHARED'
     New-TestFile (Join-Path $Env.SrcPath 'd2.txt') 'SHARED'
@@ -61,16 +62,15 @@ function Invoke-G2 {
         $paths  = @($rows | Where-Object DataPath | Select-Object -ExpandProperty DataPath -Unique)
         $copies = Get-PoolContentCopyCount -Folders @($Env.BkpPath) `
             -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length)
-        if ($Mode -eq 'HashAddressed') {
-            # True dedup: ONE distinct DataPath and ONE physical pool copy.
-            $paths.Count -eq 1 -and $copies -eq 1
-        } else {
-            # Mirror stores same-run duplicates TWICE today — that is defect
-            # D-5, fixed by the option-3 WP (which deletes Mirror). Asserted
-            # exactly as a labelled change-detector: when option-3 lands this
-            # arm dies with the mode instead of silently passing.
-            $paths.Count -eq 2 -and $copies -eq 2
-        }
+        # True dedup: ONE distinct DataPath and ONE physical pool copy.
+        $paths.Count -eq 1 -and $copies -eq 1
+    }
+
+    # TC-123 (SR-058, the work-order §3.1 compensating control for the deleted
+    # SR-022 copy-branch refusal): every non-infrastructure file at the backup
+    # root matches the content-addressed name grammar.
+    Assert-True $suite $group 'G2.9' 'HashNameGrammar_atRoot' {
+        @(Get-HashNameGrammarViolations -BackupRoot $Env.BkpPath).Count -eq 0
     }
 
     # TC-116: orphan-detection second pass — every blank-DataPath row in every
