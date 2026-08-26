@@ -166,6 +166,7 @@ Imports (internal): `Common`
 | `Get-BackupKitRevision` | yes | SR-049, LLR-049 |
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
+| `Get-CopyRetryDelayMs` | yes | SR-067, LLR-067 |
 | `Get-DataFile` | yes | SR-057, LLR-057 |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
@@ -205,6 +206,7 @@ Imports (internal): `Common`
 | `Test-BackupManifest` | yes | SR-061, SR-064, LLR-060, LLR-062 |
 | `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, SR-061, LLR-049, LLR-060 |
 | `Test-ConfigValueJsonType` | no | SR-042, LLR-042 |
+| `Test-CopyFailureIsTransient` | yes | SR-067, LLR-067 |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
 | `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |

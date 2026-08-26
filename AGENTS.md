@@ -171,6 +171,7 @@ Imports (internal): `Common`
 | `Get-BackupKitRevision` | yes | SR-049, LLR-049 |
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
+| `Get-CopyRetryDelayMs` | yes | SR-067, LLR-067 |
 | `Get-DataFile` | yes | SR-057, LLR-057 |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
@@ -210,6 +211,7 @@ Imports (internal): `Common`
 | `Test-BackupManifest` | yes | SR-061, SR-064, LLR-060, LLR-062 |
 | `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, SR-061, LLR-049, LLR-060 |
 | `Test-ConfigValueJsonType` | no | SR-042, LLR-042 |
+| `Test-CopyFailureIsTransient` | yes | SR-067, LLR-067 |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
 | `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |
@@ -280,6 +282,16 @@ Imports (internal): `Common`
   (`G4-Sanitization` `Legacy_restoreRefused`, `tests/bash/restore_fidelity.bats`,
   TC-138). The collapse that followed: `Get-ReHomedDataPathName` is gone, and a
   re-homed object's destination name is simply its source `DataPath`.
+- **A copy failure is retried, then loud** (SR-067). The SR-060 candidate loop
+  only falls back to other MEMBERS of a content group, so a file whose content
+  is unique used to get exactly one attempt and a momentary lock cost it the
+  whole run. Each group's copy now runs in attempt rounds (250 ms, 1000 ms;
+  three attempts), skipping failures that cannot change by waiting, and bounded
+  by a retry budget the SET owns so a systemically unreadable tree cannot sleep
+  a scheduled run away. On exhaustion the file gets **no manifest row** - the
+  index must never name content the store does not hold - and the set is marked
+  failed. A row from an EARLIER run survives: those bytes are still in the
+  store, the same frozen-row treatment SR-055/SR-057 give an unreadable file.
 - **Restore fidelity beyond bytes** (SR-065, SR-066, kit revision 7). The
   contract is still bytes at paths, with two additions. Every restored file is
   stamped with its OWN row's `LastWriteTimeStr` once that file passes its SR-056

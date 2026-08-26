@@ -113,8 +113,10 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # bytes): SR-065/066 flipped Verified and TC-136..139 flipped Pass in the
     # SAME commit that armed it, on a green Full tier (unit 424/424, integration
     # 240 PASS / 0 FAIL / 2 SKIP) plus 76/76 bats and a clean shellcheck.
+    # robust-v1 shipped 2026-08-26 (SR-067, bounded copy retry): flipped Verified
+    # with TC-140 Pass in the SAME commit that armed it.
     # bash-v2 (SR-033) remains the one phase-deferred row.
-    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1') }
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 

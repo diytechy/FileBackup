@@ -247,6 +247,126 @@ Describe 'A legacy path-addressed store is refused by the restorer (SR-061)' -Fo
     }
 }
 
+Describe 'A transiently unreadable source file is retried, not lost (SR-067)' {
+    It 'a file whose content is UNIQUE is rescued when the lock clears (TC-140)' {
+        # Before SR-067 this file got exactly ONE attempt: the SR-060 candidate
+        # loop only falls back to other MEMBERS of a content group, and a unique
+        # file's group has one member.
+        #
+        # The lock is held IN-PROCESS (FileShare.None denies even this process's
+        # own other handles) and released from inside the LOG callback, the
+        # instant the retry line is emitted. Deterministic in both directions:
+        # there is no wall-clock race to lose, and the release CANNOT happen
+        # unless the retry path actually ran. The first version of this test
+        # raced a Start-Job and passed vacuously whenever the copy won.
+        $root = Join-Path $TestDrive 'retry-rescued'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
+        $victim = Join-Path $src 'locked.txt'
+        Set-Content -LiteralPath $victim -Value 'LOCKED-BUT-RECOVERABLE' -NoNewline
+
+        $group = [pscustomobject]@{
+            RelativePath = 'locked.txt'
+            Length       = (Get-Item -LiteralPath $victim).Length
+            xxH2Hash     = (Get-FileXxHash -FilePath $victim)
+            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
+        }
+
+        $holder = @{ Stream = [IO.File]::Open($victim, 'Open', 'Read', 'None') }
+        $map = @{}; $changed = 0; $ok = $true
+        $lines = New-Object System.Collections.Generic.List[string]
+        $log = {
+            param($m, $l = 'INFO')
+            $lines.Add("[$l] $m")
+            if ($m -match 'Retrying in' -and $holder.Stream) {
+                $holder.Stream.Dispose(); $holder.Stream = $null
+            }
+        }.GetNewClosure()
+        try {
+            Invoke-BackupFileGroup -Group @($group) -SrcPath $src -BkpPath $bkp `
+                -CompressEnabled $false -SevenZipPath $sevenZip `
+                -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
+                -Log $log -OverallSuccess ([ref]$ok)
+        } finally {
+            if ($holder.Stream) { $holder.Stream.Dispose() }
+        }
+
+        ($lines -join "`n") | Should -Match 'Retrying in \d+ ms' -Because 'attempt 1 met a real lock'
+        $ok | Should -BeTrue -Because 'the lock cleared within the retry window'
+        $map.Keys | Should -HaveCount 1
+        # The bytes really landed, proven from disk rather than from the map.
+        $stored = Join-Path $bkp $map['locked.txt'].DataPath
+        Get-Content -LiteralPath $stored -Raw | Should -Be 'LOCKED-BUT-RECOVERABLE'
+    }
+
+    It 'a permanently unreadable file is failed loudly and gets NO manifest row (TC-140)' {
+        $root = Join-Path $TestDrive 'retry-exhausted'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
+        $victim = Join-Path $src 'gone.txt'
+        Set-Content -LiteralPath $victim -Value 'ABOUT-TO-VANISH' -NoNewline
+        $group = [pscustomobject]@{
+            RelativePath = 'gone.txt'
+            Length       = (Get-Item -LiteralPath $victim).Length
+            xxH2Hash     = (Get-FileXxHash -FilePath $victim)
+            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
+        }
+        Remove-Item -LiteralPath $victim -Force          # unreadable for good
+
+        $map = @{}; $changed = 0; $ok = $true
+        $lines = New-Object System.Collections.Generic.List[string]
+        $log = { param($m, $l = 'INFO') $lines.Add("[$l] $m") }
+        Invoke-BackupFileGroup -Group @($group) -SrcPath $src -BkpPath $bkp `
+            -CompressEnabled $false -SevenZipPath $sevenZip `
+            -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
+            -Log $log -OverallSuccess ([ref]$ok)
+
+        $ok | Should -BeFalse -Because 'a file that exists in source and not in the backup is a failed set'
+        $map.Keys | Should -HaveCount 0 -Because 'the manifest must never name content the store does not hold'
+        ($lines -join "`n") | Should -Match 'This file is NOT in the backup'
+        ($lines -join "`n") | Should -Match 'after 3 attempt\(s\)'
+    }
+
+    It 'a deterministic failure is not retried at all, so the budget survives it (TC-140)' {
+        # A DIRECTORY occupying the destination cannot become a file by waiting.
+        Test-CopyFailureIsTransient -Message "destination 'x' is a directory; refusing to copy into it" |
+            Should -BeFalse
+        Test-CopyFailureIsTransient -Message 'The process cannot access the file because it is being used' |
+            Should -BeTrue
+        Get-CopyRetryDelayMs -Attempt 1 | Should -BeGreaterThan 0
+        Get-CopyRetryDelayMs -Attempt 3 | Should -BeNullOrEmpty -Because 'three attempts is the cap'
+    }
+
+    It 'a spent run budget stops the waiting and says so (TC-140)' {
+        $root = Join-Path $TestDrive 'retry-budget'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
+        $victim = Join-Path $src 'gone.txt'
+        Set-Content -LiteralPath $victim -Value 'ABOUT-TO-VANISH' -NoNewline
+        $group = [pscustomobject]@{
+            RelativePath = 'gone.txt'
+            Length       = (Get-Item -LiteralPath $victim).Length
+            xxH2Hash     = (Get-FileXxHash -FilePath $victim)
+            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
+        }
+        Remove-Item -LiteralPath $victim -Force
+
+        $map = @{}; $changed = 0; $ok = $true; $budget = 0
+        $lines = New-Object System.Collections.Generic.List[string]
+        $log = { param($m, $l = 'INFO') $lines.Add("[$l] $m") }
+        $elapsed = Measure-Command {
+            Invoke-BackupFileGroup -Group @($group) -SrcPath $src -BkpPath $bkp `
+                -CompressEnabled $false -SevenZipPath $sevenZip `
+                -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
+                -Log $log -OverallSuccess ([ref]$ok) -RetryBudgetMs ([ref]$budget)
+        }
+        ($lines -join "`n") | Should -Match "copy-retry budget is spent"
+        ($lines -join "`n") | Should -Match 'after 1 attempt\(s\)'
+        $elapsed.TotalMilliseconds | Should -BeLessThan 1000 -Because 'a spent budget must not sleep'
+        $map.Keys | Should -HaveCount 0
+    }
+}
+
 Describe 'Compress-FileWithSevenZip replaces its destination (SR-004, nit-4)' {
     BeforeEach {
         if (-not $sevenZip -or -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {

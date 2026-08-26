@@ -715,6 +715,66 @@ function Write-DirectorySidecar {
 
 # region Backup copy
 
+# Transient-failure retry for a single copy/compress (SR-067). A source file
+# held open by an antivirus scanner, an indexer or another writer fails one
+# instant and succeeds the next, and before this a file whose content was UNIQUE
+# got exactly ONE attempt: the SR-060 candidate loop only falls back to other
+# MEMBERS of a content group, and a unique file's group has one member.
+#
+# One delay per retry, so three attempts cost at most 1.25s of waiting for a
+# file that never becomes readable. The per-RUN budget is the automation rail:
+# a systemic failure (a whole tree the account cannot read) fails
+# DETERMINISTICALLY for every file in it, and retrying thousands of those would
+# turn a scheduled run into an hours-long sleep. Once the budget is spent the
+# run stops waiting and fails the remaining files immediately, saying so.
+$script:CopyRetryDelayMs  = @(250, 1000)
+$script:CopyRetryBudgetMs = 60000
+
+function Get-CopyRetryDelayMs {
+    <#
+    .SYNOPSIS
+        The delay before retry number -Attempt, or $null when the attempts for
+        one file are exhausted (SR-067).
+
+    .PARAMETER Attempt
+        1-based count of attempts ALREADY made against this file.
+
+    .OUTPUTS
+        [int] milliseconds to wait, or $null to stop retrying.
+    #>
+    # Implements: SR-067, LLR-067
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][int]$Attempt)
+    if ($Attempt -lt 1 -or $Attempt -gt $script:CopyRetryDelayMs.Count) { return $null }
+    return $script:CopyRetryDelayMs[$Attempt - 1]
+}
+
+function Test-CopyFailureIsTransient {
+    <#
+    .SYNOPSIS
+        False for a copy failure that cannot change on a retry (SR-067).
+
+    .DESCRIPTION
+        Only one failure is deterministic by construction today: a DIRECTORY
+        occupying the destination (the step-4 review's n6 guard). Waiting on it
+        wastes the run's retry budget and delays a loud, accurate error.
+        Everything else - a lock, a permission that may be released, an I/O
+        blip, a vanished temp file - is treated as possibly transient, because
+        guessing wrong in that direction only costs time, while guessing wrong
+        the other way costs the file.
+
+    .PARAMETER Message
+        The failure string Copy-SourceFileToBackup returned.
+
+    .OUTPUTS
+        [bool] whether a retry is worth attempting.
+    #>
+    # Implements: SR-067, LLR-067
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Message)
+    return ($Message -notlike '*is a directory; refusing to copy into it*')
+}
+
 function Copy-SourceFileToBackup {
     # Implements: SR-003, LLR-003
     [CmdletBinding()]
@@ -2954,8 +3014,17 @@ function Invoke-BackupFileGroup {
         [Parameter(Mandatory)][ref]$BackupMap,
         [Parameter(Mandatory)][ref]$ChangedCount,
         [Parameter(Mandatory)][scriptblock]$Log,
-        [Parameter(Mandatory)][ref]$OverallSuccess
+        [Parameter(Mandatory)][ref]$OverallSuccess,
+        # SR-067: milliseconds of retry waiting this RUN may still spend, shared
+        # across every group so a systemic failure cannot sleep the run away.
+        # Omitted (a direct unit-test call) means "this call gets a fresh
+        # budget of its own".
+        [AllowNull()][ref]$RetryBudgetMs
     )
+    if ($null -eq $RetryBudgetMs) {
+        $ownBudget = $script:CopyRetryBudgetMs
+        $RetryBudgetMs = [ref]$ownBudget
+    }
     $hash = $Group[0].xxH2Hash
     $len  = $Group[0].Length
     $exts = ($Group | ForEach-Object { [IO.Path]::GetExtension($_.RelativePath).ToLowerInvariant() } | Select-Object -Unique)
@@ -3046,24 +3115,51 @@ function Invoke-BackupFileGroup {
                 $candidate = Join-Path $SrcPath $member.RelativePath
                 if (-not $sourceCandidates.Contains($candidate)) { $sourceCandidates.Add($candidate) }
             }
+            # Attempt rounds (SR-067): each round tries every member of the
+            # content group, then waits and tries the whole list again. A file
+            # whose content is unique has ONE member, so before this it had one
+            # attempt and a momentary lock cost it the entire run.
             $result = $null
             $usedSource = $null
-            foreach ($candidate in $sourceCandidates) {
-                if ($null -ne $result) {
-                    # A failed attempt can leave a partial object behind; clear
-                    # it so the retry writes a fresh file rather than landing on
-                    # (or, for 7-Zip's 'a', merging into) the debris.
-                    Remove-Item -LiteralPath $destFull -Force -ErrorAction SilentlyContinue
+            $attempts = 0
+            while ($true) {
+                $attempts++
+                foreach ($candidate in $sourceCandidates) {
+                    if ($null -ne $result) {
+                        # A failed attempt can leave a partial object behind; clear
+                        # it so the retry writes a fresh file rather than landing on
+                        # (or, for 7-Zip's 'a', merging into) the debris.
+                        Remove-Item -LiteralPath $destFull -Force -ErrorAction SilentlyContinue
+                    }
+                    $result = Copy-SourceFileToBackup -SourceFilePath $candidate -BackupFilePath $destFull -ShouldCompress:$ownerCompress -SevenZipPath $SevenZipPath
+                    if ($result -isnot [string]) { $usedSource = $candidate; break }
+                    if ($sourceCandidates.Count -gt 1) {
+                        & $Log "Could not read '$candidate' for hash=$hash len=$len : $result" 'WARN'
+                    }
                 }
-                $result = Copy-SourceFileToBackup -SourceFilePath $candidate -BackupFilePath $destFull -ShouldCompress:$ownerCompress -SevenZipPath $SevenZipPath
-                if ($result -isnot [string]) { $usedSource = $candidate; break }
-                if ($sourceCandidates.Count -gt 1) {
-                    & $Log "Could not read '$candidate' for hash=$hash len=$len : $result" 'WARN'
+                if ($result -isnot [string]) { break }
+                if (-not (Test-CopyFailureIsTransient -Message $result)) { break }
+                $delayMs = Get-CopyRetryDelayMs -Attempt $attempts
+                if ($null -eq $delayMs) { break }
+                if ($RetryBudgetMs.Value -lt $delayMs) {
+                    & $Log ("Not retrying '$rel': this run's copy-retry budget is spent " +
+                            "($($script:CopyRetryBudgetMs) ms). A failure this widespread is not transient.") 'WARN'
+                    break
                 }
+                $RetryBudgetMs.Value -= $delayMs
+                & $Log ("Copy of '$rel' failed (attempt $attempts): $result. Retrying in ${delayMs} ms.") 'WARN'
+                Start-Sleep -Milliseconds $delayMs
             }
             if ($result -is [string]) {
-                & $Log ("Failed to copy/compress '$rel' -> '$dataPath' : $result " +
-                        "(no readable source among $($sourceCandidates.Count) member(s) of this content group)") 'ERROR'
+                # No row is written for this file. That is the contract, not an
+                # oversight (SR-067): the manifest must never name content the
+                # store does not hold. A file that had a PREVIOUS version keeps
+                # its previous row - the backup still holds those bytes - which
+                # is the same frozen-row treatment SR-055/SR-057 give a file the
+                # walk could not read.
+                & $Log ("Failed to copy/compress '$rel' -> '$dataPath' after $attempts attempt(s) : $result " +
+                        "(no readable source among $($sourceCandidates.Count) member(s) of this content group). " +
+                        'This file is NOT in the backup; the set is marked failed.') 'ERROR'
                 $OverallSuccess.Value = $false
                 continue
             }
@@ -3966,7 +4062,10 @@ function Invoke-BackupSet {
             -BackupBytes $demand.BackupBytes -ChangeBytes $demand.ChangeBytes
     } catch { & $refuseCapacity $_.Exception.Message }
 
-    # 10. Copy new/changed files
+    # 10. Copy new/changed files. One retry budget for the whole set (SR-067):
+    # a handful of transiently locked files get their retries, a systemically
+    # unreadable tree cannot turn a scheduled run into an hours-long sleep.
+    $retryBudgetMs = $script:CopyRetryBudgetMs
     foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
         Invoke-BackupFileGroup `
             -Group $grp.Group `
@@ -3974,7 +4073,7 @@ function Invoke-BackupSet {
             -CompressEnabled ([bool]$Set.CompressEnabled) `
             -SevenZipPath $Deps['7z'] -BackupDb $backupDb `
             -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) `
-            -Log $log -OverallSuccess $OverallSuccess
+            -Log $log -OverallSuccess $OverallSuccess -RetryBudgetMs ([ref]$retryBudgetMs)
     }
 
     # 11. Evict removed files to staging
@@ -4527,6 +4626,7 @@ Export-ModuleMember -Function @(
     'Get-LastBackupRun', 'Set-LastBackupRun',
     'Resolve-OptionalTool', 'Initialize-Dependencies', 'Get-MediaMBPerSec',
     'Get-SourceDirectoryRecord', 'Write-DirectorySidecar',
+    'Get-CopyRetryDelayMs', 'Test-CopyFailureIsTransient',
     'Test-HashRecalcDue', 'Update-SourceManifest', 'Copy-SourceFileToBackup',
     'Test-BackupManifest',
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',
