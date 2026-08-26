@@ -98,8 +98,8 @@ last) — it is the record, not required reading for every pass.
   | 4 — `Save-SupersededData` reorder + exact survival test (SR-059) | **DONE** | `b6077b8` |
   | 5 — delete Mirror (SR-058 + the recovered SR-061 refusal) | **DONE** | `44deeb5` (5a engine+PS), `cce8855` (5b bash), 5c docs (this session) |
   | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | **DONE** | (this session; hash backfilled next update) |
-  | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | next | |
-  | 8 / 8b — folded fixes + F8 + reserved names | | |
+  | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | **DONE** | (this session; hash backfilled next update) |
+  | 8 / 8b — folded fixes + F8 + reserved names | next | |
   | 9 — docs, registries, generated maps, G3 audit entry | | |
   Latest evidence (step 5, real output): `check.ps1 -Tier Full -Gate G3` all
   steps passed on the **2-mode matrix** (Plain/Compress); unit **358/358** —
@@ -147,6 +147,25 @@ last) — it is the record, not required reading for every pass.
   unachievable there; the native examples (README + entry help) set `index`,
   interfaces.md discloses the limitation, and the container-view question is
   queued for the IF-001 promotion at step 9.
+  **STEP 7 (browse view, SR-062) evidence:** `check.ps1 -Tier Full -Gate G3`
+  all steps passed; unit 387/387; integration **236/0/2** — the new
+  **G10-View** suite (18 assertions × both combos) joined the sweep. Shipped:
+  `New-BrowseViewIndex` (INDEX.tsv always; per-folder HTML pages; root
+  search EMBEDDED under a 50 000-row threshold — file:// pages cannot fetch a
+  side data file, so §3.6's "compact data file" rides inline — else the
+  grep/Select-String fallback; hrefs percent-encoded per segment since hash
+  names carry URL-special glyphs), pipeline **step 16** (skip-on-fresh, and a
+  view failure is a WARNING — cosmetic by construction, the backup is not
+  failed over a browse page), `-Action View` (forced rebuild; 0/2 status),
+  `Resolve-ViewRootPath` rails factored for both path-resolution branches.
+  **Two step-7 driver findings recorded:** (1) `.viewstamp` keys on canonical
+  ROW CONTENT (SHA-256), not manifest bytes — a manifest-identical run can
+  rewrite the CSV with different quoting, a **byte-level nondeterminism now
+  pinned for step 8's determinism item**; (2) the view refuses to overwrite a
+  view root holding a root-level MANIFEST.csv (a STORE, not a view) — the
+  never-delete-user-data guard on the wipe-and-regenerate cycle. TC-129,
+  TC-130, TC-131, TC-133 automated (tests/Unit/View.Tests.ps1, 8/8, plus
+  G10); the SR-048 action-vocabulary pin extended to `View`.
   **D-5 is fixed in the content-addressed modes; the exact
   survival test (SR-059) is in** — content-addressed sets preserve superseded
   bytes AFTER copy/evict against the FINAL manifest's DataPath claims, which

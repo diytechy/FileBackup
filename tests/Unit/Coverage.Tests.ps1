@@ -2461,14 +2461,14 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         }
     }
 
-    It 'exposes -Action Backup|Prune|Snapshots|Verify (default Backup) and -Snapshot as a string list' {
+    It 'exposes -Action Backup|Prune|Snapshots|Verify|View (default Backup) and -Snapshot as a string list' {
         $cmd = Get-Command $entry
         $action = $cmd.Parameters['Action']
         $action | Should -Not -BeNullOrEmpty
         $validate = @($action.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })[0]
-        # WP5 extends the ONE dispatch with Verify (SR-049); it never adds a
-        # parallel one.
-        $validate.ValidValues | Should -Be @('Backup', 'Prune', 'Snapshots', 'Verify')
+        # WP5 extended the ONE dispatch with Verify (SR-049), WP9 with View
+        # (SR-062); neither adds a parallel one.
+        $validate.ValidValues | Should -Be @('Backup', 'Prune', 'Snapshots', 'Verify', 'View')
         $cmd.Parameters['Snapshot'].ParameterType.Name | Should -Be 'String[]'
     }
 

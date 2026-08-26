@@ -167,6 +167,7 @@ Imports (internal): `Common`
 | `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
+| `New-BrowseViewIndex` | yes | SR-062, LLR-061 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
@@ -177,6 +178,7 @@ Imports (internal): `Common`
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
+| `Resolve-ViewRootPath` | no | SR-063, LLR-063 |
 | `Save-SupersededData` | yes | SR-010, SR-028, SR-041, SR-059, LLR-010, LLR-028, LLR-041, LLR-059 |
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |

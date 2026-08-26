@@ -2535,6 +2535,7 @@ function Resolve-BackupSetPaths {
             SrcStatePath = $srcPath
             BkpPath = $bkpPath
             ChgPath = $chgPath
+            ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath
         }
     }
 
@@ -2587,36 +2588,50 @@ function Resolve-BackupSetPaths {
         }
     }
 
-    # SR-063 (work order §3.7): the view root is validated where paths resolve.
-    # It must lie OUTSIDE both storage roots (it would be walked as data) and
-    # on the BACKUP volume (its per-file <a href>s are relative links into the
-    # pool, which only resolve on one volume). Only when the set asked for a
-    # view — BrowseView 'off' pays nothing and validates nothing.
-    $viewFull = $null
-    if ([string]$Set.BrowseView -eq 'index') {
-        $viewRaw = [string]$Set.ViewPath
-        if ([string]::IsNullOrWhiteSpace($viewRaw)) { $viewRaw = $bkpPath.TrimEnd('\', '/') + '_View' }
-        $viewFull = [IO.Path]::GetFullPath($viewRaw)
-        foreach ($ownedPath in @($bkpPath, $chgPath)) {
-            if ($viewFull -eq $ownedPath -or (& $isWithin $viewFull $ownedPath)) {
-                throw "ViewPath '$viewFull' for set '$($Set.Name)' must lie outside backup/change storage '$ownedPath': the engine would walk the view as data."
-            }
-        }
-        $bkpVolume  = Get-VolumeIdentity -Path $bkpPath
-        $viewAnchor = Resolve-ExistingAncestor -Path $viewFull
-        $viewVolume = if ($viewAnchor) { Get-VolumeIdentity -Path $viewAnchor } else { $null }
-        if ($bkpVolume -and $viewVolume -and $viewVolume -ne $bkpVolume) {
-            throw "ViewPath '$viewFull' for set '$($Set.Name)' must be on the backup volume ('$bkpVolume'; the view path resolves to '$viewVolume'): the view's relative links into the pool only work there."
-        }
-    }
-
     return [pscustomobject]@{
         SrcPath = $srcPath
         SrcStatePath = $srcStatePath
         BkpPath = $bkpPath
         ChgPath = $chgPath
-        ViewPath = $viewFull
+        ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath
     }
+}
+
+function Resolve-ViewRootPath {
+    <#
+    .SYNOPSIS
+        Resolves and rail-checks a set's view root (SR-063, work order §3.7):
+        $null when the set has no view; otherwise the full path, refused when
+        it lies inside either storage root (it would be walked as data) or off
+        the backup volume (its per-file <a href>s are relative links into the
+        pool). BrowseView 'off' pays nothing and validates nothing.
+    #>
+    # Implements: SR-063, LLR-063
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Set,
+        [Parameter(Mandatory)][string]$BkpPath,
+        [Parameter(Mandatory)][string]$ChgPath
+    )
+    if ([string]$Set.BrowseView -ne 'index') { return $null }
+
+    $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+    $separator  = [System.IO.Path]::DirectorySeparatorChar
+    $viewRaw = [string]$Set.ViewPath
+    if ([string]::IsNullOrWhiteSpace($viewRaw)) { $viewRaw = $BkpPath.TrimEnd('\', '/') + '_View' }
+    $viewFull = [IO.Path]::GetFullPath($viewRaw)
+    foreach ($ownedPath in @($BkpPath, $ChgPath)) {
+        if ($viewFull -eq $ownedPath -or $viewFull.StartsWith($ownedPath.TrimEnd('\', '/') + $separator, $comparison)) {
+            throw "ViewPath '$viewFull' for set '$($Set.Name)' must lie outside backup/change storage '$ownedPath': the engine would walk the view as data."
+        }
+    }
+    $bkpVolume  = Get-VolumeIdentity -Path $BkpPath
+    $viewAnchor = Resolve-ExistingAncestor -Path $viewFull
+    $viewVolume = if ($viewAnchor) { Get-VolumeIdentity -Path $viewAnchor } else { $null }
+    if ($bkpVolume -and $viewVolume -and $viewVolume -ne $bkpVolume) {
+        throw "ViewPath '$viewFull' for set '$($Set.Name)' must be on the backup volume ('$bkpVolume'; the view path resolves to '$viewVolume'): the view's relative links into the pool only work there."
+    }
+    return $viewFull
 }
 
 function Initialize-StagingFolder {
@@ -3236,6 +3251,212 @@ function Assert-BackupCapacity {
     }
 }
 
+function New-BrowseViewIndex {
+    <#
+    .SYNOPSIS
+        Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
+        one INDEX.html per source folder mirroring the tree as PAGES, and a
+        root page with an embedded search box under a row threshold — all
+        outside the backup root, and read by NOTHING in the engine or the
+        restorers.
+    .DESCRIPTION
+        The view replaces Mirror's only real value — browse and search without
+        a restore — and is MORE faithful than Mirror was: every logical path
+        appears, including every dedup sibling (Mirror omitted borrower paths
+        entirely). Entry names come from the ROW (RelativePath, plus '.7z'
+        exactly when that row's Compressed is 'Yes'), never from the set's
+        config: compression is per-file, so a tree is mixed. Each file entry
+        is a relative <a href> to its pool object (percent-encoded — hash
+        names contain URL-special glyphs), so opening an entry opens that
+        object. Pages are bounded by folder fan-out and open instantly at any
+        library size; a single flat page over the production library would be
+        ~100 MB of markup (work order §3.6, human-approved 2026-08-25).
+
+        Search: at or under -SearchRowThreshold rows the ROOT page embeds the
+        row list and a filter box INLINE (browsers block file:// XHR, so a
+        side data file cannot be fetched — the §3.6 "compact data file"
+        realized as an embedded array); above it, the page prints the exact
+        grep / Select-String one-liners against INDEX.tsv. Honest degradation,
+        never a page that hangs the browser.
+
+        Freshness: '.viewstamp' records a digest of the manifest ROWS the view
+        mirrors (content-keyed — manifest bytes can be rewritten with
+        different quoting by a manifest-identical run), written LAST — a torn
+        generation is detectably stale and rebuilt, never trusted (TC-131). Regeneration wipes the view root
+        first so removed rows drop out; as the never-delete-user-data guard,
+        a view root holding a root-level MANIFEST.csv is refused outright —
+        that is a STORE, not a view.
+
+        A source DIRECTORY literally named 'INDEX.html' cannot be mirrored as
+        pages (its page file would collide with the directory); generation
+        refuses loudly and the caller decides (the pipeline logs a WARNING —
+        the view is cosmetic by construction; -Action View reports it).
+    .PARAMETER BackupRoot
+        The live backup root whose MANIFEST.csv is mirrored.
+    .PARAMETER ViewRoot
+        The validated view root (Resolve-BackupSetPaths' rails: outside both
+        storage roots, on the backup volume).
+    .PARAMETER Force
+        Regenerate even when the viewstamp matches (-Action View).
+    .PARAMETER SearchRowThreshold
+        Row count at or under which the root page embeds the search index.
+    .OUTPUTS
+        [pscustomobject] Regenerated (bool), Rows, Pages.
+    #>
+    # Implements: SR-062, LLR-061
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ViewRoot,
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [switch]$Force,
+        [int]$SearchRowThreshold = 50000
+    )
+
+    $manifestPath = Join-Path $BackupRoot $script:Def.DatabaseFilename
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "No manifest at '$BackupRoot': there is nothing to index."
+    }
+    $rows = @(Read-Manifest -FolderPath $BackupRoot | Where-Object { $_.RelativePath })
+
+    # Freshness is keyed on canonical ROW CONTENT (sorted; the five columns the
+    # view renders), not on manifest BYTES: a manifest-identical run can rewrite
+    # the file with different CSV quoting (the step-8 determinism item), and
+    # the view must not churn when nothing it shows has changed.
+    $canonical = ($rows | Sort-Object RelativePath |
+        ForEach-Object { "$($_.RelativePath)|$($_.DataPath)|$($_.Length)|$($_.xxH2Hash)|$($_.Compressed)" }) -join "`n"
+    $digest = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonical)))
+    $stampWant = "RowsSHA256=$digest"
+    $stampPath = Join-Path $ViewRoot '.viewstamp'
+    if (-not $Force -and (Test-Path -LiteralPath $stampPath -PathType Leaf) -and
+        ((Get-Content -LiteralPath $stampPath -Raw).Trim() -eq $stampWant)) {
+        & $Log 'Browse view is current (.viewstamp matches the manifest rows); skipping regeneration.'
+        return [pscustomobject]@{ Regenerated = $false; Rows = 0; Pages = 0 }
+    }
+
+    if (Test-Path -LiteralPath (Join-Path $ViewRoot $script:Def.DatabaseFilename) -PathType Leaf) {
+        throw "View root '$ViewRoot' contains a MANIFEST.csv at its top level — that is a backup STORE, not a generated view. Refusing to overwrite it; point ViewPath elsewhere."
+    }
+
+    # A directory named INDEX.html would collide with its parent's page file.
+    foreach ($row in $rows) {
+        $probe = [IO.Path]::GetDirectoryName($row.RelativePath)
+        while ($probe) {
+            if ([IO.Path]::GetFileName($probe) -ceq 'INDEX.html') {
+                throw "Source directory '$probe' is named INDEX.html, which collides with the view's page files. Rename it at the source, or set BrowseView to 'off'."
+            }
+            $probe = [IO.Path]::GetDirectoryName($probe)
+        }
+    }
+
+    # Wipe + recreate: regeneration must drop removed rows, and the stamp is
+    # written LAST so a torn run reads as stale next time.
+    if (Test-Path -LiteralPath $ViewRoot) {
+        Get-ChildItem -LiteralPath $ViewRoot -Force | Remove-Item -Recurse -Force
+    } else {
+        New-Item -ItemType Directory -Path $ViewRoot -Force | Out-Null
+    }
+    $viewFull = (Resolve-Path -LiteralPath $ViewRoot).Path
+    $bkpFull  = (Resolve-Path -LiteralPath $BackupRoot).Path
+
+    # INDEX.tsv — authoritative, greppable, tiny per row (the scripting surface).
+    $tsv = New-Object System.Text.StringBuilder
+    [void]$tsv.AppendLine("RelativePath`tDataPath`tLength`txxH2Hash`tCompressed")
+    foreach ($row in $rows) {
+        [void]$tsv.AppendLine("$($row.RelativePath)`t$($row.DataPath)`t$($row.Length)`t$($row.xxH2Hash)`t$($row.Compressed)")
+    }
+    [IO.File]::WriteAllText((Join-Path $viewFull 'INDEX.tsv'), $tsv.ToString(), [Text.UTF8Encoding]::new($false))
+
+    # Folder tree: every folder with rows, plus every ancestor, gets a page.
+    $byFolder   = @{}
+    $allFolders = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    [void]$allFolders.Add('')
+    foreach ($row in $rows) {
+        $dir = [IO.Path]::GetDirectoryName($row.RelativePath); if ($null -eq $dir) { $dir = '' }
+        $p = $dir
+        while ($p) { [void]$allFolders.Add($p); $p = [IO.Path]::GetDirectoryName($p) }
+        if (-not $byFolder.ContainsKey($dir)) { $byFolder[$dir] = New-Object System.Collections.Generic.List[object] }
+        $byFolder[$dir].Add($row)
+    }
+    $children = @{}
+    foreach ($f in $allFolders) {
+        if (-not $f) { continue }
+        $parent = [IO.Path]::GetDirectoryName($f); if ($null -eq $parent) { $parent = '' }
+        if (-not $children.ContainsKey($parent)) { $children[$parent] = New-Object System.Collections.Generic.List[string] }
+        $children[$parent].Add([IO.Path]::GetFileName($f))
+    }
+
+    $enc  = { param($s) [System.Net.WebUtility]::HtmlEncode([string]$s) }
+    $href = { param([string]$FromDirFull, [string]$DataPath)
+        # Relative page->pool link, forward slashes, percent-encoded segments
+        # (hash names contain '#', '%', '+', ';' and friends).
+        $relRoot = [IO.Path]::GetRelativePath($FromDirFull, $bkpFull) -replace '\\', '/'
+        $segments = ($DataPath -split '[\\/]') | ForEach-Object { [Uri]::EscapeDataString($_) }
+        return "$relRoot/$($segments -join '/')"
+    }
+    $style = '<style>body{font-family:Segoe UI,sans-serif;margin:1.5em}table{border-collapse:collapse}' +
+             'td,th{padding:.15em .8em;text-align:left}th{border-bottom:1px solid #999}' +
+             'ul{list-style:none;padding-left:0}</style>'
+
+    $pages = 0
+    foreach ($folder in $allFolders) {
+        $pageDirFull = if ($folder) { Join-Path $viewFull $folder } else { $viewFull }
+        if (-not (Test-Path -LiteralPath $pageDirFull)) { New-Item -ItemType Directory -Path $pageDirFull -Force | Out-Null }
+        $title = if ($folder) { $folder } else { 'Backup root' }
+        $h = New-Object System.Text.StringBuilder
+        [void]$h.AppendLine("<!DOCTYPE html><html><head><meta charset=""utf-8""><title>$(& $enc $title) — FileBackup view</title>$style</head><body>")
+        [void]$h.AppendLine("<h1>$(& $enc $title)</h1>")
+        [void]$h.AppendLine('<p>Generated from MANIFEST.csv. Read-only: nothing in the engine or the restorers reads this view. Every logical path is listed, including duplicates that share one stored object.</p>')
+        if ($folder) { [void]$h.AppendLine('<p><a href="../INDEX.html">&#8593; parent folder</a></p>') }
+        $kids = if ($children.ContainsKey($folder)) { $children[$folder] | Sort-Object } else { @() }
+        if (@($kids).Count -gt 0) {
+            [void]$h.AppendLine('<ul>')
+            foreach ($kid in $kids) {
+                [void]$h.AppendLine("<li>&#128193; <a href=""$([Uri]::EscapeDataString($kid))/INDEX.html"">$(& $enc $kid)/</a></li>")
+            }
+            [void]$h.AppendLine('</ul>')
+        }
+        $own = if ($byFolder.ContainsKey($folder)) { $byFolder[$folder] | Sort-Object RelativePath } else { @() }
+        if (@($own).Count -gt 0) {
+            [void]$h.AppendLine('<table><tr><th>Name</th><th>Bytes</th><th>xxH128</th></tr>')
+            foreach ($row in $own) {
+                $display = [IO.Path]::GetFileName($row.RelativePath) + $(if ($row.Compressed -eq 'Yes') { '.7z' } else { '' })
+                $link = & $href $pageDirFull $row.DataPath
+                [void]$h.AppendLine("<tr><td><a href=""$link"">$(& $enc $display)</a></td><td>$($row.Length)</td><td>$(& $enc $row.xxH2Hash)</td></tr>")
+            }
+            [void]$h.AppendLine('</table>')
+        }
+        if (-not $folder) {
+            if ($rows.Count -le $SearchRowThreshold) {
+                # Embedded search: file:// pages cannot fetch a side file, so
+                # the row list rides inline (name shown, path matched, href to
+                # the object). JSON-escaped via ConvertTo-Json on the array.
+                $searchRows = @(foreach ($row in $rows) {
+                    ,@([string]$row.RelativePath,
+                       (& $href $viewFull $row.DataPath),
+                       $(if ($row.Compressed -eq 'Yes') { '.7z' } else { '' }))
+                })
+                $json = ConvertTo-Json -InputObject $searchRows -Compress -Depth 3
+                [void]$h.AppendLine('<h2>Search</h2><input id="q" type="text" placeholder="type part of a path..." size="60"><ul id="hits"></ul>')
+                [void]$h.AppendLine("<script>var R=$json;")
+                [void]$h.AppendLine('document.getElementById("q").addEventListener("input",function(){var q=this.value.toLowerCase();var o=document.getElementById("hits");o.innerHTML="";if(q.length<2)return;var n=0;for(var i=0;i<R.length&&n<200;i++){if(R[i][0].toLowerCase().indexOf(q)>=0){var li=document.createElement("li");var a=document.createElement("a");a.href=R[i][1];a.textContent=R[i][0]+R[i][2];li.appendChild(a);o.appendChild(li);n++;}}});</script>')
+            } else {
+                [void]$h.AppendLine('<h2>Search</h2><p>This backup holds too many rows to embed a search index. Search INDEX.tsv instead:</p>')
+                [void]$h.AppendLine('<pre>Select-String -LiteralPath INDEX.tsv -Pattern ''name-fragment''')
+                [void]$h.AppendLine('grep -i ''name-fragment'' INDEX.tsv</pre>')
+            }
+        }
+        [void]$h.AppendLine('</body></html>')
+        [IO.File]::WriteAllText((Join-Path $pageDirFull 'INDEX.html'), $h.ToString(), [Text.UTF8Encoding]::new($false))
+        $pages++
+    }
+
+    # The stamp is LAST: everything before it is discardably stale.
+    [IO.File]::WriteAllText($stampPath, $stampWant + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    & $Log "Browse view regenerated at '$viewFull': $($rows.Count) row(s), $pages page(s)."
+    return [pscustomobject]@{ Regenerated = $true; Rows = $rows.Count; Pages = $pages }
+}
+
 function Invoke-BackupSet {
     <#
     .SYNOPSIS
@@ -3506,6 +3727,19 @@ function Invoke-BackupSet {
     # 15. Record state: hashes ran (B3) + this backup's completion date (dates the next snapshot)
     if ($recalc) { Set-LastHashRun -BackupRoot $paths.BkpPath -When $thisBackupDate }
     Set-LastBackupRun -BackupRoot $paths.BkpPath -When $thisBackupDate
+
+    # 16. Browse view (SR-062): only for sets that asked, skipped while the
+    # viewstamp matches the manifest. A failure here is a WARNING, not a set
+    # failure: the view is cosmetic by construction — nothing in the engine or
+    # the restorers reads it — and a completed backup must not be reported
+    # failed over a browse page. -Action View rebuilds loudly on demand.
+    if ([string]$Set.BrowseView -eq 'index' -and $paths.ViewPath) {
+        try {
+            [void](New-BrowseViewIndex -BackupRoot $paths.BkpPath -ViewRoot $paths.ViewPath -Log $log)
+        } catch {
+            & $log "Browse view generation failed: $($_.Exception.Message) (the backup itself is unaffected; -Action View retries loudly)" 'WARN'
+        }
+    }
 
     & $log "Changed files count = $changedCount"
     & $log "----- Backup set '$($Set.Name)' completed -----"
@@ -3987,5 +4221,6 @@ Export-ModuleMember -Function @(
     'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',
+    'New-BrowseViewIndex',
     'Import-BackupConfiguration'
 )

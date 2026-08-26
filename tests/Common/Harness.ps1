@@ -136,7 +136,7 @@ function Write-TestConfig {
     param(
         [string]$ConfigPath, [string]$SrcPath, [string]$BkpPath, [string]$ChgPath,
         [bool]$Compress, [string]$HashRecalcFreq = 'A',
-        [string]$Name = 'TestSet'
+        [string]$Name = 'TestSet', [string]$BrowseView = ''
     )
     $secrets = [pscustomobject]@{
         ToEmail    = 'test@example.com'
@@ -145,7 +145,7 @@ function Write-TestConfig {
         SmtpPort   = 587
         Credential = $null
     }
-    $set = [pscustomobject]@{
+    $set = [ordered]@{
         Name               = $Name
         SourcePath         = $SrcPath
         BackupPath         = $BkpPath
@@ -153,7 +153,8 @@ function Write-TestConfig {
         HashRecalcFreq     = $HashRecalcFreq
         CompressEnabled    = $Compress
     }
-    @{ Secrets = $secrets; BackupSets = @($set) } | Export-Clixml -LiteralPath $ConfigPath
+    if ($BrowseView) { $set['BrowseView'] = $BrowseView }
+    @{ Secrets = $secrets; BackupSets = @([pscustomobject]$set) } | Export-Clixml -LiteralPath $ConfigPath
 }
 
 function Invoke-Backup {

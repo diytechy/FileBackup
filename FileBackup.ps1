@@ -192,7 +192,10 @@ param(
     # by WP4; Prune removes named snapshots through the retention mechanism and
     # Snapshots prints the read-only inventory as JSON. Retention POLICY belongs
     # to the wrapper (IF-001) -- this entry point only takes explicit names.
-    [ValidateSet('Backup', 'Prune', 'Snapshots', 'Verify')][string]$Action = 'Backup',
+    # View (SR-062) forces a rebuild of the browse view for a BrowseView=index
+    # set: 0 rebuilt, 2 could not (no view configured, rails refused, or
+    # generation failed).
+    [ValidateSet('Backup', 'Prune', 'Snapshots', 'Verify', 'View')][string]$Action = 'Backup',
     # -Action Verify (SR-049). -VerifyStorage is kept as an alias so the
     # disposition wording and the code resolve to the same one dispatch.
     [Alias('VerifyStorage')][switch]$VerifyStorageAlias,
@@ -497,6 +500,42 @@ function Invoke-VerifyAction {
     return 0
 }
 
+function Invoke-ViewAction {
+    <#
+    .SYNOPSIS
+        Runs the -Action View half of the entry point (SR-062): a FORCED
+        rebuild of the set's browse view, reporting through the status table.
+    .DESCRIPTION
+        The pipeline's own step-16 refresh is quiet and skip-on-fresh; this is
+        the loud, on-demand rebuild — a torn or doubted view is regenerated
+        rather than trusted (TC-131). Read-only with respect to the STORE (the
+        source may be offline); only the view root is written.
+    .OUTPUTS
+        [int] 0 the view was rebuilt; 2 it could not be (the set has no view
+        configured, the ViewPath rails refused, or generation failed —
+        "nothing was attempted / nothing usable was produced", the same class
+        Verify reports as 2).
+    #>
+    # Implements: SR-062, SR-040, LLR-064
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Set,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    try {
+        if ([string]$Set.BrowseView -ne 'index') {
+            & $Log "-Action View requires BrowseView 'index' on set '$($Set.Name)' (found '$([string]$Set.BrowseView)'). Set BrowseView to 'index' in the configuration." 'ERROR'
+            return 2
+        }
+        $paths = Resolve-BackupSetPaths -Set $Set -ReadOnly
+        $result = New-BrowseViewIndex -BackupRoot $paths.BkpPath -ViewRoot $paths.ViewPath -Log $Log -Force
+        & $Log "Browse view rebuilt at '$($paths.ViewPath)': $($result.Rows) row(s) across $($result.Pages) page(s)." 'INFO'
+        return 0
+    } catch {
+        & $Log "Browse view could not be produced: $($_.Exception.Message)" 'ERROR'
+        return 2
+    }
+}
+
 if ($Action -ne 'Backup') {
     if (@($Sets).Count -ne 1) {
         & $globalLog ("Retention acts on ONE backup set per invocation (IF-001); this configuration declares $(@($Sets).Count). Using the first: '$($Sets[0].Name)'.") 'WARN'
@@ -505,6 +544,8 @@ if ($Action -ne 'Backup') {
         Invoke-VerifyAction -Set $Sets[0] -Deps $deps -Log $globalLog `
             -Repair:$RepairStorage -DeepCheck:$Deep `
             -RootOnly:($BackupRootOnly -or -not $IncludeSnapshots) -Refresh:$RefreshKits
+    } elseif ($Action -eq 'View') {
+        Invoke-ViewAction -Set $Sets[0] -Log $globalLog
     } else {
         Invoke-RetentionAction -Set $Sets[0] -Mode $Action -Name $Snapshot `
             -Deps $deps -Log $globalLog -DryRun:$WhatIfPreference

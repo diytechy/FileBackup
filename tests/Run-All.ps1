@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Master test driver. Sweeps compression across each suite (G1-G9).
+    Master test driver. Sweeps compression across each suite (G1-G10).
 
 .PARAMETER Backend
     Subst | VHDX | RealUSB
@@ -27,7 +27,7 @@
 param(
     [ValidateSet('Subst','VHDX','RealUSB')][string]$Backend = 'Subst',
     [string]$ResultRoot = (Join-Path $env:TEMP "FileBackupTests"),
-    [string]$Groups = 'G1,G2,G3,G4,G5,G6,G7,G8,G9',
+    [string]$Groups = 'G1,G2,G3,G4,G5,G6,G7,G8,G9,G10',
     [string]$Modes  = 'Plain,Compress',
     [switch]$EmitJUnit,
     [switch]$NonInteractive
@@ -56,7 +56,7 @@ Import-Module (Join-Path $repo 'Modules\FileBackup.Engine.psm1') -Force
 # Pool-audit tooling (TC-116): the byte-verified orphan second pass called at
 # the end of the G2/G3/G9 timelines, and the copy counter behind G2.8.
 . (Join-Path $here 'Common\PoolAudit.ps1')
-foreach ($id in @('G1','G2','G3','G4','G5','G6','G7','G8','G9')) {
+foreach ($id in @('G1','G2','G3','G4','G5','G6','G7','G8','G9','G10')) {
     $suiteFile = Get-ChildItem -LiteralPath (Join-Path $here 'Suites') -Filter "$id-*.ps1" |
                  Select-Object -First 1
     if ($suiteFile) { . $suiteFile.FullName }
