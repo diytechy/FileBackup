@@ -29,14 +29,19 @@
 
     JSON is the documented, VERSIONED contract (container/FileBackup.schema.json
     is the published, documentation-only mirror) -- a required integer
-    ConfigVersion (currently 1), a closed schema (any key it doesn't recognize
-    aborts the run naming that key and its JSON path), JSON-typed booleans for
-    CompressEnabled/AllowEmptySource (a quoted "false" is rejected, never
-    coerced true), and no Secrets.Credential (JSON cannot carry a
-    PSCredential; use CLIXML, or run with -NoMail as containers do):
+    ConfigVersion (currently 2; version 1 is refused as too old -- it carried
+    the removed PreserveFolderTree layout selector), a closed schema (any key
+    it doesn't recognize aborts the run naming that key and its JSON path;
+    PreserveFolderTree itself gets a NAMED removal message), JSON-typed
+    booleans for CompressEnabled/AllowEmptySource (a quoted "false" is
+    rejected, never coerced true), and no Secrets.Credential (JSON cannot
+    carry a PSCredential; use CLIXML, or run with -NoMail as containers do).
+    BrowseView ("off" default | "index"; "link" reserved) generates a
+    browsable manifest-derived view at ViewPath (default <BackupPath>_View,
+    outside both roots, on the backup volume):
 
         {
-          "ConfigVersion": 1,
+          "ConfigVersion": 2,
           "Tools": { "SevenZipPath": "/usr/bin/7z" },
           "BackupSets": [{
             "Name": "MainData",
@@ -70,6 +75,7 @@
                     ChangePath         = 'E:\Backups\DataChanges'
                     HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
                     CompressEnabled    = $true
+                    BrowseView         = 'index'  # 'off' (default) | 'index' browsable view
                     AllowEmptySource   = $false   # opt in to an intentional delete-all
                 }
             )

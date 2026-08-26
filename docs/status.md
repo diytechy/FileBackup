@@ -97,8 +97,8 @@ last) — it is the record, not required reading for every pass.
   | 3 — delete storage-layout migration whole (SR-061) | **DONE** | `3ac3338` |
   | 4 — `Save-SupersededData` reorder + exact survival test (SR-059) | **DONE** | `b6077b8` |
   | 5 — delete Mirror (SR-058 + the recovered SR-061 refusal) | **DONE** | `44deeb5` (5a engine+PS), `cce8855` (5b bash), 5c docs (this session) |
-  | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | next | |
-  | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | | |
+  | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | **DONE** | (this session; hash backfilled next update) |
+  | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | next | |
   | 8 / 8b — folded fixes + F8 + reserved names | | |
   | 9 — docs, registries, generated maps, G3 audit entry | | |
   Latest evidence (step 5, real output): `check.ps1 -Tier Full -Gate G3` all
@@ -130,7 +130,24 @@ last) — it is the record, not required reading for every pass.
   `mode=set{Mirror,...}`; the vacuous StorageForm capacity-estimate It
   (flagged in-file); AGENTS.md §2/§3 hand-written text (also stale from
   step 3); the kit-rev decision (kit bytes untouched at step 5;
-  `Reconstruct.ps1:259`'s Mirror comment is step 9's call). **D-5 is fixed in the content-addressed modes; the exact
+  `Reconstruct.ps1:259`'s Mirror comment is step 9's call).
+  **STEP 6 (config v2, SR-063) evidence:** `check.ps1 -Tier Full -Gate G3`
+  all steps passed (unit incl. the new TC-125..TC-128 battery and seven new
+  corpus rows; integration 218/0/2); trace 0/0/0. ConfigVersion is **2** and
+  version 1 is refused as TOO OLD (its key set carried the removed selector);
+  `PreserveFolderTree` gets the NAMED removal diagnostic in BOTH formats —
+  the CLIXML arm closes §9 Q3's silent-divergence hole; `BrowseView` (`off`
+  default | `index`; `link` refused by name) and `ViewPath` (default
+  `<BackupPath>_View`) are accepted with placement rails at
+  `Resolve-BackupSetPaths` (outside both roots; on the backup volume;
+  validated only when a view is asked for). **STEP-6 DRIVER REFINEMENT of §9
+  Q2 (recorded, open to veto): the CONTAINER example does NOT set
+  `BrowseView: index`** — a container's `/backup` bind can never satisfy
+  §3.7's same-volume rule, so the ruling's letter is structurally
+  unachievable there; the native examples (README + entry help) set `index`,
+  interfaces.md discloses the limitation, and the container-view question is
+  queued for the IF-001 promotion at step 9.
+  **D-5 is fixed in the content-addressed modes; the exact
   survival test (SR-059) is in** — content-addressed sets preserve superseded
   bytes AFTER copy/evict against the FINAL manifest's DataPath claims, which
   fixes two red-first-proven D-1-family holes: the source-based test moved out

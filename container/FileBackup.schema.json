@@ -8,8 +8,8 @@
   "required": ["ConfigVersion", "BackupSets"],
   "properties": {
     "ConfigVersion": {
-      "description": "Currently 1. A config declaring a higher version is refused by this build. JSON has one number type, so an integral-valued number IS that integer: 1.0 is accepted as 1 (both by this const and by the runtime validator); 1.5, 0, \"1\" and anything above 1 are refused.",
-      "const": 1
+      "description": "Currently 2 (version 1 documents are refused as too old: v2 removed PreserveFolderTree — storage is always content-addressed — and added BrowseView/ViewPath). A config declaring a higher version is refused by this build. JSON has one number type, so an integral-valued number IS that integer: 2.0 is accepted as 2 (both by this const and by the runtime validator); 2.5, 0, \"2\", 1 and anything above 2 are refused.",
+      "const": 2
     },
     "BackupSets": {
       "description": "One or more backup sets. An array of at least one set object, or -- matching the runtime validator, which wraps it -- a single bare set object.",
@@ -43,6 +43,14 @@
           "enum": ["A", "E", "D", "W", "M", "Y", "N", "a", "e", "d", "w", "m", "y", "n"]
         },
         "CompressEnabled":    { "type": "boolean" },
+        "BrowseView": {
+          "enum": ["off", "index"],
+          "description": "Optional; defaults to 'off'. 'index' generates a browsable, manifest-derived INDEX.tsv + per-folder HTML view outside the backup root. 'link' is reserved and refused by name."
+        },
+        "ViewPath": {
+          "type": "string",
+          "description": "Optional; defaults to '<BackupPath>_View'. Must lie outside the backup and change roots and on the backup volume. Only meaningful with BrowseView 'index'."
+        },
         "SourceStatePath": {
           "type": "string",
           "description": "Optional; defaults to SourcePath. Required in practice for a read-only container source."

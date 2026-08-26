@@ -1266,8 +1266,8 @@ Describe 'The shipped example config is executable (SR-042)' {
         [IO.File]::WriteAllText((Join-Path $src 'report.txt'), ('EXAMPLE CONFIG DATA ' * 500))
 
         # Retarget ONLY the path fields and the 7-Zip tool path; every other key
-        # (ConfigVersion, Name, HashRecalcFreq, CompressEnabled, PreserveFolderTree)
-        # is kept exactly as checked in.
+        # (ConfigVersion, Name, HashRecalcFreq, CompressEnabled) is kept
+        # exactly as checked in.
         $exampleObj.BackupSets[0].SourcePath      = $src
         $exampleObj.BackupSets[0].SourceStatePath = $state
         $exampleObj.BackupSets[0].BackupPath      = $bkp
@@ -1332,20 +1332,20 @@ Describe 'Published JSON schema matches the validator (SR-042)' {
         { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage $Message
     }
 
-    It 'declares the shipped example, the README block, and the smoke config all at ConfigVersion 1 (the loader''s current maximum)' {
+    It 'declares the shipped example, the README block, and the smoke config all at ConfigVersion 2 (the loader''s current version)' {
         $exampleObj = Get-Content -LiteralPath (Join-Path $repo 'container\FileBackup.example.json') -Raw | ConvertFrom-Json
-        $exampleObj.ConfigVersion | Should -Be 1
+        $exampleObj.ConfigVersion | Should -Be 2
 
         $readme = Get-Content -LiteralPath (Join-Path $repo 'README.md') -Raw
         if ($readme -match '(?s)```json\r?\n(\{.*?"BackupSets".*?\})\r?\n```') {
             $readmeObj = $Matches[1] | ConvertFrom-Json
-            $readmeObj.ConfigVersion | Should -Be 1
+            $readmeObj.ConfigVersion | Should -Be 2
         } else {
             throw "Could not locate the README JSON config block to check its ConfigVersion."
         }
 
         $invokeContainerSrc = Get-Content -LiteralPath (Join-Path $repo 'scripts\Invoke-Container.ps1') -Raw
-        $invokeContainerSrc | Should -Match 'ConfigVersion\s*=\s*1'
+        $invokeContainerSrc | Should -Match 'ConfigVersion\s*=\s*2'
     }
 }
 
@@ -1354,7 +1354,7 @@ Describe 'Entry-point status codes (SR-043)' {
         function New-JsonBackupConfig {
             param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg, [string]$Name = 'S')
             [ordered]@{
-                ConfigVersion = 1
+                ConfigVersion = 2
                 BackupSets    = @(
                     [ordered]@{
                         Name = $Name; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
@@ -1409,7 +1409,7 @@ Describe 'Entry-point status codes (SR-043)' {
         New-Item -ItemType Directory -Path (Split-Path $seededLog) -Force | Out-Null
         [IO.File]::WriteAllText($seededLog, "PREVIOUS RUN EVIDENCE`r`n")
         $badCfg = Join-Path $root 'bad.json'
-        [IO.File]::WriteAllText($badCfg, '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false"}]}')
+        [IO.File]::WriteAllText($badCfg, '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false"}]}')
 
         & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $badCfg `
             -GlobalLogPath $seededLog -NoMail -NonInteractive -ExitCode *>&1 | Out-Null
@@ -1488,7 +1488,7 @@ Describe 'Entry-point status codes (SR-043)' {
         [IO.File]::WriteAllText((Join-Path $srcA 'a.txt'), 'A')
         [IO.File]::WriteAllText((Join-Path $srcB 'b.txt'), 'B')
         [ordered]@{
-            ConfigVersion = 1
+            ConfigVersion = 2
             BackupSets    = @(
                 [ordered]@{ Name = 'A'; SourcePath = $srcA; BackupPath = $bkpA; ChangePath = (Join-Path $root 'chgA'); HashRecalcFreq = 'A'; CompressEnabled = $false }
                 [ordered]@{ Name = 'B'; SourcePath = $srcB; BackupPath = $bkpB; ChangePath = (Join-Path $root 'chgB'); HashRecalcFreq = 'A'; CompressEnabled = $false }

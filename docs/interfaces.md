@@ -30,13 +30,16 @@ service/invocation per directory rather than one multi-set config; a JSON config
 with more than one `BackupSets` entry is accepted for native-Windows use but is
 outside this contract when run in the container.
 
-**Config schema v1** (`SR-042`, published as
+**Config schema v2** (`SR-042`/`SR-063`, published as
 [`container/FileBackup.schema.json`](../container/FileBackup.schema.json)):
-a required integer `ConfigVersion` (currently **1**); a **closed** schema — any
-unrecognized key aborts the run, naming the key; a JSON boolean
-`CompressEnabled` (`PreserveFolderTree` was removed at WP9 step 5 — storage is
-always content-addressed, and a config still carrying the key is refused as an
-unrecognized key); optional `SourceStatePath` (default
+a required integer `ConfigVersion` (currently **2**; version 1 is refused as
+too old); a **closed** schema — any unrecognized key aborts the run, naming
+the key; a JSON boolean `CompressEnabled` (`PreserveFolderTree` was removed at
+WP9 — storage is always content-addressed, and a config still carrying the key
+is refused with a named removal diagnostic); optional `BrowseView`
+(`off`|`index`, default `off` — note a containerized run cannot satisfy the
+view's same-volume rule, so `index` is native-host functionality until IF-001
+rules otherwise) and `ViewPath`; optional `SourceStatePath` (default
 `SourcePath`) and `AllowEmptySource` (default `false`); no
 `Secrets.Credential` (JSON can't carry a `PSCredential` — containerized runs are
 always `-NoMail`). CLIXML remains the unversioned legacy native-Windows form;

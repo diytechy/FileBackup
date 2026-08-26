@@ -2509,12 +2509,13 @@ function Resolve-BackupSetPaths {
         code 2 (WP5 review, finding m2).
 
     .OUTPUTS
-        [pscustomobject] SrcPath / SrcStatePath / BkpPath / ChgPath. Under
+        [pscustomobject] SrcPath / SrcStatePath / BkpPath / ChgPath / ViewPath
+        (resolved full path when BrowseView is 'index', else $null). Under
         -ReadOnly, SrcPath and SrcStatePath are $null when the source is absent
         and ChgPath may name a folder that does not exist (there are then no
-        snapshots to audit).
+        snapshots to audit); the view is not validated read-only.
     #>
-    # Implements: SR-014, SR-049, LLR-014
+    # Implements: SR-014, SR-049, SR-063, LLR-014, LLR-063
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,
@@ -2563,18 +2564,19 @@ function Resolve-BackupSetPaths {
         }
     }
 
+    $comparison = if ($IsWindows) {
+        [System.StringComparison]::OrdinalIgnoreCase
+    } else {
+        [System.StringComparison]::Ordinal
+    }
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    $isWithin = {
+        param([string]$Candidate, [string]$Root)
+        $prefix = $Root.TrimEnd('\','/') + $separator
+        return $Candidate.StartsWith($prefix, $comparison)
+    }
+
     if ($srcStatePath -ne $srcPath) {
-        $comparison = if ($IsWindows) {
-            [System.StringComparison]::OrdinalIgnoreCase
-        } else {
-            [System.StringComparison]::Ordinal
-        }
-        $separator = [System.IO.Path]::DirectorySeparatorChar
-        $isWithin = {
-            param([string]$Candidate, [string]$Root)
-            $prefix = $Root.TrimEnd('\','/') + $separator
-            return $Candidate.StartsWith($prefix, $comparison)
-        }
         if (& $isWithin $srcStatePath $srcPath) {
             throw "SourceStatePath '$srcStatePath' must not be inside SourcePath '$srcPath' because its cache would be backed up as source data."
         }
@@ -2585,11 +2587,35 @@ function Resolve-BackupSetPaths {
         }
     }
 
+    # SR-063 (work order §3.7): the view root is validated where paths resolve.
+    # It must lie OUTSIDE both storage roots (it would be walked as data) and
+    # on the BACKUP volume (its per-file <a href>s are relative links into the
+    # pool, which only resolve on one volume). Only when the set asked for a
+    # view — BrowseView 'off' pays nothing and validates nothing.
+    $viewFull = $null
+    if ([string]$Set.BrowseView -eq 'index') {
+        $viewRaw = [string]$Set.ViewPath
+        if ([string]::IsNullOrWhiteSpace($viewRaw)) { $viewRaw = $bkpPath.TrimEnd('\', '/') + '_View' }
+        $viewFull = [IO.Path]::GetFullPath($viewRaw)
+        foreach ($ownedPath in @($bkpPath, $chgPath)) {
+            if ($viewFull -eq $ownedPath -or (& $isWithin $viewFull $ownedPath)) {
+                throw "ViewPath '$viewFull' for set '$($Set.Name)' must lie outside backup/change storage '$ownedPath': the engine would walk the view as data."
+            }
+        }
+        $bkpVolume  = Get-VolumeIdentity -Path $bkpPath
+        $viewAnchor = Resolve-ExistingAncestor -Path $viewFull
+        $viewVolume = if ($viewAnchor) { Get-VolumeIdentity -Path $viewAnchor } else { $null }
+        if ($bkpVolume -and $viewVolume -and $viewVolume -ne $bkpVolume) {
+            throw "ViewPath '$viewFull' for set '$($Set.Name)' must be on the backup volume ('$bkpVolume'; the view path resolves to '$viewVolume'): the view's relative links into the pool only work there."
+        }
+    }
+
     return [pscustomobject]@{
         SrcPath = $srcPath
         SrcStatePath = $srcStatePath
         BkpPath = $bkpPath
         ChgPath = $chgPath
+        ViewPath = $viewFull
     }
 }
 
@@ -3489,12 +3515,15 @@ function Invoke-BackupSet {
 
 # region Configuration loading (SR-042, SR-043)
 
-# Highest ConfigVersion this build understands (SR-042). A JSON config
-# declaring a higher version is refused by name rather than half-understood.
+# The ConfigVersion this build understands (SR-042, SR-063). Version 2 (WP9):
+# the PreserveFolderTree layout selector is REMOVED — storage is always
+# content-addressed — and BrowseView/ViewPath are added. A config declaring a
+# HIGHER version is refused ("upgrade FileBackup"); a version-1 document is
+# refused as TOO OLD rather than half-understood, because its key set differs.
 # JSON has ONE number type, so an integral-valued number is that integer:
-# "ConfigVersion": 1.0 is the same document as "ConfigVersion": 1 and is
-# accepted; 1.5 is not. The published schema's `const: 1` agrees (TC-077).
-$script:ConfigSchemaVersion = 1
+# "ConfigVersion": 2.0 is the same document as "ConfigVersion": 2 and is
+# accepted; 2.5 is not. The published schema's `const: 2` agrees (TC-077).
+$script:ConfigSchemaVersion = 2
 
 function Assert-NoUnknownConfigKey {
     <#
@@ -3513,13 +3542,23 @@ function Assert-NoUnknownConfigKey {
 
     $topLevelKeys = 'ConfigVersion', 'BackupSets', 'Tools', 'Secrets'
     $setKeys      = 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq',
-                    'CompressEnabled', 'SourceStatePath', 'AllowEmptySource'
+                    'CompressEnabled', 'SourceStatePath', 'AllowEmptySource',
+                    'BrowseView', 'ViewPath'
     $toolsKeys    = 'SevenZipPath', 'FfprobePath'
     $secretsKeys  = 'ToEmail', 'FromEmail', 'SmtpServer', 'SmtpPort', 'Credential'
+    # Removed keys get a NAMED diagnostic (SR-063, LLR-063): the generic
+    # unknown-key message reads as a typo, and an author coming from v1 must be
+    # told the layout selector is GONE, not misspelled.
+    $retiredKeys  = @{
+        PreserveFolderTree = 'PreserveFolderTree was removed in ConfigVersion 2: storage is always content-addressed. Remove the key.'
+    }
 
     function Test-ConfigKeySet {
         param($Obj, [string[]]$Allowed, [string]$ObjJsonPath)
         foreach ($prop in $Obj.PSObject.Properties.Name) {
+            if ($retiredKeys.Contains($prop)) {
+                throw "Config '$ConfigPath' is invalid: $ObjJsonPath.$prop — $($retiredKeys[$prop])"
+            }
             if ($prop -notin $Allowed) {
                 throw "Config '$ConfigPath' is invalid: $ObjJsonPath.$prop — unrecognized key (expected one of: $($Allowed -join ', '))."
             }
@@ -3698,6 +3737,15 @@ function Test-BackupConfigurationShape {
                 throw "Every backup set must define a non-empty '$field'."
             }
         }
+        # SR-063: the retired key is refused BY NAME in EVERY format. CLIXML is
+        # exempt from the closed schema, so without this a legacy CLIXML config
+        # would keep saying "mirror the tree" while the engine content-addresses
+        # everything — the exact silent divergence WP9 exists to kill (work
+        # order §9 Q3). The JSON branch normally refuses it one step earlier in
+        # Assert-NoUnknownConfigKey, with the same wording.
+        if ($set.PSObject.Properties.Name -contains 'PreserveFolderTree') {
+            throw "Config '$ConfigPath' is invalid: $setPath.PreserveFolderTree — PreserveFolderTree was removed in ConfigVersion 2: storage is always content-addressed. Remove the key."
+        }
         foreach ($field in @('CompressEnabled')) {
             if ($set.PSObject.Properties.Name -notcontains $field) {
                 throw "Backup set '$($set.Name)' must define '$field' as true or false."
@@ -3716,6 +3764,22 @@ function Test-BackupConfigurationShape {
         }
         if ([string]$set.HashRecalcFreq -notin 'A', 'E', 'D', 'W', 'M', 'Y', 'N') {
             throw "Backup set '$($set.Name)' has invalid HashRecalcFreq '$($set.HashRecalcFreq)'. Expected A, E, D, W, M, Y, or N."
+        }
+        # SR-063 vocabulary: exact-lowercase 'off'|'index', matching the
+        # published schema's enum so TC-077's parity holds. 'link' is refused
+        # BY NAME — reserved, not a typo (the design record defers it).
+        if ($set.PSObject.Properties.Name -contains 'BrowseView' -and $null -ne $set.BrowseView) {
+            if ($StrictTypes) { Assert-ConfigValueType -Value $set.BrowseView -JsonType 'string' -JsonPath "$setPath.BrowseView" }
+            $bv = [string]$set.BrowseView
+            if ($bv -ceq 'link') {
+                throw "Backup set '$($set.Name)' has BrowseView 'link': reserved but not implemented (a linked view is deferred by the WP9 design record). Use 'off' or 'index'."
+            }
+            if ($bv -cnotin 'off', 'index') {
+                throw "Backup set '$($set.Name)' has invalid BrowseView '$bv'. Expected 'off' or 'index' ('link' is reserved)."
+            }
+        }
+        if ($StrictTypes -and $set.PSObject.Properties.Name -contains 'ViewPath' -and $null -ne $set.ViewPath) {
+            Assert-ConfigValueType -Value $set.ViewPath -JsonType 'string' -JsonPath "$setPath.ViewPath"
         }
     }
 
@@ -3748,9 +3812,10 @@ function Resolve-BackupSetDefaults {
     <#
     .SYNOPSIS
         Materializes each backup set's optional fields to their documented
-        defaults (SourceStatePath = SourcePath, AllowEmptySource = $false) and
-        normalizes casing/types, so the engine's own [bool] / ToUpperInvariant
-        casts at point of use become belt-and-braces (SR-042).
+        defaults (SourceStatePath = SourcePath, AllowEmptySource = $false,
+        BrowseView = 'off', ViewPath = '<BackupPath>_View') and normalizes
+        casing/types, so the engine's own [bool] / ToUpperInvariant casts at
+        point of use become belt-and-braces (SR-042, SR-063).
     .PARAMETER Sets
         Raw BackupSets objects (JSON or CLIXML), already shape-validated by
         Test-BackupConfigurationShape.
@@ -3768,6 +3833,17 @@ function Resolve-BackupSetDefaults {
             [string]$set.SourceStatePath
         }
         $allowEmptySource = ($set.PSObject.Properties.Name -contains 'AllowEmptySource') -and $null -ne $set.AllowEmptySource -and [bool]$set.AllowEmptySource
+        # BrowseView defaults OFF (work order §9 Q2): a config that never asked
+        # for a view pays no per-run cost. ViewPath defaults beside the backup
+        # root — same volume by construction, outside both roots.
+        $browseView = if ($set.PSObject.Properties.Name -contains 'BrowseView' -and
+                          -not [string]::IsNullOrWhiteSpace([string]$set.BrowseView)) {
+            [string]$set.BrowseView
+        } else { 'off' }
+        $viewPath = if ($set.PSObject.Properties.Name -contains 'ViewPath' -and
+                        -not [string]::IsNullOrWhiteSpace([string]$set.ViewPath)) {
+            [string]$set.ViewPath
+        } else { ([string]$set.BackupPath).TrimEnd('\', '/') + '_View' }
 
         [pscustomobject]@{
             Name               = [string]$set.Name
@@ -3778,6 +3854,8 @@ function Resolve-BackupSetDefaults {
             HashRecalcFreq     = ([string]$set.HashRecalcFreq).ToUpperInvariant()
             CompressEnabled    = [bool]$set.CompressEnabled
             AllowEmptySource   = $allowEmptySource
+            BrowseView         = $browseView
+            ViewPath           = $viewPath
         }
     }
 }
@@ -3845,6 +3923,13 @@ function Import-BackupConfiguration {
             }
             if ($rawVersion -gt $script:ConfigSchemaVersion) {
                 throw "Config '$Path' is invalid: `$.ConfigVersion — config declares version $rawVersion; this build supports up to $script:ConfigSchemaVersion — upgrade FileBackup."
+            }
+            # SR-063: version 1 is refused as TOO OLD, not half-understood —
+            # its key set includes the removed PreserveFolderTree selector.
+            if ($rawVersion -lt $script:ConfigSchemaVersion) {
+                throw ("Config '$Path' is invalid: `$.ConfigVersion — config declares version $rawVersion, which is too old for this build (SR-063). " +
+                       "Version 2 removed PreserveFolderTree (storage is always content-addressed) and added BrowseView/ViewPath; " +
+                       "update the document and set ConfigVersion to $script:ConfigSchemaVersion.")
             }
             $version = [int]$rawVersion
 

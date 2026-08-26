@@ -38,7 +38,7 @@ function Get-ConfigFixtureCorpus {
     param([string]$RepoRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent))
 
     $validSet = '"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true'
-    $wrap = { param([string]$Sets, [string]$Extra = '') "{`"ConfigVersion`":1,`"BackupSets`":[{$Sets}]$Extra}" }
+    $wrap = { param([string]$Sets, [string]$Extra = '') "{`"ConfigVersion`":2,`"BackupSets`":[{$Sets}]$Extra}" }
     $exampleJson = Get-Content -LiteralPath (Join-Path $RepoRoot 'container\FileBackup.example.json') -Raw
 
     $accepted = @(
@@ -47,19 +47,21 @@ function Get-ConfigFixtureCorpus {
         @{ Name = 'minimal-required-keys-only'
            Json = (& $wrap $validSet) }
         @{ Name = 'every-optional-key-present'
-           Json = '{"ConfigVersion":1,"Tools":{"SevenZipPath":"/usr/bin/7z","FfprobePath":"/usr/bin/ffprobe"},"Secrets":{"ToEmail":"a@b.c","FromEmail":"d@e.f","SmtpServer":"smtp","SmtpPort":587},"BackupSets":[{"Name":"a","SourcePath":"s","SourceStatePath":"st","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"W","CompressEnabled":true,"AllowEmptySource":true}]}' }
+           Json = '{"ConfigVersion":2,"Tools":{"SevenZipPath":"/usr/bin/7z","FfprobePath":"/usr/bin/ffprobe"},"Secrets":{"ToEmail":"a@b.c","FromEmail":"d@e.f","SmtpServer":"smtp","SmtpPort":587},"BackupSets":[{"Name":"a","SourcePath":"s","SourceStatePath":"st","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"W","CompressEnabled":true,"AllowEmptySource":true,"BrowseView":"index","ViewPath":"v"}]}' }
+        @{ Name = 'browse-view-off'
+           Json = (& $wrap "$validSet,`"BrowseView`":`"off`"") }
         @{ Name = 'lowercase-hash-recalc-freq'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"n","CompressEnabled":false}]}' }
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"n","CompressEnabled":false}]}' }
         # JSON has one number type: an integral-valued number IS that integer,
-        # for the validator and for the schema's `const: 1` alike.
+        # for the validator and for the schema's `const: 2` alike.
         @{ Name = 'integral-float-config-version'
-           Json = '{"ConfigVersion":1.0,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}' }
+           Json = '{"ConfigVersion":2.0,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}' }
         # A single bare set object (not wrapped in an array) is accepted and
         # wrapped by the loader; the schema's BackupSets anyOf says the same.
         @{ Name = 'bare-single-set-object'
-           Json = "{`"ConfigVersion`":1,`"BackupSets`":{$validSet}}" }
+           Json = "{`"ConfigVersion`":2,`"BackupSets`":{$validSet}}" }
         @{ Name = 'two-sets-warns-but-loads'
-           Json = "{`"ConfigVersion`":1,`"BackupSets`":[{$validSet},{`"Name`":`"b`",`"SourcePath`":`"s2`",`"BackupPath`":`"b2`",`"ChangePath`":`"c2`",`"HashRecalcFreq`":`"A`",`"CompressEnabled`":false}]}" }
+           Json = "{`"ConfigVersion`":2,`"BackupSets`":[{$validSet},{`"Name`":`"b`",`"SourcePath`":`"s2`",`"BackupPath`":`"b2`",`"ChangePath`":`"c2`",`"HashRecalcFreq`":`"A`",`"CompressEnabled`":false}]}" }
     )
 
     $rejected = @(
@@ -68,21 +70,26 @@ function Get-ConfigFixtureCorpus {
            Json = "{`"BackupSets`":[{$validSet}]}"
            Message = '*ConfigVersion*missing*' }
         @{ Name = 'future-version'
-           Json = (& $wrap $validSet).Replace('"ConfigVersion":1', '"ConfigVersion":2')
-           Message = '*declares version 2*supports up to 1*' }
+           Json = (& $wrap $validSet).Replace('"ConfigVersion":2', '"ConfigVersion":3')
+           Message = '*declares version 3*supports up to 2*' }
+        # SR-063: version 1 is refused as TOO OLD, not half-understood -- its
+        # key set carried the removed PreserveFolderTree selector.
+        @{ Name = 'version-1-too-old'
+           Json = (& $wrap $validSet).Replace('"ConfigVersion":2', '"ConfigVersion":1')
+           Message = '*declares version 1*too old*ConfigVersion to 2*' }
         # Out of Int32 range: refused as an unsupported VERSION, not by luck of
         # the fractional-part test (which cannot even run on a BigInteger).
         @{ Name = 'out-of-range-version'
-           Json = (& $wrap $validSet).Replace('"ConfigVersion":1', '"ConfigVersion":99999999999999999999')
-           Message = '*supports up to 1*' }
+           Json = (& $wrap $validSet).Replace('"ConfigVersion":2', '"ConfigVersion":99999999999999999999')
+           Message = '*supports up to 2*' }
         @{ Name = 'fractional-version'
-           Json = (& $wrap $validSet).Replace('"ConfigVersion":1', '"ConfigVersion":1.5')
+           Json = (& $wrap $validSet).Replace('"ConfigVersion":2', '"ConfigVersion":2.5')
            Message = '*ConfigVersion*fractional part*' }
         @{ Name = 'string-version'
-           Json = (& $wrap $validSet).Replace('"ConfigVersion":1', '"ConfigVersion":"1"')
+           Json = (& $wrap $validSet).Replace('"ConfigVersion":2', '"ConfigVersion":"2"')
            Message = '*ConfigVersion*' }
         @{ Name = 'zero-version'
-           Json = (& $wrap $validSet).Replace('"ConfigVersion":1', '"ConfigVersion":0')
+           Json = (& $wrap $validSet).Replace('"ConfigVersion":2', '"ConfigVersion":0')
            Message = '*ConfigVersion*>= 1*' }
 
         # --- closed schema ---------------------------------------------------
@@ -92,14 +99,29 @@ function Get-ConfigFixtureCorpus {
         @{ Name = 'unknown-key-set-typo'
            Json = (& $wrap "$validSet,`"AllowEmptySources`":true")
            Message = '*AllowEmptySources*unrecognized key*' }
-        # WP9 step 5: storage is always content-addressed, so the retired
-        # PreserveFolderTree key is not "ignored" -- a config still carrying it
-        # is refused by the closed schema, naming $.BackupSets[0].
-        # PreserveFolderTree (the glob cannot spell the [0]: brackets are a
-        # wildcard character class).
+        # SR-063 (TC-125): the retired PreserveFolderTree key gets a NAMED
+        # removal diagnostic, not the generic unknown-key message -- an author
+        # coming from v1 must be told the selector is GONE, not misspelled.
         @{ Name = 'retired-key-preserve-folder-tree'
            Json = (& $wrap "$validSet,`"PreserveFolderTree`":false")
-           Message = '*PreserveFolderTree*unrecognized key*' }
+           Message = '*PreserveFolderTree*removed in ConfigVersion 2*' }
+
+        # --- BrowseView / ViewPath (SR-063, TC-127) --------------------------
+        @{ Name = 'browse-view-link-reserved'
+           Json = (& $wrap "$validSet,`"BrowseView`":`"link`"")
+           Message = '*BrowseView*link*reserved*' }
+        @{ Name = 'browse-view-invalid'
+           Json = (& $wrap "$validSet,`"BrowseView`":`"sideways`"")
+           Message = '*invalid BrowseView*' }
+        @{ Name = 'browse-view-wrong-case'
+           Json = (& $wrap "$validSet,`"BrowseView`":`"Index`"")
+           Message = '*invalid BrowseView*' }
+        @{ Name = 'number-browse-view'
+           Json = (& $wrap "$validSet,`"BrowseView`":5")
+           Message = '*BrowseView*JSON string*' }
+        @{ Name = 'number-view-path'
+           Json = (& $wrap "$validSet,`"ViewPath`":7")
+           Message = '*ViewPath*JSON string*' }
         @{ Name = 'unknown-key-tools'
            Json = (& $wrap $validSet ',"Tools":{"Bogus":"x"}')
            Message = '*$.Tools.Bogus*unrecognized key*' }
@@ -109,7 +131,7 @@ function Get-ConfigFixtureCorpus {
 
         # --- wrong JSON type (a coercion would silently change the meaning) ---
         @{ Name = 'string-boolean-compress-enabled'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false"}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false"}]}'
            Message = '*CompressEnabled*JSON boolean*' }
         # The proven exploit: [bool]'false' is $true, so a quoted "false" here
         # used to DISARM the SR-036 delete-all refusal.
@@ -118,10 +140,10 @@ function Get-ConfigFixtureCorpus {
            Message = '*AllowEmptySource*JSON boolean*' }
         # [string]@('x','y') is 'x y' -- an array used to become a literal path.
         @{ Name = 'array-source-path'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":["x","y"],"BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":["x","y"],"BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}'
            Message = '*SourcePath*JSON string*' }
         @{ Name = 'number-name'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":5,"SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":5,"SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}'
            Message = '*Name*JSON string*' }
         @{ Name = 'number-source-state-path'
            Json = (& $wrap "$validSet,`"SourceStatePath`":7")
@@ -131,7 +153,7 @@ function Get-ConfigFixtureCorpus {
            Message = '*Tools.SevenZipPath*JSON string*' }
         # [string]@('A') is 'A', so an array used to pass the enum check.
         @{ Name = 'array-hash-recalc-freq'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":["A"],"CompressEnabled":true}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":["A"],"CompressEnabled":true}]}'
            Message = '*HashRecalcFreq*JSON string*' }
         @{ Name = 'number-secrets-to-email'
            Json = (& $wrap $validSet ',"Secrets":{"ToEmail":5}')
@@ -140,24 +162,24 @@ function Get-ConfigFixtureCorpus {
            Json = (& $wrap $validSet ',"Secrets":{"SmtpPort":"abc"}')
            Message = '*Secrets.SmtpPort*integer*' }
         @{ Name = 'string-backup-sets'
-           Json = '{"ConfigVersion":1,"BackupSets":"x"}'
+           Json = '{"ConfigVersion":2,"BackupSets":"x"}'
            Message = '*BackupSets*' }
 
         # --- shape / value constraints ---------------------------------------
         @{ Name = 'bad-enum-hash-recalc-freq'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"Q","CompressEnabled":true}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"Q","CompressEnabled":true}]}'
            Message = '*invalid HashRecalcFreq*' }
         @{ Name = 'empty-backup-sets'
-           Json = '{"ConfigVersion":1,"BackupSets":[]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[]}'
            Message = '*at least one BackupSets entry*' }
         @{ Name = 'missing-change-path'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","HashRecalcFreq":"N","CompressEnabled":true}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","HashRecalcFreq":"N","CompressEnabled":true}]}'
            Message = "*non-empty 'ChangePath'*" }
         @{ Name = 'empty-source-path'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}]}'
            Message = "*non-empty 'SourcePath'*" }
         @{ Name = 'missing-compress-enabled'
-           Json = '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N"}]}'
+           Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N"}]}'
            Message = "*must define 'CompressEnabled'*" }
         @{ Name = 'not-json-at-all'
            Json = 'not json at all'
