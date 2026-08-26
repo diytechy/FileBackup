@@ -555,9 +555,9 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 ² Linux CI builds the pinned image and drives a real compressed backup plus restore through
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
-**Current automated total** (verified 2026-08-25 on a `-Tier Full -Gate G3` run,
-after **WP9**): **236 integration assertions / 0 FAIL / 2 SKIP** over the 2-mode
-matrix (G8 SKIPs under Subst) + **405 Pester unit/coverage tests** + **68 bats
+**Current automated total** (verified 2026-08-26 on a `-Tier Full -Gate G3` run,
+after **WP11**): **240 integration assertions / 0 FAIL / 2 SKIP** over the 2-mode
+matrix (G8 SKIPs under Subst) + **437 Pester unit/coverage tests** + **79 bats
 tests** on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck` clean.
 
 The integration figure fell from 372 and then rose again for the same reason:

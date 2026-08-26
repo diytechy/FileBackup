@@ -24,6 +24,33 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **HEADLINE - WP11 IS COMPLETE (2026-08-26), and the live-items list is EMPTY.**
+  Two parts. **Part A closed the Full-tier intermittent by finding it**, and it
+  was the TEST HARNESS, not the product: `Reset-TestEnvironment` wiped the
+  volumes with `-ErrorAction SilentlyContinue` and never verified the result, so
+  a transiently failed delete left a `Temp` folder behind and SR-017's
+  stale-staging guard then refused every backup in the NEXT scenario -
+  surfacing, because `Invoke-Backup` also ignored `$LASTEXITCODE`, as an opaque
+  `Condition returned false` in G9 prune several steps downstream. Both halves
+  are fixed and the instrumentation caught it on its first run. **Part B is
+  S1's load-bearing half** (SR-068, kit revision **8**): both restorers derive a
+  stored object's form from the BYTES for a row resolved through its own
+  `DataPath`, so `Compressed` is consulted for no correctness decision. That
+  narrowed SR-040's host class - a row's own object is exit 4 only when it is
+  archive-shaped and will not open - which was put to the human and **ratified**.
+  Two deviations from S1 as filed are recorded rather than assumed: the column
+  and the audit classes are both RETAINED, so S1's predicted ~200-line saving is
+  **not** realised and the payoff is the correctness one.
+- **Evidence (real output, 2026-08-26):** `check.ps1 -Tier Full -Gate G3` **all
+  steps passed** - lint clean; trace **0 orphans / 0 integrity / 0
+  status-findings**, 1 phase-deferred (SR-033, by design); unit **437/437**;
+  integration **240 PASS / 0 FAIL / 2 SKIP**. Ubuntu WSL: **bats 79/79**,
+  `shellcheck` clean. Ratchet:
+  `core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1,form-v1`.
+- **Nothing is awaiting a decision.** SR-033 (`bash-v2`) is phase-deferred by
+  design; **G-Release** and **G-Final** are the remaining gates. The optional
+  S1 follow-up (reclassify the form findings as informational, stop repairing a
+  cosmetic field) is recorded and unstarted.
 - **HEADLINE - WP10 IS COMPLETE (2026-08-26, Windows host + Ubuntu WSL for the
   POSIX half). Restore kit revision 7.** One session's human rulings on the four
   open items, shipped together because they shared one kit revision:
@@ -144,38 +171,20 @@ free and shapes the test-battery import; D-2 + D-3 (+ the two parked kit
 nits) share one kit-revision bump; the no-backward-compat ruling frees every
 option from migration cost.
 
-### Live items — the four 2026-08-25 rows closed 2026-08-26 by WP10; one new intermittent opened
+### Live items — EMPTY
 
-**All four rows below were closed on 2026-08-26 (WP10, kit revision 7); they
-stay here, with their dispositions, until the next sweep moves them to
-[resolved-items.md](resolved-items.md).**
+Every row opened by the WP9 independent review (2026-08-25), the README
+metadata sweep (2026-08-25) and WP10/WP11's own verification runs (2026-08-26)
+is closed and has been moved to [resolved-items.md](resolved-items.md) with its
+disposition. D-2/D-3/D-4 moved there 2026-08-25; D-1/D-5, the test-battery
+import and the step-4 review's n6 nit moved there when WP9 landed.
 
-Every row that stood here is closed. D-2/D-3/D-4 moved to
-[resolved-items.md](resolved-items.md) on 2026-08-25; **D-1/D-5, the
-test-battery import and the step-4 review's n6 nit moved there when WP9 landed
-(2026-08-25)**. Four NEW rows were opened later that day, in the two tables
-below: two by the **WP9 independent review** (a bats guard for legacy-store
-restore, and the `7z a` kit-revision call) and two by the **README metadata
-sweep** (the dedup metadata leak, and directory metadata). Two of them ask real
-questions — whether to restore `LastWriteTimeStr`, and whether to spend a kit
-revision on `7z a`. Under the 2026-08-25 standing directive nothing here blocks
-on ratification.
+What is genuinely outstanding is **not** an open item in this sense: SR-033
+(`bash-v2`) is phase-deferred by design, and G-Release / G-Final are gates
+awaiting their own evidence. The simplification candidates below are a record
+of measured options, not a queue.
 
-### Live items (opened 2026-08-25 by the WP9 independent review)
-
-| Item | What | Decision asked | State |
-|---|---|---|---|
-| **No bats guard for restoring a LEGACY store** (review MIN-2) | Step 5b deleted the Mirror bats fixtures, and no remaining fixture has a `DataPath` containing a path separator, so `reconstruct.sh`'s path-addressed branch - the line that makes a pre-WP9 store restorable on Linux - is correct-by-reading but uncovered. `G4-Sanitization`'s `Legacy_storeStillRestores` proves only the PowerShell restorer. | Build one small CONSTRUCTED legacy bats fixture (the same honesty pattern the rewritten B6 case uses), or drop the bash half of the claim. **Driver recommends the fixture** - SR-061 tells users their old store still restores, and that promise is made for BOTH restorers. | **CLOSED 2026-08-26 by WITHDRAWAL, not by a fixture.** The human ruled that no support, verification or testing should remain around older stores. Kit revision 7 refuses a legacy store on the READ side too, in both restorers, and the claim the fixture would have covered no longer exists. Guarded by `Legacy_restoreRefused` (G4.1) and `tests/bash/restore_fidelity.bats` (TC-138) |
-| **`7z a` merges into an existing archive** (review nit-4) | `Compress-FileWithSevenZip` uses `a` (add), not a replace, so an orphaned prior object at a reused content-addressed name would be appended to rather than overwritten. Neither the reviewer nor the driver could weaponise it: every member of a group has identical bytes, so any duplicate archive member carries the same payload, and kit rev 6's write-verification would catch a mismatch. | Add `Remove-Item` before the `a`. The fix belongs in **Common**, which is kit-bundled, so it costs a **kit revision bump to 7** - which is why it was not taken as a side effect. | **CLOSED 2026-08-26.** `Remove-Item` before the `a`, taken with the kit-revision-7 bump the legacy refusal was already spending. The reachable case is an UNREFERENCED object at the name (the write path asks the prior manifest, not the disk), and the dangerous variant is interrupted-7-Zip debris rather than a valid twin. TC-139 |
-
-### Live item (opened 2026-08-26 by WP10's verification runs) â€” INTERMITTENT, pre-existing
-
-| Item | What | Decision asked | State |
-|---|---|---|---|
-| **Bounded copy retry (SR-067)** | **CLOSED 2026-08-26, same session.** The shortfall-detection guard the driver first recommended was REJECTED by the human: a legitimate bulk deletion would trip it, and a guard that cries wolf on normal use is worse than none. The ruling instead: the walk at the start of the run is the authority on what must be stored; a single file that fails to copy is retried after a short delay, and after N attempts the run continues but the manifest must NOT name that file. Implemented as attempt rounds (250 ms, 1000 ms) with a per-SET budget so a systemically unreadable tree cannot sleep a scheduled run away. Two driver deviations, both stated and neither vetoed at the time of writing: the set is still marked **failed** (exit 1) rather than merely warned - a file present in source and absent from the backup is exactly what a scheduled job must be told - and a file that had a row from an EARLIER run keeps it, because those bytes are still in the store. TC-140 | n/a - shipped | **CLOSED.** |
-| **The Full-tier intermittent - DIAGNOSED AND FIXED 2026-08-26 (WP11 Part A)** | `RestoreVerify.Tests.ps1`'s `one Deny-ACE hidden directory fails the set LOUDLY but still writes the manifest` failed ONCE in three Full runs on 2026-08-26: the manifest was written and the run exited 1 as designed, but held **zero** rows instead of the one reachable `good.txt`. **The first hypothesis - that `Get-DataFile`'s recursive walk abandons the whole enumeration on meeting a Deny ACE - was tested and DISPROVEN the same day.** Two harnesses (`denyrepro.ps1`, `denyfull.ps1`, scratch): 100 direct `Get-DataFile` walks, 40 idle and 60 under 8-way CPU load, returned all 4 reachable files and exactly 1 error record every time, with ZERO unreported shortfalls; 25 full-pipeline runs under 6-way load produced 0 failures. Re-ran clean besides: the test alone passes, the whole unit suite alone passes **425/425**. **Not introduced by WP10** - `Get-SourceDirectoryRecord`'s walk runs at step 12.5, AFTER the manifest is written. **MECHANISM FOUND, and it was the test harness, not the product.** `Reset-TestEnvironment` (`VolumeBackend.ps1:176`) wiped the four volumes with `-ErrorAction SilentlyContinue` and never checked the result, so a removal that transiently failed left the environment dirty in SILENCE. The costly leftover is a `Temp` folder - G5.1 creates one deliberately to exercise the refusal, and prune takes a `Temp` lock of its own - because SR-017's stale-staging guard then makes every subsequent backup in the NEXT scenario refuse. `Invoke-Backup` compounded it by never inspecting `$LASTEXITCODE`, so a refused fixture run built an incomplete store in silence and the damage surfaced several steps later as `Condition returned false` in G9 prune. That is why it moved between Plain and Compress, why it hit different assertions each time, and why a standalone `Run-All` looked clean. **Part A's instrumentation caught it on its FIRST run** - the very failure it was built to make legible. Fixed: the reset now retries a transient lock and then fails loudly naming what survived; `Invoke-Backup` always announces a non-zero exit and `-ExpectSuccess` turns an unexpected one into a named FAIL. Two consecutive integration sweeps after the fix: **240 PASS / 0 FAIL / 2 SKIP** each, the only remaining non-zero exits being G5.1's two deliberate refusals. Historical note: the first hypothesis (`Get-DataFile` abandoning its walk on a Deny ACE) was tested and disproven; the second (SR-067's retry) was disproven by a clean standalone sweep. **And it is not confined to that case:** across six `-Tier Full` runs on 2026-08-26 the G9 prune suite failed twice (4 cases, then 7 cases spanning Plain and Compress - `Prune_oldest_succeeds`, `Cycle_one_copy_before_prune`, `Prune_no_snapshots_left` and friends) and passed four times, on identical code, while `tests/Run-All.ps1` run STANDALONE passed **240 PASS / 0 FAIL / 2 SKIP** three times in a row. The first G9 occurrence had a clear cause (two Pester suites running concurrently against the same host - driver error); the second had none. So the honest description is one intermittent affecting the integration/Pester surface under the Full tier, not two separate defects, and the Deny-ACE case is one symptom of it. | **First: make the failures diagnosable.** Both G9 prune assertions that failed report only "Condition returned false"; the suite already has the better pattern a few lines away (`Prune_last_succeeds` records `Status` and `Message`). Converting the opaque prune assertions to that form costs nothing and turns the next occurrence into evidence instead of another guess. Until then, do NOT retry or paper over it - a retry would mask the cause, and this has already cost two wrong hypotheses. **(The shortfall-detection guard first proposed here was rejected by the human on 2026-08-26: a legitimate bulk deletion would trip it. Superseded by SR-067's per-file retry.)** | **OPEN, unreproduced.** Consequence bounded today: on an established store the delete-all guard refuses before mutation; on a first backup nothing existed to lose; either way the run exits 1. |
-
-> **WP11** (2026-08-26) planned and delivered both remaining live items:
+> **WP11** (2026-08-26) planned and delivered the last two live items:
 > [plans/wp11-diagnosability-and-form-derivation-plan.md](plans/wp11-diagnosability-and-form-derivation-plan.md)
 > â€” Part A diagnosed the Full-tier intermittent (it was the harness), Part B is
 > S1's load-bearing half (SR-068, kit revision 8).
@@ -212,13 +221,6 @@ exact bug class. Deferred for a reason, not from inertia.
 make interchangeability a product requirement), the SR-038 witness sidecar, the
 capacity preflights, and the frozen-row handling for unportable/unreadable
 paths. Each is one mechanism answering one real, traced failure.
-
-### Live items (opened 2026-08-25 by the README metadata sweep)
-
-| Item | What (reproduced 2026-08-25) | Decision asked | State |
-|---|---|---|---|
-| **Dedup leaks one file's attributes and mtime onto its content twins** | Every row sharing one pool object restores with the metadata of whichever file created that object, because attributes and timestamps are never in the index — they ride along on the copy. Reproduced: `aaa.txt` (Archive, mtime 2001-01-01) and `bbb.txt` (Hidden+ReadOnly, mtime 2002-02-02) with identical content restore as TWO copies of `aaa.txt`'s metadata; `bbb.txt` silently loses Hidden, ReadOnly and its 2002 timestamp. Same in Plain and Compress. **Bytes are always exact — this is fidelity, not data loss.** The sharper half: `LastWriteTimeStr` IS in the manifest, correct per row, and neither restorer applies it, so the fix for the timestamp half is small and needs no schema change. Attributes have nowhere to be recorded in the 9-column contract, so that half is a real scope question. | (1) Stamp `LastWriteTimeStr` on every restored file in BOTH restorers — closes the timestamp half, one kit revision, no schema change; (2) also record attributes — needs a schema change or a sidecar, and the 9-column contract is an AGENTS.md §3 invariant; (3) accept and document only. **Driver recommends (1), then (3) for attributes.** | **MTIME HALF CLOSED 2026-08-26 (SR-066); attribute half ACCEPTED and documented.** The human chose option (1) then (3): both restorers now stamp each row's own `LastWriteTimeStr` after its SR-056 verification, so a twin keeps its own time. FILE attributes stay outside the 9-column contract and README says so plainly. TC-136 |
-| **Directory metadata and empty directories are not captured** | Only files have manifest rows, so a restored Hidden/System FOLDER comes back ordinary, and an empty directory is not recreated at all. Reproduced 2026-08-25. Consistent with the bytes-at-paths contract, but it was undocumented. | None — documented in README. Raise only if directory fidelity becomes a requirement (it would need a new row type or a sidecar). | **CLOSED 2026-08-26 (SR-065), option B.** `DIRECTORIES.csv`, advisory and unwitnessed, records every directory that is empty of files or carries Hidden/System/ReadOnly/NotContentIndexed - the four bits `SetFileAttributes` can apply to a directory. Directory timestamps stayed out of scope at the human's direction. TC-137 |
 
 ### Parked / minor (no input needed now)
 

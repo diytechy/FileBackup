@@ -317,7 +317,19 @@ that begin with a dot unrecoverable), and reported one unrelated unexpandable
 `.7z` in the pool as a host problem (exit 4) instead of data damage (exit 1).
 Revision 6 verifies every written file against the manifest's hash and
 length, heals a mismatch from the pool when a good copy survives, scans the
-pool with hidden files included, and fails with honest exit codes. (The
+pool with hidden files included, and fails with honest exit codes. Kits
+**before revision 7** restored every deduplicated copy of a file with the
+modification time of whichever twin happened to be stored first, never
+recreated an empty directory, and brought a Hidden or System folder back as an
+ordinary one; revision 7 stamps each file's own recorded time, applies the
+`DIRECTORIES.csv` sidecar, and refuses a pre-2026-08 path-addressed store
+outright rather than half-supporting it. Kits **before revision 8** decided
+whether to decompress a file resolved through its *own* `DataPath` from the
+manifest's `Compressed` column rather than from the bytes â€” the same class of
+mistake revision 2 fixed for hash-recovered files, left in place for the common
+path; revision 8 decides from the bytes in both cases, so a manifest whose
+column disagrees with what is stored can no longer produce a wrong restore.
+(The
 revision is the `# KitRevision:` line near the top
 of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
 alongside every `BlankRowFormDisagreement` finding.)
