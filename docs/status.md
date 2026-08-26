@@ -4132,17 +4132,17 @@ D-1 and D-5 are fixed by **deleting their hazard class**, exactly as the
 commit messages; this entry is the WP-level record, following the kit-bump
 precedent of one G3 entry with the detail in the commits.
 
-| Step | What landed | SRs |
+| Step | Commit + what landed | SRs |
 |---|---|---|
-| 1 | D-1/D-5 repros + `Get-ClaimedRowViolations` — the detector D-1 needed: every row's own DataPath must reproduce that row's `(hash,length)` FROM BYTES. D-1 leaves the file PRESENT and changes its bytes, so `Test-Path`, `Test-PoolResolves` and a non-`-Deep` Verify all sail past it. | SR-059, SR-060 |
-| 2 | Owner election + intra-run memo in `Invoke-BackupFileGroup` | SR-060, SR-003 |
-| 3 | `Sync-BackupStorageLayout` + `Get-MigrationCapacityDemand` deleted whole (~260 lines); step 6 calls `Test-BackupManifest` directly | SR-061 |
-| 4 | `Save-SupersededData` reordered after copy/evict; survival tested against the FINAL manifest | SR-059, SR-051 |
-| 5 | **Mirror deleted** — `PreserveFolderTree` out of the engine, config, schema, docs and fixtures; hash naming unconditional; `StoredAsHashSize` pinned `'Hash'`; the SR-061 legacy-store refusal + the `LegacyStoredForm` Verify finding implemented | SR-058, SR-061 |
-| 6 | Config **v2**: `ConfigVersion` 2, a named refusal for `PreserveFolderTree` in BOTH formats, `BrowseView`/`ViewPath` with placement rails | SR-063 |
-| 7 | The browse view: `New-BrowseViewIndex`, pipeline step 16, `-Action View`, `Resolve-ViewRootPath` rails | SR-062 |
-| 8 / 8b | Linear unreferenced-data audit; canonical manifest writes; **F8** (kit copied into staging before the publish rename); the n6 directory-destination guard; reserved device names | SR-064, SR-055 |
-| 9 | This step: the remaining TC-118/TC-122/TC-135 arms, the registry reconciliation, AGENTS.md §2/§3/§6, README, IF-001, and the `ca-v1` ratchet | — |
+| 1 | `e302593` — D-1/D-5 repros + `Get-ClaimedRowViolations` — the detector D-1 needed: every row's own DataPath must reproduce that row's `(hash,length)` FROM BYTES. D-1 leaves the file PRESENT and changes its bytes, so `Test-Path`, `Test-PoolResolves` and a non-`-Deep` Verify all sail past it. | SR-059, SR-060 |
+| 2 | `9a1da7d` — owner election + intra-run memo in `Invoke-BackupFileGroup` | SR-060, SR-003 |
+| 3 | `3ac3338` — `Sync-BackupStorageLayout` + `Get-MigrationCapacityDemand` deleted whole (~260 lines); step 6 calls `Test-BackupManifest` directly | SR-061 |
+| 4 | `b6077b8` — `Save-SupersededData` reordered after copy/evict; survival tested against the FINAL manifest | SR-059, SR-051 |
+| 5 | `44deeb5` / `cce8855` / `891e8ad` — **Mirror deleted** — `PreserveFolderTree` out of the engine, config, schema, docs and fixtures; hash naming unconditional; `StoredAsHashSize` pinned `'Hash'`; the SR-061 legacy-store refusal + the `LegacyStoredForm` Verify finding implemented | SR-058, SR-061 |
+| 6 | `78d6ddb` — config **v2**: `ConfigVersion` 2, a named refusal for `PreserveFolderTree` in BOTH formats, `BrowseView`/`ViewPath` with placement rails | SR-063 |
+| 7 | `65cbc07` — the browse view: `New-BrowseViewIndex`, pipeline step 16, `-Action View`, `Resolve-ViewRootPath` rails | SR-062 |
+| 8 / 8b | `9f2931a` — linear unreferenced-data audit; canonical manifest writes; **F8** (kit copied into staging before the publish rename); the n6 directory-destination guard; reserved device names | SR-064, SR-055 |
+| 9 | `6184471` — this step: the remaining TC-118/TC-122/TC-135 arms, the registry reconciliation, AGENTS.md §2/§3/§6, README, IF-001, and the `ca-v1` ratchet | — |
 
 **Step 9's test work — the arms that were impossible while Mirror existed.**
 TC-118 now runs its full matrix: `edit={owner,borrower} × copies={2,3} ×
