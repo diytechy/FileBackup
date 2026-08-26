@@ -3,7 +3,7 @@
 # as the Windows engine writes it: RFC-4180 quoting (commas / ""-escaped quotes),
 # CRLF line ends, UTF-8 (with BOM tolerance), an empty leading DataPath, and the
 # '\'->'/' RelativePath mapping. Fields are validated via parse_manifest's
-# \x1f-separated output (DataPath|RelativePath|Length|xxH2Hash|Compressed).
+# \x1f-separated output (DataPath|RelativePath|Length|LastWriteTimeStr|xxH2Hash|Compressed|StoredAsHashSize).
 
 setup() {
     load helpers
@@ -26,32 +26,32 @@ write_csv() { { printf '%s\r\n' "$HDR"; for r in "$@"; do printf '%s\r\n' "$r"; 
     write_csv '"a.txt","a.txt","5","2024-01-01T09:00:00.0000000","HASHA","No","Original","0",""'
     run parse_manifest "$CSV"
     [ "$status" -eq 0 ]
-    [ "$output" = "a.txt${US}a.txt${US}5${US}HASHA${US}No" ]
+    [ "$output" = "a.txt${US}a.txt${US}5${US}2024-01-01T09:00:00.0000000${US}HASHA${US}No${US}Original" ]
 }
 
 @test "parses a quoted field containing a comma (TC-056, SR-032)" {
     write_csv '"with,comma.txt","with,comma.txt","3","d","HASHB","No","Original","0",""'
     run parse_manifest "$CSV"
-    [ "$output" = "with,comma.txt${US}with,comma.txt${US}3${US}HASHB${US}No" ]
+    [ "$output" = "with,comma.txt${US}with,comma.txt${US}3${US}d${US}HASHB${US}No${US}Original" ]
 }
 
 @test "unescapes a doubled quote inside a quoted field (TC-056, SR-032)" {
     write_csv '"qu""ote.txt","qu""ote.txt","4","d","HASHC","No","Original","0",""'
     run parse_manifest "$CSV"
-    [ "$output" = 'qu"ote.txt'"${US}"'qu"ote.txt'"${US}4${US}HASHC${US}No" ]
+    [ "$output" = 'qu"ote.txt'"${US}"'qu"ote.txt'"${US}4${US}d${US}HASHC${US}No${US}Original" ]
 }
 
 @test "preserves an EMPTY leading DataPath field (TC-056, SR-032)" {
     # The hash-recovery case: a blank DataPath must not shift the other columns.
     write_csv '"","blank.txt","7","d","HASHD","Yes","Hash","0",""'
     run parse_manifest "$CSV"
-    [ "$output" = "${US}blank.txt${US}7${US}HASHD${US}Yes" ]
+    [ "$output" = "${US}blank.txt${US}7${US}d${US}HASHD${US}Yes${US}Hash" ]
 }
 
 @test "keeps unicode / bracket / space / backslash names intact (TC-056, SR-032)" {
     write_csv '"sub\[b] (p) café.txt","sub\[b] (p) café.txt","9","d","HASHE","No","Original","0",""'
     run parse_manifest "$CSV"
-    [ "$output" = 'sub\[b] (p) café.txt'"${US}"'sub\[b] (p) café.txt'"${US}9${US}HASHE${US}No" ]
+    [ "$output" = 'sub\[b] (p) café.txt'"${US}"'sub\[b] (p) café.txt'"${US}9${US}d${US}HASHE${US}No${US}Original" ]
     # And the RelativePath maps to POSIX for filesystem use.
     local rp; rp="$(printf '%s' "$output" | cut -d"$US" -f2)"
     [ "$(to_posix "$rp")" = "sub/[b] (p) café.txt" ]
@@ -61,14 +61,14 @@ write_csv() { { printf '%s\r\n' "$HDR"; for r in "$@"; do printf '%s\r\n' "$r"; 
     # PS Export-Csv writes a \$null MediaMBPerSec as a bare empty field (no quotes).
     write_csv '"f.txt","f.txt","2","d","HASHF","No","Original","0",'
     run parse_manifest "$CSV"
-    [ "$output" = "f.txt${US}f.txt${US}2${US}HASHF${US}No" ]
+    [ "$output" = "f.txt${US}f.txt${US}2${US}d${US}HASHF${US}No${US}Original" ]
 }
 
 @test "tolerates a UTF-8 BOM on the header (TC-056, SR-032)" {
     { printf '\xef\xbb\xbf%s\r\n' "$HDR"; printf '%s\r\n' '"a.txt","a.txt","5","d","HASHA","No","Original","0",""'; } > "$CSV"
     run parse_manifest "$CSV"
     [ "$status" -eq 0 ]
-    [ "$output" = "a.txt${US}a.txt${US}5${US}HASHA${US}No" ]
+    [ "$output" = "a.txt${US}a.txt${US}5${US}d${US}HASHA${US}No${US}Original" ]
 }
 
 @test "parses the real committed fixture manifests without error (TC-056, SR-032)" {

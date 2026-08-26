@@ -130,8 +130,10 @@ Imports (internal): _none_
 | `Convert-HexToShortName` | yes | SR-003, LLR-003 |
 | `Convert-ShortNameToHex` | yes | — |
 | `ConvertFrom-ManifestDateString` | yes | — |
+| `ConvertTo-DirectoryAttributeFlag` | yes | SR-065, LLR-065 |
 | `ConvertTo-ManifestDateString` | yes | SR-025, LLR-025 |
 | `Expand-FileWithSevenZip` | yes | SR-008, LLR-008 |
+| `Get-DirectoryAttributeToken` | yes | SR-065, LLR-065 |
 | `Get-FileBackupDefaults` | yes | — |
 | `Get-FileXxHash` | yes | SR-002, LLR-002 |
 | `Get-FreeSpaceBytes` | yes | SR-052, SR-023, LLR-052, LLR-023 |
@@ -176,9 +178,9 @@ Imports (internal): `Common`
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
 | `Get-PruneCapacityRefusal` | yes | SR-046, SR-052, LLR-046 |
-| `Get-ReHomedDataPathName` | no | SR-045, LLR-045 |
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
+| `Get-SourceDirectoryRecord` | yes | SR-065, LLR-065 |
 | `Get-StorageFormFinding` | yes | SR-049, LLR-049 |
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
@@ -216,6 +218,7 @@ Imports (internal): `Common`
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
 | `Update-SourceManifest` | yes | SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055 |
+| `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
 <!-- END GENERATED MODULE MAP -->
 
 ## 3. Invariants — do not break

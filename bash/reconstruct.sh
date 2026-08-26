@@ -19,6 +19,15 @@
 # Restore semantics (mirror Reconstruct.ps1):
 #   - a row's DataPath (Windows '\' mapped to '/') resolves against the origin
 #     folder; a blank/missing DataPath recovers by content hash from the pool;
+#   - a LEGACY path-addressed store (a DataPath carrying a path separator) is
+#     REFUSED as a precondition (exit 2), not restored: support for
+#     pre-content-addressed stores was withdrawn at kit revision 7 (SR-061);
+#   - every restored file is stamped with its OWN row's LastWriteTimeStr, so a
+#     deduplicated row keeps its own mtime rather than the pool object's
+#     (SR-066);
+#   - the DIRECTORIES.csv sidecar recreates empty directories (SR-065); its
+#     Windows folder attributes have no POSIX equivalent and are logged, not
+#     applied;
 #   - .7z-stored rows (Compressed=Yes) are decompressed;
 #   - the restore refuses a target inside the backup, pre-checks free capacity,
 #     and FAILS LOUDLY: it restores everything recoverable, then exits non-zero
@@ -96,7 +105,8 @@ readonly SNAPSHOT_RE='^Snapshot_[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-
 # Infrastructure filenames excluded at the ROOT of each search folder during hash
 # recovery (nested files with these names are user data — B6). Matches Reconstruct
 # .ps1's $skip set (case-insensitive).
-readonly INFRA_RE='^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+readonly INFRA_RE='^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+readonly DIR_SIDECAR_NAME='DIRECTORIES.csv'
 
 # ---------------------------------------------------------------------------
 # Small utilities
@@ -243,8 +253,9 @@ restore_one() {
 # ---------------------------------------------------------------------------
 # Manifest parsing (RFC 4180 via gawk FPAT) — SR-032 / LLR-032
 # ---------------------------------------------------------------------------
-# Emits one line per DATA row (header skipped): the five columns the restore
-# needs, in order:  DataPath | RelativePath | Length | xxH2Hash | Compressed,
+# Emits one line per DATA row (header skipped): the seven columns the restore
+# needs, in manifest order:  DataPath | RelativePath | Length |
+#   LastWriteTimeStr | xxH2Hash | Compressed | StoredAsHashSize,
 # separated by the US control char (\x1f). A non-whitespace separator is required
 # so `read` preserves an EMPTY leading DataPath field (a tab would be trimmed as
 # IFS-whitespace, shifting every column). Quoted fields (which may contain commas
@@ -268,9 +279,86 @@ parse_manifest() {
             sub(/\r$/, "")            # tolerate CRLF (re-splits under FPAT)
             if (NR == 1) next          # header row
             if (NF == 0) next
-            printf "%s\037%s\037%s\037%s\037%s\n", unq($1), unq($2), unq($3), unq($5), unq($6)
+            printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\n", unq($1), unq($2), unq($3), unq($4), unq($5), unq($6), unq($7)
         }
     ' "$manifest"
+}
+
+# ---------------------------------------------------------------------------
+# Directory sidecar parsing (SR-065 / LLR-065)
+# ---------------------------------------------------------------------------
+# Emits  RelativePath \037 Attributes  per data row of DIRECTORIES.csv. Same
+# RFC 4180 handling as parse_manifest; the sidecar is advisory and unwitnessed,
+# so a file that yields nothing simply produces no rows.
+parse_dir_sidecar() {
+    local sidecar="$1"
+    gawk '
+        function unq(s) {
+            sub(/^\xef\xbb\xbf/, "", s)
+            if (s ~ /^".*"$/) { s = substr(s, 2, length(s) - 2); gsub(/""/, "\"", s) }
+            return s
+        }
+        BEGIN { FPAT = "([^,]*)|(\"([^\"]|\"\")*\")" }
+        {
+            sub(/\r$/, "")
+            if (NR == 1) next
+            if (NF == 0) next
+            printf "%s\037%s\n", unq($1), unq($2)
+        }
+    ' "$sidecar"
+}
+
+# apply_dir_sidecar <origin> <target> : recreate the empty directories the
+# manifest cannot describe (SR-065). Windows folder ATTRIBUTES travel in the
+# sidecar too, but Hidden/System/ReadOnly/NotContentIndexed have no POSIX
+# equivalent, so that half is reported rather than applied - a deliberate,
+# stated platform divergence, not a silent one. Never fails the restore: the
+# sidecar is advisory and the contract is still bytes at paths.
+apply_dir_sidecar() {
+    local origin="$1" target="$2"
+    local sidecar="$origin/$DIR_SIDECAR_NAME"
+    [[ -f "$sidecar" && -r "$sidecar" ]] || return 0
+    local rel attr full made=0 skipped_attr=0 rows=0
+    while IFS=$'\037' read -r rel attr; do
+        [[ -n "$rel" ]] || continue
+        rows=$(( rows + 1 ))
+        rel="$(to_posix "$rel")"
+        full="$target/$rel"
+        if ! is_inside "$full" "$target"; then
+            log "WARN: directory row '$rel' escapes the target root (path traversal); refusing."
+            continue
+        fi
+        if [[ ! -d "$full" ]]; then
+            if mkdir -p -- "$full" 2>/dev/null; then made=$(( made + 1 ))
+            else log "WARN: could not create directory '$rel'."; fi
+        fi
+        [[ -n "$attr" ]] && skipped_attr=$(( skipped_attr + 1 ))
+    done < <(parse_dir_sidecar "$sidecar")
+    (( rows == 0 )) && return 0
+    log "Directory sidecar: $rows row(s), $made directory(ies) created."
+    if (( skipped_attr > 0 )); then
+        log "NOTE: $skipped_attr directory row(s) carry Windows folder attributes (Hidden/System/ReadOnly/NotContentIndexed). They have no POSIX equivalent and were NOT applied."
+    fi
+    return 0
+}
+
+# stamp_mtime <dest> <lastwritetimestr> <rel> : apply the row's OWN modification
+# time (SR-066). Called only after the SR-056 verification passes, so a file
+# that was deleted and re-recovered never keeps a stamp from the failed attempt.
+# Never fatal - the bytes are already correct and verified by the time this
+# runs. GNU date parses the manifest's ISO-8601 round-trip form ('O', 7-digit
+# fractional seconds plus offset) directly; leaner userlands do not, so a
+# fraction-stripped retry precedes the warning.
+stamp_mtime() {
+    local dest="$1" stamp="$2" rel="$3" trimmed
+    [[ -n "$stamp" ]] || return 0
+    touch -d "$stamp" -- "$dest" 2>/dev/null && return 0
+    trimmed="$(printf '%s' "$stamp" | sed -E 's/\.[0-9]+//')"
+    if [[ "$trimmed" != "$stamp" ]]; then
+        touch -d "$trimmed" -- "$dest" 2>/dev/null && return 0
+    fi
+    log "WARN: could not stamp LastWriteTime on '$rel' from '$stamp' (content is correct and verified)."
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -674,15 +762,40 @@ main() {
     log "Reconstruction starting (origin=$origin, snapshot=$is_snapshot, backupRoot=$backup_root, changeRoot=${change_root:-<none>})"
 
     # --- Read the authoritative manifest into parallel arrays ---
-    local -a d_data=() d_rel=() d_len=() d_hash=() d_comp=()
-    local dp rp ln hh cp
-    while IFS=$'\037' read -r dp rp ln hh cp; do
+    local -a d_data=() d_rel=() d_len=() d_lwt=() d_hash=() d_comp=() d_form=()
+    local dp rp ln lw hh cp sf
+    while IFS=$'\037' read -r dp rp ln lw hh cp sf; do
         [[ -n "$rp" ]] || continue
-        d_data+=("$dp"); d_rel+=("$rp"); d_len+=("$ln"); d_hash+=("$hh"); d_comp+=("$cp")
+        d_data+=("$dp"); d_rel+=("$rp"); d_len+=("$ln"); d_lwt+=("$lw")
+        d_hash+=("$hh"); d_comp+=("$cp"); d_form+=("$sf")
     done < <(parse_manifest "$authority")
 
     local nrows=${#d_rel[@]}
     log "Manifest rows: $nrows"
+
+    # A LEGACY path-addressed store is refused, not restored (SR-061). Writing
+    # to one went at WP9; kit revision 7 withdraws READING it too (human ruling
+    # 2026-08-26) so the promise the docs make is one the suites actually test.
+    # TWO markers, matching Test-BackupManifest's refusal on the engine side:
+    # StoredAsHashSize='Original' is the authoritative one, and a DataPath
+    # carrying a path separator is the structural one that still catches a store
+    # whose column was lost or rewritten (a content-addressed DataPath is always
+    # a bare '<hash16> <len10><ext>' filename; blank means "recover by hash").
+    # Refused as a PRECONDITION before any file is restored.
+    local lg_i lg_form bs
+    bs=$'\134'
+    for (( lg_i=0; lg_i<nrows; lg_i++ )); do
+        lg_form="$(printf '%s' "${d_form[lg_i]}" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$lg_form" == 'original' ]]; then
+            die "'$authority' is a legacy path-addressed store: row '${d_rel[lg_i]}' carries StoredAsHashSize='${d_form[lg_i]}'. This kit (revision 7) does not restore pre-content-addressed stores (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
+        fi
+        # The pattern tests for a backslash held in $bs (ANSI-C \134), not a
+        # literal one: a mangled pattern here would fail OPEN, and this guard
+        # is the only thing standing between a legacy store and a restore.
+        if [[ "${d_data[lg_i]}" == */* || "${d_data[lg_i]}" == *"$bs"* ]]; then
+            die "'$authority' is a legacy path-addressed store: row '${d_rel[lg_i]}' names its data as '${d_data[lg_i]}', a source path rather than a content-addressed object. This kit (revision 7) does not restore pre-content-addressed stores (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
+        fi
+    done
 
     # A non-empty, non-numeric Length is an unusable index value — refuse as a
     # PRECONDITION (exit 2) before writing anything, matching RECONSTRUCT.ps1
@@ -833,7 +946,7 @@ main() {
         # own file stays a HOST problem (SR-040), unchanged.
         rc=0; restore_one "$src" "$dest" "$needs_expand" "${d_hash[i]}" "${d_len[i]}" || rc=$?
         case "$rc" in
-            0) ;;
+            0) stamp_mtime "$dest" "${d_lwt[i]}" "$rel" ;;
             20) log "WARN: [CandidateError] '$rel' — 7z extraction failed (from '$src')."
                 unrestored_host+=("$rel") ;;
             21) log "WARN: [CandidateError] '$rel' — copy failed (from '$src')."
@@ -860,7 +973,7 @@ main() {
                     [[ "$fdetail" == 'Archive' ]] && needs_expand=1 || needs_expand=0
                     rc=0; restore_one "$fpath" "$dest" "$needs_expand" "${d_hash[i]}" "${d_len[i]}" || rc=$?
                     case "$rc" in
-                        0) ;;
+                        0) stamp_mtime "$dest" "${d_lwt[i]}" "$rel" ;;
                         10) # The recovery source was hash-proven by the
                             # locator: this second mismatch is a write problem
                             # on this host (exit 4) — the backup demonstrably
@@ -885,6 +998,11 @@ main() {
                 fi ;;
         esac
     done
+
+    # --- Directory sidecar (SR-065): empty directories, after every file ---
+    # Last, so a directory is never created or touched while its contents are
+    # still appearing, and so a failure here cannot affect the file accounting.
+    apply_dir_sidecar "$origin" "$TARGET_ROOT"
 
     # --- Fail loudly on any unrestored row (SR-029 / SR-031 / SR-040) ---
     # 4 outranks 1: the host class is the actionable one, so a wrapper retries

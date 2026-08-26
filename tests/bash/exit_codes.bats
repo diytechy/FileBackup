@@ -103,7 +103,7 @@ restamp_witness() {
     # Blank DataPath => must be hash-recovered; the only pool candidate is a .7z.
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+      printf '"","payload.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
     } > "$bad/MANIFEST.csv"
     # The candidate must NOT carry the row's own bytes: since kit revision 5 a
     # raw match under a '.7z' name recovers WITHOUT 7z (pinned below), so the
@@ -130,7 +130,7 @@ restamp_witness() {
     h="$(hash_upper "$pool/orig.txt")"; len="$(stat -c '%s' "$pool/orig.txt")"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+      printf '"","payload.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
     } > "$pool/MANIFEST.csv"
     mv -f "$pool/orig.txt" "$pool/candidate.7z"
     restamp_witness "$pool/MANIFEST.csv"
@@ -150,9 +150,9 @@ restamp_witness() {
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
       # row 1: host class (archive candidate, no 7z)
-      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+      printf '"","payload.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
       # row 2: content class (a DataPath that simply is not there)
-      printf '"missing.bin","gone.txt","4","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","No","Original","0",""\r\n'
+      printf '"missing.bin","gone.txt","4","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","No","Hash","0",""\r\n'
     } > "$bad/MANIFEST.csv"
     # Non-matching bytes, for the same kit-revision-5 reason as the test above.
     rm -f "$bad/orig.txt"
@@ -177,7 +177,7 @@ restamp_witness() {
     h="$(hash_upper "$bad/orig.txt")"; len="$(stat -c '%s' "$bad/orig.txt")"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"","payload.txt","%s","d","%s","No","Original","0",""\r\n' "$len" "$h"
+      printf '"","payload.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
     } > "$bad/MANIFEST.csv"
     rm -f "$bad/orig.txt"
     printf 'not-an-archive-at-all\n' > "$bad/noise.7z"

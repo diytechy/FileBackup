@@ -28,7 +28,7 @@ one_row_store() {
     STORE_LEN="$(stat -c '%s' "$dir/data.bin")"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"data.bin","restored.txt","%s","d","%s","No","Original","0",""\r\n' "$STORE_LEN" "$STORE_HASH"
+      printf '"data.bin","restored.txt","%s","d","%s","No","Hash","0",""\r\n' "$STORE_LEN" "$STORE_HASH"
     } > "$dir/MANIFEST.csv"
     restamp_witness "$dir/MANIFEST.csv"
 }

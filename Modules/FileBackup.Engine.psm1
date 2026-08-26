@@ -64,7 +64,10 @@ function Test-IsInfrastructureFile {
         # ...and its publish-by-rename staging file: a crash between
         # WriteAllText and Move-Item leaves this behind, and a leftover must not
         # be backed up as user data or warned about as an orphan (SR-038).
-        "$($script:Def.WitnessFilename).tmp"
+        "$($script:Def.WitnessFilename).tmp",
+        # The directory sidecar (SR-065). Root-level only, like the rest: a
+        # nested user file called DIRECTORIES.csv is data (B6).
+        $script:Def.DirectorySidecarName
     )
     return ($infra -contains $rel)
 }
@@ -561,6 +564,155 @@ function Update-SourceManifest {
 
 # endregion
 
+# region Directory sidecar (SR-065)
+
+function Get-SourceDirectoryRecord {
+    <#
+    .SYNOPSIS
+        Returns the directory rows the manifest cannot carry (SR-065): every
+        source directory that is EMPTY of files or holds a recorded attribute
+        bit, as {RelativePath, Attributes}.
+
+    .DESCRIPTION
+        MANIFEST.csv has one row per FILE, so an empty directory was never
+        recreated by a restore and a Hidden or System FOLDER came back ordinary.
+        This is the smallest thing that fixes both: one advisory row per
+        directory that would otherwise be lost.
+
+        "Empty" means no file ANYWHERE beneath it, decided from the file rows
+        the walk already produced rather than by re-enumerating each directory -
+        a per-directory recursive scan would be O(directories x files) on a tree
+        whose whole point is scale (the SR-064 discipline). A directory holding
+        only other empty directories is therefore emitted along with them, and
+        the deepest row alone would recreate the chain.
+
+        Directories the walk could not enumerate are NOT emitted: we cannot know
+        whether they are empty, and claiming empty for an unreadable directory
+        would be a lie in the dangerous direction. Their SR-057 handling in
+        Invoke-BackupSet is unchanged.
+
+        Non-portable directory names (SR-055) are skipped with a warning rather
+        than failing the set again - the files beneath such a name have already
+        failed it, and a directory row is advisory.
+
+    .PARAMETER SourcePath
+        The source root being backed up.
+
+    .PARAMETER FileRelativePath
+        Every file RelativePath the source walk produced. Ancestors of these are
+        the populated directories.
+
+    .PARAMETER Log
+        Optional logger for skipped names.
+
+    .OUTPUTS
+        [object[]] rows sorted ordinally by RelativePath, so two runs over the
+        same state write byte-identical sidecars (the canonical-bytes rule the
+        manifest follows).
+    #>
+    # Implements: SR-065, LLR-065
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [AllowNull()][AllowEmptyCollection()][string[]]$FileRelativePath,
+        [AllowNull()][scriptblock]$Log
+    )
+    $root = (Resolve-Path -LiteralPath $SourcePath).Path
+
+    # Populated = every ancestor directory of every file row. Filesystem-faithful
+    # keys (SR-034): case-differing directories are distinct on Linux.
+    $populated = New-RelativePathMap
+    foreach ($rel in @($FileRelativePath)) {
+        if ([string]::IsNullOrWhiteSpace($rel)) { continue }
+        $parent = $rel
+        while ($true) {
+            $parent = [IO.Path]::GetDirectoryName($parent)
+            if ([string]::IsNullOrEmpty($parent)) { break }
+            if ($populated.ContainsKey($parent)) { break }   # ancestors already marked
+            $populated[$parent] = $true
+        }
+    }
+
+    $enumErr = $null
+    $dirs = @(Get-ChildItem -LiteralPath $root -Recurse -Directory -Force `
+                -ErrorAction SilentlyContinue -ErrorVariable enumErr)
+    $unreadable = New-Object System.Collections.Generic.List[string]
+    foreach ($e in @($enumErr)) {
+        $target = "$($e.TargetObject)"
+        if ($target) { $unreadable.Add($target) }
+    }
+
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($d in $dirs) {
+        $rel = $d.FullName.Substring($root.Length).TrimStart('\', '/')
+        if (-not $rel) { continue }
+
+        $isUnreadable = $false
+        foreach ($bad in $unreadable) {
+            if ($d.FullName.Equals($bad, [System.StringComparison]::OrdinalIgnoreCase)) { $isUnreadable = $true; break }
+        }
+        if ($isUnreadable) { continue }
+
+        $reason = Test-PortableRelativePath -RelativePath $rel
+        if ($reason) {
+            if ($Log) { & $Log "Directory '$rel' is not recorded in the directory sidecar: $reason (SR-055/SR-065)." 'WARN' }
+            continue
+        }
+
+        $token = Get-DirectoryAttributeToken -Attributes $d.Attributes
+        if (-not $token -and $populated.ContainsKey($rel)) { continue }
+        $rows.Add([pscustomobject]@{ RelativePath = $rel; Attributes = $token })
+    }
+
+    # .ToArray(), not @(...): the array subexpression over a List throws
+    # "Argument types do not match" on PS 7.5 (AGENTS.md sec.4).
+    $out = $rows.ToArray()
+    [Array]::Sort($out, [Comparison[object]] {
+        param($a, $b) [string]::CompareOrdinal($a.RelativePath, $b.RelativePath) })
+    return $out
+}
+
+function Write-DirectorySidecar {
+    <#
+    .SYNOPSIS
+        Writes DIRECTORIES.csv beside a manifest, or removes it when there is
+        nothing to record (SR-065).
+
+    .DESCRIPTION
+        Deliberately NOT witnessed: the sidecar is advisory, no restorer fails
+        over it, and the bytes-at-paths contract does not depend on it. Removing
+        the file when there are no rows keeps a store that has no empty or
+        attributed directories byte-identical to a pre-SR-065 store, so nothing
+        about kit comparison or run idempotency changes for such a tree.
+
+    .PARAMETER FolderPath
+        The folder holding the MANIFEST.csv this sidecar accompanies.
+
+    .PARAMETER Records
+        Get-SourceDirectoryRecord's output.
+    #>
+    # Implements: SR-065, LLR-065
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FolderPath,
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$Records
+    )
+    $path = Join-Path $FolderPath $script:Def.DirectorySidecarName
+    if ($null -eq $Records -or $Records.Count -eq 0) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        return
+    }
+    if (-not (Test-Path -LiteralPath $FolderPath -PathType Container)) {
+        New-Item -ItemType Directory -Path $FolderPath -Force | Out-Null
+    }
+    $out = foreach ($r in $Records) {
+        [pscustomobject]@{ RelativePath = [string]$r.RelativePath; Attributes = [string]$r.Attributes }
+    }
+    $out | Export-Csv -LiteralPath $path -NoTypeInformation
+}
+
+# endregion
+
 # region Backup copy
 
 function Copy-SourceFileToBackup {
@@ -871,44 +1023,6 @@ function Get-SnapshotDate {
     catch { return $null }
 }
 
-function Get-ReHomedDataPathName {
-    <#
-    .SYNOPSIS
-        Synthesizes the data-file name a re-homed file must take at its
-        destination, from the SOURCE row's storage form (SR-045): the physical
-        form travels with the bytes, so prune never re-packs.
-
-    .DESCRIPTION
-        Get-HashSizeFileName when the row is stored hash-addressed ('.7z' when
-        compressed, else the logical extension), otherwise the RelativePath
-        (+'.7z' when compressed).
-
-        The path-addressed arm deliberately SURVIVES WP9 step 5: the engine can
-        no longer write 'Original' rows, but prune still serves LEGACY stores
-        (SR-061 refuses only -Action Backup), and re-homing a legacy row under
-        a synthesized hash name would leave its row claiming a form the name
-        contradicts. WP9 step 8 MEASURED this arm rather than collapsing it (S3): under pure
-        content addressing source and destination names ARE always identical,
-        but prune and repair still serve legacy stores, so the arm dies only if
-        legacy-store prune support is deliberately dropped.
-
-    .PARAMETER Row
-        The source manifest row whose bytes are being re-homed.
-
-    .OUTPUTS
-        [string] the destination-relative data path.
-    #>
-    # Implements: SR-045, LLR-045
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][object]$Row)
-    if ($Row.StoredAsHashSize -eq 'Hash') {
-        $ext = if ($Row.Compressed -eq 'Yes') { '.7z' } else { [IO.Path]::GetExtension($Row.RelativePath) }
-        return (Get-HashSizeFileName -HashHex $Row.xxH2Hash -Length $Row.Length -Extension $ext)
-    }
-    if ($Row.Compressed -eq 'Yes') { return ($Row.RelativePath + '.7z') }
-    return $Row.RelativePath
-}
-
 function Get-SnapshotPrunePlan {
     <#
     .SYNOPSIS
@@ -1038,7 +1152,16 @@ function Get-SnapshotPrunePlan {
             $winner = @($claims | Sort-Object { $_.FolderRecord.Order } -Descending)[0]
         }
         $destFolder = $winner.FolderRecord.Folder
-        $destName   = Get-ReHomedDataPathName -Row $sourceRow
+        # The S3 collapse (WP9 step 8 measured it; taken 2026-08-26 once legacy
+        # path-addressed support was withdrawn): a data file's name derives from
+        # its CONTENT and its stored form, so a re-homed object's destination
+        # name is ALWAYS identical to its source name and the 30-line
+        # Get-ReHomedDataPathName synthesizer collapses to the source DataPath.
+        # $sourceRow was selected BY that DataPath just above, so it is never
+        # blank. This held only for hash-addressed rows, which is now all of
+        # them - Test-BackupManifest refuses a legacy store (SR-061) and both
+        # restorers refuse to read one (kit revision 7).
+        $destName   = $sourceRow.DataPath
         $destFull   = Join-Path $destFolder $destName
 
         if (Test-IsInfrastructureFile -Root $destFolder -FullPath ([IO.Path]::GetFullPath($destFull))) {
@@ -3180,6 +3303,10 @@ function Complete-ChangeFolder {
     # structurally cannot exist without its kit — a crash before the rename
     # leaves only a Temp folder for the SR-017 stale-staging guard.
     foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.ReconstructShName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
+        # NOTE: the directory sidecar is deliberately absent from this list - it
+        # is NOT part of the kit. Step 7 already placed the PRIOR state's
+        # sidecar in staging, and copying the backup root's current one here
+        # would overwrite that point-in-time truth with the live state.
         $src = Join-Path $BkpPath $artifact
         if (Test-Path -LiteralPath $src -PathType Leaf) {
             Copy-Item -LiteralPath $src -Destination $StagingFolder -Force
@@ -3783,6 +3910,13 @@ function Invoke-BackupSet {
     # 7. Pre-backup snapshot into staging
     & $log "Saving pre-backup manifest to staging '$stagingFolder'."
     Write-Manifest -FolderPath $stagingFolder -Records $backupDb
+    # The PRIOR state's directory sidecar (SR-065) travels with the prior
+    # manifest: the snapshot describes the tree as it was, so this is the
+    # existing file copied, not the one this run is about to write.
+    $priorSidecar = Join-Path $paths.BkpPath $script:Def.DirectorySidecarName
+    if (Test-Path -LiteralPath $priorSidecar -PathType Leaf) {
+        Copy-Item -LiteralPath $priorSidecar -Destination $stagingFolder -Force
+    }
 
     # 8. Diff
     $diff = Compare-SourceToBackup -SourceDb $sourceDb -BackupDb $backupDb
@@ -3886,6 +4020,21 @@ function Invoke-BackupSet {
     [Array]::Sort($backupDbFinal, [Comparison[object]] {
         param($a, $b) [string]::CompareOrdinal($a.RelativePath, $b.RelativePath) })
     Write-Manifest -FolderPath $paths.BkpPath -Records $backupDbFinal
+
+    # 12.5 Directory sidecar (SR-065): the empty directories and folder
+    # attributes MANIFEST.csv has no row type for. Written after the manifest so
+    # a crash between them leaves a store whose sidecar is merely stale - which
+    # is exactly the advisory failure mode the sidecar is designed around, and
+    # never a reason a restore refuses. A failure here is a WARNING, not a set
+    # failure: every byte is already stored and manifested.
+    try {
+        $dirRows = Get-SourceDirectoryRecord -SourcePath $paths.SrcPath `
+                    -FileRelativePath @($sourceDb | ForEach-Object { $_.RelativePath }) -Log $log
+        Write-DirectorySidecar -FolderPath $paths.BkpPath -Records $dirRows
+        & $log "Directory sidecar: $($dirRows.Count) row(s) recorded (empty or attributed directories)."
+    } catch {
+        & $log "Directory sidecar not written: $($_.Exception.Message) (files and manifest are unaffected; empty directories and folder attributes will not be restored)." 'WARN'
+    }
 
     # 13. Finalize the dated snapshot (of the PRIOR state) + reconstruct scripts
     New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
@@ -4377,6 +4526,7 @@ Export-ModuleMember -Function @(
     'Get-LastHashRun', 'Set-LastHashRun',
     'Get-LastBackupRun', 'Set-LastBackupRun',
     'Resolve-OptionalTool', 'Initialize-Dependencies', 'Get-MediaMBPerSec',
+    'Get-SourceDirectoryRecord', 'Write-DirectorySidecar',
     'Test-HashRecalcDue', 'Update-SourceManifest', 'Copy-SourceFileToBackup',
     'Test-BackupManifest',
     'Get-BackupContentIndex', 'Optimize-ChangeFolders',

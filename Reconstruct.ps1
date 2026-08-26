@@ -56,7 +56,7 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 6
+# KitRevision: 7
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -79,8 +79,15 @@
 # row's own file failing to extract stays exit 4; scans the pool with -Force
 # so dot-named and Hidden data files are recoverable by (hash,length)
 # (SR-057); and adds the -NonInteractive guard (usage + exit 2) in place of a
-# blocking prompt (SR-016). Restoring a snapshot with its OWN older kit still
-# carries the defects fixed after it.
+# blocking prompt (SR-016). Revision 7 REFUSES a legacy path-addressed store
+# (SR-061: a DataPath carrying a path separator) as a precondition failure
+# instead of restoring it - support for pre-content-addressed stores was
+# withdrawn deliberately, not lost; stamps each restored file's
+# LastWriteTimeStr from its own manifest row, which is what makes a
+# deduplicated row keep its OWN timestamp instead of the pool object's
+# (SR-066); and applies the DIRECTORIES.csv sidecar, recreating empty
+# directories and re-applying folder attributes (SR-065). Restoring a snapshot
+# with its OWN older kit still carries the defects fixed after it.
 
 param(
     [string]$TargetRoot,
@@ -303,7 +310,7 @@ function Find-DataFileByHash {
     # Implements: SR-040, SR-050, LLR-040, LLR-050
     param([string]$Hash, [long]$Length, [string[]]$SearchFolders, [string]$SevenZipPath)
 
-    $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    $skip = '^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
     # Host-class problems met along the way, reported only if nothing matched — a
     # successful recovery must never be downgraded by an unrelated bad folder.
     $hostIssues = New-Object System.Collections.Generic.List[pscustomobject]
@@ -631,6 +638,41 @@ foreach ($row in (Read-RawManifest -Folder $authorityFolder)) {
     $main[$row.RelativePath] = $row
 }
 
+# ---- Legacy path-addressed store: refused, not restored (SR-061) ----
+# Support for WRITING a pre-content-addressed store went at WP9; kit revision 7
+# withdraws READING it too (human ruling 2026-08-26), so the promise the docs
+# make is one the suites actually test. TWO markers, matching
+# Test-BackupManifest's refusal on the engine side: StoredAsHashSize='Original'
+# is the authoritative one, and a DataPath carrying a path separator is the
+# structural one that still catches a store whose column was lost or rewritten
+# (a content-addressed DataPath is always a bare '<hash16> <len10><ext>'
+# filename in the origin folder; blank means "recover by hash"). Refused as a
+# PRECONDITION before the target exists - nothing attempted, nothing written.
+$legacyRow = $null
+$legacyWhy = $null
+foreach ($rel in $main.Keys) {
+    $candidate = $main[$rel]
+    if ("$($candidate.StoredAsHashSize)" -eq 'Original') {
+        $legacyRow = $candidate
+        $legacyWhy = "carries StoredAsHashSize='$($candidate.StoredAsHashSize)'"
+        break
+    }
+    # IndexOfAny over the two separator CHARACTERS, not a regex: a character
+    # class is one stray backslash away from silently matching only the
+    # forward slash, and this guard must not fail open (92 = backslash, 47 = slash).
+    if ("$($candidate.DataPath)".IndexOfAny([char[]]@([char]92, [char]47)) -ge 0) {
+        $legacyRow = $candidate
+        $legacyWhy = "names its data as '$($candidate.DataPath)', a source path rather than a content-addressed object"
+        break
+    }
+}
+if ($legacyRow) {
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message (
+        "'$authorityFolder' is a legacy path-addressed store: row '$($legacyRow.RelativePath)' $legacyWhy. " +
+        'This kit (revision 7) does not restore pre-content-addressed stores (SR-061). Restore it with the kit ' +
+        'bundled inside that backup folder, which was written by the build that produced it.')
+}
+
 # ---- Create the target and open the log (first mutation of this run) ----
 # Everything above refuses with 2 or 3 without writing a single byte into the
 # target (SR-039). Failures here are PRECONDITION failures: nothing has been
@@ -822,6 +864,129 @@ function Restore-OneRow {
     return [pscustomobject]@{ Outcome = 'mismatch'; Cause = 'ContentMismatch'; Detail = $null; Got = "$gotHash/$gotLen" }
 }
 
+function Set-RestoredLastWriteTime {
+    <#
+    .SYNOPSIS
+        Stamps a restored file with its OWN row's LastWriteTimeStr (SR-066).
+
+    .DESCRIPTION
+        Under dedup every row sharing one pool object used to restore with the
+        timestamp of whichever file created that object, because the mtime rode
+        along on the copy instead of being applied from the index. The manifest
+        has always carried each row's own LastWriteTimeStr correctly; this is
+        the restorer finally applying it.
+
+        Called only AFTER the SR-056 (hash,length) verification has passed, so a
+        file that was deleted and re-recovered never keeps a stamp from the
+        attempt that failed. Never fatal: the bytes are already correct and
+        verified by the time this runs, so a blank or unparseable cell warns and
+        the row still counts as restored. ReadOnly does not block it:
+        SetLastWriteTime needs FILE_WRITE_ATTRIBUTES, which a read-only file
+        grants.
+
+    .PARAMETER DestFull
+        The restored file, already written and verified.
+
+    .PARAMETER Row
+        The manifest row it was restored from.
+
+    .PARAMETER Rel
+        The row's RelativePath, for the warning message.
+    #>
+    # Implements: SR-066, LLR-066
+    param(
+        [Parameter(Mandatory)][string]$DestFull,
+        [Parameter(Mandatory)][object]$Row,
+        [Parameter(Mandatory)][string]$Rel
+    )
+    $stamp = "$($Row.LastWriteTimeStr)"
+    if ([string]::IsNullOrWhiteSpace($stamp)) { return }
+    try {
+        [System.IO.File]::SetLastWriteTime($DestFull, (ConvertFrom-ManifestDateString $stamp))
+    } catch {
+        Add-ReconstructLog "WARN: could not stamp LastWriteTime on '$Rel' from '$stamp': $($_.Exception.Message) (content is correct and verified)."
+    }
+}
+
+function Restore-DirectorySidecar {
+    <#
+    .SYNOPSIS
+        Recreates empty directories and re-applies folder attributes from the
+        DIRECTORIES.csv sidecar (SR-065).
+
+    .DESCRIPTION
+        The manifest has one row per FILE, so before this an empty directory was
+        never recreated and a Hidden or System FOLDER came back ordinary. The
+        sidecar carries one row per directory that is empty or carries a
+        recorded attribute bit.
+
+        Runs LAST, after every file is written and verified, for two reasons:
+        a directory must not be given its attributes while its contents are
+        still being created, and the deepest-first ordering below only makes
+        sense once the tree exists.
+
+        ADVISORY (SR-065): the sidecar is not witnessed and nothing here can
+        fail the restore. An absent, unreadable or malformed sidecar leaves
+        exactly the pre-SR-065 behaviour, which is why a store written by an
+        older engine still restores identically. The contract is bytes at
+        paths; this is fidelity on top of it.
+
+    .PARAMETER AuthorityFolder
+        The folder whose manifest was the restore authority - its sidecar is the
+        one that describes this point in time.
+
+    .PARAMETER TargetRoot
+        The restore target. Rows escaping it are refused, as manifest rows are.
+    #>
+    # Implements: SR-065, LLR-065
+    param(
+        [Parameter(Mandatory)][string]$AuthorityFolder,
+        [Parameter(Mandatory)][string]$TargetRoot
+    )
+    $sidecar = Join-Path $AuthorityFolder $Def.DirectorySidecarName
+    if (-not (Test-Path -LiteralPath $sidecar -PathType Leaf)) { return }
+
+    $rows = $null
+    try { $rows = @(Import-Csv -LiteralPath $sidecar) } catch {
+        Add-ReconstructLog "WARN: could not read the directory sidecar '$sidecar': $($_.Exception.Message). Empty directories and folder attributes were not applied."
+        return
+    }
+    $rows = @($rows | Where-Object { $_.PSObject.Properties.Name -contains 'RelativePath' -and $_.RelativePath })
+    if ($rows.Count -eq 0) { return }
+
+    # Create parents before children; apply attributes deepest-first so a
+    # directory is never given its bits while descendants are still appearing.
+    $planned = New-Object System.Collections.Generic.List[object]
+    foreach ($row in ($rows | Sort-Object { "$($_.RelativePath)".Length })) {
+        $rel  = "$($row.RelativePath)"
+        $full = Join-Path $TargetRoot (ConvertTo-LocalRelativePath $rel)
+        if (-not (Test-PathIsInside -Child $full -Parent $TargetRoot)) {
+            Add-ReconstructLog "WARN: directory row '$rel' escapes the target root (path traversal); refusing."
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $full -PathType Container)) {
+            try { New-Item -ItemType Directory -Path $full -Force -ErrorAction Stop | Out-Null } catch {
+                Add-ReconstructLog "WARN: could not create directory '$rel': $($_.Exception.Message)."
+                continue
+            }
+        }
+        $planned.Add([pscustomobject]@{ Rel = $rel; Full = $full; Token = "$($row.Attributes)" })
+    }
+
+    $applied = 0
+    foreach ($item in ($planned | Sort-Object { $_.Rel.Length } -Descending)) {
+        if ([string]::IsNullOrWhiteSpace($item.Token)) { continue }
+        try {
+            $dir = Get-Item -LiteralPath $item.Full -Force
+            $dir.Attributes = ConvertTo-DirectoryAttributeFlag -Token $item.Token
+            $applied++
+        } catch {
+            Add-ReconstructLog "WARN: could not apply attributes '$($item.Token)' to directory '$($item.Rel)': $($_.Exception.Message)."
+        }
+    }
+    Add-ReconstructLog "Directory sidecar applied: $($planned.Count) directory row(s), $applied with attributes."
+}
+
 foreach ($rel in $main.Keys) {
     $row     = $main[$rel]
     $destFull = Join-Path $TargetRoot (ConvertTo-LocalRelativePath $rel)
@@ -929,6 +1094,8 @@ foreach ($rel in $main.Keys) {
                 # the backup demonstrably still holds the bytes.
                 Add-Unrestored -RelativePath $rel -Cause 'WriteMismatch' `
                     -Detail "the pool copy '$($found.Path)' was PROVEN by hash, but the written destination disagrees (got $($r2.Got)) — a destination/write problem on this host."
+            } else {
+                Set-RestoredLastWriteTime -DestFull $destFull -Row $row -Rel $rel
             }
             continue
         }
@@ -942,7 +1109,11 @@ foreach ($rel in $main.Keys) {
         }
         continue
     }
+
+    Set-RestoredLastWriteTime -DestFull $destFull -Row $row -Rel $rel
 }
+
+Restore-DirectorySidecar -AuthorityFolder $authorityFolder -TargetRoot $TargetRoot
 
 if ($unrestored.Count -gt 0) {
     # Classify: content-class rows mean the bytes are gone (exit 1); host-class

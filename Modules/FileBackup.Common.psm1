@@ -35,6 +35,13 @@ $script:ReconstructBatName    = 'RECONSTRUCT.bat'
 $script:ReconstructShName     = 'reconstruct.sh'
 $script:ReconstructLogName    = 'RECONSTRUCT.log'
 $script:CommonModuleName      = 'FileBackup.Common.psm1'
+# Directory sidecar (SR-065): the manifest has one row per FILE, so an empty
+# directory and a folder's own attributes have nowhere to live. This advisory
+# CSV carries them beside the manifest. ADVISORY on purpose - it is not
+# witnessed and a restore never fails over it: the contract is still bytes at
+# paths, and the worst case of a damaged sidecar is the pre-SR-065 behaviour
+# (an empty folder missing, a Hidden folder coming back visible).
+$script:DirectorySidecarName  = 'DIRECTORIES.csv'
 
 $script:CSVDateFormat         = 'O'                       # ISO 8601 round-trip
 $script:FileLabelDateFormat   = 'yyyy_MM_dd_HH_mm_ss'     # label in folder/manifest names (no ':' — invalid in Windows paths)
@@ -115,6 +122,7 @@ function Get-FileBackupDefaults {
         ReconstructShName        = $script:ReconstructShName
         ReconstructLogName       = $script:ReconstructLogName
         CommonModuleName         = $script:CommonModuleName
+        DirectorySidecarName     = $script:DirectorySidecarName
         CSVDateFormat            = $script:CSVDateFormat
         FileLabelDateFormat      = $script:FileLabelDateFormat
         ChangeFolderDateMask     = $script:ChangeFolderDateMask
@@ -420,6 +428,19 @@ function Compress-FileWithSevenZip {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     }
 
+    # '7z a' ADDS to an existing archive rather than replacing it, so an
+    # orphaned object already occupying this content-addressed name would be
+    # merged into instead of overwritten (WP9 review, nit-4). The write path is
+    # index-authoritative - it asks the prior manifest, not the disk - so an
+    # UNREFERENCED object at the target name is reachable: a run killed between
+    # writing objects and writing MANIFEST.csv, a row evicted while its object
+    # awaits prune (SR-064 warns about those files, it does not delete them), or
+    # debris from an interrupted 7-Zip. Merging into valid twin bytes is
+    # harmless; merging into DEBRIS leaves a corrupt member that
+    # Expand-FileWithSevenZip's first-file pick can select. Clear the
+    # destination so 'a' always writes a fresh archive.
+    Remove-Item -LiteralPath $Destination7z -Force -ErrorAction SilentlyContinue
+
     $argList = @('a', '-mx=9', '-bso0', '-bsp0', "`"$Destination7z`"", "`"$SourceFile`"")
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName  = $SevenZipPath
@@ -482,6 +503,80 @@ function Expand-FileWithSevenZip {
     } finally {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+# endregion
+
+# region Directory sidecar (SR-065)
+
+# The four attribute bits SetFileAttributes can apply to a DIRECTORY, and the
+# only ones the sidecar records (human ruling 2026-08-26):
+#   Hidden            - the case that prompted this.
+#   System            - H and S travel together on real system folders and
+#                       Explorer gates them under DIFFERENT settings, so
+#                       restoring one without the other changes visibility.
+#   ReadOnly          - on a directory this does NOT mean read-only: it is the
+#                       flag telling Explorer the folder has a customised view
+#                       via desktop.ini. Drop it and custom icons stop working.
+#   NotContentIndexed - a Windows Search hint, common on bulk data folders.
+# Archive/Temporary/Offline are meaningless or harmful on a directory and are
+# deliberately excluded. Compressed (NTFS), Encrypted (EFS), ReparsePoint and
+# the ReFS integrity bits CANNOT be set through the attributes API at all and
+# stay outside the contract - see README "What is not recorded".
+$script:DirectoryAttributeNames = @('Hidden', 'System', 'ReadOnly', 'NotContentIndexed')
+
+function Get-DirectoryAttributeToken {
+    <#
+    .SYNOPSIS
+        Renders a directory's FileAttributes as the sidecar's Attributes cell:
+        the recorded bits only, in a fixed order, comma-separated ('' for none).
+
+    .PARAMETER Attributes
+        The directory's [System.IO.FileAttributes]. Bits outside the recorded
+        set (see $script:DirectoryAttributeNames) are dropped, not preserved.
+
+    .OUTPUTS
+        [string] e.g. 'Hidden,System', or '' when no recorded bit is set.
+    #>
+    # Implements: SR-065, LLR-065
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.IO.FileAttributes]$Attributes)
+    $set = foreach ($name in $script:DirectoryAttributeNames) {
+        if ($Attributes.HasFlag([System.IO.FileAttributes]$name)) { $name }
+    }
+    return (@($set) -join ',')
+}
+
+function ConvertTo-DirectoryAttributeFlag {
+    <#
+    .SYNOPSIS
+        Parses a sidecar Attributes cell back into [System.IO.FileAttributes],
+        ignoring anything outside the recorded set.
+
+    .DESCRIPTION
+        Tolerant by design (SR-065): the sidecar is advisory and unwitnessed, so
+        an unknown or misspelled token is skipped rather than thrown on. A cell
+        that yields nothing returns FileAttributes::Directory, which asks for no
+        change beyond the directory bit every folder already carries.
+
+    .PARAMETER Token
+        The cell text, e.g. 'Hidden,System'. Empty/blank is legal.
+
+    .OUTPUTS
+        [System.IO.FileAttributes] the recorded bits, plus Directory.
+    #>
+    # Implements: SR-065, LLR-065
+    [CmdletBinding()]
+    param([AllowNull()][AllowEmptyString()][string]$Token)
+    $flags = [System.IO.FileAttributes]::Directory
+    if ([string]::IsNullOrWhiteSpace($Token)) { return $flags }
+    foreach ($part in ($Token -split ',')) {
+        $name = $part.Trim()
+        if (-not $name) { continue }
+        $match = @($script:DirectoryAttributeNames | Where-Object { $_ -eq $name })
+        if ($match.Count -eq 1) { $flags = $flags -bor [System.IO.FileAttributes]$match[0] }
+    }
+    return $flags
 }
 
 # endregion
@@ -984,6 +1079,8 @@ Export-ModuleMember -Function @(
     'Get-FileXxHash',
     'ConvertTo-ManifestDateString',
     'ConvertFrom-ManifestDateString',
+    'Get-DirectoryAttributeToken',
+    'ConvertTo-DirectoryAttributeFlag',
     'Convert-HexToShortName',
     'Convert-ShortNameToHex',
     'Get-HashSizeFileName',

@@ -55,17 +55,23 @@ function Invoke-G4 {
         $verifyCode -eq 1 -and $verifyOut -match 'LegacyStoredForm'
     }
 
-    # The legacy store stays RESTORABLE as-is (work-order risk R1): refusal
-    # applies to writing, never to reading.
-    Assert-True $suite $group 'G4.1' 'Legacy_storeStillRestores' {
-        $target = Join-Path $Env.Root 'g4-legacy-restore'
-        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-        $failed = $null
-        try { Invoke-Reconstruct -ReconstructScript (Join-Path $Env.BkpPath 'RECONSTRUCT.ps1') -TargetRoot $target }
-        catch { $failed = $_.Exception.Message }
-        if ($failed) { return $false }
-        (Get-FileXxHash -FilePath (Join-Path $target 'doc.txt')) -eq (Get-ManifestRow $manifest 'doc.txt').xxH2Hash -and
-        (Get-FileXxHash -FilePath (Join-Path $target 'sub\img.bin')) -eq (Get-ManifestRow $manifest 'sub\img.bin').xxH2Hash
+    # The restore side REFUSES it too, and writes nothing (kit revision 7,
+    # human ruling 2026-08-26). This inverts the old
+    # 'Legacy_storeStillRestores' case: support for pre-content-addressed
+    # stores is withdrawn deliberately, rather than claimed and left untested
+    # on the bash half (WP9 review MIN-2, closed by withdrawal).
+    $legacyTarget = Join-Path $Env.Root 'g4-legacy-restore'
+    if (Test-Path -LiteralPath $legacyTarget) { Remove-Item -LiteralPath $legacyTarget -Recurse -Force }
+    $restoreOut = (& $pwshExe -NoProfile -File (Join-Path $Env.BkpPath 'RECONSTRUCT.ps1') `
+                      -TargetRoot $legacyTarget -ExitCode -NonInteractive *>&1 | Out-String)
+    $restoreCode = $LASTEXITCODE
+    Assert-True $suite $group 'G4.1' 'Legacy_restoreRefused' { $restoreCode -eq 2 }
+    Assert-True $suite $group 'G4.1' 'Legacy_restoreRefusalNamesCause' {
+        $restoreOut -match 'legacy path-addressed' -and $restoreOut -match 'StoredAsHashSize'
+    }
+    Assert-True $suite $group 'G4.1' 'Legacy_restoreWroteNothing' {
+        -not (Test-Path -LiteralPath (Join-Path $legacyTarget 'doc.txt')) -and
+        -not (Test-Path -LiteralPath (Join-Path $legacyTarget 'sub\img.bin'))
     }
 
     # Un-flip the row: the refusal is precise, and the healed store backs up.

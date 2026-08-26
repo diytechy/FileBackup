@@ -22,7 +22,7 @@ function Get-PoolByteVerifiedHashes {
         nested ones are data (B6).
     #>
     param([string[]]$Folders, [string]$SevenZipPath)
-    $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    $skip = '^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
     $set = @{}
     foreach ($folder in $Folders) {
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
@@ -129,7 +129,7 @@ function Get-HashNameGrammarViolations {
         root (the harness default) — snapshot folders are not walked here.
     #>
     param([string]$BackupRoot)
-    $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    $skip = '^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
     $violations = @()
     $root = (Resolve-Path -LiteralPath $BackupRoot).Path.TrimEnd('\', '/')
     foreach ($f in @(Get-ChildItem -LiteralPath $BackupRoot -File -Recurse -Force)) {
@@ -246,7 +246,7 @@ function Get-UnjustifiedPoolNames {
     #>
     param([string]$BackupRoot, [string]$ChangeRoot, [string]$SevenZipPath)
     if (-not $SevenZipPath) { $SevenZipPath = (Get-FileBackupDefaults).SevenZipDefaultPath }
-    $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    $skip = '^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
     $violations = @()
 
     $expectedPrefix = {

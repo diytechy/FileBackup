@@ -1790,12 +1790,12 @@ Describe 'Prune refuses before mutating (SR-046)' {
                 param($e)
                 # Make the endangered row's re-homed name a ROOT-LEVEL
                 # infrastructure name at the destination — hash recovery skips
-                # those (B6), so re-homing onto one would hide the bytes. Only
-                # a LEGACY path-addressed row can produce such a name (a hash
-                # name structurally cannot), so the row is constructed as
-                # 'Original': prune still serves legacy stores (SR-061 refuses
-                # only Backup), and this guard is why the re-home refusal
-                # survives WP9 step 5.
+                # those (B6), so re-homing onto one would hide the bytes. A name
+                # the engine GENERATES structurally cannot collide - the guard
+                # exists for a manifest that has been damaged or hand-edited
+                # into naming one, which is what this row is constructed to be.
+                # (Before 2026-08-26 the row was built as a legacy 'Original'
+                # one; legacy support is withdrawn, and the guard is not.)
                 $plan   = Get-SnapshotPrunePlan -BackupRoot $e.Bkp -ChangeRoot $e.Chg -Name $e.Newest
                 $item   = $plan.Items.ToArray()[0]
                 $folder = Join-Path $e.Chg $e.Newest
@@ -1803,7 +1803,6 @@ Describe 'Prune refuses before mutating (SR-046)' {
                 $rows = @(Read-Manifest -FolderPath $folder)
                 $row  = @($rows | Where-Object { $_.DataPath -eq $item.SourceDataPath })[0]
                 $row.DataPath = 'backup.log'; $row.RelativePath = 'backup.log'
-                $row.StoredAsHashSize = 'Original'
                 Write-Manifest -FolderPath $folder -Records $rows } }
     ) {
         $root = Join-Path $TestDrive ('tc084-' + $Kind + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
@@ -3270,7 +3269,7 @@ Describe 'The pool is immutable and every name is justified (SR-059, TC-122)' {
             Should -BeNullOrEmpty -Because 'an untouched copy of a real store is clean'
 
         $object = @(Get-ChildItem -LiteralPath $copy -File -Force |
-                    Where-Object { $_.Name -notmatch '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)' })[0]
+                    Where-Object { $_.Name -notmatch '^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)' })[0]
         $object | Should -Not -BeNullOrEmpty
         [IO.File]::WriteAllText($object.FullName, 'DIFFERENT BYTES UNDER THE SAME NAME')
 

@@ -99,7 +99,7 @@ restore_work() {  # <outdir>
     local h len
     h="$(hash_upper "$WORK/real.7z")"
     len="$(stat -c '%s' -- "$WORK/real.7z")"
-    printf '"","real.7z","%s","2024-01-01T08:00:00.0000000-06:00","%s","No","Original","0",""\r\n' \
+    printf '"","real.7z","%s","2024-01-01T08:00:00.0000000-06:00","%s","No","Hash","0",""\r\n' \
         "$len" "$h" >> "$WORK/MANIFEST.csv"
     restamp_witness "$WORK/MANIFEST.csv"
 
