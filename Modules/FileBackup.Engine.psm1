@@ -90,7 +90,12 @@ function Test-PortableRelativePath {
     )
     # On Windows both slashes separate; on Linux only '/' does — a '\' there is
     # part of the NAME, and means a path separator to the Windows restorer.
-    $separators = if ($TreatAsPosix) { [char[]]@('/') } else { [char[]]@('\', '/') }
+    # TYPED assignment on purpose (WP9 step 8b finding): an if-EXPRESSION
+    # unrolls a [char[]] to object[], and String.Split then binds an overload
+    # that never splits — every prior predicate was character- or
+    # suffix-scoped, so the wrong (whole-path) component was invisible until
+    # the first genuinely component-scoped rule below.
+    [char[]]$separators = if ($TreatAsPosix) { '/' } else { '\', '/' }
     foreach ($component in $RelativePath.Split($separators, [StringSplitOptions]::RemoveEmptyEntries)) {
         foreach ($ch in $component.ToCharArray()) {
             if ([int]$ch -lt 32) {
@@ -105,6 +110,14 @@ function Test-PortableRelativePath {
         }
         if ($component.EndsWith('.') -or $component.EndsWith(' ')) {
             return "name component '$component' ends with a dot or space, which Windows silently strips"
+        }
+        # WP9 step 8b (SR-055 amendment, ruled IN 2026-08-25): a component
+        # whose stem — the text before the FIRST dot — is a Windows reserved
+        # device name cannot be created on a Windows restore, with or without
+        # an extension ('NUL.txt' is as unusable as 'NUL').
+        $stem = $component.Split('.')[0]
+        if ($stem -match '^(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
+            return "name component '$component' is a Windows reserved device name ('$stem'), which no Windows file may use"
         }
     }
     return $null
@@ -561,6 +574,13 @@ function Copy-SourceFileToBackup {
         [string]$SevenZipPath
     )
     try {
+        # A DIRECTORY occupying the destination made Copy-Item copy INTO it
+        # and report success, so the manifest row named a folder (step-4
+        # review, incidental finding n6). Refuse: the caller logs the error
+        # string and the row is not written.
+        if (Test-Path -LiteralPath $BackupFilePath -PathType Container) {
+            return "destination '$BackupFilePath' is a directory; refusing to copy into it"
+        }
         if ($ShouldCompress -and $SevenZipPath) {
             Compress-FileWithSevenZip -SevenZipPath $SevenZipPath -SourceFile $SourceFilePath -Destination7z $BackupFilePath
         } else {
@@ -585,9 +605,10 @@ function Test-BackupManifest {
     <#
     .SYNOPSIS
         Refuses a legacy path-addressed store (SR-061), then blanks DataPaths
-        whose files are missing and warns about unreferenced files.
+        whose files are missing and warns about unreferenced files — in one
+        linear pass over rows plus disk (SR-064).
     #>
-    # Implements: SR-061, LLR-060
+    # Implements: SR-061, SR-064, LLR-060, LLR-062
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderRoot,
@@ -611,22 +632,30 @@ function Test-BackupManifest {
                'the old store stays restorable as-is and -Action Verify can still audit it.')
     }
 
-    $existingPaths = @{}
+    # SR-064 (LLR-062): ONE pass over the disk and ONE over the rows — the old
+    # shape re-piped the whole manifest through Where-Object once PER on-disk
+    # file, O(rows x files) on a store whose whole point is scale. Both maps
+    # are New-RelativePathMap so path keys compare the way the local
+    # filesystem does.
+    $existingPaths = New-RelativePathMap
+    $rootFull = (Resolve-Path -LiteralPath $FolderRoot).Path
     Get-DataFile -Root $FolderRoot |
-        ForEach-Object { $existingPaths[$_.FullName.Substring((Resolve-Path -LiteralPath $FolderRoot).Path.Length).TrimStart('\','/')] = $true }
+        ForEach-Object { $existingPaths[$_.FullName.Substring($rootFull.Length).TrimStart('\', '/')] = $true }
 
+    $referenced = New-RelativePathMap
     foreach ($row in $db) {
         if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
-        $rel  = $row.DataPath.TrimStart('\','/')
-        $full = Join-Path $FolderRoot $rel
-        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+        $rel = $row.DataPath.TrimStart('\', '/')
+        if (-not $existingPaths.ContainsKey($rel)) {
             & $Log "Datapath missing in backup DB: $rel" 'WARN'
             $row.DataPath = ''
+        } else {
+            $referenced[$rel] = $true
         }
     }
 
     foreach ($rel in $existingPaths.Keys) {
-        if (-not ($db | Where-Object { $_.DataPath -eq $rel })) {
+        if (-not $referenced.ContainsKey($rel)) {
             & $Log "File exists in backup folder but not in DB: $rel" 'WARN'
         }
     }
@@ -3054,6 +3083,19 @@ function Complete-ChangeFolder {
     }
     Write-Manifest -FolderPath $StagingFolder -Records $stagingDb
 
+    # Copy the full reconstruct kit (incl. the path sidecar) INTO STAGING,
+    # BEFORE the rename (F8, WP9 step 8): the rename is the publish, and a
+    # crash between a publish and a later kit copy used to leave a valid
+    # snapshot with no restore kit. With the copy first, a Snapshot_* folder
+    # structurally cannot exist without its kit — a crash before the rename
+    # leaves only a Temp folder for the SR-017 stale-staging guard.
+    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.ReconstructShName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
+        $src = Join-Path $BkpPath $artifact
+        if (Test-Path -LiteralPath $src -PathType Leaf) {
+            Copy-Item -LiteralPath $src -Destination $StagingFolder -Force
+        }
+    }
+
     $label = ([datetime]$SnapshotDate).ToString($script:Def.FileLabelDateFormat)
     # Second precision ⇒ two snapshots dated the same second would collide; append
     # a numeric disambiguator (still matches the ^Snapshot_<date> regex prefix).
@@ -3066,15 +3108,6 @@ function Complete-ChangeFolder {
     }
     $finalSnapshot = Join-Path $ChgPath $finalName
     Rename-Item -LiteralPath $StagingFolder -NewName $finalName
-
-    # Copy the full reconstruct kit (incl. the path sidecar) so a snapshot restore
-    # is self-contained and can resolve unchanged bytes by hash from the backup root.
-    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.ReconstructShName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
-        $src = Join-Path $BkpPath $artifact
-        if (Test-Path -LiteralPath $src -PathType Leaf) {
-            Copy-Item -LiteralPath $src -Destination $finalSnapshot -Force
-        }
-    }
 
     & $Log "Snapshot finalized: $finalSnapshot"
     return $finalSnapshot
@@ -3713,8 +3746,27 @@ function Invoke-BackupSet {
         -FinalRows @($backupMap.Values) `
         -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
 
-    # 12. Save updated backup manifest
-    $backupDbFinal = $backupMap.Values | Sort-Object { $_.RelativePath.Length } -Descending
+    # 12. Save updated backup manifest — CANONICAL (WP9 step 8): rows in
+    # ordinal RelativePath order and every text column materialized as a
+    # string ('' for null), so two runs over the same state write
+    # byte-identical manifests. Step 7's viewstamp work caught the drift this
+    # kills: fresh rows carried $null MediaMBPerSec while adopted rows carried
+    # Import-Csv's '', and Export-Csv quotes the two differently.
+    $backupDbFinal = [object[]]@($backupMap.Values | ForEach-Object {
+        [pscustomobject]@{
+            DataPath         = [string]$_.DataPath
+            RelativePath     = [string]$_.RelativePath
+            Length           = [string]$_.Length
+            LastWriteTime    = $_.LastWriteTime
+            xxH2Hash         = [string]$_.xxH2Hash
+            Compressed       = [string]$_.Compressed
+            StoredAsHashSize = [string]$_.StoredAsHashSize
+            Duplicate        = [string]$_.Duplicate
+            MediaMBPerSec    = [string]$_.MediaMBPerSec
+        }
+    })
+    [Array]::Sort($backupDbFinal, [Comparison[object]] {
+        param($a, $b) [string]::CompareOrdinal($a.RelativePath, $b.RelativePath) })
     Write-Manifest -FolderPath $paths.BkpPath -Records $backupDbFinal
 
     # 13. Finalize the dated snapshot (of the PRIOR state) + reconstruct scripts

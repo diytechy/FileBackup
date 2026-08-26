@@ -99,8 +99,8 @@ last) — it is the record, not required reading for every pass.
   | 5 — delete Mirror (SR-058 + the recovered SR-061 refusal) | **DONE** | `44deeb5` (5a engine+PS), `cce8855` (5b bash), 5c docs (this session) |
   | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | **DONE** | (this session; hash backfilled next update) |
   | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | **DONE** | (this session; hash backfilled next update) |
-  | 8 / 8b — folded fixes + F8 + reserved names | next | |
-  | 9 — docs, registries, generated maps, G3 audit entry | | |
+  | 8 / 8b — folded fixes + F8 + reserved names | **DONE** (TC-118's borrower-edit / multiple-borrowers arms moved to step 9) | (this session; hash backfilled next update) |
+  | 9 — docs, registries, generated maps, G3 audit entry | next | |
   Latest evidence (step 5, real output): `check.ps1 -Tier Full -Gate G3` all
   steps passed on the **2-mode matrix** (Plain/Compress); unit **358/358** —
   also green under `$ErrorActionPreference='Stop'`; integration **218 PASS /
@@ -166,6 +166,31 @@ last) — it is the record, not required reading for every pass.
   never-delete-user-data guard on the wipe-and-regenerate cycle. TC-129,
   TC-130, TC-131, TC-133 automated (tests/Unit/View.Tests.ps1, 8/8, plus
   G10); the SR-048 action-vocabulary pin extended to `View`.
+  **STEP 8 / 8b evidence:** `check.ps1 -Tier Full -Gate G3` all steps
+  passed (unit 391/391; integration 236/0/2); trace 0/0/0. Landed: SR-064
+  linear audit in `Test-BackupManifest` (one referenced-DataPath map;
+  TC-132's 1k→4k ratio + behavioral arms → Pass); CANONICAL manifest writes
+  at step 12 (ordinal RelativePath order, every text column string-ified —
+  kills the byte nondeterminism step 7 found, pinned by a
+  byte-identical-no-op-run test; Engine-side so no kit byte changes); **F8**
+  (the kit is copied into staging BEFORE the publish rename — a Snapshot_*
+  folder structurally cannot exist kit-less; pinned by a mocked-rename crash
+  test); the n6 directory-destination guard in `Copy-SourceFileToBackup`;
+  **8b reserved device names** (SR-055/LLR-055 amended, TC-117 → Pass,
+  windows + posix arms). **8b EXPOSED AND FIXED a latent classifier bug:**
+  `Test-PortableRelativePath` never actually split components (an
+  if-expression unrolled the `[char[]]` separators to `object[]` and
+  `String.Split` bound an overload that doesn't split) — invisible while
+  every predicate was character- or suffix-scoped; the reserved-name stem
+  rule was the first component-scoped predicate. Typed assignment fixes it.
+  **S3's trivial half is MEASURED, not collapsed:** `Get-ReHomedDataPathName`
+  keeps its 8-line legacy arm deliberately (the step-5 kept-guard call —
+  prune still serves legacy stores); the full collapse waits until
+  legacy-store prune support is deliberately dropped. **Remaining for step
+  9:** TC-118's borrower-edit + multiple-borrowers/copies=3 arms; the
+  registry reconciliation list recorded at step 5; AGENTS.md §2/§3/§6
+  rewrite; kit-rev decision; IF-001 items; then the WP9 independent review
+  (Claude subagent + `codex exec` adversarial pass).
   **D-5 is fixed in the content-addressed modes; the exact
   survival test (SR-059) is in** — content-addressed sets preserve superseded
   bytes AFTER copy/evict against the FINAL manifest's DataPath claims, which

@@ -198,7 +198,7 @@ Imports (internal): `Common`
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
-| `Test-BackupManifest` | yes | SR-061, LLR-060 |
+| `Test-BackupManifest` | yes | SR-061, SR-064, LLR-060, LLR-062 |
 | `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, SR-061, LLR-049, LLR-060 |
 | `Test-ConfigValueJsonType` | no | SR-042, LLR-042 |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |

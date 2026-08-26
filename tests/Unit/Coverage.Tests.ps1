@@ -2634,6 +2634,19 @@ Describe 'WP8 portable names and raw-candidate recovery (SR-055, SR-050)' {
         Test-PortableRelativePath -RelativePath 'pipe|name.txt' | Should -Match 'no Windows file name'
         Test-PortableRelativePath -RelativePath 'trailing.' | Should -Match 'dot or space'
         Test-PortableRelativePath -RelativePath 'sub/trailing ' | Should -Match 'dot or space'
+        # WP9 step 8b (TC-117): reserved device names, with or without an
+        # extension, any case, in any component — and near-misses stay legal.
+        Test-PortableRelativePath -RelativePath 'NUL' | Should -Match 'reserved device name'
+        Test-PortableRelativePath -RelativePath 'nul.txt' | Should -Match 'reserved device name'
+        Test-PortableRelativePath -RelativePath 'sub\CON.tar.gz' | Should -Match 'reserved device name'
+        Test-PortableRelativePath -RelativePath 'Com3.log' | Should -Match 'reserved device name'
+        Test-PortableRelativePath -RelativePath 'LPT9' | Should -Match 'reserved device name'
+        Test-PortableRelativePath -RelativePath 'CONSOLE.txt' | Should -BeNullOrEmpty
+        Test-PortableRelativePath -RelativePath 'COM10.txt' | Should -BeNullOrEmpty
+        Test-PortableRelativePath -RelativePath 'nullable.cs' | Should -BeNullOrEmpty
+        # The reserved-name rule holds on the POSIX arm too: a Linux source
+        # holding NUL.txt starts failing loudly (the disclosed consequence).
+        Test-PortableRelativePath -RelativePath 'sub/NUL.txt' -TreatAsPosix $true | Should -Match 'reserved device name'
 
         # The Linux arm, asserted via the -TreatAsPosix seam (WP8 review,
         # minor 1): '\' in a component is a NAME character on a POSIX host and
@@ -3096,6 +3109,129 @@ Describe 'Same-run duplicates are stored once (D-5, SR-060, TC-119)' {
             Should -Be 1 -Because 'identical content resolves to one physical object, whenever it was first seen'
         Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
             Should -Be 1 -Because 'the pool holds exactly one copy of the shared bytes'
+    }
+}
+
+Describe 'A snapshot can never exist without its restore kit (F8, SR-028, WP9 step 8)' {
+    It 'stages the kit BEFORE the publish rename: a crash at the rename leaves a complete Temp and NO snapshot' {
+        # The old order was rename-then-copy, so a crash in the window left a
+        # valid, published snapshot with no restore kit. Now the rename IS the
+        # last mutation: a Snapshot_* folder structurally cannot exist without
+        # its kit. Driven through Invoke-BackupSet directly (the entry point
+        # re-imports the module, which would tear down the mock).
+        $root = Join-Path $TestDrive 'f8'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        $set = [pscustomobject]@{
+            Name = 'F8'; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp; ChangePath = $chg
+            HashRecalcFreq = 'A'; CompressEnabled = $false; AllowEmptySource = $false
+            BrowseView = 'off'; ViewPath = ''
+        }
+        $deps = @{ '7z' = $null; 'ffprobe' = $null }
+        $ok = $true; $logs = New-Object System.Collections.Generic.List[string]
+
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'ONE')
+        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01')
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'TWO')
+
+        Mock -ModuleName FileBackup.Engine Rename-Item { throw 'INJECTED: crash at the publish rename' }
+        { Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-02-02 00:00:02') } |
+            Should -Throw -ExpectedMessage '*INJECTED*'
+
+        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_') |
+            Should -BeNullOrEmpty -Because 'nothing was published; the crash hit the publish itself'
+        $temp = Join-Path $chg 'Temp'
+        Test-Path -LiteralPath $temp -PathType Container | Should -BeTrue -Because 'the unpublished snapshot stays as Temp for the SR-017 guard'
+        foreach ($artifact in 'RECONSTRUCT.ps1', 'RECONSTRUCT.bat', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json') {
+            Test-Path -LiteralPath (Join-Path $temp $artifact) -PathType Leaf |
+                Should -BeTrue -Because "the kit ('$artifact') must be staged BEFORE the rename"
+        }
+        Test-Path -LiteralPath (Join-Path $temp 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+    }
+}
+
+Describe 'A directory squatting on a copy destination is refused (step-4 review n6)' {
+    It 'Copy-SourceFileToBackup returns the error string instead of silently copying INTO the directory' {
+        $root = Join-Path $TestDrive 'n6'
+        New-Item -ItemType Directory -Path (Join-Path $root 'dest.bin') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $root 'src.bin'), 'PAYLOAD')
+        $result = Copy-SourceFileToBackup -SourceFilePath (Join-Path $root 'src.bin') `
+            -BackupFilePath (Join-Path $root 'dest.bin') -ShouldCompress:$false
+        $result | Should -Match 'is a directory'
+        @(Get-ChildItem -LiteralPath (Join-Path $root 'dest.bin')) |
+            Should -BeNullOrEmpty -Because 'nothing may be copied INTO the squatting directory'
+    }
+}
+
+Describe 'The unreferenced-data audit is linear (SR-064, LLR-062, TC-132)' {
+    It 'scales linearly from 1k to 4k rows and still catches the orphan and the missing file' {
+        function New-AuditStore {
+            param([string]$Root, [int]$Count)
+            New-Item -ItemType Directory -Path $Root -Force | Out-Null
+            $rows = for ($i = 0; $i -lt $Count; $i++) {
+                $name = 'obj{0:D5}.bin' -f $i
+                [IO.File]::WriteAllText((Join-Path $Root $name), "payload $i")
+                [pscustomobject]@{
+                    DataPath = $name; RelativePath = "file$i.bin"; Length = 9
+                    LastWriteTime = [datetime]'2024-01-01'; xxH2Hash = 'ABCD'
+                    Compressed = 'No'; StoredAsHashSize = 'Hash'; Duplicate = ''; MediaMBPerSec = ''
+                }
+            }
+            Write-Manifest -FolderPath $Root -Records @($rows)
+            return $Root
+        }
+        $log = { param($m, $l) }
+
+        $small = New-AuditStore -Root (Join-Path $TestDrive 'tc132\small') -Count 1000
+        $big   = New-AuditStore -Root (Join-Path $TestDrive 'tc132\big')   -Count 4000
+        [void](Test-BackupManifest -FolderRoot $small -Log $log)   # warm-up (module JIT, FS cache)
+        $tSmall = (Measure-Command { Test-BackupManifest -FolderRoot $small -Log $log | Out-Null }).TotalMilliseconds
+        $tBig   = (Measure-Command { Test-BackupManifest -FolderRoot $big   -Log $log | Out-Null }).TotalMilliseconds
+
+        # Linear scales ~4x here; the old per-file Where-Object re-pipe scaled
+        # ~16x. The bound is generous against noisy hosts, and still separates
+        # the two shapes decisively (TC-132's behavioral/timing proof).
+        ($tBig / [math]::Max($tSmall, 1)) | Should -BeLessThan 10 -Because "1k took ${tSmall}ms, 4k took ${tBig}ms"
+
+        # The behavioral half at scale: one orphan file and one missing-file
+        # row are both still reported.
+        $store = New-AuditStore -Root (Join-Path $TestDrive 'tc132\beh') -Count 50
+        [IO.File]::WriteAllText((Join-Path $store 'orphan.bin'), 'NO ROW NAMES ME')
+        $rows = @(Read-Manifest -FolderPath $store)
+        Remove-Item -LiteralPath (Join-Path $store $rows[0].DataPath) -Force
+        $lines = New-Object System.Collections.Generic.List[string]
+        $healed = @(Test-BackupManifest -FolderRoot $store -Log { param($m, $l) $lines.Add($m) })
+        @($lines | Where-Object { $_ -match 'exists in backup folder but not in DB: orphan\.bin' }).Count | Should -Be 1
+        @($lines | Where-Object { $_ -match 'Datapath missing in backup DB' }).Count | Should -Be 1
+        @($healed | Where-Object { -not $_.DataPath }).Count | Should -Be 1
+    }
+}
+
+Describe 'Manifest writes are canonical (WP9 step-8 fold: deterministic bytes)' {
+    It 'a manifest-identical run rewrites MANIFEST.csv byte-identically, rows in ordinal order' {
+        # Step 7's viewstamp work caught the drift: fresh rows carried $null
+        # in optional columns while adopted rows carried Import-Csv's '', and
+        # Export-Csv quotes the two differently - so a NO-OP run changed the
+        # manifest's bytes. Canonicalization at step 12 kills the class.
+        $root = Join-Path $TestDrive 'canon'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path (Join-Path $src 'zz'), (Join-Path $src 'aa') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'zz\deep.txt'), 'DEEP')
+        [IO.File]::WriteAllText((Join-Path $src 'aa\first.txt'), 'FIRST')
+        [IO.File]::WriteAllText((Join-Path $src 'root.txt'), 'ROOT')
+        Invoke-FB $cfg
+        $bytes1 = Get-Content -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -Raw
+        Invoke-FB $cfg
+        $bytes2 = Get-Content -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -Raw
+        $bytes2 | Should -Be $bytes1 -Because 'a manifest-identical run must not churn a single byte of the index'
+
+        $rels = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Select-Object -ExpandProperty RelativePath)
+        $rels.Count | Should -Be 3
+        for ($i = 1; $i -lt $rels.Count; $i++) {
+            [string]::CompareOrdinal($rels[$i - 1], $rels[$i]) | Should -BeLessOrEqual 0 -Because 'rows are written in ordinal RelativePath order'
+        }
     }
 }
 
