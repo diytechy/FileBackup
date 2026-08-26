@@ -123,18 +123,34 @@ BeforeAll {
         .SYNOPSIS
             The D-1 shape exactly as the HomeHub bench produced it: ONE owner,
             a later cross-run duplicate that borrows the owner's DataPath, then
-            an ordinary edit of the owner.
+            an ordinary edit of one of the holders.
+
+        .PARAMETER Copies
+            Total holders of the shared content: 1 owner + (Copies - 1)
+            borrowers, all of the borrowers arriving in run 2.
+
+        .PARAMETER Edit
+            Which holder run 3 edits away from the shared content - the owner
+            (the path whose DataPath the others adopted) or the first borrower.
 
         .NOTES
-            The owner must be the ONLY prior copy. A second same-run copy
-            MASKS D-1 — the borrower's adopted DataPath may then name the
-            untouched sibling, and even when it names the edited file the
-            surviving sibling keeps the content alive. That is why the bench
-            drill only saw this once cycle 10 introduced a twin of a
-            single-copy file, and it is why the D-5 timeline below is kept
-            separate rather than folded in.
+            The owner must be the ONLY PRIOR copy for the borrow to form at
+            all. A second copy in the SAME run as the owner MASKS D-1 - the
+            borrower's adopted DataPath may then name the untouched sibling,
+            and even when it names the edited file the surviving sibling keeps
+            the content alive. That is why the bench drill only saw this once
+            cycle 10 introduced a twin of a single-copy file, and it is why the
+            D-5 timeline below is kept separate rather than folded in. Copies
+            greater than 2 add further run-2 borrowers, which is a different
+            axis: they never mask the defect because they adopt the same
+            single prior object.
         #>
-        param([string]$Root, [bool]$Compress = $false)
+        param(
+            [string]$Root,
+            [bool]$Compress = $false,
+            [ValidateRange(2, 9)][int]$Copies = 2,
+            [ValidateSet('owner', 'borrower')][string]$Edit = 'owner'
+        )
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
@@ -144,26 +160,36 @@ BeforeAll {
         $one = 'SHARED-CONTENT-ONE ' * 60
         $two = 'OWNER-CONTENT-TWO '  * 60
 
+        $ownerRel = 'a.bin'
+        $borrowerRels = @(for ($i = 1; $i -lt $Copies; $i++) {
+            if ($i -eq 1) { 'sub\twin.bin' } else { "sub\twin$i.bin" }
+        })
+
         # run1 - the owner is the only holder of this content.
-        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
+        [IO.File]::WriteAllText((Join-Path $src $ownerRel), $one)
         [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
         & $run ([datetime]'2024-01-01 00:00:01')
 
-        # run2 - an identical copy arrives LATER, so it is matched against the
-        # PRIOR backup and adopts the owner's DataPath verbatim, writing no
-        # bytes of its own. That is the borrow D-1 needs.
-        [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $one)
+        # run2 - identical copies arrive LATER, so they are matched against the
+        # PRIOR backup and adopt the owner's DataPath verbatim, writing no
+        # bytes of their own. That is the borrow D-1 needs.
+        foreach ($rel in $borrowerRels) { [IO.File]::WriteAllText((Join-Path $src $rel), $one) }
         & $run ([datetime]'2024-02-02 00:00:02')      # => Snapshot_2024_01_01_00_00_01
 
-        # run3 - an ORDINARY edit of the owner. Under the deleted Mirror layout
-        # the destination was the owner's own path, overwriting the bytes the
-        # borrower still claimed (D-1); content addressing writes a NEW object
-        # instead, and this timeline is what proves the borrower survives.
-        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $two)
+        # run3 - an ORDINARY edit of one holder. Under the deleted Mirror layout
+        # the destination was that path's own data file, overwriting the bytes
+        # the other holders still claimed (D-1); content addressing writes a NEW
+        # object instead, and this timeline is what proves they survive.
+        $editedRel = if ($Edit -eq 'owner') { $ownerRel } else { $borrowerRels[0] }
+        [IO.File]::WriteAllText((Join-Path $src $editedRel), $two)
         & $run ([datetime]'2024-03-03 00:00:03')      # => Snapshot_2024_02_02_00_00_02
 
+        $allRels = @($ownerRel) + $borrowerRels
         return [pscustomobject]@{
             Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one; Two = $two
+            AllRels = $allRels
+            EditedRel = $editedRel
+            UnchangedRels = @($allRels | Where-Object { $_ -ne $editedRel })
             SnapAfterRun1 = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
             SnapAfterRun2 = Join-Path $chg 'Snapshot_2024_02_02_00_00_02'
         }
@@ -277,13 +303,24 @@ BeforeAll {
     function New-MemberRemovedTimeline {
         <#
         .SYNOPSIS
-            TC-135: one member of a dedup pair is DELETED while the other
-            lives on — the owner (the borrowed-from path) by default, the
+            TC-135: one member of a dedup group is DELETED while the others
+            live on - the owner (the borrowed-from path) by default, a
             borrower with -RemoveBorrower. B9's eviction refcount must keep
-            the shared object in the pool for the survivor, and the snapshot
+            the shared object in the pool for the survivors, and the snapshot
             must still restore the removed path's bytes.
+
+        .PARAMETER Copies
+            Total holders of the shared content: 1 owner + (Copies - 1)
+            borrowers. copies=3 leaves TWO survivors after the removal, so an
+            eviction that consulted only "is there one other claim" is not
+            enough to pass by accident.
         #>
-        param([string]$Root, [bool]$Compress = $false, [switch]$RemoveBorrower)
+        param(
+            [string]$Root,
+            [bool]$Compress = $false,
+            [switch]$RemoveBorrower,
+            [ValidateRange(2, 9)][int]$Copies = 2
+        )
         $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
@@ -292,21 +329,28 @@ BeforeAll {
 
         $one = 'MEMBER-REMOVED-SHARED ' * 60
 
-        # run1 - the owner is the only holder; run2 - a twin borrows the
-        # owner's object; run3 - one member is deleted, the other lives.
-        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $one)
+        $ownerRel = 'a.bin'
+        $borrowerRels = @(for ($i = 1; $i -lt $Copies; $i++) {
+            if ($i -eq 1) { 'sub\twin.bin' } else { "sub\twin$i.bin" }
+        })
+
+        # run1 - the owner is the only holder; run2 - the twins borrow the
+        # owner's object; run3 - one member is deleted, the others live.
+        [IO.File]::WriteAllText((Join-Path $src $ownerRel), $one)
         [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
         & $run ([datetime]'2024-01-01 00:00:01')
-        [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $one)
+        foreach ($rel in $borrowerRels) { [IO.File]::WriteAllText((Join-Path $src $rel), $one) }
         & $run ([datetime]'2024-02-02 00:00:02')      # => Snapshot_2024_01_01_00_00_01
-        $removedRel  = if ($RemoveBorrower) { 'sub\twin.bin' } else { 'a.bin' }
-        $survivorRel = if ($RemoveBorrower) { 'a.bin' } else { 'sub\twin.bin' }
+        $removedRel = if ($RemoveBorrower) { $borrowerRels[0] } else { $ownerRel }
+        $allRels    = @($ownerRel) + $borrowerRels
         Remove-Item -LiteralPath (Join-Path $src $removedRel) -Force
         & $run ([datetime]'2024-03-03 00:00:03')      # => Snapshot_2024_02_02_00_00_02
 
         return [pscustomobject]@{
             Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; One = $one
-            RemovedRel = $removedRel; SurvivorRel = $survivorRel
+            AllRels = $allRels
+            RemovedRel = $removedRel
+            SurvivorRels = @($allRels | Where-Object { $_ -ne $removedRel })
             SnapAfterRun2 = Join-Path $chg 'Snapshot_2024_02_02_00_00_02'
         }
     }
@@ -3063,34 +3107,172 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
 # and 9a1da7d hold the recorded asymmetry evidence.
 # ---------------------------------------------------------------------------
 
-Describe 'Shared content survives an owner edit (D-1, SR-059, TC-118)' {
-    It 'keeps the borrower restorable after the owner is edited (<Mode>)' -ForEach @(
-        @{ Mode = 'Plain';    Compress = $false }
-        @{ Mode = 'Compress'; Compress = $true }
+Describe 'Shared content survives an edit by one holder (D-1, SR-059, TC-118)' {
+    # The full TC-118 matrix: edit={owner,borrower} x copies={2,3} x
+    # compress={on,off}. copies=2 is the bench shape (one owner, one borrower);
+    # copies=3 adds a second run-2 borrower so the edited row is not the last
+    # claim on the object - the case where a naive "is anyone else still using
+    # it" check can go wrong in the other direction and evict too eagerly.
+    It 'keeps every other holder restorable when the <Edit> of <Copies> copies is edited (<Mode>)' -ForEach @(
+        @{ Mode = 'Plain';    Compress = $false; Edit = 'owner';    Copies = 2 }
+        @{ Mode = 'Compress'; Compress = $true;  Edit = 'owner';    Copies = 2 }
+        @{ Mode = 'Plain';    Compress = $false; Edit = 'borrower'; Copies = 2 }
+        @{ Mode = 'Compress'; Compress = $true;  Edit = 'borrower'; Copies = 2 }
+        @{ Mode = 'Plain';    Compress = $false; Edit = 'owner';    Copies = 3 }
+        @{ Mode = 'Compress'; Compress = $true;  Edit = 'owner';    Copies = 3 }
+        @{ Mode = 'Plain';    Compress = $false; Edit = 'borrower'; Copies = 3 }
+        @{ Mode = 'Compress'; Compress = $true;  Edit = 'borrower'; Copies = 3 }
     ) {
-        $root = Join-Path $TestDrive ('d1\' + ($Mode -replace '\W', ''))
-        $t = New-BorrowTimeline -Root $root -Compress $Compress
+        $root = Join-Path $TestDrive ('d1\' + $Edit + $Copies + '\' + ($Mode -replace '\W', ''))
+        $t = New-BorrowTimeline -Root $root -Compress $Compress -Copies $Copies -Edit $Edit
 
         # (1) Store level: no row claims bytes that are not there. This is the
         # detector D-1 needed and nothing had - the borrowed file is PRESENT
-        # after the owner's edit, so no blank-row or Test-Path check sees it.
+        # after the edit, so no blank-row or Test-Path check sees it.
         @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
         @(Get-BlankRowPoolViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
 
-        # (2) Latest state: the owner moved on, the borrower still holds the
-        # original content.
+        # (2) Latest state: the edited holder moved on, every other holder
+        # still restores the original content.
         $latest = Join-Path $root 'r-latest'
         & (Join-Path $t.Bkp 'RECONSTRUCT.ps1') -TargetRoot $latest *>&1 | Out-Null
-        [IO.File]::ReadAllText((Join-Path $latest 'a.bin'))        | Should -Be $t.Two
-        [IO.File]::ReadAllText((Join-Path $latest 'sub\twin.bin')) | Should -Be $t.One
+        [IO.File]::ReadAllText((Join-Path $latest $t.EditedRel)) | Should -Be $t.Two
+        foreach ($rel in $t.UnchangedRels) {
+            [IO.File]::ReadAllText((Join-Path $latest $rel)) | Should -Be $t.One
+        }
 
-        # (3) Point in time: the snapshot of the pre-edit state gives the
-        # ORIGINAL content for both paths.
+        # (3) Still exactly one physical object per content: the surviving
+        # holders share the original object (no per-borrower fork), and the
+        # edit added exactly one new object.
+        $rows = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv'))
+        foreach ($rel in @($t.EditedRel) + $t.UnchangedRels) {
+            $row = @($rows | Where-Object RelativePath -eq $rel)
+            $row.Count | Should -Be 1 -Because "'$rel' must have exactly one live row"
+            Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $row[0].xxH2Hash -Length ([long]$row[0].Length) |
+                Should -Be 1 -Because 'content addressing stores each distinct content once'
+        }
+        @($rows | Where-Object RelativePath -in $t.UnchangedRels |
+                  Select-Object -ExpandProperty DataPath -Unique).Count |
+            Should -Be 1 -Because 'the unedited holders still share the ONE original object'
+
+        # (4) Point in time: the snapshot of the pre-edit state gives the
+        # ORIGINAL content for every holder.
         $pre = Join-Path $root 'r-pre-edit'
         & (Join-Path $t.SnapAfterRun2 'RECONSTRUCT.ps1') -TargetRoot $pre *>&1 | Out-Null
-        foreach ($rel in 'a.bin', 'sub\twin.bin') {
+        foreach ($rel in $t.AllRels) {
             [IO.File]::ReadAllText((Join-Path $pre $rel)) | Should -Be $t.One
         }
+    }
+}
+
+Describe 'The pool is immutable and every name is justified (SR-059, TC-122)' {
+    # The census TC-122 asks for, and the other half of SR-059: an object no
+    # live row happens to claim is still held to the naming contract, because
+    # hash recovery (SR-050) would hand it to any row asking for those bytes.
+    It 'never changes the content at a claimed DataPath across <Runs> runs (<Mode>)' -ForEach @(
+        @{ Mode = 'Plain';    Compress = $false; Runs = 3 }
+        @{ Mode = 'Compress'; Compress = $true;  Runs = 3 }
+        @{ Mode = 'Plain';    Compress = $false; Runs = 5 }
+        @{ Mode = 'Compress'; Compress = $true;  Runs = 5 }
+    ) {
+        $root = Join-Path $TestDrive ('tc122\' + $Runs + '\' + ($Mode -replace '\W', ''))
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src, (Join-Path $src 'sub') -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
+
+        $gen1 = 'CENSUS-GENERATION-ONE ' * 60
+        $gen2 = 'CENSUS-GENERATION-TWO ' * 60
+
+        # One mutation per run, each a shape that has produced a real defect:
+        # seed, a LATER duplicate that borrows (D-1's setup), the owner editing
+        # away, the last live claim on the shared content going, and the old
+        # content returning under a new name (re-adoption after eviction).
+        $mutate = @(
+            { [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $gen1)
+              [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY') }
+            { [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $gen1) }
+            { [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $gen2) }
+            { Remove-Item -LiteralPath (Join-Path $src 'sub\twin.bin') -Force }
+            { [IO.File]::WriteAllText((Join-Path $src 'sub\again.bin'), $gen1) }
+        )
+
+        # The census records each object's PROVEN CONTENT, not its raw bytes:
+        # a .7z re-created for identical content is not byte-identical (7-Zip
+        # stores the member name and time), and re-creating an evicted object
+        # is legitimate. What SR-059 forbids is the CONTENT at a claimed path
+        # changing - so that is what is compared.
+        $contentKey = {
+            param([string]$Path, [string]$WantHash)
+            $raw = Get-FileXxHash -FilePath $Path
+            $len = (Get-Item -LiteralPath $Path -Force).Length
+            if ($raw -eq $WantHash) { return "$raw|$len" }
+            $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+            if ($sevenZip -and (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+                $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                try {
+                    Expand-FileWithSevenZip -SevenZipPath $sevenZip -Archive $Path -DestinationFile $tmp
+                    return "$(Get-FileXxHash -FilePath $tmp)|$((Get-Item -LiteralPath $tmp -Force).Length)"
+                } catch {
+                    Write-Verbose "TC-122: '$Path' is neither the claimed raw content nor expandable: $($_.Exception.Message)"
+                } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+            }
+            return "$raw|$len"
+        }
+
+        $census = @{}
+        for ($i = 0; $i -lt $Runs; $i++) {
+            & $mutate[$i]
+            & $entry -ConfigPath $cfg -NoMail -NonInteractive `
+                -BackupTime ([datetime]'2024-01-01 00:00:01').AddDays($i) *>&1 | Out-Null
+
+            foreach ($folder in (Get-PoolFolderList -BackupRoot $bkp -ChangeRoot $chg)) {
+                $manifest = Join-Path $folder 'MANIFEST.csv'
+                if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { continue }
+                foreach ($row in @(Import-Csv -LiteralPath $manifest | Where-Object DataPath)) {
+                    $full = Join-Path $folder $row.DataPath
+                    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+                    $now = & $contentKey $full $row.xxH2Hash
+                    if ($census.ContainsKey($full)) {
+                        $now | Should -Be $census[$full] `
+                            -Because "the content at '$full' changed under a live claim by run $($i + 1)"
+                    }
+                    $census[$full] = $now
+                }
+            }
+
+            @(Get-ClaimedRowViolations -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
+            @(Get-UnjustifiedPoolNames -BackupRoot $bkp -ChangeRoot $chg)  | Should -BeNullOrEmpty
+        }
+
+        # The census must have SEEN several objects across several folders, or
+        # every assertion above is vacuous.
+        $census.Count | Should -BeGreaterThan 2
+    }
+
+    It 'reports a pool object whose name its own content does not justify (non-vacuity)' {
+        # The audit above is only worth its green if it can go red. Tamper a
+        # COPY of a real store - never the store the other arms just proved.
+        $root = Join-Path $TestDrive 'tc122-nonvacuity'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), 'NON-VACUITY ' * 60)
+        & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-01-01 00:00:01') *>&1 | Out-Null
+
+        $copy = Join-Path $root 'bkp-copy'
+        Copy-Item -LiteralPath $bkp -Destination $copy -Recurse -Force
+        @(Get-UnjustifiedPoolNames -BackupRoot $copy -ChangeRoot (Join-Path $root 'no-such-chg')) |
+            Should -BeNullOrEmpty -Because 'an untouched copy of a real store is clean'
+
+        $object = @(Get-ChildItem -LiteralPath $copy -File -Force |
+                    Where-Object { $_.Name -notmatch '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)' })[0]
+        $object | Should -Not -BeNullOrEmpty
+        [IO.File]::WriteAllText($object.FullName, 'DIFFERENT BYTES UNDER THE SAME NAME')
+
+        @(Get-UnjustifiedPoolNames -BackupRoot $copy -ChangeRoot (Join-Path $root 'no-such-chg')) |
+            Should -Not -BeNullOrEmpty -Because 'the name now encodes a (hash,length) the bytes do not produce'
     }
 }
 
@@ -3389,36 +3571,45 @@ Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059,
     }
 }
 
-Describe 'One dedup member deleted while the other lives (B9, SR-006, TC-135)' {
-    It 'keeps the shared object when the <Removed> is deleted and the snapshot restores the removed path (<Mode>)' -ForEach @(
-        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $false; Removed = 'owner' }
-        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $true;  Removed = 'borrower' }
-        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $false; Removed = 'owner' }
-        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $true;  Removed = 'borrower' }
+Describe 'One dedup member deleted while the others live (B9, SR-006, TC-135)' {
+    It 'keeps the shared object when the <Removed> of <Copies> copies is deleted, and the snapshot restores it (<Mode>)' -ForEach @(
+        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $false; Removed = 'owner';    Copies = 2 }
+        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $true;  Removed = 'borrower'; Copies = 2 }
+        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $false; Removed = 'owner';    Copies = 2 }
+        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $true;  Removed = 'borrower'; Copies = 2 }
+        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $false; Removed = 'owner';    Copies = 3 }
+        @{ Mode = 'Plain';    Compress = $false; RemoveBorrower = $true;  Removed = 'borrower'; Copies = 3 }
+        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $false; Removed = 'owner';    Copies = 3 }
+        @{ Mode = 'Compress'; Compress = $true;  RemoveBorrower = $true;  Removed = 'borrower'; Copies = 3 }
     ) {
-        $root = Join-Path $TestDrive ('tc135\' + $Removed + '\' + ($Mode -replace '\W', ''))
-        $t = New-MemberRemovedTimeline -Root $root -Compress $Compress -RemoveBorrower:$RemoveBorrower
+        $root = Join-Path $TestDrive ('tc135\' + $Removed + $Copies + '\' + ($Mode -replace '\W', ''))
+        $t = New-MemberRemovedTimeline -Root $root -Compress $Compress -RemoveBorrower:$RemoveBorrower -Copies $Copies
 
         @(Get-ClaimedRowViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
         @(Get-BlankRowPoolViolations -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
 
         # B9: evicting the removed member's row must NOT take the object the
-        # survivor still claims.
+        # survivors still claim - and with copies=3 two of them still do.
         $rows = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv') |
-                  Where-Object RelativePath -eq $t.SurvivorRel)
-        $rows.Count | Should -Be 1
+                  Where-Object RelativePath -in $t.SurvivorRels)
+        $rows.Count | Should -Be $t.SurvivorRels.Count
+        @($rows | Select-Object -ExpandProperty DataPath -Unique).Count |
+            Should -Be 1 -Because 'the survivors share the one object the removed member also used'
         Get-PoolContentCopyCount -Folders @($t.Bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
-            Should -Be 1 -Because 'the survivor still claims the object, so eviction must leave it in the pool'
+            Should -Be 1 -Because 'the survivors still claim the object, so eviction must leave it in the pool'
 
         $latest = Join-Path $root 'r-latest'
         & (Join-Path $t.Bkp 'RECONSTRUCT.ps1') -TargetRoot $latest *>&1 | Out-Null
-        [IO.File]::ReadAllText((Join-Path $latest $t.SurvivorRel)) | Should -Be $t.One
+        foreach ($rel in $t.SurvivorRels) {
+            [IO.File]::ReadAllText((Join-Path $latest $rel)) | Should -Be $t.One
+        }
         Test-Path -LiteralPath (Join-Path $latest $t.RemovedRel) | Should -BeFalse
 
         $preRemove = Join-Path $root 'r-pre'
         & (Join-Path $t.SnapAfterRun2 'RECONSTRUCT.ps1') -TargetRoot $preRemove *>&1 | Out-Null
-        [IO.File]::ReadAllText((Join-Path $preRemove 'a.bin'))        | Should -Be $t.One
-        [IO.File]::ReadAllText((Join-Path $preRemove 'sub\twin.bin')) | Should -Be $t.One
+        foreach ($rel in $t.AllRels) {
+            [IO.File]::ReadAllText((Join-Path $preRemove $rel)) | Should -Be $t.One
+        }
     }
 }
 

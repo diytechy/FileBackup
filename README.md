@@ -332,6 +332,40 @@ and its own witness.
 
 ---
 
+## Browsing the backup without restoring (`BrowseView` / `-Action View`)
+
+Data files in the backup root are named by their **content**, not by their
+original path — that is what makes the store safe (an edit can never overwrite
+the bytes another file still shares), but it means the backup folder is not
+browsable by eye. The browse view is the answer: a generated, read-only index of
+what is in the backup, written **outside** the backup root.
+
+Turn it on per set with `BrowseView = 'index'`. It is written to `ViewPath`,
+which defaults to `<BackupPath>_View` and must be outside both the backup and
+change roots and on the backup volume.
+
+```powershell
+# rebuild the view on demand (a normal backup run refreshes it automatically)
+pwsh -File FileBackup.ps1 -ConfigPath config.json -Action View
+```
+
+You get `INDEX.tsv` — one row per logical path with its `DataPath`, `Length`,
+`xxH2Hash` and `Compressed` — plus one `INDEX.html` page per folder, so a 500,000-file library
+opens instantly instead of as one enormous page. The root page carries a search
+box; above a size threshold the searchable data stays in `INDEX.tsv` and the page
+tells you to grep it instead.
+
+Three things worth knowing:
+
+- **The view is cosmetic.** Nothing in FileBackup reads it — not the backup,
+  not `-Action Verify`, not pruning, not either restore script. If generating it
+  fails, the run logs a warning and still reports the backup's real outcome.
+- **It lists duplicates honestly.** Every path appears, including files that
+  share one stored object. (The old mirrored layout omitted them entirely.)
+- **Snapshots do not get one.** Only the live backup root is indexed.
+
+---
+
 ## Config format
 
 `FileBackup.ps1 -ConfigPath` accepts CLIXML (`.xml`) and JSON (`.json`),
@@ -447,17 +481,21 @@ list — they compress well and are stored as `.7z`. The list lives in exactly o
 place, `$script:NonCompressibleExtensions` in `Modules/FileBackup.Common.psm1`;
 this table is checked against it by TC-096.
 
-Changing the list changes what a *future* run stores. Existing data files are
-migrated by `Sync-BackupStorageLayout` on the next run, which touches the backup
-root only — snapshots keep the form they were written with, and are restored
-correctly regardless (see "Restoring an older snapshot" below).
+Changing the list changes what a *future* run stores. **Nothing already stored is
+ever re-formed** — there is no migration, in either direction. Existing data
+files keep the form they were written with, in the backup root and in every
+snapshot alike, and are restored correctly regardless (see "Restoring an older
+snapshot" below). The same is true of flipping `CompressEnabled`: it governs
+content written after the flip and nothing else. A mixed-form store is normal,
+because compression is decided per file.
 
 > **After a form change, prune checks each snapshot's kit revision.** Flipping
-> `CompressEnabled` (or changing the extension list) leaves older snapshots
-> holding blank-DataPath rows whose recorded form no longer matches the
-> migrated root copy. Restores are byte-exact either way (revision-2+ kits
-> decide from the file they find), and prune accepts the disagreement for any
-> folder whose own kit is revision 2 or newer. Only a folder still carrying a
+> `CompressEnabled` (or changing the extension list) means newly stored copies
+> of shared content take the new form, so an older snapshot can hold a
+> blank-DataPath row whose recorded form no longer matches the copy that
+> survives elsewhere in the pool. Restores are byte-exact either way
+> (revision-2+ kits decide from the file they find), and prune accepts the
+> disagreement for any folder whose own kit is revision 2 or newer. Only a folder still carrying a
 > pre-revision-2 kit (or none) refuses, naming the kit revision — run
 > `-Action Verify -RefreshKits` to upgrade every snapshot's kit, then retry.
 
@@ -645,7 +683,7 @@ FileBackup.ps1            Entry point (reads config, runs each backup set)
 Reconstruct.ps1          Restore script (deployed standalone into each backup folder)
 Modules/
   FileBackup.Common.psm1   Restore-safe primitives (hashing, manifest I/O, 7-Zip, …)
-  FileBackup.Engine.psm1   Backup engine (walk, diff, dedup, migrate, snapshots)
+  FileBackup.Engine.psm1   Backup engine (walk, diff, dedup, snapshots, retention, view)
 bash/reconstruct.sh      Linux restore — same backups, no PowerShell (see "Restore on Linux")
 run.cmd · run.sh         Zero-setup launchers: demo timeline (Win) / fixture restores (Linux)
 CredSetEx.ps1            Example config builder

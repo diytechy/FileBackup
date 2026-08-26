@@ -21,8 +21,8 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 | File | Role | Bundled into backups? |
 |---|---|---|
 | `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Sync-BackupStorageLayout`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Assert-BackupCapacity` (+ its two pure demand estimators), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`. | No |
-| `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049), dispatch the one configured set to the retention mechanism or the storage-form audit. | n/a |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Test-BackupManifest`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Assert-BackupCapacity` (+ its two pure demand estimators), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`; and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
+| `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049) / `-Action View` (SR-062), dispatch the one configured set to the retention mechanism, the storage-form audit or a forced browse-view rebuild. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
 | `Dockerfile`, `container/`, `scripts/Invoke-Container.ps1` | **Linux container runtime and lifecycle** (phase `container-v1`): digest-pinned non-root image, JSON configuration entrypoint, compressed build/restore smoke test, offline tar export, and optional OCI registry publish/pull. | n/a |
@@ -39,32 +39,53 @@ Therefore:
 - **Common must never depend on Engine.**
 
 ### Backup pipeline (`Invoke-BackupSet`, per set, per run)
-1. Resolve `SourcePath`/`BackupPath`/`ChangePath`.
+1. Resolve `SourcePath`/`BackupPath`/`ChangePath` (+ `ViewPath` when the set asks
+   for a browse view — SR-062/SR-063 place it outside both roots, on the backup
+   volume).
+1.5 The SR-038/SR-039 manifest-witness gate: refuse with exit 3 before any mutation.
 2. Open `backup.log` in the change root.
 3. Guard against a stale `Temp` staging folder.
 4. Read persisted last-hash-run time; decide if a scheduled rehash is due.
 5. `Update-SourceManifest` — walk source, (re)hash new/changed/scheduled files.
-5.5 `Assert-BackupCapacity` (migration component) — a migration copies before it
-    deletes, so the room is proven before step 6 touches a byte (SR-052).
-6. `Sync-BackupStorageLayout` — migrate data files if compress/tree mode changed.
-   Refcount-safe (SR-051): a (hash,length) group is transformed together or not
-   at all, one shared file is transformed once, and a superseded path any
-   surviving row still references is retained, not deleted.
+5.1 Portable-name guard (SR-055): a source name the restore side could not
+    reproduce FREEZES that row instead of storing it.
+5.2 Unreadable-directory guard (SR-057): rows under a directory the walk could
+    not enumerate freeze too, and the set fails loudly rather than silently
+    treating them as removed.
+6. `Test-BackupManifest` — sanitize the backup manifest: blank a missing
+   `DataPath` (SR-053's heal then re-copies it) and warn about unreferenced pool
+   files. **There is no layout migration** (SR-061) — nothing already stored is
+   ever re-formed, so this step needs no capacity preflight of its own, and this
+   is the store's ONLY orphan scan, linear in rows + pool files (SR-064).
 7. Snapshot the pre-run manifest into staging (the point-in-time index).
 8. `Compare-SourceToBackup` — pure diff (`NewOrChanged` + `RemovedFromSource`).
 9. Build the working backup map.
-9.4 `Assert-BackupCapacity` (content component) — the last point at which nothing
-    has been written. A refusal removes the staging folder and fails the SET
-    (status 1), never orphaning a `Temp` for the next run's SR-017 guard.
-9.5 `Save-SupersededData` — move superseded prior bytes into staging *before*
-    `Invoke-BackupFileGroup` overwrites (Mirror) or orphans (HashAddressed) them.
-10. `Invoke-BackupFileGroup` per `(hash,size)` — copy/compress new data once.
+9.4 `Assert-BackupCapacity` — the last point at which nothing has been written.
+    A refusal removes the staging folder and fails the SET (status 1), never
+    orphaning a `Temp` for the next run's SR-017 guard.
+10. `Invoke-BackupFileGroup` per `(hash,size)` — write ONE content-addressed
+    object per group (SR-058/SR-060): the group elects an owner whose extension
+    and compressibility decide the single physical form, the first member writes
+    it, and an in-process memo makes every later member of the same run adopt it.
 11. `Move-RemovedFilesToStaging` — evict removed files' data (refcount-aware).
-12. Write the final backup manifest.
+11.5 `Save-SupersededData` — preserve superseded prior bytes into staging. It runs
+    AFTER the copy/evict steps, because content addressing never overwrites an
+    existing object, and asks the exact question: does any row of the FINAL
+    manifest still claim the old object (SR-059/SR-051)? The pre-WP9
+    source-based approximation could not see a frozen row or a row whose copy
+    failed, and moved out bytes they still claimed — that was D-1's family.
+12. Write the final backup manifest, **canonically**: rows in ordinal
+    `RelativePath` order, every text column materialized as a string, so an
+    unchanged run rewrites byte-identical bytes (G7).
 13. `New-ReconstructScript` + `Complete-ChangeFolder` — finalize the staging into a
     dated `Snapshot_<prior-backup-date>`, or discard it when nothing was superseded.
+    The kit is copied into staging BEFORE the publish rename, so a `Snapshot_*`
+    folder structurally cannot exist without its restore kit (F8).
 14. `Optimize-ChangeFolders` — collapse data shared across snapshots.
 15. Persist `LastHashRun` (if a rehash ran) + `LastBackupRun` (this run's date).
+16. Browse view (SR-062), only when `BrowseView` is `index` and the `.viewstamp`
+    is stale. A failure here is a WARNING, never a set failure — the view is
+    cosmetic by construction and nothing in the engine or the restorers reads it.
 
 ### Generated dependency diagram & function map
 
@@ -163,7 +184,7 @@ Imports (internal): `Common`
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
-| `Invoke-BackupFileGroup` | yes | SR-003, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
+| `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
 | `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
@@ -194,43 +215,73 @@ Imports (internal): `Common`
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
-| `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, SR-055, LLR-001, LLR-013, LLR-024, LLR-055 |
+| `Update-SourceManifest` | yes | SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055 |
 <!-- END GENERATED MODULE MAP -->
 
 ## 3. Invariants — do not break
 
-> **Known open defects (verified 2026-08-24 — see docs/status.md "Open items"
-> and
-> [docs/defect-review-2026-08-24-mirror-dedup.md](docs/defect-review-2026-08-24-mirror-dedup.md)):**
-> D-1 Mirror-mode cross-path dedup can destroy the last copy of shared content
-> on an ordinary edit (with D-5, its same-run face, owned by the option-3 WP
-> below). **Fixed in kit revision 6 (2026-08-24):** D-2 — both restorers now
-> verify every written file against the row's `(Length, xxH2Hash)` and heal
-> from the pool once (`ContentMismatch`, SR-056); D-3 — a pool candidate that
-> fails to expand is reported as content damage (exit 1), not a host problem;
-> D-4 — every PowerShell-side enumeration carries `-Force`, so hidden/dot
-> files are backed up and locatable (SR-057). Hash-addressed mode is proven
-> immune to D-1/D-5.
->
-> **Design RULED (human, 2026-08-24), not yet implemented:** D-1/D-5 are fixed
-> by **content-addressing ALL storage** (Mirror/`PreserveFolderTree` is
-> removed; browsability becomes a generated, non-authoritative `INDEX.html` +
-> `INDEX.tsv` view outside the backup root). Full design record:
-> [docs/plans/option3-content-addressed-storage-plan.md](docs/plans/option3-content-addressed-storage-plan.md).
-> This section keeps documenting the CURRENT code (per the 2026-06-05
-> precedent) — the invariants below are rewritten at that WP's G3, with the
-> code.
+> **The 2026-08-24 bench defects are all CLOSED.** D-2 (restore trusted a
+> resolvable `DataPath` without hashing), D-3 (exit-code misclassification) and
+> D-4 (hidden/dot files never enumerated) were fixed in **kit revision 6**,
+> 2026-08-24: both restorers verify every file they write against the row's
+> `(Length, xxH2Hash)` and heal from the pool once (`ContentMismatch`, SR-056);
+> an unexpandable **pool candidate** is content damage (exit 1), not a host
+> problem; every PowerShell-side enumeration carries `-Force` (SR-057).
+> **D-1 and D-5 were fixed by WP9 (2026-08-25) by deleting their hazard class:
+> ALL storage is content-addressed, the Mirror/`PreserveFolderTree` layout is
+> gone, and browsability is a generated view outside the backup root.** Records:
+> [docs/defect-review-2026-08-24-mirror-dedup.md](docs/defect-review-2026-08-24-mirror-dedup.md)
+> (the findings),
+> [docs/plans/option3-content-addressed-storage-plan.md](docs/plans/option3-content-addressed-storage-plan.md)
+> (the design ruling) and
+> [docs/plans/wp9-content-addressed-storage-workorder.md](docs/plans/wp9-content-addressed-storage-workorder.md)
+> (the implementation). The invariants below document the CURRENT code.
 
 - **Manifest schema** (9 columns): `DataPath, RelativePath, Length, LastWriteTimeStr,
   xxH2Hash, Compressed, StoredAsHashSize, Duplicate, MediaMBPerSec`. Round-trip only via
   `Read-Manifest`/`Write-Manifest`.
-- **Dedup key is `(xxH2Hash, Length)`** — one physical data file per key.
+- **Dedup key is `(xxH2Hash, Length)`** — one physical data file per key, across
+  runs *and within a single run* (SR-003/SR-060). Where a group's members
+  disagree about the stored form (different extensions, or one compressible and
+  one not), the group **elects an owner** — shortest `RelativePath`, ordinal
+  tie-break — and the owner's form is the one object every member references.
+- **All storage is content-addressed** (SR-058): every data file is named
+  `Get-HashSizeFileName(hash, length, ext)` — `"<hash16> <len10><ext>"` — flat at
+  the backup root, and every row carries `StoredAsHashSize='Hash'` (SR-013).
+  There is no path-addressed (Mirror) layout and no configuration key selects
+  one. This is what makes the store safe rather than merely checked: **different
+  content yields a different filename, so a stored object can never be
+  overwritten in place.**
+- **Stored objects are immutable and name-proven** (SR-059). No run changes the
+  bytes at a `DataPath` any live manifest row still claims, and an object is only
+  ever created at a name its own bytes justify. The two steps that remove bytes
+  from the pool — `Move-RemovedFilesToStaging` and `Save-SupersededData` — both
+  decide by the same question: does any row of the **final** manifest still claim
+  this object (SR-051)? Testing survival against the *source walk* instead was
+  D-1: it could not see a frozen row (SR-055/SR-057) or a row whose replacement
+  copy had failed, and moved out bytes those rows still claimed.
+- **Nothing already stored is ever re-formed** (SR-061). `CompressEnabled`
+  governs only content written after the change; a mixed-form store is normal,
+  because compression is per-file (SR-004) and every row's `Compressed` describes
+  its OWN object. There is no storage-layout migration — a store whose manifest
+  carries the legacy `StoredAsHashSize='Original'` fails its backup set before
+  any mutation, naming the remedy (a fresh `BackupPath`), and is reported as a
+  finding under `-Action Verify`. Both restorers still restore such a store
+  unchanged: reading a legacy store never breaks, only writing to one.
+- **The browse view is cosmetic and lives outside both roots** (SR-062). When
+  `BrowseView` is `index`, `New-BrowseViewIndex` writes `INDEX.tsv` plus
+  per-folder `INDEX.html` pages under `ViewPath` (default `<BackupPath>_View`).
+  **Nothing in the engine or either restorer reads it**, no `Snapshot_*` folder
+  ever gets one, and a failure to generate it is a warning, never a failed
+  backup. It replaces the only real value Mirror had — and is *more* faithful,
+  because Mirror omitted borrower paths entirely.
 - **Dated snapshots** (`Snapshot_<date>`, matching `^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}`):
   one per *superseded* backup, named by that backup's completion date (persisted
   in `FileBackupState.json` as `LastBackupRun`). The **latest state has no
   snapshot** — the live backup root is it; a **no-op run creates none**. A snapshot
   holds the full point-in-time manifest plus only the bytes superseded at the next
-  run (`Save-SupersededData` preserves them *before* they're overwritten/orphaned).
+  run (`Save-SupersededData` parks them there once no row of that run's final
+  manifest still claims them — see the immutability invariant above).
   **Restore authority (SR-010):** reconstruct from a snapshot uses *that snapshot's
   own manifest* as the sole authority and resolves bytes by `(hash,length)` from
   the data pool (backup root + all snapshots) — it never overlays a newer manifest.
@@ -252,7 +303,7 @@ Imports (internal): `Common`
   commit point and holds the name), while `Invoke-PruneEntrySweep` clears
   `*.fbprune.tmp` staged copies **inside** the transaction, once the rails have
   passed and the Temp lock is held. **The sweep identifies residue by the
-  destination manifest, never by the suffix** — a Mirror-mode user file called
+  destination manifest, never by the suffix** — a user file called
   `notes.fbprune.tmp` has a manifest row and is content; a staged copy is
   unreferenced by construction. Deleting by bare suffix destroyed real data
   across root *and* snapshots (WP4 review finding H1). Neither runs under
@@ -286,8 +337,8 @@ Imports (internal): `Common`
 - **Infrastructure files are root-level only** (`Test-IsInfrastructureFile`): a *nested*
   user file named `MANIFEST.csv`/`RECONSTRUCT.ps1`/etc. is real data (regression B6).
   Never filter data files by bare name.
-- **Content-addressed data filenames carry the storage extension**: `.7z` when compressed,
-  in *both* Mirror and HashAddressed modes, so `Compressed` and the filename agree.
+- **Content-addressed data filenames carry the storage extension**: `.7z` when
+  compressed, so `Compressed` and the filename agree.
 - **A blank-DataPath row is resolved by the form of the file hash recovery
   locates, never by the row's `Compressed`** (SR-050) — that column describes
   only a file in the row's *own* folder, and a blank row has none. The locator
@@ -296,8 +347,9 @@ Imports (internal): `Common`
   `find_by_hash` report it as `Form` and the restore loop's decompress decision
   reads that. A row with a non-blank `DataPath` keeps using its own `Compressed`.
   Getting this backwards writes 7z container bytes under the original filename
-  and exits 0. Reachable with no tampering: `Sync-BackupStorageLayout` migrates
-  the backup root only, so a compression-policy flip leaves snapshots behind.
+  and exits 0. It is reachable with no tampering at all: compression is per-file
+  and per-run, so a store legitimately holds both forms of nothing-in-common
+  content, and a blank row's bytes may live in any snapshot.
 - **Exactly one predicate answers "does the index agree with the bytes?"** —
   `Test-StorageFormAgreement`. Both the prune rail (SR-046) and the storage-form
   audit (SR-049) call it, so they cannot drift. It carries the one deliberate
@@ -332,6 +384,12 @@ Imports (internal): `Common`
   `-NonInteractive` guard (usage + exit 2, matching `reconstruct.sh`'s
   required `--target-root`) instead of a blocking prompt. An older kit still
   carries the defects fixed after it.
+  **WP9 (2026-08-25) did not change a single kit byte, so the revision stays
+  at 6** — content addressing is entirely engine-side, and both restorers already
+  resolve a row by its `DataPath` or by `(hash, length)` without caring how the
+  name was chosen. That also means a kit still describes the legacy
+  path-addressed store shape in places: correct, because it must go on restoring
+  those (SR-061 refuses only *writing* to one).
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the six kit artifacts and **never**
   `MANIFEST.csv.meta`.
@@ -426,17 +484,17 @@ alongside any behavior change. `pwsh scripts/check.ps1 -Tier Full` runs it all.
 | Axis | Values |
 |---|---|
 | PowerShell edition | pwsh 7+ (only; 5.1 unsupported) |
-| Storage mode × compression | `Mirror`, `Mirror+Compress`, `HashAddressed`, `HashAddressed+Compress` |
+| Compression | `Plain`, `Compress` (storage is always content-addressed since WP9 deleted Mirror — SR-058) |
 | Hash-recalc freq | `A E D W M Y N` (unit-covered, G6 / `Engine.Tests.ps1`) |
 | Backend (volumes) | `Subst` (CI), `VHDX` (virtual disks), `RealUSB` (hardware) |
-| Suite group | G1–G9 |
+| Suite group | G1–G10 |
 | Filesystem (hardware) | NTFS, exFAT, FAT32 (>4 GB limit) |
 
 ### Coverage — ✅ automated · 🟡 self-hosted/manual · ⛔ N/A
 | | Subst (hosted CI) | VHDX (self-hosted) | RealUSB (hardware) |
 |---|:---:|:---:|:---:|
 | Lint / Unit                  | ✅ | — | — |
-| G1–G5, G7 × 4 modes          | ✅ | 🟡 | 🟡 |
+| G1–G5, G7, G10 × 2 modes     | ✅ | 🟡 | 🟡 |
 | G6 HashFrequency (7 codes)   | ✅ | ✅ | ✅ |
 | G8 RealVolume                | ⛔ SKIP | ⛔ SKIP | 🟡 |
 | NTFS free-space / capacity   | — | 🟡 | 🟡 |
@@ -450,20 +508,19 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 ² Linux CI builds the pinned image and drives a real compressed backup plus restore through
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
-**Current automated total:** 372 integration assertions (4 modes × G1–G7 = 208,
-plus G9 Rollback = 164; G8 SKIP under Subst) + 316 Pester unit/coverage tests +
-55 bats tests on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck`
-clean. (Verified 2026-08-23 on a Full tier, after the **WP5 review fixes** — the
-unit total gained 6 and bats 1 for the dedup-repair, genuine-`.7z`-source,
-missing-7-Zip, read-only-verify, same-volume-capacity and mount-table cases;
-the integration total is unchanged. Before those, after WP5 and the WP4 review
-fixes — the unit total gained 16 for the prune residue/rail/lock cases and the
-`-Action Backup -WhatIf` refusal; the integration total is unchanged, the G9
-prune assertion that moved is the same count. Before those, after WP5 — G4 gained the
-extension-merge migration case `G4.2`/`Invoke-G4ExtensionMerge` (+12 assertions
-per mode), the unit suite gained `tests/Unit/StorageForm.Tests.ps1`
-(TC-091..TC-096, TC-098, TC-100, TC-101's Windows half) and bats gained
-`storage_form.bats` (TC-099). WP4 had brought this to 324 / 223 / 48.)
+**Current automated total** (verified 2026-08-25 on a `-Tier Full -Gate G3` run,
+after **WP9**): **236 integration assertions / 0 FAIL / 2 SKIP** over the 2-mode
+matrix (G8 SKIPs under Subst) + **405 Pester unit/coverage tests** + **68 bats
+tests** on Linux (`tests/bash`, run under WSL/CI); lint and `shellcheck` clean.
+
+The integration figure fell from 372 and then rose again for the same reason:
+WP9 deleted the storage-mode axis, halving the sweep from 4 modes to 2, and then
+added the **G10-View** suite (SR-062). The unit figure rose 341 → 357 (kit-bump
+WP) → 405 (WP9): the D-1/D-5 repro timelines and the exact-survival tests, the
+config-v2 battery, `View.Tests.ps1`, and at step 9 the full TC-118 matrix
+(`edit={owner,borrower} × copies={2,3}`), TC-135's `copies=3` arms and TC-122's
+pool census. Earlier history: WP4 → 324 / 223 / 48; WP5 added `G4.2` and
+`StorageForm.Tests.ps1`; the 2026-08-23 review round took it to 372 / 316 / 55.
 
 ### Suite groups
 | Group | Covers |
@@ -471,11 +528,12 @@ per mode), the unit suite gained `tests/Unit/StorageForm.Tests.ps1`
 | G1 InitialBackup  | Empty source, single file, 200-file bulk, nested `MANIFEST.csv` (B6), Unicode, bracketed paths. |
 | G2 Incremental    | Rename, move, modify, delete, re-add identical/different, dedup. |
 | G3 Reconstruction | Roundtrip from backup root, hash-fallback (incl. compressed), target-inside-backup rejected. |
-| G4 Sanitization   | Mirror → HashAddressed migration; `StoredAsHashSize` flips. **Plus `G4.2`** (`Invoke-G4ExtensionMerge`, TC-097/SR-004/SR-051): the already-compressed extension-list merge at scale — a genuine pre-merge store is re-run on the merged list, and the triggered migration must leave nothing dangling, verify clean (SR-049), restore every snapshot and the latest state byte-exact, and be idempotent from run 2. |
+| G4 Sanitization   | `G4.1` (TC-124, SR-061): a **constructed** legacy path-addressed store — the only way to get one now — is refused by `-Action Backup` before any mutation and reported as a finding by `-Action Verify`. **Plus `G4.2`** (`Invoke-G4ExtensionMerge`, TC-097/SR-004/SR-049): the already-compressed extension-list merge at scale — a genuine pre-merge store is re-run on the merged list and **nothing already stored is re-formed**; nothing dangles, verification is clean (SR-049), every snapshot and the latest state restore byte-exact, and run 2 onward is idempotent. |
 | G5 EdgeCases      | Stale `Temp` aborts, read-only source, idempotent second run. |
 | G6 HashFrequency  | `Test-HashRecalcDue` over all 7 codes (deterministic via `-Now`). |
 | G7 Determinism    | Identical re-runs ⇒ identical manifest rows; SHA-256 spot check. |
 | G8 RealVolume     | USB-only sanity; SKIPs under Subst/VHDX. |
+| G10 View          | The generated browse view (SR-062, TC-129/TC-130/TC-131/TC-133): the index matches the manifest exactly including every dedup sibling, a stale `.viewstamp` triggers a rebuild, `-Action View` is idempotent, no `Snapshot_*` folder gets a view, and Verify/prune/both restorers ignore the view root entirely. |
 | G9 Rollback       | Dated-snapshot timeline (injected `-BackupTime`): modify/delete/add/rename/no-op over D1–D4; restore as-of each snapshot + latest, byte-exact; mixed content (text/binary/dup/already-compressed); no snapshot for the no-op/latest run. SR-005/SR-010/SR-028. **Plus retention** (`Invoke-G9Prune`, SR-045/SR-046): prune at every timeline position on a four-snapshot store, and TC-049's delete/re-add/delete cycle pruned — every remaining state still restores and content stays stored exactly once. |
 
 ### Backends
@@ -490,8 +548,8 @@ label not matching `FBTEST-*`, so it can't touch a production volume.
 
 ### Environments
 - **GitHub `windows-latest` (pwsh)** — `.github/workflows/tests.yml`: `lint` →
-  PSScriptAnalyzer; `unit` → Pester (NUnit published); `integration-subst` → all 4 modes,
-  JUnit published. 7-Zip ships on the runner; `System.IO.Hashing` is installed + cached.
+  PSScriptAnalyzer; `unit` → Pester (NUnit published); `integration-subst` → both
+  compression modes, JUnit published. 7-Zip ships on the runner; `System.IO.Hashing` is installed + cached.
 - **GitHub `ubuntu-latest` (Docker)** — builds the container and verifies a compressed
   two-file backup, complete seven-artifact restore kit (six copied files plus the
   SR-038 `MANIFEST.csv.meta` witness), and byte-exact containerized restore.

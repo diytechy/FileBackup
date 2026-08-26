@@ -221,3 +221,69 @@ function Get-ClaimedRowViolations {
     }
     return $violations
 }
+
+function Get-UnjustifiedPoolNames {
+    <#
+    .SYNOPSIS
+        TC-122 (SR-059, "name-proven"): every pool object in the backup root and
+        in every snapshot must carry a name whose encoded (hash, length) halves
+        are the ones its OWN CONTENT produces. Returns one violation string per
+        failing file (empty = clean).
+
+    .DESCRIPTION
+        Get-ClaimedRowViolations asks the question from the manifest's side -
+        does the row's DataPath hold the row's bytes. This asks it from the
+        POOL's side, so an object no live row happens to claim is still held to
+        the naming contract: a file called "<hash16> <len10><ext>" that does not
+        hash to that (hash, length) is a name that lies, and hash recovery
+        (SR-050) would hand it to a row that asked for those bytes.
+
+        Form is proven from the bytes, never from a column: the raw file is
+        tried first (which is the answer for raw storage, including a source
+        file that genuinely IS an archive), and only if the raw name does not
+        justify itself is the file expanded and its payload tried. Root-level
+        infrastructure names are skipped; nested ones are data (B6).
+    #>
+    param([string]$BackupRoot, [string]$ChangeRoot, [string]$SevenZipPath)
+    if (-not $SevenZipPath) { $SevenZipPath = (Get-FileBackupDefaults).SevenZipDefaultPath }
+    $skip = '^(MANIFEST|RECONSTRUCT|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    $violations = @()
+
+    $expectedPrefix = {
+        param([string]$HashHex, [long]$Len)
+        "$(Convert-HexToShortName -Hex $HashHex -OutputLength 16) " +
+        "$(Convert-HexToShortName -Hex ('{0:X}' -f $Len) -OutputLength 10)"
+    }
+
+    foreach ($folder in (Get-PoolFolderList -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot)) {
+        $root = (Resolve-Path -LiteralPath $folder).Path.TrimEnd('\', '/')
+        foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Force)) {
+            if ($file.Name -match $skip -and
+                ([IO.Path]::GetDirectoryName($file.FullName)).TrimEnd('\', '/') -eq $root) { continue }
+
+            $justified = $false
+            try {
+                $justified = $file.Name.StartsWith((& $expectedPrefix (Get-FileXxHash -FilePath $file.FullName) $file.Length), 'Ordinal')
+            } catch {
+                $violations += "'$($file.FullName)': could not be hashed: $($_.Exception.Message)"
+                continue
+            }
+            if (-not $justified -and $SevenZipPath -and (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
+                $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                try {
+                    Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $file.FullName -DestinationFile $tmp
+                    $payload = Get-Item -LiteralPath $tmp -Force
+                    $justified = $file.Name.StartsWith((& $expectedPrefix (Get-FileXxHash -FilePath $tmp) $payload.Length), 'Ordinal')
+                } catch {
+                    Write-Verbose "PoolAudit: '$($file.FullName)' is neither raw content matching its name nor an expandable archive: $($_.Exception.Message)"
+                } finally {
+                    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                }
+            }
+            if (-not $justified) {
+                $violations += "'$($file.FullName)': the name encodes a (hash,length) its own content does not produce"
+            }
+        }
+    }
+    return $violations
+}

@@ -324,10 +324,9 @@ function Initialize-Dependencies {
     } else {
         # Compression being OFF does not mean 7-Zip is unneeded: the backup may
         # still HOLD Compressed=Yes rows written under a previous configuration,
-        # and a compressed row needs 7-Zip to be read back at all
-        # (SR-012). Resolving it as $null here made that migration silently inert
-        # -- "Cannot decompress ...: 7-Zip not found. Skipping transformation."
-        # -- so a documented configuration change was never applied. Resolve it
+        # and a compressed row needs 7-Zip to be read back at all -- nothing
+        # already stored is ever re-formed (SR-061), so a flip to CompressEnabled
+        # false leaves every existing archive exactly where it is. Resolve it
         # opportunistically and silently: absent is genuinely not fatal on this
         # branch, and Resolve-OptionalTool's non-Required path can PROMPT, which
         # SR-016 forbids for something this run may not need at all.
@@ -437,7 +436,7 @@ function Update-SourceManifest {
         MANIFEST.csv. ManifestFolderPath may place that mutable hash cache
         outside a read-only source tree. Returns the rows.
     #>
-    # Implements: SR-001, SR-013, SR-024, SR-055, LLR-001, LLR-013, LLR-024, LLR-055
+    # Implements: SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourcePath,
@@ -2077,8 +2076,9 @@ function Invoke-PruneEntrySweep {
         The guard is the manifest, not the name. A staged copy is by
         construction UNREFERENCED — Copy-ReHomedDataFile writes
         '<destination>.fbprune.tmp' and only publishes it by rename — whereas a
-        genuine user file called 'notes.fbprune.tmp' is stored at its verbatim
-        path in Mirror mode and carries a manifest row naming it. Deleting by
+        genuine user file called 'notes.fbprune.tmp' carries a manifest row, and
+        in a legacy path-addressed store is stored at that verbatim path (which
+        prune still serves - SR-061 refuses only WRITING to one). Deleting by
         bare suffix therefore destroyed real content in the backup root and in
         every snapshot at once (WP4 review, finding H1); a file its own folder's
         manifest references is data and is never swept.
@@ -2764,7 +2764,7 @@ function Invoke-BackupFileGroup {
         SR-022 refusal that lived in this branch is gone (TC-123 audits the
         grammar at the root as the compensating control).
     #>
-    # Implements: SR-003, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058
+    # Implements: SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Group,
@@ -3635,11 +3635,13 @@ function Invoke-BackupSet {
         }
     }
 
-    # 5.5 Capacity preflight, migration component (SR-052): a migration copies
-    # before it deletes (B7), so it needs the room BEFORE step 6 touches a byte.
-    # A refusal must not orphan the staging folder, or the NEXT run aborts on the
-    # SR-017 stale-Temp guard instead of on the real cause (same discipline as
-    # the AllowEmptySource refusal above).
+    # 5.5 Capacity-refusal machinery, shared by step 9.4 (SR-052). The MIGRATION
+    # component that used to sit here died with the migration itself (SR-061) -
+    # nothing already stored is re-formed, so there is nothing to size before
+    # step 6. What survives is the refusal discipline: a refusal must not orphan
+    # the staging folder, or the NEXT run aborts on the SR-017 stale-Temp guard
+    # instead of on the real cause (same discipline as the AllowEmptySource
+    # refusal above).
     $refuseCapacity = {
         param([string]$Message)
         Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
@@ -3648,11 +3650,9 @@ function Invoke-BackupSet {
     $sameVolume = ((Get-VolumeIdentity -Path $paths.BkpPath) -eq (Get-VolumeIdentity -Path $paths.ChgPath))
 
     # 6. Sanitize the backup manifest (SR-061: there is no layout migration).
-    # Nothing already stored is ever re-formed, so this step no longer needs a
-    # capacity preflight of its own - the old 5.5 migration component is gone
-    # with the migration it sized. Step 9.4 still proves room for THIS RUN's
-    # content (SR-052). Blanking a missing DataPath and warning about orphans is
-    # what survives, and it is now the store's ONLY orphan scan (SR-064).
+    # Step 9.4 proves room for THIS RUN's content (SR-052). Blanking a missing
+    # DataPath and warning about orphans is what survives here, and it is now
+    # the store's ONLY orphan scan - linear in rows + pool files (SR-064).
     & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."
     try {
         $backupDb = Test-BackupManifest -FolderRoot $paths.BkpPath -Log $log

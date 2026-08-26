@@ -105,9 +105,12 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # container-v1 shipped 2026-08-23: the first green container CI job on
     # resync_v2 (run 32673687758) is the promotion evidence — SR-034/044/048/
     # 052 flipped Verified and TC-060/079/080/088/101/102 flipped Pass in the
-    # SAME commit that armed this ratchet. bash-v2 (SR-033) remains the one
+    # SAME commit that armed this ratchet.
+    # ca-v1 shipped 2026-08-25 (WP9, content-addressed storage): SR-058..064
+    # flipped Verified and TC-117..135 flipped Pass in the SAME commit that armed
+    # it here and in .github/workflows/tests.yml. bash-v2 (SR-033) remains the one
     # phase-deferred row.
-    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6') }
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 

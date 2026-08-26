@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS  WP5 storage-form trust: repro + verification/repair coverage
-           (SR-049, SR-050, SR-051, SR-052).
-.NOTES     TC-091..TC-096, TC-098, TC-100, TC-101 (Windows half).
+           (SR-049, SR-050, SR-052).
+.NOTES     TC-091..TC-094, TC-096, TC-098, TC-100, TC-101 (Windows half).
            These drive real backup runs and real restores in-process, so they
            also exercise the engine I/O shells. Run: Invoke-Pester -Path tests\Unit
 #>
@@ -1038,30 +1038,6 @@ Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
         $cross.ChangeBytes | Should -Be 1000 -Because 'the superseded version must be COPIED across the volume boundary'
     }
 
-    It 'includes a pending storage-layout migration in the estimate (SR-052, SR-012)' {
-        # NOTE (WP9 step 5): this case's PREMISE is gone. SR-061 deleted the
-        # storage-layout migration, so there is no migration component left to
-        # include in the estimate, and the assertions that measured it were
-        # removed with it — the body below is inert fixture data and asserts
-        # NOTHING. Left in place rather than deleted silently: the human owns
-        # the call on whether the case retires with the migration.
-        # The rows carry StoredAsHashSize='Hash' because 'Original' now names a
-        # store the engine refuses outright (SR-061); the column is not read by
-        # Get-BackupCapacityDemand, which keys on (hash|length) and SameVolume.
-        $db = @(
-            [pscustomobject]@{ RelativePath = 'a.txt'; DataPath = 'a.txt'; xxH2Hash = 'H1'; Length = 100L
-                Compressed = 'No'; StoredAsHashSize = 'Hash' }
-            [pscustomobject]@{ RelativePath = 'b.jpg'; DataPath = 'b.jpg'; xxH2Hash = 'H2'; Length = 700L
-                Compressed = 'No'; StoredAsHashSize = 'Hash' }
-        )
-        # Rows sharing one (hash,length) are counted once.
-        $shared = @(
-            [pscustomobject]@{ RelativePath = 'x.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
-                Compressed = 'No'; StoredAsHashSize = 'Hash' }
-            [pscustomobject]@{ RelativePath = 'y.txt'; DataPath = 'x.txt'; xxH2Hash = 'H3'; Length = 400L
-                Compressed = 'No'; StoredAsHashSize = 'Hash' }
-        )
-    }
 }
 
 Describe 'Free space is measured the same way on both platforms (SR-052, SR-023)' {

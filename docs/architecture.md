@@ -177,7 +177,7 @@ Imports (internal): `Common`
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
-| `Invoke-BackupFileGroup` | yes | SR-003, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
+| `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
 | `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
@@ -208,5 +208,5 @@ Imports (internal): `Common`
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
-| `Update-SourceManifest` | yes | SR-001, SR-013, SR-024, SR-055, LLR-001, LLR-013, LLR-024, LLR-055 |
+| `Update-SourceManifest` | yes | SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055 |
 <!-- END GENERATED MODULE MAP -->

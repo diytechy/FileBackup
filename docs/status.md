@@ -24,215 +24,69 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **Where things stand (2026-08-24).** The retrofit and the WP1→WP8 queue are
-  COMPLETE: implemented, independently reviewed, human-ratified, and proven on
-  CI — the fourth CI run went green on every job and the registry flips landed
-  (`trace.py --strict --require-verified --phase core,bash-v1,container-v1` →
-  0 orphans / 0 integrity / 0 status-findings; `check.ps1 -Gate G3`: ALL
-  steps pass). Latest full battery: unit 341/341, integration 372/0/4, bats
-  56/56, bash-interop 12/12, container job end-to-end on real Docker.
-  Restore-kit revision **5**. Coverage 78.1% accepted (human 2026-06-05).
-  One phase-deferred row: SR-033 (bash-v2), by design. The narrative history
-  lives in the **audit log below** and the closed work-item rows in
-  **[resolved-items.md](resolved-items.md)**.
-- **HEADLINE — the 2026-08-24 HomeHub bench defect review
+- **Where things stand (2026-08-25).** The retrofit and the WP1→WP9 queue are
+  COMPLETE. WP1→WP8 were implemented, independently reviewed, human-ratified and
+  proven on CI; the kit-bump WP (D-2/D-3/D-4, restore-kit revision **6**) was
+  RATIFIED 2026-08-25 together with a standing directive: **no further
+  ratification pauses** — queued work ships as a full solution before HomeHub
+  builds, with independent review retained as a quality bar. Coverage 78.1%
+  accepted (human 2026-06-05). One phase-deferred row remains: SR-033
+  (`bash-v2`), by design. The narrative history is the **audit log below**; closed
+  work-item rows live in **[resolved-items.md](resolved-items.md)**.
+- **HEADLINE — WP9 IS COMPLETE (2026-08-25, Windows host). D-1 and D-5 are fixed
+  by deleting their hazard class, not by guarding it: ALL storage is
+  content-addressed.** The 2026-08-24 HomeHub bench review
   ([defect-review-2026-08-24-mirror-dedup.md](defect-review-2026-08-24-mirror-dedup.md))
-  found five real defects on hardware; a three-agent verification CONFIRMED
-  all five with reproductions** (audit entry below): D-1 Mirror-mode
-  cross-path dedup destroys the last copy of shared content on an ordinary
-  edit (data loss, invisible to every default check); D-2 both restorers
-  trust a resolvable `DataPath` without hashing (silent corruption); D-3
-  exit-code misclassification; D-4 hidden/dot-prefixed files silently never
-  backed up (systemic: no `-Force` anywhere PowerShell-side); D-5 same-run
-  duplicates stored twice (Mirror only). Hash-addressed mode proven immune to
-  D-1/D-5 by repro.
-- **HUMAN RULING (2026-08-24): no system has adopted FileBackup yet, so
-  BACKWARD COMPATIBILITY IS NOT REQUIRED** — store-format and behavior
-  changes are free; migration constraints on the D-1 design options are void.
-- **D-1/D-5 DESIGN RULED (human, 2026-08-24): option 3 — content-address ALL
-  storage; Mirror removed; browsability via a generated INDEX.html/.tsv view
-  outside the backup root ("html index… also gives searchability").** Full
-  design record:
-  [plans/option3-content-addressed-storage-plan.md](plans/option3-content-addressed-storage-plan.md).
-  Production disks recorded as NTFS (4 TB library; 6-or-8 TB backup) — a
-  `link` view stays feasible later but is deferred out of the v1 enum.
-- **ALL 2026-08-24 DECISIONS ARE NOW IN** (D-1/D-5 option 3 + INDEX; D-2 go;
-  D-3 go; D-4 ruled hidden+dot backed up by default; test-battery approved
-  AND expanded). **Session constraint:** the 2026-08-24 planning session ran
-  on macOS (no pwsh/Pester/bats) — plans + registries advance here; **G3
-  implementation and every test run require a Windows host session.**
-- **KIT-BUMP WP G3 IMPLEMENTED (2026-08-24, Windows host, this session):**
-  D-2 verify-after-write in BOTH restorers, D-3 exit-code reclassification,
-  D-4 `-Force` at all nine sites + AST guard, TargetRoot `-NonInteractive`
-  parity, no-7z single-record nit, kit revision **6**, the approved test
-  battery (TC-108..116 incl. the byte-verified orphan second pass and the
-  de-vacuumed G2.8). Evidence: unit **357/357**, integration **412/0/4**,
-  bats **64/64**, shellcheck clean, `check.ps1 -Tier Full` all steps passed,
-  trace 0/0/0 with ratchet `core,bash-v1,container-v1,kitbump-v6`
-  (phase-deferred=1: SR-033). Eight commits on `New_Fix_Batch`; full G3
-  audit entry below. **RATIFIED by the human 2026-08-25** (two independent
-  reviews answered; entry at the end of the log), together with a standing
-  directive: **no further ratification pauses** — the queued work ships as a
-  full solution before HomeHub builds; independent review is retained as a
-  quality bar. Reserved device names (plan §11 Q2) moved **IN** to the
-  option-3 WP by that ruling.
-- **WP9 WORK ORDER DRAFTED (2026-08-25):**
-  [plans/wp9-content-addressed-storage-workorder.md](plans/wp9-content-addressed-storage-workorder.md)
-  — the implementation plan for D-1/D-5 (option 3), grounded at `553638c`:
-  ordered G3 steps, registry rows (SN-034, SR-058..064, LLR-058..064,
-  TC-118..134 + TC-117 reserved names), the test reshape, and seven recorded
-  driver decisions. Two of them were RULED by the human 2026-08-25 (entry
-  below): the **per-folder view is APPROVED**, and **migration is MOOT** — no
-  store exists that must be maintained, so the `Original → Hash` conversion is
-  deleted rather than kept and a legacy-form store is refused with a
-  fresh-`BackupPath` remedy.
-- **WP9 IS IN PROGRESS (2026-08-25, Windows host): 4 of 9 steps committed on
-  `New_Fix_Batch`,** each verified before commit and each with its reasoning in
-  its commit message (kit-bump precedent: one G3 audit entry at the end, detail
-  in the commits).
-  | Step | State | Commit |
-  |---|---|---|
-  | 1 — D-1/D-5 repros + `Get-ClaimedRowViolations` | **DONE** | `e302593` |
-  | 2 — owner election + intra-run memo (SR-060) | **DONE** | `9a1da7d` |
-  | 3 — delete storage-layout migration whole (SR-061) | **DONE** | `3ac3338` |
-  | 4 — `Save-SupersededData` reorder + exact survival test (SR-059) | **DONE** | `b6077b8` |
-  | 5 — delete Mirror (SR-058 + the recovered SR-061 refusal) | **DONE** | `44deeb5` (5a engine+PS), `cce8855` (5b bash), 5c docs (this session) |
-  | 6 — config v2 (ConfigVersion 2, `BrowseView`/`ViewPath`) | **DONE** | (this session; hash backfilled next update) |
-  | 7 — the browse view (`New-BrowseViewIndex`, `-Action View`) | **DONE** | (this session; hash backfilled next update) |
-  | 8 / 8b — folded fixes + F8 + reserved names | **DONE** (TC-118's borrower-edit / multiple-borrowers arms moved to step 9) | (this session; hash backfilled next update) |
-  | 9 — docs, registries, generated maps, G3 audit entry | next | |
-  Latest evidence (step 5, real output): `check.ps1 -Tier Full -Gate G3` all
-  steps passed on the **2-mode matrix** (Plain/Compress); unit **358/358** —
-  also green under `$ErrorActionPreference='Stop'`; integration **218 PASS /
-  0 FAIL / 2 SKIP**; bats (WSL Fedora) **68/68**, shellcheck clean,
-  `verify_damage_interop` verdict parity on the regenerated content-addressed
-  damaged stores; trace 0/0/0 (phase-deferred=8). **MIRROR IS DELETED**
-  (SR-058): hash naming unconditional, `StoredAsHashSize` pinned `'Hash'`,
-  `PreserveFolderTree` out of the engine/config/schema/docs, fixtures
-  regenerated (TC-134), and the **SR-061 legacy-store refusal + the
-  LegacyStoredForm Verify finding are IMPLEMENTED** — the step-3 deliverable
-  the step-4 review found missing (G4.1 is its integration contract; a legacy
-  store still restores, R1). D-1's hazard class is deleted, not guarded.
-  **Step-5 driver records (open to veto):** (1) the SR-022 "dead twins"
-  (prune re-home + repair rename infrastructure-name guards) are KEPT —
-  row-driven, and prune/repair still serve legacy stores where a row named
-  `MANIFEST.csv` would otherwise be re-homed ONTO the real index; they die at
-  step 8 with the S3 collapse. (2) Two Coverage tests were found passing
-  VACUOUSLY (their mirror-path tampering had been failing non-terminating
-  since the switch; `check.ps1`'s EAP=Stop exposed them as intermittent
-  harness reds) — both now resolve pool objects from the manifest, and the
-  whole suite is proven green under EAP=Stop. (3) TC-058's nested-infra pin
-  and the TC-084 infra-name prune refusal survive as CONSTRUCTED legacy
-  shapes. **DEFERRED TO STEP 9 (the registry-closure commit):** SR-003
-  params' mode axis; SR-012/SR-013 amend + SR-051/LLR-012/LLR-013/LLR-051
-  retire (they still describe the deleted layout/migration as Verified);
-  TC-023/TC-095 retire; the ~14 TC rows whose Permutations still carry
-  `mode=set{Mirror,...}`; the vacuous StorageForm capacity-estimate It
-  (flagged in-file); AGENTS.md §2/§3 hand-written text (also stale from
-  step 3); the kit-rev decision (kit bytes untouched at step 5;
-  `Reconstruct.ps1:259`'s Mirror comment is step 9's call).
-  **STEP 6 (config v2, SR-063) evidence:** `check.ps1 -Tier Full -Gate G3`
-  all steps passed (unit incl. the new TC-125..TC-128 battery and seven new
-  corpus rows; integration 218/0/2); trace 0/0/0. ConfigVersion is **2** and
-  version 1 is refused as TOO OLD (its key set carried the removed selector);
-  `PreserveFolderTree` gets the NAMED removal diagnostic in BOTH formats —
-  the CLIXML arm closes §9 Q3's silent-divergence hole; `BrowseView` (`off`
-  default | `index`; `link` refused by name) and `ViewPath` (default
-  `<BackupPath>_View`) are accepted with placement rails at
-  `Resolve-BackupSetPaths` (outside both roots; on the backup volume;
-  validated only when a view is asked for). **STEP-6 DRIVER REFINEMENT of §9
-  Q2 (recorded, open to veto): the CONTAINER example does NOT set
-  `BrowseView: index`** — a container's `/backup` bind can never satisfy
-  §3.7's same-volume rule, so the ruling's letter is structurally
-  unachievable there; the native examples (README + entry help) set `index`,
-  interfaces.md discloses the limitation, and the container-view question is
-  queued for the IF-001 promotion at step 9.
-  **STEP 7 (browse view, SR-062) evidence:** `check.ps1 -Tier Full -Gate G3`
-  all steps passed; unit 387/387; integration **236/0/2** — the new
-  **G10-View** suite (18 assertions × both combos) joined the sweep. Shipped:
-  `New-BrowseViewIndex` (INDEX.tsv always; per-folder HTML pages; root
-  search EMBEDDED under a 50 000-row threshold — file:// pages cannot fetch a
-  side data file, so §3.6's "compact data file" rides inline — else the
-  grep/Select-String fallback; hrefs percent-encoded per segment since hash
-  names carry URL-special glyphs), pipeline **step 16** (skip-on-fresh, and a
-  view failure is a WARNING — cosmetic by construction, the backup is not
-  failed over a browse page), `-Action View` (forced rebuild; 0/2 status),
-  `Resolve-ViewRootPath` rails factored for both path-resolution branches.
-  **Two step-7 driver findings recorded:** (1) `.viewstamp` keys on canonical
-  ROW CONTENT (SHA-256), not manifest bytes — a manifest-identical run can
-  rewrite the CSV with different quoting, a **byte-level nondeterminism now
-  pinned for step 8's determinism item**; (2) the view refuses to overwrite a
-  view root holding a root-level MANIFEST.csv (a STORE, not a view) — the
-  never-delete-user-data guard on the wipe-and-regenerate cycle. TC-129,
-  TC-130, TC-131, TC-133 automated (tests/Unit/View.Tests.ps1, 8/8, plus
-  G10); the SR-048 action-vocabulary pin extended to `View`.
-  **STEP 8 / 8b evidence:** `check.ps1 -Tier Full -Gate G3` all steps
-  passed (unit 391/391; integration 236/0/2); trace 0/0/0. Landed: SR-064
-  linear audit in `Test-BackupManifest` (one referenced-DataPath map;
-  TC-132's 1k→4k ratio + behavioral arms → Pass); CANONICAL manifest writes
-  at step 12 (ordinal RelativePath order, every text column string-ified —
-  kills the byte nondeterminism step 7 found, pinned by a
-  byte-identical-no-op-run test; Engine-side so no kit byte changes); **F8**
-  (the kit is copied into staging BEFORE the publish rename — a Snapshot_*
-  folder structurally cannot exist kit-less; pinned by a mocked-rename crash
-  test); the n6 directory-destination guard in `Copy-SourceFileToBackup`;
-  **8b reserved device names** (SR-055/LLR-055 amended, TC-117 → Pass,
-  windows + posix arms). **8b EXPOSED AND FIXED a latent classifier bug:**
-  `Test-PortableRelativePath` never actually split components (an
-  if-expression unrolled the `[char[]]` separators to `object[]` and
-  `String.Split` bound an overload that doesn't split) — invisible while
-  every predicate was character- or suffix-scoped; the reserved-name stem
-  rule was the first component-scoped predicate. Typed assignment fixes it.
-  **S3's trivial half is MEASURED, not collapsed:** `Get-ReHomedDataPathName`
-  keeps its 8-line legacy arm deliberately (the step-5 kept-guard call —
-  prune still serves legacy stores); the full collapse waits until
-  legacy-store prune support is deliberately dropped. **Remaining for step
-  9:** TC-118's borrower-edit + multiple-borrowers/copies=3 arms; the
-  registry reconciliation list recorded at step 5; AGENTS.md §2/§3/§6
-  rewrite; kit-rev decision; IF-001 items; then the WP9 independent review
-  (Claude subagent + `codex exec` adversarial pass).
-  **D-5 is fixed in the content-addressed modes; the exact
-  survival test (SR-059) is in** — content-addressed sets preserve superseded
-  bytes AFTER copy/evict against the FINAL manifest's DataPath claims, which
-  fixes two red-first-proven D-1-family holes: the source-based test moved out
-  a pool object a FROZEN row (SR-055/SR-057) still claimed, and it moved out
-  the old object of a row whose step-10 copy FAILED — pre-change, a live-root
-  restore then failed with content-missing. **D-1 under Mirror still
-  reproduces BY DESIGN and now dies only with the mode at step 5.**
-  **INDEPENDENT REVIEW of step 4 (Claude subagent, 2026-08-25):**
-  REQUEST-CHANGES scoped to test robustness; **no engine defect found** — the
-  reviewer independently reproduced both exactness holes on pre-change code
-  (the failed-copy one as a real `content-missing` restore failure), verified
-  Mirror byte-identical, verified SR-041 aggregation in the new position, and
-  re-ran the full gate. Accepted and landed in the step-4 commit: MAJ-1 (the
-  frozen-claim test gains a non-vacuity guard — it passed identically when
-  the Deny ACE did nothing), MIN-1 (failed-copy arm automated), MIN-4 (unit
-  count corrected), MIN-5 (LLR-059 claim-direction wording), nits n2/n3/n4.
-  Deferred with owners: MIN-2 → **step 5** (TC-073 must gain a
-  content-addressed arm when Mirror dies, or the 11.5 failure aggregation
-  loses its only coverage); MIN-3 → **step 9** (AGENTS.md §2 hand-written
-  pipeline text is stale for steps 5.5/6/9.5/11.5 — also stale since step 3;
-  the generated regions are fresh). Verify at **step 5/6**: whether the
-  SR-061 legacy-`Original`-row refusal is fully implemented — reviewer MIN-5
-  could not find the refusal itself, only the writer (step 3 shipped the
-  no-migration contract half of TC-124). Reviewer n6 recorded under Open
-  items.
-  **DRIVER DECISION at step 4 (recorded, open to veto):** the work order's
-  step-4 exit line "D-1 repro green in Mirror too" is structurally
-  unachievable — under Mirror the borrower's live row claims content at the
-  very path step 10 overwrites, so `Get-ClaimedRowViolations` must fail there
-  wherever preservation runs (and a naive reorder would stage post-edit bytes
-  and delete the live object). Step 4 is therefore mode-gated: Mirror keeps
-  the legacy source-based call at step 9.5 byte-identical (both die at step
-  5); content-addressed sets get the exact test at step 11.5. This matches
-  the work order's own §2 ("D-1's hazard class is deleted, not guarded") and
-  this file's earlier step-3 note; the Mirror change-detector Describes stay
-  green and are deleted with the mode.
-- **Active gate:** G3. **Next actions, in order:** (1) finish **WP9** steps 4–9,
-  then its independent review (Claude subagent, then the OpenAI adversarial pass
-  via `codex exec` — both found real defects on the kit-bump WP); (2) G3 →
-  G-Release (human attestation); (3) IF-001 Experimental → Stable jointly with
-  HomeHub — D-2 is now fixed; D-1 clears when WP9 lands.
+  found five real defects, all five confirmed with reproductions; all five are
+  now closed. What WP9 shipped, over nine committed steps on `New_Fix_Batch`:
+  Mirror/`PreserveFolderTree` **deleted** (SR-058) so hash naming is
+  unconditional and a stored object can never be overwritten in place; owner
+  election + an intra-run memo (SR-060) closing D-5; `Save-SupersededData`
+  retargeted to ask the **final manifest** whether anything still claims an
+  object (SR-059/SR-051), which also fixed two red-first-proven D-1-family holes
+  the source-based test could not see (a FROZEN row's claim, and a row whose
+  replacement copy failed); the storage-layout migration **deleted whole** with a
+  loud legacy-store refusal (SR-061); the generated browse view (SR-062);
+  configuration contract **v2** (SR-063); a linear unreferenced-data audit
+  (SR-064); and the folded fixes — canonical manifest bytes, F8, the
+  directory-destination guard, reserved device names.
+- **Kit revision stays at 6 (driver decision, WP9 step 9, open to veto).** WP9
+  changed **no kit byte**: content addressing is entirely engine-side, and both
+  restorers already resolve a row by its `DataPath` or by `(hash, length)`
+  without caring how the name was chosen. A kit comment still describes the
+  legacy path-addressed shape, and that is correct — the kit must go on restoring
+  such stores (SR-061 refuses only *writing* to one), and bumping to revision 7
+  for a comment would invalidate every existing snapshot's kit against TC-105 and
+  `-RefreshKits` for zero behavioural gain.
+- **Evidence (real output, this session — the full paste is in the WP9 G3 audit
+  entry below):** `check.ps1 -Tier Full -Gate G3` **all steps passed** on the
+  2-mode matrix (Plain/Compress) — unit **405/405**, integration **236 PASS / 0
+  FAIL / 2 SKIP**, bats (WSL Fedora) **68/68**, `shellcheck` clean, lint clean;
+  trace **0 orphans / 0 integrity / 0 status-findings** with the ratchet advanced
+  to `core,bash-v1,container-v1,kitbump-v6,ca-v1` (phase-deferred = 1: SR-033).
+  Every `ca-v1` registry row is now Verified/Pass — nothing can be quietly
+  dropped, because the ratchet fails the gate the moment one is not.
+- **Registry reconciliation landed with step 9.** The mode axis is gone from
+  every Permutations/Parameters cell (60 rows: `mode=4-modes` and
+  `mode=set{Mirror,…}` collapse to `compress=set{on,off}`, the tree axis having
+  ceased to exist). SR-012 RETIRED (its whole subject — layout selection and
+  migration — is now stated by SR-058 + SR-061); SR-013 amended to
+  "`StoredAsHashSize` is the constant `'Hash'`"; **SR-051 retargeted rather than
+  retired** — its never-delete-a-still-referenced-file half is real, implemented
+  and tested, it simply moved from the migration site to the two that still
+  delete (eviction and preservation). LLR-012/LLR-013 deleted (their CodeSymbol
+  is gone), LLR-051 retargeted, TC-023/TC-095 retired with the tests they named,
+  TC-097/TC-100 re-pointed, and the vacuous `StorageForm` capacity-estimate `It`
+  deleted rather than left inert.
+- **Next actions, in order:** (1) the **WP9 independent review** — a Claude
+  subagent, then the OpenAI adversarial pass via `codex exec` (both found real
+  defects on the kit-bump WP); (2) G3 → G-Release (human attestation); (3) IF-001
+  Experimental → Stable jointly with HomeHub — D-2 is fixed and D-1 is now
+  cleared, and IF-001's contract text was updated at step 9 for config v2,
+  unconditional content addressing, and the ruling that the browse view is
+  **not** a container action word (a container's separate `/backup` bind can
+  never satisfy the same-volume rule).
+- **Active gate:** G3.
 
 ## Open items
 
@@ -243,18 +97,14 @@ free and shapes the test-battery import; D-2 + D-3 (+ the two parked kit
 nits) share one kit-revision bump; the no-backward-compat ruling frees every
 option from migration cost.
 
-### Live items (ruled; work queued — no human decision pending)
+### Live items — none
 
-Under the 2026-08-25 standing directive nothing here waits on a ratification
-bar; the "Decision needed" column is kept as the record of what was asked and
-answered. D-2/D-3/D-4 closed and moved to
-[resolved-items.md](resolved-items.md) 2026-08-25.
-
-| Item | What (verified 2026-08-24, entries below) | Decision asked | State |
-|---|---|---|---|
-| **D-1 / D-5 — Mirror dedup design** | Mirror addresses data files by PATH while dedup hands that address to rows meaning "these exact bytes": an ordinary edit of one of two duplicate files destroys the last copy (`Save-SupersededData`'s source-based survival test authorizes the in-place overwrite), orphaning the borrower and every blank snapshot row — invisible to everything but `-Deep`, post-mortem. D-5 (same-run duplicates stored twice) is the same mechanism's other face. Hash-addressed mode proven immune. | **Pick the design:** (1) end cross-path sharing in Mirror — each row owns its DataPath; per-mode SR-003 amendment; deletes the hazard class and simplifies `Save-SupersededData`; Mirror stores duplicates twice (driver RECOMMENDS — smallest footprint, one addressing semantic per mode); (2) copy-on-write/heal borrowers — keeps Mirror dedup, adds a fourth refcount site (more of the machinery that keeps failing); (3) content-address all storage, Mirror as restore view — strongest invariant, loses browse-by-eye Mirror value. **No-backward-compat ruling applies: no migration needed for any option.** | **RULED + PLANNED + PRIMED.** Design ruled 2026-08-24 (option 3: content-address all storage, Mirror/`PreserveFolderTree` removed, browsability = generated index; `link` deferred). Implementation work order drafted 2026-08-25: [plans/wp9-content-addressed-storage-workorder.md](plans/wp9-content-addressed-storage-workorder.md). Two further human rulings 2026-08-25: the **view is per-folder HTML + `INDEX.tsv` + threshold search** (a single flat page measures ~100 MB at library scale), and **migration is MOOT** (no store must be maintained) so the `Original -> Hash` conversion is deleted and a legacy-form store is refused with a fresh-`BackupPath` remedy. Registry rows are IN the machine source of truth as `Phase=ca-v1` (SN-034, SR-058..064, LLR-058..064, TC-117..135) so nothing can be lost; they flip to Verified when WP9 lands. Next: WP9 G1->G3 + independent review, no ratification pause. |
-| **Test-battery import** | The HomeHub drill assertion that caught D-1 (blank-row hashes cross-checked against the verified pool) has no FileBackup equivalent, and `G2.8 Dedup_singleDataPath` is VACUOUS (`-le 2` passes under D-5). Six-item prioritized import list + eight extra permutations recorded in the 2026-08-24 verification entry. | Approve as the test scope of the D-1..D-4 fix WPs (owner-edit across all 4 modes, orphan-detection second pass as tooling, wrong-bytes-at-DataPath both restorers, unrelated-bad-`.7z`, dot/Hidden sources, fix the vacuous assertion). | **APPROVED 2026-08-24 + EXPANDED; PART-PORTED, REMAINDER PRIMED.** Ported in the kit-bump WP: the byte-verified orphan second pass (`tests/Common/PoolAudit.ps1`, TC-116 - stronger than the drill's, it proves by hashing bytes), nested dot-directories + Windows Hidden (TC-113/114), same-length corruption (TC-108/109/110), and the de-vacuumed `G2.8` (now one DataPath + one physical copy in hash mode, with the Mirror arm left as a labelled D-5 change-detector). NOT ported, and impossible to port while Mirror exists: all-four-modes owner-edit, edit-the-borrower, multiple-borrowers, and owner-deleted-while-borrower-lives (B9's eviction refcount, which has no named test today). Those are now **TC-118 / TC-119 / TC-135 rows in test-cases.csv**, owned by WP9 - see its §6.1 coverage table. The HomeHub drill SCRIPT itself was never pulled into this repo; only its assertions. |
-| **`Copy-SourceFileToBackup` succeeds into a directory destination** (step-4 review n6, 2026-08-25) | If the destination path names an existing DIRECTORY, `Copy-Item` copies the file *into* it and the function reports success, so the manifest row is written naming a directory. Present on pre- and post-step-4 code alike (not caused by WP9); `Get-ClaimedRowViolations` does catch the resulting state ("names no file"). Contrived to reach in a content-addressed pool. | None — found incidentally by the independent reviewer while probing step 4. | **OPEN — small.** Candidate for WP9 step 8 (folded fixes) or a follow-on nit; decide at step 8. |
+Every row that stood here is closed. D-2/D-3/D-4 moved to
+[resolved-items.md](resolved-items.md) on 2026-08-25; **D-1/D-5, the
+test-battery import and the step-4 review's n6 nit moved there when WP9 landed
+(2026-08-25)**. Nothing in this file is waiting on a human decision — under the
+2026-08-25 standing directive the queued work ships as a full solution, with
+independent review retained as a quality bar.
 
 ### Simplification candidates (2026-08-25 architecture read, human-prompted)
 
@@ -269,7 +119,7 @@ sentinel. WP9 kills the first structurally.
 |---|---|---|
 | **S1 — retire the `Compressed` claim; derive form from bytes** | 4 of `Get-StorageFormFinding`'s 7 classes (`FlagOverRaw`, `FlagOverArchive`, `NameLies`, `BlankRowFormDisagreement`) exist only to police a claim the bytes already answer. SR-050 already made BOTH restorers prefer the located file's PROVEN form — but only for hash-recovered rows; a row resolved through its own `DataPath` is still decided by the column (`Reconstruct.ps1:893`, `reconstruct.sh:823`). Extend proven-form there and the claim has no consumer left. The complete byte-derived rule is the one `Find-DataFileByHash` already implements, and D-2's verify-after-write makes it self-checking. Cost: a ~10-line 7z-magic sniffer in **Common** (the kit does not bundle Engine, so `Get-StoredFileForm` is unreachable there) plus a bash twin. Payoff ≈ 200 lines of audit/repair logic and one whole class of "the index lies about the bytes". The column stays in the 9-column contract as advisory — no parser or kit break. | **CANDIDATE — proposed as WP10, after WP9.** Not folded in: WP9's D-1/D-5 fix should land clean and separately reviewable. |
 | **S2 — retire storage-layout migration entirely** | `Sync-BackupStorageLayout` (210 lines) + `Get-MigrationCapacityDemand` (50) + the step-5.5 migration preflight + the SR-051 refcount apparatus, which existed only to make a migration safe. Also collapses two overlapping orphan scans into one. | **HUMAN RULED 2026-08-25: GO — and FOLDED INTO WP9** ("Retroactive space reclamation is not necessary... Similarly, retroactive decompression is also not necessary"). It does NOT depend on S1: a mixed-form store is already normal today because compression is per-file (SR-004) and every row's `Compressed` describes its own object. `CompressEnabled` now governs only content written after the flip. |
-| **S3 — re-homing becomes a same-name copy** | Under content addressing a data file's name is derived from its content, so a re-homed file's source and destination names are ALWAYS identical: `Get-ReHomedDataPathName` (30 lines) collapses to nothing and "does the destination already hold this content" becomes a filename test instead of an index lookup. The same lever may thin `Get-BackupContentIndex` + `Optimize-ChangeFolders` (168 lines between them), since identical content now shares a filename in every folder. | **TRIVIAL HALF FOLDED INTO WP9** step 8 (the `Get-ReHomedDataPathName` collapse). The index/Optimize half is to be MEASURED during WP9, not promised. |
+| **S3 — re-homing becomes a same-name copy** | Under content addressing a data file's name is derived from its content, so a re-homed file's source and destination names are ALWAYS identical: `Get-ReHomedDataPathName` (30 lines) collapses to nothing and "does the destination already hold this content" becomes a filename test instead of an index lookup. The same lever may thin `Get-BackupContentIndex` + `Optimize-ChangeFolders` (168 lines between them), since identical content now shares a filename in every folder. | **MEASURED AT WP9 step 8, NOT COLLAPSED — and that is the finding.** `Get-ReHomedDataPathName` keeps its 8-line legacy arm deliberately: prune and repair still serve LEGACY path-addressed stores (SR-061 refuses only WRITING to one), where a row named `MANIFEST.csv` would otherwise be re-homed ONTO the real index. The collapse becomes free only if legacy-store prune support is deliberately dropped — a separate decision, not a WP9 side effect. The index/Optimize half is untouched. |
 
 **Deferred by the same ruling:** retroactive re-packing, if ever wanted, becomes
 a **standalone offline script** (human's suggestion, 2026-08-25) — re-forms a
@@ -293,10 +143,10 @@ paths. Each is one mechanism answering one real, traced failure.
 
 | Item | What | Disposition |
 |---|---|---|
-| manifest row order | No-op runs can reorder manifest ROWS with identical content; G7 doesn't catch ordering. | **FOLDED into WP9** step 8 (sort before `Write-Manifest`, pinned by the G7 determinism suite). |
-| F8 kit-less snapshot window | Sub-second crash window between the `Temp`→`Snapshot_*` rename and the kit copy leaves a valid snapshot without a kit. Recoverable via `-RefreshKits`. | **FOLDED into WP9** step 8 (driver call 2026-08-25 under the standing full-solution directive): copy the kit into staging BEFORE the rename. WP9 already opens `Complete-ChangeFolder`'s neighbourhood. |
-| DataPath-keyed CI maps | The DataPath-keyed membership hashtables are literal case-insensitive maps; failure modes are warning-suppression, not byte loss (noted at the `31a55f2` review). | **FOLDED into WP9** step 8 (`New-RelativePathMap` sweep across the functions that WP already opens). |
-| Windows reserved device names | `CON`, `NUL.txt` etc. pass the SR-055 portable-name guard; worst case a loud copy failure on Windows restore. | **RULED IN 2026-08-25** (the deferred kit-bump plan §11 Q2): WP9 step 8b amends SR-055/LLR-055 with a per-component reserved-name predicate; **TC-117 is already in the registry**. |
+| manifest row order | No-op runs can reorder manifest ROWS with identical content; G7 doesn't catch ordering. | **DONE — WP9 step 8.** Canonical manifest writes (ordinal `RelativePath` order, every text column string-ified), pinned by a byte-identical-no-op-run test. Engine-side, so no kit bytes changed. |
+| F8 kit-less snapshot window | Sub-second crash window between the `Temp`→`Snapshot_*` rename and the kit copy leaves a valid snapshot without a kit. Recoverable via `-RefreshKits`. | **DONE — WP9 step 8.** The kit is copied into staging BEFORE the publish rename, so a `Snapshot_*` folder structurally cannot exist kit-less; pinned by a mocked-rename crash test. |
+| DataPath-keyed CI maps | The DataPath-keyed membership hashtables are literal case-insensitive maps; failure modes are warning-suppression, not byte loss (noted at the `31a55f2` review). | **DONE — WP9 step 8** (`New-RelativePathMap` sweep across the functions the WP opened). |
+| Windows reserved device names | `CON`, `NUL.txt` etc. pass the SR-055 portable-name guard; worst case a loud copy failure on Windows restore. | **DONE — WP9 step 8b.** SR-055/LLR-055 amended, per-component reserved-name predicate, TC-117 Pass (windows + posix arms). The work also EXPOSED a latent classifier bug: `Test-PortableRelativePath` never actually split components — invisible while every predicate was character- or suffix-scoped. |
 | `-RepairFromPruned` | Materializing bytes back into a pool that lost them (diagnosis half shipped in WP5). Convenience, not safety. | Deferred; build on WP4 primitives if wanted. |
 | O(N²) unreferenced-file scan | `Test-BackupManifest` re-pipes `$db` per on-disk file (Engine.psm1:610-614); runs on every backup via Sync step 6. Plausibly hangs a 500k-file library. | **FOLDED into WP9** step 8 as **SR-064 / LLR-062 / TC-132** (one hashtable; pattern at :761/:772). |
 
@@ -4274,3 +4124,169 @@ file's proven form over the row's `Compressed` claim. The audit reports the
 inconsistency; the restore is immune to it. (That is S1's thesis, demonstrated
 without S1 being implemented.)
 
+### DRIVER (Software + Test + Data-integrity hats) — WP9 G3 COMPLETE: content-addressed storage — 2026-08-25 (Windows host)
+
+Verdict: **WP9 is done, all nine steps committed green on `New_Fix_Batch`.**
+D-1 and D-5 are fixed by **deleting their hazard class**, exactly as the
+2026-08-24 human ruling (option 3) directed. Per-step reasoning lives in the
+commit messages; this entry is the WP-level record, following the kit-bump
+precedent of one G3 entry with the detail in the commits.
+
+| Step | What landed | SRs |
+|---|---|---|
+| 1 | D-1/D-5 repros + `Get-ClaimedRowViolations` — the detector D-1 needed: every row's own DataPath must reproduce that row's `(hash,length)` FROM BYTES. D-1 leaves the file PRESENT and changes its bytes, so `Test-Path`, `Test-PoolResolves` and a non-`-Deep` Verify all sail past it. | SR-059, SR-060 |
+| 2 | Owner election + intra-run memo in `Invoke-BackupFileGroup` | SR-060, SR-003 |
+| 3 | `Sync-BackupStorageLayout` + `Get-MigrationCapacityDemand` deleted whole (~260 lines); step 6 calls `Test-BackupManifest` directly | SR-061 |
+| 4 | `Save-SupersededData` reordered after copy/evict; survival tested against the FINAL manifest | SR-059, SR-051 |
+| 5 | **Mirror deleted** — `PreserveFolderTree` out of the engine, config, schema, docs and fixtures; hash naming unconditional; `StoredAsHashSize` pinned `'Hash'`; the SR-061 legacy-store refusal + the `LegacyStoredForm` Verify finding implemented | SR-058, SR-061 |
+| 6 | Config **v2**: `ConfigVersion` 2, a named refusal for `PreserveFolderTree` in BOTH formats, `BrowseView`/`ViewPath` with placement rails | SR-063 |
+| 7 | The browse view: `New-BrowseViewIndex`, pipeline step 16, `-Action View`, `Resolve-ViewRootPath` rails | SR-062 |
+| 8 / 8b | Linear unreferenced-data audit; canonical manifest writes; **F8** (kit copied into staging before the publish rename); the n6 directory-destination guard; reserved device names | SR-064, SR-055 |
+| 9 | This step: the remaining TC-118/TC-122/TC-135 arms, the registry reconciliation, AGENTS.md §2/§3/§6, README, IF-001, and the `ca-v1` ratchet | — |
+
+**Step 9's test work — the arms that were impossible while Mirror existed.**
+TC-118 now runs its full matrix: `edit={owner,borrower} × copies={2,3} ×
+compress={on,off}`, eight arms over a `New-BorrowTimeline` that takes both axes.
+The `copies=3` arms matter in the *opposite* direction from the original repro:
+with two survivors the edited row is no longer the last claim on the object,
+which is where an over-eager "is anyone still using this" check would evict too
+much. TC-135 gained the same `copies=3` axis on the removal side (B9's eviction
+refcount). **TC-122 was still `Draft` and is now implemented**: a 3-run and a
+5-run timeline whose per-run census records the PROVEN CONTENT at every claimed
+DataPath — raw bytes where they match the row's hash, the expanded payload
+otherwise — and requires it never to change while the path persists.
+
+**A finding from writing TC-122, worth carrying.** The census failed first time
+in Compress mode, and it was the TEST that was wrong: a `.7z` re-created for
+identical content is **not byte-identical** (7-Zip stores the member name and
+time), and re-creating an evicted object is legitimate. Censusing raw bytes was
+therefore testing 7-Zip determinism, not SR-059. The honest invariant is about
+CONTENT under a live claim, and that is what the test now asserts. The same work
+added `Get-UnjustifiedPoolNames` — the pool-side half of SR-059's "name-proven":
+every object's name must encode the `(hash,length)` its own content produces, so
+an object **no live row happens to claim** is still held to the contract that
+hash recovery (SR-050) depends on. It carries a non-vacuity arm that tampers a
+COPY of a real store and requires the audit to go red.
+
+**Registry reconciliation — the list step 5 deferred to here.**
+
+- The **mode axis is gone from every cell** (23 SR + 37 TC rows). `mode=4-modes`
+  and `mode=set{Mirror,…}` collapse to `compress=set{on,off}`: the tree axis
+  ceased to exist, so the surviving axis is the one the harness actually sweeps.
+- **SR-012 RETIRED**, not amended. The earlier note said "amend", but that was
+  written while the compression-flip migration was still expected to survive;
+  the S2 ruling deleted that too, so SR-012's entire subject — layout selection
+  and migration — is now stated by SR-058 + SR-061, and amending it would only
+  have produced a duplicate requirement. LLR-012 and TC-023 went with it: their
+  code and their test are deleted.
+- **SR-013 AMENDED** to "`StoredAsHashSize` is the constant `'Hash'`". The column
+  stays in the 9-column contract — both restorers and every existing store read
+  it — but it is no longer a mode indicator, and `'Original'` is now purely the
+  legacy-store trigger SR-061 refuses. LLR-013 was deleted and SR-013 folded into
+  LLR-058, which is where the pinning actually happens (TC-121).
+- **SR-051 RETARGETED, not retired** (driver decision, open to veto). The
+  deferred note said retire, but only its *migration framing* died: the
+  never-delete-a-still-referenced-data-file half is real, implemented and tested
+  — it moved from `Sync-BackupStorageLayout` to the two sites that still delete,
+  `Move-RemovedFilesToStaging` and `Save-SupersededData`. Retiring it would have
+  dropped a Verified SN-030 invariant that the code still enforces and that
+  TC-118/TC-135 still prove. LLR-051 was retargeted to those two symbols. SR-059
+  (no OVERWRITE) and SR-051 (no DELETE) are complementary, not duplicates.
+- **TC-095 retired** with the migration-refcount test it named. **TC-097** and
+  **TC-100** re-pointed: TC-097's assertion inverts from "the triggered migration
+  leaves nothing dangling" to "nothing already stored is re-formed at all", and
+  TC-100 loses its migration term. The **vacuous `StorageForm`
+  capacity-estimate `It`** — flagged in-file at step 5 as asserting nothing — was
+  deleted rather than left inert; the dedup-counted-once behaviour it once
+  covered is pinned by the adjacent `counts only NEW deduplicated content` case.
+- Every `ca-v1` row is now Verified/Pass, and **`ca-v1` joined the ratchet** in
+  `scripts/check.ps1` and `.github/workflows/tests.yml`, so nothing in the phase
+  can be quietly dropped from here on.
+
+**Kit revision stays at 6 (driver decision, open to veto).** WP9 changed no kit
+byte. Content addressing is entirely engine-side, and both restorers already
+resolve a row through its `DataPath` or by `(hash,length)` without caring how the
+name was chosen. `Reconstruct.ps1:259` still mentions the Mirror-era shape and
+that is CORRECT: the kit must go on restoring legacy path-addressed stores
+(SR-061 refuses only *writing* to one), and bumping to revision 7 for a comment
+would invalidate every existing snapshot's kit against TC-105 and `-RefreshKits`
+for zero behavioural gain.
+
+**IF-001 updated, and the container-view question answered.** The contract text
+still carried `ConfigVersion` "currently 1" and JSON booleans for
+`CompressEnabled`/`PreserveFolderTree`; it now states v2, the named removal
+refusal, and unconditional content addressing, with `SR-058;SR-063` added to its
+`SR-Refs`. The step-6 question is RULED by the driver: **`view` is not a
+container action word.** A container's separate `/backup` bind mount can never
+satisfy the same-volume rule, so `BrowseView: index` is native-host functionality
+until a later IF-001 revision rules on a view mount; the container's action words
+stay `{backup, prune, snapshots, verify}`, and both `docs/interfaces.md` and the
+IF-001 row now say so.
+
+**Docs.** AGENTS.md §2 (module table, and the pipeline rewritten to the real
+1→16 shape including 1.5 / 5.1 / 5.2 / 9.4 / 11.5 / 16), §3 (the defect banner
+now records all five 2026-08-24 defects CLOSED, and the invariant list gained
+content addressing, immutability-and-name-proof, no-re-forming, and the view's
+cosmetic status), §4 and §6 (the axis is Compression; G4 is the legacy-refusal
+suite; G10-View added). README gained a "Browsing the backup without restoring"
+section for `BrowseView` / `-Action View`. Three stale engine comments — the 5.5
+"migration component" header, the SR-012 7-Zip note and the prune-sweep Mirror
+aside — were corrected in place.
+
+**Evidence (real output).**
+
+```
+==== PSScriptAnalyzer ====
+[PASS] PSScriptAnalyzer
+
+==== Traceability (trace.py --strict) ====
+Traceability: SN=34 SR=63 LLR=61 TC=132 orphans=0 integrity=0 status-findings=0 phase-deferred=1.
+[PASS] Traceability (trace.py --strict)
+
+==== Doc navigability (check_docs.py) ====
+check_docs: OK - 26 doc(s), 94 intra-repo link(s), 0 broken.
+[PASS] Doc navigability (check_docs.py)
+
+==== Architecture map freshness ====
+[OK]  Generated regions current in docs\architecture.md
+[OK]  Generated regions current in AGENTS.md
+[PASS] Architecture map freshness
+
+==== Pester unit ====
+Tests Passed: 405, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+[PASS] Pester unit
+
+==== Performance budgets (check_perf.py) ====
+[PASS] Performance budgets (check_perf.py)
+
+==== Integration sweep (Full) ====
+  PASS: 236
+  FAIL: 0
+  SKIP: 2
+[PASS] Integration sweep (Full)
+
+================ check.ps1 (tier Full, gate G3) ================
+All steps passed.
+```
+
+Plus the restore twin, WSL Fedora (`bash/` was untouched by step 9 — this is the
+regression check, not a change proof):
+
+```
+$ shellcheck -S warning bash/reconstruct.sh
+SHELLCHECK_CLEAN
+$ bats tests/bash
+1..68        (68 ok, 0 not ok)
+```
+
+Unit went **391 → 405**: TC-118 grew from 2 arms to 8, TC-135 from 4 to 8,
+TC-122 arrived with 4 census arms plus its non-vacuity guard, and the vacuous
+`StorageForm` capacity-estimate `It` was deleted. Integration is unchanged at
+**236 / 0 FAIL / 2 SKIP** — step 9's test work is all unit-level. `phase-deferred
+= 1` is SR-033 (`bash-v2`), the one row still deferred by design; `ca-v1` is now
+inside the ratchet, so every WP9 row is held to Verified/Pass from here on.
+
+**Next:** the WP9 independent review — a Claude subagent, then the OpenAI
+adversarial pass via `codex exec`. Both found real defects on the kit-bump WP,
+and under the standing directive review is retained as a quality bar even though
+ratification no longer pauses the work.

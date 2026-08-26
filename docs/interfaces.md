@@ -50,7 +50,11 @@ JSON is the only form this contract covers.
 argument starting with `-` passes through to `FileBackup.ps1` unchanged. `prune`
 also reads `FILEBACKUP_SNAPSHOT` / `-Snapshot` (required) and
 `FILEBACKUP_DRY_RUN` / `-WhatIf`; `verify` reads `FILEBACKUP_REPAIR=1` for its
-opt-in repair mode.
+opt-in repair mode. `view` (SR-062) is deliberately **not** one of them: the
+browse view must be written outside both roots and on the backup volume, which
+a container's separate `/backup` bind mount cannot satisfy, so it stays
+native-host functionality until a later IF-001 revision rules on a container
+view mount.
 
 **Retention: policy vs. mechanism.** HomeHub decides *what* to keep; FileBackup
 decides *how* a snapshot is safely removed. **HomeHub must never delete a
