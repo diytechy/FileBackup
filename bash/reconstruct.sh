@@ -21,7 +21,8 @@
 #     folder; a blank/missing DataPath recovers by content hash from the pool;
 #   - a LEGACY path-addressed store (a DataPath carrying a path separator) is
 #     REFUSED as a precondition (exit 2), not restored: support for
-#     pre-content-addressed stores was withdrawn at kit revision 7 (SR-061);
+#     pre-content-addressed stores was withdrawn at kit revision 7, and kit
+#     revision 9 refuses pre-WP12 base-85-named stores too (SR-061/SR-069);
 #   - every restored file is stamped with its OWN row's LastWriteTimeStr, so a
 #     deduplicated row keeps its own mtime rather than the pool object's
 #     (SR-066);
@@ -560,6 +561,48 @@ is_inside() {
 }
 
 # ---------------------------------------------------------------------------
+# The witness format version this kit writes and reads. 2 = the SR-069 base-57
+# name grammar (WP12); 1 = the pre-WP12 base-85, space-separated grammar. A
+# store declaring less than this is refused outright — see the SR-061 gate in
+# restore_from(). Kept beside the witness code because that is what stamps it.
+WITNESS_FORMAT_VERSION=2
+
+# is_hash_size_name <name> : true when <name> parses under the SR-069 grammar —
+# exactly 22 base-57 characters, '_', one or more base-57 characters, then an
+# OPAQUE extension.
+#
+# The extension is deliberately unconstrained. It is the source file's own, so
+# it can legitimately hold a space, an underscore, brackets or non-ASCII: a file
+# named 'signed.foo bar' is a portable name and yields the extension '.foo bar'.
+# A character blacklist here would refuse valid stores — only the hash and
+# length fields belong to the alphabet.
+#
+# Structural only: unlike the PowerShell twin this does not range-check the
+# decoded hash against 2^128, because nothing downstream consumes the value.
+# The locator finds data by CONTENT, never by name; this test exists solely to
+# tell the base-57 grammar from the base-85 one, and a space — which every old
+# name carries at index 16 — cannot pass the first field.
+is_hash_size_name() {
+    [[ "$1" =~ ^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+(\..*)?$ ]]
+}
+
+# is_legacy_stored_name <datapath> : true when <datapath> is a PRE-WP12 stored
+# object name. A POSITIVE test for the retired grammars, deliberately NOT the
+# negation of is_hash_size_name - see the SR-061 gate in restore_from() for why
+# those two are not complements. Blank is never legacy: it means "recover by
+# hash". Mirrors Test-LegacyStoredObjectName in FileBackup.Common.psm1.
+is_legacy_stored_name() {
+    [[ -n "$1" ]] || return 1
+    # A path separator: the pre-WP9 path-addressed form. The backslash is held
+    # in a variable so a mangled pattern cannot silently match only '/', the
+    # same care Reconstruct.ps1 takes - this guard must not fail open.
+    local bs; bs=$'\134'
+    [[ "$1" == */* || "$1" == *"$bs"* ]] && return 0
+    # The base-85 form's space at index 16. Decisive: a WP12 name's first 22
+    # characters are its hash field and are always alphanumeric.
+    [[ ${#1} -ge 27 && "${1:16:1}" == ' ' ]]
+}
+
 # Manifest witness verification — SR-039 / LLR-039
 # ---------------------------------------------------------------------------
 
@@ -597,7 +640,7 @@ verify_manifest_witness() {
 
     version="$(witness_value "$witness" 'Version')"
     [[ "$version" =~ ^[0-9]+$ ]] || die_code 3 "'$witness' has no readable Version line; it is not a manifest witness."
-    (( version > 1 )) && log "WARN: $WITNESS_NAME declares format version $version (newer than this build understands); verifying the known fields only."
+    (( version > WITNESS_FORMAT_VERSION )) && log "WARN: $WITNESS_NAME declares format version $version (newer than this build understands); verifying the known fields only."
 
     want_bytes="$(witness_value "$witness" 'Bytes')"
     want_rows="$(witness_value "$witness" 'Rows')"
@@ -800,27 +843,50 @@ main() {
     local nrows=${#d_rel[@]}
     log "Manifest rows: $nrows"
 
-    # A LEGACY path-addressed store is refused, not restored (SR-061). Writing
-    # to one went at WP9; kit revision 7 withdraws READING it too (human ruling
-    # 2026-08-26) so the promise the docs make is one the suites actually test.
-    # TWO markers, matching Test-BackupManifest's refusal on the engine side:
-    # StoredAsHashSize='Original' is the authoritative one, and a DataPath
-    # carrying a path separator is the structural one that still catches a store
-    # whose column was lost or rewritten (a content-addressed DataPath is always
-    # a bare '<hash16> <len10><ext>' filename; blank means "recover by hash").
-    # Refused as a PRECONDITION before any file is restored.
-    local lg_i lg_form bs
-    bs=$'\134'
+    # A store this kit cannot read is refused, not restored (SR-061 / SR-069).
+    # Writing to a path-addressed store went at WP9; kit revision 7 withdrew
+    # READING it, and kit revision 9 (WP12) extends the same refusal to a
+    # pre-WP12 CONTENT-ADDRESSED store, whose objects carry the old base-85,
+    # space-separated names. Refused as a PRECONDITION, before any file is
+    # restored. Mirrors Reconstruct.ps1 exactly.
+    #
+    # THREE markers, because no one of them is complete:
+    #   1. StoredAsHashSize='Original' — a pre-content-addressed store (WP9).
+    #      It does NOT identify a base-85 store: those say 'Hash', like ours.
+    #   2. A witness declaring a format version below ours — the positive
+    #      marker, and the only one that works on a manifest whose DataPath
+    #      values are all blank. Only meaningful when a witness EXISTS: SR-039
+    #      deliberately lets a witness-less store restore with a warning.
+    #   3. A DataPath in a RETIRED grammar - a path separator (pre-WP9
+    #      path-addressed), or a space at index 16 (the pre-WP12 base-85
+    #      "<hash16> <len10><ext>" form). Catches a witness-less old store.
+    #
+    # Marker 3 is a POSITIVE test, NOT "does not parse under SR-069". Those are
+    # not complements: a merely DAMAGED DataPath parses under neither grammar,
+    # and SR-056's verify-and-heal machinery must get to answer for it - a
+    # whole-store refusal would turn one repairable row into an unrestorable
+    # backup. Refuse the old FORMAT; let damaged ROWS take the content path.
+    #
+    # A blank DataPath means "recover by hash" and is not tested by 3 — a blank
+    # string carries no grammar. Benign: the locator matches CONTENT, so a store
+    # reached through blank rows alone restores correctly whatever its objects
+    # are named.
+    local w_version
+    if [[ -f "${authority%/*}/$WITNESS_NAME" ]]; then
+        w_version="$(witness_value "${authority%/*}/$WITNESS_NAME" 'Version')"
+        if [[ "$w_version" =~ ^[0-9]+$ ]] && (( w_version < WITNESS_FORMAT_VERSION )); then
+            die "'$authority' is a pre-WP12 store: its manifest witness declares format version $w_version, and this kit (revision 9) writes and reads $WITNESS_FORMAT_VERSION — the SR-069 base-57 name grammar. This kit does not restore stores written under the older base-85 grammar (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
+        fi
+    fi
+
+    local lg_i lg_form
     for (( lg_i=0; lg_i<nrows; lg_i++ )); do
         lg_form="$(printf '%s' "${d_form[lg_i]}" | tr '[:upper:]' '[:lower:]')"
         if [[ "$lg_form" == 'original' ]]; then
-            die "'$authority' is a legacy path-addressed store: row '${d_rel[lg_i]}' carries StoredAsHashSize='${d_form[lg_i]}'. This kit (revision 7) does not restore pre-content-addressed stores (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
+            die "'$authority' is not a store this kit can restore: row '${d_rel[lg_i]}' carries StoredAsHashSize='${d_form[lg_i]}'. This kit (revision 9) does not restore pre-content-addressed stores (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
         fi
-        # The pattern tests for a backslash held in $bs (ANSI-C \134), not a
-        # literal one: a mangled pattern here would fail OPEN, and this guard
-        # is the only thing standing between a legacy store and a restore.
-        if [[ "${d_data[lg_i]}" == */* || "${d_data[lg_i]}" == *"$bs"* ]]; then
-            die "'$authority' is a legacy path-addressed store: row '${d_rel[lg_i]}' names its data as '${d_data[lg_i]}', a source path rather than a content-addressed object. This kit (revision 7) does not restore pre-content-addressed stores (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
+        if is_legacy_stored_name "${d_data[lg_i]}"; then
+            die "'$authority' is not a store this kit can restore: row '${d_rel[lg_i]}' names its data '${d_data[lg_i]}', a retired stored-object name. This kit (revision 9) restores only content-addressed stores using the SR-069 base-57 grammar (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
         fi
     done
 

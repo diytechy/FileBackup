@@ -9,21 +9,101 @@ BeforeAll {
 }
 
 Describe 'Short-name encoding' {
-    It 'round-trips hex through Convert-HexToShortName/Convert-ShortNameToHex' {
-        foreach ($hex in 'DEADBEEF','0','1','FFFFFFFFFFFFFFFF','ABCDEF0123456789') {
-            $short = Convert-HexToShortName -Hex $hex -OutputLength 16
-            $back  = Convert-ShortNameToHex -ShortName $short
-            # Compare as BigInteger to ignore leading-zero padding differences.
-            $a = [System.Numerics.BigInteger]::Parse("0$hex",  'AllowHexSpecifier')
-            $b = [System.Numerics.BigInteger]::Parse("0$back", 'AllowHexSpecifier')
-            $b | Should -Be $a
+    # The base-57 grammar: "<hash22>_<len><ext>" (SR-069). WP12 replaced a
+    # base-85, space-separated, hash-truncating grammar.
+
+    It 'round-trips a full 128-bit hash EXACTLY, all 32 hex digits (SR-069, TC-004)' {
+        # Exactness, not BigInteger equivalence. The old test compared numeric
+        # values, which hid two real defects: the hash was truncated to its low
+        # ~102 bits, and ToString('X') returns 31, 32 or 33 characters depending
+        # on leading zeros and the sign nibble.
+        foreach ($hex in '00000000000000000000000000000000',
+                         'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
+                         '80000000000000000000000000000000',  # high bit set: sign nibble
+                         '00000000000000000000000000000001',  # leading zeros
+                         'BE20CA004CC2993A396345E0D52DF013') {
+            $short = Convert-HexToShortName -Hex $hex -OutputLength 22
+            $short.Length | Should -Be 22
+            Convert-ShortNameToHex -ShortName $short -HexWidth 32 | Should -BeExactly $hex
         }
     }
 
-    It 'produces a stable "<hash> <size><ext>" data filename' {
+    It 'uses exactly 57 glyphs and excludes the ambiguous 0 O I l 1 (SR-069, TC-142)' {
+        $alpha = (Get-FileBackupDefaults).Alphabet
+        $alpha.Count | Should -Be 57
+        ($alpha | Select-Object -Unique).Count | Should -Be 57
+        # -CContain, not -Contain: PowerShell's default comparison is
+        # case-INSENSITIVE, so a plain -Not -Contain 'O' fails on the perfectly
+        # legitimate lowercase 'o' and proves nothing about the exclusion.
+        foreach ($c in '0', 'O', 'I', 'l', '1') { ($alpha -ccontains $c) | Should -BeFalse }
+        foreach ($c in $alpha) { $c | Should -Match '^[0-9A-Za-z]$' }
+        $alpha[0] | Should -BeExactly '2'   # the zero digit, and the pad character
+    }
+
+    It 'produces a "<hash22>_<len><ext>" name with an UNPADDED length (SR-069, TC-143)' {
         $name = Get-HashSizeFileName -HashHex 'ABCDEF0123456789ABCDEF0123456789' -Length 5120 -Extension '.7z'
-        $name | Should -Match '\.7z$'
-        $name | Should -Match '^\S{16} \S{10}\.7z$'
+        $name | Should -Match '^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+\.7z$'
+        # Unpadded is the whole point of WP12: 5120 is three base-57 digits and
+        # the field must be three characters, not a fixed width padded with the
+        # zero digit.
+        (ConvertFrom-HashSizeFileName -Name $name).Length | Should -Be 5120
+        $name.Substring(23, $name.Length - 26).Length | Should -Be 3
+    }
+
+    It 'encodes a zero-length object as the zero digit (SR-069, TC-144)' {
+        $name = Get-HashSizeFileName -HashHex 'BE20CA004CC2993A396345E0D52DF013' -Length 0 -Extension '.bin'
+        $name | Should -Match '_2\.bin$'
+        (ConvertFrom-HashSizeFileName -Name $name).Length | Should -Be 0
+    }
+
+    It 'treats the extension as OPAQUE and round-trips a hostile one (SR-070, TC-146)' {
+        # T2 from the 2026-08-27 independent review. The extension is the
+        # source file's own - 'signed.foo bar' is a portable name - so a guard
+        # that blacklisted characters would refuse VALID stores.
+        $hash = 'BE20CA004CC2993A396345E0D52DF013'
+        foreach ($ext in '.7z', '.txt', '.foo bar', '.a_b', '.[x]', '.7Z', '.MiXeD') {
+            $name = Get-HashSizeFileName -HashHex $hash -Length 8388608 -Extension $ext
+            $p = ConvertFrom-HashSizeFileName -Name $name
+            $p | Should -Not -BeNullOrEmpty
+            $p.HashHex   | Should -BeExactly $hash
+            $p.Length    | Should -Be 8388608
+            $p.Extension | Should -BeExactly $ext
+        }
+    }
+
+    It 'accepts an EMPTY extension - an extensionless source file (SR-070, TC-148)' {
+        # Regression for the WP12 review probe: -Extension was
+        # [Parameter(Mandatory)], which rejects '', so an extensionless file in
+        # a Plain-mode set failed the whole backup set.
+        $name = Get-HashSizeFileName -HashHex 'BE20CA004CC2993A396345E0D52DF013' -Length 3 -Extension ''
+        $name | Should -Match '^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+$'
+        (ConvertFrom-HashSizeFileName -Name $name).Extension | Should -BeExactly ''
+    }
+
+    It 'THROWS rather than truncating a value too wide for the field (SR-069, TC-145)' {
+        { Convert-HexToShortName -Hex ('F' * 40) -OutputLength 22 } | Should -Throw
+        # 57^22 exceeds 2^128, so a syntactically valid field can decode out of
+        # range; that must be rejected, never silently cut to 32 hex digits.
+        { Convert-ShortNameToHex -ShortName ('z' * 22) -HexWidth 32 } | Should -Throw
+        ConvertFrom-HashSizeFileName -Name (('z' * 22) + '_2.7z') | Should -BeNullOrEmpty
+    }
+
+    It 'refuses to parse a PRE-WP12 base-85 name (SR-061, SR-069, TC-147)' {
+        # These are real names: the first two are from the committed WP11-era
+        # fixtures, the third from a live pool. Every one carries a space at
+        # index 16, and a space is not in the base-57 alphabet.
+        foreach ($legacy in 'lii`7EXH@[hgD!I= !!!!!!=X&K.7z',
+                            '.nArDBFwE!yq[FFf !!!!!!!!#..bin',
+                            'f7(#5C=v.uYfdGbp !!!!!!!!!%.foo bar') {
+            Test-HashSizeFileName -Name $legacy | Should -BeFalse
+        }
+    }
+
+    It 'returns $null for a malformed name instead of throwing (SR-069)' {
+        foreach ($bad in '', 'short', ('2' * 22), ('2' * 22 + '_'), ('2' * 22 + 'x2'),
+                         ('2' * 22 + '_2junk.7z/x'), 'MANIFEST.csv', 'RECONSTRUCT.ps1') {
+            ConvertFrom-HashSizeFileName -Name $bad | Should -BeNullOrEmpty
+        }
     }
 }
 
@@ -121,7 +201,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
 
         $manifest = Join-Path $folder 'MANIFEST.csv'
         $map = Get-WitnessMap $folder
-        $map['Version'] | Should -Be '1'
+        $map['Version'] | Should -Be '2'   # 2 = the SR-069 base-57 name grammar (WP12)
         $map['Rows']    | Should -Be '2'
         $map['Bytes']   | Should -Be ([string]([IO.FileInfo]$manifest).Length)
         $map['XxH128']  | Should -Be (Get-FileXxHash -FilePath $manifest)
@@ -204,7 +284,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
         Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
         $witness = Join-Path $folder $script:witnessName
 
-        $text = [IO.File]::ReadAllText($witness) -replace 'Version=1', 'Version=99'
+        $text = [IO.File]::ReadAllText($witness) -replace 'Version=\d+', 'Version=99'
         [IO.File]::WriteAllText($witness, $text + "SomeFutureKey=whatever`n")
         $v = Test-ManifestWitness -FolderPath $folder
         $v.Status         | Should -Be 'Verified'   # a newer witness must never condemn a good manifest

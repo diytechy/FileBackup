@@ -47,3 +47,53 @@ pool_file_by_hash() {  # <backup_root> <upper_hash>
     done
     return 1
 }
+
+# The witness format version the CURRENT kit writes. Must track
+# $script:WitnessFormatVersion in FileBackup.Common.psm1 and
+# WITNESS_FORMAT_VERSION in bash/reconstruct.sh: since WP12 a store declaring
+# LESS than this is refused outright as a pre-WP12 base-85 store (SR-061), so a
+# fixture that re-stamps with a stale number no longer merely mislabels itself,
+# it becomes unrestorable.
+WITNESS_FORMAT_VERSION=2
+
+# Re-stamp a manifest's witness after a test has deliberately modified the
+# manifest. Lived in FIVE byte-identical copies across the suites until
+# 2026-08-27, each with the version hard-coded - so the WP12 bump broke 30 tests
+# at once. One definition now: the next bump touches this line only.
+restamp_witness() {  # <manifest-path>
+    local manifest="$1" witness="${1}.meta" rows bytes hash
+    rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"
+    bytes="$(stat -c '%s' -- "$manifest")"
+    hash="$(xxh128sum -- "$manifest" | awk '{print $1}' | tr 'a-f' 'A-F')"
+    printf 'Version=%s\nRows=%s\nBytes=%s\nXxH128=%s\nWritten=%s\n' \
+        "$WITNESS_FORMAT_VERSION" "$rows" "$bytes" "$hash" "$(date --iso-8601=seconds)" > "$witness"
+}
+
+# Build a conforming SR-069 stored-object name: 22 base-57 characters of hash,
+# '_', the length base-57 unpadded, then the extension verbatim.
+#
+# Synthetic stores in these suites used to invent DataPath values ('data.bin',
+# 'shared.bin'). Since WP12 both restorers REFUSE a non-blank DataPath that does
+# not parse under the grammar (SR-061's structural half), so a fixture that
+# invents a name is now testing a store the engine could never have written -
+# and gets refused before reaching the behaviour under test.
+#
+# python3 rather than pwsh: this runs per fixture row and a pwsh start-up per
+# call is seconds. reconstruct.sh itself has NO python dependency - this is
+# test-scaffolding only, and the shipped fixtures still come from the real
+# PowerShell encoder via scripts/gen_bash_fixtures.ps1.
+hash_size_name() {  # <hash-hex-32> <length> [<ext>]
+    python3 - "$1" "$2" "${3-}" <<'PYEOF'
+import sys
+ALPHA = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+def enc(v, width=0):
+    out = ""
+    while v > 0:
+        out = ALPHA[v % 57] + out
+        v //= 57
+    out = out or ALPHA[0]
+    return out.rjust(width, ALPHA[0])
+h, ln, ext = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+sys.stdout.write(enc(int(h, 16), 22) + "_" + enc(ln) + ext)
+PYEOF
+}

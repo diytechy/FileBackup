@@ -647,18 +647,47 @@ foreach ($row in (Read-RawManifest -Folder $authorityFolder)) {
     $main[$row.RelativePath] = $row
 }
 
-# ---- Legacy path-addressed store: refused, not restored (SR-061) ----
+# ---- Pre-WP12 store: refused, not restored (SR-061 / SR-069) ----
 # Support for WRITING a pre-content-addressed store went at WP9; kit revision 7
-# withdraws READING it too (human ruling 2026-08-26), so the promise the docs
-# make is one the suites actually test. TWO markers, matching
-# Test-BackupManifest's refusal on the engine side: StoredAsHashSize='Original'
-# is the authoritative one, and a DataPath carrying a path separator is the
-# structural one that still catches a store whose column was lost or rewritten
-# (a content-addressed DataPath is always a bare '<hash16> <len10><ext>'
-# filename in the origin folder; blank means "recover by hash"). Refused as a
-# PRECONDITION before the target exists - nothing attempted, nothing written.
+# withdrew READING it too, and kit revision 9 (WP12) extends the same refusal to
+# a pre-WP12 CONTENT-ADDRESSED store, whose objects carry the old base-85,
+# space-separated names. Refused as a PRECONDITION before the target exists -
+# nothing attempted, nothing written.
+#
+# THREE markers, because no one of them is complete:
+#   1. StoredAsHashSize='Original'  - a pre-content-addressed store (WP9).
+#   2. A witness declaring format version < this build's - the positive,
+#      always-present-on-modern-stores marker for the base-85 grammar. It is
+#      only a marker when a witness EXISTS: SR-039 deliberately lets a
+#      witness-less store restore with a warning, so absence proves nothing.
+#   3. A DataPath in a RETIRED grammar - a path separator (pre-WP9
+#      path-addressed), or a space at index 16 (the pre-WP12 base-85
+#      "<hash16> <len10><ext>" form). Catches a store whose witness was lost.
+#
+# Marker 3 is a POSITIVE test, NOT "does not parse under SR-069". Those are not
+# complements: a merely DAMAGED DataPath parses under neither grammar, and
+# SR-049/SR-053/SR-056 require the per-row audit, heal and verify machinery to
+# answer for it. Refusing the whole store there would turn one repairable row
+# into an unrestorable backup.
+#
+# A blank DataPath means 'recover by hash' and is NOT tested by 3 - a blank
+# string carries no grammar. That is the one residual gap and it is benign: the
+# locators find data by CONTENT, never by name, so a store that reaches them
+# through blank rows alone restores correctly whatever its objects are called.
 $legacyRow = $null
 $legacyWhy = $null
+
+$authorityWitness = Test-ManifestWitness -FolderPath $authorityFolder
+if ($authorityWitness.Status -ne 'Absent' -and $authorityWitness.Version -gt 0 -and
+    $authorityWitness.Version -lt (Get-FileBackupDefaults).WitnessFormatVersion) {
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message (
+        "'$authorityFolder' is a pre-WP12 store: its manifest witness declares format version " +
+        "$($authorityWitness.Version), and this kit (revision 9) writes and reads " +
+        "$((Get-FileBackupDefaults).WitnessFormatVersion) - the SR-069 base-57 name grammar. " +
+        'This kit does not restore stores written under the older base-85 grammar (SR-061). Restore it ' +
+        'with the kit bundled inside that backup folder, which was written by the build that produced it.')
+}
+
 foreach ($rel in $main.Keys) {
     $candidate = $main[$rel]
     if ("$($candidate.StoredAsHashSize)" -eq 'Original') {
@@ -666,20 +695,23 @@ foreach ($rel in $main.Keys) {
         $legacyWhy = "carries StoredAsHashSize='$($candidate.StoredAsHashSize)'"
         break
     }
-    # IndexOfAny over the two separator CHARACTERS, not a regex: a character
-    # class is one stray backslash away from silently matching only the
-    # forward slash, and this guard must not fail open (92 = backslash, 47 = slash).
-    if ("$($candidate.DataPath)".IndexOfAny([char[]]@([char]92, [char]47)) -ge 0) {
+    # A POSITIVE test for the retired grammars, never the negation of the
+    # current one. A row whose DataPath is merely DAMAGED parses under neither,
+    # and SR-056's verify-and-heal machinery must get to answer for it - a
+    # whole-store refusal would turn one repairable row into an unrestorable
+    # backup. Refuse the old FORMAT; let damaged ROWS take the content path.
+    if (Test-LegacyStoredObjectName -Name "$($candidate.DataPath)") {
         $legacyRow = $candidate
-        $legacyWhy = "names its data as '$($candidate.DataPath)', a source path rather than a content-addressed object"
+        $legacyWhy = "names its data '$($candidate.DataPath)', a retired stored-object name"
         break
     }
 }
 if ($legacyRow) {
     Exit-Reconstruct -Code $EXIT_PRECONDITION -Message (
-        "'$authorityFolder' is a legacy path-addressed store: row '$($legacyRow.RelativePath)' $legacyWhy. " +
-        'This kit (revision 7) does not restore pre-content-addressed stores (SR-061). Restore it with the kit ' +
-        'bundled inside that backup folder, which was written by the build that produced it.')
+        "'$authorityFolder' is not a store this kit can restore: row '$($legacyRow.RelativePath)' $legacyWhy. " +
+        'This kit (revision 9) restores only content-addressed stores using the SR-069 base-57 name grammar ' +
+        '(SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build ' +
+        'that produced it.')
 }
 
 # ---- Create the target and open the log (first mutation of this run) ----

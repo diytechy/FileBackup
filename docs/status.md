@@ -24,22 +24,33 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **HEADLINE - WP12 IS RAISED AND PLANNED, AWAITING RATIFICATION (2026-08-27).**
-  The human inspected a live pool, asked whether the stored-object names were
-  expected, and — after the driver decoded one to show they were — ruled a
-  **read-breaking name-grammar change**: base-57 (alphanumerics less
-  `0 O I l 1`), `_` separator, full 128-bit hash padded to 22, unpadded length.
-  Affordable only because no store is in production use. Plan:
-  [plans/wp12-name-grammar-plan.md](../plans/wp12-name-grammar-plan.md).
-  **Nothing implemented — three decisions (D-1 legacy-store refusal mechanism,
-  D-2 throw-on-over-length, D-3 the retired leading-dot fixture) are with the
-  human.** Answering the question also found that the name grammar **has no
-  owning requirement** (it is specified only in TC-004's `Expected`), which
-  SR-069 fixes regardless of the redesign.
-- **LIVE ITEM (separate from WP12): no `--` end-of-options guard on the
-  PowerShell 7-Zip calls** (`Common.psm1:444`, `:478`), where the bash twin
-  guards every external call. Unreachable today because every path passed is
-  absolute; deliberately not folded into WP12.
+- **HEADLINE - WP12 IS COMPLETE (2026-08-27). Restore kit revision 9.** Stored
+  objects are named `<hash22>_<len><ext>` in base-57 (the alphanumerics less
+  `0 O I l 1`), carrying the COMPLETE 128-bit hash with an UNPADDED length -
+  the same 30 characters as before, 26 more bits of hash, and none of the
+  hostile name shapes the old 85-glyph alphabet could produce. Raised by the
+  human from a live pool; ratified, independently reviewed, repaired TWICE, and
+  green. Witness format version 1 -> 2; SR-061 refuses a pre-WP12 store.
+- **Evidence (real output, 2026-08-27):** `check.ps1 -Tier Full -Gate G3` **all
+  steps passed** - lint clean; trace **0 orphans / 0 integrity / 0
+  status-findings**, 1 phase-deferred (SR-033, by design); unit **444/444**;
+  integration **274 PASS / 0 FAIL / 2 SKIP**. Ubuntu WSL: **bats 79/79**,
+  `shellcheck` clean. Ratchet:
+  `core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1,form-v1,name-v1`.
+- **A LIVE PRODUCTION BUG was found and fixed along the way (T6):** an
+  extensionless source file (`README`, `LICENSE`, `Makefile`) in a Plain-mode
+  set **failed the entire backup set** - `-Extension` was
+  `[Parameter(Mandatory)]`, which rejects `''`. Invisible in Compress mode,
+  which is why no suite caught it. Now pinned by TC-148 in both modes.
+- **The name grammar had NO owning requirement** before this - it was stated
+  only in TC-004's `Expected`. SR-069 and SR-070 now own it.
+- **TWO LIVE ITEMS, both pre-existing and neither introduced by WP12:** (1) no
+  collision rail on the content-addressed write path - `Invoke-BackupFileGroup`
+  writes to the derived name without proving an object already there is the same
+  content (an SR-029 verify-or-fail conversation, not a naming one); (2) no `--`
+  end-of-options guard on the PowerShell 7-Zip calls (`Common.psm1:444`,
+  `:478`), where the bash twin guards every external call - base-57 removes the
+  reachability of a leading `-` or `@`, not the hole.
 - **HEADLINE - WP11 IS COMPLETE (2026-08-26), and its live-items list was EMPTY.**
   Two parts. **Part A closed the Full-tier intermittent by finding it**, and it
   was the TEST HARNESS, not the product: `Reset-TestEnvironment` wiped the
@@ -4624,3 +4635,119 @@ No code, registry, or fixture has been touched. Ids reserved against the
 registries for the implementing commit: **SR-069, LLR-069, TC-142…TC-146**,
 phase tag **`name-v1`** (held OUT of the `check.ps1` ratchet until the evidence
 run lands, so it reports phase-deferred rather than failing G3 while open).
+
+---
+
+### DRIVER — WP12 SHIPPED: the base-57 stored-object name grammar (kit revision 9) — 2026-08-27
+
+Ratified, reviewed, repaired twice, implemented, and green on real output.
+
+**What shipped.** Stored objects are now named `<hash22>_<len><ext>` over a
+57-glyph alphabet (the 62 alphanumerics less `0 O I l 1`; `'2'` is the zero
+digit). The hash field is the COMPLETE 128-bit xxH2Hash — the old 16-char
+base-85 field held ~102.5 bits and silently truncated — and the length field is
+UNPADDED, which is what removes the run of zero-digits the human raised this
+from. A name is the same 30 characters as before while carrying 26 more bits of
+hash. Witness format version 1 → 2; kit revision 9.
+
+**The human's ruling and its one carve-out.** "Nothing here needs to be backward
+compatible" was ratified and applied. D-1 was kept regardless, and the reasoning
+is recorded because it will come up again: refusing an old store is not
+backward compatibility, it is the guarantee that a grammar this build cannot
+read is never MISread.
+
+**Evidence (real output, this host, on the committed tree):**
+
+```
+==== PSScriptAnalyzer ====                         [PASS]
+Traceability: SN=34 SR=69 LLR=67 TC=146 orphans=0 integrity=0
+              status-findings=0 phase-deferred=1
+check_docs: OK - 27 doc(s), 100 intra-repo link(s), 0 broken.
+[OK]  Generated regions current in docs/architecture.md / AGENTS.md
+Tests Passed: 444, Failed: 0, Skipped: 0
+  PASS: 274   FAIL: 0   SKIP: 2                    (integration, 2-mode matrix)
+================ check.ps1 (tier Full, gate G3) ================
+All steps passed.
+
+Ubuntu WSL:  shellcheck -S warning bash/reconstruct.sh  -> SHELLCHECK_CLEAN
+             bats tests/bash                            -> ok=79  not ok=0
+```
+
+Unit 437 → **444**, integration 240 → **274**. Ratchet armed to
+`core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1,form-v1,name-v1`
+in both `scripts/check.ps1` and the CI traceability job.
+
+**Registry:** SR-069 (name grammar) and SR-070 (opaque, possibly-empty
+extension) added — **the grammar had no owning requirement before**, it was
+stated only in TC-004's `Expected`, which is the traceability finding that
+outlives the redesign. SR-061 amended; LLR-069/LLR-070; TC-004 amended;
+TC-142…TC-149 added.
+
+**Three defects were found that no one set out to look for.** All are recorded
+in full in [plans/wp12-name-grammar-plan.md](../plans/wp12-name-grammar-plan.md)
+§9; the short version:
+
+- **T6 — a LIVE PRODUCTION BUG, unrelated to the redesign.**
+  `Get-HashSizeFileName`'s `-Extension` was `[Parameter(Mandatory)]`, which in
+  PowerShell REJECTS the empty string, so **any extensionless source file**
+  (`README`, `LICENSE`, `Makefile`) in a set with `CompressEnabled=false`
+  **failed the entire backup set**, exit 1, nothing stored. Invisible in
+  Compress mode because an empty extension is not in
+  `NonCompressibleExtensions`, so the name became `.7z` before reaching the
+  encoder — which is exactly why the matrix never caught it. Found by probing
+  the review's extension question, reproduced end to end, fixed, and pinned by
+  TC-148 in BOTH modes.
+- **T2 — the RATIFIED D-1 mechanism would have broken real backups.** "An old
+  DataPath contains a space; a new one cannot" is false: the stored name ends in
+  the OWNER'S SOURCE extension, `Test-PortableRelativePath` permits
+  `signed.foo bar`, and a live pool duly contained
+  `f7(#5C=v.uYfdGbp !!!!!!!!!%.foo bar`. A brand-new store would have been
+  refused as legacy by the engine and both restorers. Caught by the independent
+  review; SR-070 now pins the extension as opaque so no future guard can
+  reintroduce a character blacklist.
+- **T7 — the review-repaired plan was STILL wrong, and only the suite caught
+  it.** D-1's structural test was specified as "every non-blank DataPath must
+  parse under SR-069; anything else is refused." Five unit tests and six
+  integration assertions failed on it, correctly: **"not the current grammar"
+  and "a retired grammar" are different predicates.** A merely DAMAGED DataPath
+  (the `DanglingDataPath` class) parses under neither, and SR-049/SR-053/SR-056
+  exist to audit, heal and verify those PER ROW — the negative test refused the
+  whole store, turning one repairable row into an unrestorable backup and
+  locking out `-RepairStorage`. Inverted to a POSITIVE test
+  (`Test-LegacyStoredObjectName` / `is_legacy_stored_name`): a path separator,
+  or the base-85 form's space at index 16. **Refuse the old FORMAT; repair
+  damaged ROWS.** Worth keeping in mind: the strict version LOOKED stronger, and
+  both the driver and a review specifically hunting D-1 defects read past it.
+
+**Independent review:** OpenAI gpt-5.6-terra, medium effort, via `codex exec`,
+read-only, adversarial charter — 5 findings (1 P0, 2 P1, 2 P2). T2 and T3 were
+valid and changed the design (T3 replaced the shape test with the witness
+version as the authoritative marker). T1's arithmetic was accepted and its
+severity reduced: base-57 folds to 34 case-insensitive classes = 111.92 bits on
+NTFS, not 128 — but base-85 folded to 59 over 16 chars = **94.12**, so WP12
+IMPROVES the flagged property by +17.8 bits. The review did not make that
+comparison. Its recommendation to change the codec was declined; the real gap
+underneath it was recorded (see live items).
+
+**Housekeeping worth knowing about:** the bats suites carried FIVE
+byte-identical copies of `restamp_witness`, each with the version hard-coded, so
+the witness bump broke 30 tests at once. Now one definition in `helpers.bash`
+with the version as a constant. `restore_fidelity.bats` had drifted to CRLF
+despite `.gitattributes` mandating LF — normalised. A transient
+`Access to the path 'V:\Snapshot_...' is denied` failed G9 prune on one run:
+the tool REFUSED correctly (exit 4, "no data was lost") and it did not
+reproduce — environmental, recorded rather than dismissed.
+
+**LIVE ITEMS (two, both pre-existing, neither introduced here):**
+
+1. **No collision rail on the content-addressed write path** (WP12 plan R-4).
+   `Invoke-BackupFileGroup` writes to the derived name without proving that an
+   object already there is the same content. Pre-existing, and WP12 makes it
+   17.8 bits less likely, but the fix is an SR-029 verify-or-fail conversation,
+   not a naming one.
+2. **No `--` end-of-options guard on the PowerShell 7-Zip calls**
+   (`Common.psm1:444`, `:478`), where the bash twin guards every external call.
+   Base-57 removes the REACHABILITY of a leading `-` or `@`, not the hole.
+
+**G-Release and G-Final remain the outstanding gates.** SR-033 (`bash-v2`) is
+still phase-deferred by design.

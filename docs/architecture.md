@@ -122,8 +122,9 @@ Imports (internal): _none_
 | Function | Exported | Implements |
 |---|:---:|---|
 | `Compress-FileWithSevenZip` | yes | SR-004, LLR-004 |
-| `Convert-HexToShortName` | yes | SR-003, LLR-003 |
-| `Convert-ShortNameToHex` | yes | — |
+| `Convert-HexToShortName` | yes | SR-003, SR-069, LLR-003, LLR-069 |
+| `Convert-ShortNameToHex` | yes | SR-003, SR-069, LLR-003, LLR-069 |
+| `ConvertFrom-HashSizeFileName` | yes | SR-069, SR-070, LLR-069 |
 | `ConvertFrom-ManifestDateString` | yes | — |
 | `ConvertTo-DirectoryAttributeFlag` | yes | SR-065, LLR-065 |
 | `ConvertTo-ManifestDateString` | yes | SR-025, LLR-025 |
@@ -132,7 +133,7 @@ Imports (internal): _none_
 | `Get-FileBackupDefaults` | yes | — |
 | `Get-FileXxHash` | yes | SR-002, LLR-002 |
 | `Get-FreeSpaceBytes` | yes | SR-052, SR-023, LLR-052, LLR-023 |
-| `Get-HashSizeFileName` | yes | SR-003, SR-021, LLR-003, LLR-021 |
+| `Get-HashSizeFileName` | yes | SR-003, SR-021, SR-069, SR-070, LLR-003, LLR-021, LLR-069, LLR-070 |
 | `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
 | `Get-StoredObjectForm` | yes | SR-068, LLR-068 |
 | `Get-VolumeIdentity` | yes | SR-052, LLR-052 |
@@ -142,6 +143,8 @@ Imports (internal): _none_
 | `New-RelativePathMap` | yes | SR-034, LLR-034 |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
 | `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
+| `Test-HashSizeFileName` | yes | SR-061, SR-069, LLR-069 |
+| `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
 | `Write-Manifest` | yes | SR-025, SR-038, LLR-025, LLR-038 |

@@ -9,26 +9,19 @@ setup() {
     load helpers
 }
 
-restamp_witness() {
-    local manifest="$1" witness="${1}.meta" rows bytes hash
-    rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"
-    bytes="$(stat -c '%s' -- "$manifest")"
-    hash="$(xxh128sum -- "$manifest" | awk '{print $1}' | tr 'a-f' 'A-F')"
-    printf 'Version=1\nRows=%s\nBytes=%s\nXxH128=%s\nWritten=%s\n' \
-        "$rows" "$bytes" "$hash" "$(date --iso-8601=seconds)" > "$witness"
-}
-
 # one_row_store <dir> <payload> : a store whose single row names its own data
-# file "data.bin"; echoes nothing, sets STORE_HASH/STORE_LEN.
+# file under the SR-069 grammar; sets STORE_HASH/STORE_LEN/STORE_DATA.
 one_row_store() {
     local dir="$1" payload="$2"
     mkdir -p "$dir"
-    printf '%s' "$payload" > "$dir/data.bin"
-    STORE_HASH="$(hash_upper "$dir/data.bin")"
-    STORE_LEN="$(stat -c '%s' "$dir/data.bin")"
+    printf '%s' "$payload" > "$dir/tmp.stage"
+    STORE_HASH="$(hash_upper "$dir/tmp.stage")"
+    STORE_LEN="$(stat -c '%s' "$dir/tmp.stage")"
+    STORE_DATA="$(hash_size_name "$STORE_HASH" "$STORE_LEN" '.bin')"
+    mv "$dir/tmp.stage" "$dir/$STORE_DATA"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"data.bin","restored.txt","%s","d","%s","No","Hash","0",""\r\n' "$STORE_LEN" "$STORE_HASH"
+      printf '"%s","restored.txt","%s","d","%s","No","Hash","0",""\r\n' "$STORE_DATA" "$STORE_LEN" "$STORE_HASH"
     } > "$dir/MANIFEST.csv"
     restamp_witness "$dir/MANIFEST.csv"
 }
@@ -36,8 +29,8 @@ one_row_store() {
 @test "0: a wrong-payload data file is healed from a surviving pool copy, warning logged (SR-056 / TC-109)" {
     local s="$BATS_TEST_TMPDIR/heal"
     one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
-    cp "$s/data.bin" "$s/spare.bin"                       # good copy survives in the pool
-    printf 'WRNG-PAYLOAD-BYTES' > "$s/data.bin"           # same length, wrong bytes
+    cp "$s/$STORE_DATA" "$s/spare.bin"                       # good copy survives in the pool
+    printf 'WRNG-PAYLOAD-BYTES' > "$s/$STORE_DATA"           # same length, wrong bytes
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/theal" --from "$s"
     [ "$status" -eq 0 ]
@@ -49,7 +42,7 @@ one_row_store() {
 @test "1: a same-length bit-flip with no surviving copy fails loudly, bad bytes deleted (SR-056 / TC-109)" {
     local s="$BATS_TEST_TMPDIR/flip"
     one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
-    printf 'GOOD-PAYLOAD-BYTEX' > "$s/data.bin"
+    printf 'GOOD-PAYLOAD-BYTEX' > "$s/$STORE_DATA"
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tflip" --from "$s"
     [ "$status" -eq 1 ]
@@ -61,7 +54,7 @@ one_row_store() {
 @test "1: truncation is caught by the length check before any hashing (SR-056 / TC-109)" {
     local s="$BATS_TEST_TMPDIR/trunc"
     one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
-    printf 'GOOD' > "$s/data.bin"
+    printf 'GOOD' > "$s/$STORE_DATA"
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/ttrunc" --from "$s"
     [ "$status" -eq 1 ]
@@ -74,8 +67,8 @@ one_row_store() {
     # one must exit 4 (self-test separates broken-host from damaged-archive).
     local s="$BATS_TEST_TMPDIR/broken7z"
     one_row_store "$s" 'PAYLOAD-FOR-BROKEN7Z'
-    rm -f "$s/data.bin"
-    sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
+    rm -f "$s/$STORE_DATA"
+    sed -i "s|^\"$STORE_DATA\"|\"\"|" "$s/MANIFEST.csv"
     restamp_witness "$s/MANIFEST.csv"
     printf 'garbage-not-archive' > "$s/noise.7z"
     printf '#!/bin/sh\nexit 2\n' > "$BATS_TEST_TMPDIR/fake7z"
@@ -124,10 +117,10 @@ one_row_store() {
     one_row_store "$s" 'UNREADABLE-CANDIDATE'
     sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
     restamp_witness "$s/MANIFEST.csv"
-    chmod 000 "$s/data.bin"
+    chmod 000 "$s/$STORE_DATA"
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tunread" --from "$s"
-    chmod 644 "$s/data.bin"
+    chmod 644 "$s/$STORE_DATA"
     [ "$status" -eq 4 ]
     [[ "$output" == *"StorageUnreadable"* ]]
     [[ "$output" == *"could not be read"* ]]
@@ -138,7 +131,7 @@ one_row_store() {
     local s="$BATS_TEST_TMPDIR/badchg"
     one_row_store "$s" 'SNAPSHOT-ONLY-BYTES'
     mkdir -p "$s/changes/Snapshot_2024_01_01_00_00_01"
-    mv "$s/data.bin" "$s/changes/Snapshot_2024_01_01_00_00_01/data.bin"
+    mv "$s/$STORE_DATA" "$s/changes/Snapshot_2024_01_01_00_00_01/data.bin"
     sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
     restamp_witness "$s/MANIFEST.csv"
 
@@ -158,7 +151,7 @@ one_row_store() {
     # pinned so it stays true (the PowerShell scan needed -Force, kit rev 6).
     local s="$BATS_TEST_TMPDIR/dotpool"
     one_row_store "$s" 'DOT-POOL-PAYLOAD'
-    mv "$s/data.bin" "$s/.pool-copy.bin"
+    mv "$s/$STORE_DATA" "$s/.pool-copy.bin"
     sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
     restamp_witness "$s/MANIFEST.csv"
 
@@ -178,11 +171,12 @@ one_row_store() {
     (cd "$w" && "$zbin" a -bd -y good.7z restored.txt >/dev/null)
     printf 'ARCHIVE-BAD--PAYLOAD' > "$w/restored.txt"
     (cd "$w" && "$zbin" a -bd -y bad.7z restored.txt >/dev/null)
-    cp "$w/bad.7z"  "$s/data.7z"      # the row's own archive: valid, wrong payload
+    local own; own="$(hash_size_name "$h" "$len" '.7z')"
+    cp "$w/bad.7z"  "$s/$own"         # the row's own archive: valid, wrong payload
     cp "$w/good.7z" "$s/spare.7z"     # a good pool copy under an unrelated name
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"data.7z","restored.txt","%s","d","%s","Yes","HashSize","0",""\r\n' "$len" "$h"
+      printf '"%s","restored.txt","%s","d","%s","Yes","HashSize","0",""\r\n' "$own" "$len" "$h"
     } > "$s/MANIFEST.csv"
     restamp_witness "$s/MANIFEST.csv"
 

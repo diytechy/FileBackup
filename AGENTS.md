@@ -127,8 +127,9 @@ Imports (internal): _none_
 | Function | Exported | Implements |
 |---|:---:|---|
 | `Compress-FileWithSevenZip` | yes | SR-004, LLR-004 |
-| `Convert-HexToShortName` | yes | SR-003, LLR-003 |
-| `Convert-ShortNameToHex` | yes | — |
+| `Convert-HexToShortName` | yes | SR-003, SR-069, LLR-003, LLR-069 |
+| `Convert-ShortNameToHex` | yes | SR-003, SR-069, LLR-003, LLR-069 |
+| `ConvertFrom-HashSizeFileName` | yes | SR-069, SR-070, LLR-069 |
 | `ConvertFrom-ManifestDateString` | yes | — |
 | `ConvertTo-DirectoryAttributeFlag` | yes | SR-065, LLR-065 |
 | `ConvertTo-ManifestDateString` | yes | SR-025, LLR-025 |
@@ -137,7 +138,7 @@ Imports (internal): _none_
 | `Get-FileBackupDefaults` | yes | — |
 | `Get-FileXxHash` | yes | SR-002, LLR-002 |
 | `Get-FreeSpaceBytes` | yes | SR-052, SR-023, LLR-052, LLR-023 |
-| `Get-HashSizeFileName` | yes | SR-003, SR-021, LLR-003, LLR-021 |
+| `Get-HashSizeFileName` | yes | SR-003, SR-021, SR-069, SR-070, LLR-003, LLR-021, LLR-069, LLR-070 |
 | `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
 | `Get-StoredObjectForm` | yes | SR-068, LLR-068 |
 | `Get-VolumeIdentity` | yes | SR-052, LLR-052 |
@@ -147,6 +148,8 @@ Imports (internal): _none_
 | `New-RelativePathMap` | yes | SR-034, LLR-034 |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
 | `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
+| `Test-HashSizeFileName` | yes | SR-061, SR-069, LLR-069 |
+| `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
 | `Write-Manifest` | yes | SR-025, SR-038, LLR-025, LLR-038 |
@@ -384,8 +387,21 @@ Imports (internal): `Common`
 - **Infrastructure files are root-level only** (`Test-IsInfrastructureFile`): a *nested*
   user file named `MANIFEST.csv`/`RECONSTRUCT.ps1`/etc. is real data (regression B6).
   Never filter data files by bare name.
+- **The stored-object name grammar is `<hash22>_<len><ext>`** (SR-069): the
+  complete 128-bit `xxH2Hash` in base-57 padded to 22, `_`, the `Length` in
+  base-57 **unpadded**, then the extension. The alphabet is the 62
+  alphanumerics less `0 O I l 1`; `'2'` is its zero digit and its pad
+  character. Encoding refuses rather than truncates, decoding refuses a field
+  `>= 2^128` (`57^22` is 128.324 bits), and **exactly one parser reads a name**
+  — `ConvertFrom-HashSizeFileName`, mirrored structurally by
+  `is_hash_size_name` in `bash/reconstruct.sh`. Never split on `_`: the
+  extension is opaque and may contain one.
 - **Content-addressed data filenames carry the storage extension**: `.7z` when
-  compressed, so `Compressed` and the filename agree.
+  compressed, so `Compressed` and the filename agree. The extension is the
+  owner's source extension verbatim otherwise, is **not** constrained to the
+  alphabet, and **may be empty** (SR-070) — `signed.foo bar` is a portable
+  source name and yields `.foo bar`, and `README` yields none. Any guard that
+  blacklists characters in an extension will refuse valid stores.
 - **A blank-DataPath row is resolved by the form of the file hash recovery
   locates, never by the row's `Compressed`** (SR-050) — that column describes
   only a file in the row's *own* folder, and a blank row has none. The locator

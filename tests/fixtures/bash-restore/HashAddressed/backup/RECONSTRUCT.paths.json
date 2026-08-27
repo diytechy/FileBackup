@@ -1,4 +1,4 @@
 {
-  "BackupRoot": "C:\\Backups\\FileBackupFixture\\backup",
-  "ChangeRoot": "C:\\Backups\\FileBackupFixture\\backup\\changes"
+  "ChangeRoot": "C:\\Backups\\FileBackupFixture\\backup\\changes",
+  "BackupRoot": "C:\\Backups\\FileBackupFixture\\backup"
 }

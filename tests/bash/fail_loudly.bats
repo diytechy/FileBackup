@@ -57,7 +57,8 @@ setup() {
     h="$(hash_upper "$bad/payload.txt")"; len="$(stat -c '%s' "$bad/payload.txt")"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"payload.txt","..\\..\\ESCAPED.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
+      printf '"%s","..\\..\\ESCAPED.txt","%s","d","%s","No","Hash","0",""\r\n' \
+        "$(hash_size_name "$h" "$len" '.txt')" "$len" "$h"
     } > "$bad/MANIFEST.csv"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/nest/target" --from "$bad"
     [ "$status" -eq 1 ]

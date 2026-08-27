@@ -169,10 +169,22 @@ exit 2, write nothing, never convert — is unchanged; only its implementation i
    store, whatever its rows look like, which is what fixes T3: a shape test over
    `DataPath` cannot classify a manifest whose `DataPath` values are all blank
    ("recover by hash" is a supported state), and a format version can.
-2. **Structural name test (belt-and-braces).** Every NON-BLANK `DataPath` must
-   parse under the canonical grammar of §2.2 — 22 base-57 chars, `_`, one or
-   more base-57 digits, then an OPAQUE extension. Anything else is refused. This
-   catches a store whose witness was lost or rewritten.
+2. **Structural name test (belt-and-braces).** A NON-BLANK `DataPath` in a
+   **retired** grammar is refused: one containing a path separator (the pre-WP9
+   path-addressed form), or one carrying the base-85 form's **space at index
+   16**. That index is decisive — a WP12 name's first 22 characters are its
+   hash field and are always alphanumeric. Catches a store whose witness was
+   lost or rewritten.
+
+   **This is a POSITIVE test for the old grammars, NOT "does not parse under
+   SR-069".** The plan originally specified the negation and the suite caught
+   it during implementation: those two are not complements. A merely DAMAGED
+   `DataPath` — the `DanglingDataPath` class, a name something outside the tool
+   rewrote — parses under neither grammar, and SR-049/SR-053/SR-056 require the
+   per-row audit, heal and verify machinery to answer for it. The negative test
+   refused the whole store instead, turning one repairable row into an
+   unrestorable backup. **Refuse the old FORMAT; repair damaged ROWS.** See
+   §9/T7.
 
 **The test is structural, never a character blacklist.** T2's counter-example is
 real and was reproduced on this host: `Test-PortableRelativePath` permits a
@@ -496,3 +508,28 @@ the matrix so it cannot regress.
 - The full hash in the name is a real improvement over the ~102-bit truncation.
 - **`bash/reconstruct.sh` does not decode stored-object names** — the plan's
   central scope claim, independently confirmed by reading the locator.
+
+### T7 — found by the SUITE during implementation, not by any reviewer — **PLAN DEFECT, FIXED**
+
+The ratified-and-repaired D-1 was still wrong, in a way neither the driver nor
+the review caught by reading: it specified the structural test as *"every
+non-blank `DataPath` must parse under SR-069; anything else is refused."*
+
+Five unit tests and six integration assertions failed on it, and they were
+right. **"Not the current grammar" and "a retired grammar" are not the same
+predicate.** A `DataPath` that is merely DAMAGED — the `DanglingDataPath` class,
+or a name something outside the tool rewrote — parses under neither, and
+SR-049/SR-053/SR-056 exist precisely to audit, heal and verify those per row.
+The negative test refused the **whole store** instead, so one repairable row
+became an unrestorable backup and `-RepairStorage` could never run on it.
+
+That is a regression against three shipped requirements, introduced by a gate
+meant to protect data. Fixed by inverting the test: `Test-LegacyStoredObjectName`
+(and bash's `is_legacy_stored_name`) answer *"is this one of the two RETIRED
+grammars?"* — a path separator, or the base-85 form's space at index 16 — and
+nothing else is treated as a format marker. **Refuse the old FORMAT; repair
+damaged ROWS.**
+
+Worth recording as its own finding: the strict version *looked* stronger, and
+both the driver and a review that was specifically hunting D-1 defects read past
+it. What caught it was running the suite.

@@ -18,15 +18,6 @@ setup() {
 # Re-stamp the witness the way Write-Manifest does (SR-038): five Key=Value
 # lines, UTF-8 without BOM, LF. Used to prove a damaged manifest restores again
 # once its witness agrees, and to keep deliberate tampering on-target.
-restamp_witness() {
-    local manifest="$1" witness="${1}.meta" rows bytes hash
-    rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"
-    bytes="$(stat -c '%s' -- "$manifest")"
-    hash="$(xxh128sum -- "$manifest" | awk '{print $1}' | tr 'a-f' 'A-F')"
-    printf 'Version=1\nRows=%s\nBytes=%s\nXxH128=%s\nWritten=%s\n' \
-        "$rows" "$bytes" "$hash" "$(date --iso-8601=seconds)" > "$witness"
-}
-
 # Count files the restore actually wrote into the target. The restorer's own
 # RECONSTRUCT.log does not count as a restored row.
 restored_count() {
@@ -149,7 +140,7 @@ restored_count() {
 
 @test "a witness from the FUTURE verifies the known fields and warns (SR-039)" {
     # A newer witness format must never condemn a good manifest.
-    sed -i 's/^Version=1$/Version=99/' "$WITNESS"
+    sed -i -E 's/^Version=[0-9]+$/Version=99/' "$WITNESS"
     printf 'SomeFutureKey=whatever\n' >> "$WITNESS"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/future" --from "$BK" --backup-root "$BK" --change-root "$CH"
     [ "$status" -eq 0 ]

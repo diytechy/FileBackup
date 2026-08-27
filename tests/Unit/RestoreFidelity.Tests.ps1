@@ -327,7 +327,7 @@ Describe 'A legacy path-addressed store is refused by the restorer (SR-061)' -Fo
         $t = Join-Path $root 'restored'
         $r = Invoke-FidelityRestore -Recon $s.Recon -TargetRoot $t
         $r.Code   | Should -Be 2
-        $r.Output | Should -Match 'legacy path-addressed store'
+        $r.Output | Should -Match 'not a store this kit can restore'
         Test-Path -LiteralPath (Join-Path $t 'twin-a.txt') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $t 'uniq.txt')   | Should -BeFalse
     }

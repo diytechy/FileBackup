@@ -482,8 +482,21 @@ before backup processing instead of writing raw bytes described as compressed.
 | `ViewPath` | Where the view is written. Defaults to `<BackupPath>_View`; must lie outside the backup and change roots and on the backup volume. |
 
 Storage is always content-addressed: every data file is stored once per unique
-content under a `<hashShort> <sizeShort>.<ext>` name and referenced via the
-manifest. (The former `PreserveFolderTree` mirror layout was removed — an
+content under a `<hash>_<len><ext>` name and referenced via the manifest. The
+two fields are base-57 — the alphanumerics less the ambiguous `0 O I l 1` — so
+a stored object is named with letters and digits only:
+
+```
+bqCY8RX7mwkoaQybcV4qdG_oJua.7z
+└──── 22 chars ─────┘ └──┘
+   full 128-bit hash   length, unpadded
+```
+
+The hash field is the row's complete `xxH2Hash`, so a pool object can be checked
+against the manifest by decoding its own name; the length field carries no
+padding. Nothing outside `[2-9A-HJ-NP-Za-km-z_]` appears before the extension,
+which means a data file can never be hidden (a leading dot), never look like a
+command-line switch (a leading dash), and never need quoting in a shell. (The former `PreserveFolderTree` mirror layout was removed — an
 in-place edit of one of two identical files could destroy the last copy of
 their shared content. A store written by a pre-content-addressed build still
 restores and verifies, but backing up onto it is refused; use a fresh
@@ -720,7 +733,7 @@ next successful run rewrites both. It fails in the safe direction on purpose.
 | Column | Meaning |
 |---|---|
 | `RelativePath` | The file's path under `SourcePath` — its identity. |
-| `DataPath` | The stored object holding its bytes, named by content: `"<hash16> <len10><ext>"`. **Blank** means "recover by content hash" — the bytes live in another folder of the pool and the restorer finds them by `(hash, length)`. |
+| `DataPath` | The stored object holding its bytes, named by content: `"<hash22>_<len><ext>"` in base-57 (see above). **Blank** means "recover by content hash" — the bytes live in another folder of the pool and the restorer finds them by `(hash, length)`. |
 | `Length` · `xxH2Hash` | The original content's size and xxHash128. Together they are the dedup key, the restore lookup key, and the post-write verification the restorer performs on every file. |
 | `LastWriteTimeStr` | The source file's modification time, used with `Length` to skip re-hashing an unchanged file. |
 | `Compressed` | Whether *this row's own* stored object is a `.7z`. Compression is decided per file, so a tree is normally mixed. **Advisory since kit revision 8**: a restore decides the real form from the object's bytes (SR-068), so a wrong value here cannot produce a wrong restore. It still feeds the restore's free-space estimate, which is approximate by design. |

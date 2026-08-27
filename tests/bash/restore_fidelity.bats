@@ -10,30 +10,24 @@ setup() {
     load helpers
 }
 
-restamp_witness() {
-    local manifest="$1" witness="${1}.meta" rows bytes hash
-    rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"
-    bytes="$(stat -c '%s' -- "$manifest")"
-    hash="$(xxh128sum -- "$manifest" | awk '{print $1}' | tr 'a-f' 'A-F')"
-    printf 'Version=1\nRows=%s\nBytes=%s\nXxH128=%s\nWritten=%s\n' \
-        "$rows" "$bytes" "$hash" "$(date --iso-8601=seconds)" > "$witness"
-}
-
 # twin_store <dir> : two rows sharing ONE stored object (the dedup shape) with
 # DIFFERENT LastWriteTimeStr values, plus a third row whose timestamp cell is
 # garbage. Mirrors what the engine writes for content-addressed twins.
 twin_store() {
     local dir="$1" h len uh ulen
     mkdir -p "$dir"
-    printf 'SHARED-PAYLOAD-BYTES' > "$dir/shared.bin"
-    printf 'UNIQUE-PAYLOAD-BYTES' > "$dir/unique.bin"
-    h="$(hash_upper "$dir/shared.bin")";  len="$(stat -c '%s' "$dir/shared.bin")"
-    uh="$(hash_upper "$dir/unique.bin")"; ulen="$(stat -c '%s' "$dir/unique.bin")"
+    local sd ud
+    printf 'SHARED-PAYLOAD-BYTES' > "$dir/shared.stage"
+    printf 'UNIQUE-PAYLOAD-BYTES' > "$dir/unique.stage"
+    h="$(hash_upper "$dir/shared.stage")";  len="$(stat -c '%s' "$dir/shared.stage")"
+    uh="$(hash_upper "$dir/unique.stage")"; ulen="$(stat -c '%s' "$dir/unique.stage")"
+    sd="$(hash_size_name "$h" "$len" '.bin')";  mv "$dir/shared.stage" "$dir/$sd"
+    ud="$(hash_size_name "$uh" "$ulen" '.bin')"; mv "$dir/unique.stage" "$dir/$ud"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"shared.bin","twin-a.txt","%s","2001-01-01T01:02:03.0000000+00:00","%s","No","Hash","0",""\r\n' "$len" "$h"
-      printf '"shared.bin","twin-b.txt","%s","2002-02-02T04:05:06.0000000+00:00","%s","No","Hash","1",""\r\n' "$len" "$h"
-      printf '"unique.bin","garbage-time.txt","%s","not-a-timestamp","%s","No","Hash","0",""\r\n' "$ulen" "$uh"
+      printf '"%s","twin-a.txt","%s","2001-01-01T01:02:03.0000000+00:00","%s","No","Hash","0",""\r\n' "$sd" "$len" "$h"
+      printf '"%s","twin-b.txt","%s","2002-02-02T04:05:06.0000000+00:00","%s","No","Hash","1",""\r\n' "$sd" "$len" "$h"
+      printf '"%s","garbage-time.txt","%s","not-a-timestamp","%s","No","Hash","0",""\r\n' "$ud" "$ulen" "$uh"
     } > "$dir/MANIFEST.csv"
     restamp_witness "$dir/MANIFEST.csv"
 }
@@ -65,11 +59,13 @@ twin_store() {
 sidecar_store() {
     local dir="$1" h len
     mkdir -p "$dir"
-    printf 'PAYLOAD' > "$dir/data.bin"
-    h="$(hash_upper "$dir/data.bin")"; len="$(stat -c '%s' "$dir/data.bin")"
+    local dn
+    printf 'PAYLOAD' > "$dir/data.stage"
+    h="$(hash_upper "$dir/data.stage")"; len="$(stat -c '%s' "$dir/data.stage")"
+    dn="$(hash_size_name "$h" "$len" '.bin')"; mv "$dir/data.stage" "$dir/$dn"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"data.bin","hidden-dir/secret.txt","%s","2003-03-03T07:08:09.0000000+00:00","%s","No","Hash","0",""\r\n' "$len" "$h"
+      printf '"%s","hidden-dir/secret.txt","%s","2003-03-03T07:08:09.0000000+00:00","%s","No","Hash","0",""\r\n' "$dn" "$len" "$h"
     } > "$dir/MANIFEST.csv"
     restamp_witness "$dir/MANIFEST.csv"
     {
@@ -157,7 +153,7 @@ legacy_store() {
 
     run bash "$RS" --target-root "$t" --from "$s"
     [ "$status" -eq 2 ]
-    [[ "$output" == *"legacy path-addressed store"* ]]
+    [[ "$output" == *"not a store this kit can restore"* ]]
     [[ "$output" == *"StoredAsHashSize"* ]]
     [ ! -f "$t/sub/old.txt" ]
 }
@@ -168,7 +164,7 @@ legacy_store() {
 
     run bash "$RS" --target-root "$t" --from "$s"
     [ "$status" -eq 2 ]
-    [[ "$output" == *"legacy path-addressed store"* ]]
+    [[ "$output" == *"not a store this kit can restore"* ]]
     [ ! -f "$t/sub/old.txt" ]
 }
 
@@ -178,13 +174,15 @@ legacy_store() {
 form_store() {
     local dir="$1" cell="$2" h len
     mkdir -p "$dir"
-    printf 'RAW-CONTENT-NOT-AN-ARCHIVE' > "$dir/data.bin"
-    h="$(hash_upper "$dir/data.bin")"; len="$(stat -c '%s' "$dir/data.bin")"
+    local dn
+    printf 'RAW-CONTENT-NOT-AN-ARCHIVE' > "$dir/data.stage"
+    h="$(hash_upper "$dir/data.stage")"; len="$(stat -c '%s' "$dir/data.stage")"
+    dn="$(hash_size_name "$h" "$len" '.bin')"; mv "$dir/data.stage" "$dir/$dn"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"
 '
-      printf '"data.bin","restored.txt","%s","d","%s","%s","Hash","0",""
-' "$len" "$h" "$cell"
+      printf '"%s","restored.txt","%s","d","%s","%s","Hash","0",""
+' "$dn" "$len" "$h" "$cell"
     } > "$dir/MANIFEST.csv"
     restamp_witness "$dir/MANIFEST.csv"
 }
@@ -206,13 +204,14 @@ form_store() {
     ( cd "$BATS_TEST_TMPDIR/mk" && 7z a -bso0 -bsp0 mine.7z payload.txt >/dev/null 2>&1 )
     # Stored RAW: the object's bytes ARE a 7z archive, and the row says so
     # correctly with Compressed=No. Sniffing alone would expand the user's file.
-    cp "$BATS_TEST_TMPDIR/mk/mine.7z" "$s/data.bin"
-    h="$(hash_upper "$s/data.bin")"; len="$(stat -c '%s' "$s/data.bin")"
+    cp "$BATS_TEST_TMPDIR/mk/mine.7z" "$s/data.stage"
+    h="$(hash_upper "$s/data.stage")"; len="$(stat -c '%s' "$s/data.stage")"
+    local dn; dn="$(hash_size_name "$h" "$len" '.bin')"; mv "$s/data.stage" "$s/$dn"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"
 '
-      printf '"data.bin","mine.7z","%s","d","%s","No","Hash","0",""
-' "$len" "$h"
+      printf '"%s","mine.7z","%s","d","%s","No","Hash","0",""
+' "$dn" "$len" "$h"
     } > "$s/MANIFEST.csv"
     restamp_witness "$s/MANIFEST.csv"
 

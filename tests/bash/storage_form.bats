@@ -32,15 +32,6 @@ bend_row() {  # <relpath> <new-datapath> <new-compressed>
     restamp_witness "$m"
 }
 
-restamp_witness() {
-    local manifest="$1" witness="${1}.meta" rows bytes hash
-    rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"
-    bytes="$(stat -c '%s' -- "$manifest")"
-    hash="$(xxh128sum -- "$manifest" | awk '{print $1}' | tr 'a-f' 'A-F')"
-    printf 'Version=1\nRows=%s\nBytes=%s\nXxH128=%s\nWritten=%s\n' \
-        "$rows" "$bytes" "$hash" "$(date --iso-8601=seconds)" > "$witness"
-}
-
 # hello.txt's true content hash, shared by every mode's fixture.
 HELLO_HASH='3F6A2320F4D75810986789940FF30339'
 

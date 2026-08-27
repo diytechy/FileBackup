@@ -17,15 +17,6 @@ setup() {
     MANIFEST="$BK/MANIFEST.csv"
 }
 
-restamp_witness() {
-    local manifest="$1" witness="${1}.meta" rows bytes hash
-    rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"
-    bytes="$(stat -c '%s' -- "$manifest")"
-    hash="$(xxh128sum -- "$manifest" | awk '{print $1}' | tr 'a-f' 'A-F')"
-    printf 'Version=1\nRows=%s\nBytes=%s\nXxH128=%s\nWritten=%s\n' \
-        "$rows" "$bytes" "$hash" "$(date --iso-8601=seconds)" > "$witness"
-}
-
 @test "0: a clean restore (SR-040)" {
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t0" --from "$BK" --backup-root "$BK" --change-root "$CH"
     [ "$status" -eq 0 ]
@@ -152,7 +143,8 @@ restamp_witness() {
       # row 1: host class (archive candidate, no 7z)
       printf '"","payload.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
       # row 2: content class (a DataPath that simply is not there)
-      printf '"missing.bin","gone.txt","4","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","No","Hash","0",""\r\n'
+      printf '"%s","gone.txt","4","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","No","Hash","0",""\r\n' \
+        "$(hash_size_name 'DEADBEEFDEADBEEFDEADBEEFDEADBEEF' 4 '.bin')"
     } > "$bad/MANIFEST.csv"
     # Non-matching bytes, for the same kit-revision-5 reason as the test above.
     rm -f "$bad/orig.txt"
@@ -225,10 +217,11 @@ restamp_witness() {
     # blame, telling wrappers to retry corruption forever.
     local bad="$BATS_TEST_TMPDIR/d3raw"
     mkdir -p "$bad"
-    printf 'garbage-with-no-signature\n' > "$bad/own.7z"
+    local own; own="$(hash_size_name 'DEADBEEFDEADBEEFDEADBEEFDEADBEEF' 999 '.7z')"
+    printf 'garbage-with-no-signature\n' > "$bad/$own"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
-      printf '"own.7z","payload.txt","999","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","Yes","Hash","0",""\r\n'
+      printf '"%s","payload.txt","999","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","Yes","Hash","0",""\r\n' "$own"
     } > "$bad/MANIFEST.csv"
     restamp_witness "$bad/MANIFEST.csv"
 

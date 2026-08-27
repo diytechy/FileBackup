@@ -850,6 +850,32 @@ function Test-BackupManifest {
                'the old store stays restorable as-is and -Action Verify can still audit it.')
     }
 
+    # SR-061 + SR-069 (WP12): the same refusal for a PRE-WP12 CONTENT-ADDRESSED
+    # store. StoredAsHashSize cannot tell those apart - a base-85 store says
+    # 'Hash', exactly like this one does - so the discriminators are the witness
+    # format version and the name grammar itself.
+    #
+    # Two of them because neither is complete alone. The witness is present on
+    # every store this build writes but is OPTIONAL on older ones (SR-039 warns
+    # and continues when it is absent), and a shape test cannot classify a row
+    # whose DataPath is blank, which is the supported 'recover by hash' state.
+    # Together they leave only one gap - a witness-less store whose EVERY row is
+    # blank - and such a store carries no name to misread anyway.
+    $witness = Test-ManifestWitness -FolderPath $FolderRoot
+    if ($witness.Status -ne 'Absent' -and $witness.Version -gt 0 -and
+        $witness.Version -lt $script:WitnessFormatVersion) {
+        throw ("Backup manifest at '$FolderRoot' is a pre-WP12 store: its witness declares format version " +
+               "$($witness.Version), and this build writes $($script:WitnessFormatVersion) (the SR-069 base-57 " +
+               'name grammar). Mixing the two grammars in one pool is refused (SR-061). Back up to a fresh ' +
+               'BackupPath; restore the old store with the kit bundled inside it.')
+    }
+    $badName = @($db | Where-Object { Test-LegacyStoredObjectName -Name "$($_.DataPath)" })
+    if ($badName.Count -gt 0) {
+        throw ("Backup manifest at '$FolderRoot' holds $($badName.Count) row(s) named under a retired grammar, " +
+               "e.g. '$($badName[0].DataPath)' for '$($badName[0].RelativePath)'. This store was written by a " +
+               'pre-WP12 build and cannot be written to (SR-061). Back up to a fresh BackupPath.')
+    }
+
     # SR-064 (LLR-062): ONE pass over the disk and ONE over the rows — the old
     # shape re-piped the whole manifest through Where-Object once PER on-disk
     # file, O(rows x files) on a store whose whole point is scale. Both maps

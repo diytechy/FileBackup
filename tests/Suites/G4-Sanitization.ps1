@@ -67,7 +67,7 @@ function Invoke-G4 {
     $restoreCode = $LASTEXITCODE
     Assert-True $suite $group 'G4.1' 'Legacy_restoreRefused' { $restoreCode -eq 2 }
     Assert-True $suite $group 'G4.1' 'Legacy_restoreRefusalNamesCause' {
-        $restoreOut -match 'legacy path-addressed' -and $restoreOut -match 'StoredAsHashSize'
+        $restoreOut -match 'not a store this kit can restore' -and $restoreOut -match 'StoredAsHashSize'
     }
     Assert-True $suite $group 'G4.1' 'Legacy_restoreWroteNothing' {
         -not (Test-Path -LiteralPath (Join-Path $legacyTarget 'doc.txt')) -and
@@ -83,6 +83,66 @@ function Invoke-G4 {
     Assert-True $suite $group 'G4.1' 'Legacy_unflippedStoreBacksUp' { $LASTEXITCODE -eq 0 }
 
     Invoke-G4ExtensionMerge -Env $Env -BackupScript $BackupScript -Mode $Mode -Compress $Compress
+    # ---- G4.1b - a PRE-WP12 base-85 store is refused too (TC-149, SR-061/SR-069) ----
+    # Runs LAST in this group: it calls Reset-TestEnvironment, so placing it
+    # mid-scenario would demolish the store G4.1's later assertions read.
+    # StoredAsHashSize cannot tell rev-8 from rev-9: a base-85 content-addressed
+    # store says 'Hash', exactly like this one. So the gate leans on two other
+    # markers, and BOTH are exercised here - the witness format version, then
+    # the same store with its witness deleted so only the structural name test
+    # can fire (2026-08-27 independent review, T3).
+    Reset-TestEnvironment $Env
+    $cfgL = Join-Path $Env.Root 'cfg-g4-legacy.xml'
+    Write-TestConfig $cfgL $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
+    New-TestFile (Join-Path $Env.SrcPath 'doc.txt') 'content that predates WP12'
+    Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfgL -ExpectSuccess `
+        -Suite $suite -Group $group -ScenarioId 'G4.1b' -Label 'pre-WP12 base fixture' | Out-Null
+
+    # Construct the old shape: rename each object to a base-85, space-separated
+    # name and rewrite the rows to match. A post-WP12 engine cannot produce one,
+    # so it is built here - the same honesty pattern as G4.1's flipped column.
+    $legacyRows = @(Import-Csv -LiteralPath $manifest)
+    foreach ($r in $legacyRows) {
+        if (-not $r.DataPath) { continue }
+        $ext = (ConvertFrom-HashSizeFileName -Name $r.DataPath).Extension
+        $old = "lii``7EXH@[hgD!I= !!!!!!=X&K$ext"
+        Move-Item -LiteralPath (Join-Path $Env.BkpPath $r.DataPath) `
+                  -Destination (Join-Path $Env.BkpPath $old) -Force
+        $r.DataPath = $old
+    }
+    $legacyRows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+    Write-ManifestWitness -FolderPath $Env.BkpPath | Out-Null
+    # Stamp the witness back down to the pre-WP12 format version.
+    $witnessPath = Join-Path $Env.BkpPath 'MANIFEST.csv.meta'
+    [IO.File]::WriteAllText($witnessPath,
+        ([IO.File]::ReadAllText($witnessPath) -replace 'Version=\d+', 'Version=1'))
+
+    $legacyRestore = Join-Path $Env.Root 'restore-g4-1b'
+    $rOut  = (& $pwshExe -NoProfile -File (Join-Path $Env.BkpPath 'RECONSTRUCT.ps1') `
+                -TargetRoot $legacyRestore -NonInteractive -ExitCode *>&1 | Out-String)
+    $rCode = $LASTEXITCODE
+    Assert-True $suite $group 'G4.1b' 'PreWP12_restoreRefused_byWitness' { $rCode -eq 2 }
+    Assert-True $suite $group 'G4.1b' 'PreWP12_refusalNamesVersion' { $rOut -match 'format version 1' }
+    Assert-True $suite $group 'G4.1b' 'PreWP12_nothingWritten' {
+        -not (Test-Path -LiteralPath (Join-Path $legacyRestore 'doc.txt'))
+    }
+
+    # Now remove the witness entirely: SR-039 lets a witness-less store restore
+    # with a warning, so ONLY the structural name test stands between this store
+    # and a restore. It must still refuse.
+    Remove-Item -LiteralPath $witnessPath -Force
+    $rOut2  = (& $pwshExe -NoProfile -File (Join-Path $Env.BkpPath 'RECONSTRUCT.ps1') `
+                 -TargetRoot $legacyRestore -NonInteractive -ExitCode *>&1 | Out-String)
+    $rCode2 = $LASTEXITCODE
+    Assert-True $suite $group 'G4.1b' 'PreWP12_restoreRefused_byNameShape' { $rCode2 -eq 2 }
+    Assert-True $suite $group 'G4.1b' 'PreWP12_refusalNamesGrammar' { $rOut2 -match 'SR-069 base-57 name grammar' }
+
+    # And the engine refuses to WRITE to it, mutating nothing.
+    New-TestFile (Join-Path $Env.SrcPath 'doc.txt') 'edited after the store went stale'
+    $bOut  = (& $pwshExe -NoProfile -File $BackupScript -ConfigPath $cfgL -NoMail -NonInteractive *>&1 | Out-String)
+    $bCode = $LASTEXITCODE
+    Assert-True $suite $group 'G4.1b' 'PreWP12_backupRefused' { $bCode -eq 1 }
+    Assert-True $suite $group 'G4.1b' 'PreWP12_backupNamesRemedy' { $bOut -match 'fresh BackupPath' }
 }
 
 function Invoke-G4ExtensionMerge {

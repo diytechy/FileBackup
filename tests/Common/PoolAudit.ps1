@@ -142,17 +142,11 @@ function Get-HashNameGrammarViolations {
             continue
         }
         $name = $f.Name
-        $ok = $false
-        if ($name.Length -ge 27 -and $name[16] -eq ' ') {
-            # Both encoded halves must decode under the short-name alphabet;
-            # whatever follows position 27 is the extension.
-            try {
-                [void](Convert-ShortNameToHex -ShortName $name.Substring(0, 16))
-                [void](Convert-ShortNameToHex -ShortName $name.Substring(17, 10))
-                $ok = $true
-            } catch { $ok = $false }
+        # ONE parser, never a hand-rolled slice or a split on the separator: the
+        # extension is opaque and may itself contain the separator (SR-069).
+        if (-not (ConvertFrom-HashSizeFileName -Name $name)) {
+            $violations += "'$name' at the backup root does not match the content-addressed name grammar"
         }
-        if (-not $ok) { $violations += "'$name' at the backup root does not match the content-addressed name grammar" }
     }
     return $violations
 }
@@ -251,8 +245,8 @@ function Get-UnjustifiedPoolNames {
 
     $expectedPrefix = {
         param([string]$HashHex, [long]$Len)
-        "$(Convert-HexToShortName -Hex $HashHex -OutputLength 16) " +
-        "$(Convert-HexToShortName -Hex ('{0:X}' -f $Len) -OutputLength 10)"
+        "$(Convert-HexToShortName -Hex $HashHex -OutputLength 22)_" +
+        "$(Convert-HexToShortName -Hex ('{0:X}' -f $Len))"
     }
 
     foreach ($folder in (Get-PoolFolderList -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot)) {

@@ -29,7 +29,7 @@ $script:DatabaseFilename      = 'MANIFEST.csv'
 # MANIFEST.csv exactly as written, so a restore can tell a truncated/replaced index
 # from a genuinely small job. Written only by Write-Manifest, so it cannot drift.
 $script:WitnessFilename       = 'MANIFEST.csv.meta'
-$script:WitnessFormatVersion  = 1
+$script:WitnessFormatVersion  = 2   # 2 = SR-069 base-57 name grammar (WP12); 1 = pre-WP12 base-85. SR-061 refuses < 2.
 $script:ReconstructPs1Name    = 'RECONSTRUCT.ps1'
 $script:ReconstructBatName    = 'RECONSTRUCT.bat'
 $script:ReconstructShName     = 'reconstruct.sh'
@@ -52,14 +52,38 @@ $script:ChangeFolderDateMask  = 'yyyy_MM_dd_HH_mm_ss'     # pattern used in snap
 $script:SnapshotPrefix        = 'Snapshot_'
 $script:ChangeFolderRegex     = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
 
-# Alphabet for short-name encoding (base-N over these glyphs)
+# Alphabet for short-name encoding (base-57 over these glyphs). SR-069.
+#
+# The 62 alphanumerics LESS the visual-ambiguity class 0 O I l 1 - so neither
+# the 0/O pair nor the 1/I/l triple can be misread off a screen or a phone
+# photo of a drive label. $script:Alphabet[0] is '2': it is the ZERO DIGIT of
+# this base, and it is what a padded field is padded WITH.
+#
+# WP12 replaced an 85-glyph alphabet that held every punctuation mark legal on
+# both NTFS and POSIX. That was chosen for density and cost more than it bought:
+# '.' in the alphabet meant a stored object could be named '.xyz...' - a HIDDEN
+# file, which is what silently emptied the Linux CI pool on 2026-08-23 - and
+# '-' meant a leading dash was reachable at all. Base-57 cannot express either,
+# nor a space, a glob metacharacter, or 7-Zip's '@' response-file sigil, so a
+# whole class of quoting and interop hazards is gone by construction rather
+# than guarded against. It costs nothing: 57, 58 and 62 all encode a 128-bit
+# hash in 22 characters.
+#
+# Density note for anyone tempted to re-add glyphs: 57^22 is 128.324 bits, only
+# just over the 128 it must hold, which is why ConvertFrom-HashSizeFileName
+# range-checks the decoded value instead of assuming it fits.
 $script:Alphabet = @(
-    '!', '#', '$', '%', '&', '''', '(', ')', '+', ',', '-', '.', ';', '=', '@',
-    '[', ']', '^', '_', '`', '{', '}', '~',
-    '0','1','2','3','4','5','6','7','8','9',
-    'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
-    'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z'
+    '2','3','4','5','6','7','8','9',
+    'A','B','C','D','E','F','G','H','J','K','L','M','N','P','Q','R','S','T','U','V','W','X','Y','Z',
+    'a','b','c','d','e','f','g','h','i','j','k','m','n','o','p','q','r','s','t','u','v','w','x','y','z'
 )
+
+# Field widths and separator for the stored-object name grammar (SR-069).
+# The hash is FIXED so the field is stable, sortable and greppable; the length
+# is VARIABLE because its magnitude ranges over ten orders and padding it to a
+# fixed width is what produced the run of zero-digits WP12 was raised to kill.
+$script:NameHashWidth = 22          # ceil(128 / log2(57))
+$script:NameSeparator = '_'         # not in $script:Alphabet, by design
 
 # The ONE definition of "already compressed / opaque" (SR-004). Test-ShouldCompress
 # is its only reader, and README/AGENTS quote this list rather than restating it.
@@ -334,11 +358,36 @@ function ConvertFrom-ManifestDateString {
 # region Short-name encoding (hash/size <-> filename)
 
 function Convert-HexToShortName {
-    # Implements: SR-003, LLR-003
+    <#
+    .SYNOPSIS
+        Encodes a hex string as base-57 over $script:Alphabet.
+
+    .DESCRIPTION
+        With -OutputLength the result is LEFT-PADDED to exactly that many
+        characters with the zero digit; an encoding that does not FIT throws.
+        Without it the result is the natural, unpadded encoding.
+
+        WP12 made over-length a hard error. It used to keep the rightmost
+        -OutputLength characters, which is why a 128-bit hash silently became
+        its low ~102 bits in the old 16-char name: nothing downstream could
+        compare a stored object's name to the manifest's xxH2Hash without
+        reproducing that truncation. Silent truncation on the function that
+        NAMES content-addressed objects is a trap, not a convenience.
+
+    .PARAMETER Hex
+        Hex digits, with or without leading zeros. Not '0x'-prefixed.
+
+    .PARAMETER OutputLength
+        Exact width to pad to. Omit for the natural width. See SR-069.
+
+    .OUTPUTS
+        [string] - base-57 over $script:Alphabet.
+    #>
+    # Implements: SR-003, SR-069, LLR-003, LLR-069
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Hex,
-        [Parameter(Mandatory)][int]$OutputLength
+        [int]$OutputLength = 0
     )
     $base  = $script:Alphabet.Count
     $value = [System.Numerics.BigInteger]::Parse("0$Hex", [System.Globalization.NumberStyles]::AllowHexSpecifier)
@@ -354,17 +403,49 @@ function Convert-HexToShortName {
     [array]::Reverse($array)
     $shortName = -join $array
 
-    if ($shortName.Length -lt $OutputLength) {
+    if ($OutputLength -gt 0) {
+        if ($shortName.Length -gt $OutputLength) {
+            throw ("Value 0x$Hex needs $($shortName.Length) base-$base characters and does not fit in " +
+                   "$OutputLength (SR-069). Refusing to truncate: a truncated name cannot be checked " +
+                   'against the manifest it is supposed to address.')
+        }
         $shortName = $shortName.PadLeft($OutputLength, $script:Alphabet[0])
-    } elseif ($shortName.Length -gt $OutputLength) {
-        $shortName = $shortName.Substring($shortName.Length - $OutputLength)
     }
     return $shortName
 }
 
 function Convert-ShortNameToHex {
+    <#
+    .SYNOPSIS
+        Decodes a base-57 short name back to hex.
+
+    .DESCRIPTION
+        Returns UPPERCASE hex, left-padded with zeros to -HexWidth so the result
+        compares ordinally against a manifest column of that width. The default
+        of 0 returns the natural width.
+
+        The padding is not cosmetic. BigInteger.ToString('X') drops leading
+        zeros AND prepends a '0' sign nibble whenever the top byte has its high
+        bit set, so the raw conversion of a 128-bit hash is 31, 32 or 33
+        characters depending on its value - three different shapes for one
+        fixed-width field. Normalising here is what lets the pool audit assert
+        name-equals-xxH2Hash with a plain string comparison (SR-069).
+
+    .PARAMETER ShortName
+        The encoded field. Every character must be in $script:Alphabet.
+
+    .PARAMETER HexWidth
+        Pad (or verify) to this many hex digits. 32 for an xxH2Hash.
+
+    .OUTPUTS
+        [string] - uppercase hex.
+    #>
+    # Implements: SR-003, SR-069, LLR-003, LLR-069
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ShortName)
+    param(
+        [Parameter(Mandatory)][string]$ShortName,
+        [int]$HexWidth = 0
+    )
 
     $base  = $script:Alphabet.Count
     $value = [System.Numerics.BigInteger]::Zero
@@ -373,25 +454,198 @@ function Convert-ShortNameToHex {
         if ($idx -lt 0) { throw "Invalid character '$ch' in short name." }
         $value = $value * $base + $idx
     }
-    return $value.ToString('X')
+
+    # Strip the sign nibble, then pad. TrimStart cannot eat a legitimate value:
+    # zero is restored explicitly below.
+    $hex = $value.ToString('X').TrimStart('0')
+    if ($hex -eq '') { $hex = '0' }
+
+    if ($HexWidth -gt 0) {
+        if ($hex.Length -gt $HexWidth) {
+            throw ("Short name '$ShortName' decodes to $($hex.Length) hex digits, more than the $HexWidth " +
+                   'this field holds (SR-069). 57^22 exceeds 2^128, so a syntactically valid field can ' +
+                   'still be out of range; such a name did not come from this tool.')
+        }
+        $hex = $hex.PadLeft($HexWidth, '0')
+    }
+    return $hex.ToUpperInvariant()
 }
 
 function Get-HashSizeFileName {
     <#
     .SYNOPSIS
-        Builds the content-addressed data filename "<hashShort> <lenShort><ext>".
+        Builds the content-addressed data filename "<hash22>_<len><ext>" (SR-069).
+
+    .DESCRIPTION
+        The hash field is the WHOLE 128-bit xxH2Hash, padded to 22 base-57
+        characters; the length field is base-57 and UNPADDED; the extension is
+        appended verbatim and is NOT part of the encoded grammar.
+
+    .PARAMETER HashHex
+        The row's xxH2Hash, 32 hex digits.
+
+    .PARAMETER Length
+        The original content's length in bytes.
+
+    .PARAMETER Extension
+        The owner's source extension (or '.7z' when this tool compressed it).
+        MAY BE EMPTY, and empty is not an error: a source file can legitimately
+        have no extension (README, LICENSE, Makefile). This parameter used to be
+        [Parameter(Mandatory)], which in PowerShell REJECTS the empty string, so
+        an extensionless file in a set with CompressEnabled=false failed the
+        whole backup set - invisibly, because with compression on the name
+        becomes '.7z' before it ever gets here (SR-070).
+
+    .OUTPUTS
+        [string] - a bare filename, never a path.
     #>
-    # Implements: SR-003, SR-021, LLR-003, LLR-021
+    # Implements: SR-003, SR-021, SR-069, SR-070, LLR-003, LLR-021, LLR-069, LLR-070
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$HashHex,
         [Parameter(Mandatory)][long]$Length,
-        [Parameter(Mandatory)][string]$Extension
+        [AllowEmptyString()][string]$Extension = ''
     )
-    $hashShort = Convert-HexToShortName -Hex $HashHex -OutputLength 16
-    $lenHex    = ('{0:X}' -f $Length)
-    $lenShort  = Convert-HexToShortName -Hex $lenHex -OutputLength 10
-    return "$hashShort $lenShort$Extension"
+    $hashShort = Convert-HexToShortName -Hex $HashHex -OutputLength $script:NameHashWidth
+    $lenShort  = Convert-HexToShortName -Hex ('{0:X}' -f $Length)
+    return "$hashShort$($script:NameSeparator)$lenShort$Extension"
+}
+
+function ConvertFrom-HashSizeFileName {
+    <#
+    .SYNOPSIS
+        The ONE parser for a content-addressed object name (SR-069). Returns
+        $null when -Name does not parse; never throws for a malformed name.
+
+    .DESCRIPTION
+        Splitting on the separator is WRONG and this exists so nobody does it:
+        the extension is opaque and may itself contain '_' (a source file named
+        'x.a_b' yields the extension '.a_b'), a space, brackets, or non-ASCII.
+        Only the hash and length fields are alphabet-constrained.
+
+        The grammar, positionally: exactly $script:NameHashWidth alphabet
+        characters; $script:NameSeparator; one or more alphabet characters
+        (the length); then everything remaining, verbatim, as the extension.
+        The decoded hash is range-checked - 57^22 exceeds 2^128, so a
+        syntactically valid field can still be out of range.
+
+    .PARAMETER Name
+        A bare filename. A path is not accepted; callers pass a leaf.
+
+    .OUTPUTS
+        [pscustomobject] with HashHex (32 hex digits), Length ([long]) and
+        Extension ([string], '' when the source had none) - or $null.
+    #>
+    # Implements: SR-069, SR-070, LLR-069
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+
+    $w = $script:NameHashWidth
+    if ($Name.Length -lt ($w + 2)) { return $null }
+    if ($Name[$w] -ne $script:NameSeparator) { return $null }
+
+    $hashField = $Name.Substring(0, $w)
+    $i = $w + 1
+    while ($i -lt $Name.Length -and $script:Alphabet.IndexOf([string]$Name[$i]) -ge 0) { $i++ }
+    $lenField = $Name.Substring($w + 1, $i - $w - 1)
+    if ($lenField.Length -eq 0) { return $null }
+
+    # A non-empty remainder MUST start a real extension. Without this a name
+    # whose length field is followed by junk would parse as if the junk were an
+    # extension, and a structurally invalid object would pass the SR-061 gate.
+    $ext = $Name.Substring($i)
+    if ($ext.Length -gt 0 -and $ext[0] -ne '.') { return $null }
+
+    # A DataPath is a BARE FILENAME - the object lives flat in a pool folder -
+    # so no path separator may hide in the opaque extension. Without this a
+    # crafted '<hash22>_<len>.7z/x' would satisfy the grammar and the SR-061
+    # gate would stop subsuming the path-addressed test it replaced.
+    # IndexOfAny over the two separator CHARACTERS, not a regex, matching the
+    # care Reconstruct.ps1 already takes: a character class is one stray
+    # backslash away from silently matching only the forward slash, and this
+    # guard must not fail open (92 = backslash, 47 = slash).
+    if ($ext.IndexOfAny([char[]]@([char]92, [char]47)) -ge 0) { return $null }
+
+    try {
+        $hashHex = Convert-ShortNameToHex -ShortName $hashField -HexWidth 32
+        $lenHex  = Convert-ShortNameToHex -ShortName $lenField
+        $len     = [System.Numerics.BigInteger]::Parse("0$lenHex", [System.Globalization.NumberStyles]::AllowHexSpecifier)
+        if ($len -gt [long]::MaxValue) { return $null }
+    } catch {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        HashHex   = $hashHex
+        Length    = [long]$len
+        Extension = $ext
+    }
+}
+
+function Test-LegacyStoredObjectName {
+    <#
+    .SYNOPSIS
+        True when -Name is a PRE-WP12 stored-object name (SR-061).
+
+    .DESCRIPTION
+        A POSITIVE test for the grammar being retired, deliberately not the
+        negation of Test-HashSizeFileName. Those two are not complements, and
+        treating them as if they were is a real defect: a row whose DataPath is
+        merely DAMAGED - the DanglingDataPath class, or a name some third party
+        rewrote - parses under neither grammar, and SR-049/SR-053 require the
+        per-row audit and heal machinery to handle it, not a whole-store
+        refusal. Refuse the old FORMAT; repair damaged ROWS.
+
+        Two shapes count as pre-WP12:
+
+          * a path separator anywhere - the pre-WP9 path-addressed form, where
+            DataPath was the source's own relative path; and
+          * the base-85 grammar "<hash16> <len10><ext>", identified by its
+            SPACE at index 16. That is decisive: a WP12 name's first 22
+            characters are the hash field and are always alphanumeric, so index
+            16 can never be a space, whatever the extension holds.
+
+    .PARAMETER Name
+        A DataPath value. Blank is not legacy - it means "recover by hash".
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-061, SR-069, LLR-069
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+
+    if ([string]::IsNullOrEmpty($Name)) { return $false }
+
+    # IndexOfAny over the two separator CHARACTERS, not a regex: a character
+    # class is one stray backslash away from silently matching only the forward
+    # slash, and this guard must not fail open (92 = backslash, 47 = slash).
+    if ($Name.IndexOfAny([char[]]@([char]92, [char]47)) -ge 0) { return $true }
+
+    return ($Name.Length -ge 27 -and $Name[16] -eq ' ')
+}
+
+function Test-HashSizeFileName {
+    <#
+    .SYNOPSIS
+        True when -Name parses under the SR-069 grammar.
+
+    .DESCRIPTION
+        The SR-061 legacy gate's structural half. A pre-WP12 store's DataPath
+        ('<hash16> <len10><ext>', base-85, space-separated) cannot pass: a space
+        is not in the base-57 alphabet, so the fixed-width hash field fails
+        before anything else is examined.
+
+    .PARAMETER Name
+        A bare filename.
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-061, SR-069, LLR-069
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+    return $null -ne (ConvertFrom-HashSizeFileName -Name $Name)
 }
 
 # endregion
@@ -1170,6 +1424,9 @@ Export-ModuleMember -Function @(
     'ConvertTo-DirectoryAttributeFlag',
     'Convert-HexToShortName',
     'Convert-ShortNameToHex',
+    'ConvertFrom-HashSizeFileName',
+    'Test-HashSizeFileName',
+    'Test-LegacyStoredObjectName',
     'Get-HashSizeFileName',
     'Test-ShouldCompress',
     'Compress-FileWithSevenZip',
