@@ -134,6 +134,14 @@ function Set-SourceTimelineStep {
             New-Utf8File (Join-Path $Src 'recur.txt')            "recurring content`n"
             New-DeterministicBinary (Join-Path $Src 'data.bin')  96 -Seed 7
             New-Utf8File (Join-Path $Src 'sub/MANIFEST.csv')     "nested not-infra`n" # B6 nested infra-named
+            # WP12 (SR-070). The stored object inherits the SOURCE extension, so
+            # the POSIX restorer must handle the two shapes that nearly shipped
+            # broken: a file with NO extension (which failed the whole backup set
+            # in Plain mode until 2026-08-27), and one whose extension holds a
+            # SPACE (which the first SR-061 gate would have refused as legacy).
+            New-Utf8File (Join-Path $Src 'README')               "no extension at all`n"
+            New-Utf8File (Join-Path $Src 'signed.foo bar')       "extension with a space`n"
+            New-Utf8File (Join-Path $Src 'archive.a_b')          "extension with the separator`n"
         }
         2 {
             New-Utf8File (Join-Path $Src 'hello.txt') "hello world v2`n" -Mtime $MtimeBase.AddDays(1)  # modify
@@ -262,5 +270,57 @@ if (-not $SkipHashConformance -and -not $Fresh) {
     [System.IO.File]::WriteAllText((Join-Path $hc 'expected-hashes.csv'), (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
     Write-Host "    wrote $($lines.Count - 1) golden hashes" -ForegroundColor DarkGray
 }
+
+# --- Build name-grammar conformance fixture --------------------------------
+# SR-069/SR-061 have TWO implementations - ConvertFrom-HashSizeFileName plus
+# Test-LegacyStoredObjectName here, is_hash_size_name plus is_legacy_stored_name
+# in bash/reconstruct.sh - and they gate whether a store is restorable at all.
+# Nothing but a shared corpus stops them drifting: a bash side that rejects a
+# name the engine writes makes the POSIX restorer refuse good backups, and a
+# bash side that accepts a retired name makes it MISread an old store. Both are
+# silent until someone needs a restore.
+#
+# The PowerShell functions are the ORACLE: this writes what they answer, and
+# tests/bash/name_grammar.bats asserts the bash twins agree, while
+# tests/Unit/Common.Tests.ps1 re-derives the same file so it cannot rot.
+Write-Host '=== name-grammar conformance fixture ===' -ForegroundColor Cyan
+$ng = Join-Path $OutRoot 'name-grammar'
+if (-not (Test-Path -LiteralPath $ng)) { New-Item -ItemType Directory -Path $ng -Force | Out-Null }
+
+# One row per case. Tab-separated because a name may contain a space, a comma
+# and a quote, but never a tab (SR-055 refuses control characters at source).
+$cases = @(
+    # --- current grammar, must be accepted ---
+    (Get-HashSizeFileName -HashHex 'BE20CA004CC2993A396345E0D52DF013' -Length 8388608 -Extension '.7z'),
+    (Get-HashSizeFileName -HashHex 'BE20CA004CC2993A396345E0D52DF013' -Length 0       -Extension '.bin'),
+    (Get-HashSizeFileName -HashHex '00000000000000000000000000000000' -Length 1       -Extension '.txt'),
+    (Get-HashSizeFileName -HashHex 'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' -Length 999     -Extension ''),
+    (Get-HashSizeFileName -HashHex '80000000000000000000000000000000' -Length 5120    -Extension '.foo bar'),
+    (Get-HashSizeFileName -HashHex 'BE20CA004CC2993A396345E0D52DF013' -Length 42      -Extension '.a_b'),
+    (Get-HashSizeFileName -HashHex 'BE20CA004CC2993A396345E0D52DF013' -Length 42      -Extension '.[x]'),
+    # --- retired grammars, must be REFUSED as legacy ---
+    'lii`7EXH@[hgD!I= !!!!!!=X&K.7z',            # base-85, from a live pool
+    '.nArDBFwE!yq[FFf !!!!!!!!#..bin',           # base-85, dot-leading, doubled dot
+    'f7(#5C=v.uYfdGbp !!!!!!!!!%.foo bar',       # base-85 with a space in the extension
+    'sub\old.txt',                              # pre-WP9 path-addressed
+    'sub/old.txt',
+    # --- neither grammar: DAMAGED or foreign, and must be treated as NEITHER.
+    # These are the T7 pins. A row like this must not be called legacy (that
+    # refuses a whole store SR-049/SR-053/SR-056 could have repaired) and must
+    # not parse as current either.
+    'data.bin', 'obj00000.bin', 'd.txt', 'c.txt.7z', 'MANIFEST.csv',
+    ('2' * 22), ('2' * 22 + '_'), ('z' * 22 + '_2.7z'), ('2' * 22 + '_2.7z/x')
+)
+
+$ngLines = New-Object System.Collections.Generic.List[string]
+$ngLines.Add("Name`tIsCurrent`tIsLegacy")
+foreach ($c in $cases) {
+    $cur = if (Test-HashSizeFileName -Name $c) { '1' } else { '0' }
+    $leg = if (Test-LegacyStoredObjectName -Name $c) { '1' } else { '0' }
+    $ngLines.Add("$c`t$cur`t$leg")
+}
+[System.IO.File]::WriteAllText((Join-Path $ng 'cases.tsv'), (($ngLines -join "`n") + "`n"),
+                               [System.Text.UTF8Encoding]::new($false))
+Write-Host "    wrote $($ngLines.Count - 1) name-grammar cases" -ForegroundColor DarkGray
 
 Write-Host "Fixtures written under $OutRoot" -ForegroundColor Green

@@ -567,30 +567,18 @@ is_inside() {
 # restore_from(). Kept beside the witness code because that is what stamps it.
 WITNESS_FORMAT_VERSION=2
 
-# is_hash_size_name <name> : true when <name> parses under the SR-069 grammar —
-# exactly 22 base-57 characters, '_', one or more base-57 characters, then an
-# OPAQUE extension.
-#
-# The extension is deliberately unconstrained. It is the source file's own, so
-# it can legitimately hold a space, an underscore, brackets or non-ASCII: a file
-# named 'signed.foo bar' is a portable name and yields the extension '.foo bar'.
-# A character blacklist here would refuse valid stores — only the hash and
-# length fields belong to the alphabet.
-#
-# Structural only: unlike the PowerShell twin this does not range-check the
-# decoded hash against 2^128, because nothing downstream consumes the value.
-# The locator finds data by CONTENT, never by name; this test exists solely to
-# tell the base-57 grammar from the base-85 one, and a space — which every old
-# name carries at index 16 — cannot pass the first field.
-is_hash_size_name() {
-    [[ "$1" =~ ^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+(\..*)?$ ]]
-}
-
 # is_legacy_stored_name <datapath> : true when <datapath> is a PRE-WP12 stored
 # object name. A POSITIVE test for the retired grammars, deliberately NOT the
-# negation of is_hash_size_name - see the SR-061 gate in restore_from() for why
-# those two are not complements. Blank is never legacy: it means "recover by
-# hash". Mirrors Test-LegacyStoredObjectName in FileBackup.Common.psm1.
+# negation of "parses under SR-069" - see the SR-061 gate in restore_from()
+# for why those two are not complements. Blank is never legacy: it means
+# "recover by hash". Mirrors Test-LegacyStoredObjectName in
+# FileBackup.Common.psm1, and tests/bash/name_grammar.bats holds them to a
+# shared corpus case for case (TC-151).
+#
+# This kit deliberately carries NO "is it the current grammar?" predicate.
+# It would be dead weight in a file bundled into every backup: the locator
+# matches CONTENT, never names, so the only naming question this kit ever
+# asks is whether a store is one it must refuse.
 is_legacy_stored_name() {
     [[ -n "$1" ]] || return 1
     # A path separator: the pre-WP9 path-addressed form. The backslash is held

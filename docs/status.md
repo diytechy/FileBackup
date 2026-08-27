@@ -44,13 +44,22 @@ last) — it is the record, not required reading for every pass.
   which is why no suite caught it. Now pinned by TC-148 in both modes.
 - **The name grammar had NO owning requirement** before this - it was stated
   only in TC-004's `Expected`. SR-069 and SR-070 now own it.
-- **TWO LIVE ITEMS, both pre-existing and neither introduced by WP12:** (1) no
+- **THE PRUNE INTERMITTENT IS BACK AND IS NOT DECLARED DEAD.** Two sightings on
+  2026-08-27 (`G9.6 Prune_oldest_succeeds`; `Coverage.Tests.ps1:2922`), on code
+  unchanged between runs, NEITHER reproducing in isolation. Both exit **4** -
+  "Removal aborted before the commit point; no data was lost" - so the safety
+  rail is behaving correctly against a file lock; this is a HARNESS/host
+  question, not a correctness one. WP11 Part A fixed one real cause and its
+  diagnostics are why both were legible in one line, but two in a day is a
+  pattern. Recorded rather than re-run away.
+- **THREE LIVE ITEMS, all pre-existing or environmental, none introduced by WP12:** (1) no
   collision rail on the content-addressed write path - `Invoke-BackupFileGroup`
   writes to the derived name without proving an object already there is the same
   content (an SR-029 verify-or-fail conversation, not a naming one); (2) no `--`
   end-of-options guard on the PowerShell 7-Zip calls (`Common.psm1:444`,
   `:478`), where the bash twin guards every external call - base-57 removes the
-  reachability of a leading `-` or `@`, not the hole.
+  reachability of a leading `-` or `@`, not the hole; (3) the prune transient
+  above.
 - **HEADLINE - WP11 IS COMPLETE (2026-08-26), and its live-items list was EMPTY.**
   Two parts. **Part A closed the Full-tier intermittent by finding it**, and it
   was the TEST HARNESS, not the product: `Reset-TestEnvironment` wiped the
@@ -4751,3 +4760,97 @@ reproduce — environmental, recorded rather than dismissed.
 
 **G-Release and G-Final remain the outstanding gates.** SR-033 (`bash-v2`) is
 still phase-deferred by design.
+
+---
+
+### DRIVER — WP12 follow-up: regression tests for every failure mode the WP surfaced — 2026-08-27
+
+Human asked for coverage around the defects found and patched during WP12, so
+they cannot resurface quietly. Five new cases, chosen by asking which modes were
+only INCIDENTALLY covered — T6 and T2 already had TC-146/TC-148, but T7, the
+cross-implementation drift, and the version-agreement invariant had nothing.
+
+- **TC-150 — the T7 pin.** Asserts directly that "not the current grammar" and
+  "a retired grammar" remain DIFFERENT predicates: a damaged or foreign
+  `DataPath` is not legacy, both retired grammars are, blank never is, and the
+  "neither" class is non-empty with nothing ever both. If anyone re-derives one
+  predicate from the other, that class collapses and this fails.
+- **TC-151 — cross-implementation parity.** New committed corpus
+  `tests/fixtures/name-grammar/cases.tsv` (21 cases, PowerShell as ORACLE);
+  bats holds `is_legacy_stored_name` to it case for case, and the Pester twin
+  re-derives the file so it cannot rot. Same pattern as TC-053's hash goldens.
+  Also asserts no shipped fixture object reads as a retired grammar — the engine
+  must never emit a name its own gate refuses, checked by the OTHER implementation.
+- **TC-152 — witness version agreement** across all three files that declare it.
+  The WP12 bump left `helpers.bash` behind and broke 30 bats tests at once; a
+  mismatch between `Common.psm1` and `reconstruct.sh` would be far worse — the
+  POSIX restorer would refuse every store the Windows engine writes.
+- **TC-153 — the alphabet's case-fold arithmetic** (34 folded classes, 111.92
+  bits, still 128 bits in 22 chars). Pins the reasoning the review's T1 was
+  answered with so a later alphabet change cannot quietly erode it.
+- **TC-154 — proves T3's residual gap BENIGN instead of arguing it.** Builds the
+  worst case the gap admits (every object renamed into the retired grammar,
+  every `DataPath` blanked, no witness) and requires a byte-exact restore.
+
+The POSIX fixtures also gained `README`, `signed.foo bar` and `archive.a_b`, so
+the bash restorer now exercises the SR-070 shapes end to end, not just the
+PowerShell one.
+
+**Two defects the new tests caught on their first run:**
+
+1. **`is_hash_size_name` was DEAD CODE in the shipped kit.** The parity test
+   found bash and PowerShell disagreeing on two corpus cases — and tracing it
+   showed the diverging function had become uncalled when the SR-061 gate was
+   narrowed to the positive legacy test. Deleted rather than repaired: a kit
+   bundled into every backup must not carry code it never runs, and the locator
+   matches CONTENT, so the only naming question a restore ever asks is whether
+   the store is one it must refuse. `IsLegacy` is now checked by both
+   implementations, `IsCurrent` by the engine's alone.
+2. **`manifest_parse.bats` hard-coded `rows -eq 10`**, which went stale the
+   moment the fixture timeline gained files. Replaced with a check against the
+   WITNESS's own `Rows=` — so it now cross-checks the bash parser against the
+   count the PowerShell engine recorded, instead of a magic number that rots.
+
+**Evidence (real output):**
+
+```
+check.ps1 -Tier Full -Gate G3:
+  PSScriptAnalyzer                                 [PASS]
+  Traceability: SN=34 SR=69 LLR=67 TC=151 orphans=0 integrity=0
+                status-findings=0 phase-deferred=1
+  check_docs: OK - 27 doc(s), 100 intra-repo link(s), 0 broken.
+  Architecture map freshness                       [PASS]
+  Performance budgets                              [PASS]
+    PASS: 274   FAIL: 0   SKIP: 2                  (integration, 2-mode matrix)
+  Pester unit: 452 passed, 1 failed  <-- see the transient below
+
+Isolated unit re-run (same tree, no other load):
+  Tests Passed: 453, Failed: 0, Skipped: 0
+
+Ubuntu WSL: shellcheck -S warning bash/reconstruct.sh -> SHELLCHECK_CLEAN
+            bats tests/bash                          -> ok=87  not ok=0
+```
+
+**AN HONEST TRANSIENT, RECORDED RATHER THAN RE-RUN AWAY.** Two prune failures
+occurred today on code that was not changed between runs, and NEITHER
+reproduced on an isolated re-run:
+
+- `G9.6 Prune_oldest_succeeds` — `Access to the path
+  'V:\Snapshot_2025_01_01_00_00_01' is denied`, and
+- `Coverage.Tests.ps1:2922` (WP7 compression-flipped prune) — expected 0, got 4.
+
+Both are exit **4** — "Removal aborted before the commit point; no data was
+lost" — i.e. the safety rail behaving CORRECTLY against a file lock, not a
+correctness defect. Both have the signature of a lingering handle (this host
+also runs a test that deliberately holds a file open, TC-084).
+
+**This means WP11 Part A's intermittent cannot be declared dead.** Part A fixed
+one real cause (`Reset-TestEnvironment` ignoring a failed delete) and the
+diagnostics it added are what made today's two sightings legible in one line
+instead of an opaque `Condition returned false` several steps downstream. But
+two sightings in one day is a pattern, not noise. Recorded as a live item rather
+than dismissed, and deliberately NOT papered over by re-running until green.
+
+**LIVE ITEMS (now three):** the two carried from WP12 (no collision rail on the
+write path; no `--` guard on the PowerShell 7-Zip calls) plus the prune
+transient above.

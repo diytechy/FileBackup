@@ -107,6 +107,124 @@ Describe 'Short-name encoding' {
     }
 }
 
+Describe 'Legacy vs current are different questions (SR-061, SR-069)' {
+    # The T7 regression pin. WP12's SR-061 gate was first written as "anything
+    # that does not parse under SR-069 is a legacy store". Five unit tests and
+    # six integration assertions failed on it, correctly: a merely DAMAGED
+    # DataPath parses under NEITHER grammar, and SR-049/SR-053/SR-056 exist to
+    # audit, heal and verify those PER ROW. The negative test refused the whole
+    # store instead - one repairable row made a backup unrestorable and locked
+    # out -RepairStorage entirely.
+    #
+    # These tests exist so nobody re-derives one predicate from the other.
+
+    It 'does NOT classify a damaged or foreign DataPath as legacy (TC-150, SR-049)' {
+        # Every one of these is a shape a damaged, hand-built or
+        # third-party-rewritten row actually takes. None is a retired GRAMMAR,
+        # so none may condemn its store.
+        foreach ($n in 'data.bin', 'obj00000.bin', 'd.txt', 'c.txt.7z',
+                       'restored.txt', 'shared.bin', 'missing.bin', 'x',
+                       ('2' * 22), ('2' * 22 + '_'), ('z' * 22 + '_2.7z')) {
+            Test-LegacyStoredObjectName -Name $n | Should -BeFalse -Because "'$n' is damaged or foreign, not a retired grammar"
+        }
+    }
+
+    It 'DOES classify both retired grammars as legacy (TC-150, SR-061)' {
+        foreach ($n in 'lii`7EXH@[hgD!I= !!!!!!=X&K.7z',      # base-85, live pool
+                       '.nArDBFwE!yq[FFf !!!!!!!!#..bin',     # base-85, dot-leading
+                       'f7(#5C=v.uYfdGbp !!!!!!!!!%.foo bar', # base-85, space in ext
+                       'sub\uniq.txt', 'sub/old.txt') {       # pre-WP9 path-addressed
+            Test-LegacyStoredObjectName -Name $n | Should -BeTrue -Because "'$n' is a retired grammar"
+        }
+    }
+
+    It 'never treats a blank DataPath as legacy - it means "recover by hash" (TC-150)' {
+        Test-LegacyStoredObjectName -Name '' | Should -BeFalse
+    }
+
+    It 'has a NON-EMPTY "neither" class, and nothing is ever both (TC-150)' {
+        # If the two predicates ever become complements this is what fails.
+        $neither = 0
+        foreach ($n in 'data.bin', 'd.txt', 'restored.txt', 'MANIFEST.csv', ('2' * 22)) {
+            $cur = Test-HashSizeFileName -Name $n
+            $leg = Test-LegacyStoredObjectName -Name $n
+            ($cur -and $leg) | Should -BeFalse -Because "'$n' cannot be both grammars"
+            if (-not $cur -and -not $leg) { $neither++ }
+        }
+        $neither | Should -BeGreaterOrEqual 5
+    }
+}
+
+Describe 'Name-grammar conformance corpus (SR-069, SR-061)' {
+    # The shared corpus tests/bash/name_grammar.bats holds the bash twins to.
+    # Re-derived here so the committed file cannot silently rot: if these
+    # functions change and the fixture is not regenerated, this fails BEFORE the
+    # bash suite starts checking against a stale oracle.
+    BeforeAll {
+        $script:casesPath = Join-Path $repo 'tests\fixtures\name-grammar\cases.tsv'
+    }
+
+    It 'is committed and non-trivial (TC-151)' {
+        Test-Path -LiteralPath $script:casesPath | Should -BeTrue
+        @(Get-Content -LiteralPath $script:casesPath).Count | Should -BeGreaterThan 20
+    }
+
+    It 'still describes what these functions actually answer (TC-151)' {
+        $lines = @(Get-Content -LiteralPath $script:casesPath)
+        $lines[0] | Should -BeExactly "Name`tIsCurrent`tIsLegacy"
+        foreach ($line in $lines[1..($lines.Count - 1)]) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            # Split on the LAST two tabs: a stored name may contain anything
+            # except a tab, including spaces and quotes (SR-070).
+            $i = $line.LastIndexOf("`t")
+            $j = $line.LastIndexOf("`t", $i - 1)
+            $name = $line.Substring(0, $j)
+            $wantCurrent = $line.Substring($j + 1, $i - $j - 1)
+            $wantLegacy  = $line.Substring($i + 1)
+
+            $gotCurrent = if (Test-HashSizeFileName -Name $name) { '1' } else { '0' }
+            $gotLegacy  = if (Test-LegacyStoredObjectName -Name $name) { '1' } else { '0' }
+            $gotCurrent | Should -BeExactly $wantCurrent -Because "IsCurrent for '$name' (regenerate with scripts/gen_bash_fixtures.ps1)"
+            $gotLegacy  | Should -BeExactly $wantLegacy  -Because "IsLegacy for '$name' (regenerate with scripts/gen_bash_fixtures.ps1)"
+        }
+    }
+
+    It 'covers all three classes, so the bash parity check is meaningful (TC-151)' {
+        $rows = @(Get-Content -LiteralPath $script:casesPath) | Select-Object -Skip 1 |
+                Where-Object { $_ } | ForEach-Object {
+                    $i = $_.LastIndexOf("`t"); $j = $_.LastIndexOf("`t", $i - 1)
+                    [pscustomobject]@{ Current = $_.Substring($j + 1, $i - $j - 1); Legacy = $_.Substring($i + 1) }
+                }
+        @($rows | Where-Object { $_.Current -eq '1' }).Count | Should -BeGreaterOrEqual 5
+        @($rows | Where-Object { $_.Legacy  -eq '1' }).Count | Should -BeGreaterOrEqual 5
+        @($rows | Where-Object { $_.Current -eq '0' -and $_.Legacy -eq '0' }).Count | Should -BeGreaterOrEqual 5
+    }
+}
+
+Describe 'The alphabet keeps the properties WP12 chose it for (SR-069)' {
+    It 'folds to exactly 34 case-insensitive classes on NTFS (TC-153)' {
+        # The 2026-08-27 review (T1) was right that a mixed-case alphabet is not
+        # injective on a case-insensitive volume, and the decision to keep
+        # base-57 rests on the ARITHMETIC: 34 classes over 22 characters is
+        # 111.92 bits, well above the 94.12 the old base-85 grammar gave. Anyone
+        # "improving" the alphabet must not quietly erode that, so the property
+        # is pinned rather than left in a comment.
+        $alpha = (Get-FileBackupDefaults).Alphabet
+        $folded = @($alpha | ForEach-Object { $_.ToLowerInvariant() } | Select-Object -Unique)
+        $folded.Count | Should -Be 34
+
+        $bits = 22 * [Math]::Log($folded.Count, 2)
+        $bits | Should -BeGreaterThan 111
+        # And strictly better than what WP12 replaced (59 folded classes, 16 chars).
+        $bits | Should -BeGreaterThan (16 * [Math]::Log(59, 2))
+    }
+
+    It 'still holds a 128-bit hash in its 22-character field (TC-153)' {
+        $alpha = (Get-FileBackupDefaults).Alphabet
+        [Math]::Ceiling(128 / [Math]::Log($alpha.Count, 2)) | Should -BeLessOrEqual 22
+    }
+}
+
 Describe 'Test-ShouldCompress' {
     It 'is false when compression disabled' {
         Test-ShouldCompress -FileName 'x.txt' -CompressEnabled $false | Should -BeFalse

@@ -1,0 +1,22 @@
+Name	IsCurrent	IsLegacy
+bqCY8RX7mwkoaQybcV4qdG_oJua.7z	1	0
+bqCY8RX7mwkoaQybcV4qdG_2.bin	1	0
+2222222222222222222222_3.txt	1	0
+oZEq7ovRbLq6UnGMPwc8B5_KY	1	0
+Qn8RZQxiJfv4FQ9BhUoZb4_3aq.foo bar	1	0
+bqCY8RX7mwkoaQybcV4qdG_k.a_b	1	0
+bqCY8RX7mwkoaQybcV4qdG_k.[x]	1	0
+lii`7EXH@[hgD!I= !!!!!!=X&K.7z	0	1
+.nArDBFwE!yq[FFf !!!!!!!!#..bin	0	1
+f7(#5C=v.uYfdGbp !!!!!!!!!%.foo bar	0	1
+sub\old.txt	0	1
+sub/old.txt	0	1
+data.bin	0	0
+obj00000.bin	0	0
+d.txt	0	0
+c.txt.7z	0	0
+MANIFEST.csv	0	0
+2222222222222222222222	0	0
+2222222222222222222222_	0	0
+zzzzzzzzzzzzzzzzzzzzzz_2.7z	0	0
+2222222222222222222222_2.7z/x	0	1

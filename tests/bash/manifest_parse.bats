@@ -72,9 +72,18 @@ write_csv() { { printf '%s\r\n' "$HDR"; for r in "$@"; do printf '%s\r\n' "$r"; 
 }
 
 @test "parses the real committed fixture manifests without error (TC-056, SR-032)" {
-    local m rows
+    # Checked against the WITNESS's own Rows= line, not a hard-coded number.
+    # The witness is stamped by the PowerShell engine, so this asserts the bash
+    # parser and the engine agree on how many rows the manifest holds - a real
+    # cross-implementation check, and one that does not go stale every time the
+    # fixture timeline gains a file. It went stale exactly that way when WP12
+    # added the SR-070 extension shapes.
+    local m rows want
     for m in "${MODES[@]}"; do
         rows="$(parse_manifest "$FIXTURES/bash-restore/$m/backup/MANIFEST.csv" | wc -l)"
-        [ "$rows" -eq 10 ]
+        want="$(witness_value "$FIXTURES/bash-restore/$m/backup/MANIFEST.csv.meta" 'Rows')"
+        [[ "$want" =~ ^[0-9]+$ ]] || { echo "no Rows= in the $m witness"; false; }
+        [ "$rows" -ge 10 ] || { echo "$m: only $rows rows parsed"; false; }
+        [ "$rows" -eq "$want" ] || { echo "$m: bash parsed $rows rows, engine recorded $want"; false; }
     done
 }
