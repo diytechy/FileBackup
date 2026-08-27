@@ -44,14 +44,20 @@ last) — it is the record, not required reading for every pass.
   which is why no suite caught it. Now pinned by TC-148 in both modes.
 - **The name grammar had NO owning requirement** before this - it was stated
   only in TC-004's `Expected`. SR-069 and SR-070 now own it.
-- **THE PRUNE INTERMITTENT IS BACK AND IS NOT DECLARED DEAD.** Two sightings on
-  2026-08-27 (`G9.6 Prune_oldest_succeeds`; `Coverage.Tests.ps1:2922`), on code
-  unchanged between runs, NEITHER reproducing in isolation. Both exit **4** -
-  "Removal aborted before the commit point; no data was lost" - so the safety
-  rail is behaving correctly against a file lock; this is a HARNESS/host
-  question, not a correctness one. WP11 Part A fixed one real cause and its
-  diagnostics are why both were legible in one line, but two in a day is a
-  pattern. Recorded rather than re-run away.
+- **THE PRUNE EXIT-4 SIGHTINGS ARE OPEN, AND THE CAUSE IS UNKNOWN.** Two on
+  2026-08-27 (`G9.6 Prune_oldest_succeeds`; `Coverage.Tests.ps1:2922`), at a
+  rate of **2 failures in 3 full batteries** - frequent, not a rare flake.
+  ESTABLISHED: prune's exit 4 has exactly two sources in the engine, both
+  `host-io` catch blocks, while every policy refusal is code 2 - so this is
+  always a caught filesystem exception, never the product refusing, and
+  correctness is not implicated. NOT established: the cause. Four hypotheses
+  tested and all negative (standalone 0/12; under concurrent WSL load 0/14;
+  whole-file 0/3; "rare flake" contradicted). It appears only inside a full
+  battery. An earlier entry called it a harness issue with a lingering-handle
+  signature - that was inferred from a bare exit code and is **corrected**; see
+  the 2026-08-27 correction entry. Mitigation shipped: all 11 prune assertions
+  that tested only an exit code now carry the refusal payload, so the next
+  sighting names its own filesystem error.
 - **THREE LIVE ITEMS, all pre-existing or environmental, none introduced by WP12:** (1) no
   collision rail on the content-addressed write path - `Invoke-BackupFileGroup`
   writes to the derived name without proving an object already there is the same
@@ -4854,3 +4860,64 @@ than dismissed, and deliberately NOT papered over by re-running until green.
 **LIVE ITEMS (now three):** the two carried from WP12 (no collision rail on the
 write path; no `--` guard on the PowerShell 7-Zip calls) plus the prune
 transient above.
+
+---
+
+### DRIVER — CORRECTION: the prune exit-4 sightings, investigated properly — 2026-08-27
+
+The human challenged the previous entry's claim ("both have the signature of a
+lingering handle... a HARNESS/host question, not a correctness one") and asked
+how long the failure took to surface. The challenge was right on both counts and
+this entry supersedes that wording.
+
+**What the previous entry got wrong.**
+
+1. **It asserted a cause for a failure whose cause was never captured.** `G9.6`
+   printed its reason - `Access to the path 'V:\Snapshot_2025_01_01_00_00_01' is
+   denied`. `Coverage.Tests.ps1:2922` printed only `Expected 0 ... but got 4`.
+   The "lingering handle" signature was read off the exit code alone. The
+   refusal payload existed in `$run.Output` and the assertion discarded it.
+2. **It called a coin-flip a transient.** The real rate across completed full
+   batteries is **2 failures in 3 runs** (full2: G9.6 + G9.9, integration;
+   full3: clean; full4: Coverage:2922, unit), hitting two different runners.
+   "Not reproducing in isolation" is evidence about CONTEXT, not about rarity,
+   and was reported as though it were the latter.
+3. **It blamed the harness without evidence.** "Harness" was an assumption; a
+   host-io exception can come from outside the process entirely.
+
+**What is now ESTABLISHED, by reading the taxonomy rather than inferring.**
+
+Prune's exit **4 has exactly two sources in the whole engine** - the `host-io`
+catch blocks at `Engine:2563` and `Engine:2638`. EVERY policy refusal is code
+**2** (`capacity`, `run-state`, `staging-busy`, `broken-pool`, `form-mismatch`,
+`bad-target`, `destination-collision`, `infrastructure-name`,
+`unreferenced-data`, `witness-absent`, `witness-mismatch`), and `$worst` sorts 2
+ahead of 4. **So a code-4 prune result is always a caught filesystem exception,
+never the product deciding to refuse.** That part of the original claim was
+correct - it just had not been checked when it was made.
+
+**What is NOT established: the cause. Four hypotheses tested, all negative.**
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| Fails standalone | 12 isolated runs of the `It` | **0 failures** |
+| Concurrent WSL/`bats` load (driver's leading theory) | 14 isolated runs under sustained WSL load | **0 failures** |
+| Cross-test interference inside `Coverage.Tests.ps1` | 3 whole-file runs, 208 tests each | **0 failures** |
+| Rare flake | 2 of 3 full batteries | **contradicted - it is frequent** |
+
+**29 targeted runs and 3 whole-file runs produced zero reproductions.** It has
+only ever appeared inside a full `check.ps1 -Tier Full` battery. The failing
+`It` itself takes **5.1s**; finding it takes a ~15-minute battery.
+
+**Mitigation shipped rather than a conclusion asserted.** All **11** prune
+assertions in `Coverage.Tests.ps1` that tested only an exit code now carry
+`$run.Output` in their `-Because`, and `Invoke-FBAction` carries a note saying
+why. This is WP11 Part A's lesson applied to the one place it had not been: the
+cause must appear with the consequence. The next sighting will name its own
+filesystem error instead of costing another hour and still being unexplainable.
+
+**Status: OPEN, cause unknown, correctness not implicated.** The engine refuses
+at the safety rail and reports "no data was lost", which is the designed
+behaviour when the filesystem denies a removal. Whether the denial comes from
+the harness, Defender, the indexer, or a stray working directory is unresolved -
+and it will stay unresolved until the improved diagnostics catch one.

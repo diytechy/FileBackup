@@ -2499,6 +2499,15 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
     # driven through docker run) belongs to the Docker CI job; Docker is not
     # available on this host, so it is NOT claimed here.
     BeforeAll {
+        # Every assertion on the .Code these helpers return carries .Output in its
+        # -Because. An exit code alone is not a diagnosis: prune's exit 4, for
+        # instance, has exactly two sources in the engine - both host-io catch
+        # blocks - and the reason lives in the Refusals payload, not the code.
+        # On 2026-08-27 a bare 'Expected 0 ... but got 4' cost an hour and could
+        # not be explained even after the fact, because the message had been
+        # discarded. This is the same lesson WP11 Part A applied to Invoke-Backup:
+        # the cause must appear with the consequence, or the next sighting is a
+        # guess again.
         function Invoke-FBAction {
             param([string]$Cfg, [string[]]$Arguments)
             $out = & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $Cfg `
@@ -2524,7 +2533,7 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
 
         $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Snapshots')
-        $run.Code | Should -Be 0
+        $run.Code | Should -Be 0 -Because "Run output: $($run.Output)"
         # The logger writes to the same stream, so take the document from the
         # line that IS '[' (ConvertTo-Json -AsArray) to the end.
         $lines = $run.Output -split "`r?`n"
@@ -2552,7 +2561,7 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         & $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null    # first run: no snapshot yet
 
         $run = Invoke-FBAction -Cfg $cfg -Arguments @('-Action', 'Snapshots')
-        $run.Code | Should -Be 0
+        $run.Code | Should -Be 0 -Because "Run output: $($run.Output)"
         ($run.Output -split "`r?`n") | Should -Contain '[]'
     }
 
@@ -2561,7 +2570,7 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         $env  = New-PruneTimeline -Root $root
 
         $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest)
-        $run.Code | Should -Be 0
+        $run.Code | Should -Be 0 -Because "Run output: $($run.Output)"
         Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
 
         $target = Join-Path $root 'r-state1'
@@ -2575,7 +2584,7 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
 
         $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', 'Snapshot_1999_09_09_09_09_09')
-        $run.Code | Should -Be 2
+        $run.Code | Should -Be 2 -Because "Run output: $($run.Output)"
         Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
     }
 
@@ -2591,7 +2600,7 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         $before = Get-StoreFingerprint -Folder @($env.Bkp, $env.Chg)
 
         $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest, '-WhatIf')
-        $run.Code | Should -Be 0
+        $run.Code | Should -Be 0 -Because "Run output: $($run.Output)"
         Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
         Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
     }
@@ -2607,7 +2616,7 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v1')
 
         $run = Invoke-FBAction -Cfg $cfg -Arguments @('-WhatIf')
-        $run.Code | Should -Be 2
+        $run.Code | Should -Be 2 -Because "Run output: $($run.Output)"
         $run.Output | Should -Match 'WhatIf is not supported for -Action Backup'
         # Nothing was attempted: no backup root, no change root, no log dir.
         Test-Path -LiteralPath $bkp | Should -BeFalse
@@ -2731,7 +2740,7 @@ Describe 'WP8 portable names and raw-candidate recovery (SR-055, SR-050)' {
         [IO.File]::WriteAllText((Join-Path $src 'also-good.txt'), ('ALSO ' * 40))
 
         $run = Invoke-FBWp8 -Cfg $cfg
-        $run.Code | Should -Be 1 -Because 'a skipped file is a loud failure, never a silent omission'
+        $run.Code | Should -Be 1 -Because "a skipped file is a loud failure, never a silent omission. Run output: $($run.Output)"
         $run.Output | Should -Match "Skipping 'bad\.'"
 
         $after = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
@@ -2838,7 +2847,7 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         }
 
         $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Verify')
-        $run.Code | Should -Be 1 -Because 'a store with unrestorable rows must not verify clean'
+        $run.Code | Should -Be 1 -Because "a store with unrestorable rows must not verify clean. Run output: $($run.Output)"
         $lines = $run.Output -split "`r?`n"
         $start = [array]::IndexOf($lines, '[')
         $end   = [array]::IndexOf($lines, ']')
@@ -2895,7 +2904,7 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
             return @(($lines[$start..$end] -join "`n") | ConvertFrom-Json)
         }
         $run = Invoke-FBArgs -Cfg $cfg -Arguments @('-Action', 'Verify')
-        $run.Code | Should -Be 1
+        $run.Code | Should -Be 1 -Because "Run output: $($run.Output)"
         $doc = & $parse $run.Output
         @($doc | Where-Object Class -eq 'PoolDataPathMissing') | Should -Not -BeNullOrEmpty
         @($doc | Where-Object Class -eq 'PoolUnresolvable') |
@@ -2903,7 +2912,7 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
 
         [IO.File]::Delete((Join-Path $bkp 'spare.bin'))
         $run = Invoke-FBArgs -Cfg $cfg -Arguments @('-Action', 'Verify')
-        $run.Code | Should -Be 1
+        $run.Code | Should -Be 1 -Because "Run output: $($run.Output)"
         @((& $parse $run.Output) | Where-Object Class -eq 'PoolUnresolvable') |
             Should -Not -BeNullOrEmpty -Because 'now the content is truly gone from the pool'
     }
@@ -2919,7 +2928,11 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         Set-SnapshotBlankRowForm -Folder (Join-Path $env.Chg $env.Oldest) -Compressed 'No'
 
         $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest)
-        $run.Code | Should -Be 0 -Because 'revision-2+ kits decide form from the file they locate (SR-050); the rail premise is gone'
+        # WP11 Part A's lesson applied here: a refusal that does not say WHY
+        # turns a diagnosable failure into a guess. Prune's exit 4 covers every
+        # host-io cause, so the Refusals payload has to reach the failure text -
+        # this assertion cost an hour on 2026-08-27 by reporting only 'got 4'.
+        $run.Code | Should -Be 0 -Because "revision-2+ kits decide form from the file they locate (SR-050); the rail premise is gone. Run output: $($run.Output)"
         Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
 
         # The surviving snapshot still restores byte-exact across the flip.
@@ -2939,7 +2952,7 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         [IO.File]::WriteAllText($kit, ([IO.File]::ReadAllText($kit) -replace '# KitRevision: \d+', '# KitRevision: 1'))
 
         $run = Invoke-FBArgs -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $env.Newest)
-        $run.Code | Should -Be 2 -Because 'a pre-revision-2 kit restores the wrong form; pruning into that store stays refused'
+        $run.Code | Should -Be 2 -Because "a pre-revision-2 kit restores the wrong form; pruning into that store stays refused. Run output: $($run.Output)"
         $run.Output | Should -Match 'form-mismatch'
         $run.Output | Should -Match 'RefreshKits' -Because 'the refusal must name the remedy'
     }
