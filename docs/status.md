@@ -24,7 +24,23 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **HEADLINE - WP11 IS COMPLETE (2026-08-26), and the live-items list is EMPTY.**
+- **HEADLINE - WP12 IS RAISED AND PLANNED, AWAITING RATIFICATION (2026-08-27).**
+  The human inspected a live pool, asked whether the stored-object names were
+  expected, and — after the driver decoded one to show they were — ruled a
+  **read-breaking name-grammar change**: base-57 (alphanumerics less
+  `0 O I l 1`), `_` separator, full 128-bit hash padded to 22, unpadded length.
+  Affordable only because no store is in production use. Plan:
+  [plans/wp12-name-grammar-plan.md](../plans/wp12-name-grammar-plan.md).
+  **Nothing implemented — three decisions (D-1 legacy-store refusal mechanism,
+  D-2 throw-on-over-length, D-3 the retired leading-dot fixture) are with the
+  human.** Answering the question also found that the name grammar **has no
+  owning requirement** (it is specified only in TC-004's `Expected`), which
+  SR-069 fixes regardless of the redesign.
+- **LIVE ITEM (separate from WP12): no `--` end-of-options guard on the
+  PowerShell 7-Zip calls** (`Common.psm1:444`, `:478`), where the bash twin
+  guards every external call. Unreachable today because every path passed is
+  absolute; deliberately not folded into WP12.
+- **HEADLINE - WP11 IS COMPLETE (2026-08-26), and its live-items list was EMPTY.**
   Two parts. **Part A closed the Full-tier intermittent by finding it**, and it
   was the TEST HARNESS, not the product: `Reset-TestEnvironment` wiped the
   volumes with `-ErrorAction SilentlyContinue` and never verified the result, so
@@ -4525,3 +4541,86 @@ ownership-guard cases, and the two MIN-1 arms. Integration is unchanged at
 **Not yet closed, and recorded as live items rather than quietly dropped:**
 MIN-2 (a constructed legacy bats fixture) and nit-4 (the `7z a` replace, which
 costs a kit-revision bump). Both are in the Open-items table above.
+
+---
+
+### DRIVER (System Engineer + Data-integrity hats) — WP12 raised and planned: the stored-object name grammar — 2026-08-27
+
+**Raised by the human**, from a live pool, not from the backlog: the data files
+are named ``lii`7EXH@[hgD!I= !!!!!!=X&K.7z`` and the question was whether the run
+of exclamation marks and the punctuation soup were expected.
+
+**They were, exactly** — and the driver decoded that name to prove it rather
+than assert it: hash `4E0F14958D71156767A1880F94`, length `8388608` (8 MiB), a
+16-char base-85 field, a space, a 10-char base-85 field. `!` is `Alphabet[0]`,
+the ZERO DIGIT, so the six-`!` run is left-padding of a fixed-width length
+field, not a special character at all.
+
+Answering it surfaced three things the registries did not know:
+
+1. **The name grammar has no owning requirement.** SR-003 owns dedup by
+   `(hash, Length)` and says nothing about filenames; SR-021 owns
+   `-LiteralPath`. The format is written down in exactly one place —
+   **TC-004's `Expected`** — a test case describing behaviour no requirement
+   states. That is a real traceability finding, independent of any redesign.
+2. **The name's hash is not the manifest's hash.** 16 base-85 chars hold ~102.5
+   bits, so `Convert-HexToShortName` silently truncates the 128-bit xxHash128
+   to its low 26 hex digits. No audit can compare a pool name to `xxH2Hash`
+   without reproducing that truncation.
+3. **The alphabet manufactures the hostile shapes we keep tripping over.** `.`
+   and `-` are both in it, which is the root of the 2026-08-23 CI
+   hidden-files break and of the doubled dot in the committed fixture
+   `.nArDBFwE!yq[FFf !!!!!!!!#..bin`.
+
+**Human ruling, same session:** move to **base-57** (the 62 alphanumerics less
+`0 O I l 1`), a **`_` separator**, the **full 128-bit hash padded to 22**, and an
+**unpadded length**. Offered and declined: base-58 (Bitcoin's set, which keeps
+`1`); the human chose the whole-confusion-family cut. The choice is free —
+57, 58 and 62 all encode 128 bits in 22 characters, verified — so it is a
+legibility decision, not a density one. A sample name is 30 characters, exactly
+as long as today's, while carrying 26 more bits of hash and no padding run.
+
+Plan filed: **[plans/wp12-name-grammar-plan.md](../plans/wp12-name-grammar-plan.md)**.
+
+**Scope findings worth recording before implementation:**
+
+- **`bash/reconstruct.sh` needs no logic change.** It never decodes a name — it
+  walks with `find -print0` and hashes candidates. The POSIX twin is
+  grammar-agnostic by construction; the plan pins that as a property rather
+  than leaving it a happy accident.
+- **Blast radius in the engine is two lines** (`Common.psm1:391-393`), plus the
+  alphabet and the two encoder functions. Three test sites, and the bash
+  fixtures regenerate mechanically via `scripts/gen_bash_fixtures.ps1`.
+- **`Move-Item -Destination` was checked, not assumed.** `Engine:3247` passes a
+  short name containing `[` to a NON-literal `-Destination`. Driver ran it
+  against a real unmatched-bracket name: it moves correctly, because a
+  non-matching wildcard destination is treated as a literal. Not a defect —
+  recorded so nobody has to re-derive it.
+
+**One genuine latent hole found and deliberately NOT folded in:** the
+PowerShell 7-Zip calls (`Common.psm1:444` and `:478`) hand-build their argument
+string with no `--` end-of-options guard, while the bash twin guards every
+`rm`/`cp`/`mv`/`stat`/`touch`/`mkdir`/7z call. A leading `-` or `@` (7-Zip's
+response-file sigil) would be misread as a switch; unreachable today only
+because every path passed is absolute. Base-57 removes the reachability but not
+the hole. **Carried as its own live item** — folding it into WP12 would blur
+what WP12's evidence proves.
+
+**AWAITING HUMAN RATIFICATION — three decisions, none taken autonomously:**
+
+- **D-1** how a rev-9 restorer refuses a rev-8 store. Driver recommends the
+  **shape test** (an old `DataPath` contains a space; a new one cannot),
+  extending SR-061's existing predicate — over a positive `StoredAsHashSize`
+  marker, which would reintroduce exactly the claim-stored-apart-from-the-bytes
+  defect class WP11 Part B removed.
+- **D-2** make `Convert-HexToShortName`'s over-length case **throw** instead of
+  silently truncating. Unreachable at 22 chars, but it is the one change that
+  could turn a currently-silent situation loud.
+- **D-3** accept the **loss of the leading-dot regression fixture** (no base-57
+  name can start with a dot, so it cannot be regenerated), keeping
+  `include-hidden-files: true` in CI with a comment naming WP12 as the reason.
+
+No code, registry, or fixture has been touched. Ids reserved against the
+registries for the implementing commit: **SR-069, LLR-069, TC-142…TC-146**,
+phase tag **`name-v1`** (held OUT of the `check.ps1` ratchet until the evidence
+run lands, so it reports phase-deferred rather than failing G3 while open).
