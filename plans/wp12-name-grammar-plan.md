@@ -115,6 +115,11 @@ unambiguously parseable regardless.
 - **The name becomes checkable against the manifest.** With the whole hash and
   an exact round-trip, `PoolAudit` can assert name-equals-`xxH2Hash` outright
   instead of reproducing a truncation.
+- **On a case-INSENSITIVE volume the name is worth ~112 bits, not 128** — the
+  57 glyphs fold to 34 classes (23 two-case letter classes + 3 singleton
+  letters + 8 digits), and `34^22` is 111.92 bits. Say 128 only of a
+  case-sensitive filesystem. This is still a large IMPROVEMENT on today, where
+  85 glyphs fold to 59 and `59^16` is **94.12** bits: +17.8 bits. See §9/T1.
 - **SR-055's hostile-name classes become unreachable by construction.** A
   base-57 name cannot begin with `.` or `-`, cannot end in `.` or a space,
   cannot contain a space, a glob metacharacter, or a 7-Zip `@` response-file
@@ -128,42 +133,75 @@ unambiguously parseable regardless.
 
 ---
 
-## 3. Decisions needing ratification before code
+## 3. Decisions — ALL THREE RATIFIED 2026-08-27
 
-Three. The dial is HIGH and this is the data-integrity surface.
+The human ratified the driver's recommendation on each, and added a standing
+ruling that supersedes any compatibility argument below:
 
-### D-1 — how a rev-9 restorer refuses a rev-8 store *(recommendation: shape test)*
+> **Nothing here needs to be backward compatible with older versions of this
+> tool.** (human, 2026-08-27)
+
+That ruling does **not** remove D-1. Refusing an old store is not backward
+compatibility — it is the opposite: the guarantee that a grammar this build
+cannot read is never *mis*read. SR-061's existing posture (refuse, exit 2,
+write nothing, never convert) is exactly right and is extended, not relaxed.
+
+### D-1 — how a rev-9 restorer refuses a rev-8 store — **RATIFIED: shape test**
 
 A store written under the old grammar must be refused, not misread. SR-061
 already establishes the pattern and the exit code (2, nothing written) for
-`StoredAsHashSize='Original'`. Two ways to extend it:
+`StoredAsHashSize='Original'` — but note that a base-85 content-addressed store
+carries `StoredAsHashSize='Hash'`, so that column CANNOT tell rev-8 from rev-9.
+The discriminator has to be something else.
 
-- **(a) Shape test — recommended.** The grammars are disjoint in a decidable
-  way: an old `DataPath` **contains a space**; a new one cannot. Extend
-  SR-061's refusal predicate to "a `DataPath` containing a path separator, a
-  space, or any character outside the base-57 alphabet plus `_` and `.`". No
-  schema change, no new column, and it is self-enforcing — a store cannot lie
-  about its own grammar the way a column can. This is precisely SR-068's
-  lesson: derive from the bytes, do not trust a claim stored beside them.
-- **(b) Positive marker.** Write `StoredAsHashSize='HashSize2'` on new rows and
-  refuse anything else. Rejected as *primary*: it reintroduces the
-  claim-apart-from-the-thing-it-describes defect class that WP11 spent its Part
-  B removing, and a blank column (today's normal value, set at
-  [Engine:545](../Modules/FileBackup.Engine.psm1#L545)) would have to be treated
-  as legacy — a second, weaker shape test wearing a column's clothes.
+**As ratified, the mechanism was "an old `DataPath` contains a space; a new one
+cannot". The independent review (§9) destroyed that on two counts, and the
+mechanism below is the repaired version.** The *decision* — refuse loudly,
+exit 2, write nothing, never convert — is unchanged; only its implementation is.
 
-I recommend (a) alone. Say so if you want (b) added as belt-and-braces.
+**Two discriminators, both required:**
 
-### D-2 — over-length input becomes an error, not a truncation
+1. **Witness format version (authoritative).** `$script:WitnessFormatVersion`
+   goes **1 → 2**. Every manifest write stamps it into `MANIFEST.csv.meta`, and
+   both restorers already parse and range-check that line — today only for
+   "newer than I understand". Add the other half: a witness declaring a version
+   **below** 2 is a pre-WP12 store and is refused. This is present on EVERY
+   store, whatever its rows look like, which is what fixes T3: a shape test over
+   `DataPath` cannot classify a manifest whose `DataPath` values are all blank
+   ("recover by hash" is a supported state), and a format version can.
+2. **Structural name test (belt-and-braces).** Every NON-BLANK `DataPath` must
+   parse under the canonical grammar of §2.2 — 22 base-57 chars, `_`, one or
+   more base-57 digits, then an OPAQUE extension. Anything else is refused. This
+   catches a store whose witness was lost or rewritten.
+
+**The test is structural, never a character blacklist.** T2's counter-example is
+real and was reproduced on this host: `Test-PortableRelativePath` permits a
+source file named `signed.foo bar`, `GetExtension()` returns `.foo bar`, and a
+genuine rev-9 object is therefore named
+
+```
+<hash22>_<len>.foo bar
+```
+
+— which the ratified "contains a space ⇒ legacy" rule would have refused as a
+legacy store. **That rule would have broken real backups.** The extension is
+whatever the source carried; it is data, not part of the encoded grammar, and
+only the hash and length fields are alphabet-constrained.
+
+Rejected, unchanged: a positive `StoredAsHashSize='HashSize2'` row marker. The
+witness version does the same job at the level format versions belong at, and
+does not add a per-row claim that can drift from its object.
+
+### D-2 — over-length input becomes an error, not a truncation — **RATIFIED**
 
 `Convert-HexToShortName` currently truncates from the right when the encoding
 exceeds `-OutputLength`. At 22 chars a 128-bit hash can never overflow, so the
 branch becomes unreachable — and leaving a silent-truncation branch alive on the
-function that names content-addressed objects is a trap. **Proposal: throw.**
+function that names content-addressed objects is a trap. **Ratified: throw.**
 This is the one change here that could turn a currently-silent situation into a
 loud failure, so it is called out rather than folded in.
 
-### D-3 — the leading-dot regression fixture is retired
+### D-3 — the leading-dot regression fixture is retired — **RATIFIED**
 
 `tests/fixtures/bash-restore/*/.nArDBFwE!yq[FFf !!!!!!!!#..bin` is currently the
 only committed artefact exercising a dot-leading pool name — the exact shape
@@ -171,7 +209,7 @@ that caught the `upload-artifact` hidden-files bug. After this WP no generated
 name can start with a dot, so the fixture cannot be regenerated in the new
 grammar and that regression coverage lapses.
 
-**Proposal: accept the lapse, and keep `include-hidden-files: true` in CI with a
+**Ratified: accept the lapse, and keep `include-hidden-files: true` in CI with a
 comment naming this plan as the reason it must stay.** The alternative — a
 hand-maintained hostile-name fixture the generator can no longer produce — is a
 fixture testing a shape the product can no longer emit. Recorded as a deliberate
@@ -213,16 +251,31 @@ blast radius in the engine.
 | `scripts/gen_bash_fixtures.ps1` | Rerun; both `bash-restore` trees regenerate. Mechanized — no hand-editing. |
 | `tests/fixtures/hash-conformance/` | Untouched: it pins xxHash values, not names. |
 
+**One canonical parser, `ConvertFrom-HashSizeFileName`, and nothing else may
+parse a name** (T4: "split on `_`" is wrong — a legitimate extension may contain
+`_`, as `x.a_b` does). It takes exactly the first 22 characters as the hash
+field, requires `_` at index 22, consumes base-57 digits up to the first `.` or
+end as the length, and keeps the remainder verbatim as the extension. It
+rejects a decoded hash `>= 2^128`: `57^22` is 128.324 bits, so some
+syntactically valid 22-char fields are out of range and must not be silently
+truncated into a 32-hex string.
+
 New unit cases (TC ids in §5): the alphabet has exactly 57 distinct glyphs and
 excludes `0 O I l 1`; a generated name matches
-`^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+(\.[^.]+)?$`; a zero-length
-object encodes as `2`; the legacy refusal fires on a space-bearing `DataPath` in
-all three restore paths.
+`^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+(\..*)?$`; a zero-length object
+encodes as `2`; **an extension containing a space, `_`, a bracket or a non-ASCII
+character round-trips** (T2); **an extensionless source stores and restores**
+(T6); a 22-char field decoding to `>= 2^128` is rejected (T4); the legacy
+refusal fires on a v1 witness AND on a structurally invalid `DataPath`.
 
 ### 4.3 Docs
 
 - `README.md` [:485](../README.md#L485) — the `<hashShort> <sizeShort>.<ext>`
   sentence, with a worked example and one line on why base-57.
+- `README.md` [:723](../README.md#L723) — **the Manifest-columns table's
+  `DataPath` row, which states `"<hash16> <len10><ext>"` as the contract** (T5).
+  This is the authoritative user-facing recovery-format text and the plan
+  originally missed it.
 - `AGENTS.md` §3 — the name grammar joins the invariant list; it is currently
   absent, which is how it came to be specified only in TC-004's `Expected`.
 - `docs/status.md` — Current State + audit entry.
@@ -242,15 +295,17 @@ SR-003's prose.
 | Id | Action |
 |---|---|
 | **SR-069** *(new)* | *Stored-object name grammar.* Owns the alphabet, the separator, the padded-hash/unpadded-length asymmetry, and the property that a generated name is a legal, quote-free, non-hidden filename on both platforms. Phase `name-v1`, Verification `Test`, Priority `M`, Status `Planned`. |
-| **SR-061** | Amend: refusal predicate extended per D-1; add the acceptance line for a constructed base-85 store refused by both restorers with exit 2 and nothing written. |
+| **SR-061** | Amend: refusal predicate extended per D-1 — witness version `< 2`, or any non-blank `DataPath` that does not parse under SR-069's grammar. Acceptance line for a constructed base-85 store refused by BOTH restorers with exit 2 and nothing written, including a variant whose `DataPath` values are all blank (T3). |
+| **SR-070** *(new)* | *Stored-object names carry an opaque extension.* The stored name's extension is the owner's source extension verbatim (or `.7z`), is NOT alphabet-constrained, and MAY be empty. Fixes the T6 crash and pins T2's property so no future guard reintroduces a character blacklist. Phase `name-v1`. |
 | **SR-003** | Unchanged in substance. Rationale gains one sentence: the name grammar moved to SR-069. |
 | **SR-055** | Rationale note: the classes it refuses at *source* scan are now unreachable in *generated* names by construction. No normative change. |
+| **LLR-070** *(new)* | `FileBackup.Common;FileBackup.Engine` / `Get-HashSizeFileName;Invoke-BackupFileGroup` — `-Extension` accepts the empty string; the owner's extension flows through untouched. |
 | **LLR-069** *(new)* | `FileBackup.Common` / `Convert-HexToShortName;Convert-ShortNameToHex;Get-HashSizeFileName` — the encoder pair and the name builder; exact 32-hex round-trip; over-length throws. |
 | **LLR-003, LLR-021** | `CodeSymbol` and `Detail` follow the new grammar; both are `Status: Planned` today and stay so. |
 | **TC-004** | Amend `Expected` to the new grammar and the exactness assertion. |
-| **TC-142…TC-146** *(new)* | Alphabet composition; name shape regex; zero-length encoding; sign-nibble/leading-zero round-trip; three-path legacy refusal. |
+| **TC-142…TC-149** *(new)* | Alphabet composition; name shape regex; zero-length encoding; sign-nibble/leading-zero round-trip; out-of-range 22-char field rejected; **hostile-extension round-trip (space, `_`, bracket, non-ASCII)**; **extensionless source end-to-end in Plain AND Compress (T6 regression)**; legacy refusal by witness version and by structure, all three paths. |
 
-Next free ids confirmed against the registries: **SR-069, LLR-069, TC-142**.
+Next free ids confirmed against the registries: **SR-069/SR-070, LLR-069/LLR-070, TC-142…TC-149**.
 
 Phase tag **`name-v1`**, deliberately *not* added to the ratchet in
 [scripts/check.ps1:121](../scripts/check.ps1#L121) until the evidence run lands
@@ -294,6 +349,15 @@ Nothing here is reportable without the real output.
   what this WP's evidence proves. Carried as a live item.
 - **R-3 — coverage lapse from D-3**, recorded above rather than discovered
   later.
+- **R-4 — there is no collision rail on the content-addressed write path.**
+  `Invoke-BackupFileGroup` ([Engine:3100](../Modules/FileBackup.Engine.psm1#L3100))
+  writes to the derived name without proving that an object already at that
+  name is the same content. A hash collision — or a case-fold collision on
+  NTFS — would silently overwrite the only stored copy while both manifest rows
+  survive. **Pre-existing, not introduced here, and WP12 makes it 17.8 bits less
+  likely** (§9/T1). Out of scope, carried as its own live item: the fix is a
+  verify-or-fail rail on the write path, which is an SR-029 conversation, not a
+  naming one.
 
 ## 8. Out of scope
 
@@ -301,3 +365,134 @@ Re-forming or migrating any existing store (SR-061 stands: refuse, never
 convert). The `--` guard (R-2). Any change to the hash function, the manifest's
 9-column schema, or the `Compressed` column's fate (the S1 follow-up is still
 recorded and unstarted).
+
+---
+
+## 9. Independent review — OpenAI gpt-5.6-terra, medium effort, via `codex exec` — 2026-08-27
+
+Human-directed, adversarial charter, read-only sandbox, run against the plan at
+commit `220f301`. **5 findings: 1 P0, 2 P1, 2 P2.** Every one was checked
+against the code before disposition; two were reproduced on this host. Verdict:
+**two findings would have shipped a defect, and one of them would have broken
+real backups.** Dispositions below; all in-body sections above are already
+amended.
+
+### T1 (P0 as filed) — mixed-case base-57 is not injective on NTFS — **ARITHMETIC ACCEPTED, SEVERITY REDUCED, RECOMMENDATION DECLINED**
+
+Terra's arithmetic is right and I had waved this away earlier as negligible
+without doing it. The 57 glyphs fold to **34** case-insensitive classes (23
+two-case letter classes, 3 singleton letters `i`/`o`/`l`, 8 digits), so a
+22-char field is worth `34^22` = **111.92 bits** on a case-insensitive volume,
+not 128.
+
+**What Terra did not do is compare against the baseline.** Today's 85 glyphs
+fold to 59 classes over 16 chars = **94.12 bits**. So WP12 *improves* the exact
+property T1 flags by **+17.8 bits**. At a billion stored objects the birthday
+probability moves from ~`2^-35` to ~`2^-53`. It is not a P0 and it is not
+introduced here.
+
+Declined: making the codec case-insensitive-injective. That means lowercase-only
+or base-36, which contradicts a ratified human decision and buys nothing at
+these probabilities. **Accepted:** the plan no longer claims "the full 128 bits"
+without qualification (§2.4 now states both figures), and the genuine gap Terra
+found underneath — that there is no collision rail on the write path at all —
+is recorded as **R-4** and carried as a live item rather than folded in.
+
+### T2 (P1) — the D-1 space test rejects VALID new stores — **VALID, REPRODUCED, FIXED**
+
+The most valuable finding in the set. The stored name ends in the OWNER'S SOURCE
+EXTENSION when stored raw ([Engine:3052](../Modules/FileBackup.Engine.psm1#L3052),
+[:3099](../Modules/FileBackup.Engine.psm1#L3099)), and `Test-PortableRelativePath`
+permits spaces mid-name. Reproduced with a real backup on this host — the pool
+contained:
+
+```
+f7(#5C=v.uYfdGbp !!!!!!!!!%.foo bar
+```
+
+A rev-9 store would name that object `<hash22>_<len>.foo bar`, and the ratified
+"a `DataPath` containing a space is legacy" rule would have refused a
+**brand-new store** — in the engine and in both restorers, exit 2. That is a
+break of normal backups, shipped by a plan that had already been ratified. The
+same applies to `.a-b`, `.[x]`, `.你好`.
+
+Fixed: D-1 is now a **structural parse**, never a character blacklist, and the
+extension is explicitly opaque and unconstrained (new **SR-070** pins that so no
+future guard reintroduces the blacklist).
+
+### T3 (P1) — the shape test cannot classify a blank `DataPath` — **VALID, FIXED, MECHANISM CHANGED**
+
+Blank `DataPath` means "recover by content hash" and is a supported state, so a
+test over `DataPath` values cannot classify a manifest whose values are all
+blank. Confirmed adjacent fact that makes this worse: a base-85
+content-addressed store carries `StoredAsHashSize='Hash'`, so the existing
+column cannot tell rev-8 from rev-9 either.
+
+Terra's recommendation — a versioned, witnessed format marker — is better than
+the ratified shape test and is **adopted**: `$script:WitnessFormatVersion`
+1 → 2, present on every store, with the restorers' existing version range-check
+extended downward. The structural test is kept as the second line for a store
+whose witness was lost. Verified against the review's own objection to a
+positive marker: a *format version in the witness* is not a per-row claim that
+can drift from its object, which is what D-1(b) was rejected for.
+
+Terra rated the impact higher than it is — the locators are content-addressed,
+so an unrefused old store would in fact still restore correctly — but the plan's
+stated property ("old stores are refused loudly") was genuinely not met.
+
+### T4 (P2) — parser underspecified, and `57^22 > 2^128` — **VALID, FIXED**
+
+Both halves right. "Split on `_`" breaks on a legitimate extension containing
+`_` (`x.a_b`), and `57^22` = 128.324 bits means some syntactically valid 22-char
+fields decode above `2^128` and must be rejected rather than truncated. §4.2 now
+specifies one canonical parser, `ConvertFrom-HashSizeFileName`, with
+first-separator-only parsing and an explicit range check.
+
+### T5 (P2) — documentation inventory incomplete — **VALID, FIXED**
+
+[README.md:723](../README.md#L723) — the Manifest-columns table's `DataPath` row
+— states `"<hash16> <len10><ext>"` as the user-facing recovery contract, and the
+plan updated only line 485. SR-058's `Rationale` carries the grammar too. Both
+added to §4.3 / §5.
+
+### T6 — found by the driver while reproducing T2, NOT reported by the review — **LIVE PRODUCTION BUG, P0, FIXED HERE**
+
+Probing T2's extension question turned up a defect in shipped code that has
+nothing to do with the redesign:
+
+> `Get-HashSizeFileName`'s `-Extension` is `[Parameter(Mandatory)]`, which in
+> PowerShell **rejects the empty string**. An extensionless source file
+> (`README`, `LICENSE`, `Makefile`, `Dockerfile`) in a set with
+> `CompressEnabled: false` therefore takes `$dataExt = $ownerExt = ''` at
+> [Engine:3099](../Modules/FileBackup.Engine.psm1#L3099) and **fails the entire
+> backup set**.
+
+Reproduced end-to-end on this host, real output:
+
+```
+[INFO]  New or changed files: 3
+[ERROR] Backup set 'Probe' failed: Cannot bind argument to parameter
+        'Extension' because it is an empty string.
+EXIT=1
+```
+
+Nothing was stored; the set aborted. It is invisible in Compress mode, because
+an empty extension is not in `NonCompressibleExtensions` so
+`Test-ShouldCompress` returns true and `$dataExt` becomes `.7z` — which is
+exactly why no suite caught it. **No test in the matrix backs up an
+extensionless file in Plain mode.**
+
+Folded into WP12 because it lives in the one function this WP rewrites and
+leaving a known set-killing crash in it would be indefensible. Carried as
+**SR-070 / LLR-070 / TC-148**, with the Plain-mode extensionless case added to
+the matrix so it cannot regress.
+
+### Non-findings the review positively cleared
+
+- `57^22 > 2^128` — the field genuinely has the capacity.
+- `BigInteger.Parse("0"+hex, AllowHexSpecifier)` is correct and non-negative for
+  all 32-hex inputs (zero, leading-zero, high-bit-set, all-`F` checked); the
+  normalize-to-32 approach is sound for in-range values.
+- The full hash in the name is a real improvement over the ~102-bit truncation.
+- **`bash/reconstruct.sh` does not decode stored-object names** — the plan's
+  central scope claim, independently confirmed by reading the locator.
