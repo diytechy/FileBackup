@@ -4921,3 +4921,41 @@ at the safety rail and reports "no data was lost", which is the designed
 behaviour when the filesystem denies a removal. Whether the denial comes from
 the harness, Defender, the indexer, or a stray working directory is unresolved -
 and it will stay unresolved until the improved diagnostics catch one.
+
+---
+
+### DRIVER — WP12 validated in the OCI container (the surface HomeHub consumes) — 2026-08-27
+
+The one platform WP12 had not been exercised on. `Invoke-Container.ps1
+-Action BuildAndTest` on Ubuntu WSL + Docker 29.6.1 — the same command CI's
+container job runs — **all three checks passed**:
+
+- build, compressed backup, restore kit deposited, **byte-exact restore**;
+- **TC-102** storage-form check: clean verify exits 0 and mutates nothing, a
+  malformed row exits 1, repair makes it clean;
+- incremental run produces a **restorable dated snapshot** alongside a
+  byte-exact latest-state restore.
+
+Base-57 names are being written and read inside the image, e.g.
+`7aZ9f5jSkKVrE88v8w4VqB_3wY.7z`, `mgSTtg8oupaMwP8Eci95Ef_P.7z`.
+
+**IF-001 needs no revision.** The contract covers the config schema, bind
+mounts, action words and the exit-code table; it says nothing about the
+stored-object name grammar, which is entirely below that line. WP12 is
+invisible to HomeHub's interface — the integration is a deploy, not a
+negotiation.
+
+**The one caution for HomeHub: point it at a FRESH `BackupPath`.** Any store a
+previous build wrote is refused by kit revision 9 (exit 2 on restore; the
+backup set fails with the fresh-BackupPath remedy). That is SR-061 working as
+ruled, but HomeHub is a SEPARATE deployment from this repo's "not in use"
+statement and has its own `/backup` volume. Anything wanted from an existing
+HomeHub store must be restored with the kit bundled inside that folder, before
+a rev-9 build is pointed at it.
+
+**Still unvalidated: the CI-only jobs** — `bash-interop-make`,
+`bash-interop-restore`, `integration-vhdx`, and the export/registry half of the
+container job. The bash-interop pair matter most: they are where the
+2026-08-23 dot-leading-name break surfaced, and WP12 changes every name in the
+pool. Not pushed yet (5 commits ahead on `New_Fix_Batch`); CI is the next step
+and will also give an independent data point on the open prune exit-4.
