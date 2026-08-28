@@ -24,6 +24,34 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **THE CONTAINER IS BUILT AND ACCEPTANCE-TESTED (2026-08-28), so the HomeHub
+  surface is no longer unverified.** Earlier in this session I recorded that it
+  could not be built here and deferred it to CI. That was a WRONG DIAGNOSIS,
+  twice over. First: "the podman VM has no outbound HTTPS". Then a correction to
+  "not a blanket outage - docker.io pulls worked, so nuget is being filtered".
+  The correction was the worse claim and its reasoning was faulty: an image pull
+  runs in the podman SERVICE on the host side and never touches a container's
+  network namespace, so a successful pull says nothing about whether a build
+  step can reach the internet. Measured from inside a container: DNS resolves,
+  but raw TCP 443 is blocked to EVERY host including 1.1.1.1 - podman containers
+  here have no outbound network at all, and nuget was incidental.
+- **WSL Ubuntu's docker has working container networking**, and pwsh 7.6.5.
+  `Invoke-Container.ps1 -Action BuildAndTest -Runtime Docker` there: **EXIT 0**.
+  Smoke test (compressed backup, restore kit, byte-exact restore), storage-form
+  check (TC-102: clean verify exits 0 and mutates nothing, malformed row exits
+  1, repair makes it clean), and the incremental pass (a restorable dated
+  snapshot alongside a byte-exact latest-state restore) all passed. The image
+  carries `bash/reconstruct.command`, and the in-container assertion over the
+  full artifact list passed - which is the check that would have caught the
+  missing Dockerfile COPY, and now proves the fix in a real image rather than
+  by a source-text test.
+- **Why the build needs HTTPS at all, since it was asked:** BUILD time only, and
+  for two steps - `apt-get install` of p7zip/curl/unzip, and the pinned fetch of
+  System.IO.Hashing 8.0.0. The RUNTIME needs no network. The fetch is version-
+  pinned and SHA-256 verified before unpacking, deliberately: that assembly
+  computes every hash the dedup and verification story rests on, so a verified
+  artifact beats copying whatever the build host happens to hold. Recorded here
+  because "just COPY a local DLL" will look obvious to someone later.
 - **SECOND INDEPENDENT REVIEW (OpenAI gpt-5.6-terra, medium, via `codex exec`,
   adversarial, read-only) - this time against the IMPLEMENTATION, not the plan
   (2026-08-28).** 6 findings: 2 P0, 3 P1, 1 P2. Verdict: **"not safe to ship to
