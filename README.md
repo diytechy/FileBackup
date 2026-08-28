@@ -735,11 +735,29 @@ keep both out of the tree being backed up.
 **Hidden and dot-prefixed files are backed up** (since kit revision 6 —
 before it, no PowerShell-side walk saw them at all). That deliberately
 includes Windows noise files (`desktop.ini`, `Thumbs.db`), macOS `.DS_Store`,
-dot-directories like `.git`, `$RECYCLE.BIN` if it is inside your source, and
-files carrying the System attribute: for a data-safety tool, capturing too
-much beats silently capturing too little. There is currently no per-set
-exclusion setting — to keep such trees out of a backup, point `SourcePath` at
-a folder that does not contain them. What comes *back* is a subtler question —
+dot-directories like `.git`, and files carrying the System attribute: for a
+data-safety tool, capturing too much beats silently capturing too little. There
+is currently no per-set exclusion setting — to keep such trees out of a backup,
+point `SourcePath` at a folder that does not contain them.
+
+**Two exceptions, and only at the root of `SourcePath`:** `System Volume
+Information` and `$RECYCLE.BIN`. Windows puts both on every NTFS volume, so they
+appear whenever you point a set at a *volume root* like `D:\`, and neither is
+your data — one is the volume's own shadow-copy and indexing store, the other
+holds files you have already deleted. Before they were excluded, a `SourcePath`
+of `D:\` **failed every single run**: `System Volume Information` denies read
+access even to an administrator, and an unreadable directory marks the set
+failed. `$RECYCLE.BIN` had the opposite problem — it is readable by its owner, so
+deleted files were quietly being backed up. The same folder also confused a
+*restore*: when a file genuinely could not be found in the pool, the unreadable
+folder made the run blame **this machine** (exit 4, "fix the host and retry")
+instead of reporting the content as gone (exit 1) — so a wrapper would retry
+forever rather than tell you a file was lost. An intact backup still restored
+correctly; it was the failure *diagnosis* that was wrong.
+
+The exclusion is **root-level only**, the same rule the tool's own files follow:
+a folder of either name *nested* inside your tree is your data, is backed up, and
+restores normally. What comes *back* is a subtler question —
 FILE attributes are not in the index at all, so see "What is **not** recorded"
 below before assuming a Hidden file returns Hidden. A hidden *folder* does come
 back hidden (kit revision 7); a hidden file does not.

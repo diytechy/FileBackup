@@ -196,6 +196,10 @@ iso_now() { date +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || date; }
 # explicit template is correct on both.
 make_tempdir() { mktemp -d "${TMPDIR:-/tmp}/reconstruct.XXXXXX" 2>/dev/null; }
 
+# make_tempfile : a private temp FILE, or non-zero. Same portability rule as
+# make_tempdir - a bare `mktemp` has no template either, so BSD refuses it.
+make_tempfile() { mktemp "${TMPDIR:-/tmp}/reconstruct.XXXXXX" 2>/dev/null; }
+
 log() {
     # Append "<iso-ts> - <msg>" to the target-root log and echo to stderr.
     local msg="$1"
@@ -536,6 +540,26 @@ infra_skip() {
     return $m
 }
 
+# volume_root_skip <file> <folder> : true if <file> lies inside one of the
+# pseudo-folders Windows puts at the ROOT of every NTFS volume (SR-074). The
+# twin of Test-IsVolumeRootPseudoPath, kept so both restorers scan the same pool
+# over the same store. These names do not arise on a native POSIX filesystem,
+# but they do on an NTFS volume mounted here — the borrowed-laptop case SN-022
+# exists for. Root-level ONLY, matching the B6 rule: a nested folder carrying
+# one of these names is ordinary data.
+volume_root_skip() {
+    local f="$1" folder="$2" rel first
+    rel="${f#"$folder"/}"
+    [[ "$rel" != "$f" ]] || return 1             # not under this folder at all
+    first="${rel%%/*}"
+    shopt -s nocasematch
+    local m=1
+    # shellcheck disable=SC2016  # the '$' in $RECYCLE.BIN is literal, not an expansion
+    [[ "$first" == 'System Volume Information' || "$first" == '$RECYCLE.BIN' ]] && m=0
+    shopt -u nocasematch
+    return $m
+}
+
 # find_by_hash <hash> <length> : locate a pool file whose content matches
 # (hash,length). Plain candidates are filtered by size then hashed; .7z
 # candidates are decompressed to a temp file and their PAYLOAD checked (their
@@ -585,6 +609,7 @@ find_by_hash() {
         fi
         while IFS= read -r -d '' f; do
             infra_skip "$f" "$folder" && continue
+            volume_root_skip "$f" "$folder" && continue
             if [[ "${f,,}" == *.7z ]]; then
                 if [[ -z "$SEVEN_ZIP" ]]; then
                     # Its OWN bytes may still be the answer — a raw file under a
@@ -603,7 +628,19 @@ find_by_hash() {
                     host_dep="archive candidate '$f' needs 7z, which is not installed"
                     continue
                 fi
-                tmp="$(mktemp)"
+                # A BARE `mktemp` here is not portable, and this is the HASH
+                # RECOVERY path - the one a snapshot restore leans on, because
+                # its rows resolve by content rather than through their own
+                # DataPath. When it failed, every compressed candidate looked
+                # unexpandable and the run reported ContentMissing / exit 1:
+                # "your bytes are gone", about an intact backup. A root restore
+                # never showed it, because those rows go through
+                # sevenzip_to_file instead - which is why only the
+                # BSD+Compress+snapshot permutation caught this.
+                if ! tmp="$(make_tempfile)" || [[ -z "$tmp" ]]; then
+                    host_storage="cannot create a temporary file to expand candidate '$f' (TMPDIR='${TMPDIR:-/tmp}')"
+                    continue
+                fi
                 expand_failed=0
                 if sevenzip_to_file "$f" "$tmp"; then
                     sz="$(stat_size "$tmp")"

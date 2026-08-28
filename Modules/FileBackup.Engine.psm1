@@ -143,7 +143,7 @@ function Get-DataFile {
         mark the set failed, SR-057). Without it the walk stays strict — a
         pool walk that cannot read our own store must keep throwing.
     #>
-    # Implements: SR-057, LLR-057
+    # Implements: SR-057, SR-074, LLR-057, LLR-078
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Root,
@@ -152,19 +152,30 @@ function Get-DataFile {
     $resolved = (Resolve-Path -LiteralPath $Root).Path
     # -Force (SR-057): hidden/dot files are data — without it they were never
     # backed up, and -Recurse skipped hidden DIRECTORIES entirely (D-4).
+    #
+    # But -Force also exposed the two pseudo-folders Windows puts at the ROOT of
+    # every NTFS volume (SR-074), and they are not data at all. Both the files
+    # AND the enumeration errors are dropped here: 'System Volume Information'
+    # is unreadable by design, so its error used to mark the whole set failed —
+    # a SourcePath of 'D:\' could never report success — and $RECYCLE.BIN IS
+    # readable by its owner, so its deleted files were being backed up.
     if ($null -ne $EnumerationErrorOut) {
         $enumErr = $null
         $found = Get-ChildItem -LiteralPath $resolved -Recurse -File -Force `
             -ErrorAction SilentlyContinue -ErrorVariable enumErr |
-            Where-Object { -not (Test-IsInfrastructureFile -Root $resolved -FullPath $_.FullName) }
+            Where-Object { -not (Test-IsInfrastructureFile -Root $resolved -FullPath $_.FullName) -and
+                           -not (Test-IsVolumeRootPseudoPath -Root $resolved -FullPath $_.FullName) }
         foreach ($e in @($enumErr)) {
+            $path = "$($e.TargetObject)"
+            if ($path -and (Test-IsVolumeRootPseudoPath -Root $resolved -FullPath $path)) { continue }
             $EnumerationErrorOut.Add([pscustomobject]@{
-                Path = "$($e.TargetObject)"; Message = $e.Exception.Message })
+                Path = $path; Message = $e.Exception.Message })
         }
         return $found
     }
     Get-ChildItem -LiteralPath $resolved -Recurse -File -Force |
-        Where-Object { -not (Test-IsInfrastructureFile -Root $resolved -FullPath $_.FullName) }
+        Where-Object { -not (Test-IsInfrastructureFile -Root $resolved -FullPath $_.FullName) -and
+                       -not (Test-IsVolumeRootPseudoPath -Root $resolved -FullPath $_.FullName) }
 }
 
 # endregion

@@ -386,11 +386,19 @@ function Find-DataFileByHash {
         $candidates = Get-ChildItem -LiteralPath $folder -File -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable enumErrors |
             Where-Object {
                 -not ($_.Name -match $skip -and
-                      [System.IO.Path]::GetDirectoryName($_.FullName) -eq $folderNorm)
+                      [System.IO.Path]::GetDirectoryName($_.FullName) -eq $folderNorm) -and
+                -not (Test-IsVolumeRootPseudoPath -Root $folderNorm -FullPath $_.FullName)
             }
-        if ($enumErrors) {
+        # A store sitting at a volume ROOT carries 'System Volume Information',
+        # which is unreadable by design. Counting that as a pool read failure
+        # reported StorageUnreadable -> exit 4 against a wholly intact backup,
+        # so it is filtered out before the honest failures are judged (SR-074).
+        $realEnumErrors = @($enumErrors | Where-Object {
+            $_.TargetObject -and -not (Test-IsVolumeRootPseudoPath -Root $folderNorm -FullPath "$($_.TargetObject)")
+        })
+        if ($realEnumErrors.Count -gt 0) {
             $hostIssues.Add([pscustomobject]@{ Cause = 'StorageUnreadable'
-                Detail = "Search folder '$folder' could not be fully read: $($enumErrors[0].Exception.Message)" })
+                Detail = "Search folder '$folder' could not be fully read: $($realEnumErrors[0].Exception.Message)" })
         }
         foreach ($f in $candidates) {
             if ($f.Extension -ieq '.7z') {

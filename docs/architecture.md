@@ -144,6 +144,7 @@ Imports (internal): _none_
 | `Read-Manifest` | yes | SR-025, LLR-025 |
 | `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
 | `Test-HashSizeFileName` | yes | SR-061, SR-069, LLR-069 |
+| `Test-IsVolumeRootPseudoPath` | yes | SR-074, LLR-078 |
 | `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
@@ -171,7 +172,7 @@ Imports (internal): `Common`
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-CopyRetryDelayMs` | yes | SR-067, LLR-067 |
-| `Get-DataFile` | yes | SR-057, LLR-057 |
+| `Get-DataFile` | yes | SR-057, SR-074, LLR-057, LLR-078 |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |

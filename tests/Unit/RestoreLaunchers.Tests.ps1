@@ -185,3 +185,26 @@ Describe 'A restored tree is ordinary writable files (SR-007, TC-174)' {
         Set-ItemProperty -LiteralPath $src -Name IsReadOnly -Value $false
     }
 }
+
+Describe 'The container image carries every kit template (SR-007, SR-072)' {
+    It 'copies each template New-ReconstructScript REQUIRES, or the image fails every backup' {
+        # New-ReconstructScript THROWS when a kit template is missing, so a file
+        # left out of the image does not ship a smaller kit - it fails every
+        # backup the container runs, which is the surface HomeHub consumes.
+        # Adding bash/reconstruct.command did exactly that until the Dockerfile
+        # was updated with it.
+        $dockerfile = Get-Content -LiteralPath (Join-Path $repo 'Dockerfile') -Raw
+        $engine     = Get-Content -LiteralPath (Join-Path $repo 'Modules\FileBackup.Engine.psm1') -Raw
+
+        # Every 'bash/<name>' template the generator reaches for.
+        $needed = [regex]::Matches($engine, "Join-Path 'bash' (?:'([^']+)'|\`$script:Def\.(\w+))") |
+                  ForEach-Object {
+                      if ($_.Groups[1].Success) { $_.Groups[1].Value }
+                      else { (Get-FileBackupDefaults)."$($_.Groups[2].Value)" }
+                  }
+        $needed | Should -Not -BeNullOrEmpty -Because 'the generator copies at least reconstruct.sh'
+        foreach ($template in $needed) {
+            $dockerfile | Should -Match ([regex]::Escape("COPY bash/$template")) -Because "the image must carry '$template'"
+        }
+    }
+}

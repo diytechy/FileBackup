@@ -24,6 +24,41 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **SR-074 (2026-08-28, human-requested during WP13): the volume-root
+  pseudo-folders are no longer treated as data.** Raised by the human asking a
+  plain question - "is `System Volume Information` ignored?" - and the answer was
+  no, with three consequences, all of them false verdicts about a folder that is
+  never the user's data. **(1)** `System Volume Information` denies read access
+  even to an administrator, and SR-057 reports an unreadable directory by marking
+  the set FAILED - so a `SourcePath` of a volume root (`D:\`) **could never
+  report success, on any run**, and a scheduled job alerted every time. **(2)**
+  `$RECYCLE.BIN` is the opposite: READABLE by its owner, so deleted files were
+  quietly being backed up. **(3)** On the restore side the same folder counted
+  as a pool read failure and MISCLASSIFIED a genuine content loss as
+  StorageUnreadable / exit 4 - "fix this host and retry" - instead of
+  ContentMissing / exit 1, so an SR-040 wrapper would retry forever instead of
+  reporting data loss. All three existed only because SR-057 added `-Force`;
+  before that the folders were invisible.
+- **CORRECTION to the claim first written here and in commit e8e38de's
+  successor:** I stated the restore returned exit 4 "against a wholly intact
+  store". That is WRONG and the test proved it. `Find-DataFileByHash` returns as
+  soon as it FINDS the bytes and consults its collected host issues only when it
+  does not - so on an intact store the enumeration error is discarded and the
+  restore exits 0 either way. The defect is narrower and is about
+  CLASSIFICATION, not success. Two versions of TC-180 passed against a
+  deliberately broken restorer before a negative control caught the test itself
+  being wrong; the third version asserts exit 1 vs exit 4 and fails correctly
+  without the fix.
+- Fixed with ONE predicate used by both sides (`Test-IsVolumeRootPseudoPath` in
+  Common, so the standalone restorer can reach it too) plus a bash twin. Both the
+  enumerated FILES and the enumeration ERRORS are filtered in each place -
+  filtering only one half leaves half the defect. **Root-level only**, the same
+  B6 rule the infrastructure names follow: a folder of either name nested inside
+  the tree is the user's data and is backed up and restored normally.
+- Registry: SR-057 amended, **SR-074** + **LLR-078** + **TC-175..178** added
+  (phase `portable-v1`, Draft). README's "Hidden and dot-prefixed files" section
+  said `$RECYCLE.BIN` WAS backed up; corrected, with the root-level-only rule
+  spelled out.
 - **HEADLINE - WP13 IS IMPLEMENTED, NOT YET RATIFIED (2026-08-28). Restore kit
   revision 10.** Four human questions about the restore entry points (`.cmd` vs
   `.bat`, a folder picker, the same from bash, a macOS `.command`) turned up a

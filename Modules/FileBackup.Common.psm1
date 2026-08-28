@@ -44,6 +44,16 @@ $script:ReconstructCommandName = 'RECONSTRUCT.command'
 # recorded in FileBackup.Engine.psm1). Legacy for reading; never for writing.
 $script:ReconstructLegacyBatName = 'RECONSTRUCT.bat'
 $script:ReconstructShName     = 'reconstruct.sh'
+# Volume-root pseudo-folders (SR-074). Windows creates these at the ROOT of every
+# NTFS volume; they are never user data. 'System Volume Information' carries a
+# Deny ACE even for an administrator, and $RECYCLE.BIN holds deleted files that
+# a backup must not resurrect. They became relevant when SR-057 added -Force to
+# the walk: before that they were invisible, and afterwards an unreadable one
+# marked the whole set failed - so pointing SourcePath at a volume root (D:\)
+# could never report success. Root-level ONLY, the same rule the infrastructure
+# names use: a nested folder that happens to carry one of these names is
+# ordinary user data.
+$script:VolumeRootSkipNames   = @('System Volume Information', '$RECYCLE.BIN')
 $script:ReconstructLogName    = 'RECONSTRUCT.log'
 $script:CommonModuleName      = 'FileBackup.Common.psm1'
 # Directory sidecar (SR-065): the manifest has one row per FILE, so an empty
@@ -157,6 +167,7 @@ function Get-FileBackupDefaults {
         ReconstructCommandName   = $script:ReconstructCommandName
         ReconstructLegacyBatName = $script:ReconstructLegacyBatName
         ReconstructShName        = $script:ReconstructShName
+        VolumeRootSkipNames      = $script:VolumeRootSkipNames
         ReconstructLogName       = $script:ReconstructLogName
         CommonModuleName         = $script:CommonModuleName
         DirectorySidecarName     = $script:DirectorySidecarName
@@ -1423,8 +1434,48 @@ function New-RelativePathMap {
     return [hashtable]::new(0, [System.StringComparer]::Ordinal)
 }
 
+function Test-IsVolumeRootPseudoPath {
+    <#
+    .SYNOPSIS
+        True when a path IS one of the volume-root pseudo-folders, or lies
+        underneath one (SR-074).
+
+    .DESCRIPTION
+        Root-level ONLY, matching the infrastructure-name rule (SR-022/B6): a
+        nested folder called 'System Volume Information' is a user's folder and
+        is backed up like anything else. Used by BOTH the source walk and the
+        restorers' pool scan, because the same folder produced two different
+        false verdicts - a backup set marked failed, and a restore reporting
+        StorageUnreadable (exit 4) against an intact store.
+
+    .PARAMETER Root
+        The enumeration root the path is relative to.
+    .PARAMETER FullPath
+        The candidate path.
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-074, LLR-078
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$FullPath
+    )
+    $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $full     = [System.IO.Path]::GetFullPath($FullPath)
+    $prefix   = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $full.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $rel = $full.Substring($prefix.Length)
+    # The FIRST segment decides, so the folder itself and everything under it
+    # are both covered by one test.
+    $first = $rel.Split([char]'\', [char]'/')[0]
+    return ($script:VolumeRootSkipNames -contains $first)
+}
+
 Export-ModuleMember -Function @(
     'Get-FileBackupDefaults',
+    'Test-IsVolumeRootPseudoPath',
     'New-RelativePathMap',
     'New-Logger',
     'Initialize-XxHashLibrary',

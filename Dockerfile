@@ -16,6 +16,11 @@ COPY FileBackup.ps1 ./
 COPY Reconstruct.ps1 ./RECONSTRUCT.ps1
 COPY Modules/ ./Modules/
 COPY bash/reconstruct.sh ./bash/reconstruct.sh
+# The macOS launcher is part of the restore kit New-ReconstructScript deposits
+# (SR-007, seven artifacts), and that function THROWS when a kit template is
+# missing - so omitting this file here would fail every backup the container
+# runs, not merely ship a smaller kit.
+COPY bash/reconstruct.command ./bash/reconstruct.command
 COPY container/entrypoint.sh ./container/entrypoint.sh
 
 # Bake the required hashing assembly into the image. Production runs never use
