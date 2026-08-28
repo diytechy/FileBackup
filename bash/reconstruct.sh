@@ -74,7 +74,7 @@
 # Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
 #             LLR-032, LLR-039, LLR-040, LLR-050)
 #
-# KitRevision: 6
+# KitRevision: 10
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from
@@ -93,8 +93,23 @@
 # rather than a host problem, while a row's own file failing to extract stays
 # exit 4. (The -Force pool-scan and non-interactive-guard halves of revision 6
 # are PowerShell-side: find(1) never skipped dot files and --target-root was
-# always required here.) Restoring a snapshot with its OWN older kit still
-# carries the defects fixed after it.
+# always required here.) Revisions 7, 8 and 9 changed behaviour here without
+# this marker being bumped with them, and revision 9 - the base-57 name grammar
+# (WP12) - was never emitted by EITHER restorer: the PowerShell marker stopped
+# at 8 and this one at 6, so a store written by WP12 reports the kit it carries
+# as 8. That drift is corrected at revision 10 rather than back-dated, because
+# the marker records what a bundled kit DOES, and a store's bundled copy cannot
+# be rewritten after the fact (WP13, F-1). Revision 10 makes this restorer
+# correct on a NON-GNU userland (SR-071): sizes, temp directories, timestamps,
+# free space, snapshot enumeration and path canonicalisation no longer assume
+# GNU coreutils, where they previously produced WRONG ANSWERS rather than loud
+# failures - an intact manifest failing its witness with "found -1", a data pool
+# silently missing every snapshot, or every compressed row blamed on 7-Zip. It
+# also refuses a target path it cannot canonicalise instead of silently handing
+# back the raw input, and clears the read-only bit on every restored file so a
+# write-protected store cannot hand its protection to the restored tree.
+# Restoring a snapshot with its OWN older kit still carries the defects fixed
+# after it.
 
 set -uo pipefail
 
@@ -119,10 +134,72 @@ readonly DIR_SIDECAR_NAME='DIRECTORIES.csv'
 TARGET_ROOT=''
 LOG_PATH=''
 
+# Appended to each tool-floor refusal (SR-071): the same store restores through
+# the PowerShell kit on any platform pwsh runs on, including macOS.
+readonly ALT_PWSH_HINT="Alternatively restore with PowerShell 7: pwsh RECONSTRUCT.ps1 -TargetRoot DIR (install: https://aka.ms/powershell; macOS: brew install --cask powershell)."
+
+# ---------------------------------------------------------------------------
+# Portability shims (SR-071) — GNU vs BSD userlands
+#
+# The three gates in main() (bash 4+, gawk, xxhsum) make the FLOOR loud, but
+# they let through a userland that HAS those three and still differs elsewhere:
+# macOS with Homebrew, FreeBSD/TrueNAS. Every shim below existed as a bare GNU
+# invocation whose `2>/dev/null` fallback was written for "the tool is absent",
+# not "the tool behaves differently here" — so a BSD host did not fail loudly,
+# it produced a WRONG ANSWER: an intact manifest failing its witness, a pool
+# missing every snapshot, or every compressed row blamed on 7-Zip.
+# ---------------------------------------------------------------------------
+
+# stat_size <file> : file size in bytes, or -1. Replaces GNU-only `stat -c %s`.
+#
+# The style is probed ONCE against a known regular file (this script) and the
+# probe REQUIRES NUMERIC OUTPUT rather than trusting an exit status: on GNU,
+# `stat -f` means "filesystem status" and takes no argument, so a bare
+# `stat -f '%z' -- /` probe SUCCEEDS whenever a file named '%z' happens to sit
+# in the working directory — silently selecting the BSD branch on a GNU host
+# (2026-08-28 independent review, T4). Validating the output removes any
+# dependence on cwd contents. `wc -c` is the last-resort POSIX floor.
+_STAT_STYLE=''
+_stat_probe() {
+    local out
+    case "$1" in
+        gnu) out="$(stat -c '%s' -- "$2" 2>/dev/null)" ;;
+        bsd) out="$(stat -f '%z' -- "$2" 2>/dev/null)" ;;
+    esac
+    [[ "$out" =~ ^[0-9]+$ ]]
+}
+_detect_stat_style() {
+    local probe="${BASH_SOURCE[0]}"
+    if   [[ -f "$probe" ]] && _stat_probe gnu "$probe"; then _STAT_STYLE='gnu'
+    elif [[ -f "$probe" ]] && _stat_probe bsd "$probe"; then _STAT_STYLE='bsd'
+    else _STAT_STYLE='wc'
+    fi
+}
+_detect_stat_style
+stat_size() {
+    local n
+    case "$_STAT_STYLE" in
+        gnu) n="$(stat -c '%s' -- "$1" 2>/dev/null)" ;;
+        bsd) n="$(stat -f '%z' -- "$1" 2>/dev/null)" ;;
+        *)   n="$(wc -c < "$1" 2>/dev/null | tr -d ' ')" ;;
+    esac
+    if [[ "$n" =~ ^[0-9]+$ ]]; then printf '%s' "$n"; else printf '%s' -1; fi
+}
+
+# iso_now : an ISO-8601 local timestamp. GNU's `--iso-8601=seconds` does not
+# exist on BSD, where the old `|| date` fallback silently changed the
+# RECONSTRUCT.log timestamp format. The explicit format string is POSIX.
+iso_now() { date +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || date; }
+
+# make_tempdir : a private temp directory, or non-zero. GNU mktemp defaults the
+# template; BSD mktemp requires one, so a bare `mktemp -d` is not portable. An
+# explicit template is correct on both.
+make_tempdir() { mktemp -d "${TMPDIR:-/tmp}/reconstruct.XXXXXX" 2>/dev/null; }
+
 log() {
     # Append "<iso-ts> - <msg>" to the target-root log and echo to stderr.
     local msg="$1"
-    local ts; ts="$(date --iso-8601=seconds 2>/dev/null || date)"
+    local ts; ts="$(iso_now)"
     if [[ -n "$LOG_PATH" ]]; then printf '%s - %s\n' "$ts" "$msg" >>"$LOG_PATH" 2>/dev/null; fi
     printf '%s\n' "$msg" >&2
 }
@@ -181,7 +258,8 @@ find_seven_zip() {
 sevenzip_to_file() {
     local archive="$1" dest="$2" tmpd first
     [[ -n "$SEVEN_ZIP" ]] || return 1
-    tmpd="$(mktemp -d)" || return 1
+    tmpd="$(make_tempdir)" || return 1
+    [[ -n "$tmpd" && -d "$tmpd" ]] || return 1
     if ! "$SEVEN_ZIP" e -bd -y -o"$tmpd" -- "$archive" >/dev/null 2>&1; then rm -rf "$tmpd"; return 1; fi
     first="$(find "$tmpd" -type f 2>/dev/null | head -n1)"
     if [[ -z "$first" ]]; then rm -rf "$tmpd"; return 1; fi
@@ -201,7 +279,16 @@ SEVENZIP_USABLE=''
 sevenzip_usable() {
     if [[ -z "$SEVENZIP_USABLE" ]]; then
         local w
-        w="$(mktemp -d)"
+        # An UNCHECKED mktemp here used to leave $w empty, so the probe was
+        # written to "/p.txt" — the filesystem ROOT — and `rm -rf "$w"` cleaned
+        # up nothing, while 7-Zip was misreported as unusable. That was a latent
+        # defect on every platform, not only where mktemp needs a template.
+        w="$(make_tempdir)"
+        if [[ -z "$w" || ! -d "$w" ]]; then
+            log "WARN: cannot create a temporary directory for the 7-Zip self-test (TMPDIR='${TMPDIR:-/tmp}')."
+            SEVENZIP_USABLE=1
+            return 1
+        fi
         printf 'selftest' > "$w/p.txt"
         if (cd "$w" && "$SEVEN_ZIP" a -bd -y p.7z p.txt >/dev/null 2>&1) \
            && sevenzip_to_file "$w/p.7z" "$w/o.txt" \
@@ -240,8 +327,17 @@ restore_one() {
     else
         cp -f -- "$src" "$dest" 2>/dev/null || return 21
     fi
+    # A RESTORED TREE IS ORDINARY WRITABLE FILES (human ruling 2026-08-28).
+    # `cp` gives a newly created destination the SOURCE's mode bits, so a
+    # write-protected pool object would hand its read-only-ness straight to the
+    # restored file — and a snapshot keeps the kit it was written with forever,
+    # so a kit that lacks this clear can never be fixed once the store is
+    # protected. Clearing here, at the single write choke point, covers the
+    # expand path too and runs BEFORE verification and mtime stamping so both
+    # operate on a writable file. A no-op until WP14 marks the store.
+    chmod u+w -- "$dest" 2>/dev/null || true
     if [[ -z "$want_hash" || ! "$want_len" =~ ^[0-9]+$ ]]; then return 0; fi
-    sz="$(stat -c '%s' -- "$dest" 2>/dev/null || echo -1)"
+    sz="$(stat_size "$dest")"
     if [[ "$sz" == "-1" ]]; then return 22; fi
     if [[ "$sz" == "$want_len" ]]; then
         h="$(hash_file "$dest" 2>/dev/null)" || return 22
@@ -328,8 +424,10 @@ apply_dir_sidecar() {
         rows=$(( rows + 1 ))
         rel="$(to_posix "$rel")"
         full="$target/$rel"
+        # Opposite polarity to the SR-009 target guard: reject unless PROVABLY
+        # inside, so an indeterminate answer refuses the row too.
         if ! is_inside "$full" "$target"; then
-            log "WARN: directory row '$rel' escapes the target root (path traversal); refusing."
+            log "WARN: directory row '$rel' escapes the target root or cannot be canonicalised (path traversal); refusing."
             continue
         fi
         if [[ ! -d "$full" ]]; then
@@ -364,7 +462,7 @@ stored_object_form() {
     sig="$(od -An -N6 -tx1 -- "$f" 2>/dev/null | tr -d ' \n')"
     if [[ "$sig" != '377abcaf271c' ]]; then printf 'Raw'; return 0; fi
     [[ "$want_len" =~ ^[0-9]+$ ]] || { printf 'Archive'; return 0; }
-    sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+    sz="$(stat_size "$f")"
     [[ "$sz" == "$want_len" ]] || { printf 'Archive'; return 0; }
     [[ -n "$want_hash" ]] || { printf 'Archive'; return 0; }
     if [[ "$(hash_file "$f" 2>/dev/null)" == "$want_hash" ]]; then printf 'Raw'; else printf 'Archive'; fi
@@ -385,8 +483,39 @@ stamp_mtime() {
     if [[ "$trimmed" != "$stamp" ]]; then
         touch -d "$trimmed" -- "$dest" 2>/dev/null && return 0
     fi
+    # POSIX `touch -t` fallback (SR-071): where neither -d form parses, the
+    # stamp is otherwise LOST SILENTLY and every restored file carries the
+    # RESTORE time — a quiet SR-066 violation on any host without GNU touch.
+    #
+    # -t takes LOCAL wall-clock digits, so this converts only where it can do so
+    # WITHOUT date arithmetic: a UTC stamp is applied under TZ=UTC, and an
+    # offset that equals this host's current offset is applied as-is. Any other
+    # offset would need real calendar arithmetic to normalise, so it keeps the
+    # warning rather than writing a time that is wrong by the difference.
+    if stamp_mtime_posix "$dest" "$trimmed"; then return 0; fi
     log "WARN: could not stamp LastWriteTime on '$rel' from '$stamp' (content is correct and verified)."
     return 0
+}
+
+# stamp_mtime_posix <dest> <iso-stamp-without-fraction> : apply via `touch -t`,
+# or return non-zero when the offset cannot be honoured exactly.
+stamp_mtime_posix() {
+    local dest="$1" s="$2" y mo d h mi sec off digits
+    [[ "$s" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(Z|[+-][0-9]{2}:[0-9]{2})?$ ]] || return 1
+    y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
+    h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; sec="${BASH_REMATCH[6]}"
+    off="${BASH_REMATCH[7]:-}"
+    digits="${y}${mo}${d}${h}${mi}.${sec}"
+    case "$off" in
+        Z|+00:00|-00:00) TZ=UTC touch -t "$digits" -- "$dest" 2>/dev/null && return 0 ;;
+        '')              touch -t "$digits" -- "$dest" 2>/dev/null && return 0 ;;
+        *)
+            # "+01:00" -> "+0100", the shape `date +%z` prints.
+            [[ "${off/:/}" == "$(date +%z 2>/dev/null)" ]] || return 1
+            touch -t "$digits" -- "$dest" 2>/dev/null && return 0
+            ;;
+    esac
+    return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -461,7 +590,7 @@ find_by_hash() {
                     # Its OWN bytes may still be the answer — a raw file under a
                     # '.7z' name, or a genuine '.7z' source stored verbatim —
                     # and testing that needs no 7z at all (kit revision 5).
-                    sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+                    sz="$(stat_size "$f")"
                     if [[ "$sz" == "$want_len" ]]; then
                         # A candidate that cannot be read records exactly ONE
                         # cause — 7z could not have helped read it (kit rev 6).
@@ -477,7 +606,7 @@ find_by_hash() {
                 tmp="$(mktemp)"
                 expand_failed=0
                 if sevenzip_to_file "$f" "$tmp"; then
-                    sz="$(stat -c '%s' -- "$tmp" 2>/dev/null || echo -1)"
+                    sz="$(stat_size "$tmp")"
                     if [[ "$sz" == "$want_len" ]]; then
                         h="$(hash_file "$tmp")"
                         if [[ "$h" == "$want_hash" ]]; then rm -f "$tmp"; printf 'Found\037Archive\037%s' "$f"; return 0; fi
@@ -492,7 +621,7 @@ find_by_hash() {
                 # genuine '.7z' SOURCE file stored raw expands fine but to
                 # something that is not this row's content. Test raw before
                 # dropping it (SR-050; WP5 review finding H2).
-                sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+                sz="$(stat_size "$f")"
                 if [[ "$sz" == "$want_len" ]]; then
                     if ! h="$(hash_file "$f")"; then
                         # Unreadable raw bytes: host class (Reconstruct.ps1
@@ -515,7 +644,7 @@ find_by_hash() {
                     fi
                 fi
             else
-                sz="$(stat -c '%s' -- "$f" 2>/dev/null || echo -1)"
+                sz="$(stat_size "$f")"
                 [[ "$sz" == "$want_len" ]] || continue
                 if ! h="$(hash_file "$f")"; then
                     # Unreadable candidate = host class, not "bytes are gone"
@@ -547,17 +676,65 @@ find_by_hash() {
 # Path helpers
 # ---------------------------------------------------------------------------
 
-# canon <path> : absolute, symlink-free-ish path that need NOT exist yet.
-canon() { realpath -m -- "$1" 2>/dev/null || printf '%s' "$1"; }
+# canon <path> : absolute, symlink-resolved path that need NOT exist yet, on
+# stdout. Returns NON-ZERO, printing nothing, when the path cannot be
+# canonicalised safely on this host (SR-071).
+#
+# It used to end `|| printf '%s' "$1"` — silently handing back the RAW input
+# when `realpath -m` was unavailable, which is how a BSD host (no `-m`) lost the
+# SR-009 guard without saying so.
+canon() {
+    local p="$1" out head tail
+    out="$(realpath -m -- "$p" 2>/dev/null)" && [[ -n "$out" ]] && { printf '%s' "$out"; return 0; }
 
-# is_inside <child> <parent> : true if child == parent or is nested under it,
-# compared as canonical paths with a trailing separator (so 'bk' vs 'bk-restore'
-# do not falsely match). Mirrors Reconstruct.ps1's Test-PathIsInside.
+    # --- Fallback for a userland without `realpath -m` (BSD/macOS) ---
+    #
+    # A '..' component is REFUSED rather than cancelled. Textual '..' reduction
+    # is not path resolution: with /outside/link -> /backup, the kernel resolves
+    #     /outside/link/../backup/victim  ->  /backup/victim   (INSIDE the backup)
+    # while a lexical reduction yields /outside/backup/victim and is judged
+    # OUTSIDE — walking a restore into the very root SR-009 exists to protect
+    # (2026-08-28 independent review, T2; an earlier draft of this function had
+    # exactly that hole). Doing it correctly means reimplementing realpath's
+    # component-by-component walk; refusing costs an operator nothing, because a
+    # restore target never needs '..'.
+    case "/$p/" in */../*) return 1 ;; esac
+
+    [[ "$p" == /* ]] || p="$PWD/$p"
+    while [[ "$p" == *//*  ]]; do p="${p/\/\//\/}"; done      # '//' -> '/'
+    while [[ "$p" == */./* ]]; do p="${p/\/.\//\/}"; done     # '/./' -> '/'
+    while [[ "$p" == */.   ]]; do p="${p%/.}"; [[ -n "$p" ]] || p=/; done
+    p="${p%/}"; [[ -n "$p" ]] || p=/
+
+    # Resolve the deepest EXISTING ancestor with the shell's physical walk, then
+    # re-append the tail. Sound because a path that does not exist cannot
+    # contain a symlink, and the '..' check above guarantees the tail is inert.
+    head="$p"; tail=''
+    while [[ "$head" != / && ! -d "$head" ]]; do
+        tail="${head##*/}${tail:+/$tail}"
+        head="${head%/*}"
+        [[ -n "$head" ]] || head=/
+    done
+    out="$(cd -P -- "$head" 2>/dev/null && pwd -P)" || return 1
+    [[ -n "$out" ]] || return 1
+    printf '%s' "${out%/}${tail:+/$tail}"
+}
+
+# is_inside <child> <parent> : TRI-STATE, because the safe answer differs by
+# caller —
+#     0  provably inside (child == parent or nested under it)
+#     1  provably outside
+#     2  INDETERMINATE: a path could not be canonicalised
+# Compared as canonical paths with a trailing separator, so 'bk' vs 'bk-restore'
+# do not falsely match. Every caller must handle 2 explicitly and take its own
+# refusing branch; a boolean here would silently pick the wrong side at one of
+# the two polarities (a target guard wants "refuse unless provably outside", a
+# traversal guard wants "reject unless provably inside").
 is_inside() {
     local c p
-    c="$(canon "$1")/"
-    p="$(canon "$2")/"
-    [[ "$c" == "$p"* ]]
+    c="$(canon "$1")" || return 2
+    p="$(canon "$2")" || return 2
+    [[ "$c/" == "$p/"* ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -639,7 +816,7 @@ verify_manifest_witness() {
 
     # Bytes is the cheap pre-check that names truncation precisely.
     if [[ "$want_bytes" =~ ^[0-9]+$ ]]; then
-        have_bytes="$(stat -c '%s' -- "$manifest" 2>/dev/null || echo -1)"
+        have_bytes="$(stat_size "$manifest")"
         if [[ "$have_bytes" != "$want_bytes" ]]; then
             die_code 3 "manifest byte length disagrees with its witness: expected $want_bytes, found $have_bytes. The index is damaged; nothing was restored."
         fi
@@ -721,9 +898,14 @@ main() {
     [[ -n "$TARGET_ROOT" ]] || { usage; die "--target-root is required"; }
 
     # Tool preflight (SN-015 fail-loudly). 7z is checked later, only if needed.
-    (( BASH_VERSINFO[0] >= 4 )) || die "bash 4+ required (found ${BASH_VERSION}); install a newer bash."
-    have gawk || die "gawk is required (RFC-4180 manifest parsing). Install: apt-get install gawk / dnf install gawk."
-    { have xxh128sum || have xxhsum; } || die "xxhsum (xxHash >= 0.8) is required. Install: apt-get install xxhash / dnf install xxhash."
+    # Each message names the macOS remediation too, because macOS ships bash 3.2
+    # and none of these tools — and names the PowerShell alternative, because
+    # RECONSTRUCT.ps1 restores the SAME store on any platform pwsh runs on. An
+    # operator who cannot meet this floor is not out of options, and the moment
+    # a restore fails is the wrong moment to have to work that out.
+    (( BASH_VERSINFO[0] >= 4 )) || die "bash 4+ required (found ${BASH_VERSION}); install a newer bash. macOS: brew install bash (/bin/bash is 3.2). $ALT_PWSH_HINT"
+    have gawk || die "gawk is required (RFC-4180 manifest parsing). Install: apt-get install gawk / dnf install gawk / brew install gawk. $ALT_PWSH_HINT"
+    { have xxh128sum || have xxhsum; } || die "xxhsum (xxHash >= 0.8) is required. Install: apt-get install xxhash / dnf install xxhash / brew install xxhash. $ALT_PWSH_HINT"
     if [[ -n "$seven_zip_opt" ]]; then
         # An explicit --seven-zip that is not a runnable command is treated as
         # absent, so a compressed backup dies up front with remediation (below)
@@ -739,7 +921,7 @@ main() {
     elif [[ -n "$backup_root" ]]; then origin="$backup_root"
     else origin="$PWD"; fi
     [[ -d "$origin" ]] || die "restore origin '$origin' is not a directory (pass --from)."
-    origin="$(canon "$origin")"
+    origin="$(canon "$origin")" || die "cannot canonicalise restore origin '$origin' on this host. Pass an absolute path containing no '..'."
 
     local origin_name is_snapshot=0
     origin_name="$(basename -- "$origin")"
@@ -770,21 +952,25 @@ main() {
     # original store on the same machine) and would silently point the restore
     # at the ORIGINAL instead of this copy. Reconstruct.ps1 applies the same
     # containment rule.
-    local side_ok=0 origin_canon
-    origin_canon="$(canon "$origin")"
-    if [[ -n "$side_backup" && -d "$side_backup" ]]; then
-        case "$origin_canon/" in "$(canon "$side_backup")"/*) side_ok=1 ;; esac
+    # An UNCANONICALISABLE sidecar root must not be treated as containing the
+    # origin: with canon() now able to fail, an empty expansion would leave the
+    # pattern "/*", which matches every absolute path and would honour a stale
+    # sidecar for a store that has been copied away from it.
+    local side_ok=0 origin_canon side_canon
+    origin_canon="$(canon "$origin")" || die "cannot canonicalise restore origin '$origin' on this host."
+    if [[ -n "$side_backup" && -d "$side_backup" ]] && side_canon="$(canon "$side_backup")"; then
+        case "$origin_canon/" in "$side_canon"/*) side_ok=1 ;; esac
     fi
-    if (( ! side_ok )) && [[ -n "$side_change" && -d "$side_change" ]]; then
-        case "$origin_canon/" in "$(canon "$side_change")"/*) side_ok=1 ;; esac
+    if (( ! side_ok )) && [[ -n "$side_change" && -d "$side_change" ]] && side_canon="$(canon "$side_change")"; then
+        case "$origin_canon/" in "$side_canon"/*) side_ok=1 ;; esac
     fi
 
-    if   [[ -n "$backup_root" ]]; then backup_root="$(canon "$backup_root")"
-    elif (( side_ok )) && [[ -n "$side_backup" && -d "$side_backup" ]]; then backup_root="$(canon "$side_backup")"
+    if   [[ -n "$backup_root" ]]; then backup_root="$(canon "$backup_root")" || die "cannot canonicalise backup root '$backup_root' on this host."
+    elif (( side_ok )) && [[ -n "$side_backup" && -d "$side_backup" ]]; then backup_root="$(canon "$side_backup")" || die "cannot canonicalise backup root '$side_backup' on this host."
     else backup_root="$auto_backup"; fi
 
-    if   [[ -n "$change_root" ]]; then change_root="$(canon "$change_root")"
-    elif (( side_ok )) && [[ -n "$side_change" && -d "$side_change" ]]; then change_root="$(canon "$side_change")"
+    if   [[ -n "$change_root" ]]; then change_root="$(canon "$change_root")" || die "cannot canonicalise change root '$change_root' on this host."
+    elif (( side_ok )) && [[ -n "$side_change" && -d "$side_change" ]]; then change_root="$(canon "$side_change")" || die "cannot canonicalise change root '$side_change' on this host."
     else change_root="$auto_change"; fi
 
     local authority="$origin/$MANIFEST_NAME"
@@ -802,9 +988,21 @@ main() {
     fi
 
     # --- Safety: refuse a target inside the backup or change root (SR-009) ---
-    if is_inside "$TARGET_ROOT" "$backup_root"; then die "target '$TARGET_ROOT' is inside the backup root '$backup_root'."; fi
-    if [[ -n "$change_root" && -d "$change_root" ]] && is_inside "$TARGET_ROOT" "$change_root"; then
-        die "target '$TARGET_ROOT' is inside the change root '$change_root'."
+    # Tri-state: refuse unless the target is PROVABLY outside. An
+    # indeterminate answer (a path this host cannot canonicalise) is a
+    # precondition failure, never a pass — that is the polarity SR-009 needs.
+    local inside_rc
+    is_inside "$TARGET_ROOT" "$backup_root"; inside_rc=$?
+    if (( inside_rc == 0 )); then die "target '$TARGET_ROOT' is inside the backup root '$backup_root'."; fi
+    if (( inside_rc == 2 )); then
+        die "cannot safely canonicalise '$TARGET_ROOT' or '$backup_root' on this host, so the target cannot be proven outside the backup. Pass an absolute target path containing no '..'."
+    fi
+    if [[ -n "$change_root" && -d "$change_root" ]]; then
+        is_inside "$TARGET_ROOT" "$change_root"; inside_rc=$?
+        if (( inside_rc == 0 )); then die "target '$TARGET_ROOT' is inside the change root '$change_root'."; fi
+        if (( inside_rc == 2 )); then
+            die "cannot safely canonicalise '$TARGET_ROOT' or '$change_root' on this host, so the target cannot be proven outside the change root. Pass an absolute target path containing no '..'."
+        fi
     fi
 
     # --- Verify the index itself before touching the target (SR-039) ---
@@ -814,7 +1012,7 @@ main() {
     verify_manifest_witness "$authority" "$require_witness"
 
     mkdir -p -- "$TARGET_ROOT" || die "cannot create target '$TARGET_ROOT'."
-    TARGET_ROOT="$(canon "$TARGET_ROOT")"
+    TARGET_ROOT="$(canon "$TARGET_ROOT")" || die "cannot canonicalise target '$TARGET_ROOT' on this host. Pass an absolute path containing no '..'."
     LOG_PATH="$TARGET_ROOT/$LOG_NAME"
     : >"$LOG_PATH" 2>/dev/null || true
     log "Reconstruction starting (origin=$origin, snapshot=$is_snapshot, backupRoot=$backup_root, changeRoot=${change_root:-<none>})"
@@ -896,7 +1094,20 @@ main() {
         [[ "${d_len[i]}" =~ ^[0-9]+$ ]] && need=$(( need + d_len[i] ))
     done
     local avail
+    # GNU `-B1` gives bytes directly; BSD/macOS df has no -B, where this used to
+    # yield nothing and the capacity precheck then skipped in SILENCE, so
+    # SR-040's "insufficient capacity -> exit 2" never fired. POSIX `-Pk` is the
+    # portable fallback, and the KiB->bytes multiply happens in bash 64-bit
+    # integers rather than awk doubles.
+    local avail_kb
     avail="$(df -P -B1 -- "$TARGET_ROOT" 2>/dev/null | awk 'NR==2{print $4}')"
+    if ! [[ "$avail" =~ ^[0-9]+$ ]]; then
+        avail_kb="$(df -Pk -- "$TARGET_ROOT" 2>/dev/null | awk 'NR==2{print $4}')"
+        if [[ "$avail_kb" =~ ^[0-9]+$ ]]; then avail=$(( avail_kb * 1024 )); else avail=''; fi
+    fi
+    if ! [[ "$avail" =~ ^[0-9]+$ ]]; then
+        log "WARN: capacity precheck skipped for '$TARGET_ROOT' - df reported no usable free-space figure on this host."
+    fi
     if [[ "$avail" =~ ^[0-9]+$ ]]; then
         if (( avail < need )); then
             die "not enough free space on target. Required (uncompressed rows only): $need, Free: $avail."
@@ -910,7 +1121,8 @@ main() {
         if [[ -r "$change_root" && -x "$change_root" ]]; then
             while IFS= read -r sn; do
                 [[ -n "$sn" ]] && SEARCH_FOLDERS+=("$sn")
-            done < <(find "$change_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+            done < <(find "$change_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+                        | sed 's#.*/##' \
                         | grep -E "$SNAPSHOT_RE" | sort -r | sed "s#^#$change_root/#")
         else
             # The snapshot tree exists but cannot be LISTED: silently shrinking
@@ -945,8 +1157,10 @@ main() {
         # Refuse a RelativePath that escapes the target root (e.g. '..\..\x') — a
         # foreign/tampered manifest must not write outside where the user aimed.
         # Count it as unrestored so the run still fails loudly (defense in depth).
+        # Reject unless PROVABLY inside (rc 0); both "outside" and
+        # "indeterminate" take this branch.
         if ! is_inside "$dest" "$TARGET_ROOT"; then
-            log "WARN: '$rel' escapes the target root (path traversal); refusing."
+            log "WARN: '$rel' escapes the target root or cannot be canonicalised (path traversal); refusing."
             unrestored+=("$rel"); continue
         fi
         destdir="$(dirname -- "$dest")"

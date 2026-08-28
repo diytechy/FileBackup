@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Reconstructs a source tree from MANIFEST.csv and the available data files.
 
@@ -56,7 +56,7 @@
     RECONSTRUCT.bat does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 8
+# KitRevision: 10
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -95,6 +95,17 @@
 # (human-ratified 2026-08-26): a row's own object is exit 4 only when it is
 # ARCHIVE-SHAPED and will not open; unsignatured bytes that reproduce neither
 # form are content damage, exit 1, because no retry fixes them.
+# Revision 9 - the base-57 name grammar (WP12) - CHANGED BEHAVIOUR BUT WAS
+# NEVER EMITTED: this marker stayed at 8 and reconstruct.sh stayed at 6, so
+# every store WP12 wrote reports the kit it carries as 8, and Get-BackupKit
+# Revision (the only reader) has been naming the wrong kit ever since. The
+# drift is corrected forward at revision 10 rather than back-dated, because
+# the marker records what a BUNDLED kit does and a deployed copy cannot be
+# rewritten (WP13, F-1). Revision 10 clears the read-only attribute on every
+# restored file, so a write-protected store cannot hand its protection to
+# the restored tree - a snapshot keeps its kit forever, so this half must
+# ship BEFORE the store is ever marked, not with it. Its POSIX twin also
+# stops assuming GNU coreutils (SR-071).
 # Restoring a snapshot with its OWN older kit
 # still carries the defects fixed after it.
 
@@ -887,6 +898,23 @@ function Restore-OneRow {
             return [pscustomobject]@{ Outcome = 'hostfail'; Cause = 'CandidateError'
                 Detail = "Copy from '$SrcFull' failed: $($_.Exception.Message)"; Got = $null }
         }
+    }
+    # A RESTORED TREE IS ORDINARY WRITABLE FILES (human ruling 2026-08-28).
+    # Copy-Item propagates the ReadOnly attribute from the pool object, so a
+    # write-protected store would hand its protection straight to the restored
+    # file — and a snapshot keeps the kit it was written with FOREVER, so a kit
+    # without this clear could never be fixed once a store is protected. Cleared
+    # at the single write choke point (covering the expand path too) and BEFORE
+    # verification and the SR-066 timestamp stamp, so both act on a writable
+    # file. A no-op until the write side lands; it also stops a source file that
+    # was itself read-only at backup time restoring read-only, which WP10 ruled
+    # out of contract.
+    try {
+        $written = Get-Item -LiteralPath $DestFull -Force -ErrorAction Stop
+        if ($written.IsReadOnly) { $written.IsReadOnly = $false }
+    } catch {
+        # Non-fatal: the bytes are what matter, and the verification below still
+        # has the final say on whether this row restored.
     }
     if (-not $Row.xxH2Hash -or '' -eq "$($Row.Length)") {
         return [pscustomobject]@{ Outcome = 'ok'; Cause = $null; Detail = $null; Got = $null }
