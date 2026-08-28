@@ -7,6 +7,9 @@
 *.sh   text eol=lf
 *.bash text eol=lf
 *.bats text eol=lf
+# macOS launcher: a .command is a shell script Finder runs in Terminal, so
+# CRLF breaks its shebang exactly as it would for a .sh.
+*.command text eol=lf
 
 # Windows batch launchers stay CRLF (LF-only batch can break cmd.exe parsing).
 *.cmd  text eol=crlf

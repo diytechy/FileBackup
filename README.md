@@ -76,13 +76,42 @@ First run installs `System.IO.Hashing` per-user (prompts unless already present)
 
 ### 3. Restore
 
-Open the backup folder and run **`RECONSTRUCT.bat`**. It asks for a target directory and
-writes a `RECONSTRUCT.log` next to the restored tree. To restore a *historical* state,
-run the `RECONSTRUCT.bat` inside a specific dated `Snapshot_<date>` folder instead — it
-reproduces exactly the state as of that backup. The backup folder is self-contained —
-it carries `RECONSTRUCT.bat`, `RECONSTRUCT.ps1`, `reconstruct.sh`, the hashing module,
+Open the backup folder and double-click **`RECONSTRUCT.cmd`** (Windows) or
+**`RECONSTRUCT.command`** (macOS). With no arguments it opens a folder picker, restores,
+and holds the window so you can read the result; it writes a `RECONSTRUCT.log` next to
+the restored tree. To restore a *historical* state, run the launcher inside a specific
+dated `Snapshot_<date>` folder instead — it reproduces exactly the state as of that
+backup. The backup folder is self-contained — it carries `RECONSTRUCT.cmd`,
+`RECONSTRUCT.command`, `RECONSTRUCT.ps1`, `reconstruct.sh`, the hashing module,
 `System.IO.Hashing.dll`, and a path sidecar — so restore works on a machine without
 this repo.
+
+Backups written before kit revision 10 carry `RECONSTRUCT.bat` instead of
+`RECONSTRUCT.cmd`; it still works, and it is still recognised as part of the kit rather
+than mistaken for one of your files. `-Action Verify -RefreshKits` puts the current kit
+into an existing store.
+
+**On macOS**, `RECONSTRUCT.command` is a convenience with one limit worth knowing before
+you need it: Finder will only launch a file that carries the executable bit, and the kit
+is written by Windows, which cannot set one. On a FAT/exFAT/NTFS volume — a USB stick,
+the usual case — macOS supplies it and the double-click works. After a zip round-trip
+onto an APFS disk it does not, and Finder refuses until you run
+`chmod +x RECONSTRUCT.command`. The route that never needs it is:
+
+```bash
+bash reconstruct.sh --pick-target
+```
+
+`reconstruct.sh` needs `bash` 4+, `gawk` and `xxhsum` (`brew install bash gawk xxhash`),
+plus `7z` if the backup has compressed rows. If you would rather not install those, every
+store also restores with PowerShell 7 — `pwsh RECONSTRUCT.ps1 -TargetRoot DIR` — and each
+refusal tells you both routes.
+
+**Headless and scheduled runs never prompt.** `-NonInteractive`, redirected input, or a
+session with no console and no desktop all produce the usage text and exit 2 rather than
+waiting for an answer nobody is there to give. `-NoGui` (or `FILEBACKUP_NO_GUI=1`) keeps
+the typed prompt instead of the picker, and on Linux/macOS the picker is only ever
+reached by asking for it with `--pick-target`.
 
 **The index is checked before anything is restored.** Every `MANIFEST.csv` is
 written together with a small witness file, `MANIFEST.csv.meta`, recording that
@@ -99,9 +128,9 @@ log says `UNVERIFIED`. Pass `-RequireWitness` (Windows) or `--require-witness`
 ### Restore exit codes
 
 Both restorers report outcome through one table, so a scheduled task or wrapper
-can tell the failure classes apart without reading the log. `RECONSTRUCT.bat` and
+can tell the failure classes apart without reading the log. `RECONSTRUCT.cmd` and
 `reconstruct.sh` return these directly; `Reconstruct.ps1` throws a terminating
-error unless you pass `-ExitCode` (which `RECONSTRUCT.bat` does for you).
+error unless you pass `-ExitCode` (which `RECONSTRUCT.cmd` does for you).
 
 | Code | Class | Meaning | What to do |
 |---|---|---|---|
@@ -329,6 +358,21 @@ manifest's `Compressed` column rather than from the bytes â€” the same clas
 mistake revision 2 fixed for hash-recovered files, left in place for the common
 path; revision 8 decides from the bytes in both cases, so a manifest whose
 column disagrees with what is stored can no longer produce a wrong restore.
+Kits **before revision 10** assumed **GNU** coreutils in seven places that no
+tool check covered, so a restore host with BSD tools — a Mac that had installed
+exactly what the script asked for, a FreeBSD/TrueNAS NAS — did not fail loudly,
+it answered **wrongly**: an intact `MANIFEST.csv` failed its witness as
+`expected 41231, found -1` and exited 3 (“the index is damaged”); the data pool
+silently lost every dated snapshot, so a deduplicated file whose only copy lived
+in one reported “your bytes are gone”; every compressed row failed and blamed
+7-Zip; each restored file quietly took the restore time instead of its own; and
+the guard that refuses a target *inside* the backup silently stopped
+canonicalising paths. Revision 10 removes all seven assumptions, refuses a target
+path it cannot resolve safely instead of guessing at it, and clears the read-only
+attribute on every file it writes so a restored tree is always ordinary writable
+files. **There is no revision 9 in the wild**: the marker was left at 8 when that
+work shipped, so stores written by it report 8 — corrected forward rather than
+back-dated, because the number records what a bundled kit *does*.
 (The
 revision is the `# KitRevision:` line near the top
 of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
@@ -717,7 +761,7 @@ named below so you can recognise every file the tool creates:
 | `backup.log` | change root | The run log: what was hashed, copied, staged, refused. |
 | `RECONSTRUCT.log` | the **restore target** | Written by a restore, not a backup — the per-file record of what was recovered and how. |
 | `.viewstamp` | the view root (`ViewPath`), only with `BrowseView: index` | A digest of the manifest rows the browse view mirrors, so a stale view is rebuilt rather than trusted. |
-| `RECONSTRUCT.ps1` · `RECONSTRUCT.bat` · `reconstruct.sh` · `FileBackup.Common.psm1` · `System.IO.Hashing.dll` | backup root and every snapshot | The restore kit — the reason a backup folder needs nothing else to give your files back. |
+| `RECONSTRUCT.ps1` · `RECONSTRUCT.cmd` · `RECONSTRUCT.command` · `reconstruct.sh` · `FileBackup.Common.psm1` · `System.IO.Hashing.dll` | backup root and every snapshot | The restore kit — the reason a backup folder needs nothing else to give your files back. (Stores older than kit revision 10 carry `RECONSTRUCT.bat` in place of the `.cmd`.) |
 
 Those names are **infrastructure at the root only**. A file of your own called
 `MANIFEST.csv` in a subfolder is ordinary data and is backed up as such.

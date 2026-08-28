@@ -53,7 +53,7 @@
 
     Delivery: by default every failure is a TERMINATING ERROR (throw), which is
     what in-process callers and the test harness rely on. Pass -ExitCode (as
-    RECONSTRUCT.bat does) to exit the process with the table's code instead.
+    RECONSTRUCT.cmd does) to exit the process with the table's code instead.
 #>
 
 # KitRevision: 10
@@ -126,7 +126,11 @@ param(
     # the behavior reconstruct.sh has always had (--target-root is required).
     # Redirected stdin triggers the same guard, so a scheduled run that forgot
     # the switch still fails loudly rather than hanging.
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    # Never open a graphical folder picker even on a desktop session (SR-073);
+    # the typed prompt is used instead. FILEBACKUP_NO_GUI=1 does the same, for
+    # a caller that cannot add a switch.
+    [switch]$NoGui
 )
 
 $ErrorActionPreference = 'Stop'
@@ -180,6 +184,34 @@ trap {
     break
 }
 
+function Wait-BeforeClosing {
+    <#
+    .SYNOPSIS
+        Holds a double-clicked window open so its outcome can be read (SR-072).
+    .DESCRIPTION
+        Fires ONLY when the target was obtained interactively - the one branch
+        that has already proved a human is watching. The launcher deliberately
+        does NOT pause: a `pause` in RECONSTRUCT.cmd would also fire for a
+        console-attached automated caller that passes no arguments, and hang it
+        without ever returning the exit code (2026-08-28 independent review,
+        T6). Deciding here means the hold cannot reach automation at all.
+    .PARAMETER Code
+        The SR-040 code about to be returned, shown to the operator.
+    #>
+    # Implements: SR-072, LLR-072
+    param([int]$Code)
+    if (-not $script:InteractiveTarget) { return }
+    if ([System.Console]::IsInputRedirected) { return }
+    try {
+        Write-Host ''
+        Write-Host "Exited with code $Code."
+        $null = Read-Host 'Press Enter to close'
+    } catch {
+        # No console to hold on to; ending quietly is correct.
+        Write-Verbose "Could not hold the window open: $($_.Exception.Message)"
+    }
+}
+
 function Exit-Reconstruct {
     <#
     .SYNOPSIS
@@ -212,6 +244,7 @@ function Exit-Reconstruct {
     $script:classified = $true
     if ($ExitCode) {
         [Console]::Error.WriteLine("reconstruct: $Message")
+        Wait-BeforeClosing -Code $Code
         exit $Code
     }
     throw $Message
@@ -511,7 +544,7 @@ function Show-ReconstructUsage {
     return @'
 Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-BackupRootOverride DIR]
                        [-ChangeRootOverride DIR] [-SevenZipPath PATH]
-                       [-RequireWitness] [-NonInteractive] [-ExitCode]
+                       [-RequireWitness] [-NonInteractive] [-NoGui] [-ExitCode]
 
   -TargetRoot DIR          Where to rebuild the tree (must be OUTSIDE the backup).
   -BackupRootOverride DIR  Override the auto-detected backup root (the live data pool).
@@ -523,6 +556,8 @@ Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-BackupRootOverride DIR]
   -NonInteractive          Never prompt: a missing -TargetRoot becomes this usage
                            text and exit 2 (reconstruct.sh's required --target-root
                            is the twin).
+  -NoGui                   Never open a folder picker; use the typed prompt.
+                           Also honoured as FILEBACKUP_NO_GUI=1.
   -ExitCode                Exit the process with the SR-040 code instead of throwing.
 
 Exit: 0 complete; 1 incomplete, content unrecoverable; 2 usage/precondition;
@@ -531,12 +566,175 @@ Exit: 0 complete; 1 incomplete, content unrecoverable; 2 usage/precondition;
 '@
 }
 
+function Test-ShouldPromptGraphically {
+    <#
+    .SYNOPSIS
+        Decides whether a missing -TargetRoot should be asked for with a folder
+        picker, with a typed prompt, or not asked for at all (SR-073).
+
+    .DESCRIPTION
+        PURE: every signal is a parameter and nothing is read from the
+        environment, so the whole decision matrix is unit-testable — a modal
+        dialog can never be shown in a test. The I/O lives in
+        Select-FolderInteractively.
+
+        Returns one of three decisions:
+          'None'   nothing may be asked; the caller must fail with usage/exit 2.
+          'Text'   a console is present; use the typed prompt (today's behaviour).
+          'Gui'    a desktop session is present and a picker is permitted.
+
+    .PARAMETER NonInteractive
+        The caller declared itself scripted.
+    .PARAMETER InputRedirected
+        stdin is not a console, so a prompt would read EOF or block.
+    .PARAMETER UserInteractive
+        The process has a station that can interact with a desktop. FALSE for a
+        service, a Task Scheduler job set to run whether or not a user is logged
+        on, and session-0 hosts.
+    .PARAMETER NoGui
+        The operator asked for no dialog.
+    .PARAMETER IsWindowsHost
+        WinForms exists only on Windows; other platforms use a native helper.
+    .OUTPUTS
+        [string] 'None' | 'Text' | 'Gui'
+    #>
+    # Implements: SR-016, SR-073, LLR-073
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [bool]$NonInteractive,
+        [bool]$InputRedirected,
+        [bool]$UserInteractive,
+        [bool]$NoGui,
+        [bool]$IsWindowsHost
+    )
+    # Automation must never block (SR-016/SN-011). The first two were already
+    # guarded; UserInteractive is NEW at kit revision 10 and closes a hole that
+    # HAS BEEN SHIPPING: a scheduled task started without -TargetRoot and
+    # without -NonInteractive has neither switch nor redirected stdin, reached
+    # Read-Host, and waited forever (2026-08-28 independent review, T7). There
+    # is no console to type into and no desktop to show a dialog on, so the
+    # honest answer is a usage failure, not a prompt nobody can answer.
+    if ($NonInteractive -or $InputRedirected -or -not $UserInteractive) { return 'None' }
+    if ($NoGui) { return 'Text' }
+    return 'Gui'
+}
+
+function Select-FolderInteractively {
+    <#
+    .SYNOPSIS
+        Opens a native folder picker and returns the chosen path, or $null when
+        one is unavailable or the operator cancelled (SR-073).
+
+    .DESCRIPTION
+        The I/O shell for Test-ShouldPromptGraphically. Never throws: every
+        failure is $null, and the caller falls back to the typed prompt, so a
+        host without a usable dialog is never worse off than before.
+
+        Windows uses WinForms. PowerShell 7.3+ runs STA on Windows, but 7.0-7.2
+        defaulted to MTA and this kit lands on unknown machines — a rescue box,
+        an old install — so ShowDialog is marshalled onto a dedicated STA thread
+        whenever the current apartment is not STA. macOS uses osascript, which
+        needs nothing installed; Linux tries zenity then kdialog.
+
+    .PARAMETER Picker
+        Test seam: a scriptblock returning a path, $null, or throwing. When
+        supplied it replaces the platform dialog entirely, so the fallback paths
+        are provable without a dialog ever appearing.
+    .OUTPUTS
+        [string] the chosen directory, or $null.
+    #>
+    # Implements: SR-073, LLR-073
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([scriptblock]$Picker)
+
+    $prompt = 'Choose the folder to restore into (must be OUTSIDE the backup)'
+    try {
+        if ($Picker) { $chosen = & $Picker $prompt }
+        elseif ($IsWindows) { $chosen = Invoke-WindowsFolderDialog -Description $prompt }
+        elseif ($IsMacOS) {
+            $chosen = & osascript -e "POSIX path of (choose folder with prompt ""$prompt"")" 2>$null
+        }
+        elseif (Get-Command zenity -ErrorAction SilentlyContinue) {
+            $chosen = & zenity --file-selection --directory --title=$prompt 2>$null
+        }
+        elseif (Get-Command kdialog -ErrorAction SilentlyContinue) {
+            $chosen = & kdialog --getexistingdirectory $HOME --title $prompt 2>$null
+        }
+        else { return $null }
+    } catch {
+        # A missing toolkit, a headless station, a COM failure: all mean 'no
+        # dialog', never 'fail the restore'.
+        return $null
+    }
+    $chosen = "$chosen".Trim()
+    if (-not $chosen) { return $null }
+    return $chosen.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Invoke-WindowsFolderDialog {
+    <#
+    .SYNOPSIS
+        Shows the Windows folder browser, on an STA thread if this one is not.
+    .PARAMETER Description
+        The prompt shown in the dialog.
+    .OUTPUTS
+        [string] the selected path, or $null when cancelled/unavailable.
+    #>
+    # Implements: SR-073, LLR-073
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Description)
+
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+    $show = {
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        try {
+            $dialog.Description         = $Description
+            $dialog.ShowNewFolderButton = $true
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.SelectedPath } else { $null }
+        } finally { $dialog.Dispose() }
+    }
+    if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') {
+        return (& $show)
+    }
+    # MTA (pwsh 7.0-7.2): the shell dialog needs STA, so run it on its own.
+    $result = $null
+    $thread = [System.Threading.Thread]::new([System.Threading.ThreadStart]{
+        $result = & $show
+    }.GetNewClosure())
+    $thread.SetApartmentState([System.Threading.ApartmentState]::STA)
+    $thread.Start()
+    $thread.Join()
+    return $result
+}
+
+# Set when -TargetRoot came from a picker or a typed prompt rather than the
+# command line: the only case in which this script holds its window open.
+$script:InteractiveTarget = $false
+
 if (-not $TargetRoot) {
-    if ($NonInteractive -or [System.Console]::IsInputRedirected) {
+    $askMode = Test-ShouldPromptGraphically `
+        -NonInteractive  ([bool]$NonInteractive) `
+        -InputRedirected ([System.Console]::IsInputRedirected) `
+        -UserInteractive ([System.Environment]::UserInteractive) `
+        -NoGui           ([bool]$NoGui -or '1' -eq $env:FILEBACKUP_NO_GUI) `
+        -IsWindowsHost   ([bool]$IsWindows)
+
+    if ($askMode -eq 'None') {
         # Automation must never block (SR-016): fail loudly with usage — the
-        # exact behavior of reconstruct.sh's required --target-root. The prompt
-        # below remains for hand use (the 2026-08-24 ruling was align, not
-        # delete).
+        # exact behavior of reconstruct.sh's required --target-root.
+        $why = if ($NonInteractive -or [System.Console]::IsInputRedirected) {
+            '-TargetRoot is required (non-interactive run; no prompt).'
+        } else {
+            # Kit revision 10 (SR-073): NO console and NO desktop. This used to
+            # fall through to Read-Host and wait forever — a scheduled task set
+            # to run whether or not a user is logged on has neither switch nor
+            # redirected stdin, so it hung instead of failing (2026-08-28
+            # independent review, T7). There is nobody to answer a prompt here.
+            '-TargetRoot is required (no interactive console or desktop session; no prompt).'
+        }
         Write-Host (Show-ReconstructUsage)
         if ($NonInteractive -and -not $ExitCode) {
             # -NonInteractive DECLARES a scripted caller: deliver the SR-040
@@ -545,12 +743,23 @@ if (-not $TargetRoot) {
             # throw path's 1 — the code reserved for data loss (2026-08-24
             # review, minor 8). No in-process caller passes -NonInteractive.
             $script:classified = $true
-            [Console]::Error.WriteLine('reconstruct: -TargetRoot is required (non-interactive run; no prompt).')
+            [Console]::Error.WriteLine("reconstruct: $why")
             exit $EXIT_PRECONDITION
         }
-        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message '-TargetRoot is required (non-interactive run; no prompt).'
+        Exit-Reconstruct -Code $EXIT_PRECONDITION -Message $why
     }
-    $TargetRoot = Read-Host 'Enter target folder to reconstruct into'
+
+    if ($askMode -eq 'Gui') {
+        # Cancel, or no usable dialog, falls through to the typed prompt below:
+        # a desktop operator is never left worse off than before the picker.
+        $picked = Select-FolderInteractively
+        if ($picked) { $TargetRoot = $picked; $script:InteractiveTarget = $true }
+    }
+
+    if (-not $TargetRoot) {
+        $TargetRoot = Read-Host 'Enter target folder to reconstruct into'
+        if ($TargetRoot) { $script:InteractiveTarget = $true }
+    }
 }
 
 # Reject a target inside the backup/change root (SR-009). Compare normalized full
@@ -915,6 +1124,7 @@ function Restore-OneRow {
     } catch {
         # Non-fatal: the bytes are what matter, and the verification below still
         # has the final say on whether this row restored.
+        Write-Verbose "Could not clear the read-only attribute on '$DestFull': $($_.Exception.Message)"
     }
     if (-not $Row.xxH2Hash -or '' -eq "$($Row.Length)") {
         return [pscustomobject]@{ Outcome = 'ok'; Cause = $null; Detail = $null; Got = $null }
@@ -1208,4 +1418,5 @@ if ($unrestored.Count -gt 0) {
 }
 "$(Get-Date -Format 'O') - Reconstruction complete" | Out-File -LiteralPath $logPath -Append
 Write-Host "Reconstruction finished. See log: $logPath"
+Wait-BeforeClosing -Code $EXIT_COMPLETE
 if ($ExitCode) { exit $EXIT_COMPLETE }

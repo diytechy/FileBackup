@@ -454,7 +454,7 @@ Imports (internal): `Common`
   path-addressed store shape in places: correct, because it must go on restoring
   those (SR-061 refuses only *writing* to one).
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
-  from an existing snapshot, and it copies the six kit artifacts and **never**
+  from an existing snapshot, and it copies the seven kit artifacts and **never**
   `MANIFEST.csv.meta`.
 
 ## 4. Conventions & known gotchas
@@ -614,7 +614,7 @@ label not matching `FBTEST-*`, so it can't touch a production volume.
   PSScriptAnalyzer; `unit` → Pester (NUnit published); `integration-subst` → both
   compression modes, JUnit published. 7-Zip ships on the runner; `System.IO.Hashing` is installed + cached.
 - **GitHub `ubuntu-latest` (Docker)** — builds the container and verifies a compressed
-  two-file backup, complete seven-artifact restore kit (six copied files plus the
+  two-file backup, complete eight-artifact restore kit (seven copied files plus the
   SR-038 `MANIFEST.csv.meta` witness), and byte-exact containerized restore.
 - **Self-hosted VHDX** — gated by repo var `HAS_SELF_HOSTED_HYPERV == 'true'` on a
   `[self-hosted, windows, hyper-v]` runner. `RunAllTests.bat VHDX`.
@@ -622,7 +622,7 @@ label not matching `FBTEST-*`, so it can't touch a production volume.
   `FBTEST-*` partitions, drops `real-volumes.json`), then `RunAllTests.bat RealUSB`. For
   filesystem coverage, reformat the backup partition exFAT/FAT32 and re-run; on FAT32 check
   the >4 GB single-file limit surfaces cleanly. Finally copy a produced backup folder to a
-  machine without this repo, run `RECONSTRUCT.bat`, and byte-compare.
+  machine without this repo, run `RECONSTRUCT.cmd`, and byte-compare.
 
 ## 7. Removed auxiliary & legacy scripts (2026-07-03 cleanup)
 

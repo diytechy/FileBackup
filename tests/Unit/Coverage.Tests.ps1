@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS  G3 truth-up tests for the previously-Open SRs (SR-005/014/023/026).
 .NOTES     In-process backup/reconstruct drives the engine I/O shells, so these
            also lift measured module coverage. Run: Invoke-Pester -Path tests\Unit
@@ -389,7 +389,7 @@ Describe 'Cross-platform restore kit deposition (SR-007, SR-031)' {
                 Where-Object { $_.Name -match '^Snapshot_' } | Select-Object -First 1
         $snap | Should -Not -BeNullOrEmpty
         foreach ($folder in $bkp, $snap.FullName) {
-            foreach ($entryPoint in 'RECONSTRUCT.bat', 'RECONSTRUCT.ps1', 'reconstruct.sh') {
+            foreach ($entryPoint in 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'RECONSTRUCT.ps1', 'reconstruct.sh') {
                 Test-Path -LiteralPath (Join-Path $folder $entryPoint) -PathType Leaf | Should -BeTrue
             }
         }
@@ -1343,7 +1343,7 @@ Describe 'The shipped example config is executable (SR-042)' {
         Invoke-FB $cfgPath
 
         Test-Path -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
-        foreach ($kit in 'RECONSTRUCT.ps1', 'RECONSTRUCT.bat', 'reconstruct.sh', 'FileBackup.Common.psm1') {
+        foreach ($kit in 'RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh', 'FileBackup.Common.psm1') {
             Test-Path -LiteralPath (Join-Path $bkp $kit) -PathType Leaf | Should -BeTrue
         }
 
@@ -3416,7 +3416,7 @@ Describe 'A snapshot can never exist without its restore kit (F8, SR-028, WP9 st
             Should -BeNullOrEmpty -Because 'nothing was published; the crash hit the publish itself'
         $temp = Join-Path $chg 'Temp'
         Test-Path -LiteralPath $temp -PathType Container | Should -BeTrue -Because 'the unpublished snapshot stays as Temp for the SR-017 guard'
-        foreach ($artifact in 'RECONSTRUCT.ps1', 'RECONSTRUCT.bat', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json') {
+        foreach ($artifact in 'RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json') {
             Test-Path -LiteralPath (Join-Path $temp $artifact) -PathType Leaf |
                 Should -BeTrue -Because "the kit ('$artifact') must be staged BEFORE the rename"
         }

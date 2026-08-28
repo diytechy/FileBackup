@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     FileBackup shared core — restore-safe primitives.
 
@@ -31,7 +31,18 @@ $script:DatabaseFilename      = 'MANIFEST.csv'
 $script:WitnessFilename       = 'MANIFEST.csv.meta'
 $script:WitnessFormatVersion  = 2   # 2 = SR-069 base-57 name grammar (WP12); 1 = pre-WP12 base-85. SR-061 refuses < 2.
 $script:ReconstructPs1Name    = 'RECONSTRUCT.ps1'
-$script:ReconstructBatName    = 'RECONSTRUCT.bat'
+$script:ReconstructCmdName    = 'RECONSTRUCT.cmd'
+# The macOS double-click launcher; it delegates to reconstruct.sh rather than
+# carrying a third copy of the restore logic (SR-072).
+$script:ReconstructCommandName = 'RECONSTRUCT.command'
+# RECONSTRUCT.bat is NO LONGER WRITTEN (kit revision 10 renamed it to .cmd,
+# matching this repo's own run.{cmd,sh,command} convention). The name is kept
+# because a snapshot keeps the kit it was written with FOREVER: every store
+# written before revision 10 still holds one, and it must stay recognised as
+# INFRASTRUCTURE or Get-IsInfrastructureFile would call it user data and every
+# run would emit a false orphan/not-in-DB WARN for it (the SR-022 regression
+# recorded in FileBackup.Engine.psm1). Legacy for reading; never for writing.
+$script:ReconstructLegacyBatName = 'RECONSTRUCT.bat'
 $script:ReconstructShName     = 'reconstruct.sh'
 $script:ReconstructLogName    = 'RECONSTRUCT.log'
 $script:CommonModuleName      = 'FileBackup.Common.psm1'
@@ -142,7 +153,9 @@ function Get-FileBackupDefaults {
         WitnessFilename          = $script:WitnessFilename
         WitnessFormatVersion     = $script:WitnessFormatVersion
         ReconstructPs1Name       = $script:ReconstructPs1Name
-        ReconstructBatName       = $script:ReconstructBatName
+        ReconstructCmdName       = $script:ReconstructCmdName
+        ReconstructCommandName   = $script:ReconstructCommandName
+        ReconstructLegacyBatName = $script:ReconstructLegacyBatName
         ReconstructShName        = $script:ReconstructShName
         ReconstructLogName       = $script:ReconstructLogName
         CommonModuleName         = $script:CommonModuleName

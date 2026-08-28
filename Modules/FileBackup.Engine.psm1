@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     FileBackup engine — everything needed to *produce* a backup.
 
@@ -47,7 +47,11 @@ function Test-IsInfrastructureFile {
     $infra = @(
         $script:Def.DatabaseFilename,
         $script:Def.ReconstructPs1Name,
-        $script:Def.ReconstructBatName,
+        $script:Def.ReconstructCmdName,
+        $script:Def.ReconstructCommandName,
+        # Kept forever: pre-revision-10 stores still hold one, and dropping it
+        # here would make every run report it as an orphan (SR-022).
+        $script:Def.ReconstructLegacyBatName,
         $script:Def.ReconstructShName,
         $script:Def.ReconstructLogName,
         $script:Def.CommonModuleName,
@@ -1996,8 +2000,9 @@ function Update-BackupSnapshotKit {
         [Parameter(Mandatory)][string]$ChangeRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName,
-                   $script:Def.ReconstructShName, $script:Def.CommonModuleName,
+    $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
+                   $script:Def.ReconstructCommandName, $script:Def.ReconstructShName,
+                   $script:Def.CommonModuleName,
                    'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
     $refreshed = 0
     foreach ($snapshot in @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ })) {
@@ -2712,15 +2717,37 @@ function New-ReconstructScript {
     }
     Copy-Item -LiteralPath $templateSh -Destination (Join-Path $BackupRoot $script:Def.ReconstructShName) -Force
 
+    # The macOS double-click launcher, beside its POSIX restorer. It delegates
+    # to reconstruct.sh, so it adds an entry point without adding a third copy
+    # of the restore logic (SR-072).
+    $templateCommand = Join-Path (Split-Path $PSScriptRoot -Parent) (Join-Path 'bash' 'reconstruct.command')
+    if (-not (Test-Path -LiteralPath $templateCommand -PathType Leaf)) {
+        throw "reconstruct.command not found at '$templateCommand'"
+    }
+    Copy-Item -LiteralPath $templateCommand -Destination (Join-Path $BackupRoot $script:Def.ReconstructCommandName) -Force
+
     # Path bindings as a sidecar (read by Reconstruct.ps1 from $PSScriptRoot).
     @{ BackupRoot = $BackupRoot; ChangeRoot = $ChangeRoot } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $BackupRoot 'RECONSTRUCT.paths.json') -Encoding UTF8
 
-    # -ExitCode makes the process entry point report the SR-040 exit-code table
-    # (0/1/2/3/4) instead of throwing; in-process callers omit it and keep the
-    # terminating-error behavior they assert on.
-    $bat = "@echo off`r`npwsh -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$($script:Def.ReconstructPs1Name)`" -ExitCode %*"
-    Set-Content -LiteralPath (Join-Path $BackupRoot $script:Def.ReconstructBatName) -Value $bat -Encoding ASCII
+    # The Windows double-click launcher. -ExitCode makes the process entry point
+    # report the SR-040 exit-code table (0/1/2/3/4) instead of throwing;
+    # in-process callers omit it and keep the terminating-error behavior they
+    # assert on.
+    #
+    # It is a PURE PASSTHROUGH and must stay one. An earlier draft paused here
+    # so a double-clicked window would not vanish before the operator read the
+    # outcome, but `pause` blocks a console-attached automated caller that
+    # passes no arguments and never returns its exit code (2026-08-28
+    # independent review, T6). The window-holding lives in RECONSTRUCT.ps1
+    # instead, on the branch that has already proved a human is present.
+    #
+    # .cmd, not .bat: this repo's own convention is run.{cmd,sh,command}
+    # (docs/process-options.md). cmd.exe treats the two identically for a file
+    # this shape - they differ only in ERRORLEVEL handling around built-ins
+    # none of this uses. CRLF and ASCII, as cmd.exe expects.
+    $cmd = "@echo off`r`npwsh -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$($script:Def.ReconstructPs1Name)`" -ExitCode %*"
+    Set-Content -LiteralPath (Join-Path $BackupRoot $script:Def.ReconstructCmdName) -Value $cmd -Encoding ASCII
 
     # Bundle the shared module so the deployed reconstruct script is self-contained.
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $script:Def.CommonModuleName) `
@@ -3424,7 +3451,7 @@ function Complete-ChangeFolder {
     # snapshot with no restore kit. With the copy first, a Snapshot_* folder
     # structurally cannot exist without its kit — a crash before the rename
     # leaves only a Temp folder for the SR-017 stale-staging guard.
-    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructBatName, $script:Def.ReconstructShName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
+    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName, $script:Def.ReconstructCommandName, $script:Def.ReconstructShName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
         # NOTE: the directory sidecar is deliberately absent from this list - it
         # is NOT part of the kit. Step 7 already placed the PRIOR state's
         # sidecar in staging, and copying the backup root's current one here

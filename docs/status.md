@@ -24,6 +24,72 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **HEADLINE - WP13 IS IMPLEMENTED, NOT YET RATIFIED (2026-08-28). Restore kit
+  revision 10.** Four human questions about the restore entry points (`.cmd` vs
+  `.bat`, a folder picker, the same from bash, a macOS `.command`) turned up a
+  defect underneath the fourth: **`reconstruct.sh` returned FALSE VERDICTS on any
+  BSD userland.** The three tool gates (bash 4+, gawk, xxhsum) make the floor
+  loud, so a stock Mac stops correctly - but a user who FOLLOWS that advice
+  (`brew install bash gawk xxhash`) clears them and meets seven GNU-specific
+  assumptions behind them, each wrapped in a `2>/dev/null` fallback written for
+  "the tool is absent" rather than "the tool differs here". So the failure was
+  not loud, it was WRONG: `stat -c` made an intact manifest fail its witness as
+  `expected 41231, found -1` -> **exit 3, "the index is damaged"** (or exit 4 on
+  an unwitnessed store); `find -printf` silently emptied the snapshot pool so a
+  deduplicated row reported "your bytes are gone"; `mktemp -d` failed every
+  compressed row and blamed 7-Zip; `touch -d` silently cost SR-066; and `canon()`
+  returned its raw input, losing the SR-009 guard without saying so. Affects
+  macOS-with-Homebrew and FreeBSD/TrueNAS - a NAS platform `reconstruct.sh`'s own
+  header claims as an audience.
+- **The independent review found a P0 IN THE PLAN, and it was right.** (OpenAI
+  gpt-5.6-terra, medium, via `codex exec`, adversarial, read-only: 9 findings,
+  2 P0, verdict "not safe to implement as written".) **T2:** the first `canon()`
+  fix reduced `..` textually before resolving symlinks, so with
+  `/outside/link -> /backup` the target `/outside/link/../backup/victim` was
+  judged OUTSIDE while the kernel resolves it INSIDE - **the guard would have
+  walked a restore into the backup root it exists to protect.** Redesigned to
+  REFUSE a `..` component rather than reduce it. **T4:** the `stat` probe could
+  misidentify GNU as BSD if a file named `%z` sat in the cwd; it now probes a
+  known regular file and requires numeric output. **T6/T7** replaced a batch
+  `pause` (which hangs a console-attached no-arg caller) with a hold inside the
+  restorer, and closed a PRE-EXISTING hang. **T8** caught five registry rows the
+  plan had missed - and itself missed `LLR-040`.
+- **Not everything was accepted.** T1/T5 claimed BSD rejects `--`; it does not
+  (POSIX Utility Syntax Guideline 10, honoured via `getopt(3)`), and acting on it
+  would have REGRESSED a deliberate safety property this file's own live-items
+  list praises. Declined with reasons. T3/T7 describe real problems that PRE-DATE
+  the WP; attribution corrected, recommendations still taken (D-6, D-7).
+- **The driver's own sweep found three the review missed:** `mktemp -d` (incl. an
+  UNCHECKED result at `:204` that writes the 7-Zip self-test probe to the
+  filesystem **root** - latent on every platform), `touch -d`, `date --iso-8601`.
+- **D-6, a deliberate behaviour change, flagged not buried:** a restore started
+  with no `-TargetRoot`, no `-NonInteractive` and no redirected stdin - a
+  scheduled task set to run whether or not a user is logged on - reached
+  `Read-Host` and **waited forever**, violating SR-016/SN-011 in shipped code. It
+  now exits 2 with usage. A job that hangs today will fail fast tomorrow.
+- **F-1 (pre-existing): the kit revision marker never reached 9.**
+  `Get-BackupKitRevision` reads one source of truth and it said **8**, while
+  `reconstruct.sh` said **6** and this file claimed 9 - so every WP12 store
+  reports the wrong kit, and nothing pinned it (`-BeGreaterOrEqual 2`).
+  Corrected FORWARD to 10, not back-dated: the marker records what a BUNDLED kit
+  does, and a deployed copy cannot be rewritten. Now pinned by TC-173.
+- **F-2 (pre-existing, NOT fixed here - D-5): `SN-031` is assigned to two
+  different needs** (restore fidelity, and self-healing). Any `SN-031` reference
+  is therefore ambiguous, and `trace.py` does not check SN id uniqueness.
+  Renumbering a top-layer id deserves its own reviewable commit.
+- **AWAITING HUMAN RULING before release: D-2.** `RECONSTRUCT.bat` is named in
+  **IF-001**, a ratified cross-project contract. The rename is implemented (the
+  human asked for it), but amending a counterparty's contract needs HomeHub's
+  acknowledgement. This blocks release, not implementation. D-7 (the twins
+  already disagree about symlinks: bash resolves them via `realpath`, PowerShell
+  never has via `GetFullPath`) is recorded as F-3 and deferred.
+- **macOS acceptance is NOT claimed.** No Mac on this host. The BSD branches are
+  exercised by shimming the GNU tool off `PATH`, which proves OUR branch
+  selection, not Apple's `stat`. TC-169/TC-170 are Manual/Release for that
+  reason, and the open BSD `mktemp` default-template question is settled there
+  (the explicit template is correct either way).
+- **Plan:** [../plans/wp13-portable-launchers-plan.md](../plans/wp13-portable-launchers-plan.md)
+  (revision 2 carries the full review dispositions in section 9).
 - **HEADLINE - WP12 IS COMPLETE (2026-08-27). Restore kit revision 9.** Stored
   objects are named `<hash22>_<len><ext>` in base-57 (the alphanumerics less
   `0 O I l 1`), carrying the COMPLETE 128-bit hash with an UNPADDED length -

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Builds, smoke-tests, exports, publishes, or pulls the FileBackup container.
 
@@ -280,7 +280,7 @@ function Invoke-ContainerSmokeTest {
         # MANIFEST.csv.meta is the SR-038 witness, written beside every manifest by
         # Write-Manifest — not a copied kit artifact, but it must be present in a
         # backup the container produced, or a restore would report an unverified index.
-        foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.bat','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
+        foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.cmd','RECONSTRUCT.command','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
             if (-not (Test-Path -LiteralPath (Join-Path $backup $artifact) -PathType Leaf)) {
                 throw "Container smoke test did not produce restore-kit artifact '$artifact'."
             }
@@ -351,7 +351,7 @@ function Invoke-ContainerSmokeTest {
         $snapshotPath = $snapshotDirs[0].FullName
 
         foreach ($kitRoot in @($backup, $snapshotPath)) {
-            foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.bat','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
+            foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.cmd','RECONSTRUCT.command','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
                 if (-not (Test-Path -LiteralPath (Join-Path $kitRoot $artifact) -PathType Leaf)) {
                     throw "Incremental smoke test did not produce restore-kit artifact '$artifact' under '$kitRoot'."
                 }

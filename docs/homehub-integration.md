@@ -201,7 +201,8 @@ restore side does with `$unrestored`.
 - **G — fixed and regression-tested.** An empty-source transition is refused by
   default and requires an explicit opt-in.
 - **Recovery-kit gap — fixed and regression-tested.** New live backups and dated
-  snapshots carry `RECONSTRUCT.bat`, `RECONSTRUCT.ps1`, and `reconstruct.sh`;
+  snapshots carry `RECONSTRUCT.cmd` (`RECONSTRUCT.bat` before kit revision 10),
+  `RECONSTRUCT.command`, `RECONSTRUCT.ps1`, and `reconstruct.sh`;
   the POSIX script remains self-contained and does not require PowerShell.
 - **C, D, E, H, I, and J — open** unless a later status entry records a
   reproducing test and disposition. Containerization is tracked separately.

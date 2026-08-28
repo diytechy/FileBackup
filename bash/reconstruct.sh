@@ -854,10 +854,70 @@ verify_manifest_witness() {
     log "Manifest verified against its witness (version $version, rows=${want_rows:-?}, bytes=${want_bytes:-?})."
 }
 
+# ---------------------------------------------------------------------------
+# Graphical target selection (SR-073) — reached ONLY via --pick-target
+# ---------------------------------------------------------------------------
+
+# Set when the target came from the picker rather than the command line: the
+# one case where a human is provably watching, and therefore the only case in
+# which this script holds the window open before exiting.
+INTERACTIVE_TARGET=0
+
+# pick_target_dir : echo a directory chosen in a graphical dialog, or return
+# non-zero when no dialog is available or the operator cancelled. NEVER blocks
+# without a dialog, and never invents a default — an empty result reaches the
+# required-argument check and becomes usage + exit 2.
+#
+# $FILEBACKUP_PICKER overrides the probe with a command that prints a path; it
+# exists so the bats suite can exercise this path headlessly, because a real
+# dialog can never appear in CI.
+pick_target_dir() {
+    local out=''
+    local prompt='Choose the folder to restore into (must be OUTSIDE the backup)'
+
+    if [[ -n "${FILEBACKUP_PICKER:-}" ]]; then
+        out="$($FILEBACKUP_PICKER "$prompt" 2>/dev/null)" || return 1
+    elif [[ "$(uname -s 2>/dev/null)" == 'Darwin' ]] && have osascript; then
+        # macOS needs no extra package for this — osascript is part of the OS.
+        out="$(osascript -e "POSIX path of (choose folder with prompt \"$prompt\")" 2>/dev/null)" || return 1
+    elif [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        if   have zenity;  then out="$(zenity --file-selection --directory --title="$prompt" 2>/dev/null)" || return 1
+        elif have kdialog; then out="$(kdialog --getexistingdirectory "${HOME:-/}" --title "$prompt" 2>/dev/null)" || return 1
+        elif have yad;     then out="$(yad --file --directory --title="$prompt" 2>/dev/null)" || return 1
+        else return 1
+        fi
+    else
+        return 1
+    fi
+
+    out="${out%$'
+'}"
+    out="${out%/}"                      # osascript returns a trailing slash
+    [[ -n "$out" ]] || return 1
+    printf '%s' "$out"
+}
+
+# hold_if_interactive : an EXIT trap, armed only when the picker supplied the
+# target. A double-clicked launcher closes its window the instant the process
+# ends, so the operator would never see the outcome. Deliberately NOT done in
+# the launcher shell: a pause there would also fire for an automated no-argument
+# caller and hang it (2026-08-28 independent review, T6). Here it can only fire
+# on the branch that already proved a human is present.
+hold_if_interactive() {
+    local rc=$?
+    (( INTERACTIVE_TARGET )) || return 0
+    [[ -t 0 ]] || return 0
+    printf '
+Exited with code %s. Press Return to close.' "$rc" >&2
+    read -r _ || true
+    return 0
+}
+
 usage() {
     cat >&2 <<'EOF'
 Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
                       [--change-root DIR] [--seven-zip PATH] [--require-witness]
+                      [--pick-target]
 
   --target-root DIR   Where to rebuild the tree (must be OUTSIDE the backup).
   --from DIR          Restore origin: a backup root or a Snapshot_<date> folder.
@@ -868,6 +928,12 @@ Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
                       the backup has compressed rows).
   --require-witness   Refuse an origin with no MANIFEST.csv.meta witness instead
                       of restoring it with an 'unverified index' warning.
+  --pick-target       Choose the target folder in a graphical file dialog when
+                      one is available (macOS 'choose folder', or zenity/kdialog
+                      on Linux). Explicit by design: WITHOUT this flag a missing
+                      --target-root is still a usage failure, never a prompt, so
+                      an automated run can never start waiting on a human.
+                      Cancelling, or having no dialog available, is usage + 2.
   -h, --help          This help.
 
 Exit: 0 complete; 1 incomplete, content unrecoverable; 2 usage/precondition;
@@ -881,10 +947,12 @@ EOF
 # ---------------------------------------------------------------------------
 main() {
     local from='' backup_root='' change_root='' seven_zip_opt='' require_witness=0
+    local pick_target=0
     TARGET_ROOT=''
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --require-witness) require_witness=1; shift ;;
+            --pick-target)     pick_target=1; shift ;;
             --target-root) TARGET_ROOT="${2:?--target-root needs a value}"; shift 2 ;;
             --from)        from="${2:?--from needs a value}"; shift 2 ;;
             --backup-root) backup_root="${2:?--backup-root needs a value}"; shift 2 ;;
@@ -894,6 +962,20 @@ main() {
             *) usage; die "unknown argument: $1" ;;
         esac
     done
+
+    # A picker runs ONLY when explicitly asked for. A missing --target-root
+    # without --pick-target stays what it has always been - usage, exit 2, never
+    # a prompt - which is the twin of Reconstruct.ps1's -NonInteractive guard
+    # (SR-016) and is asserted by exit_codes.bats. If the picker is unavailable
+    # or the operator cancels, TARGET_ROOT stays empty and the required-argument
+    # check below fires: loud, never a hang, never a silent default.
+    if (( pick_target )) && [[ -z "$TARGET_ROOT" ]]; then
+        TARGET_ROOT="$(pick_target_dir)" || TARGET_ROOT=''
+        if [[ -n "$TARGET_ROOT" ]]; then
+            INTERACTIVE_TARGET=1
+            trap hold_if_interactive EXIT
+        fi
+    fi
 
     [[ -n "$TARGET_ROOT" ]] || { usage; die "--target-root is required"; }
 

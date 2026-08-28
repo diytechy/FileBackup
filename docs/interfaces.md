@@ -75,7 +75,7 @@ repo's own harness does exactly this — `scripts/Invoke-Container.ps1`.) `verif
 `FILEBACKUP_REPAIR=1`) audits storage form across the live backup and every
 snapshot without mutating anything unless repair is requested.
 
-**Exit-code table** — the same table for backup, restore (`RECONSTRUCT.bat` /
+**Exit-code table** — the same table for backup, restore (`RECONSTRUCT.cmd` /
 `reconstruct.sh`), prune, and verify, precedence `2 > 3 > 4 > 1`:
 
 | Code | Meaning | NagLight translation |

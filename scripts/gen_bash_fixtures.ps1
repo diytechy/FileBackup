@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Regenerates the committed golden fixtures the bash restore variant (bash-v1)
     tests against, using the REAL PowerShell engine so the fixtures can never
@@ -168,7 +168,7 @@ function Write-ExpectedTsv {
     [System.IO.File]::WriteAllText($OutFile, (($lines -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 }
 
-$KitArtifacts = @('RECONSTRUCT.ps1', 'RECONSTRUCT.bat', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
+$KitArtifacts = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
 
 function Remove-KitBloat {
     param([string]$Folder)
