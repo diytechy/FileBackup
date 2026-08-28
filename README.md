@@ -755,9 +755,12 @@ instead of reporting the content as gone (exit 1) — so a wrapper would retry
 forever rather than tell you a file was lost. An intact backup still restored
 correctly; it was the failure *diagnosis* that was wrong.
 
-The exclusion is **root-level only**, the same rule the tool's own files follow:
-a folder of either name *nested* inside your tree is your data, is backed up, and
-restores normally. What comes *back* is a subtler question —
+The exclusion is deliberately narrow, and needs **both** of these to be true: the
+folder is at the top level, **and** `SourcePath` is a whole volume. A folder of
+either name *nested* in your tree is your data. So is one at the top of an
+ordinary folder — back up `C:\Users\Pat\Project` and a `$RECYCLE.BIN` inside it
+is kept, because nothing about an ordinary directory makes that folder the
+system's rather than yours. What comes *back* is a subtler question —
 FILE attributes are not in the index at all, so see "What is **not** recorded"
 below before assuming a Hidden file returns Hidden. A hidden *folder* does come
 back hidden (kit revision 7); a hidden file does not.

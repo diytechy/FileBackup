@@ -1441,12 +1441,26 @@ function Test-IsVolumeRootPseudoPath {
         underneath one (SR-074).
 
     .DESCRIPTION
-        Root-level ONLY, matching the infrastructure-name rule (SR-022/B6): a
-        nested folder called 'System Volume Information' is a user's folder and
-        is backed up like anything else. Used by BOTH the source walk and the
-        restorers' pool scan, because the same folder produced two different
-        false verdicts - a backup set marked failed, and a restore reporting
-        StorageUnreadable (exit 4) against an intact store.
+        TWO conditions, and the second is load-bearing:
+
+        1. Root-level ONLY, matching the infrastructure-name rule (SR-022/B6):
+           a NESTED folder called 'System Volume Information' is a user's folder
+           and is backed up like anything else.
+
+        2. The root must itself be a FILESYSTEM VOLUME ROOT ('D:\', a UNC share
+           root). Windows creates these folders on a volume, so that is the only
+           place they can be the volume's rather than the user's. Without this
+           condition the exclusion silently DELETED USER DATA: someone backing
+           up 'C:\Users\Pat\Project' that happens to contain a folder of
+           either name would have every file under it dropped from the manifest,
+           with no error - a first run would never store them and a later run
+           could treat prior rows as removed (2026-08-28 independent review, T2;
+           the first version of this predicate had exactly that defect, and its
+           tests encoded it by using an ordinary folder as the "volume root").
+
+        Used by BOTH the source walk and the restorers' pool scan, because the
+        same folder produced two different false verdicts - a backup set marked
+        failed, and a restore misclassifying missing content as a host problem.
 
     .PARAMETER Root
         The enumeration root the path is relative to.
@@ -1463,6 +1477,10 @@ function Test-IsVolumeRootPseudoPath {
         [Parameter(Mandatory)][string]$FullPath
     )
     $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    # Condition 2: only a genuine volume root. GetPathRoot('D:\Data') is 'D:\',
+    # which differs from the path itself; for 'D:\' the two are equal.
+    $pathRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($Root)).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    if ($rootFull -ne $pathRoot -or [string]::IsNullOrEmpty($pathRoot)) { return $false }
     $full     = [System.IO.Path]::GetFullPath($FullPath)
     $prefix   = $rootFull + [System.IO.Path]::DirectorySeparatorChar
     if (-not $full.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $false }

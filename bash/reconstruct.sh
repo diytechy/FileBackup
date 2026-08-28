@@ -502,22 +502,33 @@ stamp_mtime() {
 }
 
 # stamp_mtime_posix <dest> <iso-stamp-without-fraction> : apply via `touch -t`,
-# or return non-zero when the offset cannot be honoured exactly.
+# or return non-zero when the stamp cannot be parsed.
+#
+# `touch -t` takes LOCAL wall-clock digits with no way to state an offset, so the
+# offset is carried by TZ instead. POSIX TZ states how much to ADD to local time
+# to reach UTC, which is the OPPOSITE sign to ISO-8601: '-06:00' becomes
+# 'UTC+6:00'. That converts every offset exactly, with no calendar arithmetic
+# and no rollover to get wrong.
+#
+# An earlier version refused any offset that was neither UTC nor the host's own,
+# reasoning that losing the stamp beat writing a wrong one. Both are bad: a
+# backup written in a different timezone from the restore host is entirely
+# ordinary, so on BSD that silently dropped SR-066 for most real stores
+# (2026-08-28 independent review, T5 - the defect was invisible until a BSD
+# `touch` shim was added and the restored mtime actually compared).
 stamp_mtime_posix() {
-    local dest="$1" s="$2" y mo d h mi sec off digits
+    local dest="$1" s="$2" y mo d h mi sec off digits sign hhmm tzs
     [[ "$s" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(Z|[+-][0-9]{2}:[0-9]{2})?$ ]] || return 1
     y="${BASH_REMATCH[1]}"; mo="${BASH_REMATCH[2]}"; d="${BASH_REMATCH[3]}"
     h="${BASH_REMATCH[4]}"; mi="${BASH_REMATCH[5]}"; sec="${BASH_REMATCH[6]}"
     off="${BASH_REMATCH[7]:-}"
     digits="${y}${mo}${d}${h}${mi}.${sec}"
     case "$off" in
-        Z|+00:00|-00:00) TZ=UTC touch -t "$digits" -- "$dest" 2>/dev/null && return 0 ;;
-        '')              touch -t "$digits" -- "$dest" 2>/dev/null && return 0 ;;
-        *)
-            # "+01:00" -> "+0100", the shape `date +%z` prints.
-            [[ "${off/:/}" == "$(date +%z 2>/dev/null)" ]] || return 1
-            touch -t "$digits" -- "$dest" 2>/dev/null && return 0
-            ;;
+        '')  touch -t "$digits" -- "$dest" 2>/dev/null && return 0 ;;
+        Z)   TZ='UTC0' touch -t "$digits" -- "$dest" 2>/dev/null && return 0 ;;
+        *)   sign="${off:0:1}"; hhmm="${off:1}"
+             if [[ "$sign" == '-' ]]; then tzs='+'; else tzs='-'; fi
+             TZ="UTC${tzs}${hhmm}" touch -t "$digits" -- "$dest" 2>/dev/null && return 0 ;;
     esac
     return 1
 }
@@ -540,13 +551,31 @@ infra_skip() {
     return $m
 }
 
+# is_volume_root <dir> : true when <dir> is the root of its own filesystem — '/'
+# or a mount point. df's mount-point column is POSIX (-P) and needs no GNU-only
+# flag. When detection FAILS this returns false, which is the safe direction:
+# the folder is scanned as it was before SR-074 rather than skipped.
+#
+# This gate is what stops the exclusion reaching a user's own folder. Its
+# PowerShell twin compares the root against GetPathRoot; without the equivalent
+# check the predicate treats the first component below ANY root as a
+# pseudo-folder, which silently dropped user files from a backup of an ordinary
+# directory (2026-08-28 independent review, T2).
+is_volume_root() {
+    local d="$1" mp
+    [[ "$d" == "/" ]] && return 0
+    mp="$(df -P -- "$d" 2>/dev/null | awk 'NR==2{ for (i=1;i<=5;i++) $i=""; sub(/^ +/,""); print }')"
+    [[ -n "$mp" && "$mp" == "$d" ]]
+}
+
 # volume_root_skip <file> <folder> : true if <file> lies inside one of the
 # pseudo-folders Windows puts at the ROOT of every NTFS volume (SR-074). The
 # twin of Test-IsVolumeRootPseudoPath, kept so both restorers scan the same pool
 # over the same store. These names do not arise on a native POSIX filesystem,
 # but they do on an NTFS volume mounted here — the borrowed-laptop case SN-022
 # exists for. Root-level ONLY, matching the B6 rule: a nested folder carrying
-# one of these names is ordinary data.
+# one of these names is ordinary data. The CALLER must have established that
+# <folder> is a volume root (see is_volume_root).
 volume_root_skip() {
     local f="$1" folder="$2" rel first
     rel="${f#"$folder"/}"
@@ -607,9 +636,12 @@ find_by_hash() {
             host_storage="search folder '$folder' is absent or unreadable"
             continue
         fi
+        # Once per folder, not once per candidate: df is a process each time.
+        local folder_is_root=0
+        is_volume_root "$folder" && folder_is_root=1
         while IFS= read -r -d '' f; do
             infra_skip "$f" "$folder" && continue
-            volume_root_skip "$f" "$folder" && continue
+            (( folder_is_root )) && volume_root_skip "$f" "$folder" && continue
             if [[ "${f,,}" == *.7z ]]; then
                 if [[ -z "$SEVEN_ZIP" ]]; then
                     # Its OWN bytes may still be the answer — a raw file under a
@@ -913,7 +945,10 @@ pick_target_dir() {
     local prompt='Choose the folder to restore into (must be OUTSIDE the backup)'
 
     if [[ -n "${FILEBACKUP_PICKER:-}" ]]; then
-        out="$($FILEBACKUP_PICKER "$prompt" 2>/dev/null)" || return 1
+        # Quoted: a picker path containing spaces would otherwise be word-split
+        # and the first fragment executed (2026-08-28 independent review, T6).
+        # The variable is ONE executable path, not a command line.
+        out="$("$FILEBACKUP_PICKER" "$prompt" 2>/dev/null)" || return 1
     elif [[ "$(uname -s 2>/dev/null)" == 'Darwin' ]] && have osascript; then
         # macOS needs no extra package for this — osascript is part of the OS.
         out="$(osascript -e "POSIX path of (choose folder with prompt \"$prompt\")" 2>/dev/null)" || return 1

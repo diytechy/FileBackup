@@ -697,25 +697,75 @@ function Invoke-WindowsFolderDialog {
 
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
     $show = {
+        param([string]$Prompt)
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
         $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
         try {
-            $dialog.Description         = $Description
+            $dialog.Description         = $Prompt
             $dialog.ShowNewFolderButton = $true
             if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.SelectedPath } else { $null }
         } finally { $dialog.Dispose() }
     }
+    return (Invoke-OnStaThread -Script $show -Arguments @($Description))
+}
+
+function Invoke-OnStaThread {
+    <#
+    .SYNOPSIS
+        Runs a scriptblock on a single-threaded-apartment thread and returns its
+        result, or $null if it faulted.
+
+    .DESCRIPTION
+        Windows shell dialogs require STA. PowerShell 7.3+ is STA by default on
+        Windows, but 7.0-7.2 defaulted to MTA and this kit lands on unknown
+        machines, so the MTA case has to work.
+
+        It must NOT be done with a raw System.Threading.Thread: a PowerShell
+        scriptblock invoked on a bare .NET thread has no Runspace and throws
+        'There is no Runspace available to run scripts in this thread' - as an
+        UNHANDLED exception on a background thread, which terminates the whole
+        process rather than merely failing to return (2026-08-28 independent
+        review, T3; reproduced). A runspace created with ApartmentState = STA is
+        the supported route: PowerShell owns the thread and marshals the result.
+
+        Separated from the dialog so the marshalling itself is testable with a
+        harmless scriptblock - the dialog can never be shown in a test, which is
+        exactly why the broken version survived review of the code around it.
+
+    .PARAMETER Script
+        The scriptblock to run.
+    .PARAMETER Arguments
+        Positional arguments for it.
+    .OUTPUTS
+        The scriptblock's last output object, or $null when it wrote an error.
+    #>
+    # Implements: SR-073, LLR-073
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][scriptblock]$Script,
+        [object[]]$Arguments = @()
+    )
     if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA') {
-        return (& $show)
+        return (& $Script @Arguments)
     }
-    # MTA (pwsh 7.0-7.2): the shell dialog needs STA, so run it on its own.
-    $result = $null
-    $thread = [System.Threading.Thread]::new([System.Threading.ThreadStart]{
-        $result = & $show
-    }.GetNewClosure())
-    $thread.SetApartmentState([System.Threading.ApartmentState]::STA)
-    $thread.Start()
-    $thread.Join()
-    return $result
+    $runspace = $null
+    $shell    = $null
+    try {
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.ApartmentState = [System.Threading.ApartmentState]::STA
+        $runspace.ThreadOptions  = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
+        $runspace.Open()
+        $shell = [powershell]::Create()
+        $shell.Runspace = $runspace
+        $null = $shell.AddScript($Script.ToString())
+        foreach ($arg in $Arguments) { $null = $shell.AddArgument($arg) }
+        $out = $shell.Invoke()
+        if ($shell.Streams.Error.Count -gt 0) { return $null }
+        return ($out | Select-Object -Last 1)
+    } finally {
+        if ($shell)    { $shell.Dispose() }
+        if ($runspace) { $runspace.Dispose() }
+    }
 }
 
 # Set when -TargetRoot came from a picker or a typed prompt rather than the
@@ -774,10 +824,74 @@ if (-not $TargetRoot) {
 # paths with a trailing separator so a prefix-sharing sibling (e.g. 'bkp' vs
 # 'bkp-restore') is allowed and bracket/wildcard chars are treated literally —
 # '-like' would mishandle both.
+function Resolve-PathPhysically {
+    <#
+    .SYNOPSIS
+        A path with its reparse points (junctions, symlinks) resolved, for the
+        SR-009 containment test.
+
+    .DESCRIPTION
+        GetFullPath alone is LEXICAL: it normalises separators and '..' but
+        never follows a junction, so a target under one was judged by where it
+        is NAMED rather than where it LANDS. With 'C:\outside\link' a junction
+        to the backup root, '-TargetRoot C:\outside\link\restore' compared as
+        outside and the restore then wrote INTO the backup (2026-08-28
+        independent review, T1; recorded before that as D-7/F-3, the divergence
+        from the bash twin, which has always resolved links via realpath).
+
+        The target usually does not exist yet, so the deepest EXISTING ancestor
+        is resolved and the remaining tail re-appended - a path that does not
+        exist cannot contain a reparse point. Mirrors canon() in reconstruct.sh.
+    .OUTPUTS
+        [string] the physical path; the lexical one when nothing can be resolved.
+    #>
+    # Implements: SR-009, LLR-079
+    param([Parameter(Mandatory)][string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $tail = ''
+    $cur  = $full
+    while ($cur) {
+        if (Test-Path -LiteralPath $cur) {
+            try {
+                $item = Get-Item -LiteralPath $cur -Force -ErrorAction Stop
+                # ResolveLinkTarget(final:$true) walks a chain of links; it
+                # returns $null when the item is not a link at all.
+                $resolved = $null
+                if ($item.LinkTarget) {
+                    $resolved = [System.IO.Directory]::ResolveLinkTarget($cur, $true)
+                }
+                $base = if ($resolved) { $resolved.FullName } else { $item.FullName }
+            } catch {
+                $base = $cur
+            }
+            if ($tail) { return [System.IO.Path]::GetFullPath((Join-Path $base $tail)) }
+            return [System.IO.Path]::GetFullPath($base)
+        }
+        $parent = [System.IO.Path]::GetDirectoryName($cur)
+        if (-not $parent -or $parent -eq $cur) { break }
+        $leaf = [System.IO.Path]::GetFileName($cur)
+        $tail = if ($tail) { Join-Path $leaf $tail } else { $leaf }
+        $cur  = $parent
+    }
+    return $full
+}
+
 function Test-PathIsInside {
+    <#
+    .SYNOPSIS
+        True when Child is Parent or sits underneath it, compared PHYSICALLY
+        (SR-009).
+    .DESCRIPTION
+        Both sides are resolved through Resolve-PathPhysically first, so a
+        junction cannot present an inside path as an outside one. The trailing
+        separator keeps a prefix-sharing sibling ('bkp' vs 'bkp-restore')
+        outside, and StartsWith rather than -like means bracket and wildcard
+        characters are treated literally.
+    #>
+    # Implements: SR-009, LLR-079
     param([string]$Child, [string]$Parent)
-    $c = [System.IO.Path]::GetFullPath($Child).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
-    $p = [System.IO.Path]::GetFullPath($Parent).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $c = (Resolve-PathPhysically -Path $Child).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $p = (Resolve-PathPhysically -Path $Parent).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
     return $c.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase)
 }
 if (Test-PathIsInside -Child $TargetRoot -Parent $backupRoot) {

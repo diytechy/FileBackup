@@ -172,12 +172,16 @@ shim_away() {
     [ "$status" -eq 0 ]
     run stamp_mtime_posix "$WORK/f" "not-a-timestamp"
     [ "$status" -ne 0 ]
-    # A foreign offset would need calendar arithmetic to normalise; refusing
-    # keeps the warning rather than writing a time wrong by the difference.
-    if [ "$(date +%z)" != "+0530" ]; then
-        run stamp_mtime_posix "$WORK/f" "2024-01-01T08:00:00+05:30"
-        [ "$status" -ne 0 ]
-    fi
+    # A foreign offset is converted EXACTLY, through POSIX TZ - neither refused
+    # (which silently dropped SR-066 on BSD for any store written in another
+    # timezone) nor applied as local digits (wrong by the offset).
+    printf 'x' > "$WORK/utc"; printf 'x' > "$WORK/plus"
+    run stamp_mtime_posix "$WORK/utc"  "2024-01-01T13:30:00Z"
+    [ "$status" -eq 0 ]
+    run stamp_mtime_posix "$WORK/plus" "2024-01-01T19:00:00+05:30"
+    [ "$status" -eq 0 ]
+    # 19:00+05:30 IS 13:30Z, so both files must carry the same instant.
+    [ "$(stat -c '%Y' -- "$WORK/utc")" = "$(stat -c '%Y' -- "$WORK/plus")" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -241,4 +245,72 @@ shim_away() {
 ' "$gates" | grep -c 'ALT_PWSH_HINT')" -eq 3 ]
     grep -q 'RECONSTRUCT.ps1 -TargetRoot' "$RS"
     grep -q 'aka.ms/powershell' "$RS"
+}
+
+# ---------------------------------------------------------------------------
+# Volume-root pseudo-folders — the bash twin (SR-074)
+# ---------------------------------------------------------------------------
+
+@test "volume_root_skip matches only the ROOT level, never a nested folder (SR-074, TC-175)" {
+    # shellcheck disable=SC1090
+    source "$RS"
+    run volume_root_skip "$WORK/backup/System Volume Information/x" "$WORK/backup"; [ "$status" -eq 0 ]
+    run volume_root_skip "$WORK/backup/\$RECYCLE.BIN/x"             "$WORK/backup"; [ "$status" -eq 0 ]
+    run volume_root_skip "$WORK/backup/system volume information/x" "$WORK/backup"; [ "$status" -eq 0 ]
+    # Nested is the user's data (B6), and so is anything else.
+    run volume_root_skip "$WORK/backup/sub/System Volume Information/x" "$WORK/backup"; [ "$status" -ne 0 ]
+    run volume_root_skip "$WORK/backup/ordinary.txt" "$WORK/backup";     [ "$status" -ne 0 ]
+    # A prefix-sharing name is not a match.
+    run volume_root_skip "$WORK/backup/System Volume Information Backup/x" "$WORK/backup"; [ "$status" -ne 0 ]
+}
+
+@test "is_volume_root tells a mount point from an ordinary directory (SR-074)" {
+    # The gate that stops the exclusion reaching a user's own folder. Its
+    # PowerShell twin compares the root against GetPathRoot; without an
+    # equivalent here the twins would disagree about the same store.
+    # shellcheck disable=SC1090
+    source "$RS"
+    run is_volume_root "/";            [ "$status" -eq 0 ]
+    run is_volume_root "$WORK/backup"; [ "$status" -ne 0 ]
+    run is_volume_root "$WORK";        [ "$status" -ne 0 ]
+}
+
+@test "a store whose root is NOT a volume root keeps its pool intact (SR-074)" {
+    # End-to-end: the fixture store lives in an ordinary directory, so nothing
+    # may be excluded from its pool and the restore must still be byte-exact.
+    local origin; origin="$(origin_for HashAddressed root)"
+    run bash "$RS" --from "$origin" --target-root "$WORK/restored"
+    [ "$status" -eq 0 ]
+    run verify_tree "$WORK/restored" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
+    [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# The picker seam itself (SR-073)
+# ---------------------------------------------------------------------------
+
+@test "--pick-target works when the picker path CONTAINS SPACES (SR-073, TC-184)" {
+    # The override was expanded unquoted, so '/opt/FileBackup Tools/picker' ran
+    # '/opt/FileBackup' instead (2026-08-28 independent review, T6). It names ONE
+    # executable, not a command line.
+    local dir="$WORK/FileBackup Tools"
+    mkdir -p "$dir"
+    printf '#!/bin/sh\nprintf %%s "%s"\n' "$WORK/picked-spaces" > "$dir/pick er"
+    chmod +x "$dir/pick er"
+
+    local origin; origin="$(origin_for HashAddressed root)"
+    FILEBACKUP_PICKER="$dir/pick er" run bash "$RS" --pick-target --from "$origin"
+    [ "$status" -eq 0 ]
+    run verify_tree "$WORK/picked-spaces" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
+    [ "$status" -eq 0 ]
+}
+
+@test "iso_now produces an ISO-8601 timestamp without GNU date (SR-071)" {
+    # `date --iso-8601` is GNU-only; the old fallback silently changed the
+    # RECONSTRUCT.log timestamp format on any other userland.
+    # shellcheck disable=SC1090
+    source "$RS"
+    run iso_now
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{4}$ ]]
 }

@@ -107,8 +107,15 @@ Describe 'Generated launchers and the kit artifact list (SR-007, SR-072)' {
     }
 
     It 'deposits all seven kit artifacts (SR-007, TC-171)' {
-        foreach ($artifact in 'RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command',
-                              'reconstruct.sh', 'FileBackup.Common.psm1', 'RECONSTRUCT.paths.json') {
+        # The list is SEVEN. An earlier version of this test named six and
+        # silently omitted System.IO.Hashing.dll while claiming to prove the
+        # whole kit - so removing the DLL deposition would not have failed it
+        # (2026-08-28 independent review, T4).
+        $expected = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command',
+                      'reconstruct.sh', 'FileBackup.Common.psm1',
+                      'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+        $expected.Count | Should -Be 7 -Because 'SR-007 names seven artifacts'
+        foreach ($artifact in $expected) {
             Test-Path -LiteralPath (Join-Path $bkp $artifact) -PathType Leaf |
                 Should -BeTrue -Because "'$artifact' is part of the restore kit"
         }
@@ -163,26 +170,72 @@ Describe 'Generated launchers and the kit artifact list (SR-007, SR-072)' {
 }
 
 Describe 'A restored tree is ordinary writable files (SR-007, TC-174)' {
-    It 'clears read-only on what it writes, so a protected store cannot pass its protection on' {
-        # Copy-Item propagates the ReadOnly attribute, so without the clear a
-        # write-protected pool object hands its read-only-ness to the restored
-        # file. A snapshot keeps its kit forever, so this half has to ship
-        # BEFORE any store is marked - a deployed kit cannot be fixed later.
-        $src = Join-Path $TestDrive 'ro-src.bin'
-        $dst = Join-Path $TestDrive 'ro-dst.bin'
-        Set-Content -LiteralPath $src -Value 'protected content' -Encoding ASCII
-        Set-ItemProperty -LiteralPath $src -Name IsReadOnly -Value $true
+    It 'restores WRITABLE files from a READ-ONLY pool, through the real restorer' {
+        # The previous version of this test performed the attribute clear ITSELF
+        # and asserted the result - a demonstration of Copy-Item's behaviour, not
+        # a test of Restore-OneRow. Deleting the production code would not have
+        # failed it (2026-08-28 independent review, T4). This runs a real backup,
+        # marks every pool object read-only - which is what WP14 will do - and
+        # restores through the DEPLOYED kit.
+        $root = Join-Path $TestDrive 'ro-real'
+        $src  = Join-Path $root 'src'
+        $bkp2 = Join-Path $root 'bkp'
+        $chg2 = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src, $bkp2, $chg2 -Force | Out-Null
+        # A .jpg is on NonCompressibleExtensions, so it is stored RAW even with
+        # compression on - and RAW is the Copy-Item path, the only one that
+        # propagates the read-only attribute. Without a raw row this test passes
+        # with the production clear deleted, because 7-Zip sets the extracted
+        # file's own attributes and never inherits the pool object's.
+        Set-Content -LiteralPath (Join-Path $src 'photo.jpg') -Value 'RAW-STORED-CONTENT' -NoNewline
+        # Large and repetitive so Compress mode stores it as a .7z: the EXPAND
+        # path has to clear the attribute too, and it does not go through
+        # Copy-Item at all.
+        Set-Content -LiteralPath (Join-Path $src 'big.txt') -Value ('COMPRESSIBLE-' * 3000) -NoNewline
 
-        Copy-Item -LiteralPath $src -Destination $dst -Force
-        (Get-Item -LiteralPath $dst).IsReadOnly |
-            Should -BeTrue -Because 'this is the propagation the restorer has to undo'
+        $cfg = Join-Path $root 'cfg.xml'
+        $set = [pscustomobject]@{
+            Name = 'S'; SourcePath = $src; BackupPath = $bkp2; ChangePath = $chg2
+            HashRecalcFreq = 'A'; CompressEnabled = $true
+        }
+        @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
+        & (Join-Path $repo 'FileBackup.ps1') -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
 
-        # What Restore-OneRow now does at its single write choke point.
-        $written = Get-Item -LiteralPath $dst -Force
-        if ($written.IsReadOnly) { $written.IsReadOnly = $false }
-        (Get-Item -LiteralPath $dst).IsReadOnly | Should -BeFalse
+        $manifest = Join-Path $bkp2 'MANIFEST.csv'
+        Test-Path -LiteralPath $manifest | Should -BeTrue -Because 'the backup must have run'
+        $rows = @(Import-Csv -LiteralPath $manifest)
+        @($rows | Where-Object Compressed -eq 'Yes').Count |
+            Should -BeGreaterThan 0 -Because 'the archive path must be exercised'
+        @($rows | Where-Object Compressed -eq 'No').Count |
+            Should -BeGreaterThan 0 -Because 'the RAW copy path is the one that propagates read-only'
 
-        Set-ItemProperty -LiteralPath $src -Name IsReadOnly -Value $false
+        # Write-protect every stored object - the WP14 end state.
+        foreach ($row in $rows) {
+            if ($row.DataPath) {
+                $obj = Join-Path $bkp2 $row.DataPath
+                if (Test-Path -LiteralPath $obj) { Set-ItemProperty -LiteralPath $obj -Name IsReadOnly -Value $true }
+            }
+        }
+        @(Get-ChildItem -LiteralPath $bkp2 -File | Where-Object IsReadOnly).Count |
+            Should -BeGreaterThan 0 -Because 'the pool really is protected now'
+
+        $target = Join-Path $root 'restored'
+        try {
+            $out = & (Join-Path $bkp2 'RECONSTRUCT.ps1') -TargetRoot $target -ExitCode 2>&1
+            $LASTEXITCODE | Should -Be 0 -Because "a protected pool must still restore. Output: $out"
+
+            foreach ($name in 'photo.jpg', 'big.txt') {
+                $restored = Get-Item -LiteralPath (Join-Path $target $name) -Force
+                $restored.IsReadOnly |
+                    Should -BeFalse -Because "'$name' must come back as an ordinary writable file"
+            }
+            (Get-Content -LiteralPath (Join-Path $target 'photo.jpg') -Raw) | Should -Be 'RAW-STORED-CONTENT'
+            (Get-Content -LiteralPath (Join-Path $target 'big.txt') -Raw)   | Should -Be ('COMPRESSIBLE-' * 3000)
+        } finally {
+            # Leave nothing read-only behind or TestDrive cleanup fails.
+            Get-ChildItem -LiteralPath $bkp2 -Recurse -File -Force -ErrorAction SilentlyContinue |
+                Where-Object IsReadOnly | ForEach-Object { $_.IsReadOnly = $false }
+        }
     }
 }
 
@@ -206,5 +259,41 @@ Describe 'The container image carries every kit template (SR-007, SR-072)' {
         foreach ($template in $needed) {
             $dockerfile | Should -Match ([regex]::Escape("COPY bash/$template")) -Because "the image must carry '$template'"
         }
+    }
+}
+
+Describe 'STA marshalling for the folder picker (SR-073, TC-183)' {
+    It 'runs a scriptblock on an STA thread FROM AN MTA HOST, without killing the process' {
+        # PowerShell 7.3+ is STA by default, so this path is unreachable in-
+        # process here - it has to be driven from a genuinely MTA child. That is
+        # why the broken version survived: every existing picker test injects a
+        # -Picker and never reaches the marshalling at all.
+        #
+        # The original implementation used a raw System.Threading.Thread. A
+        # PowerShell scriptblock there has no Runspace and throws an UNHANDLED
+        # PSInvalidOperationException on a background thread, which TERMINATES
+        # THE PROCESS - so this test asserts the exit code as well as the value.
+        $probe = @'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$null, [ref]$null)
+$fn  = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
+       Where-Object { $_.Name -eq 'Invoke-OnStaThread' } | Select-Object -First 1
+. ([scriptblock]::Create($fn.Extent.Text))
+$host_state = [System.Threading.Thread]::CurrentThread.GetApartmentState().ToString()
+$r = Invoke-OnStaThread -Script { param($t) [System.Threading.Thread]::CurrentThread.GetApartmentState().ToString() + '/' + $t } -Arguments @('ok')
+Write-Output "$host_state|$r"
+'@
+        $probeFile = Join-Path $TestDrive 'sta-probe.ps1'
+        Set-Content -LiteralPath $probeFile -Value $probe -Encoding UTF8
+
+        $pwsh = (Get-Process -Id $PID).Path
+        $out  = & $pwsh -MTA -NoProfile -NonInteractive -File $probeFile (Join-Path $repo 'Reconstruct.ps1') 2>&1
+        $code = $LASTEXITCODE
+
+        $code | Should -Be 0 -Because "a raw thread would take the process down. Output: $out"
+        $line = @($out | Where-Object { "$_" -match '\|' }) | Select-Object -Last 1
+        $line | Should -Not -BeNullOrEmpty -Because "the probe must have produced a result. Output: $out"
+        $parts = "$line".Split('|')
+        $parts[0] | Should -Be 'MTA' -Because 'the host really must be MTA or this proves nothing'
+        $parts[1] | Should -Be 'STA/ok' -Because 'the scriptblock must run on STA and its value must cross back'
     }
 }

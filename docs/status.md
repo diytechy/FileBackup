@@ -24,6 +24,51 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **SECOND INDEPENDENT REVIEW (OpenAI gpt-5.6-terra, medium, via `codex exec`,
+  adversarial, read-only) - this time against the IMPLEMENTATION, not the plan
+  (2026-08-28).** 6 findings: 2 P0, 3 P1, 1 P2. Verdict: **"not safe to ship to
+  HomeHub yet." ALL SIX WERE VALID** and all six are fixed.
+- **T1 (P0) - a junction walked a restore INTO the backup.** `Test-PathIsInside`
+  was purely lexical, so with `outside\link` a junction to the backup root,
+  `-TargetRoot outside\link\restore` compared as OUTSIDE and the restore wrote
+  into the backup. This was D-7/F-3, recorded as pre-existing and DEFERRED - the
+  review was right that a deferral does not close a live SR-009 hole. Now
+  resolves reparse points on the deepest existing ancestor (`Resolve-PathPhysically`,
+  LLR-079), verified against a real junction. Closes D-7: the twins agree.
+- **T2 (P0) - SR-074 as first written SILENTLY DELETED USER DATA.** The predicate
+  keyed on the ENUMERATION root, not the volume root, so backing up an ordinary
+  folder containing `$RECYCLE.BIN` dropped every file under it from the manifest
+  with no error. My own tests encoded the defect by using `C:\src` as the
+  supposed volume root. Now requires the root to BE a volume root; the tests use
+  a real one made with `subst`, and assert the negative case as hard as the
+  positive one. Negative control: both the predicate guard and the end-to-end
+  enumeration test fail without the gate.
+- **T3 (P1) - and it was worse than filed.** The MTA picker invoked a PowerShell
+  scriptblock on a raw `System.Threading.Thread`, which has no Runspace. Not
+  merely a failure to return: reproduced here, it throws an UNHANDLED
+  `PSInvalidOperationException` that TERMINATES THE PROCESS. Replaced with a
+  runspace created ApartmentState=STA; verified it returns `STA/marshalled`.
+- **T4 (P1) - two tests that could not fail.** The "all seven artifacts" loop
+  named six, omitting `System.IO.Hashing.dll`; the read-only test performed the
+  attribute clear ITSELF instead of calling the restorer. Rewritten - and the
+  negative control STILL passed, because with compression on both files took the
+  7-Zip expand path, which never propagates the attribute. A `.jpg` (on
+  NonCompressibleExtensions, so stored raw) was needed to reach `Copy-Item`.
+- **T5 (P1) - and it exposed a further defect.** The BSD shim layer never shimmed
+  `touch`, so "BSD" restores used GNU `touch -d` and the fallback never ran.
+  Adding the shim made the test FAIL: the conservative "refuse a foreign offset"
+  design meant a BSD host lost the timestamp for any store written in a different
+  timezone - ordinary, not exotic. Now converts every offset exactly through
+  POSIX `TZ`, whose sign is the inverse of ISO-8601 ('-06:00' -> 'UTC+6:00').
+- **T6 (P2)** - `FILEBACKUP_PICKER` was expanded unquoted; a picker path with
+  spaces executed its first fragment. Quoted.
+- **NOTHING WAS DECLINED THIS TIME.** The first review's one wrong finding (that
+  BSD rejects `--`) has no counterpart here.
+- **THE PATTERN WORTH KEEPING:** five of the six findings, plus both defects the
+  permutation work found, were about tests that passed for the wrong reason or
+  paths never exercised. Every fix in this batch now carries a NEGATIVE CONTROL -
+  revert the production change, confirm the test fails - and three tests needed
+  two or three attempts before they could fail at all.
 - **SR-074 (2026-08-28, human-requested during WP13): the volume-root
   pseudo-folders are no longer treated as data.** Raised by the human asking a
   plain question - "is `System Volume Information` ignored?" - and the answer was

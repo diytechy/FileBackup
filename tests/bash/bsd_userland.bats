@@ -62,6 +62,16 @@ for a in "$@"; do [ "$a" = "-m" ] && { echo "realpath: illegal option -- m" >&2;
 exec /usr/bin/realpath "$@"
 SH
 
+    # --- touch: BSD/macOS rejects GNU's -d ----------------------------------
+    # Without this the "BSD" restores below used GNU `touch -d` and the POSIX
+    # -t fallback never ran, so SR-066 was untested on the very userland this
+    # suite exists for (2026-08-28 independent review, T5).
+    cat > "$BSD/touch" <<'SH'
+#!/bin/bash
+[ "$1" = "-d" ] && { echo "touch: illegal option -- d" >&2; exit 1; }
+exec /usr/bin/touch "$@"
+SH
+
     # --- df: BSD has no -B ---------------------------------------------------
     cat > "$BSD/df" <<'SH'
 #!/bin/bash
@@ -86,6 +96,37 @@ teardown() { rm -rf "$WORK"; }
     PATH="$BSD_PATH" run find "$WORK" -printf '%f\n';        [ "$status" -ne 0 ]
     PATH="$BSD_PATH" run realpath -m -- "$WORK/nope";        [ "$status" -ne 0 ]
     PATH="$BSD_PATH" run df -P -B1 -- "$WORK";               [ "$status" -ne 0 ]
+    printf 'x' > "$WORK/t"
+    PATH="$BSD_PATH" run touch -d '2024-01-01T08:00:00Z' -- "$WORK/t"; [ "$status" -ne 0 ]
+    PATH="$BSD_PATH" run touch -t 202401010800.00 -- "$WORK/t";        [ "$status" -eq 0 ]
+}
+
+@test "BSD: a restored file keeps its OWN timestamp through the touch -t fallback (SR-066, TC-182)" {
+    # GNU `touch -d` parses the manifest's ISO-8601 stamp directly; BSD does not,
+    # and the fallback is what stops every restored file silently taking the
+    # RESTORE time instead. Proved by comparing the same restore done both ways:
+    # if the fallback were removed the BSD mtime would be "now", not the row's.
+    local mode=HashAddressed
+    local origin; origin="$(origin_for "$mode" root)"
+
+    # GNU reference restore (no shims on PATH).
+    run bash "$RS" --from "$origin" --target-root "$WORK/gnu"
+    [ "$status" -eq 0 ]
+
+    # The same restore on a "BSD" userland.
+    PATH="$BSD_PATH" run bash "$RS" --from "$origin" --target-root "$WORK/bsd"
+    [ "$status" -eq 0 ]
+
+    # Read the times with the REAL stat, outside the shimmed PATH.
+    local gnu_t bsd_t now
+    gnu_t="$(stat -c '%Y' -- "$WORK/gnu/README")"
+    bsd_t="$(stat -c '%Y' -- "$WORK/bsd/README")"
+    now="$(date +%s)"
+
+    [ "$bsd_t" = "$gnu_t" ]
+    # And it is genuinely the row's stamp, not the moment of restore - the
+    # fixtures are dated 2024, so anything within a minute of now is the bug.
+    [ "$(( now - bsd_t ))" -gt 60 ]
 }
 
 @test "BSD + Compress + snapshot: a dated snapshot restores byte-exact (SR-071, TC-179)" {

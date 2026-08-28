@@ -1,50 +1,63 @@
 ﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
-<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="11" errors="0" failures="2" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-08-28" time="16:00:29">
-  <environment nunit-version="2.5.8.0" os-version="10.0.26200" clr-version="10.0.11" cwd="C:\Projects\FileBackup" user-domain="DESKTOP-OFFICE" user="Peter" platform="Microsoft Windows 11 Pro|C:\WINDOWS|\Device\Harddisk1\Partition3" machine-name="DESKTOP-OFFICE" />
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="22" errors="0" failures="1" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-08-28" time="16:41:04">
+  <environment machine-name="DESKTOP-OFFICE" user="Peter" clr-version="10.0.11" user-domain="DESKTOP-OFFICE" cwd="C:\Projects\FileBackup" nunit-version="2.5.8.0" os-version="10.0.26200" platform="Microsoft Windows 11 Pro|C:\WINDOWS|\Device\Harddisk1\Partition3" />
   <culture-info current-culture="en-US" current-uiculture="en-US" />
-  <test-suite type="TestFixture" name="Pester" executed="True" result="Failure" success="False" time="3.5754" asserts="0" description="Pester">
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Failure" success="False" time="4.7108" asserts="0" description="Pester">
     <results>
-      <test-suite type="TestFixture" name="C:\Projects\FileBackup\tests\Unit\VolumeRootFolders.Tests.ps1" executed="True" result="Failure" success="False" time="3.5754" asserts="0" description="C:\Projects\FileBackup\tests\Unit\VolumeRootFolders.Tests.ps1">
+      <test-suite type="TestFixture" name="C:\Projects\FileBackup\tests\Unit\RestoreLaunchers.Tests.ps1" executed="True" result="Failure" success="False" time="4.7108" asserts="0" description="C:\Projects\FileBackup\tests\Unit\RestoreLaunchers.Tests.ps1">
         <results>
-          <test-suite type="TestFixture" name="Volume-root pseudo-folder predicate (SR-074, TC-175)" executed="True" result="Success" success="True" time="0.1882" asserts="0" description="Volume-root pseudo-folder predicate (SR-074, TC-175)">
+          <test-suite type="TestFixture" name="Target-prompt decision core (SR-073, SR-016, TC-162)" executed="True" result="Success" success="True" time="0.1972" asserts="0" description="Target-prompt decision core (SR-073, SR-016, TC-162)">
             <results>
-              <test-case description="matches the folder itself, at the root" name="Volume-root pseudo-folder predicate (SR-074, TC-175).matches the folder itself, at the root" time="0.1207" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="matches everything underneath it" name="Volume-root pseudo-folder predicate (SR-074, TC-175).matches everything underneath it" time="0.0066" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="is case-insensitive, as the filesystem is" name="Volume-root pseudo-folder predicate (SR-074, TC-175).is case-insensitive, as the filesystem is" time="0.0059" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="treats a NESTED folder of the same name as ordinary user data (B6)" name="Volume-root pseudo-folder predicate (SR-074, TC-175).treats a NESTED folder of the same name as ordinary user data (B6)" time="0.0075" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="does not match ordinary paths, a prefix-sharing sibling, or the root itself" name="Volume-root pseudo-folder predicate (SR-074, TC-175).does not match ordinary paths, a prefix-sharing sibling, or the root itself" time="0.0091" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="refuses to ask at all under -NonInteractive (SR-016)" name="Target-prompt decision core (SR-073, SR-016, TC-162).refuses to ask at all under -NonInteractive (SR-016)" time="0.1282" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="refuses to ask when stdin is redirected (SR-016)" name="Target-prompt decision core (SR-073, SR-016, TC-162).refuses to ask when stdin is redirected (SR-016)" time="0.006" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="refuses to ask when there is NO console and NO desktop (SR-073)" name="Target-prompt decision core (SR-073, SR-016, TC-162).refuses to ask when there is NO console and NO desktop (SR-073)" time="0.007" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="uses the typed prompt when -NoGui is asked for (SR-073)" name="Target-prompt decision core (SR-073, SR-016, TC-162).uses the typed prompt when -NoGui is asked for (SR-073)" time="0.0058" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="offers the picker on a desktop session (SR-073)" name="Target-prompt decision core (SR-073, SR-016, TC-162).offers the picker on a desktop session (SR-073)" time="0.0067" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="lets automation outrank a present desktop (SR-016)" name="Target-prompt decision core (SR-073, SR-016, TC-162).lets automation outrank a present desktop (SR-016)" time="0.007" asserts="0" success="True" result="Success" executed="True" />
             </results>
           </test-suite>
-          <test-suite type="TestFixture" name="Source enumeration skips them (SR-074, TC-176)" executed="True" result="Success" success="True" time="0.2792" asserts="0" description="Source enumeration skips them (SR-074, TC-176)">
+          <test-suite type="TestFixture" name="Folder picker fallbacks (SR-073, TC-163)" executed="True" result="Success" success="True" time="0.2731" asserts="0" description="Folder picker fallbacks (SR-073, TC-163)">
             <results>
-              <test-case description="enumerates ordinary files" name="Source enumeration skips them (SR-074, TC-176).enumerates ordinary files" time="0.0183" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="does NOT enumerate the recycle bin at the root - deleted files are not backup material" name="Source enumeration skips them (SR-074, TC-176).does NOT enumerate the recycle bin at the root - deleted files are not backup material" time="0.0063" asserts="0" success="True" result="Success" executed="True" />
-              <test-case description="DOES enumerate a nested folder of the same name (B6)" name="Source enumeration skips them (SR-074, TC-176).DOES enumerate a nested folder of the same name (B6)" time="0.0072" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="returns the chosen folder" name="Folder picker fallbacks (SR-073, TC-163).returns the chosen folder" time="0.0141" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="trims a trailing separator, as osascript returns one" name="Folder picker fallbacks (SR-073, TC-163).trims a trailing separator, as osascript returns one" time="0.0067" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="treats a cancel as no answer, never as a default target" name="Folder picker fallbacks (SR-073, TC-163).treats a cancel as no answer, never as a default target" time="0.0148" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="treats a blank answer as no answer" name="Folder picker fallbacks (SR-073, TC-163).treats a blank answer as no answer" time="0.007" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="never throws out of a broken toolkit - a missing dialog is not a failed restore" name="Folder picker fallbacks (SR-073, TC-163).never throws out of a broken toolkit - a missing dialog is not a failed restore" time="0.0285" asserts="0" success="True" result="Success" executed="True" />
             </results>
           </test-suite>
-          <test-suite type="TestFixture" name="An unreadable volume-root folder does not fail the set (SR-074, TC-177)" executed="True" result="Success" success="True" time="0.3766" asserts="0" description="An unreadable volume-root folder does not fail the set (SR-074, TC-177)">
+          <test-suite type="TestFixture" name="Kit revision marker (SR-049, TC-173)" executed="True" result="Success" success="True" time="0.308" asserts="0" description="Kit revision marker (SR-049, TC-173)">
             <results>
-              <test-case description="is not reported as an enumeration error" name="An unreadable volume-root folder does not fail the set (SR-074, TC-177).is not reported as an enumeration error" time="0.0641" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="is 10 in BOTH restorers, and they agree" name="Kit revision marker (SR-049, TC-173).is 10 in BOTH restorers, and they agree" time="0.029" asserts="0" success="True" result="Success" executed="True" />
             </results>
           </test-suite>
-          <test-suite type="TestFixture" name="A backup at a volume root still restores (SR-074, TC-178)" executed="True" result="Failure" success="False" time="0.4764" asserts="0" description="A backup at a volume root still restores (SR-074, TC-178)">
+          <test-suite type="TestFixture" name="Generated launchers and the kit artifact list (SR-007, SR-072)" executed="True" result="Success" success="True" time="1.99" asserts="0" description="Generated launchers and the kit artifact list (SR-007, SR-072)">
             <results>
-              <test-case description="does not report StorageUnreadable for a volume-root pseudo-folder in the pool" name="A backup at a volume root still restores (SR-074, TC-178).does not report StorageUnreadable for a volume-root pseudo-folder in the pool" time="0.0946" asserts="0" success="False" result="Failure" executed="True">
+              <test-case description="deposits all seven kit artifacts (SR-007, TC-171)" name="Generated launchers and the kit artifact list (SR-007, SR-072).deposits all seven kit artifacts (SR-007, TC-171)" time="0.0247" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="no longer writes RECONSTRUCT.bat" name="Generated launchers and the kit artifact list (SR-007, SR-072).no longer writes RECONSTRUCT.bat" time="0.007" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="generates a .cmd that is a PURE passthrough - no pause (SR-072, TC-168)" name="Generated launchers and the kit artifact list (SR-007, SR-072).generates a .cmd that is a PURE passthrough - no pause (SR-072, TC-168)" time="0.0094" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="writes the .cmd with CRLF, as cmd.exe expects" name="Generated launchers and the kit artifact list (SR-007, SR-072).writes the .cmd with CRLF, as cmd.exe expects" time="0.008" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="copies a .command that delegates rather than duplicating the restore logic (SR-072)" name="Generated launchers and the kit artifact list (SR-007, SR-072).copies a .command that delegates rather than duplicating the restore logic (SR-072)" time="0.0088" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="still treats a legacy RECONSTRUCT.bat as infrastructure (SR-022, TC-172)" name="Generated launchers and the kit artifact list (SR-007, SR-072).still treats a legacy RECONSTRUCT.bat as infrastructure (SR-022, TC-172)" time="0.0247" asserts="0" success="True" result="Success" executed="True" />
+              <test-case description="treats a NESTED file of the same name as user data (B6)" name="Generated launchers and the kit artifact list (SR-007, SR-072).treats a NESTED file of the same name as user data (B6)" time="0.0094" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="A restored tree is ordinary writable files (SR-007, TC-174)" executed="True" result="Success" success="True" time="3.5737" asserts="0" description="A restored tree is ordinary writable files (SR-007, TC-174)">
+            <results>
+              <test-case description="restores WRITABLE files from a READ-ONLY pool, through the real restorer" name="A restored tree is ordinary writable files (SR-007, TC-174).restores WRITABLE files from a READ-ONLY pool, through the real restorer" time="1.5593" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="The container image carries every kit template (SR-007, SR-072)" executed="True" result="Success" success="True" time="3.6064" asserts="0" description="The container image carries every kit template (SR-007, SR-072)">
+            <results>
+              <test-case description="copies each template New-ReconstructScript REQUIRES, or the image fails every backup" name="The container image carries every kit template (SR-007, SR-072).copies each template New-ReconstructScript REQUIRES, or the image fails every backup" time="0.0271" asserts="0" success="True" result="Success" executed="True" />
+            </results>
+          </test-suite>
+          <test-suite type="TestFixture" name="STA marshalling for the folder picker (SR-073, TC-183)" executed="True" result="Failure" success="False" time="4.0506" asserts="0" description="STA marshalling for the folder picker (SR-073, TC-183)">
+            <results>
+              <test-case description="runs a scriptblock on an STA thread FROM AN MTA HOST, without killing the process" name="STA marshalling for the folder picker (SR-073, TC-183).runs a scriptblock on an STA thread FROM AN MTA HOST, without killing the process" time="0.4354" asserts="0" success="False" result="Failure" executed="True">
                 <failure>
-                  <message>Expected the actual value to be greater than or equal to 2, because both the candidate list and the enumeration errors are filtered, but got 1.</message>
-                  <stack-trace>at Should -BeGreaterOrEqual 2 -Because 'both the candidate list and the enumeration errors are filtered', C:\Projects\FileBackup\tests\Unit\VolumeRootFolders.Tests.ps1:124
-at &lt;ScriptBlock&gt;, C:\Projects\FileBackup\tests\Unit\VolumeRootFolders.Tests.ps1:123</stack-trace>
-                </failure>
-              </test-case>
-            </results>
-          </test-suite>
-          <test-suite type="TestFixture" name="A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040, TC-180)" executed="True" result="Failure" success="False" time="3.0085" asserts="0" description="A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040, TC-180)">
-            <results>
-              <test-case description="reports ContentMissing (1), not StorageUnreadable (4), when the bytes really are gone" name="A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040, TC-180).reports ContentMissing (1), not StorageUnreadable (4), when the bytes really are gone" time="2.4948" asserts="0" success="False" result="Failure" executed="True">
-                <failure>
-                  <message>Expected 1, because the bytes are genuinely gone, which is content damage - not a host problem to retry. Output:, but got 4.</message>
-                  <stack-trace>at $code | Should -Be 1 -Because "the bytes are genuinely gone, which is content damage - not a host problem to retry. Output: $out", C:\Projects\FileBackup\tests\Unit\VolumeRootFolders.Tests.ps1:190
-at &lt;ScriptBlock&gt;, C:\Projects\FileBackup\tests\Unit\VolumeRootFolders.Tests.ps1:190</stack-trace>
+                  <message>Expected 0, because a raw thread would take the process down. Output:  An error has occurred that was not properly handled. Additional information is shown below. The PowerShell process will exit. Unhandled exception. System.Management.Automation.PSInvalidOperationException: There is no Runspace available to run scripts in this thread. You can provide one in the DefaultRunspace property of the System.Management.Automation.Runspaces.Runspace type. The script block you attempted to invoke was:  $result = &amp; $Script     at System.Management.Automation.ScriptBlock.GetContextFromTLS()    at lambda_method35(Closure)    at System.Threading.Thread.StartHelper.Callback(Object state)    at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state) --- End of stack trace from previous location ---    at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state), but got -532462766.</message>
+                  <stack-trace>at $code | Should -Be 0 -Because "a raw thread would take the process down. Output: $out", C:\Projects\FileBackup\tests\Unit\RestoreLaunchers.Tests.ps1:292
+at &lt;ScriptBlock&gt;, C:\Projects\FileBackup\tests\Unit\RestoreLaunchers.Tests.ps1:292</stack-trace>
                 </failure>
               </test-case>
             </results>
