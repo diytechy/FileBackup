@@ -5311,3 +5311,12 @@ independent-review surface. Carve-out: O-4's README pointer joins WP14 Part D as
 **N-3**; the rest is deferred to **WP16** (`ChangePath/RUN.status.json`, `RunId`
 correlation, reuse of Part A's compiled heartbeat class — see the WP14 plan §7 row).
 WP14 remains PROPOSED; the approval gate is unchanged.
+
+**2026-08-31 10:35 — live-run addendum appended to the observability review (its §9).**
+HomeHub feedback from the running production first pass: step-5 silence confirmed at
+70 minutes; two working operator channels documented (ordered-walk open-fd as a
+position indicator; diskstats read/write ratio as a phase tell) and one trap
+(`/proc/<pid>/io` reads 0 while the disk moves GBs). Design consequences recorded for
+**WP16** (heartbeat line = current relative path + counters; banners at phase
+boundaries). **No influence on WP14** — nothing touches lock, reclaim, or fencing.
+Baseline duration + tree-size percentage to be appended when the pass completes.

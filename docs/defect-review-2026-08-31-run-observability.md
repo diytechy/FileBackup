@@ -139,6 +139,8 @@ of them has a dependency that is currently unmet.
 ## 4. What an operator can actually do today
 
 Documented so the answer exists somewhere, since it is currently folklore:
+*(Superseded in part by the live-run addendum in §9, which found two stronger channels
+and one trap.)*
 
 | question | best available answer today |
 |---|---|
@@ -303,3 +305,45 @@ both reached the scope recommendation independently. The Owner ruled the same da
   for authoritative liveness and the status file for phase/counters.
 - §3's dependency note is thereby answered: WP14 Part D's branch tokens make a *stale
   lock* loud; making a *healthy long run* visible is WP16's job.
+
+---
+
+## 9. Live-run addendum, 2026-08-31 10:35 — the channels that actually work
+
+Second observation of the same production first pass, 70 minutes in, still step 5 —
+confirming §1's core finding at scale. Currently hashing
+`/source/NonDocs/MC Server Backups/MC_SERV_BACKUP_20250914.z7`; source (`sdb`) reading
+69 MB/s sustained; target (`sda`) writing 0; store/state still 0 / 12 K; dmesg clean.
+Two probes 44 s apart advanced one archive filename; a 20 s window on a single file at
+69 MB/s ≈ 1.4 GB read — **moving, not stuck**. `sda` at zero write confirms step 10 has
+not begun; per §8 C-1, when it does the log starts emitting per stored object, so the
+silence ends at the phase boundary.
+
+**Channels that work** (superseding parts of §4's table):
+
+| channel | what it gives |
+|---|---|
+| the container process's **open fd on `/source`** (`/proc/<pid>/fd`) | The exact file being hashed *right now* — and since the walk is **ordered**, position in the tree is position in the run. The closest thing to a progress bar that exists today, at zero cost. |
+| `/proc/diskstats`, two samples, (sectors × 512)/interval per device | Distinguishes working from hung in ~20 s, and the read/write **ratio identifies the phase**: source-read-only = hashing, target-write = copying. |
+| `docker stats` | Liveness only, as §4 said. |
+
+**Channels that do NOT work**, so nobody chases them:
+
+| channel | why not |
+|---|---|
+| `/proc/<pid>/io` on the container's top-level PID | Reported a **0 MB** read delta while the disk moved 1.4 GB — that PID is not the accounting point for this I/O. diskstats is authoritative. |
+| `du` on state/store | Still flat during step 5, exactly as §1 measured. |
+
+**Design consequences for WP16** (recorded here so the plan inherits them):
+
+- The fd trick **proves the information exists** — the engine holds the current path in
+  hand and never emits it. Option B's heartbeat line should carry the **current relative
+  path plus running file/byte counts**, turning an external `/proc` hack into a
+  supported signal; because the walk is ordered, that line is a position indicator, not
+  merely a liveness one.
+- The phase being externally inferable from the read/write ratio confirms option A's
+  banners belong at **phase boundaries** — they make the log agree with what the disks
+  already show, even if per-item output stays off.
+- Pending from the hub: a tree-size map to convert path-position into a percentage, and
+  the completed pass's total duration — both feed §7's "useful baseline" item and
+  option E's expectations text. Append them here when they land.
