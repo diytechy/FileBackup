@@ -185,7 +185,7 @@ last) — it is the record, not required reading for every pass.
   different needs** (restore fidelity, and self-healing). Any `SN-031` reference
   is therefore ambiguous, and `trace.py` does not check SN id uniqueness.
   Renumbering a top-layer id deserves its own reviewable commit.
-- **AWAITING HUMAN RULING before release: D-2.** `RECONSTRUCT.bat` is named in
+- **~~AWAITING HUMAN RULING before release: D-2.~~ ACKNOWLEDGED BY HOMEHUB 2026-08-30 — see the acknowledgement section at the end of this file; this no longer blocks release.** `RECONSTRUCT.bat` is named in
   **IF-001**, a ratified cross-project contract. The rename is implemented (the
   human asked for it), but amending a counterparty's contract needs HomeHub's
   acknowledgement. This blocks release, not implementation. D-7 (the twins
@@ -5133,3 +5133,38 @@ container job. The bash-interop pair matter most: they are where the
 2026-08-23 dot-leading-name break surfaced, and WP12 changes every name in the
 pool. Not pushed yet (5 commits ahead on `New_Fix_Batch`); CI is the next step
 and will also give an independent data point on the open prune exit-4.
+
+## HomeHub's acknowledgement — 2026-08-30 — D-2 is UNBLOCKED
+
+**HomeHub accepts the `RECONSTRUCT` rename as an amendment to IF-001.** D-2 no
+longer blocks release on this counterparty's account.
+
+**Why it costs HomeHub nothing, checked rather than asserted: HomeHub never
+invokes the restorer.** A grep across its `scripts/` finds exactly one
+executable reference — `IsoBuild.Core.ps1:119` — and it is a **staging list**
+(`'Dockerfile', 'FileBackup.ps1', 'Reconstruct.ps1', …`): it copies the file
+into the image, it does not run it. Every other use is validation, where the
+container drill runs the snapshot's own **bundled** copy to prove the PowerShell
+and bash restorers agree. The Owner's words: *"you don't use reconstruct
+directly, you just run it for validation."*
+
+**The new name was already in place** on the one line that executes anything —
+`Reconstruct.ps1`, not `RECONSTRUCT.bat` — which is why nothing broke while this
+sat waiting.
+
+**What HomeHub fixed on its own side:** four docs said `RECONSTRUCT.ps1` with the
+wrong case (`BENCH_BRINGUP_HANDOFF.md`, `FILEBACKUP_INTEGRATION_PLAN.md` ×3,
+`scripts/verify/README.md`). On Windows that is invisible; **inside the Linux
+container the drill runs in, it is a missing file** — a latent break in exactly
+the flow that validates this interface.
+
+**Owed here:** `docs/interfaces.md:78` still names `RECONSTRUCT.cmd` in the
+IF-001 exit-code table. The contract text should follow the acknowledgement.
+
+**Not covered by this, and still yours:** D-7 (the twins disagree about
+symlinks — bash resolves via `realpath`, PowerShell never has via
+`GetFullPath`), recorded as F-3 and deferred.
+
+**Tracked in HomeHub as `open-items.md` C53, now closed.** It had no row there
+until 2026-08-30: this repo had been waiting on a counterparty that did not know
+it was being waited on, which is why the item is worth a line in both files.
