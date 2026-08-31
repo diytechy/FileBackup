@@ -24,8 +24,16 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **NEXT ACTION AWAITING THE HUMAN: approve, amend or reject the
-  [WP14 plan](plans/wp14-stale-temp-lock-recovery-plan.md)** — an externally-killed
+- **WP14 PLAN APPROVED — Owner, 2026-08-31, as revised after the two-reviewer
+  plan-stage round. NEXT ACTION: execute
+  [plan §8](plans/wp14-stale-temp-lock-recovery-plan.md), starting with the
+  registry deltas commit.** Execution model set by the Owner: a coordinator
+  session orchestrates — Opus subagents implement each part; after commit 5 a
+  fresh adversarial review runs in parallel from the Codex CLI and a
+  fresh-context Opus reviewer, and the coordinator consolidates (verifying
+  every finding against the code; invalid, overengineered, or highly
+  improbable findings are rejected with recorded reasons, plan-§10 style).
+  Original defect context: an externally-killed
   run leaves a stale `Temp` lock that wedges **every** later run, permanently and
   silently (found on the production hub 2026-08-31; ~18-hour undetected wedge).
   No code is written. The hub's whole-library backup is still blocked, deliberately,
@@ -5320,3 +5328,12 @@ position indicator; diskstats read/write ratio as a phase tell) and one trap
 **WP16** (heartbeat line = current relative path + counters; banners at phase
 boundaries). **No influence on WP14** — nothing touches lock, reclaim, or fencing.
 Baseline duration + tree-size percentage to be appended when the pass completes.
+
+**2026-08-31 — WP14 PLAN APPROVED by the Owner, as revised.** Approval given in
+session; recorded here per the gate rule. The Owner also set the execution model:
+the next session acts as **coordinator only** — Opus subagents implement (plan §8
+commits 2–7), and the plan's required independent review after commit 5 runs as
+**two parallel adversarial reviews** (OpenAI Codex CLI + a fresh-context Opus
+subagent) that the coordinator consolidates, rejecting invalid / overengineered /
+highly-improbable findings with recorded dispositions. WP16 planning follows the
+same pattern. First execution commit: registry deltas (§3), trace --strict green.
