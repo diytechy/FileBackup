@@ -117,6 +117,134 @@ BeforeAll {
             $script:StagingHeartbeatIntervalSeconds = $S
         }
     }
+
+    # --- Part C fixtures (TC-186..TC-193, TC-197, TC-198, TC-203, TC-204) ----
+
+    $script:RepoRoot = $repo
+
+    function Set-EngineConfirmationSample {
+        # Production waits one heartbeat interval plus margin (~90 s) before it
+        # believes a lock is abandoned. Compressing it is the ONLY thing the
+        # suite changes about the decision: the sample is still really taken and
+        # really compared.
+        param([double]$Seconds)
+        InModuleScope FileBackup.Engine -Parameters @{ S = $Seconds } {
+            $script:StagingConfirmationSampleSeconds = $S
+        }
+    }
+
+    function Set-EngineStagingHook {
+        # Installs one of the engine's named SR-075 seams. Every seam is $null in
+        # production; only this helper ever assigns one.
+        param([Parameter(Mandatory)][string]$Name, [AllowNull()][scriptblock]$Hook)
+        InModuleScope FileBackup.Engine -Parameters @{ N = $Name; H = $Hook } {
+            Set-Variable -Name $N -Value $H -Scope Script
+        }
+    }
+
+    function Clear-EngineStagingHooks {
+        foreach ($name in @(
+                'StagingTestHook_AfterCreateBeforePublish',
+                'StagingReclaimTestHook_BeforeMove',
+                'StagingReclaimTestHook_BeforeAsideDelete',
+                'StagingFenceTestHook')) {
+            Set-EngineStagingHook -Name $name -Hook $null
+        }
+    }
+
+    function New-AbandonedTemp {
+        <#
+        .SYNOPSIS
+            Builds the on-disk state an externally killed run leaves behind: a
+            Temp under ChangePath holding (usually) only its RUN.inprogress,
+            with the marker's mtime aged past the staleness threshold.
+        #>
+        param(
+            [Parameter(Mandatory)][string]$ChgPath,
+            [double]$MarkerAgeSeconds = 10800,
+            [switch]$NoMarker,
+            [string]$MarkerName = 'RUN.inprogress',
+            [string]$RunId,
+            [AllowNull()][Nullable[double]]$DirectoryAgeSeconds
+        )
+        $temp = Join-Path $ChgPath 'Temp'
+        New-Item -ItemType Directory -Path $temp -Force | Out-Null
+        if (-not $NoMarker) {
+            $markerPath = Join-Path $temp $MarkerName
+            if ($MarkerName -eq 'RUN.inprogress') {
+                $writeArgs = @{ StagingFolder = $temp; SetName = 'library' }
+                if ($RunId) { $writeArgs['RunId'] = $RunId }
+                $rec = Write-StagingOwnerRecord @writeArgs
+                $markerPath = $rec.MarkerPath
+            } else {
+                [System.IO.File]::WriteAllText($markerPath, '{"SchemaVersion":1,"Kind":"prune"}')
+            }
+            [System.IO.File]::SetLastWriteTimeUtc($markerPath, [datetime]::UtcNow.AddSeconds(-$MarkerAgeSeconds))
+        }
+        if ($null -ne $DirectoryAgeSeconds) {
+            [System.IO.Directory]::SetLastWriteTimeUtc($temp, [datetime]::UtcNow.AddSeconds(-([double]$DirectoryAgeSeconds)))
+        }
+        return $temp
+    }
+
+    function Get-TreeHashMap {
+        # SHA-256 of every file under the given roots. TC-187/TC-188 assert
+        # HASHES, not presence: a refusal that quietly rewrote a byte would pass
+        # a presence check. backup.log is excluded because a refused run is
+        # REQUIRED to write its refusal there.
+        param([string[]]$Roots)
+        $map = [ordered]@{}
+        foreach ($root in $Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            foreach ($file in (Get-ChildItem -LiteralPath $root -Recurse -Force -File | Sort-Object FullName)) {
+                if ($file.Name -eq 'backup.log') { continue }
+                $map[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            }
+        }
+        return $map
+    }
+
+    function Format-TreeHashMap {
+        param($Map)
+        return (($Map.Keys | ForEach-Object { "$_=$($Map[$_])" }) -join "`n")
+    }
+
+    function Get-FixtureTreeHash {
+        param([object]$Fixture)
+        return (Format-TreeHashMap (Get-TreeHashMap -Roots @($Fixture.Chg, $Fixture.Bkp, $Fixture.Src)))
+    }
+
+    function Get-SetLog {
+        param([object]$Fixture)
+        $path = Join-Path $Fixture.Chg 'backup.log'
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
+        return (Get-Content -LiteralPath $path -Raw)
+    }
+
+    function Get-AsideFolder {
+        param([string]$ChgPath)
+        return @(Get-ChildItem -LiteralPath $ChgPath -Directory -Force |
+            Where-Object { $_.Name -like 'Temp.stale-*' })
+    }
+
+    function Get-SnapshotFolder {
+        param([string]$ChgPath)
+        return @(Get-ChildItem -LiteralPath $ChgPath -Directory -Force |
+            Where-Object { $_.Name -match '^Snapshot_' })
+    }
+
+    function New-ForeignMarkerJson {
+        param([string]$RunId)
+        return ('{"SchemaVersion":1,"Kind":"backup","RunId":"' + $RunId + '","SetName":"successor","Host":"other",' +
+                '"ContainerId":"","BootId":"","Pid":4242,"StartedUtc":"2026-08-31T00:00:00Z",' +
+                '"HeartbeatIntervalSeconds":60,"StaleAfterSeconds":1800}')
+    }
+}
+
+AfterAll {
+    Clear-EngineStagingHooks
+    Set-EngineConfirmationSample -Seconds 90
+    Set-EngineHeartbeatInterval -Seconds 60
 }
 
 Describe 'Get-StagingLockState — evidence completeness (TC-200, SR-017, SR-075, LLR-080)' {
@@ -739,5 +867,616 @@ Describe 'No RUN.inprogress ever reaches a snapshot (TC-202, SR-075, SR-046, LLR
         $refused[0].Status | Should -Be 'Refused'
         @($refused[0].Refusals | Where-Object Kind -eq 'unreferenced-data') |
             Should -Not -BeNullOrEmpty -Because 'a surviving marker is unexplained bytes to prune'
+    }
+}
+
+# =========================================================================
+# Part C — the reclaim protocol (SR-017 amended, SR-075 §2.4) and the RunId
+# fence (§2.5). Every case here drives the REAL Invoke-BackupSet: the whole
+# point of WP14 is what a second run does to a store a first run abandoned.
+# =========================================================================
+
+Describe 'Reclaiming a provably abandoned staging lock (TC-186, SR-017, SR-075, LLR-017)' {
+
+    BeforeEach { Set-EngineConfirmationSample -Seconds 0.3 }
+    AfterEach  { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'reclaims a stale marker-only Temp, completes the run, and the aside folder is GONE (TC-186, SR-017, SR-075, LLR-017)' {
+        # The observed HomeHub defect end to end: a run killed from outside left
+        # Temp holding only its RUN.inprogress, and every later run failed in
+        # about a second, for roughly 18 hours.
+        $fx = New-BackupSetFixture -Name 'tc186'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800
+        $deadRunId = (Read-StagingOwnerRecord -MarkerPath (Join-Path $temp 'RUN.inprogress')).Record.RunId
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+            Should -BeTrue -Because 'an interrupted run must not be a permanent interrupt'
+
+        $log = Get-SetLog $fx
+        $log | Should -Match '\[SR-075/reclaimed\]'
+        $log | Should -Match 'confirming with a second sample'
+        $log | Should -Match 'Moved the abandoned staging folder aside'
+        $log | Should -Match 'held only its own owner record and has been removed'
+
+        # The aside folder is gone: marker leaf deleted BY NAME, directory
+        # deleted NON-RECURSIVELY.
+        Get-AsideFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+        # ...and the successor really owned the lock it took (a different RunId).
+        $log | Should -Match 'owner record published \(RunId='
+        $log | Should -Not -Match ('RunId=' + [regex]::Escape($deadRunId))
+        # First run: Complete-ChangeFolder discards Temp, so nothing survives.
+        Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $fx.Bkp 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+    }
+}
+
+Describe 'A LIVE owner is never stomped (TC-187, TC-203, SR-017, SR-075, LLR-017)' {
+
+    BeforeEach { Set-EngineConfirmationSample -Seconds 0.3 }
+    AfterEach  { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'refuses a fresh marker-only Temp with [SR-075/owner-live], moves nothing, and leaves the tree byte-identical (TC-187, SR-017, SR-075, LLR-017)' {
+        $fx = New-BackupSetFixture -Name 'tc187'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 0
+        # A GENUINELY live owner: the real compiled heartbeat, really beating.
+        $marker = Join-Path $temp 'RUN.inprogress'
+        $rec = Read-StagingOwnerRecord -MarkerPath $marker
+        $hb = Start-StagingHeartbeat -MarkerPath $marker -RunId $rec.Record.RunId -IntervalSeconds 0.1
+        try {
+            $before = Get-FixtureTreeHash $fx
+
+            Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+                Should -BeFalse -Because 'stomping a live run is the failure reclaim-by-age alone could not survive'
+
+            $log = Get-SetLog $fx
+            $log | Should -Match '\[SR-075/owner-live\]'
+            # The refusal stops hedging: it names the owner, the start time and
+            # the seconds since the last heartbeat.
+            $log | Should -Match 'is ALIVE'
+            $log | Should -Match ([regex]::Escape("$([Environment]::MachineName)/pid $PID"))
+            $log | Should -Match 'last heartbeat was'
+            $log | Should -Not -Match 'may have failed or still be running'
+
+            Get-AsideFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+            Get-SnapshotFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+            Get-FixtureTreeHash $fx | Should -Be $before
+        } finally { Stop-StagingHeartbeat $hb }
+    }
+
+    It 'refuses an owner whose clock is BEHIND the reader beyond the threshold, because the sample sees the mtime move (TC-203, SR-075, LLR-017)' {
+        # The dangerous skew direction: a live, continuously beating owner whose
+        # stamps all land far in the reader's past looks INSTANTLY stale to an
+        # age test. The confirmation sample is clock-free, so it sees the mtime
+        # MOVE and refuses anyway.
+        $fx = New-BackupSetFixture -Name 'tc203'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800
+        $marker = Join-Path $temp 'RUN.inprogress'
+
+        # The skewed beater runs in a CHILD PROCESS: nothing in this runspace
+        # may be what advances the mtime. Every stamp it writes is ~3 h in the
+        # reader's past, and each is later than the last.
+        $beater = Start-Job -ScriptBlock {
+            $base = [datetime]::UtcNow.AddHours(-3)
+            for ($i = 0; $i -lt 200; $i++) {
+                try { [System.IO.File]::SetLastWriteTimeUtc($using:marker, $base.AddSeconds($i)) }
+                catch { Write-Debug $_.Exception.Message }
+                [System.Threading.Thread]::Sleep(150)
+            }
+        }
+        try {
+            Start-Sleep -Milliseconds 1500
+
+            # NEGATIVE CONTROL, taken live: age ALONE says this lock is
+            # reclaimable. Without the confirmation sample the run below would
+            # have stomped a beating owner.
+            $read = Read-StagingOwnerRecord -MarkerPath $marker
+            $ageOnly = Get-StagingLockState -Entries @('RUN.inprogress') -OwnerRecord $read
+            $ageOnly.State | Should -Be 'OwnerStale'
+            $ageOnly.Reclaimable | Should -BeTrue -Because 'age alone would have reclaimed a LIVE owner - this is the fix being removed'
+
+            Set-EngineConfirmationSample -Seconds 1.5
+            $before = Get-FixtureTreeHash $fx
+
+            Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+                Should -BeFalse -Because 'no clock configuration may cause a live owner to be stomped'
+
+            $log = Get-SetLog $fx
+            $log | Should -Match '\[SR-075/owner-live\]'
+            $log | Should -Match 'CHANGED during the confirmation sample'
+            Get-AsideFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+            Get-FixtureTreeHash $fx | Should -Be $before
+        } finally {
+            Stop-Job -Job $beater -ErrorAction SilentlyContinue
+            Remove-Job -Job $beater -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'A Temp holding anything is refused, unchanged from before (TC-188, TC-190, SR-017, SR-046, SR-075, LLR-017)' {
+
+    BeforeEach { Set-EngineConfirmationSample -Seconds 0.3 }
+    AfterEach  { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'refuses a STALE marker plus data files and leaves every byte hash-identical (TC-188, SR-017, SR-075, LLR-017)' {
+        # Invariant I-1. A README that once said "remove the leftover Temp and
+        # re-run" permanently destroyed the only physical copy of
+        # snapshot-demanded bytes; the age of the marker changes nothing here.
+        $fx = New-BackupSetFixture -Name 'tc188'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800
+        [System.IO.File]::WriteAllText((Join-Path $temp 'evicted.dat'), 'THE ONLY PHYSICAL COPY')
+        $hidden = Join-Path $temp '.hidden.dat'
+        [System.IO.File]::WriteAllText($hidden, 'HIDDEN BUT STILL THE ONLY COPY')
+        (Get-Item -LiteralPath $hidden -Force).Attributes = [System.IO.FileAttributes]::Hidden
+
+        $before = Get-FixtureTreeHash $fx
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeFalse
+
+        $log = Get-SetLog $fx
+        $log | Should -Match '\[SR-075/content-refused\]'
+        $log | Should -Match 'A run refuses because Temp exists \(stale Temp folder error\)'
+        Get-AsideFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+        Get-SnapshotFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+        Test-Path -LiteralPath $temp | Should -BeTrue
+        Get-FixtureTreeHash $fx | Should -Be $before -Because 'every byte, hashed - not merely present'
+    }
+
+    It 'refuses a PRUNE.inprogress of ANY age with [SR-075/prune-held] (TC-190, SR-017, SR-046, SR-075, LLR-017)' -ForEach @(0, 10800) {
+        $age = $_
+        $fx = New-BackupSetFixture -Name ('tc190-' + $age)
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        New-AbandonedTemp -ChgPath $fx.Chg -MarkerName 'PRUNE.inprogress' -MarkerAgeSeconds $age | Out-Null
+
+        $before = Get-FixtureTreeHash $fx
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+            Should -BeFalse -Because "a prune marker aged $age s still holds the lock (WP14 does not own prune)"
+
+        (Get-SetLog $fx) | Should -Match '\[SR-075/prune-held\]'
+        Get-AsideFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+        Get-FixtureTreeHash $fx | Should -Be $before
+    }
+
+    It 'leaves prunes own staging-busy rail untouched (TC-190, SR-046, SR-075, LLR-017)' {
+        # I-3, from the other side: the backup path learning to RECOGNISE the
+        # prune marker must not have changed what prune itself does with Temp.
+        $fx = New-BackupSetFixture -Name 'tc190-prune'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeTrue
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'TWO')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-02-02 00:00:02') | Should -BeTrue
+        $snap = (Get-SnapshotFolder -ChgPath $fx.Chg)[0]
+
+        New-Item -ItemType Directory -Path (Join-Path $fx.Chg 'Temp') | Out-Null
+        $refused = @(Remove-BackupSnapshot -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Name $snap.Name)
+        $refused[0].Status | Should -Be 'Refused'
+        @($refused[0].Refusals | Where-Object Kind -eq 'staging-busy') | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'Resurrection between the classification and the move (TC-189, SR-075, LLR-017, LLR-080)' {
+
+    BeforeEach { Set-EngineConfirmationSample -Seconds 0.3 }
+    AfterEach  { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'keeps the aside folder, skips the deletes, prints the recovery, and CONTINUES the run (TC-189, SR-075, LLR-017, LLR-080)' {
+        # 2.4 step 5's first window. The classification is never trusted through
+        # the move: a frozen owner can resume and write in between.
+        $fx = New-BackupSetFixture -Name 'tc189'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800 | Out-Null
+
+        $payload = 'RESURRECTED OWNER BYTES'
+        $hook = {
+            param($folder)
+            [System.IO.File]::WriteAllText((Join-Path $folder 'resurrected-1.dat'), $payload)
+            [System.IO.File]::WriteAllText((Join-Path $folder 'resurrected-2.dat'), $payload)
+        }.GetNewClosure()
+        Set-EngineStagingHook -Name 'StagingReclaimTestHook_BeforeMove' -Hook $hook
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+            Should -BeTrue -Because 'the reclaim already succeeded; the aside folder is evidence, not a failure'
+
+        $aside = Get-AsideFolder -ChgPath $fx.Chg
+        $aside.Count | Should -Be 1 -Because 'the move-aside is the READMEs own prescribed safe action'
+        foreach ($leaf in @('resurrected-1.dat', 'resurrected-2.dat')) {
+            $p = Join-Path $aside[0].FullName $leaf
+            Test-Path -LiteralPath $p -PathType Leaf | Should -BeTrue
+            [System.IO.File]::ReadAllText($p) | Should -Be $payload -Because 'the bytes are intact, not merely present'
+        }
+        Test-Path -LiteralPath (Join-Path $aside[0].FullName 'RUN.inprogress') -PathType Leaf |
+            Should -BeTrue -Because 'the deletes were SKIPPED entirely'
+
+        $log = Get-SetLog $fx
+        $log | Should -Match 'is being KEPT'
+        $log | Should -Match 'entry\(ies\) that appeared after the classification'
+        $log | Should -Match 'A run refuses because Temp exists \(stale Temp folder error\)'
+        $log | Should -Match '----- Backup set .* completed -----'
+    }
+
+    It 'NEGATIVE CONTROL: trusting the classification through the move DELETES the injected bytes (TC-189, SR-075, LLR-017)' {
+        # The fix removed, WP13-T4 style: an in-test replica of step 4 WITHOUT
+        # the re-enumeration - "we classified it as marker-only, so sweep it".
+        # That is the first draft's protocol, and it destroys the very bytes
+        # TC-189 exists to protect.
+        $aside = Join-Path $TestDrive ('tc189-neg-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $aside | Out-Null
+        Write-StagingOwnerRecord -StagingFolder $aside -SetName 'library' | Out-Null
+        $victim = Join-Path $aside 'resurrected-1.dat'
+        [System.IO.File]::WriteAllText($victim, 'RESURRECTED OWNER BYTES')
+
+        # No re-enumeration, and a RECURSIVE delete: exactly what the plan bans.
+        Remove-Item -LiteralPath $aside -Recurse -Force
+        Test-Path -LiteralPath $victim | Should -BeFalse -Because 'without step 4 the resurrected owners only copy is gone'
+
+        # ...whereas the shipped step 4, given the same folder, keeps it.
+        New-Item -ItemType Directory -Path $aside | Out-Null
+        Write-StagingOwnerRecord -StagingFolder $aside -SetName 'library' | Out-Null
+        [System.IO.File]::WriteAllText($victim, 'RESURRECTED OWNER BYTES')
+        InModuleScope FileBackup.Engine -Parameters @{ P = $aside } {
+            Clear-ReclaimedStagingFolder -AsidePath $P -Log { param($m, $l) } | Should -BeFalse
+        }
+        Test-Path -LiteralPath $victim -PathType Leaf | Should -BeTrue
+    }
+}
+
+Describe 'Resurrection between the re-enumeration and the delete (TC-198, SR-017, SR-075, LLR-017)' {
+
+    BeforeEach { Set-EngineConfirmationSample -Seconds 0.3 }
+    AfterEach  { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'fails the NON-RECURSIVE delete, keeps the folder with its bytes, and continues (TC-198, SR-017, SR-075, LLR-017)' {
+        $fx = New-BackupSetFixture -Name 'tc198'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800 | Out-Null
+
+        $payload = 'LANDED IN THE LAST WINDOW'
+        $hook = {
+            param($asidePath)
+            [System.IO.File]::WriteAllText((Join-Path $asidePath 'late-arrival.dat'), $payload)
+        }.GetNewClosure()
+        Set-EngineStagingHook -Name 'StagingReclaimTestHook_BeforeAsideDelete' -Hook $hook
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeTrue
+
+        $aside = Get-AsideFolder -ChgPath $fx.Chg
+        $aside.Count | Should -Be 1
+        $late = Join-Path $aside[0].FullName 'late-arrival.dat'
+        [System.IO.File]::ReadAllText($late) | Should -Be $payload
+
+        $log = Get-SetLog $fx
+        $log | Should -Match 'the non-recursive delete failed, so it is no longer empty'
+        $log | Should -Match 'is being KEPT'
+        $log | Should -Match 'A run refuses because Temp exists \(stale Temp folder error\)'
+        $log | Should -Match '----- Backup set .* completed -----'
+    }
+
+    It 'NEGATIVE CONTROL: a RECURSIVE delete in the same window destroys the arrival (TC-198, SR-017, SR-075)' {
+        # The banned variant, built in the test rather than by editing shipped
+        # code: Directory.Delete(path, recursive:true) cannot fail on a
+        # non-empty directory, so the last race becomes data loss instead of a
+        # safe failure. This is the entire reason -Recurse is banned.
+        $aside = Join-Path $TestDrive ('tc198-neg-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $aside | Out-Null
+        $late = Join-Path $aside 'late-arrival.dat'
+        [System.IO.File]::WriteAllText($late, 'LANDED IN THE LAST WINDOW')
+
+        { [System.IO.Directory]::Delete($aside, $false) } |
+            Should -Throw -Because 'the shipped non-recursive delete FAILS, which is what saves the bytes'
+        Test-Path -LiteralPath $late -PathType Leaf | Should -BeTrue
+
+        [System.IO.Directory]::Delete($aside, $true)
+        Test-Path -LiteralPath $late | Should -BeFalse -Because 'the recursive variant sweeps the arrival up silently'
+    }
+}
+
+Describe 'Two reclaimers racing one stale lock (TC-191, SR-075, LLR-017)' {
+
+    AfterEach { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'lets exactly ONE proceed; the loser refuses without retrying (TC-191, SR-075, LLR-017)' {
+        # Real concurrency, in two CHILD PROCESSES against one store: the
+        # Directory.Move at step 2 and the -Force-less New-Item at step 3 are
+        # the two atomic gates, and nothing in this runspace can serialize them.
+        $chg = Join-Path $TestDrive 'tc191-chg'
+        New-Item -ItemType Directory -Path $chg | Out-Null
+        New-AbandonedTemp -ChgPath $chg -MarkerAgeSeconds 10800 | Out-Null
+        $barrier = Join-Path $TestDrive 'tc191.go'
+
+        $body = {
+            param($repo, $chgPath, $barrierPath)
+            Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
+            Import-Module (Join-Path $repo 'Modules\FileBackup.Engine.psm1') -Force
+            while (-not (Test-Path -LiteralPath $barrierPath)) { [System.Threading.Thread]::Sleep(20) }
+            try {
+                $lock = Initialize-StagingFolder -ChgPath $chgPath -Log { param($m, $l) } -SetName 'race' `
+                            -HeartbeatIntervalSeconds 60 -ConfirmationSampleSeconds 0.6
+                Stop-StagingHeartbeat $lock.Heartbeat
+                [pscustomobject]@{ Won = $true; RunId = $lock.RunId; Message = '' }
+            } catch {
+                [pscustomobject]@{ Won = $false; RunId = ''; Message = $_.Exception.Message }
+            }
+        }
+        $jobs = @(1, 2 | ForEach-Object { Start-Job -ScriptBlock $body -ArgumentList $script:RepoRoot, $chg, $barrier })
+        try {
+            Start-Sleep -Seconds 6           # both processes reach the barrier
+            New-Item -ItemType File -Path $barrier | Out-Null
+            $results = @($jobs | Receive-Job -Wait)
+
+            $results.Count | Should -Be 2
+            @($results | Where-Object Won).Count | Should -Be 1 -Because 'creation-as-lock stays the atomic primitive (I-2)'
+            @($results | Where-Object { -not $_.Won }).Count | Should -Be 1
+            $winner = @($results | Where-Object Won)[0]
+            $loser = @($results | Where-Object { -not $_.Won })[0]
+            # THREE refusal shapes are correct here, and which one a given
+            # scheduling produces is not ours to fix: the loser fails the
+            # Directory.Move, or the -Force-less New-Item, or - when it moved
+            # first and the other racer then reclaimed its freshly created,
+            # not-yet-published Temp - its own EXCLUSIVE marker publish (2.1,
+            # the create->marker window closed from the victim's side). All
+            # three abort without retrying and without deleting anything.
+            $loser.Message | Should -Match '(Cannot initialize staging folder|StagingLockLost)'
+            $loser.Message | Should -Match '\[SR-075/(content-refused|owner-live|lock-lost)\]'
+
+            @(Get-ChildItem -LiteralPath $chg -Directory -Force | Where-Object Name -eq 'Temp').Count | Should -Be 1
+            (Read-StagingOwnerRecord -MarkerPath (Join-Path $chg 'Temp\RUN.inprogress')).Record.RunId |
+                Should -Be $winner.RunId -Because 'the surviving marker is the WINNERs'
+            $asides = Get-AsideFolder -ChgPath $chg
+            # The TC's "exactly one aside folder" predates step 4: the winner's
+            # aside folder held ONLY the dead run's owner record, so step 4
+            # removes it and 0 is the normal outcome. What must never happen is
+            # two SURVIVING asides (two reclaims both completing), and no aside
+            # may ever hold anything but its marker.
+            $asides.Count | Should -BeLessOrEqual 1 -Because 'one reclaim proceeded, not two'
+            foreach ($a in $asides) {
+                @(Get-ChildItem -LiteralPath $a.FullName -Force | Where-Object Name -cne 'RUN.inprogress') |
+                    Should -BeNullOrEmpty
+            }
+        } finally {
+            $jobs | Remove-Job -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $barrier -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'NEGATIVE CONTROL: a delete-then-create acquisition lets the loser take the lock (TC-191, SR-075)' {
+        # The banned alternative, built in the test: replacing the atomic
+        # move+create with "remove it and recreate it" makes the SECOND arrival
+        # win and takes the first one's staging folder with it.
+        $chg = Join-Path $TestDrive 'tc191-neg'
+        New-Item -ItemType Directory -Path $chg | Out-Null
+        New-AbandonedTemp -ChgPath $chg -MarkerAgeSeconds 10800 | Out-Null
+
+        $a = Initialize-StagingFolder -ChgPath $chg -Log { param($m, $l) } -SetName 'A' -ConfirmationSampleSeconds 0.2
+        try {
+            # The shipped path REFUSES a second acquisition of A's fresh lock...
+            { Initialize-StagingFolder -ChgPath $chg -Log { param($m, $l) } -SetName 'B' -ConfirmationSampleSeconds 0.2 } |
+                Should -Throw -ExpectedMessage '*Cannot initialize staging folder*'
+            (Read-StagingOwnerRecord -MarkerPath $a.MarkerPath).Record.RunId | Should -Be $a.RunId
+        } finally { Stop-StagingHeartbeat $a.Heartbeat }
+
+        # ...whereas delete-then-create hands the lock to the loser.
+        $temp = Join-Path $chg 'Temp'
+        Remove-Item -LiteralPath $temp -Recurse -Force
+        New-Item -ItemType Directory -Path $temp | Out-Null
+        $b = Write-StagingOwnerRecord -StagingFolder $temp -SetName 'B'
+        (Read-StagingOwnerRecord -MarkerPath (Join-Path $temp 'RUN.inprogress')).Record.RunId |
+            Should -Be $b.RunId -Because 'without the atomic gates the later arrival simply wins'
+        $b.RunId | Should -Not -Be $a.RunId
+    }
+}
+
+Describe 'The empty-Temp branches and the create-to-marker gate (TC-192, SR-017, SR-075, LLR-017)' {
+
+    BeforeEach { Set-EngineConfirmationSample -Seconds 0.3 }
+    AfterEach  { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'reclaims an EMPTY Temp whose own directory mtime is stale - the pre-WP14 upgrade path (TC-192, SR-017, SR-075, LLR-017)' {
+        # Literally the hub's state: an empty Temp dated 2026-08-30, left by a
+        # store that predates the owner record entirely.
+        $fx = New-BackupSetFixture -Name 'tc192-stale'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        New-AbandonedTemp -ChgPath $fx.Chg -NoMarker -DirectoryAgeSeconds 10800 | Out-Null
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+            Should -BeTrue -Because 'the upgrade path from a pre-WP14 store must cost nothing'
+
+        (Get-SetLog $fx) | Should -Match '\[SR-075/reclaimed\]'
+        Get-AsideFolder -ChgPath $fx.Chg |
+            Should -BeNullOrEmpty -Because 'an EMPTY aside folder is removed by the non-recursive delete alone'
+    }
+
+    It 'REFUSES an empty Temp whose directory mtime is fresh - the create-to-marker theft gate (TC-192, SR-017, SR-075, LLR-017)' {
+        $fx = New-BackupSetFixture -Name 'tc192-fresh'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -NoMarker
+        $before = Get-FixtureTreeHash $fx
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+            Should -BeFalse -Because 'a live run may be inside its own create-to-marker window'
+
+        $log = Get-SetLog $fx
+        $log | Should -Match '\[SR-075/owner-live\]'
+        $log | Should -Match 'create-to-marker window'
+        Test-Path -LiteralPath $temp | Should -BeTrue
+        Get-AsideFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+        Get-FixtureTreeHash $fx | Should -Be $before
+    }
+}
+
+Describe 'A future-dated marker is fresh, never proof of death (TC-193, SR-075, LLR-080)' {
+
+    It 'classifies a marker dated <_> s INTO THE FUTURE as OwnerLive and refuses (TC-193, SR-075, LLR-080)' -ForEach @(60, 900, 36000) {
+        $offset = $_
+        $dir = New-StagingDir
+        $rec = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'library'
+        [System.IO.File]::SetLastWriteTimeUtc($rec.MarkerPath, [datetime]::UtcNow.AddSeconds($offset))
+
+        $read = Read-StagingOwnerRecord -MarkerPath $rec.MarkerPath
+        $read.State | Should -Be 'Parsed'
+        $read.AgeSeconds | Should -BeLessThan 0
+        $verdict = Get-StagingLockState -Entries @('RUN.inprogress') -OwnerRecord $read
+        $verdict.State | Should -Be 'OwnerLive'
+        $verdict.Reclaimable | Should -BeFalse -Because 'a future mtime can only be a clock disagreement'
+        $verdict.Token | Should -Be '[SR-075/owner-live]'
+    }
+}
+
+Describe 'The theft window, victim side (TC-197, SR-075, LLR-017, LLR-080)' {
+
+    AfterEach { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'fails As exclusive publish and aborts it touching NOTHING after B reclaims As directory (TC-197, SR-075, LLR-017, LLR-080)' {
+        $fx = New-BackupSetFixture -Name 'tc197'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        New-Item -ItemType Directory -Path $fx.Chg -Force | Out-Null
+        Set-EngineConfirmationSample -Seconds 0.2
+
+        # A is parked between its New-Item and its marker publish. B arrives in
+        # that window: A's Temp is empty, and ageing its directory mtime here is
+        # what makes B's classification the TC-192 stale-empty branch (the real
+        # window is microseconds wide; correctness must not depend on that).
+        $state = @{ Fired = $false; Successor = $null }
+        $hook = {
+            param($folder)
+            if ($state.Fired) { return }
+            $state.Fired = $true
+            [System.IO.Directory]::SetLastWriteTimeUtc($folder, [datetime]::UtcNow.AddSeconds(-10800))
+            $state.Successor = Initialize-StagingFolder -ChgPath (Split-Path -Parent $folder) `
+                                 -Log { param($m, $l) } -SetName 'successor' -ConfirmationSampleSeconds 0.2
+        }.GetNewClosure()
+        Set-EngineStagingHook -Name 'StagingTestHook_AfterCreateBeforePublish' -Hook $hook
+
+        try {
+            Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+                Should -BeFalse -Because 'A provably lost the lock and must abort'
+
+            $state.Fired | Should -BeTrue
+            $log = Get-SetLog $fx
+            $log | Should -Match '\[SR-075/lock-lost\]'
+            $log | Should -Match 'StagingLockLost'
+
+            # A touched NOTHING: B's staging folder and marker stand, no change
+            # folder was written, and no backup state was published.
+            $marker = Join-Path $fx.Chg 'Temp\RUN.inprogress'
+            Test-Path -LiteralPath $marker -PathType Leaf | Should -BeTrue
+            (Read-StagingOwnerRecord -MarkerPath $marker).Record.RunId |
+                Should -Be $state.Successor.RunId -Because 'the marker is the SUCCESSORs'
+            Get-SnapshotFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
+            Test-Path -LiteralPath (Join-Path $fx.Bkp 'MANIFEST.csv') | Should -BeFalse
+        } finally {
+            if ($state.Successor) { Stop-StagingHeartbeat $state.Successor.Heartbeat }
+        }
+    }
+
+    It 'NEGATIVE CONTROL: a non-exclusive publish lets A silently take over Bs staging folder (TC-197, SR-075, LLR-080)' {
+        # The fix removed: File.Move WITH overwrite instead of the exclusive
+        # move. A then writes into a folder that is not its own and never finds
+        # out - which is the whole failure the exclusive publish exists to stop.
+        $dir = New-StagingDir
+        $b = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'B'
+        $marker = Join-Path $dir 'RUN.inprogress'
+
+        $aRunId = [guid]::NewGuid().ToString()
+        $tmp = Join-Path $dir 'RUN.inprogress.naive.tmp'
+        [System.IO.File]::WriteAllText($tmp, (New-ForeignMarkerJson -RunId $aRunId))
+        [System.IO.File]::Move($tmp, $marker, $true)
+
+        (Read-StagingOwnerRecord -MarkerPath $marker).Record.RunId |
+            Should -Be $aRunId -Because 'an overwriting publish silently steals the successors lock'
+        $aRunId | Should -Not -Be $b.RunId
+    }
+}
+
+Describe 'The RunId fence at the three phase boundaries (TC-204, SR-075, LLR-017)' {
+
+    AfterEach { Clear-EngineStagingHooks }
+
+    It 'aborts before <_> mutates anything, cleaning up NOTHING (TC-204, SR-075, LLR-017)' -ForEach @(
+        'Move-RemovedFilesToStaging', 'Save-SupersededData', 'Complete-ChangeFolder'
+    ) {
+        # A fixture with real work at every fenced phase: one changed file
+        # (step 10), one removal (Move-RemovedFilesToStaging) and one superseded
+        # object (Save-SupersededData).
+        $phase = $_
+        $fx = New-BackupSetFixture -Name ('tc204-' + $phase)
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'gone.txt'), 'DOOMED')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeTrue
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'TWO')
+        Remove-Item -LiteralPath (Join-Path $fx.Src 'gone.txt') -Force
+
+        $manifestBefore = [System.IO.File]::ReadAllText((Join-Path $fx.Bkp 'MANIFEST.csv'))
+        $snapsBefore = (Get-SnapshotFolder -ChgPath $fx.Chg).Count
+        $foreign = [guid]::NewGuid().ToString()
+        # Rendered HERE, not inside the hook: a closure captures VARIABLES, and
+        # the engine resolves function names in its own module scope.
+        $foreignJson = New-ForeignMarkerJson -RunId $foreign
+
+        $hook = {
+            param($ctx)
+            if ($ctx.Phase -ne $phase) { return }
+            # The successor's marker, published over ours by a run that
+            # reclaimed this lock while we were frozen.
+            [System.IO.File]::WriteAllText($ctx.StagingLock.MarkerPath, $foreignJson)
+        }.GetNewClosure()
+        Set-EngineStagingHook -Name 'StagingFenceTestHook' -Hook $hook
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-02-02 00:00:02') |
+            Should -BeFalse -Because "the fence before $phase must abort the run"
+
+        $log = Get-SetLog $fx
+        $log | Should -Match '\[SR-075/lock-lost\]'
+        $log | Should -Match ([regex]::Escape("at the '$phase' boundary"))
+        $log | Should -Match 'cleaning up NOTHING'
+
+        # Cleaned up NOTHING: the successor's Temp and its marker are intact.
+        $marker = Join-Path $fx.Chg 'Temp\RUN.inprogress'
+        Test-Path -LiteralPath $marker -PathType Leaf |
+            Should -BeTrue -Because 'the staging folder is no longer this runs to delete'
+        (Read-StagingOwnerRecord -MarkerPath $marker).Record.RunId | Should -Be $foreign
+
+        # Nothing was published: no new snapshot, and no state stamped.
+        (Get-SnapshotFolder -ChgPath $fx.Chg).Count | Should -Be $snapsBefore
+        Get-LastBackupRun -BackupRoot $fx.Bkp | Should -Be ([datetime]'2024-01-01 00:00:01')
+
+        if ($phase -ne 'Complete-ChangeFolder') {
+            # Fences 1 and 2 sit before the manifest is rewritten at step 12.
+            [System.IO.File]::ReadAllText((Join-Path $fx.Bkp 'MANIFEST.csv')) |
+                Should -Be $manifestBefore -Because "the $phase phase never ran"
+        }
+    }
+
+    It 'NEGATIVE CONTROL: with the fence removed the run deletes the successors marker and finalizes over it (TC-204, SR-075, LLR-017)' {
+        # The fix removed: Assert-StagingLockOwned neutered to do the marker swap
+        # WITHOUT the identity check. The run then proceeds through step 12.9,
+        # strips the successor's owner record and publishes a snapshot - which
+        # is precisely what the fence prevents above.
+        $fx = New-BackupSetFixture -Name 'tc204-neg'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'gone.txt'), 'DOOMED')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeTrue
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'TWO')
+        Remove-Item -LiteralPath (Join-Path $fx.Src 'gone.txt') -Force
+
+        Mock -ModuleName FileBackup.Engine Assert-StagingLockOwned {
+            if ($Phase -eq 'Complete-ChangeFolder') {
+                # A successor's record, minted here: this stand-in still performs
+                # the swap, it just never checks the identity.
+                [System.IO.File]::WriteAllText($StagingLock.MarkerPath,
+                    ('{"SchemaVersion":1,"Kind":"backup","RunId":"' + [guid]::NewGuid().ToString() + '","StaleAfterSeconds":1800}'))
+            }
+        }
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-02-02 00:00:02') |
+            Should -BeTrue -Because 'nothing stops it once the fence is gone'
+
+        (Get-SetLog $fx) | Should -Not -Match '\[SR-075/lock-lost\]'
+        $snap = Get-SnapshotFolder -ChgPath $fx.Chg
+        $snap.Count | Should -Be 1 -Because 'the run finalized over a lock it no longer held'
+        @(Get-ChildItem -LiteralPath $snap[0].FullName -Recurse -Force -File | Where-Object Name -eq 'RUN.inprogress') |
+            Should -BeNullOrEmpty -Because 'the successors owner record was deleted by step 12.9'
     }
 }

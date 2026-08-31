@@ -2797,6 +2797,62 @@ $script:StagingHeartbeatIntervalSeconds = 60
 # recognize "someone else owns this now" without string-matching prose.
 $script:StagingLockLostPrefix = 'StagingLockLost'
 
+# The confirmation sample (SR-075 §2.2): one heartbeat interval plus margin. The
+# age test compares the WRITER's clock against the READER's and the dangerous
+# skew is the writer being behind — a live, continuously beating owner would look
+# instantly stale to a fast reader. The second sample is clock-free: a live owner
+# beats during the window and the mtime MOVES, whatever either clock says. It
+# costs ~90 s on the reclaim path only, and it buys the property that no clock
+# configuration can cause a live owner to be stomped. Module-scope so the suite
+# can compress it; production never changes it, and it is not a config knob.
+$script:StagingConfirmationSampleSeconds = 90
+
+# The README pointer every refusal and every kept-aside-folder message carries
+# (N-1: the heading is quoted verbatim). Emitted ONLY on the refusal and
+# folder-kept paths — never by a healthy run.
+$script:StagingRecoveryPointer = 'Do NOT delete it: it may hold the only physical copy of snapshot-demanded bytes. Move it aside and follow the safe recovery in README, "A run refuses because Temp exists (stale Temp folder error)".'
+
+# --- Test seams (SR-075) -------------------------------------------------
+# The reclaim protocol's safety proof is about windows that are microseconds
+# wide in production: a frozen owner resuming BETWEEN the classification and the
+# move (§2.4 step 3), or a file landing in the aside folder BETWEEN the step-4
+# re-enumeration and the delete, or a lock stolen inside a run's own
+# create->marker window. No test can hit those by timing, so the engine offers
+# named seams the suite widens them with. Each defaults to $null, is assigned
+# nowhere outside the test suite, and costs a production run exactly one null
+# check on a path a healthy run never reaches at all (the fence seam excepted —
+# three null checks per run).
+$script:StagingTestHook_AfterCreateBeforePublish = $null   # TC-197 (victim side of the theft window)
+$script:StagingReclaimTestHook_BeforeMove        = $null   # TC-189 (resurrection before the move)
+$script:StagingReclaimTestHook_BeforeAsideDelete = $null   # TC-198 (resurrection after the re-check)
+$script:StagingFenceTestHook                     = $null   # TC-204 (marker swapped at a fence)
+
+function Invoke-StagingTestHook {
+    <#
+    .SYNOPSIS
+        Invokes one of the SR-075 reclaim/fence test seams if the suite has
+        installed it. A no-op in production, where every seam is $null.
+
+    .PARAMETER Hook
+        The seam's scriptblock, or $null.
+
+    .PARAMETER Context
+        Passed to the seam as its single positional argument.
+
+    .OUTPUTS
+        None.
+    #>
+    # Implements: SR-075, LLR-017
+    [CmdletBinding()]
+    param(
+        [AllowNull()][scriptblock]$Hook,
+        [AllowNull()][object]$Context
+    )
+
+    if ($null -eq $Hook) { return }
+    & $Hook $Context
+}
+
 function Write-StagingOwnerRecord {
     <#
     .SYNOPSIS
@@ -3375,6 +3431,533 @@ function Stop-StagingHeartbeat {
     }
 }
 
+function Get-StagingLockEvidence {
+    <#
+    .SYNOPSIS
+        Gathers the complete, FAIL-CLOSED evidence Get-StagingLockState needs
+        about an existing Temp: reparse-point flag, forced enumeration, the
+        directory's own mtime and the owner record. Never throws.
+
+    .DESCRIPTION
+        Evidence completeness is half the SR-075 classification: hidden and
+        system entries are content like any other, and an enumeration, stat or
+        access FAILURE is never evidence of emptiness — it is reported as
+        EnumerationFailed, which the classifier turns into Indeterminate and the
+        caller into a refusal. A reparse point short-circuits everything: moving
+        or deleting through one acts on a tree this guard never classified, so
+        nothing beyond the flag is even collected.
+
+    .PARAMETER StagingFolder
+        The folder to gather evidence about (Temp, or a Temp.stale-* aside
+        folder at reclaim step 4).
+
+    .PARAMETER NowUtc
+        Reader clock for the record's AgeSeconds; injectable for tests.
+
+    .OUTPUTS
+        [pscustomobject] MarkerPath, EnumerationFailed, IsReparsePoint, Entries,
+        Names, DirectoryLastWriteUtc, OwnerRecord, MarkerLastWriteUtc, Error.
+    #>
+    # Implements: SR-017, SR-075, LLR-017, LLR-080
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StagingFolder,
+        [datetime]$NowUtc = [datetime]::UtcNow
+    )
+
+    $out = [pscustomobject]@{
+        MarkerPath            = (Join-Path $StagingFolder $script:StagingRunMarkerName)
+        EnumerationFailed     = $false
+        IsReparsePoint        = $false
+        Entries               = @()
+        Names                 = @()
+        DirectoryLastWriteUtc = $null
+        OwnerRecord           = $null
+        MarkerLastWriteUtc    = $null
+        Error                 = $null
+    }
+
+    try {
+        $item = Get-Item -LiteralPath $StagingFolder -Force -ErrorAction Stop
+    } catch {
+        $out.EnumerationFailed = $true
+        $out.Error = $_.Exception.Message
+        return $out
+    }
+
+    if ([bool]($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        $out.IsReparsePoint = $true
+        return $out
+    }
+
+    $dirWrite = $item.LastWriteTimeUtc
+    if ($dirWrite.Kind -ne [System.DateTimeKind]::Utc) {
+        $dirWrite = [datetime]::SpecifyKind($dirWrite, [System.DateTimeKind]::Utc)
+    }
+    $out.DirectoryLastWriteUtc = $dirWrite
+
+    try {
+        # -Force so hidden/system entries are seen, -LiteralPath so a bracketed
+        # name is not a wildcard, -ErrorAction Stop so a denied read raises
+        # instead of quietly yielding "empty".
+        $out.Entries = @(Get-ChildItem -LiteralPath $StagingFolder -Force -ErrorAction Stop)
+    } catch {
+        $out.EnumerationFailed = $true
+        $out.Error = $_.Exception.Message
+        return $out
+    }
+
+    $names = @()
+    foreach ($entry in $out.Entries) { $names += [string]$entry.Name }
+    $out.Names = $names
+
+    if ($names -ccontains $script:StagingRunMarkerName) {
+        $out.OwnerRecord        = Read-StagingOwnerRecord -MarkerPath $out.MarkerPath -NowUtc $NowUtc
+        $out.MarkerLastWriteUtc = $out.OwnerRecord.LastWriteUtc
+    }
+
+    return $out
+}
+
+function Get-StagingLockVerdict {
+    <#
+    .SYNOPSIS
+        Runs Get-StagingLockState over one Get-StagingLockEvidence result — the
+        two halves of a single sample, kept together so the first sample and the
+        confirmation sample cannot drift apart.
+
+    .OUTPUTS
+        [pscustomobject] the classifier's verdict.
+    #>
+    # Implements: SR-017, SR-075, LLR-017
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Evidence,
+        [datetime]$NowUtc = [datetime]::UtcNow
+    )
+
+    return Get-StagingLockState -Entries $Evidence.Entries `
+        -EnumerationFailed:$Evidence.EnumerationFailed `
+        -OwnerRecord $Evidence.OwnerRecord `
+        -DirectoryLastWriteUtc $Evidence.DirectoryLastWriteUtc `
+        -IsReparsePoint:$Evidence.IsReparsePoint `
+        -NowUtc $NowUtc
+}
+
+function Get-StagingEvidenceSignature {
+    <#
+    .SYNOPSIS
+        A comparable string for one sample of a staging folder, used to decide
+        whether ANYTHING moved during the confirmation sample.
+
+    .DESCRIPTION
+        The confirmation sample is deliberately broader than "did the marker's
+        mtime advance": a resumed owner may equally have created an entry,
+        removed the marker or replaced it. Any difference at all between the two
+        samples means the folder is not abandoned, and the caller refuses as
+        owner-live.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-075, LLR-017
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Evidence,
+        [Parameter(Mandatory)][pscustomobject]$Verdict
+    )
+
+    $names = @($Evidence.Names | Sort-Object -CaseSensitive)
+    return (@(
+        "state=$($Verdict.State)"
+        "reparse=$([bool]$Evidence.IsReparsePoint)"
+        "enumfailed=$([bool]$Evidence.EnumerationFailed)"
+        "dir=$(if ($null -ne $Evidence.DirectoryLastWriteUtc) { $Evidence.DirectoryLastWriteUtc.Ticks } else { 'none' })"
+        "marker=$(if ($null -ne $Evidence.MarkerLastWriteUtc) { $Evidence.MarkerLastWriteUtc.Ticks } else { 'none' })"
+        "names=$($names -join '|')"
+    ) -join ';')
+}
+
+function Get-StagingRefusalDetail {
+    <#
+    .SYNOPSIS
+        The per-branch refusal sentence. The guard can tell dead from live now,
+        so the message stops hedging (SR-075 branch tokens).
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-017, SR-075, LLR-017
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Verdict,
+        [Parameter(Mandatory)][pscustomobject]$Evidence,
+        [Parameter(Mandatory)][string]$StagingFolder
+    )
+
+    $token = $Verdict.Token
+    switch ($Verdict.State) {
+        'OwnerLive' {
+            $who = 'an unidentified run'
+            $started = 'an unknown time'
+            if ($Evidence.OwnerRecord -and $Evidence.OwnerRecord.State -eq 'Parsed' -and $Evidence.OwnerRecord.Record) {
+                $rec = $Evidence.OwnerRecord.Record
+                $who = "$($rec.Host)/pid $($rec.Pid)"
+                $started = [string]$rec.StartedUtc
+            }
+            $age = if ($null -ne $Verdict.AgeSeconds) { [math]::Round([double]$Verdict.AgeSeconds, 1) } else { 'unknown' }
+            return "$token A run started by $who at $started is ALIVE (its last heartbeat was $age s ago) and holds the staging lock at '$StagingFolder'."
+        }
+        'EmptyFresh' {
+            $age = if ($null -ne $Verdict.AgeSeconds) { [math]::Round([double]$Verdict.AgeSeconds, 1) } else { 'unknown' }
+            return "$token The staging folder '$StagingFolder' is empty but was created $age s ago: a live run is inside its own create-to-marker window, which its exclusive owner-record publish resolves within microseconds."
+        }
+        'PruneHeld' {
+            return "$token A prune holds the staging lock at '$StagingFolder' (PRUNE.inprogress). Backup and prune are mutually exclusive (SR-046), and the age of a prune marker is irrelevant to the backup path."
+        }
+        'HoldsContent' {
+            if ($Verdict.Reason -eq 'ReparsePoint') {
+                return "$token The staging folder '$StagingFolder' is a reparse point / symlink. Moving or deleting through one would act on a tree this guard never classified."
+            }
+            $others = @($Evidence.Names | Where-Object { $_ -cne $script:StagingRunMarkerName })
+            return "$token The staging folder '$StagingFolder' holds $($others.Count) entry(ies) beyond its own owner record ($($others -join ', ')). It may hold the only physical copy of snapshot-demanded bytes."
+        }
+        default {
+            return "$token The staging folder '$StagingFolder' could not be classified ($($Verdict.Reason)$(if ($Evidence.Error) { ": $($Evidence.Error)" })). An I/O, stat or access failure is never evidence that a folder is abandoned."
+        }
+    }
+}
+
+function Invoke-StagingLockReclaim {
+    <#
+    .SYNOPSIS
+        The SR-017/SR-075 classify-then-reclaim path for a Temp that already
+        exists. Either THROWS a refusal, or leaves a freshly created, EMPTY Temp
+        behind and returns the path of the aside folder the caller must then
+        clean up (step 4) once it has published its own owner record.
+
+    .DESCRIPTION
+        Reachable only from Initialize-StagingFolder's New-Item catch, so a
+        healthy run's instruction path does not change at all (LLR-017).
+
+        The protocol, exactly (SR-075 §2.4):
+
+          1. classify from FAIL-CLOSED evidence; anything but Empty/OwnerStale
+             refuses with that branch's token;
+          1b. on Empty/OwnerStale take the CONFIRMATION SAMPLE — the caller's
+             job, never the classifier's, which stays pure — and refuse as
+             owner-live if ANYTHING moved;
+          2. Directory.Move Temp -> Temp.stale-<utc>-<8 hex>. Any failure
+             refuses: no retry loop, both paths untouched, and nothing is ever
+             deleted instead (Q1: an ambiguous move failure refuses, so the only
+             cost on an unproven provider is today's behaviour);
+          3. New-Item Temp WITHOUT -Force — a second, independent atomic gate,
+             so two reclaimers cannot both proceed. The caller publishes its own
+             record IMMEDIATELY on return, which closes the reclaimer's own
+             create-to-marker window against a third contender; either failing
+             refuses and LEAVES the aside folder in place.
+
+        Step 4 is Clear-ReclaimedStagingFolder.
+
+    .PARAMETER StagingFolder
+        The existing Temp.
+
+    .PARAMETER Log
+        The set logger.
+
+    .PARAMETER ConfirmationSampleSeconds
+        One heartbeat interval plus margin (90 s in production). The suite
+        compresses it; nothing else may.
+
+    .OUTPUTS
+        [string] full path of the aside folder.
+    #>
+    # Implements: SR-017, SR-075, LLR-017, LLR-080
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    param(
+        [Parameter(Mandatory)][string]$StagingFolder,
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [double]$ConfirmationSampleSeconds = $script:StagingConfirmationSampleSeconds
+    )
+
+    $refuse = {
+        param([string]$Detail, [string]$Token)
+        & $Log $Detail 'ERROR'
+        & $Log $script:StagingRecoveryPointer 'ERROR'
+        throw "$Token Cannot initialize staging folder; Temp already exists at '$StagingFolder'"
+    }
+
+    # --- Step 1: classify ------------------------------------------------
+    $first        = Get-StagingLockEvidence -StagingFolder $StagingFolder
+    $firstVerdict = Get-StagingLockVerdict -Evidence $first
+    if (-not $firstVerdict.Reclaimable) {
+        & $refuse (Get-StagingRefusalDetail -Verdict $firstVerdict -Evidence $first -StagingFolder $StagingFolder) $firstVerdict.Token
+    }
+
+    # --- Step 1b: the confirmation sample, which is what makes the age test
+    # safe. It belongs to this caller; the classifier stays pure.
+    & $Log ("The staging folder '$StagingFolder' looks abandoned ($($firstVerdict.State)/$($firstVerdict.Reason)); " +
+        "confirming with a second sample $ConfirmationSampleSeconds s from now before reclaiming anything (SR-075).")
+    $waitMs = [int][math]::Max(0, [math]::Round($ConfirmationSampleSeconds * 1000))
+    if ($waitMs -gt 0) { Start-Sleep -Milliseconds $waitMs }
+
+    $second        = Get-StagingLockEvidence -StagingFolder $StagingFolder
+    $secondVerdict = Get-StagingLockVerdict -Evidence $second
+    $before = Get-StagingEvidenceSignature -Evidence $first  -Verdict $firstVerdict
+    $after  = Get-StagingEvidenceSignature -Evidence $second -Verdict $secondVerdict
+    if ($before -ne $after) {
+        # Clock-free: a live owner beats (or writes) during the window and the
+        # folder MOVES, whatever either machine's clock says.
+        & $refuse ("[SR-075/owner-live] The staging folder '$StagingFolder' CHANGED during the confirmation sample " +
+            "($before -> $after), so its owner is alive. Refusing; the age test alone would have stomped a live run.") '[SR-075/owner-live]'
+    }
+    if (-not $secondVerdict.Reclaimable) {
+        & $refuse (Get-StagingRefusalDetail -Verdict $secondVerdict -Evidence $second -StagingFolder $StagingFolder) $secondVerdict.Token
+    }
+
+    # Test seam: the frozen-then-resumed owner writing between the
+    # classification and the move (TC-189). Step 4 is what makes that safe.
+    Invoke-StagingTestHook -Hook $script:StagingReclaimTestHook_BeforeMove -Context $StagingFolder
+
+    # --- Step 2: move aside, never delete --------------------------------
+    $parent    = Split-Path -Parent $StagingFolder
+    $asideName = 'Temp.stale-{0}-{1}' -f ([datetime]::UtcNow.ToString('yyyyMMddTHHmmssZ')),
+                                         ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    $asidePath = Join-Path $parent $asideName
+    try {
+        # Two simultaneous reclaimers cannot both move the same source
+        # directory: the loser fails here and refuses, which is the race
+        # guarantee for free (I-2).
+        [System.IO.Directory]::Move($StagingFolder, $asidePath)
+    } catch {
+        & $refuse ("[SR-075/content-refused] The staging folder '$StagingFolder' proved abandoned, but moving it aside to " +
+            "'$asideName' FAILED: $($_.Exception.Message). Refusing without retrying and without deleting anything; " +
+            'both paths are left exactly as they were.') '[SR-075/content-refused]'
+    }
+    & $Log "Moved the abandoned staging folder aside to '$asideName' (SR-017/SR-075); nothing has been deleted."
+
+    # --- Step 3 (first half): retake the lock with the SAME atomic primitive.
+    # WITHOUT -Force: creation-as-lock stays the atomic gate (I-2).
+    try {
+        New-Item -ItemType Directory -Path $StagingFolder -ErrorAction Stop | Out-Null
+    } catch {
+        & $Log ("[SR-075/content-refused] Could not recreate the staging folder '$StagingFolder' after moving the abandoned " +
+            "one aside to '$asideName': $($_.Exception.Message). The aside folder is LEFT IN PLACE and nothing was deleted.") 'ERROR'
+        & $Log $script:StagingRecoveryPointer 'ERROR'
+        throw "[SR-075/content-refused] Cannot initialize staging folder at '$StagingFolder' after the reclaim move; the abandoned folder is preserved as '$asideName'"
+    }
+
+    return $asidePath
+}
+
+function Clear-ReclaimedStagingFolder {
+    <#
+    .SYNOPSIS
+        Reclaim step 4 (SR-075 §2.4): re-enumerates the aside folder and removes
+        it ONLY when it holds nothing but its own recognized marker leaf —
+        deleting that leaf BY NAME and then the directory NON-RECURSIVELY.
+        Never throws; the reclaim has already succeeded by the time it runs.
+
+    .DESCRIPTION
+        This step is the design's safety proof, not belt and braces. Between the
+        classification and the move a frozen-then-resumed owner could have
+        written data files, so the classification is never trusted through the
+        move. The only deletes are (a) one leaf whose exact name we recognize
+        and (b) a non-recursive Directory.Delete that the FILESYSTEM ITSELF
+        fails if anything has appeared since the re-enumeration — which converts
+        the last race into a safe failure instead of a swept-up data file.
+        Remove-Item -Recurse appears nowhere in this path.
+
+        Anything else, any I/O error, or either delete failing KEEPS the folder,
+        logs loudly with the README recovery, and lets the run CONTINUE: the
+        reclaim already succeeded and the aside folder is preserved evidence.
+
+    .PARAMETER AsidePath
+        The Temp.stale-* folder produced by the move.
+
+    .PARAMETER Log
+        The set logger.
+
+    .OUTPUTS
+        [bool] $true when the folder was removed, $false when it was kept.
+    #>
+    # Implements: SR-017, SR-075, LLR-017, LLR-080
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    param(
+        [Parameter(Mandatory)][string]$AsidePath,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+
+    $keep = {
+        param([string]$Why)
+        & $Log ("The reclaimed staging folder '$AsidePath' is being KEPT: $Why. It is preserved evidence, it is never " +
+            "auto-deleted, and this run continues normally. $($script:StagingRecoveryPointer)") 'WARN'
+    }
+
+    try {
+        $evidence = Get-StagingLockEvidence -StagingFolder $AsidePath
+        if ($evidence.IsReparsePoint) {
+            & $keep 'it is a reparse point / symlink'
+            return $false
+        }
+        if ($evidence.EnumerationFailed) {
+            & $keep "it could not be re-enumerated ($($evidence.Error))"
+            return $false
+        }
+
+        $names  = @($evidence.Names)
+        $others = @($names | Where-Object { $_ -cne $script:StagingRunMarkerName })
+        if ($others.Count -gt 0) {
+            & $keep ("the re-enumeration found $($others.Count) entry(ies) that appeared after the classification " +
+                "($($others -join ', ')) — a frozen owner resumed and wrote into it")
+            return $false
+        }
+
+        # Test seam: a file landing in the aside folder in the last window,
+        # between this re-enumeration and the delete (TC-198). The non-recursive
+        # delete is what makes that safe.
+        Invoke-StagingTestHook -Hook $script:StagingReclaimTestHook_BeforeAsideDelete -Context $AsidePath
+
+        if ($names -ccontains $script:StagingRunMarkerName) {
+            try {
+                # The EXACT leaf by name — never a pattern, never a sweep.
+                [System.IO.File]::Delete((Join-Path $AsidePath $script:StagingRunMarkerName))
+            } catch {
+                & $keep "its owner record could not be deleted ($($_.Exception.Message))"
+                return $false
+            }
+        }
+
+        try {
+            # recursive:$false ON PURPOSE. If anything arrived since the
+            # re-enumeration the filesystem refuses this call, and the folder —
+            # with its bytes — survives. This is the entire reason -Recurse is
+            # banned from the reclaim path.
+            [System.IO.Directory]::Delete($AsidePath, $false)
+        } catch {
+            & $keep "the non-recursive delete failed, so it is no longer empty ($($_.Exception.Message))"
+            return $false
+        }
+
+        & $Log "The reclaimed staging folder '$AsidePath' held only its own owner record and has been removed."
+        return $true
+    } catch {
+        # Step 4 must never fail the run: the lock is already held and the
+        # heartbeat is already beating.
+        & $keep "an unexpected error occurred while checking it ($($_.Exception.Message))"
+        return $false
+    }
+}
+
+function Test-StagingLockLostError {
+    <#
+    .SYNOPSIS
+        True when an ErrorRecord is a staging lock-loss (a lost exclusive
+        publish, or a tripped RunId fence) rather than an ordinary failure.
+
+    .DESCRIPTION
+        The distinction is load-bearing, not cosmetic: an ordinary early failure
+        removes the still-worthless staging folder, whereas a lock-loss must
+        clean up NOTHING — the folder belongs to its successor now. Matched on
+        the greppable prefix, never on prose.
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-075, LLR-017
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowNull()][object]$ErrorRecord)
+
+    if ($null -eq $ErrorRecord) { return $false }
+    $message = ''
+    if ($ErrorRecord.PSObject.Properties['Exception'] -and $ErrorRecord.Exception) {
+        $message = [string]$ErrorRecord.Exception.Message
+    } else {
+        $message = [string]$ErrorRecord
+    }
+    return $message.StartsWith($script:StagingLockLostPrefix, [System.StringComparison]::Ordinal)
+}
+
+function Assert-StagingLockOwned {
+    <#
+    .SYNOPSIS
+        The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
+        boundary and throws a lock-lost error unless it still carries this run's
+        RunId.
+
+    .DESCRIPTION
+        A plain filesystem offers no true lease, so a process frozen past the
+        staleness threshold whose lock is then reclaimed can resume and write BY
+        PATH — and 'Temp' now names the SUCCESSOR's staging folder. The fence
+        shrinks that exposure from "the rest of the run" to "inside a single
+        phase whose first act follows a passed fence", at the cost of one
+        small-file read per phase.
+
+        ANY doubt is a mismatch: a different RunId, a missing or unreadable
+        marker, or an unparseable one that no longer carries this run's RunId.
+        (A torn record that still contains our RunId is still ours — the same
+        substring discriminator the heartbeat's identity guard uses; RunId is a
+        GUID.) The caller must abort CLEANING UP NOTHING.
+
+    .PARAMETER StagingLock
+        The Initialize-StagingFolder result (Path, MarkerPath, RunId).
+
+    .PARAMETER Log
+        The set logger.
+
+    .PARAMETER Phase
+        The boundary being fenced, for the log line.
+
+    .OUTPUTS
+        None. Throws 'StagingLockLost: ...' on a mismatch.
+    #>
+    # Implements: SR-075, LLR-017, LLR-080
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$StagingLock,
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [Parameter(Mandatory)][string]$Phase
+    )
+
+    # Test seam: swap the marker for a successor's immediately before the fence
+    # samples it (TC-204).
+    Invoke-StagingTestHook -Hook $script:StagingFenceTestHook `
+        -Context ([pscustomobject]@{ Phase = $Phase; StagingLock = $StagingLock })
+
+    $read   = Read-StagingOwnerRecord -MarkerPath $StagingLock.MarkerPath
+    $owned  = $false
+    $detail = ''
+    switch ($read.State) {
+        'Parsed' {
+            $owned = ([string]$read.Record.RunId -eq [string]$StagingLock.RunId)
+            if (-not $owned) { $detail = "the marker now carries RunId $($read.Record.RunId)" }
+        }
+        'ParseInvalid' {
+            try {
+                $text  = [System.IO.File]::ReadAllText($StagingLock.MarkerPath)
+                $owned = ($text.IndexOf([string]$StagingLock.RunId, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+            } catch {
+                $owned  = $false
+                $detail = "the marker could not be re-read ($($_.Exception.Message))"
+            }
+            if (-not $owned -and -not $detail) { $detail = "the marker is unparseable and no longer carries this run's RunId" }
+        }
+        default {
+            $detail = "the marker could not be read at all ($($read.State)$(if ($read.Error) { ": $($read.Error)" }))"
+        }
+    }
+
+    if ($owned) { return }
+
+    & $Log ("[SR-075/lock-lost] The staging lock at '$($StagingLock.Path)' is no longer held by this run " +
+        "(RunId $($StagingLock.RunId)) at the '$Phase' boundary: $detail. Aborting BEFORE this phase mutates " +
+        'anything, and cleaning up NOTHING — the staging folder belongs to its successor now.') 'ERROR'
+    throw ("$($script:StagingLockLostPrefix): the staging lock at '$($StagingLock.Path)' was lost before '$Phase'. " +
+        "Aborting without touching anything. [SR-075/lock-lost]")
+}
+
 # endregion
 
 # region Per-set orchestration helpers
@@ -3573,8 +4156,9 @@ function Initialize-StagingFolder {
     <#
     .SYNOPSIS
         Takes the run's Temp staging lock in the change root, publishes this
-        run's RUN.inprogress owner record and starts its heartbeat; aborts
-        loudly if a stale Temp from a failed prior run is still present.
+        run's RUN.inprogress owner record and starts its heartbeat; classifies a
+        pre-existing Temp and either RECLAIMS it non-destructively or aborts
+        loudly with that branch's refusal.
 
     .DESCRIPTION
         The create IS the lock take, and the owner record is what makes the lock
@@ -3584,6 +4168,16 @@ function Initialize-StagingFolder {
         inside this run's create->marker window; that throw PROPAGATES
         untouched, because the folder is no longer this run's to clean up.
 
+        The New-Item FAST PATH IS UNTOUCHED (LLR-017): the WP14 classification
+        and reclaim are reachable only when that create fails, so a healthy run's
+        instruction path does not change at all. On that path
+        Invoke-StagingLockReclaim either throws the branch's refusal or hands
+        back a freshly created, empty Temp plus the aside folder's path — and
+        control REJOINS the ordinary take-lock path below, which is what makes
+        the reclaimer's own record publish immediate (SR-075 §2.4 step 3). Only
+        once the lock is provably ours does step 4 (Clear-ReclaimedStagingFolder)
+        touch the aside folder, and it never fails the run.
+
     .PARAMETER SetName
         Backup set name, recorded in the owner record for the human reading a
         wedged store.
@@ -3591,6 +4185,10 @@ function Initialize-StagingFolder {
     .PARAMETER HeartbeatIntervalSeconds
         Beat cadence. Production uses the module default (60 s); the suite
         shortens it so several beats are observable without minutes of sleep.
+
+    .PARAMETER ConfirmationSampleSeconds
+        The reclaim path's confirmation-sample wait (90 s in production, the
+        module default). The suite compresses it; nothing else may.
 
     .OUTPUTS
         [pscustomobject] Path, MarkerPath, RunId, Heartbeat — the rooted
@@ -3602,29 +4200,48 @@ function Initialize-StagingFolder {
         [Parameter(Mandatory)][string]$ChgPath,
         [Parameter(Mandatory)][scriptblock]$Log,
         [AllowEmptyString()][string]$SetName = '',
-        [double]$HeartbeatIntervalSeconds = $script:StagingHeartbeatIntervalSeconds
+        [double]$HeartbeatIntervalSeconds = $script:StagingHeartbeatIntervalSeconds,
+        [double]$ConfirmationSampleSeconds = $script:StagingConfirmationSampleSeconds
     )
     $stagingFolder = Join-Path $ChgPath 'Temp'
     # The create IS the lock take: CreateDirectory-without-Force fails when the
     # folder already exists, so two overlapping runs cannot both pass a
     # Test-Path look-then-create window (the same TOCTOU Remove-BackupSnapshot
     # already closes for the prune path).
+    $createFailure = $null
     try {
         New-Item -ItemType Directory -Path $stagingFolder -ErrorAction Stop | Out-Null
     } catch {
-        & $Log "Staging folder '$stagingFolder' already exists. Previous run may have failed or still be running." 'ERROR'
-        & $Log "If no other run is active, do NOT delete Temp: it may hold the only copy of snapshot-demanded bytes. Move it aside and follow the safe recovery in README, 'A run refuses because Temp exists'." 'ERROR'
-        throw "Cannot initialize staging folder; Temp already exists at '$stagingFolder'"
+        $createFailure = $_
     }
 
-    # Success path only. A lock-lost throw from here is NOT caught: the caller
-    # must abort touching nothing (SR-075 §2.1).
+    $asidePath = $null
+    if ($createFailure) {
+        # Classify, and reclaim only what is PROVED to hold neither content nor
+        # a live owner. Throws the branch's refusal otherwise.
+        $asidePath = Invoke-StagingLockReclaim -StagingFolder $stagingFolder -Log $Log `
+                        -ConfirmationSampleSeconds $ConfirmationSampleSeconds
+    } else {
+        # Test seam: park a victim inside its own create->marker window so the
+        # exclusive publish below can be shown to lose (TC-197).
+        Invoke-StagingTestHook -Hook $script:StagingTestHook_AfterCreateBeforePublish -Context $stagingFolder
+    }
+
+    # Success path only — reached identically by the fast path and by a reclaim.
+    # A lock-lost throw from here is NOT caught: the caller must abort touching
+    # nothing, and a reclaimer's aside folder is left in place (SR-075 §2.1).
     $recordedInterval = [int][math]::Max(1, [math]::Round($HeartbeatIntervalSeconds))
     $record = Write-StagingOwnerRecord -StagingFolder $stagingFolder -SetName $SetName `
                 -HeartbeatIntervalSeconds $recordedInterval
     $beat = Start-StagingHeartbeat -MarkerPath $record.MarkerPath -RunId $record.RunId `
                 -IntervalSeconds $HeartbeatIntervalSeconds
     & $Log "Staging lock taken at '$stagingFolder'; owner record published (RunId=$($record.RunId), heartbeat every $recordedInterval s)."
+
+    if ($asidePath) {
+        & $Log "[SR-075/reclaimed] Reclaimed the abandoned staging lock at '$stagingFolder'; the previous folder is aside as '$(Split-Path -Leaf $asidePath)'."
+        # Step 4. Never throws, never fails the run.
+        [void](Clear-ReclaimedStagingFolder -AsidePath $asidePath -Log $Log)
+    }
 
     return [pscustomobject]@{
         Path       = $stagingFolder
@@ -4793,7 +5410,10 @@ function Invoke-BackupSet {
                 -Log $log -OverallSuccess $OverallSuccess -RetryBudgetMs ([ref]$retryBudgetMs)
         }
 
-        # 11. Evict removed files to staging
+        # 11. Evict removed files to staging. FENCE FIRST (SR-075 §2.5): this is
+        # the first phase that mutates the pool, and a run resurrected after its
+        # lock was reclaimed would evict the SUCCESSOR's bytes by path.
+        Assert-StagingLockOwned -StagingLock $stagingLock -Log $log -Phase 'Move-RemovedFilesToStaging'
         Move-RemovedFilesToStaging `
             -RemovedFromSource $diff.RemovedFromSource `
             -BkpPath $paths.BkpPath -StagingFolder $stagingFolder `
@@ -4810,6 +5430,8 @@ function Invoke-BackupSet {
         # aggregated, not thrown (SR-041): the run must reach step 13 so the
         # staging folder is finalized or discarded rather than orphaned for the
         # next run's SR-017 guard.
+        # FENCE (SR-075 §2.5): preservation moves pool objects into staging.
+        Assert-StagingLockOwned -StagingLock $stagingLock -Log $log -Phase 'Save-SupersededData'
         Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb `
             -FinalRows @($backupMap.Values) `
             -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
@@ -4860,6 +5482,12 @@ function Invoke-BackupSet {
         # manifest does not name. Stop DRAINS, so no beat can land in the window
         # between this delete and the rename. The delete is the exact leaf by
         # name; File.Delete on an already-absent path is a no-op.
+        #
+        # FENCE FIRST (SR-075 §2.5), before the stop/drain/delete: publishing
+        # state is the third pool-mutating boundary, and deleting the marker
+        # leaf of a lock we no longer hold would strip the SUCCESSOR's owner
+        # record. Order is fence -> stop -> drain -> delete leaf -> finalize.
+        Assert-StagingLockOwned -StagingLock $stagingLock -Log $log -Phase 'Complete-ChangeFolder'
         Stop-StagingHeartbeat $stagingLock.Heartbeat
         try {
             [System.IO.File]::Delete($stagingLock.MarkerPath)
@@ -4898,6 +5526,22 @@ function Invoke-BackupSet {
 
         & $log "Changed files count = $changedCount"
         & $log "----- Backup set '$($Set.Name)' completed -----"
+    } catch {
+        # A tripped RunId fence (or a lost exclusive publish) is the ONE failure
+        # that must clean up NOTHING: the staging folder belongs to its
+        # successor now, so deleting it would destroy another run's evictions.
+        # The four catch cleanups above are all lexically BEFORE the first fence
+        # and each wraps a single call, so no lock-lost throw can reach one; this
+        # catch exists so the abort also never becomes an unhandled error that a
+        # future cleanup might be hung on. It sets the set failed (SR-014) and
+        # deletes nothing; the finally below still stops the timer.
+        if (Test-StagingLockLostError -ErrorRecord $_) {
+            & $log ("Aborting backup set '$($Set.Name)': the staging lock was lost. Nothing has been cleaned up — " +
+                "the staging folder is the successor's. $($_.Exception.Message)") 'ERROR'
+            $OverallSuccess.Value = $false
+            return
+        }
+        throw
     } finally {
         # Idempotent and never throws: by the healthy path the heartbeat was
         # already stopped and drained before finalize (step 12.9).
