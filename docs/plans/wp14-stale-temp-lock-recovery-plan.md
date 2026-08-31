@@ -328,6 +328,12 @@ NagLight translation. So E reduces to emitting facts HomeHub can act on:
   `Temp.stale-*` folders are, and that they are safe to inspect and never auto-deleted
   when non-empty. The existing four-step procedure stays exactly as it is; it is still
   the operator's path for the content branch.
+- **N-3** *(added 2026-08-31, from the companion observability review's O-4)*: the
+  README troubleshooting notes gain one line naming where the set log lives —
+  `ChangePath/backup.log`, **not** `Backup_Global.log`. The global log is the
+  orchestrator's sink (config, dependencies, cross-set failure summaries, mail)
+  and is legitimately near-empty mid-run; the guard message itself already points
+  at the README, so this is the same one-line-doc category as N-1/N-2.
 
 ---
 
@@ -392,6 +398,7 @@ the mandated compiled callback — TC-185/TC-203 remain the proof). What stays o
 | **A guarded `finally` replacing the four `catch` cleanups** | Half of the review's option C, which the Owner scoped out. A genuine simplification and strictly safer than four unguarded `Remove-Item -Recurse -Force` calls, but it edits the data-safety path for tidiness rather than for the defect. Raise separately. (Part B's heartbeat-only `finally` is not this — it deletes nothing.) |
 | **`SIGTERM` trapping** (`PosixSignalRegistration`) | The rest of option C. Once reclaim lands it buys only the graceful path, which reclaim already covers, and it cannot touch `SIGKILL`/OOM/power loss. Poor trade. |
 | **A per-phase O_EXCL lease** | The §2.5 fence's stronger sibling. Only worth its complexity if the residual mid-phase resurrection window ever bites in practice; the fence already beats the status quo by a wide margin. |
+| **Run observability (→ WP16)** | The companion review [defect-review-2026-08-31-run-observability.md](../defect-review-2026-08-31-run-observability.md), as corrected by its own §8 cross-review: step-5 hashing silence, phase timings, and the absent verbosity contract. Operability, not data integrity — it needs brand-new SRs and must not ride this plan's independent-review scope. Deliberately **not** merged (Owner ruling 2026-08-31, both reviewers concurring): a rewritten-every-few-seconds telemetry file is semantically incompatible with `RUN.inprogress`'s write-once safety argument, and placed inside `Temp` it would classify as content and block reclaim. WP16's artifact is `ChangePath/RUN.status.json` — outside `Temp`, correlated by `RunId`, telemetry-only, ignored by reclaim/fencing/prune/restorers — and it reuses Part A's compiled heartbeat class. Only O-4's doc pointer folds into this plan, as N-3. |
 | **A new exit code for "wedged"** | IF-001 is a cross-project contract and HomeHub owns alarm policy (I-5). The branch tokens in Part D give HomeHub what it needs without a contract change. |
 
 ---

@@ -34,6 +34,11 @@ condition that, by definition, happens once.
 
 ---
 
+> **Corrected 2026-08-31 by the §8 cross-review:** O-1 is **half-withdrawn** — step 10
+> does emit one line per stored physical object; step 5's silence stands and is the core
+> finding. The §2 census was undercounted. O-4 is **resolved as working-as-designed**;
+> what remains of it is a one-line README pointer, carried in WP14 Part D as N-3.
+
 ## 1. The measurement
 
 A single uninterrupted observation of the live production run:
@@ -255,3 +260,46 @@ answer may well be "working as designed, message needs rewording."
 
 **Nothing was changed on the hub for this document**; it is observation only. The run
 described here is the live production first pass and was left undisturbed.
+
+---
+
+## 8. Cross-review, 2026-08-31 — corrections and scope ruling
+
+Cross-reviewed the same day by the driver and an independent OpenAI Codex CLI pass
+(read-only over the repo); both verified every correction below against the code, and
+both reached the scope recommendation independently. The Owner ruled the same day.
+
+### Corrections
+
+| # | correction |
+|---|---|
+| **C-1** | **O-1 is half-wrong: step 10 is not silent.** `Invoke-BackupFileGroup` logs one line per **physical write** — `"Stored object '<DataPath>' for hash=… "` at `Engine.psm1:3235`, level `DEBUG` — and since `New-Logger` applies no level filter (O-3, which stands), that line always emits. On a first pass nearly every object is a new physical write, so the copy phase produces regular output. The doc read the outer loop (`:4133-4141`, which indeed logs nothing) and missed the callee. Step 10's duration was also inferred, not measured (§7 admitted this). **Step 5's silence stands, fully verified, and is the core finding.** |
+| **C-2** | **The §2 census is undercounted.** 65 `& $log` call sites in the engine, not 51: ~32 are effectively `INFO` because the doc counted only explicit `'INFO'` literals and missed calls relying on `New-Logger`'s default level. The qualitative O-3 point — no threshold, no `-Verbose` bridge, no knob — is confirmed exactly as written. |
+| **C-3** | **O-4 is resolved: working as designed, both sinks intentional.** The global log is the orchestrator's sink — config/dependency lines, cross-set failure summaries (`FileBackup.ps1:570`), mail notices (`:583`, written only after all sets finish, which explains the earlier run's single line). `Invoke-BackupSet` never receives `$globalLog`; it builds its own logger at `ChangePath/backup.log` (`Engine.psm1:3955`). A 0-byte global log mid-run on a healthy pass is therefore **correct**. One framing error in this doc's own O-4: the stale-`Temp` guard message directs the operator to the **README**, not to `Backup_Global.log` — the "read the global log" pointer is HomeHub-side folklore, not this repo's text. What survives is one README line naming where the set log lives. |
+
+### Scope ruling (Owner, 2026-08-31)
+
+**Separate work package — WP16 — not folded into WP14**, with one carve-out:
+
+- **Into WP14:** only C-3's README pointer, as Part D item **N-3** (same one-line-doc
+  category as N-1/N-2, same files).
+- **WP16 (after WP14):** the corrected, narrower ask — step-5 visibility, phase
+  banners/timings (option A), and whatever of B/C the Owner selects, against new SRs
+  (no observability requirement exists today — §0's search confirmed against the
+  registries by both reviewers).
+- **Why not merged**, despite the shared container/hub origin: WP14's `RUN.inprogress`
+  is safety-authoritative and **write-once** — torn writes are impossible by
+  construction, liveness rides on mtime alone, and reclaim/fencing depend on exactly
+  that. Option C's status file is telemetry rewritten every few seconds. One shared
+  artifact would reopen WP14's just-hardened write-once proof and couple telemetry
+  failures to lock reclamation; and any extra file **inside** `Temp` would classify as
+  content under WP14's guard and block the very reclaim it ships. Merging also drags
+  operability work into WP14's G3 data-integrity independent-review scope, delaying
+  the fix the hub is blocked on.
+- **The reuse that is real:** WP16's artifact is `ChangePath/RUN.status.json` —
+  outside `Temp`, correlated to the lock marker by `RunId`, telemetry-only, ignored by
+  reclaim, fencing, snapshots, prune, and both restorers — and it can share WP14
+  Part A's compiled `StagingHeartbeat` class. Consumers read `RUN.inprogress` mtime
+  for authoritative liveness and the status file for phase/counters.
+- §3's dependency note is thereby answered: WP14 Part D's branch tokens make a *stale
+  lock* loud; making a *healthy long run* visible is WP16's job.

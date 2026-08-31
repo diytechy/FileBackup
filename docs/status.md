@@ -40,6 +40,11 @@ last) — it is the record, not required reading for every pass.
   callback, a recursive-delete race, missing fencing, fail-open enumeration). All
   accepted findings are folded in; dispositions are recorded in the plan's §10.
   The plan remains PROPOSED and the approval decision is unchanged in kind.
+  **Companion observability review ruled on 2026-08-31:**
+  [defect-review-2026-08-31-run-observability.md](defect-review-2026-08-31-run-observability.md)
+  was cross-reviewed (driver + Codex CLI), corrected in place (its §8), and the
+  Owner ruled its scope **separate from WP14**: O-4's doc pointer folds into
+  WP14 Part D as N-3; the rest is deferred to **WP16** (plan §7 row).
 - **THE CONTAINER IS BUILT AND ACCEPTANCE-TESTED (2026-08-28), so the HomeHub
   surface is no longer unverified.** Earlier in this session I recorded that it
   could not be built here and deferred it to CI. That was a WRONG DIAGNOSIS,
@@ -5288,3 +5293,21 @@ unparseable markers, disabling reclaim on all remote stores. Decision recorded
 per the HIGH dial: this was doc-only revision of a PROPOSED plan — no code, no
 registry rows. **The human approval gate is unchanged: approve, amend or reject
 the revised plan before any code.**
+
+**2026-08-31 (later still) — companion observability review cross-reviewed; scope ruled: separate (WP16).**
+[defect-review-2026-08-31-run-observability.md](defect-review-2026-08-31-run-observability.md)
+(filed from the live production first pass) was cross-reviewed by the driver plus an
+independent **OpenAI Codex CLI** pass; both verified corrections against the code and
+converged on the scope answer independently. Corrections recorded in the doc's §8:
+O-1 half-withdrawn (step 10 logs one `DEBUG` line per stored physical object at
+`Engine.psm1:3235` and `New-Logger` filters nothing, so a first-pass copy is not
+silent — step 5's hours-long silence stands and is the core finding); the log census
+was 65/~32-INFO, not 51/15; O-4 resolved as **working as designed** (global log =
+orchestrator sink, set detail goes to `ChangePath/backup.log` by design; the guard
+message points at the README, not the global log). **Owner ruling: NOT folded into
+WP14** — the write-once `RUN.inprogress` safety artifact and a frequently-rewritten
+telemetry file are semantically incompatible, and merging would enlarge WP14's
+independent-review surface. Carve-out: O-4's README pointer joins WP14 Part D as
+**N-3**; the rest is deferred to **WP16** (`ChangePath/RUN.status.json`, `RunId`
+correlation, reuse of Part A's compiled heartbeat class — see the WP14 plan §7 row).
+WP14 remains PROPOSED; the approval gate is unchanged.
