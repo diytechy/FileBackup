@@ -2773,6 +2773,604 @@ function New-ReconstructScript {
 
 # endregion
 
+# region Staging lock ownership (SR-075)
+
+# The marker leaf name is a CONSTANT of the on-disk contract: it deliberately
+# mirrors prune's PRUNE.inprogress so both lock-holders are legible to one
+# reader (SR-075). The names are matched ORDINALLY, never case-insensitively:
+# on Linux 'run.inprogress' is a different file from 'RUN.inprogress', and
+# treating an unrecognized leaf as content is the fail-closed direction.
+$script:StagingRunMarkerName   = 'RUN.inprogress'
+$script:StagingPruneMarkerName = 'PRUNE.inprogress'
+
+# The reader's own staleness floor. A record may LENGTHEN its threshold; it can
+# never shorten it below the value an old reader would have applied anyway.
+$script:StagingStaleFloorSeconds = 1800
+
+# The distinct, greppable prefix every lock-loss throw carries, so callers can
+# recognize "someone else owns this now" without string-matching prose.
+$script:StagingLockLostPrefix = 'StagingLockLost'
+
+function Write-StagingOwnerRecord {
+    <#
+    .SYNOPSIS
+        Publishes this run's RUN.inprogress owner record inside a freshly taken
+        Temp staging folder, atomically and EXCLUSIVELY; throws
+        'StagingLockLost: ...' when the marker already exists.
+
+    .DESCRIPTION
+        Must be called only AFTER a successful New-Item of the staging folder —
+        writing before the create makes the write itself the race. The payload is
+        written once to a temp name INSIDE Temp and published by File.Move onto
+        RUN.inprogress, so no reader can ever observe a torn record. The move is
+        exclusive: if the marker is already there, a reclaimer took the directory
+        inside this run's create->marker window, the lock is provably lost, and
+        the caller must abort touching nothing.
+
+        RunId is the fencing token every later identity check compares against.
+        Host, ContainerId, BootId and Pid are DIAGNOSTIC only — they say who
+        wedged it; they never decide liveness (the writer may share neither PID
+        namespace nor host with the reader, and the store may be exFAT).
+
+    .PARAMETER StagingFolder
+        The Temp folder this run just created.
+
+    .PARAMETER SetName
+        Backup set name, recorded for the human reading a wedged store.
+
+    .PARAMETER RunId
+        Fencing token. Defaults to a fresh GUID per acquisition; supply one only
+        to make a test deterministic.
+
+    .OUTPUTS
+        [pscustomobject] the published record, plus MarkerPath.
+    #>
+    # Implements: SR-075, LLR-080
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    param(
+        [Parameter(Mandatory)][string]$StagingFolder,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SetName,
+        [string]$Kind = 'backup',
+        [string]$RunId = ([guid]::NewGuid().ToString()),
+        [int]$HeartbeatIntervalSeconds = 60,
+        [int]$StaleAfterSeconds = 1800
+    )
+
+    $markerPath = Join-Path $StagingFolder $script:StagingRunMarkerName
+    $record = [ordered]@{
+        SchemaVersion             = 1
+        Kind                      = $Kind
+        RunId                     = $RunId
+        SetName                   = $SetName
+        Host                      = [Environment]::MachineName
+        ContainerId               = Get-StagingContainerId
+        BootId                    = Get-StagingBootId
+        Pid                       = $PID
+        StartedUtc                = [datetime]::UtcNow.ToString('o')
+        HeartbeatIntervalSeconds  = $HeartbeatIntervalSeconds
+        StaleAfterSeconds         = $StaleAfterSeconds
+    }
+
+    # Temp name lives INSIDE Temp, so the publish is a same-directory rename.
+    $tempPath = Join-Path $StagingFolder ("$($script:StagingRunMarkerName)." + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.tmp')
+    $json     = ($record | ConvertTo-Json -Depth 3)
+    try {
+        [System.IO.File]::WriteAllText($tempPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        throw "Cannot stage the owner record at '$tempPath': $($_.Exception.Message)"
+    }
+
+    try {
+        # File.Move WITHOUT overwrite: .NET fails when the destination exists.
+        # That failure IS the lock-lost signal — do not pre-check and then move,
+        # which would reopen the TOCTOU this exclusivity closes.
+        [System.IO.File]::Move($tempPath, $markerPath)
+    } catch {
+        try { [System.IO.File]::Delete($tempPath) } catch { Write-Debug "Leftover staging temp record '$tempPath': $($_.Exception.Message)" }
+        throw ("$($script:StagingLockLostPrefix): the staging lock at '$StagingFolder' was taken by another run before " +
+            "this one could publish '$($script:StagingRunMarkerName)'. Aborting without touching anything. [SR-075/lock-lost] " +
+            "($($_.Exception.Message))")
+    }
+
+    $out = [pscustomobject]$record
+    Add-Member -InputObject $out -NotePropertyName 'MarkerPath' -NotePropertyValue $markerPath
+    return $out
+}
+
+function Get-StagingContainerId {
+    <#
+    .SYNOPSIS
+        Best-effort container id for the owner record; '' when not in a
+        container or unreadable. DIAGNOSTIC only — never decides liveness.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-075, LLR-080
+    [CmdletBinding()]
+    param([string]$CgroupPath = '/proc/self/cgroup')
+
+    try {
+        if (-not (Test-Path -LiteralPath $CgroupPath -PathType Leaf)) { return '' }
+        $text = [System.IO.File]::ReadAllText($CgroupPath)
+        $m = [regex]::Match($text, '[0-9a-f]{64}')
+        if ($m.Success) { return $m.Value }
+        return ''
+    } catch {
+        Write-Debug "Container id unavailable: $($_.Exception.Message)"
+        return ''
+    }
+}
+
+function Get-StagingBootId {
+    <#
+    .SYNOPSIS
+        Best-effort boot id for the owner record; '' when unavailable.
+        DIAGNOSTIC only — never decides liveness.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-075, LLR-080
+    [CmdletBinding()]
+    param([string]$BootIdPath = '/proc/sys/kernel/random/boot_id')
+
+    try {
+        if (-not (Test-Path -LiteralPath $BootIdPath -PathType Leaf)) { return '' }
+        return ([System.IO.File]::ReadAllText($BootIdPath)).Trim()
+    } catch {
+        Write-Debug "Boot id unavailable: $($_.Exception.Message)"
+        return ''
+    }
+}
+
+function Read-StagingOwnerRecord {
+    <#
+    .SYNOPSIS
+        Reads a RUN.inprogress marker and reports Parsed | ParseInvalid |
+        Unreadable together with the marker's mtime and age. Never throws for
+        those three cases.
+
+    .DESCRIPTION
+        The three states are not three flavours of failure (SR-075):
+
+          Parsed       — valid JSON with a usable schema; the record may lengthen
+                         the staleness threshold.
+          ParseInvalid — the bytes are garbage, truncated or of an unknown
+                         SchemaVersion, but the mtime is readable. This is a
+                         NORMAL return, not an error: a torn record is precisely
+                         the signature of a writer that died mid-publish, and
+                         refusing it would recreate the permanent wedge for the
+                         commonest crash. Liveness falls back to mtime alone.
+          Unreadable   — the marker cannot be read or stat'ed at all (deny-read
+                         lock, ACL, I/O error). Absence of evidence is not
+                         evidence of death, so this refuses upstream.
+
+    .PARAMETER MarkerPath
+        Full path of the RUN.inprogress marker.
+
+    .PARAMETER NowUtc
+        Reader clock for AgeSeconds; injectable so tests need no sleeping.
+
+    .OUTPUTS
+        [pscustomobject] State, Record, LastWriteUtc, AgeSeconds, Error.
+    #>
+    # Implements: SR-075, LLR-080
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$MarkerPath,
+        [datetime]$NowUtc = [datetime]::UtcNow
+    )
+
+    $new = {
+        param($state, $record, $lastWriteUtc, $err)
+        $age = if ($null -eq $lastWriteUtc) { $null } else { ($NowUtc - $lastWriteUtc).TotalSeconds }
+        [pscustomobject]@{
+            State        = $state
+            Record       = $record
+            LastWriteUtc = $lastWriteUtc
+            AgeSeconds   = $age
+            Error        = $err
+        }
+    }
+
+    # Read the bytes FIRST: a marker held with FileShare.None still stats fine,
+    # yet it is exactly the "cannot be read at all" case that must refuse.
+    $text = $null
+    $lastWrite = $null
+    try {
+        $text      = [System.IO.File]::ReadAllText($MarkerPath)
+        $lastWrite = [System.IO.File]::GetLastWriteTimeUtc($MarkerPath)
+        if ($lastWrite.Kind -ne [System.DateTimeKind]::Utc) {
+            $lastWrite = [datetime]::SpecifyKind($lastWrite, [System.DateTimeKind]::Utc)
+        }
+    } catch {
+        return & $new 'Unreadable' $null $null $_.Exception.Message
+    }
+
+    $record = $null
+    try {
+        $record = $text | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return & $new 'ParseInvalid' $null $lastWrite "not JSON: $($_.Exception.Message)"
+    }
+
+    if ($null -eq $record -or $record -isnot [pscustomobject]) {
+        return & $new 'ParseInvalid' $null $lastWrite 'payload is not an object'
+    }
+    $schema = $record.PSObject.Properties['SchemaVersion']
+    if (-not $schema -or 1 -ne $schema.Value) {
+        return & $new 'ParseInvalid' $null $lastWrite "unknown SchemaVersion '$(if ($schema) { $schema.Value })'"
+    }
+    $runId = $record.PSObject.Properties['RunId']
+    if (-not $runId -or [string]::IsNullOrWhiteSpace([string]$runId.Value)) {
+        return & $new 'ParseInvalid' $null $lastWrite 'record carries no RunId'
+    }
+
+    return & $new 'Parsed' $record $lastWrite $null
+}
+
+function Get-StagingLockState {
+    <#
+    .SYNOPSIS
+        Classifies a pre-existing Temp staging folder as one of Empty |
+        EmptyFresh | OwnerStale | OwnerLive | PruneHeld | HoldsContent |
+        Indeterminate. PURE — it performs no I/O and touches no clock it is not
+        given.
+
+    .DESCRIPTION
+        The whole SR-075 decision matrix lives here so it is unit-testable with
+        no filesystem (pure core / I/O shell). The caller does the forced,
+        fail-closed enumeration and the ~90 s confirmation sample on the stale
+        branches (LLR-017); keeping the sample out of the classifier is what
+        keeps it pure.
+
+        Fail-closed rules, in order:
+          * a reparse-point Temp is refused with the CONTENT refusal — moving or
+            deleting through one acts on a tree this guard never classified;
+          * an enumeration, stat or access failure is Indeterminate and refuses:
+            an I/O error is never evidence of emptiness;
+          * a PRUNE.inprogress of any age is PruneHeld (SR-046 mutual exclusion);
+          * any other entry — hidden, system and dot-named included — is content;
+          * empty relies on the DIRECTORY's own mtime, which gates the
+            create->marker theft window; unknown mtime is Indeterminate;
+          * an Unreadable marker refuses, a ParseInvalid one falls back to mtime
+            with the reader floor, and a Parsed one may only LENGTHEN the
+            threshold above that floor;
+          * a FUTURE-dated mtime counts as fresh — the harmless skew direction.
+
+    .PARAMETER Entries
+        The child entries of Temp from a -Force, -LiteralPath, -ErrorAction Stop
+        enumeration. Strings or objects with a Name property; empty means empty.
+
+    .PARAMETER EnumerationFailed
+        Set when the enumeration itself raised — the error sentinel.
+
+    .PARAMETER OwnerRecord
+        The Read-StagingOwnerRecord result, required when RUN.inprogress is the
+        only entry.
+
+    .PARAMETER DirectoryLastWriteUtc
+        Temp's own mtime, used only on the no-entries branch.
+
+    .PARAMETER IsReparsePoint
+        Set when Temp is a symlink/junction.
+
+    .OUTPUTS
+        [pscustomobject] State, Reclaimable, Token, Reason, AgeSeconds,
+        StaleAfterSeconds.
+    #>
+    # Implements: SR-017, SR-075, LLR-080
+    [CmdletBinding()]
+    param(
+        [AllowNull()][AllowEmptyCollection()][object[]]$Entries,
+        [switch]$EnumerationFailed,
+        [AllowNull()][object]$OwnerRecord,
+        [AllowNull()][Nullable[datetime]]$DirectoryLastWriteUtc,
+        [switch]$IsReparsePoint,
+        [datetime]$NowUtc = [datetime]::UtcNow,
+        [double]$StaleFloorSeconds = $script:StagingStaleFloorSeconds
+    )
+
+    $verdict = {
+        param($state, $reason, $age, $threshold)
+        $reclaimable = ($state -in @('Empty', 'OwnerStale'))
+        $token = switch ($state) {
+            'Empty'         { '[SR-075/reclaimed]' }
+            'OwnerStale'    { '[SR-075/reclaimed]' }
+            'EmptyFresh'    { '[SR-075/owner-live]' }
+            'OwnerLive'     { '[SR-075/owner-live]' }
+            'PruneHeld'     { '[SR-075/prune-held]' }
+            default         { '[SR-075/content-refused]' }
+        }
+        [pscustomobject]@{
+            State             = $state
+            Reclaimable       = $reclaimable
+            Token             = $token
+            Reason            = $reason
+            AgeSeconds        = $age
+            StaleAfterSeconds = $threshold
+        }
+    }
+
+    if ($IsReparsePoint) {
+        return & $verdict 'HoldsContent' 'ReparsePoint' $null $null
+    }
+    if ($EnumerationFailed) {
+        return & $verdict 'Indeterminate' 'EnumerationFailed' $null $null
+    }
+
+    $names = @()
+    foreach ($entry in @($Entries)) {
+        if ($null -eq $entry) { continue }
+        if ($entry -is [string]) { $names += $entry }
+        elseif ($entry.PSObject.Properties['Name']) { $names += [string]$entry.Name }
+        else { $names += [string]$entry }
+    }
+
+    if ($names -ccontains $script:StagingPruneMarkerName) {
+        return & $verdict 'PruneHeld' 'PruneMarkerPresent' $null $null
+    }
+    $others = @($names | Where-Object { $_ -cne $script:StagingRunMarkerName })
+    if ($others.Count -gt 0) {
+        return & $verdict 'HoldsContent' "UnrecognizedEntries: $($others -join ', ')" $null $null
+    }
+
+    if ($names.Count -eq 0) {
+        if ($null -eq $DirectoryLastWriteUtc) {
+            return & $verdict 'Indeterminate' 'DirectoryMtimeUnknown' $null $null
+        }
+        $dirAge = ($NowUtc - $DirectoryLastWriteUtc).TotalSeconds
+        if ($dirAge -ge $StaleFloorSeconds) {
+            return & $verdict 'Empty' 'EmptyAndDirectoryStale' $dirAge $StaleFloorSeconds
+        }
+        return & $verdict 'EmptyFresh' 'EmptyButDirectoryFresh' $dirAge $StaleFloorSeconds
+    }
+
+    # RUN.inprogress and nothing else.
+    if ($null -eq $OwnerRecord) {
+        return & $verdict 'Indeterminate' 'MarkerNotRead' $null $null
+    }
+    if ($OwnerRecord.State -eq 'Unreadable') {
+        return & $verdict 'Indeterminate' 'MarkerUnreadable' $null $null
+    }
+    if ($null -eq $OwnerRecord.LastWriteUtc -or $null -eq $OwnerRecord.AgeSeconds) {
+        return & $verdict 'Indeterminate' 'MarkerMtimeUnknown' $null $null
+    }
+
+    $threshold = $StaleFloorSeconds
+    $reason    = 'MarkerParseInvalidMtimeFallback'
+    if ($OwnerRecord.State -eq 'Parsed') {
+        $reason = 'MarkerParsed'
+        $declared = $OwnerRecord.Record.PSObject.Properties['StaleAfterSeconds']
+        if ($declared) {
+            $value = 0.0
+            if ([double]::TryParse([string]$declared.Value, [ref]$value)) {
+                # A record may only LENGTHEN the threshold, never shorten it.
+                if ($value -gt $threshold) { $threshold = $value }
+            }
+        }
+    } elseif ($OwnerRecord.State -ne 'ParseInvalid') {
+        return & $verdict 'Indeterminate' "UnknownReadState: $($OwnerRecord.State)" $null $null
+    }
+
+    $age = [double]$OwnerRecord.AgeSeconds
+    if ($age -ge $threshold) {
+        return & $verdict 'OwnerStale' $reason $age $threshold
+    }
+    # Includes the future-dated case (negative age): fresh, the harmless
+    # direction of clock skew.
+    return & $verdict 'OwnerLive' $reason $age $threshold
+}
+
+function Initialize-StagingHeartbeatType {
+    <#
+    .SYNOPSIS
+        Compiles the FileBackup.StagingHeartbeat class once per session.
+        Idempotent, so a module reload does not re-Add-Type an existing type.
+
+    .DESCRIPTION
+        The callback MUST be compiled .NET code (SR-075): a PowerShell
+        scriptblock on Timer.Elapsed has no runspace on the threadpool thread,
+        Register-ObjectEvent queues the handler to the pipeline that a long hash
+        is blocking, and a bare background Thread reproduces the LLR-073
+        PSInvalidOperationException process kill. System.Timers.Timer also
+        swallows handler exceptions, so the class records them on LastError /
+        ErrorCount instead of losing them.
+
+    .OUTPUTS
+        None.
+    #>
+    # Implements: SR-075, LLR-080
+    [CmdletBinding()]
+    param()
+
+    if ('FileBackup.StagingHeartbeat' -as [type]) { return }
+
+    Add-Type -TypeDefinition @'
+namespace FileBackup
+{
+    using System;
+    using System.IO;
+    using System.Threading;
+
+    /// <summary>Identity-guarded mtime heartbeat for a staging lock marker.</summary>
+    public sealed class StagingHeartbeat : IDisposable
+    {
+        private readonly string _markerPath;
+        private readonly string _runId;
+        private readonly System.Timers.Timer _timer;
+        private readonly object _sync = new object();
+        private volatile bool _cancelled;
+        private int _inFlight;
+        private long _touchCount;
+        private long _skippedCount;
+        private long _errorCount;
+        private string _lastError;
+
+        // Test seams. Production leaves both at their defaults.
+        public volatile bool FaultNextBeat;
+        public volatile int BeatDelayMs;
+
+        public StagingHeartbeat(string markerPath, string runId, double intervalMs)
+        {
+            if (markerPath == null) throw new ArgumentNullException("markerPath");
+            if (runId == null) throw new ArgumentNullException("runId");
+            if (intervalMs <= 0) throw new ArgumentOutOfRangeException("intervalMs");
+            _markerPath = markerPath;
+            _runId = runId;
+            _timer = new System.Timers.Timer(intervalMs);
+            _timer.AutoReset = true;
+            _timer.Elapsed += delegate { Beat(); };
+        }
+
+        public string MarkerPath { get { return _markerPath; } }
+        public string RunId { get { return _runId; } }
+        public double IntervalMs { get { return _timer.Interval; } }
+        public long TouchCount { get { return Interlocked.Read(ref _touchCount); } }
+        public long SkippedCount { get { return Interlocked.Read(ref _skippedCount); } }
+        public long ErrorCount { get { return Interlocked.Read(ref _errorCount); } }
+        public int InFlight { get { return Interlocked.CompareExchange(ref _inFlight, 0, 0); } }
+        public bool IsStopped { get { return _cancelled; } }
+        public string LastError { get { lock (_sync) { return _lastError; } } }
+
+        public void Start()
+        {
+            if (_cancelled) throw new InvalidOperationException("This heartbeat has already been stopped.");
+            _timer.Start();
+        }
+
+        /// <summary>One beat. Public so a test can drive it without waiting on the timer.</summary>
+        public void Beat()
+        {
+            // Enlist BEFORE reading the cancellation flag: Stop sets the flag and
+            // then waits for the in-flight count, so a beat that has enlisted is
+            // always waited out and one that has not always sees the flag.
+            Interlocked.Increment(ref _inFlight);
+            try
+            {
+                if (_cancelled) return;
+                if (BeatDelayMs > 0) Thread.Sleep(BeatDelayMs);
+                if (FaultNextBeat)
+                {
+                    FaultNextBeat = false;
+                    throw new InvalidOperationException("Injected heartbeat callback fault.");
+                }
+                string text;
+                try
+                {
+                    using (var fs = new FileStream(_markerPath, FileMode.Open, FileAccess.Read,
+                                                   FileShare.ReadWrite | FileShare.Delete))
+                    using (var reader = new StreamReader(fs))
+                    {
+                        text = reader.ReadToEnd();
+                    }
+                }
+                catch (FileNotFoundException) { Interlocked.Increment(ref _skippedCount); return; }
+                catch (DirectoryNotFoundException) { Interlocked.Increment(ref _skippedCount); return; }
+
+                // The identity guard: a late callback, or one firing after a
+                // reclaim replaced the marker, must never freshen a successor's
+                // record. A substring test is enough - RunId is a GUID.
+                if (text.IndexOf(_runId, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    Interlocked.Increment(ref _skippedCount);
+                    return;
+                }
+                File.SetLastWriteTimeUtc(_markerPath, DateTime.UtcNow);
+                Interlocked.Increment(ref _touchCount);
+            }
+            catch (Exception ex)
+            {
+                // Timers.Timer would swallow this invisibly; record it instead.
+                Interlocked.Increment(ref _errorCount);
+                lock (_sync) { _lastError = ex.GetType().Name + ": " + ex.Message; }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _inFlight);
+            }
+        }
+
+        /// <summary>Idempotent, never throws, and DRAINS: no touch can land after it returns.</summary>
+        public void Stop()
+        {
+            _cancelled = true;
+            try { _timer.Stop(); } catch { }
+            try { _timer.Dispose(); } catch { }
+            while (Interlocked.CompareExchange(ref _inFlight, 0, 0) != 0)
+            {
+                Thread.Sleep(5);
+            }
+        }
+
+        public void Dispose() { Stop(); }
+    }
+}
+'@
+}
+
+function Start-StagingHeartbeat {
+    <#
+    .SYNOPSIS
+        Starts the compiled, identity-guarded heartbeat for a staging lock marker
+        and returns the ROOTED handle.
+
+    .DESCRIPTION
+        The handle is also held in a module-scope list, because an unrooted timer
+        is collectable and stops silently (SR-075). Stop-StagingHeartbeat drops
+        it again.
+
+    .PARAMETER IntervalSeconds
+        60 s in production; tests pass fractions of a second.
+
+    .OUTPUTS
+        [FileBackup.StagingHeartbeat]
+    #>
+    # Implements: SR-075, LLR-080
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$MarkerPath,
+        [Parameter(Mandatory)][string]$RunId,
+        [double]$IntervalSeconds = 60
+    )
+
+    Initialize-StagingHeartbeatType
+    $beat = New-Object 'FileBackup.StagingHeartbeat' -ArgumentList $MarkerPath, $RunId, ($IntervalSeconds * 1000.0)
+    if ($null -eq $script:StagingHeartbeats) { $script:StagingHeartbeats = New-Object System.Collections.ArrayList }
+    [void]$script:StagingHeartbeats.Add($beat)
+    $beat.Start()
+    return $beat
+}
+
+function Stop-StagingHeartbeat {
+    <#
+    .SYNOPSIS
+        Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
+        it is called from finally blocks.
+
+    .OUTPUTS
+        None.
+    #>
+    # Implements: SR-075, LLR-080
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    param(
+        [Parameter(ValueFromPipeline)][AllowNull()][object]$Heartbeat
+    )
+
+    process {
+        if ($null -eq $Heartbeat) { return }
+        try { $Heartbeat.Stop() } catch { Write-Debug "Stop-StagingHeartbeat swallowed: $($_.Exception.Message)" }
+        try {
+            if ($null -ne $script:StagingHeartbeats) { $script:StagingHeartbeats.Remove($Heartbeat) }
+        } catch { Write-Debug "Heartbeat unroot swallowed: $($_.Exception.Message)" }
+    }
+}
+
+# endregion
+
 # region Per-set orchestration helpers
 
 function Resolve-BackupSetPaths {
@@ -4702,7 +5300,11 @@ Export-ModuleMember -Function @(
     'Invoke-PruneEntrySweep', 'Copy-ReHomedDataFile', 'Publish-PruneManifest',
     'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
     'Get-BackupCapacityDemand', 'Assert-BackupCapacity',
-    'New-ReconstructScript', 'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
+    'New-ReconstructScript',
+    'Write-StagingOwnerRecord', 'Read-StagingOwnerRecord', 'Get-StagingLockState',
+    'Get-StagingContainerId', 'Get-StagingBootId',
+    'Initialize-StagingHeartbeatType', 'Start-StagingHeartbeat', 'Stop-StagingHeartbeat',
+    'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',
     'New-BrowseViewIndex',

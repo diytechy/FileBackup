@@ -182,11 +182,15 @@ Imports (internal): `Common`
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
 | `Get-SourceDirectoryRecord` | yes | SR-065, LLR-065 |
+| `Get-StagingBootId` | yes | SR-075, LLR-080 |
+| `Get-StagingContainerId` | yes | SR-075, LLR-080 |
+| `Get-StagingLockState` | yes | SR-017, SR-075, LLR-080 |
 | `Get-StorageFormFinding` | yes | SR-049, LLR-049 |
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
+| `Initialize-StagingHeartbeatType` | yes | SR-075, LLR-080 |
 | `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
 | `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
@@ -196,6 +200,7 @@ Imports (internal): `Common`
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
+| `Read-StagingOwnerRecord` | yes | SR-075, LLR-080 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
@@ -207,6 +212,8 @@ Imports (internal): `Common`
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
+| `Start-StagingHeartbeat` | yes | SR-075, LLR-080 |
+| `Stop-StagingHeartbeat` | yes | SR-075, LLR-080 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
 | `Test-BackupManifest` | yes | SR-061, SR-064, LLR-060, LLR-062 |
 | `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, SR-061, LLR-049, LLR-060 |
@@ -221,4 +228,5 @@ Imports (internal): `Common`
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
 | `Update-SourceManifest` | yes | SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
+| `Write-StagingOwnerRecord` | yes | SR-075, LLR-080 |
 <!-- END GENERATED MODULE MAP -->
