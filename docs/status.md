@@ -24,6 +24,16 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **NEXT ACTION AWAITING THE HUMAN: approve, amend or reject the
+  [WP14 plan](plans/wp14-stale-temp-lock-recovery-plan.md)** — an externally-killed
+  run leaves a stale `Temp` lock that wedges **every** later run, permanently and
+  silently (found on the production hub 2026-08-31; ~18-hour undetected wedge).
+  No code is written. The hub's whole-library backup is still blocked, deliberately,
+  with the stale `Temp` preserved as evidence. Full entry at the end of this file;
+  the review is
+  [defect-review-2026-08-31-stale-temp-lock.md](defect-review-2026-08-31-stale-temp-lock.md)
+  (its D-2 is **withdrawn as a false finding** — the README section it called missing
+  has existed since 2026-08-23).
 - **THE CONTAINER IS BUILT AND ACCEPTANCE-TESTED (2026-08-28), so the HomeHub
   surface is no longer unverified.** Earlier in this session I recorded that it
   could not be built here and deferred it to CI. That was a WRONG DIAGNOSIS,
@@ -5168,3 +5178,88 @@ symlinks — bash resolves via `realpath`, PowerShell never has via
 **Tracked in HomeHub as `open-items.md` C53, now closed.** It had no row there
 until 2026-08-30: this repo had been waiting on a counterparty that did not know
 it was being waited on, which is why the item is worth a line in both files.
+
+---
+
+## 2026-08-31 — D-1: an externally-killed run wedges every later run, permanently
+
+**Found on the production hub, not by testing this repo.** The Owner stopped a
+whole-library run by hand on 2026-08-30 14:34 — the correct action at the time,
+since it should only run at 03:00. That left `Temp` behind, and **every run since
+has refused at `Initialize-StagingFolder`**. The wedge went unseen for ~18 hours
+across the product's first two scheduled opportunities, because a HomeHub-side
+disk-full condition failed one second earlier at 03:00 and masked it. Full
+evidence, code sites and options:
+[defect-review-2026-08-31-stale-temp-lock.md](defect-review-2026-08-31-stale-temp-lock.md).
+
+**Severity is availability, not data loss** — but for a backup product, "backups
+silently stop happening" is the failure mode that looks most like success.
+
+**The gap, precisely:** every release of the staging lock is a `catch`. There is
+no `finally` and no startup-side reclaim, so a process terminated externally
+(`SIGKILL`, `docker kill`, `systemctl stop`, OOM, power loss) runs none of them.
+That row is not exotic in the HomeHub deployment — the unit runs
+`TimeoutStartSec=infinity` against a multi-hour pass, so "stop the run" is a
+routine operator action with no in-process equivalent.
+
+**The lock itself is correct and is being kept.** Creation-as-lock closes the R3
+TOCTOU deliberately; testing *contents* instead of *existence* would reopen it.
+D-1 is an argument about what releases the lock, not about the lock.
+
+### A false finding, withdrawn — and why it is recorded here
+
+The review as first written also raised **D-2**: that the README recovery section
+the guard message names *"does not exist"*, and that `status.md` (F1/R4) records
+a fix that was only half-applied. **D-2 is false and is withdrawn.**
+`README.md:947-957` has carried the section and the full four-step procedure
+since `8897ca7` (2026-08-23) — the F1/R4 merge itself. Both halves shipped
+together and **this file was accurate.**
+
+The review searched for the guard message's literal `A run refuses because Temp
+exists`; the README writes `` `Temp` `` in backticks, so the string does not
+occur, and a zero-hit result was read as absence of the *procedure* rather than
+absence of that *byte sequence*. Recorded because the lesson generalises: a claim
+of the form "status.md records something that did not happen" is an accusation
+against this repo's own memory, and it needs a positive check — read the target
+document — not a single substring search. The defect review was committed
+verbatim first (`8f46712`) and then corrected, so the withdrawal is a readable
+diff rather than a silent edit.
+
+What genuinely remains of D-2 is two lines: **N-1**, the guard cites the heading
+inexactly (which is what misled the review); **N-2**, the README section will need
+extending if D-1 is repaired.
+
+### Ruling and plan — APPROVAL PENDING
+
+The Owner's position is that *"an interrupted run generally should not be a
+permanent interrupt"*, and has scoped the repair to the review's **B-lite + A
+plus a reduced E**: give the lock an owner record and a heartbeat, reclaim a lock
+whose owner is provably dead and which provably holds nothing, and make the
+branches legible in the log. Signal handling (C) and documentation-only (D) are
+out of scope.
+
+**[WP14 plan](plans/wp14-stale-temp-lock-recovery-plan.md) is written and is
+PROPOSED — no code is written and none should be until it is approved.** The
+design turns on one observation the review missed: `Remove-BackupSnapshot`
+already writes a `PRUNE.inprogress` owner record inside `Temp` at
+`Engine.psm1:2630`, and the backup path takes the same lock and writes nothing.
+Adding the same marker to the backup path shrinks the "empty `Temp` while a run
+is live" window from **minutes to microseconds**, which is the whole reason the
+review judged option A unsafe without the expensive form of B. It is B's
+mechanism at close to A's cost.
+
+**The F1/R4 constraint is what the design is shaped around and is not
+negotiable:** no non-empty `Temp` is ever deleted, by code or by documentation.
+The reclaim re-proves the folder empty *after* moving it aside, so even a
+frozen-then-resumed owner cannot be destroyed — it is preserved, not deleted.
+
+**Next action awaiting the human:** approve, amend or reject the WP14 plan. On
+approval the first commit is registry deltas only (SR-017 amended, SR-075,
+LLR-017 amended, LLR-080, TC-185+), with an independent review before the gate —
+this is data-integrity surface, and the last two independent reviews here each
+found P0s that in-house testing had missed.
+
+**The hub is still blocked, deliberately.** The stale `Temp` is preserved as
+evidence at `/mnt/backup-drive/library-changes/Temp`. Unblocking it is one `mv`
+(plan §9) and does not depend on WP14; three independent checks confirm it holds
+nothing.

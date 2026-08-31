@@ -6,8 +6,14 @@ whole-library backup had never completed a pass. **Not found by testing this rep
 found because a HomeHub operator action a day earlier silently wedged every subsequent
 run, and the wedge was invisible until something else stopped failing first.
 
-**Status:** one defect, plus one documentation item recorded as done that is not done.
-**No outcome is proposed as decided** — the Owner's position is only that *"an
+**Status (corrected 2026-08-31):** **one** defect, D-1. The original version of this
+review also raised **D-2** — "the README recovery section the guard names does not
+exist". **D-2 is WITHDRAWN as a false finding**: the section has existed since
+`8897ca7` (2026-08-23) and prescribes exactly the procedure `status.md` records.
+§4 now documents the withdrawal and the search error that produced it, because a
+false "recorded as done but not done" claim against `status.md` is more corrosive
+here than the defect it accompanied. Everything else in this review stands as
+written and was re-verified. **No outcome is proposed as decided** — the Owner's position is only that *"an
 interrupted run generally should not be a permanent interrupt."* Options are laid out
 in §5 with their trade-offs; §6 states the constraint any option must not break.
 
@@ -22,11 +28,13 @@ the failure mode that looks most like success from the outside.
 | | | |
 |---|---|---|
 | **D-1** | Staging lock is never released on external termination | A `SIGKILL`/`docker kill`/`systemctl stop` of a running set leaves `Temp` behind. Every later run then refuses at `Initialize-StagingFolder`. There is no automatic recovery and no time limit — the wedge is permanent until a human intervenes. |
-| **D-2** | The recovery the guard names does not exist | The error tells the operator to *"follow the safe recovery in README, 'A run refuses because Temp exists'"*. **No such section exists in `README.md` or anywhere else in this repo.** `docs/status.md` (F1/R4) records that the README was updated; the guard message was, the README was not. |
+| ~~**D-2**~~ | ~~The recovery the guard names does not exist~~ | **WITHDRAWN — false.** `README.md:947` carries the section and the full four-step procedure. See §4. |
 
-**The two compound.** D-1 wedges the product, and D-2 removes the documented way out —
-leaving an operator holding an error that forbids the obvious action (`rm`), names a
-procedure they cannot find, and offers nothing else.
+**D-1 therefore stands alone.** The original review argued the two compounded — that
+D-1 wedges the product while D-2 removes the documented way out. Half of that was
+never true: the operator who reaches the error *can* find the procedure, and following
+it recovers them. What is true is narrower, and still bad: nothing brings the product
+back **without** a human reading a document.
 
 ---
 
@@ -138,30 +146,57 @@ Three properties combine, and each is individually defensible:
 
 ---
 
-## 4. D-2 — the missing README section
+## 4. D-2 — withdrawn, and how the search went wrong
 
-`docs/status.md` (F1/R4) records the fix as:
+**The original finding was:** `docs/status.md` (F1/R4) records the fix as
 
 > *"Guard message + README now prescribe the non-destructive recovery (move-aside →
 > re-run → verify → discard-or-reintroduce, never delete)."*
 
-**Half of that shipped.** Verified 2026-08-31 across the working tree:
+…and claimed only the guard half shipped. **That claim is false.** Re-verified
+2026-08-31 against the working tree:
 
 | claim | actual |
 |---|---|
 | guard message prescribes move-aside | **true** — `Engine.psm1:2989` |
-| README prescribes the recovery | **false** — `'A run refuses because Temp exists'` appears **nowhere** in `README.md`; the only occurrences of the phrase in the repo are the error string itself and a passing mention in `docs/plans/wp4-retention-plan.md:124`. The words *"move it aside"* appear only in the guard message and in `status.md`'s own account of the fix. |
+| README prescribes the recovery | **also true** — `README.md:947-957`, under *Notes & troubleshooting*, heading **"A run refuses because `Temp` exists (stale `Temp` folder error)."** |
 
-So the guard directs the operator to a document section that does not exist. The full
-four-step procedure (`move-aside → re-run → verify → discard-or-reintroduce`) survives
-**only inside a status-log entry describing the fix** — not anywhere an operator hitting
-the error would look.
+The README section is not a stub. It carries the whole four-step procedure the status
+entry claims, in order, with the destructive action explicitly forbidden:
 
-**This is worth fixing regardless of what is decided for D-1**, and it is the cheaper
-half. It is also a reminder that F1/R4's own lesson was about a README that gave
-destructive advice; the correction to it was recorded as complete while half-applied.
+1. move the whole `Temp` folder *aside*, outside `ChangePath` — never delete;
+2. re-run the backup, now unblocked;
+3. `-Action Verify` **and** test-restore the oldest snapshot;
+4. if any restore reports missing content, copy the moved folder's *data files* into
+   the backup root under any non-colliding names — skipping its `MANIFEST.csv`, which
+   is the interrupted run's staging copy of the index — because both restorers find
+   content by hash regardless of filename; then verify again.
 
----
+`git log -S` dates it to `8897ca7` (2026-08-23), the F1/R4 merge itself. **Both halves
+shipped together. `status.md` was accurate.**
+
+### The search error
+
+The review searched for the guard message's own literal, `A run refuses because Temp
+exists`. The README writes the identifier in backticks — ``A run refuses because `Temp`
+exists`` — so that literal does not occur, in the README or anywhere a plain-text
+search would find it. The review read a zero-hit result as *absence of the procedure*
+rather than *absence of that exact byte sequence*, and never searched for the
+procedure's own distinctive words (`move the whole`, `non-colliding`, `discard the
+moved folder`), any of which would have landed on it immediately.
+
+**The lesson worth keeping** is not "grep harder". It is that a claim of the form
+*"`status.md` records something that did not happen"* is an accusation against the
+repo's own memory, and this review published one on the strength of a single
+unbackticked substring search. That class of claim needs a positive check — read the
+document, not merely the absence of a string — before it is written down.
+
+### What genuinely remains (small, and unrelated to the defect)
+
+| # | item |
+|---|---|
+| **N-1** | The guard message cites the section as *"README, 'A run refuses because Temp exists'"*, which is not the heading's exact text. Harmless to a human — and it is what misled this review. Quote the heading verbatim. |
+| **N-2** | If D-1 is repaired, the README section then describes only part of the behaviour and must be extended (§5, and Part D of the plan). |
 
 ## 5. Options — trade-offs only, nothing recommended as decided
 
@@ -217,12 +252,16 @@ Add a `finally`, plus a `SIGTERM`/`Ctrl-C` handler that removes a still-empty `T
 
 ### D. Documentation only
 
-Write the missing README section; change nothing in code.
+~~Write the missing README section~~ — **there is no missing section (§4).** What
+survives of this option is small: fix the guard's citation (N-1), and describe whatever
+D-1's repair changes (N-2).
 
-- **For:** fixes D-2, costs nothing, no new risk, and is needed under every other option.
-- **Against:** leaves the wedge permanent-until-human. Does not satisfy *"an interrupted
-  run should not be a permanent interrupt"* — it only makes the interrupt survivable by
-  a reader who finds the doc.
+- **For:** costs nothing, no new risk.
+- **Against:** on its own it now changes nothing. The documented way out already exists
+  and already works; it did not prevent an 18-hour wedge, because the wedge's cost was
+  never that the operator could not find the procedure — it was that nobody knew to go
+  looking for one. Documentation cannot satisfy *"an interrupted run should not be a
+  permanent interrupt"*.
 
 ### E. Alarm rather than repair
 
@@ -233,8 +272,36 @@ Leave the lock; make a stale one **loud** (feed/health surface reports "wedged s
   what made this cost 18 hours instead of 18 seconds.
 - **Against:** still a permanent interrupt; still needs a human.
 
-**Not mutually exclusive.** D is needed under all of them. E addresses the detection
-half regardless of which repair half is chosen. B is the enabler that makes A safe.
+**Not mutually exclusive.** E addresses the detection half regardless of which repair
+half is chosen, and D's remnant (N-1/N-2) follows whichever repair lands. B is the
+enabler that makes A safe.
+
+### The option §5 missed: B-lite, which makes A safe cheaply
+
+§5 treats A and B as a spectrum from "smallest change, unsafe" to "most work, safe",
+with the stomp window — a live run holding an **empty** `Temp` for minutes during the
+manifest-cache phase — as the thing forcing the expensive end. **That window is an
+accident of how the backup takes the lock, not a property of the lock, and the
+codebase already contains its own fix.**
+
+`Remove-BackupSnapshot` takes the *identical* create-as-lock at
+`Engine.psm1:2618-2620` and then, at `:2630`, immediately writes a `PRUNE.inprogress`
+marker **inside** `Temp` — an owner record — with a `finally` that removes only a lock
+that invocation created. The backup path takes the same lock and writes nothing.
+
+Write an owner record at the backup's lock take too, and the stomp window shrinks from
+*minutes* to the microseconds between `New-Item` and the marker write. A live run's
+`Temp` is then **never** marker-less, and the guard's decision becomes three-way, each
+branch provable from the disk alone:
+
+| `Temp` contains | means | action |
+|---|---|---|
+| the marker only | a run took the lock and has written nothing of value | decide on liveness → reclaim if provably dead |
+| nothing at all | died inside the create→marker window, or predates the marker | reclaim |
+| **any data file** | may hold the only physical copy of snapshot-demanded bytes | **refuse — exactly as today** |
+
+This is **B's mechanism at close to A's cost**, and it keeps §6 intact by construction:
+the non-empty branch is untouched. It is what the plan implements.
 
 ---
 
@@ -260,7 +327,8 @@ keep it until a human rules — never delete.
 - `Temp` empty (0 files), `Snapshot_*` count 0, `/backup` empty, `Temp` mtime `Aug 30 14:34`.
 - The refusal reproduced live at 2026-08-31 08:15:58 with the log lines quoted in §1.
 - Lock code at `Engine.psm1:2980-2992`; four `catch` cleanups at `:3988`, `:4037`, `:4051`, `:4066`; no `finally` on that path.
-- `README.md` contains no `'A run refuses because Temp exists'` section and no move-aside procedure.
+- ~~`README.md` contains no `'A run refuses because Temp exists'` section and no move-aside procedure.~~ **Withdrawn — the search was wrong; see §4.** `README.md:947-957` carries the section and the full four-step procedure, dated to `8897ca7` (2026-08-23).
+- The prune path's owner-record precedent: lock take at `Engine.psm1:2618-2620`, `PRUNE.inprogress` written at `:2630`, `finally` cleanup at `:2657-2659`.
 - HomeHub's `library-backup.sh` contains **zero** occurrences of `Temp` — it neither creates, inspects, nor clears it. This is entirely inside this repo.
 
 **Not verified — deliberately, and each would change the sizing of an option:**
