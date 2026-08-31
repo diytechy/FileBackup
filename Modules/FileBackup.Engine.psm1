@@ -2787,6 +2787,12 @@ $script:StagingPruneMarkerName = 'PRUNE.inprogress'
 # never shorten it below the value an old reader would have applied anyway.
 $script:StagingStaleFloorSeconds = 1800
 
+# The production heartbeat cadence (SR-075): 60 s against a 1800 s staleness
+# threshold — a 30x margin. Module-scope so the suite can shorten it for a test
+# that must observe several beats without sleeping for minutes; production never
+# changes it, and it is deliberately NOT a config knob.
+$script:StagingHeartbeatIntervalSeconds = 60
+
 # The distinct, greppable prefix every lock-loss throw carries, so callers can
 # recognize "someone else owns this now" without string-matching prose.
 $script:StagingLockLostPrefix = 'StagingLockLost'
@@ -3566,14 +3572,37 @@ function Resolve-ViewRootPath {
 function Initialize-StagingFolder {
     <#
     .SYNOPSIS
-        Creates the run's Temp staging folder in the change root; aborts loudly
-        if a stale Temp from a failed prior run is still present.
+        Takes the run's Temp staging lock in the change root, publishes this
+        run's RUN.inprogress owner record and starts its heartbeat; aborts
+        loudly if a stale Temp from a failed prior run is still present.
+
+    .DESCRIPTION
+        The create IS the lock take, and the owner record is what makes the lock
+        legible afterwards (SR-075): it is published IMMEDIATELY AFTER New-Item
+        returns and NEVER before, or the write itself becomes the race. Losing
+        the record's exclusive publish means a reclaimer took the directory
+        inside this run's create->marker window; that throw PROPAGATES
+        untouched, because the folder is no longer this run's to clean up.
+
+    .PARAMETER SetName
+        Backup set name, recorded in the owner record for the human reading a
+        wedged store.
+
+    .PARAMETER HeartbeatIntervalSeconds
+        Beat cadence. Production uses the module default (60 s); the suite
+        shortens it so several beats are observable without minutes of sleep.
+
+    .OUTPUTS
+        [pscustomobject] Path, MarkerPath, RunId, Heartbeat — the rooted
+        heartbeat handle the caller must stop and drain in a finally.
     #>
-    # Implements: SR-005, SR-017, LLR-005, LLR-017
+    # Implements: SR-005, SR-017, SR-075, LLR-005, LLR-017, LLR-080
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ChgPath,
-        [Parameter(Mandatory)][scriptblock]$Log
+        [Parameter(Mandatory)][scriptblock]$Log,
+        [AllowEmptyString()][string]$SetName = '',
+        [double]$HeartbeatIntervalSeconds = $script:StagingHeartbeatIntervalSeconds
     )
     $stagingFolder = Join-Path $ChgPath 'Temp'
     # The create IS the lock take: CreateDirectory-without-Force fails when the
@@ -3587,7 +3616,22 @@ function Initialize-StagingFolder {
         & $Log "If no other run is active, do NOT delete Temp: it may hold the only copy of snapshot-demanded bytes. Move it aside and follow the safe recovery in README, 'A run refuses because Temp exists'." 'ERROR'
         throw "Cannot initialize staging folder; Temp already exists at '$stagingFolder'"
     }
-    return $stagingFolder
+
+    # Success path only. A lock-lost throw from here is NOT caught: the caller
+    # must abort touching nothing (SR-075 §2.1).
+    $recordedInterval = [int][math]::Max(1, [math]::Round($HeartbeatIntervalSeconds))
+    $record = Write-StagingOwnerRecord -StagingFolder $stagingFolder -SetName $SetName `
+                -HeartbeatIntervalSeconds $recordedInterval
+    $beat = Start-StagingHeartbeat -MarkerPath $record.MarkerPath -RunId $record.RunId `
+                -IntervalSeconds $HeartbeatIntervalSeconds
+    & $Log "Staging lock taken at '$stagingFolder'; owner record published (RunId=$($record.RunId), heartbeat every $recordedInterval s)."
+
+    return [pscustomobject]@{
+        Path       = $stagingFolder
+        MarkerPath = $record.MarkerPath
+        RunId      = $record.RunId
+        Heartbeat  = $beat
+    }
 }
 
 function Compare-SourceToBackup {
@@ -4500,7 +4544,7 @@ function Invoke-BackupSet {
         removed files, preserve superseded bytes no live row still claims,
         finalize the dated snapshot, persist run state.
     #>
-    # Implements: SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055
+    # Implements: SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,
@@ -4555,274 +4599,310 @@ function Invoke-BackupSet {
     $LogPaths.Add($logPath)
     & $log "----- Backup set '$($Set.Name)' starting -----"
 
-    # 3. Guard staging folder
+    # 3. Guard the staging folder, take the lock, publish the owner record and
+    # start its heartbeat (SR-017, SR-075).
     try {
-        $stagingFolder = Initialize-StagingFolder -ChgPath $paths.ChgPath -Log $log
+        $stagingLock = Initialize-StagingFolder -ChgPath $paths.ChgPath -Log $log -SetName $Set.Name
     } catch {
         & $log "Failed to initialize staging folder: $($_.Exception.Message)" 'ERROR'
         $OverallSuccess.Value = $false
         return
     }
+    $stagingFolder = $stagingLock.Path
 
-    # 4. Hash-recalc decision (B3: from persisted state, not mtimes)
-    $lastHashRun = Get-LastHashRun -BackupRoot $paths.BkpPath
-    $recalc = if ($lastHashRun) {
-        Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq -LastHashRun $lastHashRun
-    } else {
-        Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq
-    }
-    & $log "HashRecalcFreq=$($Set.HashRecalcFreq), LastHashRun=$lastHashRun, Recalculate=$recalc"
-
-    # 5. Update source manifest (B4: forced rehash when scheduled)
-    & $log "Updating source manifest cache at '$($paths.SrcStatePath)'."
-    $unportableNames = New-Object System.Collections.Generic.List[object]
-    $unreadableDirs  = New-Object System.Collections.Generic.List[object]
+    # From here the staging lock is HELD and its heartbeat is running, so ALL
+    # post-acquisition work runs inside this try/finally (SR-075). The four
+    # catch cleanups below cover only the EARLY exits; an exception escaping
+    # after staging has gained content would otherwise leave a live timer
+    # advertising an abandoned lock as owned, and the next run would classify
+    # it OwnerLive forever. This finally stops a timer and deletes NOTHING --
+    # it is deliberately not the deferred guarded-finally refactor of those
+    # cleanups.
     try {
-        $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -ManifestFolderPath $paths.SrcStatePath `
-            -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc -UnportableOut $unportableNames `
-            -UnreadableOut $unreadableDirs
-    } catch {
-        # A source file that cannot be read (open for write, AV hold) fails the
-        # set loudly — but must not strand the still-empty staging folder, or
-        # every LATER run refuses on the SR-017 stale-Temp guard instead of the
-        # real cause. Temp holds nothing of value until the preserve/evict steps.
-        Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
-        throw
-    }
-
-    # 5.1 Portable-name guard (SR-055, human ruling 2026-08-23): a source
-    # filename that cannot exist on both platforms was excluded by the scan —
-    # BEFORE hashing, which would fail on names Windows cannot even open —
-    # and is refused LOUDLY here, not half-handled downstream (7-Zip argument
-    # quoting, the bash manifest parser). The skipped file gets no manifest
-    # row and the set fails; a PREVIOUSLY stored row under such a name is left
-    # frozen rather than evicted (see the step-8 filter) — the operator is
-    # being told to fix the name at the source.
-    $unportable = New-RelativePathMap
-    foreach ($skipped in $unportableNames) {
-        & $log "Skipping '$($skipped.RelativePath)': $($skipped.Reason). Rename it at the source; this set is marked failed (SR-055)." 'ERROR'
-        $unportable[$skipped.RelativePath] = $true
-        $OverallSuccess.Value = $false
-    }
-
-    # 5.2 Unreadable-directory guard (SR-057, 2026-08-24 review B1): -Force
-    # made previously invisible hidden/system directories enumerable, and one
-    # with a Deny ACE ('System Volume Information', another user's
-    # $RECYCLE.BIN) must not abort the run with NO manifest written. The walk
-    # reported it; the set fails LOUDLY here, everything reachable is still
-    # backed up, and rows under the unreadable path are frozen (not evicted) —
-    # we cannot know whether their files still exist.
-    $unreadablePrefixes = New-Object System.Collections.Generic.List[string]
-    foreach ($bad in $unreadableDirs) {
-        & $log "Cannot enumerate '$($bad.Path)': $($bad.Message). Files beneath it are NOT backed up this run and existing rows there are frozen; this set is marked failed (SR-057). Point SourcePath below it, or grant read access." 'ERROR'
-        $OverallSuccess.Value = $false
-        $badFull = "$($bad.Path)"
-        $srcRoot = (Resolve-Path -LiteralPath $paths.SrcPath).Path
-        if ($badFull.StartsWith($srcRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-            $relPrefix = $badFull.Substring($srcRoot.Length).TrimStart('\', '/')
-            if ($relPrefix) { $unreadablePrefixes.Add($relPrefix + [IO.Path]::DirectorySeparatorChar) }
+        # 4. Hash-recalc decision (B3: from persisted state, not mtimes)
+        $lastHashRun = Get-LastHashRun -BackupRoot $paths.BkpPath
+        $recalc = if ($lastHashRun) {
+            Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq -LastHashRun $lastHashRun
+        } else {
+            Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq
         }
-    }
+        & $log "HashRecalcFreq=$($Set.HashRecalcFreq), LastHashRun=$lastHashRun, Recalculate=$recalc"
 
-    # A previously populated source becoming completely empty is commonly an
-    # unavailable/mis-mounted share. Treat it as unsafe before any backup bytes
-    # are migrated or staged. Operators performing an intentional delete-all can
-    # opt in per set with AllowEmptySource = $true; an initially empty source is
-    # still valid.
-    if ($sourceDb.Count -eq 0 -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
-        $priorRows = @(Read-Manifest -FolderPath $paths.BkpPath)
-        if ($priorRows.Count -gt 0 -and -not ([bool]$Set.AllowEmptySource)) {
-            Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
-            throw "Source '$($paths.SrcPath)' is empty while the existing backup contains $($priorRows.Count) manifest row(s). Refusing delete-all; set AllowEmptySource = `$true for an intentional empty-source backup."
-        }
-    }
-
-    # 5.5 Capacity-refusal machinery, shared by step 9.4 (SR-052). The MIGRATION
-    # component that used to sit here died with the migration itself (SR-061) -
-    # nothing already stored is re-formed, so there is nothing to size before
-    # step 6. What survives is the refusal discipline: a refusal must not orphan
-    # the staging folder, or the NEXT run aborts on the SR-017 stale-Temp guard
-    # instead of on the real cause (same discipline as the AllowEmptySource
-    # refusal above).
-    $refuseCapacity = {
-        param([string]$Message)
-        Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
-        throw $Message
-    }
-    $sameVolume = ((Get-VolumeIdentity -Path $paths.BkpPath) -eq (Get-VolumeIdentity -Path $paths.ChgPath))
-
-    # 6. Sanitize the backup manifest (SR-061: there is no layout migration).
-    # Step 9.4 proves room for THIS RUN's content (SR-052). Blanking a missing
-    # DataPath and warning about orphans is what survives here, and it is now
-    # the store's ONLY orphan scan - linear in rows + pool files (SR-064).
-    & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."
-    try {
-        $backupDb = Test-BackupManifest -FolderRoot $paths.BkpPath -Log $log
-    } catch {
-        # Same discipline as step 5: a throw before Temp holds anything of
-        # value must not strand it for the SR-017 guard.
-        Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
-        throw
-    }
-
-    # 7. Pre-backup snapshot into staging
-    & $log "Saving pre-backup manifest to staging '$stagingFolder'."
-    Write-Manifest -FolderPath $stagingFolder -Records $backupDb
-    # The PRIOR state's directory sidecar (SR-065) travels with the prior
-    # manifest: the snapshot describes the tree as it was, so this is the
-    # existing file copied, not the one this run is about to write.
-    $priorSidecar = Join-Path $paths.BkpPath $script:Def.DirectorySidecarName
-    if (Test-Path -LiteralPath $priorSidecar -PathType Leaf) {
-        Copy-Item -LiteralPath $priorSidecar -Destination $stagingFolder -Force
-    }
-
-    # 8. Diff
-    $diff = Compare-SourceToBackup -SourceDb $sourceDb -BackupDb $backupDb
-    # A file skipped by the SR-055 portable-name guard must not read as
-    # "removed from source" — its existing row (if any) stays frozen. Same for
-    # every row under an unreadable directory (SR-057, step 5.2): the walk
-    # could not see those files, which is not evidence they are gone.
-    if ($unportable.Count -gt 0 -or $unreadablePrefixes.Count -gt 0) {
-        $stillRemoved = New-Object System.Collections.Generic.List[object]
-        foreach ($removedRow in $diff.RemovedFromSource) {
-            if ($unportable.ContainsKey($removedRow.RelativePath)) { continue }
-            $underUnreadable = $false
-            foreach ($prefix in $unreadablePrefixes) {
-                if ($removedRow.RelativePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-                    $underUnreadable = $true; break
-                }
-            }
-            if (-not $underUnreadable) { $stillRemoved.Add($removedRow) }
-        }
-        $diff.RemovedFromSource = $stillRemoved
-    }
-    & $log "New or changed files: $($diff.NewOrChanged.Count)"
-    & $log "Removed files: $($diff.RemovedFromSource.Count)"
-    # SR-005 supersession criterion: the manifest state changed. A dedup-served
-    # add or shared-content removal moves no bytes but still changes the state.
-    # (.Count direct — Compare-SourceToBackup always returns real lists, and
-    # @() around a List reached via a PSObject property throws on PS 7.5.)
-    $manifestChanged = ($diff.NewOrChanged.Count -gt 0) -or ($diff.RemovedFromSource.Count -gt 0)
-
-    # 9. Working backup map (filesystem-faithful key comparison, SR-034)
-    $backupMap = New-RelativePathMap
-    foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
-    $changedCount = 0
-
-    # 9.4 Capacity preflight (SR-052): the last point at which
-    # none of THIS RUN'S CONTENT has been written. A refusal here fails this SET
-    # (status 1) with no data file added, no manifest row changed and no staging
-    # folder left behind; other sets still run (SR-014). It is not a promise that
-    # the tree is byte-identical to the pre-run state: step 6 may have blanked
-    # a row whose data file went missing (SR-053's heal input). It no longer
-    # re-forms anything - the migration that once did died at WP9 step 3
-    # (SR-061), and its own 5.5 preflight with it (WP5 review, finding m5).
-    $demand = Get-BackupCapacityDemand -NewOrChanged $diff.NewOrChanged `
-                -RemovedFromSource $diff.RemovedFromSource -BackupDb $backupDb -SameVolume $sameVolume
-    try {
-        Assert-BackupCapacity -BackupPath $paths.BkpPath -ChangePath $paths.ChgPath -Log $log `
-            -BackupBytes $demand.BackupBytes -ChangeBytes $demand.ChangeBytes
-    } catch { & $refuseCapacity $_.Exception.Message }
-
-    # 10. Copy new/changed files. One retry budget for the whole set (SR-067):
-    # a handful of transiently locked files get their retries, a systemically
-    # unreadable tree cannot turn a scheduled run into an hours-long sleep.
-    $retryBudgetMs = $script:CopyRetryBudgetMs
-    foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
-        Invoke-BackupFileGroup `
-            -Group $grp.Group `
-            -SrcPath $paths.SrcPath -BkpPath $paths.BkpPath `
-            -CompressEnabled ([bool]$Set.CompressEnabled) `
-            -SevenZipPath $Deps['7z'] -BackupDb $backupDb `
-            -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) `
-            -Log $log -OverallSuccess $OverallSuccess -RetryBudgetMs ([ref]$retryBudgetMs)
-    }
-
-    # 11. Evict removed files to staging
-    Move-RemovedFilesToStaging `
-        -RemovedFromSource $diff.RemovedFromSource `
-        -BkpPath $paths.BkpPath -StagingFolder $stagingFolder `
-        -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) -Log $log `
-        -OverallSuccess $OverallSuccess
-
-    # 11.5 Preserve superseded bytes into the snapshot (SR-059, LLR-059).
-    # Content addressing never overwrites an existing object at step 10, so
-    # preservation runs AFTER the copy/evict steps and asks the exact
-    # question: does any row of the FINAL manifest still claim the old object?
-    # Frozen rows (SR-055/SR-057) and rows whose copy failed keep their claim,
-    # so their bytes correctly stay in the pool — the pre-WP9 source-based
-    # approximation moved them out (the D-1 family). A move failure is
-    # aggregated, not thrown (SR-041): the run must reach step 13 so the
-    # staging folder is finalized or discarded rather than orphaned for the
-    # next run's SR-017 guard.
-    Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb `
-        -FinalRows @($backupMap.Values) `
-        -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
-
-    # 12. Save updated backup manifest — CANONICAL (WP9 step 8): rows in
-    # ordinal RelativePath order and every text column materialized as a
-    # string ('' for null), so two runs over the same state write
-    # byte-identical manifests. Step 7's viewstamp work caught the drift this
-    # kills: fresh rows carried $null MediaMBPerSec while adopted rows carried
-    # Import-Csv's '', and Export-Csv quotes the two differently.
-    $backupDbFinal = [object[]]@($backupMap.Values | ForEach-Object {
-        [pscustomobject]@{
-            DataPath         = [string]$_.DataPath
-            RelativePath     = [string]$_.RelativePath
-            Length           = [string]$_.Length
-            LastWriteTime    = $_.LastWriteTime
-            xxH2Hash         = [string]$_.xxH2Hash
-            Compressed       = [string]$_.Compressed
-            StoredAsHashSize = [string]$_.StoredAsHashSize
-            Duplicate        = [string]$_.Duplicate
-            MediaMBPerSec    = [string]$_.MediaMBPerSec
-        }
-    })
-    [Array]::Sort($backupDbFinal, [Comparison[object]] {
-        param($a, $b) [string]::CompareOrdinal($a.RelativePath, $b.RelativePath) })
-    Write-Manifest -FolderPath $paths.BkpPath -Records $backupDbFinal
-
-    # 12.5 Directory sidecar (SR-065): the empty directories and folder
-    # attributes MANIFEST.csv has no row type for. Written after the manifest so
-    # a crash between them leaves a store whose sidecar is merely stale - which
-    # is exactly the advisory failure mode the sidecar is designed around, and
-    # never a reason a restore refuses. A failure here is a WARNING, not a set
-    # failure: every byte is already stored and manifested.
-    try {
-        $dirRows = Get-SourceDirectoryRecord -SourcePath $paths.SrcPath `
-                    -FileRelativePath @($sourceDb | ForEach-Object { $_.RelativePath }) -Log $log
-        Write-DirectorySidecar -FolderPath $paths.BkpPath -Records $dirRows
-        & $log "Directory sidecar: $($dirRows.Count) row(s) recorded (empty or attributed directories)."
-    } catch {
-        & $log "Directory sidecar not written: $($_.Exception.Message) (files and manifest are unaffected; empty directories and folder attributes will not be restored)." 'WARN'
-    }
-
-    # 13. Finalize the dated snapshot (of the PRIOR state) + reconstruct scripts
-    New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
-    [void](Complete-ChangeFolder -ChgPath $paths.ChgPath -StagingFolder $stagingFolder -BkpPath $paths.BkpPath -ManifestChanged $manifestChanged -Log $log -SnapshotDate $priorBackupDate)
-
-    # 14. De-duplicate data shared across snapshots
-    Optimize-ChangeFolders -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log
-
-    # 15. Record state: hashes ran (B3) + this backup's completion date (dates the next snapshot)
-    if ($recalc) { Set-LastHashRun -BackupRoot $paths.BkpPath -When $thisBackupDate }
-    Set-LastBackupRun -BackupRoot $paths.BkpPath -When $thisBackupDate
-
-    # 16. Browse view (SR-062): only for sets that asked, skipped while the
-    # viewstamp matches the manifest. A failure here is a WARNING, not a set
-    # failure: the view is cosmetic by construction — nothing in the engine or
-    # the restorers reads it — and a completed backup must not be reported
-    # failed over a browse page. -Action View rebuilds loudly on demand.
-    if ([string]$Set.BrowseView -eq 'index' -and $paths.ViewPath) {
+        # 5. Update source manifest (B4: forced rehash when scheduled)
+        & $log "Updating source manifest cache at '$($paths.SrcStatePath)'."
+        $unportableNames = New-Object System.Collections.Generic.List[object]
+        $unreadableDirs  = New-Object System.Collections.Generic.List[object]
         try {
-            [void](New-BrowseViewIndex -BackupRoot $paths.BkpPath -ViewRoot $paths.ViewPath -Log $log)
+            $sourceDb = Update-SourceManifest -SourcePath $paths.SrcPath -ManifestFolderPath $paths.SrcStatePath `
+                -FfprobePath $Deps['ffprobe'] -ForceRehash:$recalc -UnportableOut $unportableNames `
+                -UnreadableOut $unreadableDirs
         } catch {
-            & $log "Browse view generation failed: $($_.Exception.Message) (the backup itself is unaffected; -Action View retries loudly)" 'WARN'
+            # A source file that cannot be read (open for write, AV hold) fails the
+            # set loudly — but must not strand the still-empty staging folder, or
+            # every LATER run refuses on the SR-017 stale-Temp guard instead of the
+            # real cause. Temp holds nothing of value until the preserve/evict steps.
+            Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+            throw
         }
-    }
 
-    & $log "Changed files count = $changedCount"
-    & $log "----- Backup set '$($Set.Name)' completed -----"
+        # 5.1 Portable-name guard (SR-055, human ruling 2026-08-23): a source
+        # filename that cannot exist on both platforms was excluded by the scan —
+        # BEFORE hashing, which would fail on names Windows cannot even open —
+        # and is refused LOUDLY here, not half-handled downstream (7-Zip argument
+        # quoting, the bash manifest parser). The skipped file gets no manifest
+        # row and the set fails; a PREVIOUSLY stored row under such a name is left
+        # frozen rather than evicted (see the step-8 filter) — the operator is
+        # being told to fix the name at the source.
+        $unportable = New-RelativePathMap
+        foreach ($skipped in $unportableNames) {
+            & $log "Skipping '$($skipped.RelativePath)': $($skipped.Reason). Rename it at the source; this set is marked failed (SR-055)." 'ERROR'
+            $unportable[$skipped.RelativePath] = $true
+            $OverallSuccess.Value = $false
+        }
+
+        # 5.2 Unreadable-directory guard (SR-057, 2026-08-24 review B1): -Force
+        # made previously invisible hidden/system directories enumerable, and one
+        # with a Deny ACE ('System Volume Information', another user's
+        # $RECYCLE.BIN) must not abort the run with NO manifest written. The walk
+        # reported it; the set fails LOUDLY here, everything reachable is still
+        # backed up, and rows under the unreadable path are frozen (not evicted) —
+        # we cannot know whether their files still exist.
+        $unreadablePrefixes = New-Object System.Collections.Generic.List[string]
+        foreach ($bad in $unreadableDirs) {
+            & $log "Cannot enumerate '$($bad.Path)': $($bad.Message). Files beneath it are NOT backed up this run and existing rows there are frozen; this set is marked failed (SR-057). Point SourcePath below it, or grant read access." 'ERROR'
+            $OverallSuccess.Value = $false
+            $badFull = "$($bad.Path)"
+            $srcRoot = (Resolve-Path -LiteralPath $paths.SrcPath).Path
+            if ($badFull.StartsWith($srcRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $relPrefix = $badFull.Substring($srcRoot.Length).TrimStart('\', '/')
+                if ($relPrefix) { $unreadablePrefixes.Add($relPrefix + [IO.Path]::DirectorySeparatorChar) }
+            }
+        }
+
+        # A previously populated source becoming completely empty is commonly an
+        # unavailable/mis-mounted share. Treat it as unsafe before any backup bytes
+        # are migrated or staged. Operators performing an intentional delete-all can
+        # opt in per set with AllowEmptySource = $true; an initially empty source is
+        # still valid.
+        if ($sourceDb.Count -eq 0 -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
+            $priorRows = @(Read-Manifest -FolderPath $paths.BkpPath)
+            if ($priorRows.Count -gt 0 -and -not ([bool]$Set.AllowEmptySource)) {
+                Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+                throw "Source '$($paths.SrcPath)' is empty while the existing backup contains $($priorRows.Count) manifest row(s). Refusing delete-all; set AllowEmptySource = `$true for an intentional empty-source backup."
+            }
+        }
+
+        # 5.5 Capacity-refusal machinery, shared by step 9.4 (SR-052). The MIGRATION
+        # component that used to sit here died with the migration itself (SR-061) -
+        # nothing already stored is re-formed, so there is nothing to size before
+        # step 6. What survives is the refusal discipline: a refusal must not orphan
+        # the staging folder, or the NEXT run aborts on the SR-017 stale-Temp guard
+        # instead of on the real cause (same discipline as the AllowEmptySource
+        # refusal above).
+        $refuseCapacity = {
+            param([string]$Message)
+            Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+            throw $Message
+        }
+        $sameVolume = ((Get-VolumeIdentity -Path $paths.BkpPath) -eq (Get-VolumeIdentity -Path $paths.ChgPath))
+
+        # 6. Sanitize the backup manifest (SR-061: there is no layout migration).
+        # Step 9.4 proves room for THIS RUN's content (SR-052). Blanking a missing
+        # DataPath and warning about orphans is what survives here, and it is now
+        # the store's ONLY orphan scan - linear in rows + pool files (SR-064).
+        & $log "Sanitizing backup manifest at '$($paths.BkpPath)'."
+        try {
+            $backupDb = Test-BackupManifest -FolderRoot $paths.BkpPath -Log $log
+        } catch {
+            # Same discipline as step 5: a throw before Temp holds anything of
+            # value must not strand it for the SR-017 guard.
+            Remove-Item -LiteralPath $stagingFolder -Recurse -Force -ErrorAction SilentlyContinue
+            throw
+        }
+
+        # 7. Pre-backup snapshot into staging
+        & $log "Saving pre-backup manifest to staging '$stagingFolder'."
+        Write-Manifest -FolderPath $stagingFolder -Records $backupDb
+        # The PRIOR state's directory sidecar (SR-065) travels with the prior
+        # manifest: the snapshot describes the tree as it was, so this is the
+        # existing file copied, not the one this run is about to write.
+        $priorSidecar = Join-Path $paths.BkpPath $script:Def.DirectorySidecarName
+        if (Test-Path -LiteralPath $priorSidecar -PathType Leaf) {
+            Copy-Item -LiteralPath $priorSidecar -Destination $stagingFolder -Force
+        }
+
+        # 8. Diff
+        $diff = Compare-SourceToBackup -SourceDb $sourceDb -BackupDb $backupDb
+        # A file skipped by the SR-055 portable-name guard must not read as
+        # "removed from source" — its existing row (if any) stays frozen. Same for
+        # every row under an unreadable directory (SR-057, step 5.2): the walk
+        # could not see those files, which is not evidence they are gone.
+        if ($unportable.Count -gt 0 -or $unreadablePrefixes.Count -gt 0) {
+            $stillRemoved = New-Object System.Collections.Generic.List[object]
+            foreach ($removedRow in $diff.RemovedFromSource) {
+                if ($unportable.ContainsKey($removedRow.RelativePath)) { continue }
+                $underUnreadable = $false
+                foreach ($prefix in $unreadablePrefixes) {
+                    if ($removedRow.RelativePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        $underUnreadable = $true; break
+                    }
+                }
+                if (-not $underUnreadable) { $stillRemoved.Add($removedRow) }
+            }
+            $diff.RemovedFromSource = $stillRemoved
+        }
+        & $log "New or changed files: $($diff.NewOrChanged.Count)"
+        & $log "Removed files: $($diff.RemovedFromSource.Count)"
+        # SR-005 supersession criterion: the manifest state changed. A dedup-served
+        # add or shared-content removal moves no bytes but still changes the state.
+        # (.Count direct — Compare-SourceToBackup always returns real lists, and
+        # @() around a List reached via a PSObject property throws on PS 7.5.)
+        $manifestChanged = ($diff.NewOrChanged.Count -gt 0) -or ($diff.RemovedFromSource.Count -gt 0)
+
+        # 9. Working backup map (filesystem-faithful key comparison, SR-034)
+        $backupMap = New-RelativePathMap
+        foreach ($row in $backupDb) { $backupMap[$row.RelativePath] = $row }
+        $changedCount = 0
+
+        # 9.4 Capacity preflight (SR-052): the last point at which
+        # none of THIS RUN'S CONTENT has been written. A refusal here fails this SET
+        # (status 1) with no data file added, no manifest row changed and no staging
+        # folder left behind; other sets still run (SR-014). It is not a promise that
+        # the tree is byte-identical to the pre-run state: step 6 may have blanked
+        # a row whose data file went missing (SR-053's heal input). It no longer
+        # re-forms anything - the migration that once did died at WP9 step 3
+        # (SR-061), and its own 5.5 preflight with it (WP5 review, finding m5).
+        $demand = Get-BackupCapacityDemand -NewOrChanged $diff.NewOrChanged `
+                    -RemovedFromSource $diff.RemovedFromSource -BackupDb $backupDb -SameVolume $sameVolume
+        try {
+            Assert-BackupCapacity -BackupPath $paths.BkpPath -ChangePath $paths.ChgPath -Log $log `
+                -BackupBytes $demand.BackupBytes -ChangeBytes $demand.ChangeBytes
+        } catch { & $refuseCapacity $_.Exception.Message }
+
+        # 10. Copy new/changed files. One retry budget for the whole set (SR-067):
+        # a handful of transiently locked files get their retries, a systemically
+        # unreadable tree cannot turn a scheduled run into an hours-long sleep.
+        $retryBudgetMs = $script:CopyRetryBudgetMs
+        foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
+            Invoke-BackupFileGroup `
+                -Group $grp.Group `
+                -SrcPath $paths.SrcPath -BkpPath $paths.BkpPath `
+                -CompressEnabled ([bool]$Set.CompressEnabled) `
+                -SevenZipPath $Deps['7z'] -BackupDb $backupDb `
+                -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) `
+                -Log $log -OverallSuccess $OverallSuccess -RetryBudgetMs ([ref]$retryBudgetMs)
+        }
+
+        # 11. Evict removed files to staging
+        Move-RemovedFilesToStaging `
+            -RemovedFromSource $diff.RemovedFromSource `
+            -BkpPath $paths.BkpPath -StagingFolder $stagingFolder `
+            -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) -Log $log `
+            -OverallSuccess $OverallSuccess
+
+        # 11.5 Preserve superseded bytes into the snapshot (SR-059, LLR-059).
+        # Content addressing never overwrites an existing object at step 10, so
+        # preservation runs AFTER the copy/evict steps and asks the exact
+        # question: does any row of the FINAL manifest still claim the old object?
+        # Frozen rows (SR-055/SR-057) and rows whose copy failed keep their claim,
+        # so their bytes correctly stay in the pool — the pre-WP9 source-based
+        # approximation moved them out (the D-1 family). A move failure is
+        # aggregated, not thrown (SR-041): the run must reach step 13 so the
+        # staging folder is finalized or discarded rather than orphaned for the
+        # next run's SR-017 guard.
+        Save-SupersededData -NewOrChanged $diff.NewOrChanged -BackupDb $backupDb `
+            -FinalRows @($backupMap.Values) `
+            -BkpPath $paths.BkpPath -StagingFolder $stagingFolder -Log $log -OverallSuccess $OverallSuccess
+
+        # 12. Save updated backup manifest — CANONICAL (WP9 step 8): rows in
+        # ordinal RelativePath order and every text column materialized as a
+        # string ('' for null), so two runs over the same state write
+        # byte-identical manifests. Step 7's viewstamp work caught the drift this
+        # kills: fresh rows carried $null MediaMBPerSec while adopted rows carried
+        # Import-Csv's '', and Export-Csv quotes the two differently.
+        $backupDbFinal = [object[]]@($backupMap.Values | ForEach-Object {
+            [pscustomobject]@{
+                DataPath         = [string]$_.DataPath
+                RelativePath     = [string]$_.RelativePath
+                Length           = [string]$_.Length
+                LastWriteTime    = $_.LastWriteTime
+                xxH2Hash         = [string]$_.xxH2Hash
+                Compressed       = [string]$_.Compressed
+                StoredAsHashSize = [string]$_.StoredAsHashSize
+                Duplicate        = [string]$_.Duplicate
+                MediaMBPerSec    = [string]$_.MediaMBPerSec
+            }
+        })
+        [Array]::Sort($backupDbFinal, [Comparison[object]] {
+            param($a, $b) [string]::CompareOrdinal($a.RelativePath, $b.RelativePath) })
+        Write-Manifest -FolderPath $paths.BkpPath -Records $backupDbFinal
+
+        # 12.5 Directory sidecar (SR-065): the empty directories and folder
+        # attributes MANIFEST.csv has no row type for. Written after the manifest so
+        # a crash between them leaves a store whose sidecar is merely stale - which
+        # is exactly the advisory failure mode the sidecar is designed around, and
+        # never a reason a restore refuses. A failure here is a WARNING, not a set
+        # failure: every byte is already stored and manifested.
+        try {
+            $dirRows = Get-SourceDirectoryRecord -SourcePath $paths.SrcPath `
+                        -FileRelativePath @($sourceDb | ForEach-Object { $_.RelativePath }) -Log $log
+            Write-DirectorySidecar -FolderPath $paths.BkpPath -Records $dirRows
+            & $log "Directory sidecar: $($dirRows.Count) row(s) recorded (empty or attributed directories)."
+        } catch {
+            & $log "Directory sidecar not written: $($_.Exception.Message) (files and manifest are unaffected; empty directories and folder attributes will not be restored)." 'WARN'
+        }
+
+        # 12.9 Release the staging lock's owner marker BEFORE finalize (SR-075).
+        # Complete-ChangeFolder either deletes Temp (no-op/first run) or renames
+        # it WHOLESALE into Snapshot_* — so a surviving RUN.inprogress would be
+        # published into every snapshot, and prune's unreferenced-data rail
+        # (SR-046) would then refuse that snapshot as holding a file its own
+        # manifest does not name. Stop DRAINS, so no beat can land in the window
+        # between this delete and the rename. The delete is the exact leaf by
+        # name; File.Delete on an already-absent path is a no-op.
+        Stop-StagingHeartbeat $stagingLock.Heartbeat
+        try {
+            [System.IO.File]::Delete($stagingLock.MarkerPath)
+        } catch {
+            # "No RUN.inprogress ever reaches a Snapshot_*" is absolute, so a
+            # marker we cannot remove refuses the FINALIZE rather than
+            # publishing a snapshot prune would later refuse. Temp is left for
+            # the SR-017 guard, exactly as any other late failure leaves it.
+            & $log "Cannot remove the staging owner record '$($stagingLock.MarkerPath)': $($_.Exception.Message). Refusing to finalize a snapshot that would carry it (SR-075/SR-046)." 'ERROR'
+            throw "Cannot remove the staging owner record before finalize: $($_.Exception.Message)"
+        }
+
+        # 13. Finalize the dated snapshot (of the PRIOR state) + reconstruct scripts
+        New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
+        [void](Complete-ChangeFolder -ChgPath $paths.ChgPath -StagingFolder $stagingFolder -BkpPath $paths.BkpPath -ManifestChanged $manifestChanged -Log $log -SnapshotDate $priorBackupDate)
+
+        # 14. De-duplicate data shared across snapshots
+        Optimize-ChangeFolders -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log
+
+        # 15. Record state: hashes ran (B3) + this backup's completion date (dates the next snapshot)
+        if ($recalc) { Set-LastHashRun -BackupRoot $paths.BkpPath -When $thisBackupDate }
+        Set-LastBackupRun -BackupRoot $paths.BkpPath -When $thisBackupDate
+
+        # 16. Browse view (SR-062): only for sets that asked, skipped while the
+        # viewstamp matches the manifest. A failure here is a WARNING, not a set
+        # failure: the view is cosmetic by construction — nothing in the engine or
+        # the restorers reads it — and a completed backup must not be reported
+        # failed over a browse page. -Action View rebuilds loudly on demand.
+        if ([string]$Set.BrowseView -eq 'index' -and $paths.ViewPath) {
+            try {
+                [void](New-BrowseViewIndex -BackupRoot $paths.BkpPath -ViewRoot $paths.ViewPath -Log $log)
+            } catch {
+                & $log "Browse view generation failed: $($_.Exception.Message) (the backup itself is unaffected; -Action View retries loudly)" 'WARN'
+            }
+        }
+
+        & $log "Changed files count = $changedCount"
+        & $log "----- Backup set '$($Set.Name)' completed -----"
+    } finally {
+        # Idempotent and never throws: by the healthy path the heartbeat was
+        # already stopped and drained before finalize (step 12.9).
+        Stop-StagingHeartbeat $stagingLock.Heartbeat
+    }
 }
 
 # endregion

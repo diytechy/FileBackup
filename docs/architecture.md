@@ -42,7 +42,7 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 3. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
 4. `Test-ManifestWitness` — Verifies a folder's MANIFEST.csv against its witness sidecar and returns a
 5. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
-6. `Initialize-StagingFolder` — Creates the run's Temp staging folder in the change root; aborts loudly
+6. `Initialize-StagingFolder` — Takes the run's Temp staging lock in the change root, publishes this
 7. `Get-LastHashRun` — Reads the persisted time of the last scheduled re-hash sweep
 8. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
 9. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
@@ -63,12 +63,14 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 24. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
 25. `Get-SourceDirectoryRecord` — Returns the directory rows the manifest cannot carry (SR-065): every
 26. `Write-DirectorySidecar` — Writes DIRECTORIES.csv beside a manifest, or removes it when there is
-27. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
-28. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-29. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-30. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-31. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
-32. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
+27. `Stop-StagingHeartbeat` — Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
+28. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+29. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
+30. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
+31. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+32. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+33. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
+34. `Stop-StagingHeartbeat` — Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -189,10 +191,10 @@ Imports (internal): `Common`
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
-| `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
+| `Initialize-StagingFolder` | yes | SR-005, SR-017, SR-075, LLR-005, LLR-017, LLR-080 |
 | `Initialize-StagingHeartbeatType` | yes | SR-075, LLR-080 |
 | `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
-| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
+| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-BrowseViewIndex` | yes | SR-062, LLR-061 |

@@ -194,10 +194,10 @@ Imports (internal): `Common`
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
-| `Initialize-StagingFolder` | yes | SR-005, SR-017, LLR-005, LLR-017 |
+| `Initialize-StagingFolder` | yes | SR-005, SR-017, SR-075, LLR-005, LLR-017, LLR-080 |
 | `Initialize-StagingHeartbeatType` | yes | SR-075, LLR-080 |
 | `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
-| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
+| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-BrowseViewIndex` | yes | SR-062, LLR-061 |

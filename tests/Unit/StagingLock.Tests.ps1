@@ -1,12 +1,14 @@
 <#
-.SYNOPSIS  Pester 5 unit tests for the WP14 Part A staging-lock helpers
-           (SR-075 / LLR-080): the owner record writer and reader, the pure
-           classifier, and the compiled identity-guarded heartbeat.
+.SYNOPSIS  Pester 5 unit tests for the WP14 staging-lock work: the Part A
+           helpers (SR-075 / LLR-080) — owner record writer and reader, the
+           pure classifier, the compiled identity-guarded heartbeat — and the
+           Part B wiring into the backup run (TC-185, TC-196, TC-201, TC-202).
 #>
 
 BeforeAll {
     # $PSScriptRoot here is tests\Unit; repo root is two levels up.
     $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
     Import-Module (Join-Path $repo 'Modules\FileBackup.Engine.psm1') -Force
 
     $script:Floor = 1800
@@ -51,6 +53,69 @@ BeforeAll {
         $dir = Join-Path $TestDrive ('stage-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         New-Item -ItemType Directory -Path $dir | Out-Null
         return $dir
+    }
+
+    # --- Part B fixtures (TC-185, TC-196, TC-202) ---------------------------
+
+    function Invoke-PipelineBlockingOperation {
+        <#
+        .SYNOPSIS
+            Occupies the pipeline thread inside ONE long .NET call, the way
+            hashing a 100 GB file does in production.
+        .DESCRIPTION
+            A PowerShell LOOP is NOT equivalent and must not be substituted:
+            PowerShell drains queued engine events between statements, so a
+            loop lets a Register-ObjectEvent handler run and would make the
+            TC-185 negative control silently pass. A single blocking call has
+            no statement boundary to drain at — which is exactly the condition
+            SR-075 says the beat must survive.
+        #>
+        param([int]$Milliseconds)
+        [System.Threading.Thread]::Sleep($Milliseconds)
+    }
+
+    function New-BackupSetFixture {
+        # A minimal one-set environment driven through Invoke-BackupSet
+        # in-process: the entry point re-imports the module, which would tear
+        # down the mocks TC-196 needs.
+        param([string]$Name)
+        $root = Join-Path $TestDrive $Name
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        [pscustomobject]@{
+            Root = $root; Src = $src; Bkp = $bkp; Chg = $chg
+            Set  = [pscustomobject]@{
+                Name = $Name; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp
+                ChangePath = $chg; HashRecalcFreq = 'A'; CompressEnabled = $false
+                AllowEmptySource = $false; BrowseView = 'off'; ViewPath = ''
+            }
+        }
+    }
+
+    function Invoke-FixtureBackup {
+        param([object]$Fixture, [datetime]$When)
+        $ok = $true
+        Invoke-BackupSet -Set $Fixture.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
+            -OverallSuccess ([ref]$ok) -LogPaths (New-Object System.Collections.Generic.List[string]) `
+            -BackupTime $When
+        return $ok
+    }
+
+    function Get-RootedHeartbeatCount {
+        # The engine roots every live heartbeat; Stop-StagingHeartbeat unroots
+        # it. An empty list therefore means the Part B finally ran.
+        InModuleScope FileBackup.Engine {
+            if ($null -eq $script:StagingHeartbeats) { 0 } else { $script:StagingHeartbeats.Count }
+        }
+    }
+
+    function Set-EngineHeartbeatInterval {
+        # The production cadence is 60 s (SR-075); the suite shortens it so a
+        # test can observe several beats without minutes of sleeping.
+        param([double]$Seconds)
+        InModuleScope FileBackup.Engine -Parameters @{ S = $Seconds } {
+            $script:StagingHeartbeatIntervalSeconds = $S
+        }
     }
 }
 
@@ -409,5 +474,270 @@ Describe 'StagingHeartbeat (SR-075, LLR-080)' {
     It 'compiles the callback type once and re-Add-Types nothing on reload (SR-075, LLR-080)' {
         { Initialize-StagingHeartbeatType; Initialize-StagingHeartbeatType } | Should -Not -Throw
         'FileBackup.StagingHeartbeat' -as [type] | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'The beat survives a blocked pipeline (TC-185, SR-075, LLR-080)' {
+
+    It 'advances the marker mtime, observed from a SEPARATE process, while a long blocking operation occupies the pipeline (TC-185, SR-075, LLR-080)' {
+        $dir = New-StagingDir
+        $rec = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'library'
+        $hb  = Start-StagingHeartbeat -MarkerPath $rec.MarkerPath -RunId $rec.RunId -IntervalSeconds 0.25
+        try {
+            # The observer is a CHILD PROCESS on purpose: nothing in this
+            # runspace may be what advances the mtime, or the test proves
+            # nothing about the production case (SR-075 acceptance).
+            $observedMarker = $rec.MarkerPath
+            $job = Start-Job -ScriptBlock {
+                $seen = New-Object System.Collections.Generic.List[string]
+                $deadline = [datetime]::UtcNow.AddSeconds(7)
+                while ([datetime]::UtcNow -lt $deadline) {
+                    $t = [System.IO.File]::GetLastWriteTimeUtc($using:observedMarker).ToString('o')
+                    if (-not $seen.Contains($t)) { $seen.Add($t) }
+                    [System.Threading.Thread]::Sleep(50)
+                }
+                $seen.Count
+            }
+            Invoke-PipelineBlockingOperation -Milliseconds 5000
+            $distinct = [int](Receive-Job -Job $job -Wait -AutoRemoveJob)
+
+            $distinct | Should -BeGreaterThan 2 -Because 'the compiled callback, not the pipeline, drives the beat'
+            $hb.TouchCount | Should -BeGreaterThan 4
+            $hb.ErrorCount | Should -Be 0
+        } finally { Stop-StagingHeartbeat $hb }
+    }
+
+    It 'NEGATIVE CONTROL: a Register-ObjectEvent handler does NOT advance it under the same block (TC-185, SR-075, LLR-080)' {
+        # The fix removed, per the WP13-T4 precedent: the same cadence driven by
+        # a PowerShell scriptblock instead of the Add-Type class. The handler is
+        # queued to the pipeline the blocking call is holding, so it cannot run
+        # - this is the production failure the compiled callback exists for, and
+        # the naive test that would have passed is the one that sleeps instead
+        # of blocking.
+        $dir = New-StagingDir
+        $marker = Join-Path $dir 'BROKEN.marker'
+        [System.IO.File]::WriteAllText($marker, 'broken-beat')
+        $old = [datetime]::UtcNow.AddHours(-2)
+        [System.IO.File]::SetLastWriteTimeUtc($marker, $old)
+
+        $timer = New-Object System.Timers.Timer 250
+        $timer.AutoReset = $true
+        $sub = Register-ObjectEvent -InputObject $timer -EventName Elapsed -MessageData $marker -Action {
+            [System.IO.File]::SetLastWriteTimeUtc($Event.MessageData, [datetime]::UtcNow)
+        }
+        try {
+            $timer.Start()
+            Invoke-PipelineBlockingOperation -Milliseconds 4000
+            [System.IO.File]::GetLastWriteTimeUtc($marker) | Should -Be $old -Because 'the scriptblock handler is queued to the pipeline the blocking call holds'
+
+            # ...and it is not that the harness is broken: once the pipeline is
+            # idle the very same handler fires. That is precisely why an inline
+            # or scriptblock beat passes a naive test and fails in production.
+            $deadline = [datetime]::UtcNow.AddSeconds(5)
+            while ([System.IO.File]::GetLastWriteTimeUtc($marker) -eq $old -and [datetime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 100
+            }
+            [System.IO.File]::GetLastWriteTimeUtc($marker) | Should -BeGreaterThan $old
+        } finally {
+            $timer.Stop()
+            Unregister-Event -SubscriptionId $sub.Id -ErrorAction SilentlyContinue
+            $timer.Dispose()
+        }
+    }
+
+    It 'a throwing callback neither kills the run nor silently stops the beat (TC-185, SR-075, LLR-080)' {
+        $dir = New-StagingDir
+        $rec = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'library'
+        $hb  = Start-StagingHeartbeat -MarkerPath $rec.MarkerPath -RunId $rec.RunId -IntervalSeconds 0.25
+        try {
+            $hb.FaultNextBeat = $true
+            # Fault it WHILE the pipeline is blocked: System.Timers.Timer would
+            # swallow the exception invisibly, so a dead beat would otherwise
+            # look identical to a healthy one.
+            { Invoke-PipelineBlockingOperation -Milliseconds 3000 } | Should -Not -Throw
+
+            $hb.ErrorCount | Should -Be 1
+            $hb.LastError | Should -BeLike '*Injected heartbeat callback fault*'
+            $hb.IsStopped | Should -BeFalse
+            $touches = $hb.TouchCount
+            $touches | Should -BeGreaterThan 0 -Because 'the beat continued past the throw'
+            Invoke-PipelineBlockingOperation -Milliseconds 1000
+            $hb.TouchCount | Should -BeGreaterThan $touches
+        } finally { Stop-StagingHeartbeat $hb }
+    }
+}
+
+Describe 'Every exit stops the heartbeat (TC-196, SR-075, LLR-017, LLR-080)' {
+    # TC-073 itself lives in tests/Unit/Coverage.Tests.ps1 ("Move loops
+    # aggregate failures (SR-041)") and runs in this same suite; these cases
+    # cover the Part B addition, which is the regression risk: the four catch
+    # cleanups reach only the EARLY exits, so an exception escaping AFTER
+    # staging has gained content used to leave a live timer advertising an
+    # abandoned lock as owned. A successor must classify such a lock OwnerStale.
+
+    BeforeEach { Set-EngineHeartbeatInterval -Seconds 0.2 }
+    AfterEach  { Set-EngineHeartbeatInterval -Seconds 60 }
+
+    It 'stops and drains the beat when an early catch cleanup fires (TC-196, SR-075, LLR-017)' {
+        $fx = New-BackupSetFixture -Name 'tc196-early'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        Mock -ModuleName FileBackup.Engine Update-SourceManifest { throw 'INJECTED: source walk failed' }
+
+        { Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') } |
+            Should -Throw -ExpectedMessage '*INJECTED*'
+
+        # The existing catch cleanup still removes the not-yet-valuable Temp...
+        Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp') | Should -BeFalse
+        # ...and the Part B finally still stopped the timer.
+        Get-RootedHeartbeatCount | Should -Be 0
+    }
+
+    # One It PER PHASE (-ForEach), not a loop inside one It: a Pester mock lives
+    # for the whole It, so a loop would leave the previous phase's mock in place
+    # and break the NEXT iteration's setup run.
+    It 'stops and drains the beat when <_> throws after staging gains content (TC-196, SR-075, LLR-017, LLR-080)' -ForEach @(
+        'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging', 'Save-SupersededData', 'Complete-ChangeFolder'
+    ) {
+        $phase = $_
+        $fx = New-BackupSetFixture -Name ('tc196-' + $phase)
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'gone.txt'), 'DOOMED')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Out-Null
+        # Give run 2 work in every loop: one changed file and one removal.
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'TWO')
+        Remove-Item -LiteralPath (Join-Path $fx.Src 'gone.txt') -Force
+
+        Mock -ModuleName FileBackup.Engine $phase { throw "INJECTED: $phase failed" }
+        { Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-02-02 00:00:02') } |
+            Should -Throw -ExpectedMessage '*INJECTED*' -Because "the throw from $phase must escape"
+
+        Get-RootedHeartbeatCount | Should -Be 0 -Because "the finally must stop the beat when $phase throws"
+
+        # And the proof on disk: the abandoned lock's marker STOPS being
+        # freshened, so a successor sees it age into OwnerStale instead of
+        # OwnerLive forever. (Complete-ChangeFolder throws after step 12.9
+        # has already removed the marker, so there is nothing to sample.)
+        $marker = Join-Path (Join-Path $fx.Chg 'Temp') 'RUN.inprogress'
+        if (Test-Path -LiteralPath $marker -PathType Leaf) {
+            $before = [System.IO.File]::GetLastWriteTimeUtc($marker)
+            Start-Sleep -Milliseconds 1200     # six beat intervals
+            [System.IO.File]::GetLastWriteTimeUtc($marker) | Should -Be $before -Because "no beat may land after the finally ran ($phase)"
+        }
+    }
+}
+
+Describe 'A late callback cannot freshen a successor (TC-201, SR-075, LLR-080)' {
+
+    It 'holds a callback in flight across Stop while a successor publishes, and does NOT freshen it (TC-201, SR-075, LLR-080)' {
+        $dir = New-StagingDir
+        $rec = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'library'
+        $hb  = Start-StagingHeartbeat -MarkerPath $rec.MarkerPath -RunId $rec.RunId -IntervalSeconds 0.1
+        try {
+            # Park a callback inside the beat (the delay lands BEFORE it reads
+            # the marker), then reclaim the lock underneath it.
+            $hb.BeatDelayMs = 1500
+            $deadline = [datetime]::UtcNow.AddSeconds(10)
+            while ($hb.InFlight -lt 1 -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            $hb.InFlight | Should -BeGreaterThan 0 -Because 'the test needs a callback actually in flight'
+
+            # The successor: a DIFFERENT RunId at the same path.
+            [System.IO.File]::Delete($rec.MarkerPath)
+            $successor = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'library'
+            $successor.RunId | Should -Not -Be $rec.RunId
+            $successorMtime = [System.IO.File]::GetLastWriteTimeUtc($successor.MarkerPath)
+
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            Stop-StagingHeartbeat $hb
+            $sw.Stop()
+            $sw.ElapsedMilliseconds | Should -BeGreaterThan 50 -Because 'Stop must DRAIN the in-flight callback'
+            $hb.InFlight | Should -Be 0
+
+            [System.IO.File]::GetLastWriteTimeUtc($successor.MarkerPath) | Should -Be $successorMtime -Because 'the identity guard rejects a marker that is not this beat''s own'
+            Start-Sleep -Milliseconds 400
+            [System.IO.File]::GetLastWriteTimeUtc($successor.MarkerPath) | Should -Be $successorMtime
+
+            { Stop-StagingHeartbeat $hb; Stop-StagingHeartbeat $hb } | Should -Not -Throw
+        } finally { Stop-StagingHeartbeat $hb }
+    }
+
+    It 'NEGATIVE CONTROL: with the identity discriminator gone the same held callback DOES freshen it (TC-201, SR-075, LLR-080)' {
+        # The guard cannot be deleted from the compiled class without editing
+        # shipped code, so the control neutralizes its DISCRIMINATOR instead:
+        # the successor republishes under the SAME RunId, which is exactly what
+        # the callback would see if it did not compare identities at all. The
+        # touch then lands on a record this beat no longer owns - the race
+        # TC-201 exists to close. (The drain is measured in the positive case
+        # above: Stop provably waits the callback out.)
+        $dir = New-StagingDir
+        $rec = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'library'
+        $hb  = Start-StagingHeartbeat -MarkerPath $rec.MarkerPath -RunId $rec.RunId -IntervalSeconds 0.1
+        try {
+            $hb.BeatDelayMs = 1500
+            $deadline = [datetime]::UtcNow.AddSeconds(10)
+            while ($hb.InFlight -lt 1 -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            $hb.InFlight | Should -BeGreaterThan 0
+
+            [System.IO.File]::Delete($rec.MarkerPath)
+            $successor = Write-StagingOwnerRecord -StagingFolder $dir -SetName 'library' -RunId $rec.RunId
+            $successorMtime = [datetime]::UtcNow.AddHours(-2)
+            [System.IO.File]::SetLastWriteTimeUtc($successor.MarkerPath, $successorMtime)
+
+            Stop-StagingHeartbeat $hb
+            [System.IO.File]::GetLastWriteTimeUtc($successor.MarkerPath) | Should -BeGreaterThan $successorMtime -Because 'without a mismatching identity the late callback freshens the successor'
+        } finally { Stop-StagingHeartbeat $hb }
+    }
+}
+
+Describe 'No RUN.inprogress ever reaches a snapshot (TC-202, SR-075, SR-046, LLR-017)' {
+
+    It 'leaves no marker on the first-run, changed and no-op paths, and the snapshot prunes cleanly (TC-202, SR-075, SR-046, LLR-017)' {
+        $fx = New-BackupSetFixture -Name 'tc202'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+
+        # 1. First run: Complete-ChangeFolder DISCARDS Temp (no prior state).
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $fx.Chg -Recurse -Force -File |
+            Where-Object Name -eq 'RUN.inprogress') | Should -BeNullOrEmpty
+
+        # 2. Changed run: Temp is RENAMED WHOLESALE into Snapshot_*.
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'TWO')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-02-02 00:00:02') | Should -BeTrue
+        $snap = @(Get-ChildItem -LiteralPath $fx.Chg -Directory | Where-Object Name -match '^Snapshot_')
+        $snap.Count | Should -Be 1
+        @(Get-ChildItem -LiteralPath $snap[0].FullName -Recurse -Force -File |
+            Where-Object Name -eq 'RUN.inprogress') |
+            Should -BeNullOrEmpty -Because 'the marker is stopped, drained and deleted immediately before finalize'
+
+        # 3. No-op run: manifest unchanged, Temp discarded again.
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-03-03 00:00:03') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $fx.Chg -Recurse -Force -File |
+            Where-Object Name -eq 'RUN.inprogress') | Should -BeNullOrEmpty
+
+        # 4. ...and that snapshot prunes WITHOUT an unreferenced-data refusal.
+        $pruned = @(Remove-BackupSnapshot -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Name $snap[0].Name)
+        $pruned[0].Status | Should -Be 'Pruned'
+        $pruned[0].Code | Should -Be 0
+    }
+
+    It 'NEGATIVE CONTROL: a marker left in a snapshot IS refused as unreferenced data (TC-202, SR-046, SR-075)' {
+        # RUN.inprogress is deliberately NOT in Test-IsInfrastructureFile's
+        # root-level list, so left in place it counts as a data file the
+        # snapshot's own manifest does not name - SR-046's rail then refuses
+        # that snapshot forever. This is why step 12.9 deletes the leaf.
+        $fx = New-BackupSetFixture -Name 'tc202-neg'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeTrue
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'TWO')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-02-02 00:00:02') | Should -BeTrue
+
+        $snap = @(Get-ChildItem -LiteralPath $fx.Chg -Directory | Where-Object Name -match '^Snapshot_')[0]
+        [System.IO.File]::WriteAllText((Join-Path $snap.FullName 'RUN.inprogress'), '{"SchemaVersion":1}')
+
+        $refused = @(Remove-BackupSnapshot -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Name $snap.Name)
+        $refused[0].Status | Should -Be 'Refused'
+        @($refused[0].Refusals | Where-Object Kind -eq 'unreferenced-data') |
+            Should -Not -BeNullOrEmpty -Because 'a surviving marker is unexplained bytes to prune'
     }
 }
