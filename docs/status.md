@@ -34,6 +34,12 @@ last) — it is the record, not required reading for every pass.
   [defect-review-2026-08-31-stale-temp-lock.md](defect-review-2026-08-31-stale-temp-lock.md)
   (its D-2 is **withdrawn as a false finding** — the README section it called missing
   has existed since 2026-08-23).
+  **Revised 2026-08-31 (same day) after a plan-stage composite review** — driver
+  self-review + an independent OpenAI Codex CLI pass — which found five P0-class
+  design gaps in the first draft (lock-theft window, unworkable scriptblock timer
+  callback, a recursive-delete race, missing fencing, fail-open enumeration). All
+  accepted findings are folded in; dispositions are recorded in the plan's §10.
+  The plan remains PROPOSED and the approval decision is unchanged in kind.
 - **THE CONTAINER IS BUILT AND ACCEPTANCE-TESTED (2026-08-28), so the HomeHub
   surface is no longer unverified.** Earlier in this session I recorded that it
   could not be built here and deferred it to CI. That was a WRONG DIAGNOSIS,
@@ -5263,3 +5269,22 @@ found P0s that in-house testing had missed.
 evidence at `/mnt/backup-drive/library-changes/Temp`. Unblocking it is one `mv`
 (plan §9) and does not depend on WP14; three independent checks confirm it holds
 nothing.
+
+**2026-08-31 (later) — WP14 plan revised by a two-reviewer plan-stage review.**
+Driver self-review plus an independent **OpenAI Codex CLI** agent (read-only over
+the repo) reviewed the PROPOSED plan; four findings were found by both reviewers
+independently. Composite result: five P0s (resurrected-owner writes land in the
+successor's `Temp`, not the aside folder; the create→marker theft window; a
+PowerShell scriptblock cannot be the timer callback at all; the step-5 recursive
+delete raced a resurrection; enumeration was not fail-closed), five P1s (torn
+marker publish, clock-skew direction reversed, late-callback marker freshening,
+missing heartbeat `finally`, marker-vs-`Complete-ChangeFolder` lifecycle — the
+marker would have been snapshotted and then failed its own snapshot's prune), and
+four P2s (Common placement would have silently forced a KitRevision bump; TC
+numbering drift; scope overclaim vs the still-wedgeable prune). Every accepted
+finding is folded into the plan; three Codex remedies were **rejected with
+reasons** (§10 of the plan): prepare-then-rename acquisition, refusing all
+unparseable markers, disabling reclaim on all remote stores. Decision recorded
+per the HIGH dial: this was doc-only revision of a PROPOSED plan — no code, no
+registry rows. **The human approval gate is unchanged: approve, amend or reject
+the revised plan before any code.**
