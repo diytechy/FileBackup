@@ -521,7 +521,7 @@ before backup processing instead of writing raw bytes described as compressed.
 | `ConfigVersion` | JSON only, required. Currently `2` (version 1 is refused as too old — it carried the removed `PreserveFolderTree` selector). A config declaring a higher version is refused by name rather than half-understood; a missing/non-integer/out-of-range value is a hard error. |
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
 | `SourceStatePath` | Optional writable folder for the source hash-cache `MANIFEST.csv`. Omit for legacy in-source storage; containers should set a unique path outside the read-only source, backup, and change trees. |
-| `CompressEnabled` | `$true`/`true` stores data files as `.7z` (already-compressed extensions are exempt). JSON must use a real boolean, not a quoted string. |
+| `CompressEnabled` | `$true`/`true` allows data files to be re-packed as `.7z`; `false` stores everything verbatim and probes nothing. Which allowed files are actually compressed is decided per object — see "How the stored form is chosen". JSON must use a real boolean, not a quoted string. |
 | `CompressProbe` | Optional; `off` \| `excluded-extensions` \| `always` (default `always`), exact lowercase. How the stored form is decided when `CompressEnabled` is on: `off` trusts the already-compressed extension list alone; `excluded-extensions` keeps the list's exemptions and measures everything it would otherwise compress; `always` measures a sample of the bytes of every file at or above 256 KiB, the list serving only the smaller files. |
 | `AllowEmptySource` | Defaults to `$false`/`false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `true` only for an intentional delete-all. |
 | `BrowseView` | `off` (default) or `index`: generate a browsable, manifest-derived `INDEX.tsv` + per-folder HTML view of the backup, outside the backup root. `link` is reserved and refused by name. |
@@ -548,11 +548,17 @@ their shared content. A store written by a pre-content-addressed build still
 restores and verifies, but backing up onto it is refused; use a fresh
 `BackupPath`.)
 
-### Already-compressed extensions
+### How the stored form is chosen
 
-With `CompressEnabled` on, files with these extensions are stored verbatim
-rather than re-packed (`Compressed=No`), because re-compressing them costs CPU
-and gains nothing:
+With `CompressEnabled` on, every newly written object is stored in one of two
+correct forms — re-packed as `.7z`, or verbatim (`Compressed=No`). Two things
+decide which: the already-compressed extension list, and a measurement of the
+file's own bytes.
+
+#### Already-compressed extensions
+
+These extensions name content that is already compressed, so re-packing them
+costs CPU and gains nothing:
 
 ```
 .zip .7z .z7 .rar .gz .bz2 .xz .tgz .zst .esd
@@ -563,18 +569,84 @@ and gains nothing:
 ```
 
 Matching is on the **extension only**, case-insensitively, never on the path.
-Office and text formats (`.docx`, `.txt`, …) are deliberately **not** on the
-list — they compress well and are stored as `.7z`. The list lives in exactly one
-place, `$script:NonCompressibleExtensions` in `Modules/FileBackup.Common.psm1`;
-this table is checked against it by TC-096.
+The list lives in exactly one place, `$script:NonCompressibleExtensions` in
+`Modules/FileBackup.Common.psm1`; this table is checked against it by TC-096.
 
-Changing the list changes what a *future* run stores. **Nothing already stored is
-ever re-formed** — there is no migration, in either direction. Existing data
-files keep the form they were written with, in the backup root and in every
-snapshot alike, and are restored correctly regardless (see "Restoring an older
-snapshot" below). The same is true of flipping `CompressEnabled`: it governs
-content written after the flip and nothing else. A mixed-form store is normal,
-because compression is decided per file.
+The list is no longer the whole answer. It decides on its own under
+`CompressProbe: off`, it exempts files under `CompressProbe:
+excluded-extensions`, and under the default `always` it decides only the tail of
+files **below the 256 KiB probe floor** — everything at or above the floor is
+measured instead.
+
+#### The probe: the bytes decide
+
+For a file at or above **256 KiB**, FileBackup reads three **256 KiB** samples —
+at the start, the middle and the end (a file smaller than 768 KiB is read once,
+whole, as a single sample) — and compresses them with Brotli at its fastest
+level. The rule is an **aggregate** one: the object is stored as `.7z` only when
+the sampled bytes shrink by **at least 10%** in total; otherwise it is stored
+raw. Aggregating over all three windows is what stops a multi-gigabyte random
+file with a compressible first page from being sent to `-mx=9` whole, and what
+keeps a file only a third of which compresses from being skipped.
+
+The probe runs **only when a group actually has to write**: content the backup
+already holds is a dedup hit and is never probed, so a probe is paid once per
+new object, not once per file per run. It can never fail a run either — if the
+file cannot be sampled (a lock, an I/O error), the decision falls back to the
+extension list's answer with a single `WARN`, which is exactly the pre-probe
+behaviour.
+
+**No name overrides the measurement.** A `.docx` whose bytes will not shrink is
+stored raw; a `.jpg` whose bytes will shrink is stored as `.7z`. That is a
+deliberate ruling (WP17, Q7): the need is to *save space*, the extensions named
+in the acceptance criteria are examples of the old mechanism rather than rules
+about those formats, and measured bytes serve the need better than any filename
+can.
+
+#### `CompressProbe` — the three modes
+
+| `CompressProbe` | at or above the 256 KiB floor | below the floor |
+|---|---|---|
+| `off` | the extension list alone decides — exactly the pre-probe behaviour | the list |
+| `excluded-extensions` | the list still exempts what it names; everything else is probed | the list |
+| **`always`** (default; the key may be omitted) | **every file is probed**, listed extensions included — the list is not consulted | the list |
+
+`CompressEnabled: false` comes before all three: nothing is compressed and
+nothing is probed.
+
+**What `always` costs on the first run, honestly.** Every object the first pass
+writes above the floor is probed once. On a large media library that is on the
+order of *tens of thousands* of probes and *tens of GiB* of sampled reads —
+once, in exchange for the `-mx=9` CPU those files would otherwise have burned
+(on the library that prompted the change, ~880 GB of pointless re-packing).
+Later runs probe only genuinely new content. The figure is measured, not
+estimated: each set's summary reports `Probe reads: <bytes>` alongside
+`Probe stored raw: <n> objects, <bytes>` and `Probe compressed: <n> objects,
+<bytes>`, and every written group logs its own decision at `DEBUG` as
+`compress-decision: <path> <Reason> ratio=<aggregate> windows=<per-sample>` —
+run with `-LogLevel DEBUG` to see why any single object took the form it did.
+
+#### Nothing already stored is ever re-formed
+
+Changing the list, or the mode, changes what a *future* run stores. **Nothing
+already stored is ever re-formed** — there is no migration, in either direction.
+Existing data files keep the form they were written with, in the backup root and
+in every snapshot alike, and are restored correctly regardless (see "Restoring
+an older snapshot" below). An object that dedup already locates is adopted
+*before* the probe is ever consulted, so no stored object's form is re-decided.
+The same is true of flipping `CompressEnabled`: it governs content written after
+the flip and nothing else. A mixed-form store is normal, because the form is
+decided per object.
+
+> **A blank-row form disagreement after a list or mode change is expected.**
+> Once the list or the mode changes, the pool can legitimately hold **both**
+> forms of one content — say a `.z7` archived as `.7z` before the change and
+> re-added raw afterwards. Pruning keeps one copy and blanks the other
+> snapshot's row, whose recorded form may then disagree with the copy that
+> survives, and `-Action Verify` reports that row as a (report-only)
+> `BlankRowFormDisagreement`. On a store whose list or mode changed, that
+> finding is **benign**: both restorers decide the form from the file they
+> actually locate, so every row still restores byte-exact.
 
 > **After a form change, prune checks each snapshot's kit revision.** Flipping
 > `CompressEnabled` (or changing the extension list) means newly stored copies

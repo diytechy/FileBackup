@@ -723,6 +723,16 @@ is absent.
 | **Sorting the source walk** | It would make `CurrentPath` a true position indicator, which is what the obs review §9's `/proc` observation made tempting. It is also a change to the enumeration on the hottest data path in the product, for a presentation benefit. Explicitly out (§2.2). |
 | **Anything that makes telemetry authoritative** | Alarm thresholds, "run is stuck" detection, exit codes for stalls: HomeHub owns alarm policy under IF-001 (I-4), and WP14 Part D's branch tokens already give it what it needs for the *stale lock* case. WP16's job is to make a *healthy long run* visible; deciding what to do about an unhealthy one is the wrapper's. |
 
+**Cross-note — WP17 landed first (2026-09-01).** WP17 (the compressibility probe)
+shipped ahead of this package and added **one new proportional `DEBUG` site** —
+`compress-decision: <rel> <Reason> ratio=<agg> windows=<r1,r2,r3>`, emitted once per
+*written* group in `Invoke-BackupFileGroup` — plus three per-set summary lines
+(`Probe stored raw`, `Probe compressed`, `Probe reads`). WP16's `DEBUG`-site
+enumeration — **SR-079, LLR-082 and TC-212** — must therefore include the
+`compress-decision:` site when WP16 lands, so the level threshold covers it and
+TC-212's site census does not read short. This was agreed in both directions in
+WP17's plan §2.4 ("WP16 interplay"); nothing else in this plan changes.
+
 **WP15's relationship to this package — presented, not decided.** WP15 (a heartbeat and
 owner record for `Remove-BackupSnapshot`, from WP14 §7) is a deferred package that today
 holds **no registry rows of its own**. It overlaps WP16 in two places now: both add new

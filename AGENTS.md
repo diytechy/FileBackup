@@ -301,11 +301,15 @@ Imports (internal): `Common`
 - **Nothing already stored is ever re-formed** (SR-061). `CompressEnabled`
   governs only content written after the change; a mixed-form store is normal,
   because compression is per-file (SR-004) and every row's `Compressed` describes
-  its OWN object. There is no storage-layout migration — a store whose manifest
-  carries the legacy `StoredAsHashSize='Original'` fails its backup set before
-  any mutation, naming the remedy (a fresh `BackupPath`), and is reported as a
-  finding under `-Action Verify`. Reading a legacy store never breaks — only
-  writing to one. **That is no longer true as of kit revision 7** (human ruling
+  its OWN object. That per-file form is decided by the exempt list first, then —
+  for anything above the 256 KiB floor under the default `always` mode — by a
+  sampled probe of the bytes (SR-081); **no extension overrides the
+  measurement** (Owner ruling Q7): the list alone decides under `off`, and
+  exempts under `excluded-extensions`. There is no storage-layout migration — a
+  store whose manifest carries the legacy `StoredAsHashSize='Original'` fails its
+  backup set before any mutation, naming the remedy (a fresh `BackupPath`), and
+  is reported as a finding under `-Action Verify`. Reading a legacy store never
+  breaks — only writing to one. **That is no longer true as of kit revision 7** (human ruling
   2026-08-26): reading one is refused as well. Both restorers scan the authority
   manifest before the target exists and exit 2, writing nothing, when a row
   carries `StoredAsHashSize='Original'` or a `DataPath` containing a path

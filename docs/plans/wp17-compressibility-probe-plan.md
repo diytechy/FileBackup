@@ -162,7 +162,9 @@ An I/O shell with a pure core, per CLAUDE.md:
   codecs and real `7z -mx=9` over the corpus classes the review names — genuine `.z7`,
   a store-mode `.zip`, media, text, a long-range-repetition file, mixed content — and
   the codec is chosen from that table, recorded in LLR-086 with the numbers. The
-  decision rule and every test are codec-agnostic. Whichever codec wins, on the
+  decision rule and every test are codec-agnostic. (Calibration table:
+  [wp17-codec-calibration.md](wp17-codec-calibration.md); Brotli chosen — see
+  LLR-086.) Whichever codec wins, on the
   question the probe asks — "is this near-uniform entropy?" — the `.z7` set reads ~0%
   and text ~60–80%; precedent: ZFS LZ4 early-abort, Btrfs entropy sampling.
   **Is 256 KiB enough per sample?** (Owner's question.) For that question, yes with

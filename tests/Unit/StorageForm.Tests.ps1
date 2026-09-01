@@ -843,7 +843,9 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
     # EXTENSION at ITS OWN LENGTH without hashing at all, and -Deep keeps the
     # hash. These arms pin both directions.
     #
-    # TC-229 full arm (probe-mixed store + both restorers byte-exact): row 7.
+    # The FULL arm - a probe-mixed store built by a real run, audited clean
+    # non-Deep and -Deep, and restored byte-exact - is the last two cases below
+    # (plan section 8 row 7).
     BeforeAll {
         function New-SevenZipMagicFile {
             <#
@@ -1002,6 +1004,140 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
         @(Test-BackupStorageForm -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
         Should -Invoke Get-FileXxHash -ModuleName FileBackup.Engine -Times 1 `
             -Because 'only an object under its OWN extension takes the cheap path'
+    }
+
+    It 'probe-mixed store: Verify clean, both restorers byte-exact (TC-229)' {
+        # TC-229's FULL arm (plan section 8 row 7, dual review R-5). The three
+        # Part-A arms above bend a store by hand; this one builds a genuinely
+        # PROBE-MIXED store through a real run under the shipped default
+        # (CompressProbe absent => 'always') and then asks the two questions the
+        # package promises: does the SR-049 audit still call such a store clean,
+        # and does the standalone restorer reproduce every byte of it?
+        #
+        # Four files, one per decision path (SR-081 Resolve-CompressionDecision):
+        #   notes.txt   1.5 MiB of repeated text, above the 256 KiB floor
+        #                 -> ProbeCompressible   => stored '.7z'
+        #   blob.qqq    1.5 MiB of random bytes under an UNLISTED extension
+        #                 -> ProbeIncompressible => stored RAW. Before WP17 the
+        #                    name alone would have sent it to -mx=9; .qqq is on
+        #                    no list, so only the measurement can save it.
+        #   library.z7  1.5 MiB of 7-Zip magic over random padding
+        #                 -> raw, and its row is the Compressed=No-over-archive-
+        #                    magic shape the non-Deep exemption exists for.
+        #   small.txt   below the floor -> BelowFloor, the LIST decides => '.7z'
+        if (-not (Test-Path -LiteralPath $script:sevenZip)) {
+            Set-ItResult -Skipped -Because "no 7-Zip at '$script:sevenZip'; a mixed-form store needs a real compressor"
+            return
+        }
+        $root = Join-Path $TestDrive 'tc229-mixed'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
+
+        # 1.5 MiB: above the 256 KiB floor AND above 3 x 256 KiB, so the probe
+        # reads three separate windows rather than the whole-file single sample.
+        $aboveFloor = 1536KB
+        [IO.File]::WriteAllText((Join-Path $src 'notes.txt'), ('COMPRESSIBLE TEXT LINE ' * 70000))
+        (Get-Item -LiteralPath (Join-Path $src 'notes.txt')).Length |
+            Should -BeGreaterThan $aboveFloor -Because 'the text file must clear the probe floor too'
+        $rnd = New-Object byte[] $aboveFloor
+        [Random]::new(20260901).NextBytes($rnd)
+        [IO.File]::WriteAllBytes((Join-Path $src 'blob.qqq'), $rnd)
+        New-SevenZipMagicFile -Path (Join-Path $src 'library.z7') -Size $aboveFloor -Seed 20260902
+        [IO.File]::WriteAllText((Join-Path $src 'small.txt'), ('SMALL ' * 200))
+
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        $byPath = @{}
+        foreach ($r in $rows) { $byPath[$r.RelativePath] = $r }
+
+        # The fixture only means anything if the run really produced the mix.
+        foreach ($expect in @(
+            @{ Name = 'notes.txt';  Compressed = 'Yes'; Ext = '.7z';  Why = 'the probe finds repeated text compressible' }
+            @{ Name = 'blob.qqq';   Compressed = 'No';  Ext = '.qqq'; Why = 'the BYTES are random, and no list exempts .qqq' }
+            @{ Name = 'library.z7'; Compressed = 'No';  Ext = '.z7';  Why = 'a 7-Zip archive is not re-packed' }
+            @{ Name = 'small.txt';  Compressed = 'Yes'; Ext = '.7z';  Why = 'below the floor the LIST decides, and it says compress' }
+        )) {
+            $row = $byPath[$expect.Name]
+            $row | Should -Not -BeNullOrEmpty -Because "$($expect.Name) must be in the manifest"
+            $row.Compressed | Should -Be $expect.Compressed -Because $expect.Why
+            [IO.Path]::GetExtension($row.DataPath) | Should -Be $expect.Ext -Because $expect.Why
+        }
+        # ...and, as a property rather than row by row: the store holds BOTH
+        # forms, with at least one raw object above the probe floor.
+        @(Get-ChildItem -LiteralPath $bkp -File -Filter '*.7z').Count |
+            Should -BeGreaterThan 0 -Because 'a mixed store holds compressed objects'
+        @(Get-ChildItem -LiteralPath $bkp -File | Where-Object {
+            $_.Extension -ne '.7z' -and $_.Length -gt 256KB -and
+            -not (Test-IsInfrastructureFile -Root $bkp -FullPath $_.FullName)
+        }).Count | Should -BeGreaterThan 0 -Because 'a mixed store holds raw objects the probe chose, above the floor'
+
+        # 1. The SR-049 audit calls the mixed store CLEAN - both forms are still
+        #    just forms - non-Deep and under -Deep, and Verify exits 0.
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) |
+            Should -BeNullOrEmpty -Because 'every row describes its own object correctly'
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg -Deep -SevenZipPath $script:sevenZip) |
+            Should -BeNullOrEmpty -Because '-Deep must reproduce every payload from the object stored for it'
+        Invoke-VerifyExitCode -Cfg $cfg | Should -Be 0
+
+        # 2. The deployed Windows restore kit reproduces every file byte-exact,
+        #    whichever form the probe chose for it.
+        $out = Join-Path $root 'out-ps'
+        & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $out *>&1 | Out-Null
+        foreach ($name in 'notes.txt', 'blob.qqq', 'library.z7', 'small.txt') {
+            (Get-FileHash -LiteralPath (Join-Path $out $name) -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath (Join-Path $src $name) -Algorithm SHA256).Hash `
+                -Because "$name must come back byte-exact whichever form it was stored in"
+        }
+    }
+
+    It 'probe-mixed store: the bash restorer reproduces it byte-exact (TC-229, bash-v1)' {
+        # The bash half of TC-229. No Pester test in this repo invokes
+        # reconstruct.sh: every bash-restorer assertion lives in tests/bash/*.bats
+        # against the committed goldens scripts/gen_bash_fixtures.ps1 writes,
+        # because the Windows hosts these suites run on carry none of the three
+        # tools reconstruct.sh gates on (bash 4+, gawk, xxhsum). Those goldens
+        # are a fixed small-file timeline with no object above the 256 KiB probe
+        # floor, and hosting a probe-mixed store in them would mean committing
+        # multi-MiB binary fixtures and re-cutting every expected TSV - a fixture
+        # change outside this row's scope. So the arm builds the same mixed store
+        # and runs the real restorer where the tools exist, and SKIPS loudly
+        # where they do not, rather than asserting nothing quietly.
+        $missing = @('bash', 'gawk' | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
+        if (-not (Get-Command 'xxhsum' -ErrorAction SilentlyContinue) -and
+            -not (Get-Command 'xxh128sum' -ErrorAction SilentlyContinue)) { $missing += 'xxhsum' }
+        if ($missing) {
+            Set-ItResult -Skipped -Because ("reconstruct.sh needs $($missing -join ', ') on PATH; " +
+                'on Windows the bash restorer is covered by tests/bash/*.bats (bash-v1)')
+            return
+        }
+        if (-not (Test-Path -LiteralPath $script:sevenZip)) {
+            Set-ItResult -Skipped -Because "no 7-Zip at '$script:sevenZip'; a mixed-form store needs a real compressor"
+            return
+        }
+
+        $root = Join-Path $TestDrive 'tc229-mixed-sh'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
+        [IO.File]::WriteAllText((Join-Path $src 'notes.txt'), ('COMPRESSIBLE TEXT LINE ' * 70000))
+        $rnd = New-Object byte[] 1536KB
+        [Random]::new(20260901).NextBytes($rnd)
+        [IO.File]::WriteAllBytes((Join-Path $src 'blob.qqq'), $rnd)
+        New-SevenZipMagicFile -Path (Join-Path $src 'library.z7') -Size 1536KB -Seed 20260902
+        [IO.File]::WriteAllText((Join-Path $src 'small.txt'), ('SMALL ' * 200))
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+
+        $out = Join-Path $root 'out-sh'
+        & bash (Join-Path $bkp 'reconstruct.sh') --from $bkp --target-root $out *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0 -Because 'a clean restore of a healthy store exits 0'
+        foreach ($name in 'notes.txt', 'blob.qqq', 'library.z7', 'small.txt') {
+            (Get-FileHash -LiteralPath (Join-Path $out $name) -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath (Join-Path $src $name) -Algorithm SHA256).Hash `
+                -Because "$name must come back byte-exact from the bash restorer too"
+        }
     }
 }
 
