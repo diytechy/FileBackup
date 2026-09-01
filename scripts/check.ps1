@@ -118,8 +118,11 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # name-v1 shipped 2026-08-27 (SR-069/SR-070, base-57 name grammar, kit rev 9).
     # form-v1 shipped 2026-08-26 (SR-068, byte-derived stored form, kit rev 8):
     # flipped Verified with TC-141 Pass in the SAME commit that armed it.
+    # probe-v1 shipped 2026-09-01 (WP17, SR-081 measured compressibility gate):
+    # SR-081 flipped Verified, LLR-086 flipped Verified and TC-222..231 flipped
+    # Pass in the SAME commit that armed it here.
     # bash-v2 (SR-033) remains the one phase-deferred row.
-    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1,form-v1,name-v1') }
+    if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1,form-v1,name-v1,probe-v1') }
     python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 

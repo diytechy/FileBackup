@@ -24,7 +24,38 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **WP17 PLAN APPROVED — Owner, 2026-09-01, revision 4 ("Scanned through
+- **WP17 EXECUTED THROUGH ROW 9 — G3 (2026-09-01, coordinator session; commits
+  b52fe2e, deb0d65, 5795391, 03e628e, a7fe065, 7764596, 93637f5, 369cd6a + the row-9
+  commit). The probe ships: `Measure-SampleCompressibility` (Brotli Fastest, three
+  256 KiB windows, count after Dispose, FileShare.Read, length/mtime stability check),
+  `Resolve-CompressionDecision` (rule 0 first, aggregate 0.10, 256 KiB floor, list
+  fallback), `Resolve-GroupStorageForm` (lazy, memoized per group, owner-then-members
+  walk), `CompressProbe` on all nine surfaces (`off|excluded-extensions|always`,
+  default `always`, scalar string, both formats, ConfigVersion 2), Part A's twelve
+  extensions, KitRevision 11, the LLR-049 Verify exemption NARROWED to list-exempt
+  own-name own-length objects (plan §11 R-1). Dual implementation review (Codex CLI
+  1 P0/5 P1/3 P2; fresh Opus 0 P0/1 P1/8 P2) consolidated into plan §11 — 16
+  dispositions, 9 folded in commit 5.1, 2 rejected as re-litigating Owner rulings
+  (ConfigVersion 3; counter partition), 2 premature (scheduled into rows 7–8). Every
+  gate coordinator-run: rows 2–4/7 Smoke, row 5 and 5.1 Full (790→798 unit, 274
+  integration), row 8 Release (799 unit / 274 integration) + TC-230 in the real
+  Linux image (`Probe reads: 7077888 bytes`, wall 2.22 s, 10/10 byte-exact,
+  docker 29.6.1). `probe-v1` added to check.ps1's G3 filter; `check.ps1 -Gate G3`
+  is clean apart from WP14's two pending commit-7 rows (SR-017, SR-075).
+  NEXT ACTION (Owner): rebuild the hub image from this branch and rerun the first
+  pass per plan §9 (move `Temp` aside, empty the backup root, keep
+  `SourceStatePath`). THREE ITEMS SURFACED, NON-BLOCKING (dial HIGH): (a) the R-1
+  narrowing of the Verify exemption — more conservative than the approved §2.1 rule,
+  same 880 GB saving; confirm or widen; (b) `BrowseView` shares the CLIXML
+  one-element-array validator hole R-3 closed for `CompressProbe` (two-line fix,
+  out of WP17 scope); (c) after a list/mode change a pool can hold both forms of
+  one content and Verify reports a benign non-repairable `BlankRowFormDisagreement`
+  on the blanked snapshot row (R-15) — documented; the audit-semantics change
+  ("flag only when NO location agrees") awaits a ruling. Environment gotcha
+  recorded: a hidden-window launch of the gate stalls on the pre-existing
+  RestoreVerify "7-Zip that cannot run" test (its text-file `fake7z.exe` raises a
+  Windows "Unsupported 16-Bit Application" dialog); console-attached runs do not.**
+- *(superseded by the entry above — execution ran 2026-09-01)* **WP17 PLAN APPROVED — Owner, 2026-09-01, revision 4 ("Scanned through
   it, looks good, I approve"). NEXT ACTION: execute plan §8 rows 2–9 under the
   WP14 coordinator model (Opus implementer per row, coordinator runs every
   gate, dual Codex+Opus implementation review after row 5 into plan §11).
@@ -5568,3 +5599,32 @@ floor, 0.10 aggregate threshold, KitRevision current+1 with Part A, the LLR-049
 Verify exemption in Part A, `probe-v1` phase with `-Gate G2` for rows 2–8, and the
 dual implementation review after row 5. Execution not started in this session.
 
+**2026-09-01 — WP17 EXECUTED, rows 2–9 (coordinator session).** One Opus implementer per
+row, coordinator ran every gate and made every commit. Row 2 registry deltas (SR-081,
+LLR-086, TC-222..231, amendments) — trace 0/0. Row 3 Part A — Common list +12 with the
+Q7 comment rewrite, KitRevision 10→11 in both restorers + TC-173 pin, README table,
+LLR-049 Verify exemption, TC-222/229/231 arms — Smoke 607/0 (a first run with a
+concurrent Pester process flaked WP14's TC-191 race; solo rerun clean). Row 4 Part B1 —
+probe + pure decision core + codec calibration (Brotli beat Deflate 1 wrong vs 2 over
+eleven corpus files incl. a real .mkv/.mp4 and 30 JPEGs, ~1/5 the CPU; table in
+`docs/plans/wp17-codec-calibration.md` and LLR-086), TC-223 87 cases — Smoke 694/0.
+Row 5 Part B2 — lazy memoized wiring with the candidate walk, `CompressProbe` on nine
+surfaces, DEBUG line + counters, TC-224..228/231 (82 cases), three negative controls
+shown to fail fix-removed — Full 790/0 + 274/0. Row 6 dual review: Codex CLI (after a
+usage-limit retry) and a fresh Opus, same brief; 16 composite dispositions in plan §11;
+R-1 (both) narrowed the Verify exemption, R-3 closed the CLIXML array hole, R-4 corrected
+a premise (FileShare.Read IS exclusive of writers on Windows — verified live; advisory
+on POSIX) and added a stability check, R-10 refuses a mixed-case mode before any read,
+R-11/R-12 fixed vacuous assertions; commit 5.1 — Full 798/0 + 274/0. Row 7 Part C —
+README "How the stored form is chosen" (sub-heading literal kept for TC-096), AGENTS.md
+§3, WP16 §7 cross-note, TC-229 full arm (probe-mixed store, Verify clean, RECONSTRUCT.ps1
+byte-exact; bash half skipped on Windows by precedent) — Smoke 799/0/1 skipped. Row 8 —
+`Test-ContainerCompressProbe` in Invoke-Container.ps1, coordinator-run in WSL Ubuntu
+Docker: "TC-230: 10 rows, 9 probed; Probe stored raw: 4 objects, 4194304 bytes; Probe
+compressed: 5; Probe reads: 7077888 bytes; backup wall time: 2.22 s; restored
+byte-exact: 10/10; docker 29.6.1" — Release tier 799/0 + 274/0/2 skipped. Row 9 —
+probe-v1 rows Verified/Pass, phase added to check.ps1's G3 filter, this entry. Pending
+from earlier sessions, untouched: WP14 commit 7 (exFAT/USB + hub Linux-over-exFAT
+evidence from the Owner), WP16 PROPOSED (six open questions; its KitRevision becomes 12
+and re-amends TC-173/LLR-076), the observability review §9 baseline.
+Also flipped in row 9: TC-173 (the KitRevision pin, `RestoreLaunchers.Tests.ps1`) `Draft` → `Pass` and LLR-076 `Draft` → `Verified` — both predate WP17 and the pin has passed in every gate run today; Part A re-verified it (plan §3).
