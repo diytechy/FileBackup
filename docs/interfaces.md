@@ -61,9 +61,13 @@ view mount.
 7-Zip's `-mx` effort level as a single digit `0`–`9`, default `9`; it is
 deliberately **not** a configuration key, so `ConfigVersion` stays `2`. It
 changes only how hard 7-Zip tries — never *whether* content is compressed, and
-never the restore contract: every level's archive is read back by the same kit
-and neither restorer reads the variable. An invalid value fails a
-compression-enabled backup on the existing exit `2` before anything is written.
+never the restore contract: the restorers read no *policy* from the variable and
+restore correctness is level-independent, every level's archive being read back
+by the same kit. (`Reconstruct.ps1`'s host self-test compresses a throwaway
+probe file of its own, so that probe archive inherits the resolved level —
+harmless, because every `0`–`9` archive round-trips.) An invalid value fails a
+compression-enabled backup on the existing exit `2` (a terminating error without
+`-ExitCode`) before anything is written.
 
 **Retention: policy vs. mechanism.** HomeHub decides *what* to keep; FileBackup
 decides *how* a snapshot is safely removed. **HomeHub must never delete a

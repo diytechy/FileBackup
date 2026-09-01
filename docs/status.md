@@ -24,6 +24,36 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **FILEBACKUP_7Z_LEVEL SHIPPED — kit revision 12 (2026-09-01, coordinator session;
+  commits 710bd4b + the review-fold commit).** Owner ruling: the right `-mx` level on
+  the real library is unknown, so it must be configurable before the hub rerun
+  produces data (pulls forward WP17 §7's "-mx itself" deferral). Env var, not a
+  config key (the `FILEBACKUP_7ZIP_PATH` container-friendly contract): single digit
+  0–9, default 9; resolved once at Common import, which NEVER throws (Common is in
+  every restore kit); a compression-enabled backup refuses an invalid value by name
+  pre-mutation on the existing exit-2 path. Coordinator's measured context for the
+  eventual level choice (32 MiB text / 24 MiB mixed-third): mx=1 ≈ 0.19/0.73 at
+  312/139 MB/s; mx=9 ≈ 0.12/0.71 at ~3–10 MB/s — the cliff is mx=3→5.
+  **Dual adversarial review** (fresh Opus 9 findings; OpenAI via Codex CLI 8 —
+  the Owner asked for terra-medium, which this Codex ChatGPT account cannot run
+  (400 "not supported"); the account default gpt-5.6-sol reviewed instead,
+  recorded as a deviation). **Both found the same P0 independently, coordinator-
+  reproduced: `-contains` on strings is culture-sensitive, so digit lookalikes
+  ('9'+U+200B/U+FEFF/U+00AD, U+0669, U+1D7E1) passed the gate and the `[int]`
+  cast THREW AT COMMON'S IMPORT — inside every restore kit.** Fixed: ordinal
+  `-cmatch '^[0-9]$'` + a structural try/catch so the never-throw guarantee is
+  enforced, with restore-kit-layout lookalike import arms and real-7-Zip level
+  0/1 round-trip arms (TC-232 now 24 arms). Also folded: restorer-overclaim
+  reworded (the self-test probe inherits the level — harmless, every level
+  round-trips), escaped refusal rendering, README `Probe compressed` counter
+  fixed to the real line shape, mx=0-is-store-mode warning, process-scope
+  caveat, Windows-only test annotation, TC-232 row narrowed. Rejected with
+  reasons: `Exit-ConfigFailure` log-append (pre-existing shared refusal path),
+  explicit level plumbing through Engine (documented instead), SR-052 capacity
+  headroom for compressed rows (pre-existing — a below-floor list-compressed
+  tiny file could always exceed its source size; **surfaced to the Owner** as an
+  optional follow-up alongside mx=0). WP16 (still PROPOSED) now takes
+  KitRevision 13.
 - **WP17 EXECUTED THROUGH ROW 9 — G3 (2026-09-01, coordinator session; commits
   b52fe2e, deb0d65, 5795391, 03e628e, a7fe065, 7764596, 93637f5, 369cd6a + the row-9
   commit). The probe ships: `Measure-SampleCompressibility` (Brotli Fastest, three
@@ -5661,3 +5691,14 @@ confirmation samples. Verbatim exFAT evidence (H:ackup.log / H:\staging-reclaim
 `[SR-075/content-refused] ... moving it aside ... FAILED: ... Access to the path 'H:\Temp' is
 denied. Refusing without retrying and without deleting anything`. TC-195 still needs the
 hub (WSL kernel lacks exfat).
+
+**2026-09-01 — FILEBACKUP_7Z_LEVEL (kit revision 12).** Owner ruled the 7-Zip level
+configurable; implemented as an import-resolved env override (0–9, default 9) with a
+pre-mutation exit-2 refusal for invalid values on compression-enabled backups; TC-232;
+SR-004/SR-037/LLR-004/LLR-037 amended; IF-001 env enumeration extended. Dual adversarial
+review (Opus + Codex CLI gpt-5.6-sol — terra-medium unavailable on this account) found a
+coordinator-reproduced P0 both raised independently: culture-sensitive `-contains` let
+Unicode digit lookalikes reach an `[int]` cast that threw at Common import inside every
+restore kit. Folded (ordinal match + structural try/catch + lookalike and real-7z
+round-trip arms) plus eight smaller accepted findings; three rejected with recorded
+reasons. Gates coordinator-run: Smoke 814/0 (feature), Smoke 823/0 (fold), trace 0/0.

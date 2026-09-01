@@ -184,8 +184,15 @@
                                 WHETHER a file is compressed (SR-081 decides
                                 that) - every level's archive restores with the
                                 same kit. A compression-enabled backup refuses
-                                an invalid value up front with status 2 and
-                                creates nothing; restores ignore the variable.
+                                an invalid value up front and creates nothing
+                                (status 2 under -ExitCode, a terminating error
+                                otherwise). The restorers read no POLICY from
+                                the variable and restore correctness is
+                                level-independent; Reconstruct.ps1's host
+                                self-test does compress its own tiny probe
+                                file, so that throwaway archive inherits the
+                                resolved level - harmless, because every 0-9
+                                archive round-trips.
         FILEBACKUP_LOG_PATH     Default -GlobalLogPath.
 
     Entry-point status codes (SR-043; container/entrypoint.sh passes -ExitCode):
@@ -351,7 +358,15 @@ $Sets    = $cfgResult.Sets
 if ($Action -eq 'Backup') {
     $badSevenZipLevel = (Get-FileBackupDefaults).SevenZipCompressionLevelInvalid
     if ($null -ne $badSevenZipLevel -and @($Sets | Where-Object { $_.CompressEnabled }).Count -gt 0) {
-        Exit-ConfigFailure -Message ("FILEBACKUP_7Z_LEVEL is '$badSevenZipLevel', which is not a valid 7-Zip " +
+        # Render the rejected value DEFENSIVELY. Printed raw, '9 ' or a '9'
+        # followed by a zero-width space reads as "'9' is not valid" and sends
+        # the operator hunting a phantom: escape everything outside printable
+        # ASCII as \uXXXX and state the length outright.
+        $shownSevenZipLevel = (([string]$badSevenZipLevel).ToCharArray() | ForEach-Object {
+            if ($_ -cmatch '[ -~]') { $_ } else { '\u{0:X4}' -f [int]$_ }
+        }) -join ''
+        Exit-ConfigFailure -Message ("FILEBACKUP_7Z_LEVEL is '$shownSevenZipLevel' " +
+            "($(([string]$badSevenZipLevel).Length) characters), which is not a valid 7-Zip " +
             'compression level: it must be a single digit 0-9 (7-Zip -mx range). Unset it to use the default 9.')
     }
 }

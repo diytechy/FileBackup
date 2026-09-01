@@ -521,14 +521,20 @@ single digit `0`–`9` (7-Zip's own `-mx` range), **default `9`** when the
 variable is unset. It is an environment variable rather than a configuration
 key, so it needs no `ConfigVersion` bump and can be set per deployment. A lower
 level trades compression ratio for CPU time and wall clock; it never changes
-*whether* a file is compressed (see "How the stored form is chosen") and never
-affects restore — every level's archive is read back by the same kit, and
-neither restorer looks at the variable. To pick a level for your data, run at
-two levels and compare each set's `Probe compressed: <n> objects, <bytes>` and
-`Probe reads: <bytes>` summary counters (see "How the stored form is chosen")
-against the wall clock. An invalid value is refused by name before a
-compression-enabled backup creates anything (status 2, the configuration/usage
-class); a `CompressEnabled: false` run and a restore are unaffected by it.
+*whether* a file is compressed (see "How the stored form is chosen"). Note that
+`0` is 7-Zip's *store* mode: the object is still a `.7z` container, holding the
+bytes uncompressed, so it comes out slightly **larger** than the source — use
+`1` rather than `0` when the goal is speed. Restore correctness is
+level-independent: the restorers read no *policy* from the variable, and every
+level's archive is read back by the same kit. (`Reconstruct.ps1`'s host
+self-test compresses a tiny throwaway probe file of its own, which does inherit
+the resolved level — harmless, precisely because every `0`–`9` archive
+round-trips.) To pick a level for your data, run at two levels and compare each
+set's `Probe compressed: <n>` count and the pool's disk usage — the honest
+measure of the ratio you actually bought — against the wall clock. An invalid
+value is refused by name before a compression-enabled backup creates anything
+(status 2 under `-ExitCode`, a terminating error otherwise); a
+`CompressEnabled: false` run and a restore are unaffected by it.
 
 | Field | Meaning |
 |---|---|
@@ -634,9 +640,10 @@ order of *tens of thousands* of probes and *tens of GiB* of sampled reads —
 once, in exchange for the `-mx=9` CPU those files would otherwise have burned
 (on the library that prompted the change, ~880 GB of pointless re-packing).
 Later runs probe only genuinely new content. The figure is measured, not
-estimated: each set's summary reports `Probe reads: <bytes>` alongside
-`Probe stored raw: <n> objects, <bytes>` and `Probe compressed: <n> objects,
-<bytes>`, and every written group logs its own decision at `DEBUG` as
+estimated: each set's summary reports `Probe stored raw: <n> objects, <bytes>`,
+`Probe compressed: <n>` (a count — the compressed objects' bytes are not
+totalled) and `Probe reads: <bytes>`, and every written group logs its own
+decision at `DEBUG` as
 `compress-decision: <path> <Reason> ratio=<aggregate> windows=<per-sample>` —
 run with `-LogLevel DEBUG` to see why any single object took the form it did.
 

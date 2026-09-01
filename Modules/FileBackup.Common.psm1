@@ -187,16 +187,40 @@ if ([string]::IsNullOrWhiteSpace($script:FfprobePathDefault) -or
 # path). The level never decides WHETHER content is compressed - that is
 # SR-081's decision - only how hard 7-Zip tries; every level's archive restores
 # with the same kit.
+#
+# PROCESS-SCOPED, resolved once here at import: the level may only ever change
+# across PROCESSES. Re-importing this module with -Force into a session that
+# already holds FileBackup.Engine re-resolves it for THIS instance only -
+# Engine's nested Common instance keeps the OLD level, so Get-FileBackupDefaults
+# would report a level the compressor is not using. FileBackup.ps1's own import
+# order is safe (Common is imported once, before Engine, and the variable is
+# never changed mid-run).
 # Implements: SR-004, SR-037, LLR-004, LLR-037
 $script:SevenZipCompressionLevel        = 9
 $script:SevenZipCompressionLevelInvalid = $null
 $sevenZipLevelRaw = $env:FILEBACKUP_7Z_LEVEL
-if ($null -ne $sevenZipLevelRaw -and $sevenZipLevelRaw -ne '') {
-    if (@('0', '1', '2', '3', '4', '5', '6', '7', '8', '9') -contains $sevenZipLevelRaw) {
-        $script:SevenZipCompressionLevel = [int]$sevenZipLevelRaw
-    } else {
-        $script:SevenZipCompressionLevelInvalid = $sevenZipLevelRaw
+try {
+    if ($null -ne $sevenZipLevelRaw -and $sevenZipLevelRaw -ne '') {
+        # ORDINAL, exactly one ASCII digit. Do NOT "simplify" this back to
+        # @('0'..'9') -contains $raw: -contains compares strings
+        # CULTURE-SENSITIVELY, so '9' followed by U+200B / U+FEFF / U+00AD, the
+        # Arabic-Indic '9' (U+0669) and the mathematical '9' (U+1D7E1) all PASS
+        # that gate and the [int] cast then THROWS - at IMPORT, i.e. inside
+        # every restore kit, over a setting restore never reads. -cmatch against
+        # an explicit ASCII range is exact and culture-free.
+        if ($sevenZipLevelRaw -cmatch '^[0-9]$') {
+            $script:SevenZipCompressionLevel = [int]$sevenZipLevelRaw
+        } else {
+            $script:SevenZipCompressionLevelInvalid = $sevenZipLevelRaw
+        }
     }
+} catch {
+    # "This import never throws" is a RESTORE guarantee, so it is enforced
+    # structurally here rather than assumed of the test above: whatever the
+    # value was, the level stays 9 and the value is recorded as rejected for
+    # the backup entry point to refuse by name.
+    $script:SevenZipCompressionLevel        = 9
+    $script:SevenZipCompressionLevelInvalid = [string]$sevenZipLevelRaw
 }
 
 function Get-FileBackupDefaults {
