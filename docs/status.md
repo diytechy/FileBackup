@@ -37,11 +37,17 @@ last) — it is the record, not required reading for every pass.
   at the group write only, fail-toward-compress) + the SN-003 ruled list +
   per-set `CompressProbe` kill switch; C/D deferred (§7). **Awaiting:** the
   dual plan-stage cross-review (Codex CLI + fresh Opus, coordinator
-  consolidates into §10), then the Owner's ruling on Q0–Q6 — Q1 (KitRevision
-  for the Common list edit; recommended bump 10→11) and Q6 (finish or stop the
-  live ~9-day hub run; §9 names the one code fact to verify first) are the
-  consequential ones. Registry ids in the plan are provisional after WP16's
-  reservations. No code written; registries untouched.
+  consolidates into §10), then formal approval. **Owner RULED Q0–Q6 the same
+  day (plan §6, revision 2):** scope as proposed; KitRevision bumps 10→11 in
+  Part A; threshold 0.10; floor **256 KiB**; `CompressProbe` is
+  `Off | ExcludedExtensions | Always`, **default `Always`** (probe every file
+  above the floor, listed extensions included; the SN-003 ruled list still
+  precedes the probe — driver's reading, to confirm at cross-review); SN-003
+  text not edited; **the hub run is already stopped** — the rerun waits on
+  Part A in a rebuilt image and on the manual stale-`Temp` move (hub image
+  lacks WP14). Owner's `.mp4` query: already listed; `.mpg`/`.mpeg` added
+  instead. Registry ids provisional after WP16's reservations. No code
+  written; registries untouched.
 - **WP14 EXECUTED THROUGH COMMIT 6 (2026-08-31, coordinator session): registry
   deltas, Parts A–D, and the §11 implementation-review fold are all committed
   and green. AWAITING THE OWNER: (1) commit 7's evidence environment — no USB
@@ -5474,4 +5480,21 @@ note: this is a docs-only, trivially reversible step (review + PROPOSED plan +
 pointer §8 in the review), taken autonomously and recorded here; the plan's approval
 and every open question are the Owner's. Not run: no gate was affected (no registry
 or code change); `python scripts/check_docs.py` was run for doc navigability.
+
+**2026-08-31 — WP17 plan revision 2: Owner rulings on Q0–Q6 folded.** Rulings
+recorded in plan §6 (originals kept in a collapsed block): scope A+B+ruled
+list+mode; KitRevision 10→11 with Part A; threshold 0.10; floor 256 KiB (was
+1 MiB); `CompressProbe` reshaped from an on/off switch to `Off |
+ExcludedExtensions | Always` with `Always` the default — the list is then
+consulted only in the other two modes and below the floor, which also recovers
+the review's §4 "store-mode `.zip`" direction; SN-003 not edited; hub run
+already stopped, so §9 now describes the rerun's two preconditions (manual
+stale-`Temp` move on a WP14-less image; the unverified step-6/9/10 + SR-064
+behaviour over objects written before step 12, to be verified read-only in the
+next session's Phase 1). Owner's questions answered in the plan: `.mp4` is
+already listed (`.mpg`/`.mpeg` added instead); 256 KiB per sample suffices for
+the entropy question — coverage of mixed files is a sample-count matter, kept
+at three, scaling deferred (§7). Driver's one interpretation flagged for
+cross-review: the ruled list survives under `Always` (I-2). Docs only; still
+PROPOSED pending cross-review and formal approval.
 
