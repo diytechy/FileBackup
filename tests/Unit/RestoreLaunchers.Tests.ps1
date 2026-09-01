@@ -82,7 +82,7 @@ Describe 'Folder picker fallbacks (SR-073, TC-163)' {
 }
 
 Describe 'Kit revision marker (SR-049, TC-173)' {
-    It 'is 11 in BOTH restorers, and they agree (TC-173)' {
+    It 'is 12 in BOTH restorers, and they agree (TC-173)' {
         # Nothing pinned these before, which is exactly how they drifted to 8
         # and 6 while the project documented 9 - so every WP12 store reports the
         # kit it carries as 8.
@@ -90,14 +90,18 @@ Describe 'Kit revision marker (SR-049, TC-173)' {
         # (the already-compressed extension list and its comment), and AGENTS.md
         # section 3 bumps the revision whenever a kit-bundled file changes
         # behaviour - Owner ruling Q1, 2026-08-31.
+        # 11 -> 12 (2026-09-01): FILEBACKUP_7Z_LEVEL makes the 7-Zip level
+        # operator-configurable in that same kit-bundled Common.psm1. Restorer
+        # logic is unchanged, but the file is bundled, so the marker moves.
+        # WP16 (PROPOSED) therefore takes 13 and merges TC-216 into this case.
         $ps1 = Select-String -Path (Join-Path $repo 'Reconstruct.ps1') -Pattern '^# KitRevision: (\d+)' |
                Select-Object -First 1
         $sh  = Select-String -Path (Join-Path $repo 'bash\reconstruct.sh') -Pattern '^# KitRevision: (\d+)' |
                Select-Object -First 1
         $ps1 | Should -Not -BeNullOrEmpty
         $sh  | Should -Not -BeNullOrEmpty
-        $ps1.Matches[0].Groups[1].Value | Should -Be '11'
-        $sh.Matches[0].Groups[1].Value  | Should -Be '11'
+        $ps1.Matches[0].Groups[1].Value | Should -Be '12'
+        $sh.Matches[0].Groups[1].Value  | Should -Be '12'
     }
 }
 

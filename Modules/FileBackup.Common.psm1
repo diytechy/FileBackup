@@ -172,6 +172,33 @@ if ([string]::IsNullOrWhiteSpace($script:FfprobePathDefault) -or
     if ($ffprobeCommand) { $script:FfprobePathDefault = $ffprobeCommand.Path }
 }
 
+# The 7-Zip EFFORT level (7-Zip's own -mx range, the single digits 0..9), an
+# operator knob because the right level for a given library is an empirical
+# question the production data has to answer (WP17 section 7). It is an
+# environment variable, not a configuration key, so it rides the same
+# container-friendly contract as the tool paths above instead of adding a tenth
+# config surface (SR-042/SR-063).
+#
+# Absent, empty OR INVALID resolves to 9 - today's behaviour - and this block
+# NEVER throws: Common is bundled into every restore kit, so an import that
+# threw would break a RESTORE over a setting restore never reads. An invalid
+# value is recorded instead, and the BACKUP entry point refuses loudly on it
+# before anything is created (FileBackup.ps1, the SR-042 usage/precondition
+# path). The level never decides WHETHER content is compressed - that is
+# SR-081's decision - only how hard 7-Zip tries; every level's archive restores
+# with the same kit.
+# Implements: SR-004, SR-037, LLR-004, LLR-037
+$script:SevenZipCompressionLevel        = 9
+$script:SevenZipCompressionLevelInvalid = $null
+$sevenZipLevelRaw = $env:FILEBACKUP_7Z_LEVEL
+if ($null -ne $sevenZipLevelRaw -and $sevenZipLevelRaw -ne '') {
+    if (@('0', '1', '2', '3', '4', '5', '6', '7', '8', '9') -contains $sevenZipLevelRaw) {
+        $script:SevenZipCompressionLevel = [int]$sevenZipLevelRaw
+    } else {
+        $script:SevenZipCompressionLevelInvalid = $sevenZipLevelRaw
+    }
+}
+
 function Get-FileBackupDefaults {
     <#
     .SYNOPSIS
@@ -202,6 +229,11 @@ function Get-FileBackupDefaults {
         NonCompressibleExtensions= $script:NonCompressibleExtensions
         SevenZipDefaultPath      = $script:SevenZipDefaultPath
         FfprobePathDefault       = $script:FfprobePathDefault
+        # FILEBACKUP_7Z_LEVEL (SR-004/SR-037): the resolved -mx digit, always
+        # 0..9, plus the raw REJECTED value (null when there was none) so the
+        # backup entry point can refuse by name without reading module scope.
+        SevenZipCompressionLevel        = $script:SevenZipCompressionLevel
+        SevenZipCompressionLevelInvalid = $script:SevenZipCompressionLevelInvalid
     }
 }
 
@@ -741,7 +773,9 @@ function Compress-FileWithSevenZip {
     # destination so 'a' always writes a fresh archive.
     Remove-Item -LiteralPath $Destination7z -Force -ErrorAction SilentlyContinue
 
-    $argList = @('a', '-mx=9', '-bso0', '-bsp0', "`"$Destination7z`"", "`"$SourceFile`"")
+    # -mx is the effort level only: any 0..9 archive restores with the same kit.
+    # It is 9 unless FILEBACKUP_7Z_LEVEL says otherwise (resolved once at import).
+    $argList = @('a', "-mx=$script:SevenZipCompressionLevel", '-bso0', '-bsp0', "`"$Destination7z`"", "`"$SourceFile`"")
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName  = $SevenZipPath
     $psi.Arguments = $argList -join ' '

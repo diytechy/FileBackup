@@ -492,6 +492,13 @@ Imports (internal): `Common`
   list comment is rewritten. The bump is the Owner's ruling (Q1) rather than an
   argument about the narrower reading that restore never calls
   `Test-ShouldCompress` — the file is bundled, so the marker moves.
+  **Revision 12 (2026-09-01): `FILEBACKUP_7Z_LEVEL` — the 7-Zip level becomes
+  operator-configurable; restorer logic unchanged.** The kit-bundled
+  `FileBackup.Common.psm1` resolves the variable at import (never throwing —
+  an invalid value leaves the level at 9 and only a compression-enabled *backup*
+  refuses, before it creates anything), and `Compress-FileWithSevenZip` passes
+  the resolved digit to `-mx`. Restore never reads the variable, and every
+  level's archive restores with the same kit.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the seven kit artifacts and **never**
   `MANIFEST.csv.meta`.

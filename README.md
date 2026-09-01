@@ -516,6 +516,20 @@ values can be supplied as `FILEBACKUP_7ZIP_PATH` and
 `PATH`. If a set requests compression and 7-Zip is unavailable, the run fails
 before backup processing instead of writing raw bytes described as compressed.
 
+`FILEBACKUP_7Z_LEVEL` tunes how hard 7-Zip tries when a file *is* compressed: a
+single digit `0`–`9` (7-Zip's own `-mx` range), **default `9`** when the
+variable is unset. It is an environment variable rather than a configuration
+key, so it needs no `ConfigVersion` bump and can be set per deployment. A lower
+level trades compression ratio for CPU time and wall clock; it never changes
+*whether* a file is compressed (see "How the stored form is chosen") and never
+affects restore — every level's archive is read back by the same kit, and
+neither restorer looks at the variable. To pick a level for your data, run at
+two levels and compare each set's `Probe compressed: <n> objects, <bytes>` and
+`Probe reads: <bytes>` summary counters (see "How the stored form is chosen")
+against the wall clock. An invalid value is refused by name before a
+compression-enabled backup creates anything (status 2, the configuration/usage
+class); a `CompressEnabled: false` run and a restore are unaffected by it.
+
 | Field | Meaning |
 |---|---|
 | `ConfigVersion` | JSON only, required. Currently `2` (version 1 is refused as too old — it carried the removed `PreserveFolderTree` selector). A config declaring a higher version is refused by name rather than half-understood; a missing/non-integer/out-of-range value is a hard error. |
@@ -709,6 +723,9 @@ source-state, backup, change, and log mounts must be writable by the selected
 `FILEBACKUP_UID`/`FILEBACKUP_GID`. Give each backup set its own state folder.
 The entrypoint preserves FileBackup's exit code, so HomeHub can wrap the job and
 post its own NagLight result without coupling this project to that service.
+The image sets `FILEBACKUP_7ZIP_PATH`; add `-e FILEBACKUP_7Z_LEVEL=<0-9>` to
+tune the 7-Zip effort level for that deployment (default `9`, see
+"Configuration" above — the image deliberately ships no default of its own).
 
 The same container also performs retention. A leading word — `backup` (the
 default), `snapshots` or `prune` — selects the action, or set

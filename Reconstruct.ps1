@@ -56,7 +56,7 @@
     RECONSTRUCT.cmd does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 11
+# KitRevision: 12
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and

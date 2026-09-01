@@ -56,6 +56,15 @@ a container's separate `/backup` bind mount cannot satisfy, so it stays
 native-host functionality until a later IF-001 revision rules on a container
 view mount.
 
+**Environment overrides.** Beside the tool paths (`FILEBACKUP_7ZIP_PATH`,
+`FILEBACKUP_FFPROBE_PATH`), `FILEBACKUP_7Z_LEVEL` (added 2026-09-01) selects
+7-Zip's `-mx` effort level as a single digit `0`–`9`, default `9`; it is
+deliberately **not** a configuration key, so `ConfigVersion` stays `2`. It
+changes only how hard 7-Zip tries — never *whether* content is compressed, and
+never the restore contract: every level's archive is read back by the same kit
+and neither restorer reads the variable. An invalid value fails a
+compression-enabled backup on the existing exit `2` before anything is written.
+
 **Retention: policy vs. mechanism.** HomeHub decides *what* to keep; FileBackup
 decides *how* a snapshot is safely removed. **HomeHub must never delete a
 `Snapshot_*` folder directly** — dedup means one snapshot's bytes can be the

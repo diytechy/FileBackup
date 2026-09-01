@@ -172,6 +172,22 @@
         - ffprobe on PATH or configured through Tools.FfprobePath /
           FILEBACKUP_FFPROBE_PATH for media metrics (optional).
 
+    Environment overrides (the container-friendly contract; there is no
+    configuration key for these):
+
+        FILEBACKUP_7ZIP_PATH    7-Zip executable.
+        FILEBACKUP_FFPROBE_PATH ffprobe executable.
+        FILEBACKUP_7Z_LEVEL     7-Zip effort level, a single digit 0-9
+                                (7-Zip's own -mx range); unset means 9.
+                                Lower levels trade compression ratio for CPU
+                                time and change only how hard 7-Zip tries, never
+                                WHETHER a file is compressed (SR-081 decides
+                                that) - every level's archive restores with the
+                                same kit. A compression-enabled backup refuses
+                                an invalid value up front with status 2 and
+                                creates nothing; restores ignore the variable.
+        FILEBACKUP_LOG_PATH     Default -GlobalLogPath.
+
     Entry-point status codes (SR-043; container/entrypoint.sh passes -ExitCode):
 
         0  Complete — every backup set succeeded.
@@ -322,6 +338,23 @@ try {
 }
 $Secrets = $cfgResult.Secrets
 $Sets    = $cfgResult.Sets
+
+# FILEBACKUP_7Z_LEVEL is resolved once at FileBackup.Common's IMPORT and never
+# throws there - Common is bundled into every restore kit, and a bad
+# environment variable must not break a RESTORE over a setting restore never
+# reads (SR-037). A run that will actually compress refuses HERE instead: after
+# the configuration has loaded, so "some set compresses" is knowable, and
+# before anything has been created or mutated - no log directory, no truncated
+# log - on the same usage/precondition path as an SR-042 config violation
+# (status 2 under -ExitCode). Only -Action Backup compresses; Verify, View,
+# Prune, Snapshots and both restorers are untouched by the variable.
+if ($Action -eq 'Backup') {
+    $badSevenZipLevel = (Get-FileBackupDefaults).SevenZipCompressionLevelInvalid
+    if ($null -ne $badSevenZipLevel -and @($Sets | Where-Object { $_.CompressEnabled }).Count -gt 0) {
+        Exit-ConfigFailure -Message ("FILEBACKUP_7Z_LEVEL is '$badSevenZipLevel', which is not a valid 7-Zip " +
+            'compression level: it must be a single digit 0-9 (7-Zip -mx range). Unset it to use the default 9.')
+    }
+}
 
 # The configuration is good: now the run may create artifacts.
 $globalLogDirectory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($globalLogPath))
