@@ -238,6 +238,293 @@ Write-Manifest -FolderPath /backup -Records $rows
     Write-Host 'Container storage-form check passed (TC-102): clean verify exits 0 and mutates nothing, a malformed row exits 1, repair makes it clean.'
 }
 
+function New-ProbeFixtureContent {
+    <#
+    .SYNOPSIS
+        Deterministic fixture bytes of one compressibility class, matching the
+        TC-225 unit recipes (tests/Unit/CompressProbeWiring.Tests.ps1).
+    .DESCRIPTION
+        Seeded so the measured ratios are reproducible: random ~1.000, text
+        ~0.000, mixed-head ~0.917 (raw, above the 0.90 threshold), mixed-third
+        ~0.667 (compress). The seed also rides in the repeated text unit, so two
+        text fixtures with different seeds are DIFFERENT content and never
+        collapse into one (hash,length) group.
+    .PARAMETER Kind
+        random | text | mixed-head | mixed-third.
+    .PARAMETER Seed
+        Fixture seed; distinct per file so every fixture is its own group.
+    .PARAMETER Size
+        Content length in bytes. Defaults to 1 MiB, comfortably above the
+        256 KiB probe floor (SR-081).
+    .OUTPUTS
+        [byte[]]
+    #>
+    # Implements: SR-081, LLR-086
+    param(
+        [Parameter(Mandatory)][ValidateSet('random','text','mixed-head','mixed-third')][string]$Kind,
+        [Parameter(Mandatory)][int]$Seed,
+        [int]$Size = 1048576
+    )
+    $rand = { param([int]$n) $bytes = [byte[]]::new($n); [System.Random]::new($Seed).NextBytes($bytes); , $bytes }
+    $text = {
+        param([int]$n)
+        $unit = "The quick brown fox jumps over the lazy dog. COMPRESSIBLE TEXT PAYLOAD $Seed. "
+        $builder = [System.Text.StringBuilder]::new()
+        while ($builder.Length -lt $n) { [void]$builder.Append($unit) }
+        , [System.Text.Encoding]::ASCII.GetBytes($builder.ToString().Substring(0, $n))
+    }
+    switch ($Kind) {
+        'random'      { return (& $rand $Size) }
+        'text'        { return (& $text $Size) }
+        # 64 KiB of text at the head of an otherwise random file: an ANY-sample
+        # rule would send this to -mx=9 whole. Aggregate 0.917 -> raw.
+        'mixed-head'  { return ([byte[]]@((& $text 65536)  + (& $rand ($Size - 65536)))) }
+        # A third of the file compresses: aggregate 0.667 -> compress.
+        'mixed-third' { return ([byte[]]@((& $text 393216) + (& $rand ($Size - 393216)))) }
+    }
+}
+
+function Test-ContainerCompressProbe {
+    <#
+    .SYNOPSIS
+        TC-230: TC-225's compressibility-probe arms re-run INSIDE the image on
+        the Linux stack, mode always (the shipped default), with the SR-081 set
+        summary and the wall-clock cost of the first run captured.
+    .DESCRIPTION
+        Linux is where the defect was measured, so the fix is proven there. Ten
+        fixtures of known content classes are backed up by the container's own
+        backup action; the manifest must show the bytes overruling the extension
+        list in both directions (an unlisted .qqq of random bytes stored RAW, a
+        LISTED .zip of text bytes stored .7z), the storage-form agreement
+        (I-1: a .7z filename extension iff Compressed=Yes) must hold for EVERY
+        row, and the three per-set counter lines must account for exactly the
+        probe-decided objects. The first-run cost is REPORTED, not asserted
+        against a budget: 'Probe reads' bytes plus the wall clock of the run,
+        the operator's cost figure (plan section 2.5). Finally the store is
+        restored in a second container with the bundled RECONSTRUCT.ps1 and
+        every fixture compared byte-for-byte, so both stored forms are proven
+        restorable on Linux.
+
+        This check owns its OWN store: it must not disturb the smoke store's
+        row-count and snapshot expectations.
+    .PARAMETER Image
+        Local image reference to run.
+    .PARAMETER Root
+        Scratch root (the smoke root); this check builds its own tree beneath it.
+    .OUTPUTS
+        None. Throws on any failed assertion.
+    #>
+    # Implements: SR-081, LLR-086
+    param(
+        [Parameter(Mandatory)][string]$Image,
+        [Parameter(Mandatory)][string]$Root
+    )
+    $probeRoot = Join-Path $Root 'probe'
+    $source    = Join-Path $probeRoot 'source'
+    $config    = Join-Path $probeRoot 'config'
+    $state     = Join-Path $probeRoot 'state'
+    $backup    = Join-Path $probeRoot 'backup'
+    $changes   = Join-Path $probeRoot 'changes'
+    $logs      = Join-Path $probeRoot 'logs'
+    $restore   = Join-Path $probeRoot 'restore'
+    $folders   = @($probeRoot,$source,$config,$state,$backup,$changes,$logs,$restore)
+    New-Item -ItemType Directory -Path $folders -Force | Out-Null
+    if ($IsLinux -or $IsMacOS) {
+        & chmod 0777 @folders
+        if ($LASTEXITCODE -ne 0) { throw 'Could not make the TC-230 bind directories writable.' }
+    }
+
+    # The TC-225 matrix as files. Probed = above the 256 KiB floor, so the probe
+    # (not the extension list) decides and the object lands in the counters.
+    $fixtures = @(
+        [pscustomobject]@{ Name = 'random.qqq';     Kind = 'random';      Seed = 101; Size = 1048576; Ext = '.qqq';  Compressed = 'No';  Probed = $true }
+        [pscustomobject]@{ Name = 'text.qqq';       Kind = 'text';        Seed = 102; Size = 1048576; Ext = '.7z';   Compressed = 'Yes'; Probed = $true }
+        [pscustomobject]@{ Name = 'noext';          Kind = 'text';        Seed = 103; Size = 1048576; Ext = '.7z';   Compressed = 'Yes'; Probed = $true }
+        [pscustomobject]@{ Name = 'mixedhead.qqq';  Kind = 'mixed-head';  Seed = 104; Size = 1048576; Ext = '.qqq';  Compressed = 'No';  Probed = $true }
+        [pscustomobject]@{ Name = 'mixedthird.qqq'; Kind = 'mixed-third'; Seed = 105; Size = 1048576; Ext = '.7z';   Compressed = 'Yes'; Probed = $true }
+        # LISTED extensions: above the floor under 'always' the list is not
+        # consulted at all, so the bytes decide in BOTH directions.
+        [pscustomobject]@{ Name = 'textzip.zip';    Kind = 'text';        Seed = 106; Size = 1048576; Ext = '.7z';   Compressed = 'Yes'; Probed = $true }
+        [pscustomobject]@{ Name = 'randomzip.zip';  Kind = 'random';      Seed = 107; Size = 1048576; Ext = '.zip';  Compressed = 'No';  Probed = $true }
+        # The Q7 pins: no name-based override survives the measurement.
+        [pscustomobject]@{ Name = 'paper.docx';     Kind = 'random';      Seed = 108; Size = 1048576; Ext = '.docx'; Compressed = 'No';  Probed = $true }
+        [pscustomobject]@{ Name = 'photo.jpg';      Kind = 'text';        Seed = 109; Size = 1048576; Ext = '.7z';   Compressed = 'Yes'; Probed = $true }
+        # Below the floor: BelowFloor, decided by the list, counted in neither
+        # of the two object counters.
+        [pscustomobject]@{ Name = 'small.txt';      Kind = 'text';        Seed = 110; Size = 4096;    Ext = '.7z';   Compressed = 'Yes'; Probed = $false }
+    )
+    foreach ($fixture in $fixtures) {
+        [System.IO.File]::WriteAllBytes((Join-Path $source $fixture.Name),
+            (New-ProbeFixtureContent -Kind $fixture.Kind -Seed $fixture.Seed -Size $fixture.Size))
+    }
+
+    # CompressProbe is ABSENT: this run proves the SHIPPED DEFAULT is 'always'.
+    $set = [ordered]@{
+        Name = 'ContainerProbe'
+        SourcePath = '/source'
+        SourceStatePath = '/state'
+        BackupPath = '/backup'
+        ChangePath = '/changes'
+        HashRecalcFreq = 'N'
+        CompressEnabled = $true
+        AllowEmptySource = $false
+    }
+    $configFile = Join-Path $config 'FileBackup.json'
+    [ordered]@{ ConfigVersion = 2; Tools = [ordered]@{ SevenZipPath = '/usr/bin/7z' }; BackupSets = @($set) } |
+        ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configFile -Encoding UTF8
+
+    # The explicit spelling of that same default must be schema-valid too.
+    $schemaPath = Join-Path $repo 'container/FileBackup.schema.json'
+    $explicitSet = [ordered]@{}
+    foreach ($key in $set.Keys) { $explicitSet[$key] = $set[$key] }
+    $explicitSet['CompressProbe'] = 'always'
+    $explicit = [ordered]@{ ConfigVersion = 2; Tools = [ordered]@{ SevenZipPath = '/usr/bin/7z' }
+                            BackupSets = @($explicitSet) } | ConvertTo-Json -Depth 5
+    # The verdict is computed inside the try and JUDGED outside it: a `throw`
+    # in the try would be caught by its own catch and downgraded to "skipped".
+    $schemaValid = $null
+    if (Test-Path -LiteralPath $schemaPath -PathType Leaf) {
+        try {
+            $schemaValid = [bool](Test-Json -Json $explicit -Schema (Get-Content -LiteralPath $schemaPath -Raw) -ErrorAction SilentlyContinue)
+        } catch {
+            $schemaValid = $null
+            Write-Host "TC-230: schema validation of the explicit mode skipped ($($_.Exception.Message))."
+        }
+    }
+    if ($null -ne $schemaValid -and -not $schemaValid) {
+        throw 'TC-230: an explicit "CompressProbe": "always" configuration failed the published schema.'
+    }
+    $schemaChecked = ($schemaValid -eq $true)
+
+    # --- the run itself, wall-clock timed: the operator's first-run cost ---
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $run = Invoke-ContainerAction -Image $Image -Word 'backup' -ConfigPath $configFile `
+        -Source $source -State $state -Backup $backup -Changes $changes -Logs $logs
+    $stopwatch.Stop()
+    if ($run.Code -ne 0) { throw "TC-230 backup exited $($run.Code); expected 0.`n$($run.Output)" }
+
+    # --- manifest: the per-fixture stored form, then I-1 over every row ---
+    $rows = @(Import-Csv -LiteralPath (Join-Path $backup 'MANIFEST.csv'))
+    if ($rows.Count -ne $fixtures.Count) {
+        throw "TC-230 expected $($fixtures.Count) manifest rows; found $($rows.Count)."
+    }
+    $byPath = @{}
+    foreach ($row in $rows) { $byPath[$row.RelativePath] = $row }
+    foreach ($fixture in $fixtures) {
+        $row = $byPath[$fixture.Name]
+        if (-not $row) { throw "TC-230: '$($fixture.Name)' has no manifest row." }
+        $actualExt = [System.IO.Path]::GetExtension($row.DataPath)
+        if ($actualExt -ne $fixture.Ext) {
+            throw "TC-230: '$($fixture.Name)' ($($fixture.Kind)) stored as '$($row.DataPath)'; expected extension '$($fixture.Ext)'."
+        }
+        if ($row.Compressed -ne $fixture.Compressed) {
+            throw "TC-230: '$($fixture.Name)' ($($fixture.Kind)) has Compressed=$($row.Compressed); expected $($fixture.Compressed)."
+        }
+    }
+    foreach ($row in $rows) {
+        $isArchive = ([System.IO.Path]::GetExtension($row.DataPath) -eq '.7z')
+        if ($isArchive -ne ($row.Compressed -eq 'Yes')) {
+            throw "TC-230: storage-form disagreement (I-1) on '$($row.RelativePath)': DataPath '$($row.DataPath)' vs Compressed=$($row.Compressed)."
+        }
+    }
+
+    # --- telemetry: the three SR-081 counter lines from the set's own log ---
+    # The set logger (New-Logger, over <ChangePath>/backup.log) both appends to
+    # that file and echoes to stdout, so the log file is the primary source and
+    # the captured run output the fallback.
+    $setLog = Join-Path $changes 'backup.log'
+    $globalLog = Join-Path $logs 'Backup_Global.log'
+    $telemetryPath = $null
+    $text = $null
+    foreach ($candidate in @($setLog, $globalLog)) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $content = Get-Content -LiteralPath $candidate -Raw
+            if ($content -match 'Probe reads:') {
+                $telemetryPath = $candidate
+                $text = $content
+                break
+            }
+        }
+    }
+    if (-not $text) { $telemetryPath = '<container stdout>'; $text = $run.Output }
+
+    $rawMatch        = [regex]::Match($text, 'Probe stored raw: (\d+) objects, (\d+) bytes')
+    $compressedMatch = [regex]::Match($text, 'Probe compressed: (\d+)')
+    $readsMatch      = [regex]::Match($text, 'Probe reads: (\d+) bytes')
+    foreach ($pair in @(@('Probe stored raw', $rawMatch), @('Probe compressed', $compressedMatch), @('Probe reads', $readsMatch))) {
+        if (-not $pair[1].Success) { throw "TC-230: the set summary line '$($pair[0])' was not found in $telemetryPath." }
+    }
+    $rawObjects        = [long]$rawMatch.Groups[1].Value
+    $rawBytes          = [long]$rawMatch.Groups[2].Value
+    $compressedObjects = [long]$compressedMatch.Groups[1].Value
+    $readBytes         = [long]$readsMatch.Groups[1].Value
+
+    $probedCount = @($fixtures | Where-Object Probed).Count
+    $expectedRaw = @($fixtures | Where-Object { $_.Probed -and $_.Compressed -eq 'No' }).Count
+    $expectedCompressed = $probedCount - $expectedRaw
+    if ($rawObjects -ne $expectedRaw) {
+        throw "TC-230: 'Probe stored raw' counted $rawObjects objects; the expected decisions give $expectedRaw."
+    }
+    if ($compressedObjects -ne $expectedCompressed) {
+        throw "TC-230: 'Probe compressed' counted $compressedObjects; the expected decisions give $expectedCompressed."
+    }
+    if (($rawObjects + $compressedObjects) -ne $probedCount) {
+        throw "TC-230: the counters account for $($rawObjects + $compressedObjects) objects; $probedCount fixtures are above the floor."
+    }
+    # At most three 256 KiB windows per probed group, and the probe really ran.
+    $readCeiling = $probedCount * 786432
+    if ($readBytes -le 0) { throw "TC-230: 'Probe reads' is $readBytes bytes; the probe must have read something." }
+    if ($readBytes -gt $readCeiling) {
+        throw "TC-230: 'Probe reads' is $readBytes bytes, above the $readCeiling-byte ceiling of $probedCount groups x 3 x 256 KiB."
+    }
+
+    # One compress-decision line per WRITTEN group, none of them a fallback.
+    $decisionLines = @(($text -split "\r?\n") | Where-Object { $_ -match 'compress-decision:' })
+    if ($decisionLines.Count -ne $fixtures.Count) {
+        throw "TC-230: found $($decisionLines.Count) compress-decision lines; expected one per written group ($($fixtures.Count))."
+    }
+    $unavailable = @($decisionLines | Where-Object { $_ -match 'ProbeUnavailable' })
+    if ($unavailable.Count -ne 0) {
+        throw "TC-230: $($unavailable.Count) compress-decision line(s) report ProbeUnavailable; every fixture is readable."
+    }
+
+    # --- both stored forms restore byte-exact, in a second container ---
+    $restoreArgs = [System.Collections.Generic.List[string]]@(
+        'run','--rm','--network','none','--read-only',
+        '--security-opt','no-new-privileges','--cap-drop','ALL',
+        '--tmpfs','/tmp:rw,noexec,nosuid,nodev',
+        '--entrypoint','pwsh'
+    )
+    Add-BindMountArguments -Arguments $restoreArgs -Source $backup -Target '/backup' -ReadOnly
+    Add-BindMountArguments -Arguments $restoreArgs -Source $changes -Target '/changes' -ReadOnly
+    Add-BindMountArguments -Arguments $restoreArgs -Source $restore -Target '/restore'
+    $restoreArgs.Add($Image)
+    foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/backup/RECONSTRUCT.ps1','-TargetRoot','/restore','-BackupRootOverride','/backup','-ChangeRootOverride','/changes','-SevenZipPath','/usr/bin/7z') {
+        $restoreArgs.Add($arg)
+    }
+    Invoke-ContainerCommand -Arguments $restoreArgs.ToArray()
+    foreach ($fixture in $fixtures) {
+        $expected = Join-Path $source $fixture.Name
+        $actual = Join-Path $restore $fixture.Name
+        if (-not (Test-Path -LiteralPath $actual -PathType Leaf)) {
+            throw "TC-230: restored file '$($fixture.Name)' is missing."
+        }
+        if ((Get-FileHash -LiteralPath $expected -Algorithm SHA256).Hash -ne
+            (Get-FileHash -LiteralPath $actual -Algorithm SHA256).Hash) {
+            throw "TC-230: restored file '$($fixture.Name)' differs from its source."
+        }
+    }
+
+    $runtimeVersion = (& $script:ContainerRuntime 'version' '--format' '{{.Server.Version}}' 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $runtimeVersion) { $runtimeVersion = 'unknown' }
+    $schemaNote = if ($schemaChecked) { 'explicit mode schema-valid' } else { 'explicit-mode schema check skipped' }
+    Write-Host ("Container compressibility-probe check passed (TC-230): $($rows.Count) rows, $probedCount probed; " +
+        "Probe stored raw: $rawObjects objects, $rawBytes bytes; Probe compressed: $compressedObjects; " +
+        "Probe reads: $readBytes bytes; backup wall time: $([math]::Round($stopwatch.Elapsed.TotalSeconds, 2)) s; " +
+        "restored byte-exact: $($fixtures.Count)/$($fixtures.Count); telemetry from $telemetryPath; $schemaNote; " +
+        "image: $Image; runtime: $script:ContainerRuntime $runtimeVersion.")
+}
+
 function Invoke-ContainerSmokeTest {
     Write-Host "Smoke-testing $Image"
     Invoke-ContainerCommand -Arguments @('image','inspect',$Image)
@@ -426,6 +713,8 @@ function Invoke-ContainerSmokeTest {
             -Source $source -State $state -Backup $backup -Changes $changes -Logs $logs
 
         Write-Host 'Container smoke test passed: incremental run produced a restorable dated snapshot alongside a byte-exact latest-state restore.'
+
+        Test-ContainerCompressProbe -Image $Image -Root $smokeRoot
     }
     finally {
         if (Test-Path -LiteralPath $smokeRoot) {
