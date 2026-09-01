@@ -24,8 +24,18 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **WP17 PLAN CROSS-REVIEWED (revision 3, 2026-09-01) — PROPOSED, AWAITING
-  THE OWNER'S Q7 RULING AND FORMAL APPROVAL.** Dual plan-stage round run by
+- **WP17 PLAN REVISION 4 (2026-09-01) — PROPOSED, AWAITING FORMAL APPROVAL
+  ONLY. Q7 RULED: NO ruled list in any direction.** The Owner: SN-003's
+  acceptance extensions are *examples*; the need is "optionally compress
+  stored data to save more space", and the probe compressing a `.jpg`/`.mp4`
+  (or storing a `.docx` raw) fulfils it better than a name. Applied to both
+  halves; the `Common.psm1:110-114` "stakeholder decision" comment is
+  rewritten in Part A, TC-096's SN-003 arm re-scoped, TC-224 pins the ruling;
+  SN-003 text still not edited (Q5) — the release checklist will quote the
+  example line verbatim, recorded in plan §2.3. §9 residue: the Owner removes
+  it by hand, out of scope. Nothing else changes from revision 3 (below).
+- *(superseded by the entry above)* **WP17 PLAN CROSS-REVIEWED (revision 3,
+  2026-09-01) — PROPOSED, AWAITING THE OWNER'S Q7 RULING AND FORMAL APPROVAL.** Dual plan-stage round run by
   the driver as coordinator (Codex CLI: 2 P0/15 P1/3 P2; fresh Opus: 1 P0/13
   P1/7 P2); 33 composite dispositions in plan §10, every accepted finding
   folded. The P0s were real: (1) the drafted decision rule never consulted
@@ -5533,4 +5543,18 @@ Codex's "Part A cannot be G3-green" as stated (check.ps1:122's phase filter is
 the mechanism). Coordinator's own read-only verification of §9 item 2 reached
 the same four facts Codex #19 did (Engine.psm1:916, :4931, :1700, :576). Still
 PROPOSED: needs the Owner's Q7 ruling and formal approval before §8 row 2.
+
+**2026-09-01 — WP17 revision 4: Q7 ruled (no name-based override).** Owner's words:
+*"the Acceptance intent is an example, the need is literally 'Optionally compress
+stored data to save more space', the probe may still compress .jpg and .mp4, that
+fulfills the need better than a file extension restriction."* The driver applied the
+principle consistently to the `.docx`/`.txt` half (the same acceptance line, the same
+example status) and removed the ruled list entirely: `Resolve-CompressionDecision`
+loses its `RuledDecision` input and `Ruled` reason; §2.3 now records the ruling and
+its three artifacts (the Common comment rewrite in Part A, TC-096's re-scoped arm,
+the release-checklist quotation of the unedited SN-003 line); TC-224 becomes the Q7
+pin; §10 R-2/R-3 annotated as superseded. §9: the Owner removes the interrupted-run
+residue by hand — outside WP17. Driver's interpretation flagged for the Owner: the
+`.docx` half is treated as an example too, on the Owner's stated principle rather
+than an explicit sentence about `.docx`. Docs only; awaiting formal approval.
 

@@ -9,8 +9,9 @@ executable, requirement-traced package.
 **Scope (Q0, ruled):** the review's **A** (add the
 proven-compressed extensions, `.z7` first) as the immediate, list-only fix; **B** (a
 sampled compressibility probe) as the durable fix, implemented in **Engine** and
-composed *after* the existing extension list; the **§6 ruled-format override** so B can
-never reverse SN-003; and a **per-set probe mode** `CompressProbe: Off | ExcludedExtensions |
+composed *after* the existing extension list; **no name-based override of the
+measurement** (Q7 — SN-003's acceptance extensions are examples, not rulings); and a
+**per-set probe mode** `CompressProbe: Off | ExcludedExtensions |
 Always` (the surviving slice of **E**), defaulting to `Always` — the list then serves the
 other two modes and the below-floor tail, and measurement decides everything else. Options **C** (measure during hashing) and **D** (size gate) are
 deliberately deferred with reasons (§7). The per-set *extension-list* override half of E
@@ -25,7 +26,11 @@ is **256 KiB**, Part A bumps `KitRevision`, SN-003's text is not edited, and the
 is already stopped (§9). **Revision 3 (2026-09-01):** the plan-stage cross-review
 (OpenAI Codex CLI + a fresh-context Opus reviewer, coordinator-consolidated) raised
 2 P0 / 27 P1 / 12 P2 across 41 findings; every disposition is in **§10**, every accepted
-finding is folded, and the one open item it produced is **Q7** (§6). Registry ids in this document are
+finding is folded, and the one open item it produced was **Q7**. **Revision 4 (2026-09-01):** the
+Owner ruled Q7 — the SN-003 acceptance line is an *example*; the need is *"optionally
+compress stored data to save more space"*, and a measured decision fulfils it better than
+any extension — so the ruled list is **removed** in every direction and the probe decides
+for every name. Registry ids in this document are
 **provisional** (§3): WP16 is PROPOSED and has reserved `SN-037`, `SR-076..080`,
 `LLR-081..085`, `TC-205..221`; WP17 numbers from after those and renumbers if WP16 lands
 differently.
@@ -59,9 +64,11 @@ Engine reads three small samples (start, middle, end), Deflate-compresses them a
 raw when the sampled bytes **in aggregate** fail to shrink by the threshold — a rule
 that neither sends a multi-gigabyte random file to `-mx=9` because its first 64 KiB
 was text (the review's failure mode, re-created) nor skips a file a third of which
-compresses. A short **ruled list** keeps `.docx`/`.txt`-class formats on their SN-003
-path no matter what the bytes say (review §6): the extension list does not disappear, it
-changes job. The probe runs **lazily** — only when the group actually has to write, never
+compresses. There is **no name-based override** of the measurement: SN-003's acceptance
+line names `.docx`/`.txt` and `.jpg`/`.mp4` as *examples* of the need (Owner ruling, Q7),
+and the need — save space — is served by the bytes, not the name; the extension list
+does not disappear, it serves the two non-default modes and the below-floor tail. The
+probe runs **lazily** — only when the group actually has to write, never
 for content dedup already owns — and never fails a run: any probe error falls back to the
 list's answer — and `CompressEnabled=false` dominates everything: no probe, no
 compression, exactly as today. `CompressProbe: off` restores exactly today's behaviour.
@@ -73,7 +80,7 @@ compression, exactly as today. `CompressProbe: off` restores exactly today's beh
 | # | Invariant | How this plan holds it |
 |---|---|---|
 | **I-1** | **`Compressed` and the stored filename agree for every object** (SR-004 acceptance; AGENTS.md §3 "the filename must not lie"). | The probe changes the *input* to the existing decision, not the write path: `$dataExt`/`Compressed` are still both derived from the one `$ownerCompress` boolean at `Engine.psm1:4990`. TC-093's storage-form audit (SR-049) runs over a probe-mixed store and reports clean. |
-| **I-2** | **SN-003's stakeholder ruling is not reversed by measurement — in either direction.** *"With compression on, a `.docx`/`.txt` is stored as `.7z`; a `.jpg`/`.mp4` is stored as-is."* Both clauses are rulings. | The ruled list (§2.3) is **directional** — `Compress` for the `.docx`/`.txt` family, `Raw` for `.jpg`/`.mp4` — and is consulted **before** the probe in **every** probing mode, `always` included. A `.docx` (a zip container the probe would call incompressible) is stored `.7z`; a `.jpg` whose bytes happen to compress (a BMP under a `.jpg` name) is stored raw. Both are what SN-003 says, and neither is what the bytes say. TC-224 pins both directions and is the negative control that must fail with the ruled list emptied. **Q7** asks the Owner to confirm the `Raw` half, because it withholds exactly two extensions from `always`'s "probe everything". |
+| **I-2** | **SN-003's *need* is what WP17 serves; its acceptance line's extensions are examples, not rulings** (Owner, Q7, 2026-09-01). The need reads *"Optionally compress stored data to save more space"*; the acceptance line — *"a `.docx`/`.txt` is stored as `.7z`; a `.jpg`/`.mp4` is stored as-is"* — illustrates it for the pre-WP17 mechanism. | No name-based override exists in any mode: a `.docx` over incompressible bytes is stored raw, a `.jpg` over compressible bytes is stored `.7z`, and both save more space than the example would. The `Common.psm1:112` comment that calls the office-format exclusion "a stakeholder decision, not an oversight" is rewritten in Part A to record the Q7 ruling instead, and TC-096's SN-003 arm is re-scoped (§2.3). SN-003's text is **not** edited (Q5); §2.3 records the one consequence of leaving it — the release checklist quotes acceptance lines verbatim. TC-224 pins the ruling. |
 | **I-3** | **Nothing already stored is ever re-formed** (SR-061). | WP17 has no migration in either direction. An object dedup already locates (`$existingBackupWithHash`) is adopted **before** the probe is ever consulted (§2.4 lazy evaluation), so no existing object's form is re-decided. README's "mixed-form store is normal" paragraph gains one clause, not a new rule. |
 | **I-4** | **The extension list stays the ONE definition, in Common** (LLR-004; TC-096 pins one definition site and zero Engine references). | Part A appends to `$script:NonCompressibleExtensions` in place. Part B adds no second copy: Engine calls `Test-ShouldCompress` as it does today and composes the probe *after* it. The ruled list is a **different** set with a different name and job, and TC-096's "Engine has no `NonCompressibleExtensions` reference" arm stays true. |
 | **I-5** | **`Common` never depends on `Engine`; KitRevision bumps whenever a kit-bundled file changes behaviour** (AGENTS.md §3). | The probe, the ruled list and the composition live in **Engine**. Only Part A touches Common (a list edit). Whether that is a "behaviour change" for kit purposes was **Q1**; the Owner ruled **bump 10→11** in the Part A commit (two markers + TC-173's pin) rather than argue the reading. |
@@ -165,17 +172,16 @@ An I/O shell with a pure core, per CLAUDE.md:
 - **`Resolve-CompressionDecision`** (pure, no I/O). One signature, no ambiguity:
   `CompressEnabled`, `Mode` (`off` | `excluded-extensions` | `always`),
   `ListSaysCompress` (the `Test-ShouldCompress` answer, computed with `-CompressEnabled
-  $true` so it carries only the list's opinion), `RuledDecision` (`Compress` | `Raw` |
-  `None`, §2.3), `Length`, `ProbeMinBytes`, `SampledBytes`, `CompressedBytes`,
-  `Threshold`. Output `{ Compress; Reason }` with `Reason ∈ {CompressDisabled, Ruled,
-  ModeOff, BelowFloor, ListExempt, ProbeUnavailable, ProbeCompressible,
-  ProbeIncompressible}`. Rule, in order:
+  $true` so it carries only the list's opinion), `Length`, `ProbeMinBytes`,
+  `SampledBytes`, `CompressedBytes`, `Threshold`. Output `{ Compress; Reason }` with
+  `Reason ∈ {CompressDisabled, ModeOff, BelowFloor, ListExempt, ProbeUnavailable,
+  ProbeCompressible, ProbeIncompressible}`. Rule, in order:
   0. `CompressEnabled = false` → raw, `CompressDisabled`. **Nothing below runs.** (Both
      reviewers' P0: today this guard lives inside `Test-ShouldCompress`, and a rule
-     that consulted the ruled list or the probe first would name a `.7z` object and
+     that consulted the probe first would name a `.7z` object and
      record `Compressed=Yes` on a Plain set — and, with 7-Zip not even resolved for a
      Plain set, `Copy-SourceFileToBackup` would raw-copy under that name.)
-  1. `RuledDecision ≠ None` → that decision, `Ruled` (I-2; every mode).
+  1. *(removed — Q7; no name-based override.)*
   2. `Mode = off` → the list's answer (`ListExempt` raw, else compress — today).
   3. `Length < ProbeMinBytes` → the list's answer, `BelowFloor`.
   4. `Mode = excluded-extensions` and the list says no → raw, `ListExempt`.
@@ -192,32 +198,39 @@ An I/O shell with a pure core, per CLAUDE.md:
   `$script:` constants **in Engine**, read by tests through `InModuleScope` — there is no
   Common accessor (adding one would edit Common again) and no config key (§7).
 
-### 2.3 The ruled list — what measurement may not overrule
+### 2.3 No ruled list — SN-003's examples are examples (Q7)
 
-`$script:RuledCompressionDecisions` in **Engine**, beside the probe, consumed only by
-`Resolve-CompressionDecision`, **directional**:
+Revisions 1–3 carried an extension list the measurement could not overrule, built from
+SN-003's acceptance line: first `.docx`-family → compress, then (after the cross-review's
+R-2) a directional list adding `.jpg`/`.mp4` → raw. **The Owner removed it (Q7,
+2026-09-01):** the need is *"Optionally compress stored data to save more space"*; the
+acceptance line's extensions were an illustration of the extension mechanism, not a
+ruling on those formats; and a probe that stores a `.docx` raw when its bytes will not
+shrink, or compresses a `.jpg` whose bytes will, fulfils the need *better* than any
+name. So there is nothing in Engine named "ruled", and `Resolve-CompressionDecision`
+has no such input. Under `always` every file above the floor is measured, without
+exception.
 
-```
-Compress:  .docx .xlsx .pptx   .odt .ods .odp   .txt
-Raw:       .jpg .mp4                                   (Q7)
-```
+Three consequences are recorded so nobody re-derives the old list from the artifacts
+that still mention it:
 
-The `Compress` entries are SN-003's first clause: OOXML/ODF are zip containers a probe
-would classify as incompressible, and SN-003's acceptance names `.docx`. `.txt` is
-included for legibility only. The `Raw` entries are SN-003's **second** clause, which
-the drafted plan wrongly claimed would "hold under `always` because those bytes probe
-incompressible" — an empirical property of typical files, not an invariant (both
-reviewers). A boolean override could only force compression; a directional one keeps
-both halves of the ruling literally true without editing SN-003 (Q5). The price is that
-`always` withholds two extensions from the probe — **Q7**. Formats SN-003 does not name
-(`.epub`, `.pdf`, `.iso`, everything else) are **not** ruled; they get measured, which
-is the point. Extending either direction is an Owner decision recorded in this file.
-
-**TC-096's over-claim is corrected in Part B.** Its "SN-003 acceptance-line extensions"
-arm asserts `.xlsx`, `.csv`, `.log` and `.bin` compress *because SN-003 says so*;
-SN-003 names `.docx`/`.txt` only. The arm is split: `Test-ShouldCompress`'s list answer
-for those extensions is unchanged and still asserted, and the **composed** decision's
-SN-003 pin moves to TC-224 with the actual ruled set.
+- **`Common.psm1:110-114`** says office/text formats are excluded from the list because
+  *"SN-003's acceptance line says a `.docx` / `.txt` IS stored as `.7z`, which is a
+  stakeholder decision, not an oversight."* Part A rewrites that comment: the exclusion
+  stands (the list is for formats known to be compressed, and office containers are
+  not on it), but its justification is now *"SN-003's line is an example; under WP17 the
+  bytes decide"*. This edit rides the same Common commit as the list, so it costs no
+  extra KitRevision.
+- **TC-096's "SN-003 acceptance-line extensions" arm** asserts `.docx .txt .xlsx .csv
+  .log .bin` compress *because SN-003 says so*. It is re-scoped to what it can honestly
+  claim: `Test-ShouldCompress` (the list) says compress for those extensions. The
+  composed decision's behaviour on them is TC-224's.
+- **The release checklist** (`scripts/gen_release_checklist.py`) quotes SN acceptance
+  lines verbatim, so it will ask a human to confirm *"a `.docx`/`.txt` is stored as
+  `.7z`"* — which, for a `.docx` above the floor whose bytes do not shrink, is false
+  under `always`. SN-003 is not edited (Q5), so the checklist entry is answered with
+  a pointer to this section. If that ever grates, the one-word hedge *"e.g."* in the
+  acceptance line fixes it without naming the mechanism; the Owner declined it for now.
 
 ### 2.4 Wiring — lazily, memoized, in `Invoke-BackupFileGroup`
 
@@ -262,8 +275,7 @@ A new optional per-set JSON key with an **exact-lowercase vocabulary**, matching
 | `excluded-extensions` | the list still exempts; everything it would compress is probed | list |
 | **`always`** (default; absent key ⇒ `always`) | **every file is probed, listed extensions included**; the list is not consulted | list |
 
-`CompressEnabled=false` precedes all three (rule 0); the ruled list precedes all three
-(I-2). Any other value — mixed case included — is refused with the SR-042 exit 2
+`CompressEnabled=false` precedes all three (rule 0). Any other value — mixed case included — is refused with the SR-042 exit 2
 naming the key, in **both** config formats. **The change surface, enumerated** (the
 draft named three places; the reviewers found nine): the closed key set in
 `Assert-NoUnknownConfigKey` (`:6163`, JSON only); the value check in
@@ -294,7 +306,7 @@ README "Already-compressed extensions" becomes "How the stored form is chosen" �
 before Part C renames anything: (1) the
 exempt list, extended; (2) the probe — what it samples, the threshold, the
 any-sample rule, the size floor, and the statement that it errs toward compressing;
-(3) the ruled list and its SN-003 origin; (4) the three `CompressProbe` modes and the first-run probe-read cost; (5) the unchanged
+(3) that no name overrides the measurement, and why (Q7); (4) the three `CompressProbe` modes and the first-run probe-read cost; (5) the unchanged
 paragraph that nothing already stored is re-formed. AGENTS.md §3's "compression is
 per-file (SR-004)" bullet gains: *"decided by the exempt list first, then — for
 anything the list would compress and no ruling protects — by a sampled probe of the
@@ -314,16 +326,16 @@ re-verified in the same commit as their amendment.
 
 | id | change |
 |---|---|
-| **SN-003** | *Unchanged — Owner ruling (Q5).* Both acceptance clauses stay literally true (I-2). |
-| **SR-004** | *Amended.* "...except for already-compressed extensions" becomes "...except for (a) already-compressed extensions, in mode `off`/`excluded-extensions` and below the floor in `always`, and (b) content the SR-081 probe measures as incompressible; formats SN-003 rules on take their ruled form in every mode." The acceptance clause *"an already-compressed extension is stored verbatim and Compressed=false"* is **re-scoped the same way** — under `always` above the floor TC-225 deliberately asserts the opposite. The name/column agreement sentence stays verbatim. Permutations: keep `compress=set{on,off}`; add `mode=set{off,excluded-extensions,always}; decision=set{compress-disabled,ruled-compress,ruled-raw,list-exempt,below-floor,probe-compressible,probe-incompressible,probe-unavailable}`. |
-| **SR-081** *(new, `probe-v1`)* | **Measured compressibility gate.** Rule 0 (`CompressEnabled` dominates), the ordered rule, the aggregate threshold, the floor, the list-answer fallback (I-6), the directional ruled override (I-2), lazy memoized evaluation only at a group write walking the group's candidates (§2.4), the three-valued `CompressProbe` with `always` default, the log line and counters, and the explicit non-claims: no re-forming, no restore involvement, no new exit code. Refs `SN-003`, `SN-011`. Verification: `Test`. |
+| **SN-003** | *Unchanged — Owner rulings Q5 and Q7.* Its acceptance line is an example of the need, not a constraint on WP17 (I-2, §2.3); the release-checklist consequence is recorded in §2.3. |
+| **SR-004** | *Amended.* "...except for already-compressed extensions" becomes "...except for (a) already-compressed extensions, in mode `off`/`excluded-extensions` and below the floor in `always`, and (b) content the SR-081 probe measures as incompressible." The acceptance clause *"an already-compressed extension is stored verbatim and Compressed=false"* is **re-scoped the same way** — under `always` above the floor TC-225 deliberately asserts the opposite. The name/column agreement sentence stays verbatim. Permutations: keep `compress=set{on,off}`; add `mode=set{off,excluded-extensions,always}; decision=set{compress-disabled,list-exempt,below-floor,probe-compressible,probe-incompressible,probe-unavailable}`. |
+| **SR-081** *(new, `probe-v1`)* | **Measured compressibility gate.** Rule 0 (`CompressEnabled` dominates), the ordered rule, the aggregate threshold, the floor, the list-answer fallback (I-6), the absence of any name-based override (I-2/Q7), lazy memoized evaluation only at a group write walking the group's candidates (§2.4), the three-valued `CompressProbe` with `always` default, the log line and counters, and the explicit non-claims: no re-forming, no restore involvement, no new exit code. Refs `SN-003`, `SN-011`. Verification: `Test`. |
 | **SR-042 / SR-063** | *Amended (schema).* `CompressProbe` joins the per-set key set with its exact-lowercase vocabulary and `always` default, validated in both formats; SR-063 additionally **ratifies the additive-optional-key policy**: an optional key with a default may join v2 without a version bump, and an older build's by-name rejection of it is the closed schema working as designed. |
 | **LLR-004** | *Amended.* Part A's additions and evidence classes; `Test-ShouldCompress` is now the **first** of two gates, not the whole decision. |
 | **LLR-042 / LLR-063** | *Amended.* `CodeSymbol` unchanged; detail gains `CompressProbe`'s validator placement (§2.5's nine surfaces). |
 | **LLR-049** | *Amended.* The non-`Deep` payload exemption's cheap path (§2.1): raw-stored under its own extension at the row's length ⇒ exempt without hashing; `-Deep` keeps the confirming hash. |
 | **LLR-058** | *Amended.* Its detail says the owner's *"`Test-ShouldCompress` answer"* defines the form; it becomes *"the owner's SR-081 decision"*, resolved lazily in the write branch. `CodeSymbol` unchanged. |
 | **LLR-076** | *Amended.* Hard-codes *"Both restorers carry `# KitRevision: 10`"*; becomes the new value. |
-| **LLR-086** *(new, `probe-v1`)* | Engine: `Measure-SampleCompressibility`, `Resolve-CompressionDecision`, `$script:RuledCompressionDecisions`, the two constants, the memoized call site and candidate walk in `Invoke-BackupFileGroup`, the `-CompressProbe` parameter and step-10 plumbing, the log/summary emission, the calibration table and the codec it chose. Helpers are module-internal, tested via `InModuleScope`; if exported, the `Export-ModuleMember` list (`:6590`) and the generated module map move in the same commit. |
+| **LLR-086** *(new, `probe-v1`)* | Engine: `Measure-SampleCompressibility`, `Resolve-CompressionDecision`, the two constants, the memoized call site and candidate walk in `Invoke-BackupFileGroup`, the `-CompressProbe` parameter and step-10 plumbing, the log/summary emission, the calibration table and the codec it chose. Helpers are module-internal, tested via `InModuleScope`; if exported, the `Export-ModuleMember` list (`:6590`) and the generated module map move in the same commit. |
 | **IF-001** | *Notes amended.* The closed-schema sentence names `CompressProbe` as optional/additive; `Version` unchanged. |
 | **TC-173** | *Amended.* Both KitRevision markers read the new value — and **`RestoreLaunchers.Tests.ps1:84`** is where the pin actually lives; WP16's TC-216 pins the same fact and the two are merged when the second of WP16/WP17 lands. |
 
@@ -342,8 +354,8 @@ TC-226 · LLR-042/063 → TC-227 · LLR-086 → TC-223…TC-228, TC-230, TC-231.
 
 ### Part A — Common: the list (LLR-004 amended)
 
-`Common.psm1` list edit; README table; TC-096 parameter block (incl. moving `.xlsx`
-out of its SN-003 claim); LLR-004 detail; both `KitRevision` markers `current+1`,
+`Common.psm1` list edit **and the `:110-114` comment rewrite (§2.3)**; README table;
+TC-096 parameter block and the re-scoped SN-003 arm (§2.3); LLR-004 detail; both `KitRevision` markers `current+1`,
 TC-173's pin in `RestoreLaunchers.Tests.ps1:84`, LLR-076, AGENTS.md kit history (Q1,
 ruled); **the LLR-049 Verify exemption (§2.1) and TC-229's no-hash arm**; TC-231's
 Part-A end-to-end arm (a `.z7` source is stored raw and 7-Zip is not invoked). Gate:
@@ -352,14 +364,14 @@ This is the commit the hub can ship alone.
 
 ### Part B1 — Engine: probe + pure decision (LLR-086)
 
-The two functions, the directional ruled list, the constants, comment-based help +
+The two functions, the constants, comment-based help +
 `Implements:` lines, **the codec calibration** (§2.2 — scratch script, results into
 LLR-086), and unit tests against **synthetic corpora built in the test**: random bytes
 (incompressible everywhere), repeated text, a random file with a 64 KiB text head
 (aggregate ≈0.93 → **raw**), a file one-third text (aggregate ≈0.7 → compress), a
 500 KiB file (read whole, once), a 4 KiB file, an empty file, a vanished path, a path
 held open with `FileShare.None` (→ `$null`). `Resolve-CompressionDecision` is tested
-over the full `CompressEnabled × mode × ruled × list × floor × ratio` grid, rule 0
+over the full `CompressEnabled × mode × list × floor × ratio` grid, rule 0
 first. Gate: `-Gate G2 -Tier Smoke`; map regenerated if any symbol is exported.
 
 ### Part B2 — Engine: wiring, config key, telemetry (SR-081, SR-042/063)
@@ -381,7 +393,7 @@ history; status.md; WP16 §7 cross-note. Gate: `-Gate G2 -Tier Smoke` + freshnes
 Permutations cell for `python scripts/gen_cases.py`:
 
 ```
-compress=set{on,off}; mode=set{off,excluded-extensions,always}; content=set{random,text,mixed-head,mixed-third,small,empty}; ext=set{listed,ruled-compress,ruled-raw,unlisted,none}; size=set{below-floor,above-floor}; dedup=set{fresh,existing-hit,in-run-twin,failed-then-twin}; format=set{json,clixml}
+compress=set{on,off}; mode=set{off,excluded-extensions,always}; content=set{random,text,mixed-head,mixed-third,small,empty}; ext=set{listed,sn003-example,unlisted,none}; size=set{below-floor,above-floor}; dedup=set{fresh,existing-hit,in-run-twin,failed-then-twin}; format=set{json,clixml}
 ```
 
 **How the integration cases reach the engine.** The suites drive backups through
@@ -396,17 +408,16 @@ counters instead of a mock.
 |---|---|---|
 | **TC-222** | Part A: every added extension returns `$false` from `Test-ShouldCompress`, case-insensitively; `.iso` still returns `$true`. | Pins the list *and* the deliberate non-addition. |
 | **TC-223** | `Measure-SampleCompressibility` on the synthetic corpora: aggregate ≈1.0 random, ≪1 text, ≈0.93 mixed-head, ≈0.7 mixed-third; a 500 KiB file is read exactly once as one sample; `$null` for vanished/locked; the compressed count is taken after dispose (random bytes must not read < 0.98). | The I/O shell's contract, the geometry, and its refusal to throw. |
-| **TC-224** | **SN-003 pin, both directions (I-2):** a `.docx` over random bytes is stored `.7z`; a `.jpg` over text bytes is stored raw. **Negative control:** with the ruled list emptied, both flip — the test must go red. | The one place WP17 could reverse a stakeholder ruling. |
+| **TC-224** | **Q7 pin (I-2):** under `always`, a `.docx` over random bytes above the floor is stored **raw**; a `.jpg` over text bytes is stored **`.7z`**; a `.txt` is stored `.7z`; and under `off` the same three take today's list answer (`.7z`, raw, `.7z`). No `Reason` value named after a format exists. | Pins the Owner's ruling that the bytes, not SN-003's example names, decide — and that `off` still reproduces the example. |
 | **TC-225** | Mode `always`: an unlisted extension and a no-extension file above the floor — random → raw, text → `.7z`, mixed-head → raw, mixed-third → `.7z`; a listed `.zip` over text → `.7z`, over random → raw. Filename and `Compressed` agree in every arm (I-1). **Negative control:** probe bypassed → the random arms compress. | The finding itself, the aggregate rule, SR-004's agreement sentence, the default mode's defining property. |
 | **TC-226** | **Laziness and memo (I-3), via direct `Invoke-BackupFileGroup` with a mocked probe and call counter:** a prior-backup dedup hit → 0 calls; an in-run twin → 0 extra calls; a group whose first member's copy fails and whose second succeeds → **exactly 1** call and 1 WARN at most; a locked owner with a readable twin → the twin is sampled, decision not `ProbeUnavailable`. **Negative control:** memo removed → the failed-then-twin arm counts 2. | The probe must add a read per *written group*, never per file or per failed attempt. |
 | **TC-227** | Config: `off` reproduces the pre-WP17 decision for TC-225's inputs; `excluded-extensions` stores `.zip`-over-text raw but probes the unlisted arms; absent key ⇒ `always`; the resolved set object carries the value (`Resolve-BackupSetDefaults`); `"Always"`, `"maybe"`, `null`, a number → exit 2, nothing created, in **JSON and CLIXML**; the shared fixture corpus keeps TC-074/075/077 green; an unchanged v2 config loads. | The three modes, the default, both validators, the schema parity. |
 | **TC-228** | A probe that cannot open any member (real `FileShare.None` holds on every member, direct call) yields the **list's answer** + one WARN, and the run exits 0 (I-6). | Fail-toward-today, never fail-the-run. |
 | **TC-229** | `-Action Verify` (SR-049, TC-093's harness) over a probe-mixed store reports **clean**; a raw-stored `.z7` is exempted **without a hash** (mocked `Get-FileXxHash` counter = 0 non-`Deep`, > 0 under `-Deep`); `Reconstruct.ps1` and `reconstruct.sh` restore the store byte-exact. | Both forms are still just forms, and Verify does not re-hash the library. |
 | **TC-230** | Container arm (Release tier): TC-225 inside the image; the summary reports `Probe reads` bytes and wall time — the measured first-run cost figure. | Linux is where the defect was measured; the cost claim is measured, not asserted. |
-| **TC-231** | **Compression disabled dominates (rule 0):** with `CompressEnabled=false`, every mode × every extension class (ruled-compress, ruled-raw, listed, unlisted) stores raw with `Compressed=No`, and the probe is never called; and a Part-A end-to-end arm: a `.z7` source under `CompressEnabled=true`, mode `off`, is stored raw and `7z` is not invoked (mocked `Compress-FileWithSevenZip` counter = 0). | The reviewers' P0, and the hub's actual fix path. |
+| **TC-231** | **Compression disabled dominates (rule 0):** with `CompressEnabled=false`, every mode × every extension class (SN-003 example names, listed, unlisted, none) stores raw with `Compressed=No`, and the probe is never called; and a Part-A end-to-end arm: a `.z7` source under `CompressEnabled=true`, mode `off`, is stored raw and `7z` is not invoked (mocked `Compress-FileWithSevenZip` counter = 0). | The reviewers' P0, and the hub's actual fix path. |
 
-Negative controls that must be shown to fail fix-removed: **TC-224** (ruled list
-emptied), **TC-225** (probe bypassed), **TC-226** (memo removed), **TC-231** (rule 0
+Negative controls that must be shown to fail fix-removed: **TC-225** (probe bypassed), **TC-226** (memo removed), **TC-231** (rule 0
 removed).
 
 ---
@@ -418,14 +429,14 @@ the text above and recorded here so the cross-reviewers know what is decided.
 
 | # | Question | Ruling (folded at) |
 |---|---|---|
-| **Q0** | Scope | **A + B + ruled list + mode**, as proposed. Part A shippable alone (§8 row 3). |
+| **Q0** | Scope | **A + B + mode**, as proposed (the ruled list later removed by Q7). Part A shippable alone (§8 row 3). |
 | **Q1** | KitRevision for the Common list edit | **Bump 10→11** in the Part A commit (§4 Part A, TC-173). |
 | **Q2** | Threshold | **0.10** (§2.2). |
 | **Q3** | Size floor | **256 KiB**, not the drafted 1 MiB (§2.2). |
 | **Q4** | Probe default | **`Always` — probe all files, all extensions** above the floor; `CompressProbe` is `Off` / `ExcludedExtensions` / `Always` (§2.5). The driver's reading that the SN-003 ruled list still precedes the probe under `Always` is recorded at I-2 and is the one interpretation to confirm at cross-review. |
 | **Q5** | Edit SN-003's acceptance | **No** — not surfaced; SR-081 carries the sentence (§3). |
 | **Q6** | The live hub run | **Already stopped** (§9). |
-| **Q7** *(open, from the cross-review)* | Does `always` withhold **`.jpg` and `.mp4`** from the probe so SN-003's second clause (*"a `.jpg`/`.mp4` is stored as-is"*) stays literally true? Both reviewers found the drafted claim that it "holds because those bytes probe incompressible" to be empirical, not an invariant (a BMP under a `.jpg` name compresses). | **Recommended: yes** — the directional ruled list (§2.3) with exactly those two `Raw` entries. Costs two extensions out of "probe everything"; keeps SN-003 unedited (Q5). The alternative is to treat the clause as an Owner-ruled departure and edit SN-003 after all. |
+| **Q7** *(from the cross-review; ruled 2026-09-01)* | Does `always` withhold **`.jpg` and `.mp4`** from the probe so SN-003's acceptance clause stays literally true? | **No.** *"The acceptance intent is an example; the need is literally 'Optionally compress stored data to save more space'; the probe may still compress `.jpg` and `.mp4` — that fulfils the need better than a file-extension restriction."* Applied consistently to the `.docx`/`.txt` half as well: the ruled list is removed in both directions (§2.3, I-2). The driver's recommendation ("yes") is superseded. |
 | — | Owner also asked | `.mp4` is already on the list (§2.1 — `.mpg`/`.mpeg` were the missing MPEG entries); 256 KiB per sample is sufficient for the entropy question (§2.2). |
 
 <details><summary>The questions as originally put, with the driver's recommendations (historical)</summary>
@@ -457,7 +468,7 @@ the text above and recorded here so the cross-reviewers know what is decided.
 | **HomeHub's `common.sh` list also lacks `.z7`** (review C-3) | A HomeHub defect; file it there. This repo's IF-001 does not govern HomeHub's own backup script. |
 | **A probe-read performance budget (PB row)** | Codex #8 asked for a first-run benchmark with a pass budget. TC-230 *measures* (probe count, bytes, wall time); a budget is set from production counters, not invented. |
 | **`ConfigVersion` 3** | Codex #10. Rejected in favour of ratifying the additive-optional policy in SR-063 (I-8): a version bump would force every deployment, HomeHub included, to edit a config for a key it does not need to set. |
-| **Measure-then-override for telemetry honesty** | Codex #3: under `always`, probe ruled files anyway and log the ratio. Rejected — a read spent on a decision already made; the `Reason=Ruled` line is the honest telemetry. |
+| **Measure-then-override for telemetry honesty** | Codex #3: under `always`, probe overridden files anyway and log the ratio. Moot after Q7 (no override exists); kept for the record. |
 
 ---
 
@@ -522,8 +533,9 @@ rebuilt image (§8 row 3). **What the code does on that rerun — verified read-
    **repair explicitly does not remove unreferenced objects** (`Engine.psm1:1700`).
    They cost space and one Verify warning each, permanently, unless removed by hand.
 
-**Recommended procedure, for the Owner to approve (it deletes data, so it is not the
-coordinator's call):** since no run has ever completed against this store, the backup
+**Owner ruling (2026-09-01): the Owner removes the residue by hand; it is outside
+WP17's scope and was context for the design only.** The procedure below stays as the
+record of what "remove" should mean: since no run has ever completed against this store, the backup
 root holds nothing a manifest claims. Empty the backup root entirely (every data
 object; the empty `MANIFEST.csv` and its witness may stay or go), move `Temp` aside as
 in item 1, keep `SourceStatePath` untouched (item 2), then rerun on the Part A image.
@@ -548,8 +560,8 @@ both** are marked ★ and were folded first. `A` = accepted and folded (section 
 | # | Raised by | Sev | Finding | Disposition |
 |---|---|---|---|---|
 | R-1 | ★ Opus 1, Codex 1 | **P0** | `Resolve-CompressionDecision` never consults `CompressEnabled`; the ruled short-circuit and `always` would compress on a Plain set, naming `.7z` / `Compressed=Yes` with 7-Zip unresolved. | **A** — rule 0 (§2.2), TC-231, `CompressEnabled` in SR-081 and the permutations. Verified: the guard lives only in `Test-ShouldCompress` (`Common.psm1:691`); `FileBackup.ps1:325` resolves 7-Zip from `CompressEnabled` alone. |
-| R-2 | ★ Codex 2 (P0), Opus 11 (P1) | **P0** | The ruled model protects only SN-003's `.docx` half; a boolean override cannot force `.jpg`/`.mp4` raw, and the plan's claim that the clause "holds because those bytes probe incompressible" is empirical, not invariant. | **A** — directional ruled list (§2.3), I-2 rewritten, TC-224 pins both directions. The two `Raw` entries are the cross-review's one open item, **Q7**, because they withhold two extensions from the Owner's "probe everything". |
-| R-3 | Codex 3 | P1 | Under `always`, measure ruled files anyway and apply the ruled outcome afterwards, so "probes all files" and the telemetry stay literally true. | **R** — a read spent on a decision already taken; the `Reason=Ruled` line is the honest telemetry, and §2.5 now defines `always` as "the list is not consulted", not "everything is measured". Recorded in §7. |
+| R-2 | ★ Codex 2 (P0), Opus 11 (P1) | **P0** | The ruled model protects only SN-003's `.docx` half; a boolean override cannot force `.jpg`/`.mp4` raw, and the plan's claim that the clause "holds because those bytes probe incompressible" is empirical, not invariant. | **A, then superseded by Q7** — revision 3 answered with a directional ruled list; the Owner's Q7 ruling (2026-09-01) removed the list in both directions instead: the acceptance line is an example, the need is space, the bytes decide (§2.3, I-2). The finding's substance — that "those bytes probe incompressible" was never an invariant — stands and is why the plan no longer claims it. |
+| R-3 | Codex 3 | P1 | Under `always`, measure ruled files anyway and apply the ruled outcome afterwards, so "probes all files" and the telemetry stay literally true. | **Moot after Q7** — with no ruled list, `always` measures everything above the floor and the contract is literally true. (Before Q7 it was rejected as a read spent on a decided outcome.) §7 row retained for the record. |
 | R-4 | ★ Opus 16, Codex 4 | P1/P2 | The write branch is inside the member loop and a failed write `continue`s with `$writtenThisRun` null; a naive lazy expression re-probes and re-WARNs per failing member. | **A** — group-scope memo (§2.4), TC-226's failed-then-twin arm, memo-removed negative control. Verified at `Engine.psm1:4950`, `:5060`. |
 | R-5 | ★ Opus 2, Codex 5 | P1 | Probing only the owner defeats the readable-twin fallback the copy path has (`:5017-5022`); a locked owner would be classified unavailable and compressed. | **A** — the probe walks the same candidate list (§2.4); TC-226's locked-owner arm. |
 | R-6 | Opus 2 | P1 | `ProbeUnavailable → compress` contradicts §0/I-6 ("the list's answer") and, under `always`, re-creates the 9-day defect for any transiently locked `.z7`. | **A** — rule 5 is the list's answer; I-6 and §0 reconciled; TC-228 asserts it. |
@@ -581,10 +593,10 @@ both** are marked ★ and were folded first. `A` = accepted and folded (section 
 | R-32 | Opus 20 | P2 | "The tests that pin owner election read `$ownerCompress`" — nothing does. | **A** — sentence removed (§2.4). |
 | R-33 | Opus, Codex (verified-correct blocks) | — | Laziness structurally safe (`:4990/5025/5071/5079` all inside the write branch); dedup/twin branches return first; `Test-StorageFormAgreement` independent of the list; SR-052 sizes by uncompressed length; restorers untouched; ids after WP16's blocks; Part A's twelve additions defensible, `.iso` correctly excluded; `.mp4` at `Common.psm1:118` (plan said `:117` — cosmetic, fixed). | Recorded as the checked surface. |
 
-**Net effect on the plan:** two P0s closed by rule 0 and the directional ruled list;
+**Net effect on the plan:** two P0s closed by rule 0 and (first) a directional ruled list, which Q7 then replaced with "no override at all";
 the decision rule, I/O contract, config surface, registry deltas, test set and
-sequencing all rewritten; one question (Q7) returned to the Owner. The plan remains
-**PROPOSED**.
+sequencing all rewritten; one question (Q7) returned to the Owner and ruled the same
+day. The plan remains **PROPOSED** pending formal approval.
 
 ## 11. Implementation review round — composite disposition (after commit 5)
 
