@@ -917,6 +917,57 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
             -Because '-Deep keeps the confirming hash'
     }
 
+    It 'hashes an unlisted-extension archive-magic object at the row own length, and flags it (TC-229, R-1)' {
+        # R-1's first narrowing arm. The cheap path is for objects the
+        # already-compressed LIST exempts; an archive-magic object whose name the
+        # list would compress ('.qqq') is not that shape, so the confirming hash
+        # is still taken exactly as it was before WP17 - and, disagreeing, still
+        # raises the repairable FlagOverArchive. Built by renaming a real store's
+        # object and its row TOGETHER, so extension-equality and length-equality
+        # both hold and the LIST is the only condition left deciding.
+        $s = New-RawArchiveStore -Root (Join-Path $TestDrive 'tc229-unlisted')
+
+        $renamed = [IO.Path]::GetFileNameWithoutExtension($s.Row.DataPath) + '.qqq'
+        Move-Item -LiteralPath (Join-Path $s.Bkp $s.Row.DataPath) -Destination (Join-Path $s.Bkp $renamed) -Force
+        $rows = @($s.Rows | ForEach-Object { $_.PSObject.Copy() })
+        $bent = @($rows | Where-Object RelativePath -eq 'library.z7')[0]
+        $bent.RelativePath = 'library.qqq'
+        $bent.DataPath     = $renamed
+        Set-ManifestRows -Folder $s.Bkp -Rows $rows
+
+        # The stub disagrees with the row's real hash, so a scan that hashes must
+        # report - which is how the arm proves the hash was actually consulted.
+        Mock -ModuleName FileBackup.Engine Get-FileXxHash { 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }
+        $findings = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        Should -Invoke Get-FileXxHash -ModuleName FileBackup.Engine -Times 1 `
+            -Because 'the cheap path covers only names the already-compressed list exempts'
+        @($findings | Where-Object { $_.RelativePath -eq 'library.qqq' -and $_.Class -eq 'FlagOverArchive' }).Count |
+            Should -Be 1 -Because 'an unlisted name over archive bytes is audited exactly as it was before WP17'
+    }
+
+    It 'exempts a listed-extension archive object without hashing even when the payload differs - non-Deep is the form audit, -Deep catches it (TC-229, R-1)' {
+        # R-1's second narrowing arm, stating the reduced assurance rather than
+        # hiding it. The stored bytes are REPLACED by a different, same-length
+        # archive-magic payload: the non-Deep FORM audit exempts it without a
+        # hash (it never hashed any other raw object either), and -Deep - the
+        # PAYLOAD audit - still catches the substitution.
+        $s = New-RawArchiveStore -Root (Join-Path $TestDrive 'tc229-substituted')
+        $object = Join-Path $s.Bkp $s.Row.DataPath
+        $before = (Get-Item -LiteralPath $object).Length
+        New-SevenZipMagicFile -Path $object -Size ([int]$before) -Seed 20260902
+        (Get-Item -LiteralPath $object).Length | Should -Be $before -Because 'only the payload changes, never the size'
+
+        Mock -ModuleName FileBackup.Engine Get-FileXxHash { 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg) |
+            Should -BeNullOrEmpty -Because 'the non-Deep scan audits FORM, and this object''s form is right'
+        Should -Invoke Get-FileXxHash -ModuleName FileBackup.Engine -Times 0 -Exactly `
+            -Because 'that is the 880 GB the exemption saves, and its stated cost'
+
+        $deep = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $script:sevenZip)
+        @($deep | Where-Object { $_.RelativePath -eq 'library.z7' }).Count |
+            Should -BeGreaterThan 0 -Because '-Deep is the payload audit and always hashes'
+    }
+
     It 'does not exempt a length that disagrees with the row, and still hashes a name that does (TC-229)' {
         # Negative arm 1 - LENGTH mismatch: the cheap path must not fire, and the
         # confirming hash short-circuits on the same length, so the row is a

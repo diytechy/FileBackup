@@ -1551,11 +1551,20 @@ function Get-StorageFormFinding {
         WP17 Part A made that shape common rather than rare (adding '.z7' to the
         already-compressed list turns 43% of the production library into
         Compressed='No' rows over archive bytes), so the NON-Deep scan gained a
-        second cheap exemption: an object stored raw under its OWN extension
-        (DataPath extension = RelativePath extension) at the row's OWN Length is
-        exempt WITHOUT hashing, because that is exactly the object SR-004's write
-        path produces for an already-compressed source. Any other shape still
-        takes the confirming hash, and -Deep always takes it (LLR-049, TC-229).
+        second cheap exemption, narrowly scoped to exactly that shape: an object
+        stored raw under its OWN extension (DataPath extension = RelativePath
+        extension), at the row's OWN Length, AND under a name the
+        already-compressed extension list exempts (Test-ShouldCompress is $false)
+        is exempt WITHOUT hashing. Be precise about what that costs and what it
+        does not: the non-Deep scan is the FORM audit, and it never hashed any
+        other raw object in the store, so this exemption withdraws the confirming
+        hash only from a list-exempt raw object at its own size. It does NOT
+        prove that object's payload — a same-length substitution under a listed
+        name (a '.z7' whose bytes are different archive bytes) passes the
+        non-Deep scan and is caught by -Deep, which is the payload audit and
+        always hashes. An archive-magic object under a name the list does NOT
+        exempt still takes the confirming hash, exactly as before WP17
+        (LLR-049, TC-229).
 
     .PARAMETER Folder
         The pool folder being audited (backup root or one Snapshot_* folder).
@@ -1640,21 +1649,27 @@ function Get-StorageFormFinding {
         # (non-Deep) scan stays a six-byte read per row.
         $rawArchiveOk = $null      # $null = not asked; $true/$false = own bytes (mis)match the row
         $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z')
-        # WP17 Part A widens that fast path, for the NON-Deep scan only. Once
-        # '.z7' joined the already-compressed list, every one of the production
-        # library's 649 '.z7' objects became exactly the shape the comment above
-        # calls "rare" - a Compressed='No' row over archive-magic bytes - so the
-        # confirming hash below would re-read 880 GB on every Verify pass. An
-        # object stored raw UNDER ITS OWN EXTENSION at ITS OWN SIZE is precisely
-        # what SR-004 writes for an already-compressed source: the write path
-        # names it '<hash>_<len><ownerExt>' and records Compressed='No', so
-        # name-and-size agreement is cheap evidence that these bytes are the
-        # row's own payload. Anything else - a DataPath claiming the other form,
-        # a length that does not match - still takes the confirming hash, and
-        # -Deep ALWAYS takes it, so payload identity is unweakened where proving
-        # it is the point (LLR-049, TC-229).
+        # WP17 Part A widens that fast path, for the NON-Deep scan only, and only
+        # for the shape it exists to fix. Once '.z7' joined the
+        # already-compressed list, every one of the production library's 649
+        # '.z7' objects became exactly the shape the comment above calls "rare" -
+        # a Compressed='No' row over archive-magic bytes - so the confirming hash
+        # below would re-read 880 GB on every Verify pass. A list-exempt object
+        # stored raw UNDER ITS OWN EXTENSION at ITS OWN SIZE is precisely what
+        # SR-004 writes for an already-compressed source: the write path names it
+        # '<hash>_<len><ownerExt>' and records Compressed='No'.
+        #
+        # What this proves and what it does not: the non-Deep pass is the FORM
+        # audit - it never hashed any other raw object in this store - and the
+        # exemption withdraws the confirming hash from ONE class only, a
+        # list-exempt raw object at its own length. It does not prove that
+        # object's payload: a same-length substitution under a listed name passes
+        # here and is caught by -Deep, which is the payload audit and ALWAYS
+        # hashes. An archive-magic object under a name the list does NOT exempt
+        # keeps the confirming hash exactly as before WP17 (LLR-049, TC-229).
         if (-not $exempt -and -not $Deep -and $observed -eq 'Archive' -and $row.Compressed -ne 'Yes' -and
             -not [string]::IsNullOrWhiteSpace([string]$row.Length) -and
+            ((Test-ShouldCompress -FileName ([string]$row.RelativePath) -CompressEnabled $true) -eq $false) -and
             ([IO.Path]::GetExtension([string]$row.DataPath) -ieq [IO.Path]::GetExtension([string]$row.RelativePath)) -and
             (Get-Item -LiteralPath $full).Length -eq [long]$row.Length) {
             $exempt = $true
@@ -4570,8 +4585,18 @@ function Measure-SampleCompressibility {
 
         It opens the source with FileShare.Read — the same share Get-FileXxHash
         (Common.psm1:352) and the stored-form sniffer (Common.psm1:847) use — so
-        probe success predicts copy success and no window can sample a file
-        being rewritten underneath it.
+        probe success predicts copy success. What that share mode buys is
+        PLATFORM-QUALIFIED. On Windows the kernel checks sharing in both
+        directions, so a FileShare.Read open FAILS with a sharing violation
+        while any writer holds the file (verified live): the probe therefore
+        cannot sample a file that is open for writing — it returns $null and the
+        caller takes the list's answer. On POSIX, .NET's FileShare is advisory
+        emulation only, so a non-cooperating writer CAN change bytes under the
+        sample. Against that, and against a Windows writer that opens after the
+        probe does, the probe takes a cheap stability check: it reads the
+        stream's Length and the file's LastWriteTimeUtc before and after
+        sampling and returns $null if either moved. A changed file costs a
+        decision (the list answers instead), never a file (I-6).
 
         GEOMETRY. When the file is shorter than Samples x SampleBytes it is read
         ONCE, whole, as a single sample (this avoids the 1.9x over-read three
@@ -4668,6 +4693,14 @@ namespace FileBackup
         $length = $stream.Length
         if ($length -le 0) { return $null }   # empty file: nothing to measure
 
+        # Stability witnesses, read BEFORE the windows and compared after: on
+        # POSIX the share mode is advisory, so a writer can move bytes under the
+        # sample; on Windows one can still open after this handle does. Either
+        # way a measurement taken across a rewrite describes no file that exists,
+        # so it is discarded (return $null) and the list answers instead.
+        $lengthBefore = $length
+        $stampBefore  = [IO.File]::GetLastWriteTimeUtc($Path)
+
         if ($length -lt ([long]$Samples * [long]$SampleBytes)) {
             $window  = [int]$length
             $offsets = @([long]0)
@@ -4707,6 +4740,10 @@ namespace FileBackup
         }
 
         if ($totalSampled -le 0) { return $null }
+
+        # Did the file hold still while we sampled it? (See the witnesses above.)
+        if ($stream.Length -ne $lengthBefore -or
+            [IO.File]::GetLastWriteTimeUtc($Path) -ne $stampBefore) { return $null }
 
         return [pscustomobject]@{
             SampledBytes    = $totalSampled
@@ -4902,6 +4939,14 @@ function Resolve-GroupStorageForm {
         [Parameter(Mandatory)][long]$Length,
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Candidate
     )
+
+    # ValidateSet is case-INSENSITIVE, so a hand-built caller can still reach
+    # here with 'Always'. Refuse it BEFORE $probeDecides - i.e. before a single
+    # source byte is read - rather than letting the probe run and the pure core
+    # throw afterwards (R-10). Same vocabulary, same SR-042 wording.
+    if ($Mode -cnotin @('off', 'excluded-extensions', 'always')) {
+        throw "Invalid CompressProbe '$Mode'. Expected 'off', 'excluded-extensions' or 'always' (exact lowercase)."
+    }
 
     $probeDecides = $CompressEnabled -and
                     ($Mode -cne 'off') -and
@@ -6517,6 +6562,13 @@ function Invoke-BackupSet {
         # entry point loads; an in-process caller that hand-built a set object
         # gets the same documented default rather than a ValidateSet failure.
         $probeMode = if ([string]::IsNullOrWhiteSpace([string]$Set.CompressProbe)) { 'always' } else { [string]$Set.CompressProbe }
+        # ...but a PRESENT value must be the exact-lowercase vocabulary, and it is
+        # refused HERE - before the group loop reads or writes anything - because
+        # the three ValidateSets downstream are case-insensitive and would let
+        # 'Always' through to fail mid-loop, after partial writes (R-10).
+        if ($probeMode -cnotin @('off', 'excluded-extensions', 'always')) {
+            throw "Backup set '$($Set.Name)' has invalid CompressProbe '$probeMode'. Expected 'off', 'excluded-extensions' or 'always' (exact lowercase)."
+        }
         foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
             Invoke-BackupFileGroup `
                 -Group $grp.Group `
@@ -6951,7 +7003,17 @@ function Test-BackupConfigurationShape {
         # "maybe" is caught.
         if ($set.PSObject.Properties.Name -contains 'CompressProbe') {
             if ($StrictTypes) { Assert-ConfigValueType -Value $set.CompressProbe -JsonType 'string' -JsonPath "$setPath.CompressProbe" }
-            $cp = [string]$set.CompressProbe
+            # JSON is typed by Assert-ConfigValueType above; CLIXML is not, and
+            # [string] on an ARRAY joins it - so @('off') would cast to 'off' and
+            # pass the vocabulary check, giving the two formats different
+            # contracts (R-3). Require a scalar string first, unwrapping the
+            # PSObject deserialization puts around CLIXML values.
+            $cpRaw = $set.CompressProbe
+            if ($cpRaw -is [psobject]) { $cpRaw = $cpRaw.PSObject.BaseObject }
+            if ($cpRaw -isnot [string]) {
+                throw "Backup set '$($set.Name)' has invalid CompressProbe: it must be a single string ('off', 'excluded-extensions' or 'always'), not a list or another type."
+            }
+            $cp = [string]$cpRaw
             if ($cp -cnotin 'off', 'excluded-extensions', 'always') {
                 throw "Backup set '$($set.Name)' has invalid CompressProbe '$cp'. Expected 'off', 'excluded-extensions' or 'always' (exact lowercase)."
             }

@@ -240,11 +240,20 @@ Describe 'Q7: the bytes decide, not the name (SR-004, SR-081, TC-224)' {
         foreach ($r in $reasons) {
             $r | Should -Not -Match '(?i)docx|xlsx|txt|jpe?g|mp4|mkv|zip|7z|office|document|image|video|audio'
         }
-        # And nothing in the run's own output names a format either.
+        # And nothing in the run's own output names a format either. The line is
+        # '<date> <time> [DEBUG] compress-decision: <rel> <Reason> ratio=...', so
+        # the REASON is captured by name: indexing token 3 read the literal
+        # 'compress-decision:' and could never fail (review R-11).
         $lines = ($script:tc224['always'].Transcript -split "`r?`n") | Where-Object { $_ -match 'compress-decision:' }
         @($lines).Count | Should -BeGreaterThan 0
         foreach ($l in $lines) {
-            ($l -split '\s+')[3] | Should -Not -Match '(?i)docx|jpe?g|mp4|zip'
+            $m = [regex]::Match($l, 'compress-decision:\s+\S+\s+(\S+)')
+            $m.Success | Should -BeTrue -Because 'the assertion must read the Reason, not a literal'
+            # The captured token really is the Reason - the same vocabulary the
+            # pure core emits above - and it names no file format.
+            $m.Groups[1].Value | Should -BeIn @('BelowFloor', 'CompressDisabled', 'ListExempt', 'ModeOff',
+                                                'ProbeCompressible', 'ProbeIncompressible', 'ProbeUnavailable')
+            $m.Groups[1].Value | Should -Not -Match '(?i)docx|jpe?g|mp4|zip'
         }
     }
 }
@@ -348,13 +357,93 @@ Describe 'The probe is lazy and memoized at group scope (SR-081, LLR-058, TC-226
             $r.Map.ContainsKey('a.qqq') | Should -BeFalse
             $r.Map['b.qqq'] | Should -Not -BeNullOrEmpty
             Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 1 -Exactly
-            @($r.Logs | Where-Object { $_.Level -eq 'WARN' -and $_.Message -like '*compressibility probe*' }).Count |
-                Should -BeLessOrEqual 1
+            # (The WARN count is not asserted here: this arm's probe always
+            # yields a measurement, so ProbeUnavailable never fires and "at most
+            # one" would pass on zero. The honest one-WARN arm is the next
+            # Describe - review R-12.)
             # One decision line for the one group that was written.
             @($r.Logs | Where-Object { $_.Message -like 'compress-decision:*' }).Count | Should -Be 1
         } finally { Remove-Item Env:\FB_TC226_COPYCALLS -ErrorAction SilentlyContinue }
     }
 
+}
+
+Describe 'The memo warns ONCE even when a member''s copy fails (SR-081, LLR-058, TC-226)' {
+    # R-12's honest arm: the previous Describe's probe always measures, so
+    # "at most one WARN" there passes on zero. Here the probe yields NO
+    # measurement for every call, so the ProbeUnavailable WARN really is
+    # reachable - and the group-scope memo is what keeps it to exactly one
+    # across a failing member and a succeeding twin.
+    It 'emits exactly one probe WARN and one ProbeUnavailable line across a failed member and its twin (TC-226, R-12)' {
+        Mock -ModuleName FileBackup.Engine Measure-SampleCompressibility { $null }
+        $env:FB_TC226_COPYCALLS = '0'
+        try {
+            # Fails BOTH candidates of the first member (a NON-transient message,
+            # so no retry and no sleep), then succeeds - the same mechanism the
+            # laziness arm uses.
+            Mock -ModuleName FileBackup.Engine Copy-SourceFileToBackup {
+                $n = [int]$env:FB_TC226_COPYCALLS + 1
+                $env:FB_TC226_COPYCALLS = "$n"
+                if ($n -le 2) { return "destination '$BackupFilePath' is a directory; refusing to copy into it" }
+                Copy-Item -LiteralPath $SourceFilePath -Destination $BackupFilePath -Force
+                return 0
+            }
+            $fx = New-ProbeGroup -Label 'tc226-warnonce' -Name @('a.qqq', 'b.qqq') -Bytes (New-ProbeContent -Kind 'random')
+            $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always'
+            $r.Map.ContainsKey('a.qqq') | Should -BeFalse
+            $r.Map['b.qqq'] | Should -Not -BeNullOrEmpty
+            @($r.Logs | Where-Object { $_.Level -eq 'WARN' -and $_.Message -like '*compressibility probe*' }).Count |
+                Should -Be 1 -Because 'the memo survives the failing member''s continue'
+            @($r.Logs | Where-Object { $_.Message -like 'compress-decision:*ProbeUnavailable*' }).Count |
+                Should -Be 1
+        } finally { Remove-Item Env:\FB_TC226_COPYCALLS -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-081, R-10)' {
+    # The three ValidateSets are case-INSENSITIVE, so a hand-built set could
+    # reach the write path with 'Always', read the bytes, and only then have the
+    # pure core throw - mid-loop, after partial writes, naming a private helper.
+    # Resolve-GroupStorageForm now refuses first, before any probe.
+    It 'throws for CompressProbe ''Always'' without opening a single source byte (TC-227, R-10)' {
+        Mock -ModuleName FileBackup.Engine Measure-SampleCompressibility {
+            [pscustomobject]@{ SampledBytes = [long]786432; CompressedBytes = [long]786432
+                               Windows = @(1.0, 1.0, 1.0); Ratio = 1.0 }
+        }
+        $fx = New-ProbeGroup -Label 'r10-case' -Name @('a.qqq') -Bytes (New-ProbeContent -Kind 'random')
+        { Invoke-ProbeGroup -Fixture $fx -Mode 'Always' } |
+            Should -Throw -ExpectedMessage '*CompressProbe*'
+        Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 0 -Exactly `
+            -Because 'the vocabulary is checked before the probe, not after it'
+    }
+
+    It 'refuses a hand-built set at step 10, before the group loop (TC-227, R-10)' {
+        # Invoke-BackupSet directly (the entry point re-imports the module and
+        # would tear down the mock, plan section 5): a set object that never went
+        # through the config validator carries 'Always', and step 10 refuses it
+        # with the SR-042 wording BEFORE a single group is copied.
+        Mock -ModuleName FileBackup.Engine Measure-SampleCompressibility {
+            [pscustomobject]@{ SampledBytes = [long]786432; CompressedBytes = [long]786432
+                               Windows = @(1.0, 1.0, 1.0); Ratio = 1.0 }
+        }
+        $root = Join-Path $TestDrive 'r10-set'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $src 'a.qqq'), (New-ProbeContent -Kind 'text'))
+        $set = [pscustomobject]@{
+            Name = 'R10'; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp; ChangePath = $chg
+            HashRecalcFreq = 'A'; CompressEnabled = $true; AllowEmptySource = $false
+            BrowseView = 'off'; ViewPath = ''; CompressProbe = 'Always'
+        }
+        $ok = $true; $logs = New-Object System.Collections.Generic.List[string]
+        { Invoke-BackupSet -Set $set -Deps @{ '7z' = $script:sevenZip; 'ffprobe' = $null } `
+            -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01') } |
+            Should -Throw -ExpectedMessage "*Backup set 'R10' has invalid CompressProbe 'Always'*"
+        Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 0 -Exactly
+        @(Get-ChildItem -LiteralPath $bkp -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -like '*.qqq' -or $_.Name -like '*.7z' }) |
+            Should -BeNullOrEmpty -Because 'nothing is written before the mode is checked'
+    }
 }
 
 Describe 'A locked owner does not cost the group its measurement (SR-081, TC-226)' {
@@ -488,6 +577,49 @@ Describe 'The CompressProbe configuration key (SR-042, SR-063, SR-081, TC-227)' 
         foreach ($p in $xml, $json) {
             $err = { Import-BackupConfiguration -Path $p } | Should -Throw -PassThru
             $err.Exception.Message | Should -Match 'CompressProbe'
+        }
+    }
+
+    It 'refuses a CLIXML CompressProbe that is an ARRAY rather than a scalar string (<Case>) (TC-227, R-3)' -ForEach @(
+        # JSON rejects both of these by TYPE (Assert-ConfigValueType). CLIXML is
+        # untyped, and [string] on an array JOINS it - so @('off') used to cast
+        # to 'off' and pass the vocabulary check, giving the two formats
+        # different contracts (review R-3).
+        @{ Case = 'one element';  Clixml = [object[]]@('off') }
+        @{ Case = 'two elements'; Clixml = [object[]]@('off', 'always') }
+    ) {
+        $root = Join-Path $TestDrive ('tc227-array-' + ($Case -replace '\W', ''))
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $xml = Join-Path $root 'c.xml'
+        New-ProbeClixmlConfig -Path $xml -Src 'C:\src' -Bkp 'C:\bkp' -Chg 'C:\chg' -Extra @{ CompressProbe = $Clixml }
+        $err = { Import-BackupConfiguration -Path $xml } | Should -Throw -PassThru
+        $err.Exception.Message | Should -Match 'CompressProbe'
+    }
+
+    It 'publishes ONE CompressProbe vocabulary: schema enum = validator = every ValidateSet (TC-227, TC-077, R-6)' {
+        # TC-077 proves schema/validator parity only over hand-picked fixtures,
+        # so adding a fourth word to the schema enum alone would go unnoticed.
+        # This derives the vocabulary from each surface and compares them.
+        $expected = @('off', 'excluded-extensions', 'always')
+        $schema = Get-Content -Raw -LiteralPath (Join-Path $script:repo 'container\FileBackup.schema.json') |
+                  ConvertFrom-Json
+        $schemaEnum = @($schema.definitions.backupSet.properties.CompressProbe.enum)
+        ($schemaEnum -join '|') | Should -BeExactly ($expected -join '|')
+
+        $sets = InModuleScope FileBackup.Engine {
+            $read = {
+                param([string]$Command, [string]$Parameter)
+                @((Get-Command $Command).Parameters[$Parameter].Attributes |
+                  Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })[0].ValidValues
+            }
+            [pscustomobject]@{
+                Group    = @(& $read 'Invoke-BackupFileGroup' 'CompressProbe')
+                Decision = @(& $read 'Resolve-CompressionDecision' 'Mode')
+                Form     = @(& $read 'Resolve-GroupStorageForm' 'Mode')
+            }
+        }
+        foreach ($v in $sets.Group, $sets.Decision, $sets.Form) {
+            (@($v) -join '|') | Should -BeExactly ($expected -join '|')
         }
     }
 
