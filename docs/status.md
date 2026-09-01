@@ -24,8 +24,30 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **WP17 PLAN DRAFTED — PROPOSED, NOT YET CROSS-REVIEWED, NOT APPROVED
-  (2026-08-31, driver session).** Third production first-pass review filed:
+- **WP17 PLAN CROSS-REVIEWED (revision 3, 2026-09-01) — PROPOSED, AWAITING
+  THE OWNER'S Q7 RULING AND FORMAL APPROVAL.** Dual plan-stage round run by
+  the driver as coordinator (Codex CLI: 2 P0/15 P1/3 P2; fresh Opus: 1 P0/13
+  P1/7 P2); 33 composite dispositions in plan §10, every accepted finding
+  folded. The P0s were real: (1) the drafted decision rule never consulted
+  `CompressEnabled`, so a Plain set would have named `.7z` objects — now
+  rule 0; (2) a boolean ruled override protects only SN-003's `.docx` half —
+  now a directional ruled list, whose `.jpg`/`.mp4 → Raw` entries are the
+  one open question **Q7** (recommended yes). Other consequential folds:
+  aggregate-ratio rule replaces any-sample (Codex showed any-sample re-creates
+  the 9-day failure); probe fallback is the list's answer, memoized per group,
+  walking the group's readable members; `FileShare.Read`; codec chosen by a
+  Part B1 calibration (Brotli candidate); exact-lowercase `off |
+  excluded-extensions | always` per the BrowseView precedent; ConfigVersion
+  stays 2 with the additive-optional policy ratified in SR-063; Part A carries
+  an LLR-049 Verify exemption because raw-stored `.z7` objects would otherwise
+  be re-hashed on every Verify (880 GB); KitRevision is "current+1 after
+  rebase" (WP16 also claims 11); rows 2–8 gate at G2 with phase `probe-v1`.
+  §9 now records the verified rerun behaviour (orphans warned, never adopted
+  or removed; the 16 completed `.z7` `.7z` objects become permanent residue)
+  and a recommended empty-the-root procedure for the Owner to approve.
+  Original drafting entry follows.
+- *(superseded by the entry above)* **WP17 PLAN DRAFTED — PROPOSED, NOT YET
+  CROSS-REVIEWED, NOT APPROVED (2026-08-31, driver session).** Third production first-pass review filed:
   [defect-review-2026-08-31-compressibility-by-extension.md](defect-review-2026-08-31-compressibility-by-extension.md)
   — compression is decided by extension alone and the list misses `.z7` (649
   genuine 7-Zip archives, 880 GB, 43% of the hub's library), so the live first
@@ -5497,4 +5519,18 @@ the entropy question — coverage of mixed files is a sample-count matter, kept
 at three, scaling deferred (§7). Driver's one interpretation flagged for
 cross-review: the ruled list survives under `Always` (I-2). Docs only; still
 PROPOSED pending cross-review and formal approval.
+
+**2026-09-01 — WP17 plan-stage cross-review run and folded (revision 3).** On the
+Owner's instruction the driver ran Phase 1 in-session: identical brief to
+`codex exec --sandbox read-only` and to a fresh-context Opus subagent, in
+parallel; the coordinator verified each finding against the tree before
+disposing (plan §10, 33 rows; ★ marks the 13 raised independently by both).
+Rejected with reasons: measure-then-override for telemetry (a read spent on a
+decided outcome); ConfigVersion 3 (forces every deployment to edit config);
+pre-defined false-rate targets (come from the calibration table, not before it);
+Opus's "no `Mock -ModuleName` precedent" (Coverage.Tests.ps1:1862 has one);
+Codex's "Part A cannot be G3-green" as stated (check.ps1:122's phase filter is
+the mechanism). Coordinator's own read-only verification of §9 item 2 reached
+the same four facts Codex #19 did (Engine.psm1:916, :4931, :1700, :576). Still
+PROPOSED: needs the Owner's Q7 ruling and formal approval before §8 row 2.
 
