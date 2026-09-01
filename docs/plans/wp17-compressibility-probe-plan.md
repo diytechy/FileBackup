@@ -17,9 +17,10 @@ other two modes and the below-floor tail, and measurement decides everything els
 deliberately deferred with reasons (§7). The per-set *extension-list* override half of E
 is deferred too.
 
-**Status: PROPOSED — awaiting the plan-stage cross-review and then Owner approval; no
-code may be written under it.** Nothing here is implemented and no registry row is added
-until the Owner approves. The active gate is **G3**. The decision dial is **HIGH**.
+**Status: APPROVED — Owner, 2026-09-01, revision 4, recorded in status.md.** Execution
+follows §8 rows 2–9 under the coordinator model set for WP14; the §8 dual implementation
+review after row 5 is part of the approved plan, not a further approval. The active gate
+is **G3**. The decision dial is **HIGH**.
 **Revision 2 (2026-08-31):** the Owner ruled on Q0–Q6 (§6) and the rulings are folded:
 `CompressProbe` is a three-valued mode defaulting to **`Always`** (§2.5), the size floor
 is **256 KiB**, Part A bumps `KitRevision`, SN-003's text is not edited, and the hub run
@@ -596,7 +597,7 @@ both** are marked ★ and were folded first. `A` = accepted and folded (section 
 **Net effect on the plan:** two P0s closed by rule 0 and (first) a directional ruled list, which Q7 then replaced with "no override at all";
 the decision rule, I/O contract, config surface, registry deltas, test set and
 sequencing all rewritten; one question (Q7) returned to the Owner and ruled the same
-day. The plan remains **PROPOSED** pending formal approval.
+day. Revision 4 was **approved by the Owner on 2026-09-01**.
 
 ## 11. Implementation review round — composite disposition (after commit 5)
 

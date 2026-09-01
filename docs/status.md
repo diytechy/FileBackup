@@ -24,8 +24,11 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **WP17 PLAN REVISION 4 (2026-09-01) — PROPOSED, AWAITING FORMAL APPROVAL
-  ONLY. Q7 RULED: NO ruled list in any direction.** The Owner: SN-003's
+- **WP17 PLAN APPROVED — Owner, 2026-09-01, revision 4 ("Scanned through
+  it, looks good, I approve"). NEXT ACTION: execute plan §8 rows 2–9 under the
+  WP14 coordinator model (Opus implementer per row, coordinator runs every
+  gate, dual Codex+Opus implementation review after row 5 into plan §11).
+  No code exists yet.** Q7 ruled: NO ruled list in any direction.** The Owner: SN-003's
   acceptance extensions are *examples*; the need is "optionally compress
   stored data to save more space", and the probe compressing a `.jpg`/`.mp4`
   (or storing a `.docx` raw) fulfils it better than a name. Applied to both
@@ -5557,4 +5560,11 @@ pin; §10 R-2/R-3 annotated as superseded. §9: the Owner removes the interrupte
 residue by hand — outside WP17. Driver's interpretation flagged for the Owner: the
 `.docx` half is treated as an example too, on the Owner's stated principle rather
 than an explicit sentence about `.docx`. Docs only; awaiting formal approval.
+
+**2026-09-01 — WP17 revision 4 APPROVED by the Owner.** Verdict recorded verbatim:
+"Scanned through it, looks good, I approve." Approval covers the plan as committed
+at 81827e0: scope A+B+mode, `always` default, no name-based override (Q7), 256 KiB
+floor, 0.10 aggregate threshold, KitRevision current+1 with Part A, the LLR-049
+Verify exemption in Part A, `probe-v1` phase with `-Gate G2` for rows 2–8, and the
+dual implementation review after row 5. Execution not started in this session.
 
