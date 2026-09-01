@@ -24,6 +24,24 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **WP17 PLAN DRAFTED — PROPOSED, NOT YET CROSS-REVIEWED, NOT APPROVED
+  (2026-08-31, driver session).** Third production first-pass review filed:
+  [defect-review-2026-08-31-compressibility-by-extension.md](defect-review-2026-08-31-compressibility-by-extension.md)
+  — compression is decided by extension alone and the list misses `.z7` (649
+  genuine 7-Zip archives, 880 GB, 43% of the hub's library), so the live first
+  pass is re-compressing 7-Zip archives at `-mx=9` for a measured ~5% gain:
+  **~9 days of CPU to save ~47 GB**; correctness unaffected. Expanded into
+  [plans/wp17-compressibility-probe-plan.md](plans/wp17-compressibility-probe-plan.md):
+  Part A (confirmed extensions, hub-shippable alone) + Part B (Engine-side
+  sampled Deflate probe composed after the list, any-sample conservatism, lazy
+  at the group write only, fail-toward-compress) + the SN-003 ruled list +
+  per-set `CompressProbe` kill switch; C/D deferred (§7). **Awaiting:** the
+  dual plan-stage cross-review (Codex CLI + fresh Opus, coordinator
+  consolidates into §10), then the Owner's ruling on Q0–Q6 — Q1 (KitRevision
+  for the Common list edit; recommended bump 10→11) and Q6 (finish or stop the
+  live ~9-day hub run; §9 names the one code fact to verify first) are the
+  consequential ones. Registry ids in the plan are provisional after WP16's
+  reservations. No code written; registries untouched.
 - **WP14 EXECUTED THROUGH COMMIT 6 (2026-08-31, coordinator session): registry
   deltas, Parts A–D, and the §11 implementation-review fold are all committed
   and green. AWAITING THE OWNER: (1) commit 7's evidence environment — no USB
@@ -5431,3 +5449,29 @@ duplicate had been silently swallowing the fidelity need's acceptance intent out
 of the release evidence. **Not changed:** `trace.py` still does not
 uniqueness-check ids, so an id collision remains undetectable by the harness —
 worth a small kit-side fix.
+
+**2026-08-31 — Compressibility review filed; WP17 plan drafted (PROPOSED).** The
+third companion review from the production first pass (found by watching `7z` burn
+two cores on a `.z7` file): `Test-ShouldCompress` decides from the filename only, and
+the 24-entry `NonCompressibleExtensions` list — last improved by syncing against
+HomeHub's list, which shares the gap — misses `.z7`, the single largest extension in
+the library. Measured: ratio 0.947 on six files (~5% gain), ~20 min/file at ~160% CPU,
+≈ 4.1 GB/h, ≈ 9 days remaining for 859 GB. LZMA2's uncompressed-chunk fallback
+prevents the space penalty only, after the match-finder has run. The driver expanded
+the review's §5 into `docs/plans/wp17-compressibility-probe-plan.md` with the
+WP14/WP16 structure (invariants I-1..I-8, design §2, provisional deltas SR-004 amend
++ SR-081 + LLR-086 + TC-222..230, open questions Q0–Q6, deferrals, sequencing with a
+dual implementation review after commit 5 because the wiring edits the SR-060
+owner-election write branch). Design points worth recording here: the probe lives in
+**Engine** so Common stays untouched by Part B; it runs **only when a group actually
+writes** (dedup hits and in-run twins never probe); it errs toward compressing (skip
+raw only when every sample fails the threshold) because a false "already compressed"
+is the silent permanent direction; the ruled list (`.docx .xlsx .pptx .odt .ods .odp
+.txt`) is consulted before the probe so SN-003 cannot be reversed by measurement, and
+TC-224's negative control must go red with it removed. `.iso` is deliberately NOT
+added to the list (a filesystem container, not a compressed format). Decision-dial
+note: this is a docs-only, trivially reversible step (review + PROPOSED plan +
+pointer §8 in the review), taken autonomously and recorded here; the plan's approval
+and every open question are the Owner's. Not run: no gate was affected (no registry
+or code change); `python scripts/check_docs.py` was run for doc navigability.
+
