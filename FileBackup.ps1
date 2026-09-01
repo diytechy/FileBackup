@@ -38,7 +38,14 @@
     carry a PSCredential; use CLIXML, or run with -NoMail as containers do).
     BrowseView ("off" default | "index"; "link" reserved) generates a
     browsable manifest-derived view at ViewPath (default <BackupPath>_View,
-    outside both roots, on the backup volume):
+    outside both roots, on the backup volume). CompressProbe ("off" |
+    "excluded-extensions" | "always", default "always"; exact lowercase in both
+    formats) chooses HOW the stored form is decided when CompressEnabled is
+    true (SR-081): "off" is the already-compressed extension list alone (the
+    pre-WP17 behaviour), "excluded-extensions" keeps the list's exemptions and
+    measures everything it would otherwise compress, and "always" measures a
+    sample of the bytes of every file at or above 256 KiB. It is optional and
+    defaulted, so ConfigVersion stays 2 and an unchanged v2 document loads:
 
         {
           "ConfigVersion": 2,
@@ -50,7 +57,8 @@
             "BackupPath": "/backup",
             "ChangePath": "/changes",
             "HashRecalcFreq": "W",
-            "CompressEnabled": true
+            "CompressEnabled": true,
+            "CompressProbe": "always"
           }]
         }
 
@@ -75,6 +83,7 @@
                     ChangePath         = 'E:\Backups\DataChanges'
                     HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
                     CompressEnabled    = $true
+                    CompressProbe      = 'always' # 'always' (default) | 'excluded-extensions' | 'off'
                     BrowseView         = 'index'  # 'off' (default) | 'index' browsable view
                     AllowEmptySource   = $false   # opt in to an intentional delete-all
                 }

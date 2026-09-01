@@ -43,6 +43,11 @@
           "enum": ["A", "E", "D", "W", "M", "Y", "N", "a", "e", "d", "w", "m", "y", "n"]
         },
         "CompressEnabled":    { "type": "boolean" },
+        "CompressProbe": {
+          "type": "string",
+          "enum": ["off", "excluded-extensions", "always"],
+          "description": "Optional; defaults to 'always'. How the stored form is decided when CompressEnabled is true (SR-081): 'off' uses the already-compressed extension list alone (the pre-WP17 behaviour); 'excluded-extensions' keeps the list's exemptions and measures everything it would otherwise compress; 'always' measures every file above the 256 KiB floor, the list serving only the smaller tail. Exact lowercase; ConfigVersion stays 2 because the key is optional and defaulted."
+        },
         "BrowseView": {
           "enum": ["off", "index"],
           "description": "Optional; defaults to 'off'. 'index' generates a browsable, manifest-derived INDEX.tsv + per-folder HTML view outside the backup root. 'link' is reserved and refused by name."

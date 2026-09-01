@@ -4841,6 +4841,154 @@ function Resolve-CompressionDecision {
     return (& $verdict $false 'ProbeIncompressible')
 }
 
+function Resolve-GroupStorageForm {
+    <#
+    .SYNOPSIS
+        The I/O shell around Resolve-CompressionDecision: decides ONE
+        (hash,length) group's stored form, sampling the group's readable
+        candidates only when the ordered rule actually needs a measurement
+        (SR-081).
+
+    .DESCRIPTION
+        Invoke-BackupFileGroup calls this ONCE per group, lazily, on first
+        entry to its write branch, and memoizes the answer (LLR-058) — so a
+        dedup hit or an in-run twin never reaches it, and a group whose first
+        member's copy fails does not re-probe or re-warn per failing member.
+
+        THE PROBE IS NOT OPENED unless rules 0/2/3/4 leave the measurement
+        decisive: compression must be enabled, the mode must not be 'off', the
+        length must be at or above the floor, and 'excluded-extensions' must
+        not already have exempted the name. Rule 0 first is the reviewers' P0 —
+        with CompressEnabled=false nothing is read at all.
+
+        CANDIDATE WALK. Every member of a (hash,length) group holds identical
+        bytes, so any member can supply the sample. The candidate list is the
+        same owner-then-members list the copy path builds (WP9 MIN-1): a locked
+        owner must not cost the group its measurement when a readable twin can
+        serve it. The first candidate that opens decides; only when none opens
+        is the verdict ProbeUnavailable — the LIST'S answer, never a guess, and
+        the caller emits the one WARN (I-6).
+
+    .PARAMETER CompressEnabled
+        The set's CompressEnabled flag. $false dominates: rule 0, no probe.
+
+    .PARAMETER Mode
+        The set's CompressProbe mode, exact lowercase (SR-081).
+
+    .PARAMETER ListSaysCompress
+        Test-ShouldCompress on the OWNER's name, computed with -CompressEnabled
+        $true so it carries only the extension list's opinion.
+
+    .PARAMETER Length
+        The group's content length (every member shares it), against the floor.
+
+    .PARAMETER Candidate
+        Full source paths to sample, in preference order: the owner first, then
+        the other members.
+
+    .OUTPUTS
+        [pscustomobject] Compress / Reason (Resolve-CompressionDecision's
+        verdict) plus SampledBytes, Ratio and Windows for the caller's
+        compress-decision DEBUG line and its Probe reads counter. SampledBytes
+        is 0 when no probe ran or none could be opened.
+    #>
+    # Implements: SR-081, LLR-058, LLR-086
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][bool]$CompressEnabled,
+        [Parameter(Mandatory)][ValidateSet('off', 'excluded-extensions', 'always')]
+        [string]$Mode,
+        [Parameter(Mandatory)][bool]$ListSaysCompress,
+        [Parameter(Mandatory)][long]$Length,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Candidate
+    )
+
+    $probeDecides = $CompressEnabled -and
+                    ($Mode -cne 'off') -and
+                    ($Length -ge $script:CompressProbeMinBytes) -and
+                    -not (($Mode -ceq 'excluded-extensions') -and (-not $ListSaysCompress))
+
+    $probe = $null
+    if ($probeDecides) {
+        foreach ($path in $Candidate) {
+            $probe = Measure-SampleCompressibility -Path $path
+            if ($null -ne $probe) { break }
+        }
+    }
+
+    # Zero SampledBytes IS how "no measurement" reaches the pure core (its
+    # documented contract), so a $null probe needs no separate flag.
+    $sampled    = [long]0
+    $compressed = [long]0
+    $ratio      = $null
+    $windows    = $null
+    if ($null -ne $probe) {
+        $sampled    = [long]$probe.SampledBytes
+        $compressed = [long]$probe.CompressedBytes
+        $ratio      = [double]$probe.Ratio
+        $windows    = $probe.Windows
+    }
+
+    $verdict = Resolve-CompressionDecision -CompressEnabled $CompressEnabled -Mode $Mode `
+                -ListSaysCompress $ListSaysCompress -Length $Length `
+                -SampledBytes $sampled -CompressedBytes $compressed
+
+    [pscustomobject]@{
+        Compress     = $verdict.Compress
+        Reason       = $verdict.Reason
+        SampledBytes = $sampled
+        Ratio        = $ratio
+        Windows      = $windows
+    }
+}
+
+function New-ProbeStatistic {
+    <#
+    .SYNOPSIS
+        A zeroed SR-081 probe-counter accumulator for one backup set.
+
+    .DESCRIPTION
+        RawObjects/RawBytes and CompressedObjects count PHYSICAL objects and are
+        incremented AFTER a successful write, so they never describe bytes the
+        store does not hold. ReadBytes is the first-run cost figure the operator
+        is owed and counts what the probe actually read, whether or not the
+        write that followed succeeded.
+
+    .OUTPUTS
+        [hashtable] with RawObjects, RawBytes, CompressedObjects, ReadBytes.
+    #>
+    # Implements: SR-081, LLR-086
+    [CmdletBinding()]
+    param()
+    @{ RawObjects = [long]0; RawBytes = [long]0; CompressedObjects = [long]0; ReadBytes = [long]0 }
+}
+
+function Write-ProbeStatistic {
+    <#
+    .SYNOPSIS
+        Emits the three SR-081 per-set summary counter lines through the set's
+        logger.
+
+    .PARAMETER Stats
+        A New-ProbeStatistic accumulator, filled by Invoke-BackupFileGroup.
+
+    .PARAMETER Log
+        The set's logging scriptblock.
+
+    .OUTPUTS
+        None.
+    #>
+    # Implements: SR-081, LLR-086
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Stats,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    & $Log "Probe stored raw: $($Stats.RawObjects) objects, $($Stats.RawBytes) bytes"
+    & $Log "Probe compressed: $($Stats.CompressedObjects)"
+    & $Log "Probe reads: $($Stats.ReadBytes) bytes"
+}
+
 # endregion
 
 # region Per-set orchestration helpers
@@ -5236,12 +5384,24 @@ function Invoke-BackupFileGroup {
         # across every group so a systemic failure cannot sleep the run away.
         # Omitted (a direct unit-test call) means "this call gets a fresh
         # budget of its own".
-        [AllowNull()][ref]$RetryBudgetMs
+        [AllowNull()][ref]$RetryBudgetMs,
+        # SR-081: the set's probe mode. Defaulted for the direct unit-test path
+        # exactly as -RetryBudgetMs is; the step-10 call site passes
+        # $Set.CompressProbe, which Resolve-BackupSetDefaults has already
+        # materialized to the same default.
+        [ValidateSet('off', 'excluded-extensions', 'always')]
+        [string]$CompressProbe = 'always',
+        # SR-081 telemetry: the set's probe counters, accumulated across every
+        # group of the set. A hashtable is a reference type, so no [ref] is
+        # needed; omitted (a direct call) means this group counts into a
+        # throw-away of its own.
+        [AllowNull()][hashtable]$ProbeStats
     )
     if ($null -eq $RetryBudgetMs) {
         $ownBudget = $script:CopyRetryBudgetMs
         $RetryBudgetMs = [ref]$ownBudget
     }
+    if ($null -eq $ProbeStats) { $ProbeStats = (New-ProbeStatistic) }
     $hash = $Group[0].xxH2Hash
     $len  = $Group[0].Length
     $exts = ($Group | ForEach-Object { [IO.Path]::GetExtension($_.RelativePath).ToLowerInvariant() } | Select-Object -Unique)
@@ -5266,9 +5426,20 @@ function Invoke-BackupFileGroup {
         if ($candidate.RelativePath.Length -eq $owner.RelativePath.Length -and
             [string]::CompareOrdinal($candidate.RelativePath, $owner.RelativePath) -lt 0) { $owner = $candidate }
     }
-    $ownerExt      = [IO.Path]::GetExtension($owner.RelativePath)
-    $ownerSrcFull  = Join-Path $SrcPath $owner.RelativePath
-    $ownerCompress = Test-ShouldCompress -FileName $ownerSrcFull -CompressEnabled $CompressEnabled
+    $ownerExt     = [IO.Path]::GetExtension($owner.RelativePath)
+    $ownerSrcFull = Join-Path $SrcPath $owner.RelativePath
+    # The extension list's opinion of the OWNER's name, and nothing else:
+    # -CompressEnabled $true carries only the list's answer, because the set's
+    # switch is rule 0 of Resolve-CompressionDecision (SR-081).
+    $listSaysCompress = Test-ShouldCompress -FileName $ownerSrcFull -CompressEnabled $true
+    # The group's storage-form decision (SR-081), resolved LAZILY on FIRST entry
+    # to the write branch and MEMOIZED here at group scope (LLR-058). Lazy is
+    # what keeps dedup hits and in-run twins from probing at all — they return
+    # before the branch — and the memo is what keeps a group whose first
+    # member's copy FAILS (and `continue`s with $writtenThisRun still null,
+    # inside this same foreach) from re-probing and re-warning per failing
+    # member. Nothing outside the write branch reads the form.
+    $decision = $null
     # The group's single stored object, once written this run (SR-060). Null
     # until the first member writes.
     $writtenThisRun = $null
@@ -5310,13 +5481,6 @@ function Invoke-BackupFileGroup {
                 MediaMBPerSec    = $entry.MediaMBPerSec
             }
         } else {
-            # The single object's name derives from the content and the OWNER's
-            # form (SR-058/SR-060): different content, different name, so no
-            # existing object is ever overwritten in place (SR-059).
-            $dataExt  = if ($ownerCompress) { '.7z' } else { $ownerExt }
-            $dataPath = Get-HashSizeFileName -HashHex $hash -Length $len -Extension $dataExt
-            $destFull = Join-Path $BkpPath $dataPath
-
             # Every member of a (hash,length) group holds identical bytes, so
             # ANY member's file can supply them. Try the elected owner first
             # (its extension and compressibility already chose the object's
@@ -5332,6 +5496,34 @@ function Invoke-BackupFileGroup {
                 $candidate = Join-Path $SrcPath $member.RelativePath
                 if (-not $sourceCandidates.Contains($candidate)) { $sourceCandidates.Add($candidate) }
             }
+
+            # SR-081: resolve the group's stored form ONCE, here, at the first
+            # write — never earlier (a dedup hit or an in-run twin must not pay
+            # a read) and never again (a failed member must not re-probe or
+            # re-WARN). The probe walks the same candidate list the copy does,
+            # so a locked owner costs the measurement nothing when a twin is
+            # readable.
+            if ($null -eq $decision) {
+                $decision = Resolve-GroupStorageForm -CompressEnabled $CompressEnabled `
+                                -Mode $CompressProbe -ListSaysCompress $listSaysCompress `
+                                -Length ([long]$len) -Candidate $sourceCandidates.ToArray()
+                $ProbeStats.ReadBytes += [long]$decision.SampledBytes
+                if ($decision.Reason -ceq 'ProbeUnavailable') {
+                    # Exactly one WARN per group, and the run continues on the
+                    # extension list's answer — today's behaviour (I-6).
+                    & $Log ("Could not sample any member of hash=$hash len=$len for the compressibility probe " +
+                            "(owner '$($owner.RelativePath)'); storing by the extension list's answer.") 'WARN'
+                }
+            }
+            $ownerCompress = [bool]$decision.Compress
+
+            # The single object's name derives from the content and the OWNER's
+            # form (SR-058/SR-060): different content, different name, so no
+            # existing object is ever overwritten in place (SR-059).
+            $dataExt  = if ($ownerCompress) { '.7z' } else { $ownerExt }
+            $dataPath = Get-HashSizeFileName -HashHex $hash -Length $len -Extension $dataExt
+            $destFull = Join-Path $BkpPath $dataPath
+
             # Attempt rounds (SR-067): each round tries every member of the
             # content group, then waits and tries the whole list again. A file
             # whose content is unique has ONE member, so before this it had one
@@ -5387,6 +5579,24 @@ function Invoke-BackupFileGroup {
             # from two and TC-119 was blind to the memo (WP9 review, MAJ-2).
             & $Log ("Stored object '$dataPath' for hash=$hash len=$len from '$usedSource' " +
                     "(group of $($Group.Count))." ) 'DEBUG'
+
+            # One compress-decision line per WRITTEN group (SR-081): why this
+            # object took the form it did, and the measurement behind it.
+            $ratioText   = if ($null -ne $decision.Ratio) { [string][math]::Round($decision.Ratio, 3) } else { 'n/a' }
+            $windowsText = if ($null -ne $decision.Windows -and @($decision.Windows).Count -gt 0) {
+                (@($decision.Windows) | ForEach-Object { [string][math]::Round($_, 3) }) -join ','
+            } else { 'n/a' }
+            & $Log ("compress-decision: $($owner.RelativePath) $($decision.Reason) " +
+                    "ratio=$ratioText windows=$windowsText") 'DEBUG'
+
+            # Physical-object counters, incremented only now that the object is
+            # really in the store.
+            if ($decision.Reason -ceq 'ProbeIncompressible') {
+                $ProbeStats.RawObjects++
+                $ProbeStats.RawBytes += [long]$len
+            } elseif ($decision.Reason -ceq 'ProbeCompressible') {
+                $ProbeStats.CompressedObjects++
+            }
 
             $BackupMap.Value[$rel] = [pscustomobject]@{
                 DataPath         = $dataPath
@@ -6301,6 +6511,12 @@ function Invoke-BackupSet {
         # a handful of transiently locked files get their retries, a systemically
         # unreadable tree cannot turn a scheduled run into an hours-long sleep.
         $retryBudgetMs = $script:CopyRetryBudgetMs
+        # SR-081 telemetry for the whole set, filled group by group.
+        $probeStats = New-ProbeStatistic
+        # Resolve-BackupSetDefaults materializes CompressProbe for every set the
+        # entry point loads; an in-process caller that hand-built a set object
+        # gets the same documented default rather than a ValidateSet failure.
+        $probeMode = if ([string]::IsNullOrWhiteSpace([string]$Set.CompressProbe)) { 'always' } else { [string]$Set.CompressProbe }
         foreach ($grp in ($diff.NewOrChanged | Group-Object xxH2Hash, Length)) {
             Invoke-BackupFileGroup `
                 -Group $grp.Group `
@@ -6308,7 +6524,8 @@ function Invoke-BackupSet {
                 -CompressEnabled ([bool]$Set.CompressEnabled) `
                 -SevenZipPath $Deps['7z'] -BackupDb $backupDb `
                 -BackupMap ([ref]$backupMap) -ChangedCount ([ref]$changedCount) `
-                -Log $log -OverallSuccess $OverallSuccess -RetryBudgetMs ([ref]$retryBudgetMs)
+                -Log $log -OverallSuccess $OverallSuccess -RetryBudgetMs ([ref]$retryBudgetMs) `
+                -CompressProbe $probeMode -ProbeStats $probeStats
         }
 
         # 11. Evict removed files to staging. FENCE FIRST (SR-075 §2.5): this is
@@ -6432,6 +6649,7 @@ function Invoke-BackupSet {
         }
 
         & $log "Changed files count = $changedCount"
+        Write-ProbeStatistic -Stats $probeStats -Log $log
         & $log "----- Backup set '$($Set.Name)' completed -----"
     } catch {
         # A tripped RunId fence (or a lost exclusive publish) is the ONE failure
@@ -6489,7 +6707,7 @@ function Assert-NoUnknownConfigKey {
     $topLevelKeys = 'ConfigVersion', 'BackupSets', 'Tools', 'Secrets'
     $setKeys      = 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq',
                     'CompressEnabled', 'SourceStatePath', 'AllowEmptySource',
-                    'BrowseView', 'ViewPath'
+                    'BrowseView', 'ViewPath', 'CompressProbe'
     $toolsKeys    = 'SevenZipPath', 'FfprobePath'
     $secretsKeys  = 'ToEmail', 'FromEmail', 'SmtpServer', 'SmtpPort', 'Credential'
     # Removed keys get a NAMED diagnostic (SR-063, LLR-063): the generic
@@ -6724,6 +6942,20 @@ function Test-BackupConfigurationShape {
                 throw "Backup set '$($set.Name)' has invalid BrowseView '$bv'. Expected 'off' or 'index' ('link' is reserved)."
             }
         }
+        # SR-081/SR-063 vocabulary: exact-lowercase 'off'|'excluded-extensions'|
+        # 'always', matching the published schema's enum (TC-077 parity). The key
+        # is OPTIONAL and defaults to 'always', but a PRESENT key must be one of
+        # the three: a mixed-case "Always" or a "maybe" silently defaulting to
+        # always is exactly the misconfiguration an operator would never see.
+        # This runs for JSON and CLIXML alike - it is the only place a CLIXML
+        # "maybe" is caught.
+        if ($set.PSObject.Properties.Name -contains 'CompressProbe') {
+            if ($StrictTypes) { Assert-ConfigValueType -Value $set.CompressProbe -JsonType 'string' -JsonPath "$setPath.CompressProbe" }
+            $cp = [string]$set.CompressProbe
+            if ($cp -cnotin 'off', 'excluded-extensions', 'always') {
+                throw "Backup set '$($set.Name)' has invalid CompressProbe '$cp'. Expected 'off', 'excluded-extensions' or 'always' (exact lowercase)."
+            }
+        }
         if ($StrictTypes -and $set.PSObject.Properties.Name -contains 'ViewPath' -and $null -ne $set.ViewPath) {
             Assert-ConfigValueType -Value $set.ViewPath -JsonType 'string' -JsonPath "$setPath.ViewPath"
         }
@@ -6759,7 +6991,8 @@ function Resolve-BackupSetDefaults {
     .SYNOPSIS
         Materializes each backup set's optional fields to their documented
         defaults (SourceStatePath = SourcePath, AllowEmptySource = $false,
-        BrowseView = 'off', ViewPath = '<BackupPath>_View') and normalizes
+        BrowseView = 'off', ViewPath = '<BackupPath>_View',
+        CompressProbe = 'always') and normalizes
         casing/types, so the engine's own [bool] / ToUpperInvariant casts at
         point of use become belt-and-braces (SR-042, SR-063).
     .PARAMETER Sets
@@ -6786,6 +7019,13 @@ function Resolve-BackupSetDefaults {
                           -not [string]::IsNullOrWhiteSpace([string]$set.BrowseView)) {
             [string]$set.BrowseView
         } else { 'off' }
+        # CompressProbe defaults to 'always' (Owner ruling Q4, SR-081): the name
+        # is not evidence, so the default measures wherever a measurement is
+        # available. Without this line a validated key would be silently dropped.
+        $compressProbe = if ($set.PSObject.Properties.Name -contains 'CompressProbe' -and
+                             -not [string]::IsNullOrWhiteSpace([string]$set.CompressProbe)) {
+            [string]$set.CompressProbe
+        } else { 'always' }
         $viewPath = if ($set.PSObject.Properties.Name -contains 'ViewPath' -and
                         -not [string]::IsNullOrWhiteSpace([string]$set.ViewPath)) {
             [string]$set.ViewPath
@@ -6802,6 +7042,7 @@ function Resolve-BackupSetDefaults {
             AllowEmptySource   = $allowEmptySource
             BrowseView         = $browseView
             ViewPath           = $viewPath
+            CompressProbe      = $compressProbe
         }
     }
 }

@@ -214,6 +214,7 @@ Imports (internal): `Common`
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-BrowseViewIndex` | yes | SR-062, LLR-061 |
+| `New-ProbeStatistic` | no | SR-081, LLR-086 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
@@ -227,6 +228,7 @@ Imports (internal): `Common`
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
 | `Resolve-CompressionDecision` | no | SR-081, LLR-086 |
+| `Resolve-GroupStorageForm` | no | SR-081, LLR-058, LLR-086 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
 | `Resolve-ViewRootPath` | no | SR-063, LLR-063 |
 | `Save-SupersededData` | yes | SR-010, SR-028, SR-041, SR-059, LLR-010, LLR-028, LLR-041, LLR-059 |
@@ -250,6 +252,7 @@ Imports (internal): `Common`
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
 | `Update-SourceManifest` | yes | SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
+| `Write-ProbeStatistic` | no | SR-081, LLR-086 |
 | `Write-StagingOwnerRecord` | yes | SR-075, LLR-080 |
 <!-- END GENERATED MODULE MAP -->
 

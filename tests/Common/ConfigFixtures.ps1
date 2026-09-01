@@ -47,9 +47,18 @@ function Get-ConfigFixtureCorpus {
         @{ Name = 'minimal-required-keys-only'
            Json = (& $wrap $validSet) }
         @{ Name = 'every-optional-key-present'
-           Json = '{"ConfigVersion":2,"Tools":{"SevenZipPath":"/usr/bin/7z","FfprobePath":"/usr/bin/ffprobe"},"Secrets":{"ToEmail":"a@b.c","FromEmail":"d@e.f","SmtpServer":"smtp","SmtpPort":587},"BackupSets":[{"Name":"a","SourcePath":"s","SourceStatePath":"st","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"W","CompressEnabled":true,"AllowEmptySource":true,"BrowseView":"index","ViewPath":"v"}]}' }
+           Json = '{"ConfigVersion":2,"Tools":{"SevenZipPath":"/usr/bin/7z","FfprobePath":"/usr/bin/ffprobe"},"Secrets":{"ToEmail":"a@b.c","FromEmail":"d@e.f","SmtpServer":"smtp","SmtpPort":587},"BackupSets":[{"Name":"a","SourcePath":"s","SourceStatePath":"st","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"W","CompressEnabled":true,"AllowEmptySource":true,"BrowseView":"index","ViewPath":"v","CompressProbe":"excluded-extensions"}]}' }
         @{ Name = 'browse-view-off'
            Json = (& $wrap "$validSet,`"BrowseView`":`"off`"") }
+        # SR-081's CompressProbe: the three exact-lowercase values are accepted
+        # and the key is OPTIONAL - every other fixture here omits it, which is
+        # the "absent key" case (it resolves to 'always', TC-227).
+        @{ Name = 'compress-probe-off'
+           Json = (& $wrap "$validSet,`"CompressProbe`":`"off`"") }
+        @{ Name = 'compress-probe-excluded-extensions'
+           Json = (& $wrap "$validSet,`"CompressProbe`":`"excluded-extensions`"") }
+        @{ Name = 'compress-probe-always'
+           Json = (& $wrap "$validSet,`"CompressProbe`":`"always`"") }
         @{ Name = 'lowercase-hash-recalc-freq'
            Json = '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"n","CompressEnabled":false}]}' }
         # JSON has one number type: an integral-valued number IS that integer,
@@ -122,6 +131,23 @@ function Get-ConfigFixtureCorpus {
         @{ Name = 'number-view-path'
            Json = (& $wrap "$validSet,`"ViewPath`":7")
            Message = '*ViewPath*JSON string*' }
+        # --- CompressProbe (SR-081, TC-227) ----------------------------------
+        # The vocabulary is EXACT lowercase, so a mixed-case "Always" is a
+        # refusal and not a silent default: an operator who typed it must be
+        # told, in both configuration formats.
+        @{ Name = 'compress-probe-wrong-case'
+           Json = (& $wrap "$validSet,`"CompressProbe`":`"Always`"")
+           Message = '*invalid CompressProbe*' }
+        @{ Name = 'compress-probe-invalid'
+           Json = (& $wrap "$validSet,`"CompressProbe`":`"maybe`"")
+           Message = '*invalid CompressProbe*' }
+        @{ Name = 'null-compress-probe'
+           Json = (& $wrap "$validSet,`"CompressProbe`":null")
+           Message = '*CompressProbe*JSON string*' }
+        @{ Name = 'number-compress-probe'
+           Json = (& $wrap "$validSet,`"CompressProbe`":1")
+           Message = '*CompressProbe*JSON string*' }
+
         @{ Name = 'unknown-key-tools'
            Json = (& $wrap $validSet ',"Tools":{"Bogus":"x"}')
            Message = '*$.Tools.Bogus*unrecognized key*' }

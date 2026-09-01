@@ -11,7 +11,8 @@
       "BackupPath": "/backup",
       "ChangePath": "/changes",
       "HashRecalcFreq": "W",
-      "CompressEnabled": true
+      "CompressEnabled": true,
+      "CompressProbe": "always"
     }
   ]
 }

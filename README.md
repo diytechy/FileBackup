@@ -484,6 +484,7 @@ exempt from `ConfigVersion`, the closed schema, and the credential rule.
             ChangePath         = 'E:\Backups\DataChanges'
             HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
             CompressEnabled    = $true
+            CompressProbe      = 'always' # 'always' (default) | 'excluded-extensions' | 'off'
             BrowseView         = 'index'  # 'off' (default) | 'index' browsable view
             AllowEmptySource   = $false   # true only for an intentional delete-all
         }
@@ -521,6 +522,7 @@ before backup processing instead of writing raw bytes described as compressed.
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
 | `SourceStatePath` | Optional writable folder for the source hash-cache `MANIFEST.csv`. Omit for legacy in-source storage; containers should set a unique path outside the read-only source, backup, and change trees. |
 | `CompressEnabled` | `$true`/`true` stores data files as `.7z` (already-compressed extensions are exempt). JSON must use a real boolean, not a quoted string. |
+| `CompressProbe` | Optional; `off` \| `excluded-extensions` \| `always` (default `always`), exact lowercase. How the stored form is decided when `CompressEnabled` is on: `off` trusts the already-compressed extension list alone; `excluded-extensions` keeps the list's exemptions and measures everything it would otherwise compress; `always` measures a sample of the bytes of every file at or above 256 KiB, the list serving only the smaller files. |
 | `AllowEmptySource` | Defaults to `$false`/`false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `true` only for an intentional delete-all. |
 | `BrowseView` | `off` (default) or `index`: generate a browsable, manifest-derived `INDEX.tsv` + per-folder HTML view of the backup, outside the backup root. `link` is reserved and refused by name. |
 | `ViewPath` | Where the view is written. Defaults to `<BackupPath>_View`; must lie outside the backup and change roots and on the backup volume. |
