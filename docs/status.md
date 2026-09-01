@@ -114,7 +114,29 @@ last) — it is the record, not required reading for every pass.
   lacks WP14). Owner's `.mp4` query: already listed; `.mpg`/`.mpeg` added
   instead. Registry ids provisional after WP16's reservations. No code
   written; registries untouched.
-- **WP14 EXECUTED THROUGH COMMIT 6 (2026-08-31, coordinator session): registry
+- **WP14 COMMIT 7a — TC-194 EVIDENCE LANDED (2026-09-01, coordinator session).** The
+  Owner attached a 7.3 GB exFAT USB (Netac); on the Owner's ruling it was
+  repartitioned (elevated, guarded script) into four exFAT volumes the `RealUSB`
+  backend resolves by label — E: FBTEST-SRC, F: FBTEST-BKP, H: FBTEST-CHG,
+  I: FBTEST-RCN (`tests/Config/real-volumes.json`, local, now gitignored,
+  MinSizeGB 1). G8 gained three TC-194 arms, test code only: G8.3 a stale
+  marker-only `Temp` on exFAT reclaimed end to end through `FileBackup.ps1` at the
+  PRODUCTION 90 s confirmation sample (no seam reaches a child process) — exit 0,
+  `[SR-075/reclaimed]`, aside folder gone, successor RunId differs; G8.4 the §11
+  R-3 interleaving on exFAT — B moves a LIVE directory, refuses
+  `[SR-075/owner-live]`, moves it straight back, tree hash identical, no writer;
+  G8.5 a GENUINE `Directory.Move` failure on exFAT (open handle on the marker ⇒
+  `UnauthorizedAccessException`) — `[SR-075/content-refused]`, `Temp`
+  byte-identical, no aside, no writer, never a delete. Also fixed G8.1's latent
+  one-liner (it could never pass; G8 had never actually run). Coordinator-run:
+  `Run-All.ps1 -Backend RealUSB -Groups G8 -Modes Plain,Compress` → PASS 44 /
+  FAIL 0 / SKIP 0. **Q1, Windows half answered:** same-parent `Directory.Move`
+  works on Windows/exFAT and its ambiguous-failure path refuses as specified —
+  Windows-exFAT joins the supported-provider list. TC-194 → Pass. **STILL
+  PENDING: TC-195** (the hub's Linux-over-exFAT container stack) — the local
+  WSL 5.15 kernel ships no `exfat` module, so `wsl --mount` of a stick partition
+  cannot stand in; SR-017/SR-075/LLR-017 stay Draft until it lands.
+- *(superseded by the entry above for commit 7's Windows half)* **WP14 EXECUTED THROUGH COMMIT 6 (2026-08-31, coordinator session): registry
   deltas, Parts A–D, and the §11 implementation-review fold are all committed
   and green. AWAITING THE OWNER: (1) commit 7's evidence environment — no USB
   disk or exFAT volume is attached for TC-194, and TC-195's row names the hub's
@@ -5628,3 +5650,14 @@ from earlier sessions, untouched: WP14 commit 7 (exFAT/USB + hub Linux-over-exFA
 evidence from the Owner), WP16 PROPOSED (six open questions; its KitRevision becomes 12
 and re-amends TC-173/LLR-076), the observability review §9 baseline.
 Also flipped in row 9: TC-173 (the KitRevision pin, `RestoreLaunchers.Tests.ps1`) `Draft` → `Pass` and LLR-076 `Draft` → `Verified` — both predate WP17 and the pin has passed in every gate run today; Part A re-verified it (plan §3).
+
+**2026-09-01 — WP14 commit 7a: TC-194 on a real exFAT USB.** Owner attached the stick
+and ruled "partition into four"; disk 4 (Netac OnlyDisk, 7.27 GB, empty) was cleared and
+partitioned elevated under an identity guard. G8-RealVolume.ps1 gained G8.3/G8.4/G8.5
+(TC-194) plus the G8.1 fix; coordinator-run RealUSB G8 sweep 44/0/0, two real 90 s
+confirmation samples. Verbatim exFAT evidence (H:ackup.log / H:\staging-reclaim.log):
+`[SR-075/reclaimed] Reclaimed the abandoned staging lock at 'H:\Temp'`; `[SR-075/owner-live]
+... moved directory is NOT the one that was classified abandoned ... moved straight BACK`;
+`[SR-075/content-refused] ... moving it aside ... FAILED: ... Access to the path 'H:\Temp' is
+denied. Refusing without retrying and without deleting anything`. TC-195 still needs the
+hub (WSL kernel lacks exfat).

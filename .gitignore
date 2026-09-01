@@ -22,3 +22,6 @@ coverage.xml
 
 # Local OCI image exports from scripts/Invoke-Container.ps1 -Action Export
 .artifacts/
+
+# Local RealUSB volume map (tests/Config/real-volumes.json.example is the tracked template)
+tests/Config/real-volumes.json
