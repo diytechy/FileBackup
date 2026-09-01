@@ -74,7 +74,7 @@
 # Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
 #             LLR-032, LLR-039, LLR-040, LLR-050)
 #
-# KitRevision: 10
+# KitRevision: 11
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from

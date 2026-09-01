@@ -553,10 +553,10 @@ rather than re-packed (`Compressed=No`), because re-compressing them costs CPU
 and gains nothing:
 
 ```
-.zip .7z .rar .gz .bz2 .xz .tgz .zst
-.mp4 .mkv .mov .avi .webm
-.mp3 .aac .flac .ogg
-.jpg .jpeg .png .webp .gif
+.zip .7z .z7 .rar .gz .bz2 .xz .tgz .zst .esd
+.mp4 .mkv .mov .avi .webm .mpg .mpeg .m2ts .m4v .wmv .flv
+.mp3 .aac .flac .ogg .opus .m4a
+.jpg .jpeg .png .webp .gif .heic .heif
 .jar .pack .sav
 ```
 

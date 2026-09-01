@@ -1548,6 +1548,15 @@ function Get-StorageFormFinding {
         six-byte read per row. -Deep uses the same answer, so it never expands a
         file whose own bytes already reproduce the row.
 
+        WP17 Part A made that shape common rather than rare (adding '.z7' to the
+        already-compressed list turns 43% of the production library into
+        Compressed='No' rows over archive bytes), so the NON-Deep scan gained a
+        second cheap exemption: an object stored raw under its OWN extension
+        (DataPath extension = RelativePath extension) at the row's OWN Length is
+        exempt WITHOUT hashing, because that is exactly the object SR-004's write
+        path produces for an already-compressed source. Any other shape still
+        takes the confirming hash, and -Deep always takes it (LLR-049, TC-229).
+
     .PARAMETER Folder
         The pool folder being audited (backup root or one Snapshot_* folder).
 
@@ -1631,6 +1640,25 @@ function Get-StorageFormFinding {
         # (non-Deep) scan stays a six-byte read per row.
         $rawArchiveOk = $null      # $null = not asked; $true/$false = own bytes (mis)match the row
         $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z')
+        # WP17 Part A widens that fast path, for the NON-Deep scan only. Once
+        # '.z7' joined the already-compressed list, every one of the production
+        # library's 649 '.z7' objects became exactly the shape the comment above
+        # calls "rare" - a Compressed='No' row over archive-magic bytes - so the
+        # confirming hash below would re-read 880 GB on every Verify pass. An
+        # object stored raw UNDER ITS OWN EXTENSION at ITS OWN SIZE is precisely
+        # what SR-004 writes for an already-compressed source: the write path
+        # names it '<hash>_<len><ownerExt>' and records Compressed='No', so
+        # name-and-size agreement is cheap evidence that these bytes are the
+        # row's own payload. Anything else - a DataPath claiming the other form,
+        # a length that does not match - still takes the confirming hash, and
+        # -Deep ALWAYS takes it, so payload identity is unweakened where proving
+        # it is the point (LLR-049, TC-229).
+        if (-not $exempt -and -not $Deep -and $observed -eq 'Archive' -and $row.Compressed -ne 'Yes' -and
+            -not [string]::IsNullOrWhiteSpace([string]$row.Length) -and
+            ([IO.Path]::GetExtension([string]$row.DataPath) -ieq [IO.Path]::GetExtension([string]$row.RelativePath)) -and
+            (Get-Item -LiteralPath $full).Length -eq [long]$row.Length) {
+            $exempt = $true
+        }
         if (-not $exempt -and $observed -eq 'Archive' -and $row.Compressed -ne 'Yes' -and
             -not [string]::IsNullOrWhiteSpace($row.xxH2Hash)) {
             $rawArchiveOk = ((Get-Item -LiteralPath $full).Length -eq [long]$row.Length -and

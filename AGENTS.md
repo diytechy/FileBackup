@@ -477,6 +477,12 @@ Imports (internal): `Common`
   name was chosen. That also means a kit still describes the legacy
   path-addressed store shape in places: correct, because it must go on restoring
   those (SR-061 refuses only *writing* to one).
+  **Revision 11 (2026-09-01, WP17 Part A)** changes no restorer logic at all:
+  the kit-bundled `FileBackup.Common.psm1` gains the already-compressed
+  extensions the 2026-08-31 compressibility review proved (`.z7` first) and its
+  list comment is rewritten. The bump is the Owner's ruling (Q1) rather than an
+  argument about the narrower reading that restore never calls
+  `Test-ShouldCompress` — the file is bundled, so the marker moves.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the seven kit artifacts and **never**
   `MANIFEST.csv.meta`.

@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS  WP5 storage-form trust: repro + verification/repair coverage
            (SR-049, SR-050, SR-052).
-.NOTES     TC-091..TC-094, TC-096, TC-098, TC-100, TC-101 (Windows half).
+.NOTES     TC-091..TC-094, TC-096, TC-098, TC-100, TC-101 (Windows half),
+           plus WP17 Part A's TC-222, TC-229 and TC-231 arms.
            These drive real backup runs and real restores in-process, so they
            also exercise the engine I/O shells. Run: Invoke-Pester -Path tests\Unit
 #>
@@ -832,6 +833,180 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
     }
 }
 
+Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
+    # TC-229's Part-A arms, on TC-093's harness. WP17 Part A puts '.z7' on the
+    # already-compressed list, which turns 43% of the production library into
+    # rows that say Compressed=No over bytes carrying 7-Zip magic - the exact
+    # shape Get-StorageFormFinding's own comment used to call "rare" before
+    # taking a confirming hash. Re-hashing that shape costs 880 GB per Verify
+    # pass, so the non-Deep scan now exempts an object stored raw UNDER ITS OWN
+    # EXTENSION at ITS OWN LENGTH without hashing at all, and -Deep keeps the
+    # hash. These arms pin both directions.
+    #
+    # TC-229 full arm (probe-mixed store + both restorers byte-exact): row 7.
+    BeforeAll {
+        function New-SevenZipMagicFile {
+            <#
+            .SYNOPSIS
+                A file whose first six bytes are the 7-Zip signature over random
+                (incompressible) padding - what a genuine '.z7' looks like to
+                Get-StoredFileForm, without needing 7-Zip to make one.
+            #>
+            param([string]$Path, [int]$Size = 8192, [int]$Seed = 20260901)
+            $bytes = New-Object byte[] $Size
+            [Random]::new($Seed).NextBytes($bytes)
+            $magic = [byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C)
+            [Array]::Copy($magic, 0, $bytes, 0, $magic.Length)
+            [IO.File]::WriteAllBytes($Path, $bytes)
+        }
+
+        function New-RawArchiveStore {
+            <#
+            .SYNOPSIS
+                A one-file backup of 'library.z7' with CompressEnabled ON: after
+                Part A the object is stored RAW, named '<hash>_<len>.z7', with
+                Compressed=No - the hub's shape, produced by a real run.
+            #>
+            param([string]$Root)
+            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $cfg = Join-Path $Root 'c.xml'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
+            New-SevenZipMagicFile -Path (Join-Path $src 'library.z7')
+            Invoke-FormBackup -Cfg $cfg | Out-Null
+
+            $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+            $row = @($rows | Where-Object RelativePath -eq 'library.z7')[0]
+            # The fixture only means anything if it really is that shape.
+            $row                                   | Should -Not -BeNullOrEmpty
+            $row.Compressed                        | Should -Be 'No'
+            [IO.Path]::GetExtension($row.DataPath) | Should -Be '.z7'
+            Get-StoredFileForm -Path (Join-Path $bkp $row.DataPath) | Should -Be 'Archive'
+            return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; Rows = $rows; Row = $row }
+        }
+
+        # The hasher is STUBBED to a fixed answer rather than to real hashes:
+        # these arms measure WHETHER the confirming hash is taken, not what it
+        # says (a mock body cannot close over the test's variables under
+        # -ModuleName, and a global would trip PSAvoidGlobalVars). Where an arm
+        # needs the hash to AGREE, the row is stamped with the stub's answer.
+        $script:stubHash = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+    }
+
+    It 'exempts a raw-stored .z7 without hashing it, and hashes it under -Deep (TC-229)' {
+        $s = New-RawArchiveStore -Root (Join-Path $TestDrive 'tc229-exempt')
+
+        # Non-Deep: the cheap path answers, so the hasher is never reached. The
+        # stub's answer is not this row's hash, so a scan that DID hash would
+        # also raise a finding - the two assertions fail together, not silently.
+        Mock -ModuleName FileBackup.Engine Get-FileXxHash { 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg) |
+            Should -BeNullOrEmpty -Because 'raw storage of an already-compressed source is correct'
+        Should -Invoke Get-FileXxHash -ModuleName FileBackup.Engine -Times 0 -Exactly `
+            -Because 'Part A would otherwise re-hash 880 GB of .z7 on every Verify pass'
+
+        # -Deep still proves payload identity, so the hash IS taken. The row is
+        # stamped with the stubbed hasher's answer so that proof succeeds.
+        $rows = @($s.Rows | ForEach-Object { $_.PSObject.Copy() })
+        @($rows | Where-Object RelativePath -eq 'library.z7')[0].xxH2Hash = $script:stubHash
+        Set-ManifestRows -Folder $s.Bkp -Rows $rows
+
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $script:sevenZip) |
+            Should -BeNullOrEmpty
+        Should -Invoke Get-FileXxHash -ModuleName FileBackup.Engine -Times 1 `
+            -Because '-Deep keeps the confirming hash'
+    }
+
+    It 'does not exempt a length that disagrees with the row, and still hashes a name that does (TC-229)' {
+        # Negative arm 1 - LENGTH mismatch: the cheap path must not fire, and the
+        # confirming hash short-circuits on the same length, so the row is a
+        # genuine FlagOverArchive rather than a silent pass.
+        # BOTH stores are built BEFORE any Mock: New-RawArchiveStore drives a real
+        # run through FileBackup.ps1, which re-imports both modules with -Force
+        # and would discard the mock (plan section 5).
+        $s = New-RawArchiveStore -Root (Join-Path $TestDrive 'tc229-badlen')
+        $t = New-RawArchiveStore -Root (Join-Path $TestDrive 'tc229-badext')
+
+        $bent = @($s.Rows | ForEach-Object { $_.PSObject.Copy() })
+        @($bent | Where-Object RelativePath -eq 'library.z7')[0].Length = [string]([long]$s.Row.Length + 7)
+        Set-ManifestRows -Folder $s.Bkp -Rows $bent
+
+        Mock -ModuleName FileBackup.Engine Get-FileXxHash { 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }
+        $findings = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        @($findings | Where-Object { $_.RelativePath -eq 'library.z7' -and $_.Class -eq 'FlagOverArchive' }).Count |
+            Should -Be 1 -Because 'an object that is not its row''s size is not raw storage of that row'
+
+        # Negative arm 2 - EXTENSION mismatch: the object is renamed to a '.7z'
+        # name its RelativePath does not carry, so the cheap path declines and
+        # the payload-keyed confirming hash decides (and, the row being stamped
+        # with the stub's answer, proves the object correct).
+        $renamed = [IO.Path]::GetFileNameWithoutExtension($t.Row.DataPath) + '.7z'
+        Move-Item -LiteralPath (Join-Path $t.Bkp $t.Row.DataPath) -Destination (Join-Path $t.Bkp $renamed) -Force
+        $rows = @($t.Rows | ForEach-Object { $_.PSObject.Copy() })
+        $bentRow = @($rows | Where-Object RelativePath -eq 'library.z7')[0]
+        $bentRow.DataPath = $renamed
+        $bentRow.xxH2Hash = $script:stubHash
+        Set-ManifestRows -Folder $t.Bkp -Rows $rows
+
+        @(Test-BackupStorageForm -BackupRoot $t.Bkp -ChangeRoot $t.Chg) | Should -BeNullOrEmpty
+        Should -Invoke Get-FileXxHash -ModuleName FileBackup.Engine -Times 1 `
+            -Because 'only an object under its OWN extension takes the cheap path'
+    }
+}
+
+Describe 'A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)' {
+    # TC-231's Part-A arm - the hub's actual fix path, and the nine days Part A
+    # recovers. Driven at Invoke-BackupFileGroup rather than through the entry
+    # point because FileBackup.ps1 re-imports both modules with -Force, which
+    # discards the module mock the call counter needs (plan section 5).
+    #
+    # TC-231's rule-0 arm (CompressEnabled=false x every probe mode): row 5.
+    It 'stores <Name> as <Ext> with Compressed=<Compressed> and calls the compressor <Calls> time(s) (TC-231)' -ForEach @(
+        @{ Name = 'library.z7'; Compressed = 'No';  Ext = '.z7'; Calls = 0 }
+        # The control: without it a "zero calls" assertion could pass simply
+        # because the mock never intercepted anything.
+        @{ Name = 'notes.txt';  Compressed = 'Yes'; Ext = '.7z'; Calls = 1 }
+    ) {
+        $root = Join-Path $TestDrive ('tc231-' + ($Name -replace '\W', '-'))
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
+        $file = Join-Path $src $Name
+        if ($Ext -eq '.z7') {
+            $bytes = New-Object byte[] 8192
+            [Random]::new(20260901).NextBytes($bytes)
+            [Array]::Copy([byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C), 0, $bytes, 0, 6)
+            [IO.File]::WriteAllBytes($file, $bytes)
+        } else {
+            [IO.File]::WriteAllText($file, ('COMPRESSIBLE ' * 200))
+        }
+        $hash = Get-FileXxHash -FilePath $file
+        $len  = (Get-Item -LiteralPath $file).Length
+        $group = @([pscustomobject]@{
+            RelativePath = $Name; Length = $len; xxH2Hash = $hash
+            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
+        })
+
+        Mock -ModuleName FileBackup.Engine Compress-FileWithSevenZip { }
+        $map = @{}; $changed = 0; $ok = $true
+        Invoke-BackupFileGroup -Group $group -SrcPath $src -BkpPath $bkp `
+            -CompressEnabled $true -SevenZipPath $script:sevenZip `
+            -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
+            -Log { param($m, $l = 'INFO') } -OverallSuccess ([ref]$ok)
+
+        $ok | Should -BeTrue
+        $map[$Name].Compressed | Should -Be $Compressed
+        [IO.Path]::GetExtension($map[$Name].DataPath) | Should -Be $Ext
+        Should -Invoke Compress-FileWithSevenZip -ModuleName FileBackup.Engine -Times $Calls -Exactly
+
+        if ($Calls -eq 0) {
+            # Raw really means raw: the object is the source's own bytes, under
+            # its own extension, and nothing in the store is named '.7z'.
+            @(Get-ChildItem -LiteralPath $bkp -Filter '*.7z') | Should -BeNullOrEmpty
+            Get-FileXxHash -FilePath (Join-Path $bkp $map[$Name].DataPath) | Should -Be $hash
+        }
+    }
+}
+
 Describe 'The already-compressed extension list is one list (SR-004)' {
     # TC-096 — amends TC-002 rather than replacing it: TC-002 keeps the
     # extension-not-path property, this pins the merged membership and the
@@ -843,9 +1018,16 @@ Describe 'The already-compressed extension list is one list (SR-004)' {
         @{ Ext = '.mp4' }, @{ Ext = '.mkv' }, @{ Ext = '.mov' }, @{ Ext = '.avi' }
         @{ Ext = '.mp3' }, @{ Ext = '.aac' }, @{ Ext = '.flac' }
         @{ Ext = '.jpg' }, @{ Ext = '.jpeg' }, @{ Ext = '.png' }, @{ Ext = '.webp' }
-        # ...plus the eight merged in by WP5.
+        # ...plus the eight merged in by WP5...
         @{ Ext = '.jar' }, @{ Ext = '.tgz' }, @{ Ext = '.zst' }, @{ Ext = '.gif' }
         @{ Ext = '.webm' }, @{ Ext = '.ogg' }, @{ Ext = '.sav' }, @{ Ext = '.pack' }
+        # ...plus the twelve WP17 Part A appended (TC-222 pins the same set with
+        # mixed casing and the deliberate NON-additions).
+        @{ Ext = '.z7' },   @{ Ext = '.esd' }
+        @{ Ext = '.mpg' },  @{ Ext = '.mpeg' }, @{ Ext = '.m2ts' }
+        @{ Ext = '.m4v' },  @{ Ext = '.wmv' },  @{ Ext = '.flv' }
+        @{ Ext = '.heic' }, @{ Ext = '.heif' }
+        @{ Ext = '.opus' }, @{ Ext = '.m4a' }
     ) {
         Test-ShouldCompress -FileName "file$Ext"            -CompressEnabled $true | Should -BeFalse
         Test-ShouldCompress -FileName "file$($Ext.ToUpper())" -CompressEnabled $true | Should -BeFalse
@@ -853,11 +1035,45 @@ Describe 'The already-compressed extension list is one list (SR-004)' {
         Test-ShouldCompress -FileName "C:\a$Ext\b\file.txt" -CompressEnabled $true | Should -BeTrue
     }
 
-    It 'still compresses SN-003''s acceptance-line extensions (SR-004, SN-003)' {
+    It 'the LIST says compress for .docx .txt .xlsx .csv .log .bin (SR-004)' {
+        # Re-scoped 2026-09-01 (WP17, Owner ruling Q7). This arm used to claim
+        # these extensions compress BECAUSE SN-003 SAYS SO. SN-003's acceptance
+        # line is an EXAMPLE of the need ("optionally compress stored data to
+        # save more space"), not a ruling on those formats, so all this case can
+        # honestly claim is what Test-ShouldCompress - THE LIST - answers. What
+        # the COMPOSED decision does with them once the SR-081 probe exists is
+        # TC-224's: above the floor, a .docx over incompressible bytes is stored
+        # raw.
         foreach ($ext in '.docx', '.txt', '.xlsx', '.csv', '.log', '.bin') {
             Test-ShouldCompress -FileName "file$ext" -CompressEnabled $true |
-                Should -BeTrue -Because "SN-003's acceptance says a $ext IS stored as .7z"
+                Should -BeTrue -Because "$ext is not on the already-compressed list"
         }
+    }
+
+    It 'declines every extension WP17 Part A added, in any casing, and still compresses .iso (TC-222)' {
+        # TC-222. .z7 is the finding itself: file(1) reads '7-zip archive data',
+        # and the production library holds 649 of them - 880 GB, 43% - that the
+        # first pass was re-packing at -mx=9 for ~5%.
+        foreach ($ext in '.z7', '.esd', '.mpg', '.mpeg', '.m2ts', '.m4v', '.wmv',
+                         '.flv', '.heic', '.heif', '.opus', '.m4a') {
+            foreach ($cased in $ext, $ext.ToUpperInvariant(),
+                     ($ext.Substring(0, 2) + $ext.Substring(2).ToUpperInvariant())) {
+                Test-ShouldCompress -FileName "file$cased" -CompressEnabled $true |
+                    Should -BeFalse -Because "$cased is already-compressed content, whatever its casing"
+            }
+        }
+        # The deliberate NON-additions, pinned so nobody 'completes' the list:
+        # .iso is a filesystem CONTAINER, not compressed content, and adding it
+        # would be the false-'already compressed' error the defect review names.
+        # .mca is unconfirmed; .bin/.dng/.pdf are plausible but unproven - and
+        # they are exactly what the SR-081 probe is for.
+        foreach ($ext in '.iso', '.mca', '.bin', '.dng', '.pdf') {
+            Test-ShouldCompress -FileName "file$ext" -CompressEnabled $true |
+                Should -BeTrue -Because "$ext was deliberately NOT added by WP17 Part A"
+        }
+        # And CompressEnabled=false still dominates the list for both classes.
+        Test-ShouldCompress -FileName 'file.z7'  -CompressEnabled $false | Should -BeFalse
+        Test-ShouldCompress -FileName 'file.iso' -CompressEnabled $false | Should -BeFalse
     }
 
     It 'is defined in exactly one place, and README quotes that definition (SR-004)' {

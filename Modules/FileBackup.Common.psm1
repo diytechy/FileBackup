@@ -109,20 +109,42 @@ $script:NameSeparator = '_'         # not in $script:Alphabet, by design
 # The ONE definition of "already compressed / opaque" (SR-004). Test-ShouldCompress
 # is its only reader, and README/AGENTS quote this list rather than restating it.
 # Extended 2026-08-23 (WP5) with the eight entries the HomeHub deployer's list
-# carried and this one did not. Office/text formats are deliberately NOT here:
-# SN-003's acceptance line says a .docx / .txt IS stored as .7z, which is a
-# stakeholder decision, not an oversight.
+# carried and this one did not, and again 2026-08-31 (WP17 Part A) with the
+# formats the compressibility defect review proved - each group's evidence is
+# named at the group. Office/text formats are deliberately NOT here because the
+# list is for formats KNOWN to be already compressed, and office containers are
+# not among them. SN-003's acceptance line naming a .docx / .txt is an EXAMPLE
+# of the need ("optionally compress stored data to save more space"), not a
+# ruling on those formats (Owner ruling Q7, 2026-09-01): under WP17 (SR-081) the
+# bytes decide.
 $script:NonCompressibleExtensions = @(
     '.zip', '.7z', '.rar',
+    # WP17: .z7 is the defect itself - file(1) reads '7-zip archive data,
+    # version 0.4', and the production library holds 649 of them (880 GB, 43%)
+    # that the first pass was re-packing at -mx=9 for ~5%. .esd is a Windows
+    # image, LZMA-compressed by definition.
+    '.z7', '.esd',
     '.gz',  '.bz2', '.xz',  '.tgz', '.zst',
     '.mp4', '.mkv', '.mov', '.avi', '.webm',
+    # WP17: codec containers of the same class as the .mp4/.mkv above; .mpg is
+    # the file that prompted the review's original question.
+    '.mpg', '.mpeg', '.m2ts', '.m4v', '.wmv', '.flv',
     '.mp3', '.aac', '.flac', '.ogg',
+    # WP17: the same class as the .aac/.ogg above.
+    '.opus', '.m4a',
     '.jpg', '.jpeg', '.png', '.webp', '.gif',
+    # WP17: HEVC-coded stills - what current phones produce.
+    '.heic', '.heif',
     # Container/archive formats that are already deflate-compressed inside.
     '.jar', '.pack',
-    # Emulator/game save states — routinely already packed, and large.
+    # Emulator/game save states - routinely already packed, and large.
     '.sav'
 )
+# Deliberately NOT on the list, with the review's reasons: .iso (a filesystem
+# CONTAINER - adding it is the false-"already compressed" error), .mca
+# (unconfirmed), and .bin, .dng, .pdf (plausible but unproven - and exactly what
+# the SR-081 probe is for). This list is the accepted-known-formats fast path,
+# not an attempt at completeness.
 
 # Tool defaults are intentionally resolved at import time so callers receive one
 # stable value for the run. Environment overrides are the container-friendly
