@@ -24,10 +24,31 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **WP14 PLAN APPROVED — Owner, 2026-08-31, as revised after the two-reviewer
-  plan-stage round. NEXT ACTION: execute
-  [plan §8](plans/wp14-stale-temp-lock-recovery-plan.md), starting with the
-  registry deltas commit.** Execution model set by the Owner: a coordinator
+- **WP14 EXECUTED THROUGH COMMIT 6 (2026-08-31, coordinator session): registry
+  deltas, Parts A–D, and the §11 implementation-review fold are all committed
+  and green. AWAITING THE OWNER: (1) commit 7's evidence environment — no USB
+  disk or exFAT volume is attached for TC-194, and TC-195's row names the hub's
+  Linux-over-exFAT stack (the local WSL-Docker container run covers only
+  ext4/9p); (2) approval of the revised
+  [WP16 plan](plans/wp16-run-observability-plan.md) (PROPOSED, cross-reviewed,
+  six open questions incl. Q6's restorer-skip/KitRevision choice); (3) the §9
+  baseline data (first-pass duration, tree-size/ETA) when available.** The
+  dual adversarial review after commit 5 (Codex CLI + fresh Opus) found three
+  P0s — two raised independently by both — all folded as commit 5.1 with
+  dispositions in the plan's §11. SR-017/SR-075 stay Draft until commit 7's
+  Release-tier evidence lands (the sole standing check.ps1 failure is that
+  --require-verified finding, expected). **WP15 stays its own package**
+  (coordinator decision, delegated 2026-08-31): it touches the prune lock —
+  data-integrity surface needing WP14-grade dual review — while WP16 is
+  telemetry sized for a single reviewer; WP16's SR-079 scopes prune's logger
+  out accordingly. **Registry defect found during WP16 drafting:** two
+  distinct needs both numbered SN-031 (stakeholder-needs.md:39-40);
+  trace.py counts rather than uniqueness-checks SN ids. Not fixed in-session
+  (renumbering touches the spine and interacts with WP16's proposed SN-036);
+  needs an Owner-sanctioned renumber.
+- *(superseded by the entry above — execution ran 2026-08-31)* **WP14 PLAN
+  APPROVED — Owner, 2026-08-31, as revised after the two-reviewer plan-stage
+  round.** Execution model set by the Owner: a coordinator
   session orchestrates — Opus subagents implement each part; after commit 5 a
   fresh adversarial review runs in parallel from the Codex CLI and a
   fresh-context Opus reviewer, and the coordinator consolidates (verifying
@@ -5337,3 +5358,50 @@ commits 2–7), and the plan's required independent review after commit 5 runs a
 subagent) that the coordinator consolidates, rejecting invalid / overengineered /
 highly-improbable findings with recorded dispositions. WP16 planning follows the
 same pattern. First execution commit: registry deltas (§3), trace --strict green.
+
+**2026-08-31 — WP14 EXECUTED (commits 2–6 + 5.1), coordinator session.** One Opus
+implementer subagent per plan-§8 row; the coordinator ran every gate itself and
+committed only on its own output (never on an implementer's report). Commits:
+92ab005 registry deltas (trace --strict 0 orphans); bc5a583 Part A helpers +
+36 unit tests; dd84f0d Part B marker/heartbeat wiring (Smoke 541/0); db72a19
+Part C reclaim + fence (Full 274/0/2 + unit 565/0); f2a0586 the §11 review
+dispositions; aea59a5 commit 5.1 folding R-1..R-10 (Full 274/0/2 + unit 590/0);
+6acc29b Part D (Smoke 590/0). The plan-mandated independent review after commit 5
+ran as two parallel adversarial passes (OpenAI Codex CLI, fresh-context Opus, same
+brief, no implementation context). Composite: 3 P0 (two found independently by
+both — the pre-fence recursive cleanups deleting a successor's Temp, reproduced
+live by the Opus reviewer; the unfenced manifest publish — plus Codex's
+two-reclaimer move-binding race), 4 P1, remainder P2; ALL accepted findings fixed
+in commit 5.1; rejections (reclaim-claim lock artifact, compiled-mutant negative
+controls, premature Part-D/evidence findings) recorded with reasons in plan §11.
+Notable design changes out of the round: marker publish is now an exclusive
+FileMode.CreateNew write (Unix File.Move is check-then-rename — not exclusive —
+and its atomic variant needs hard links exFAT lacks); the §2.5 fence set grew to
+five (staging + backup-root manifest writes fenced); reclaim verifies the moved
+aside against the sampled identity and moves a live directory straight back;
+Start-StagingHeartbeat proves one synchronous beat or refuses to run.
+**Commit 7 (TC-194 exFAT / TC-195 container evidence, -Tier Release) is NOT run:**
+no USB disk or exFAT volume is attached, and TC-195 names the hub's real stack —
+awaiting the Owner's environment ruling. SR-017/SR-075 therefore remain Draft, and
+check.ps1's G3 --require-verified finding on those two rows is the one standing,
+expected failure (plain trace.py --strict is exit 0 throughout).
+
+**2026-08-31 — WP16 plan drafted, cross-reviewed, revised; PROPOSED.** Draft by an
+Opus subagent from the obs review (§5 as corrected by §8, §9 live-run inputs) and
+the WP14 §7 deferral row. Cross-review ran the same dual pattern (Codex CLI: no
+P0, 8 P1, 6 P2; fresh Opus: 4 P0, 8 P1, 6 P2). The P0s were real plan defects:
+banners specified for phases that precede the logger's existence; a phase count of
+16 where the code carries 24; timer-driven progress lines that cannot reach
+stdout/journald (no runspace in a compiled callback) although stdout was the
+channel the defect was measured on; an observer lifetime contradicting WP14's
+step-12.9 marker release. All 26 composite dispositions are folded and recorded in
+the plan's new §9 table; the revised plan is internally re-verified against the
+tree (24-step phase table, file-only progress channel, single compiled sink from
+step 2, best-effort status replace, -Gate G2 for its commits 2–7). Six open
+questions for the Owner, the sharpest being Q6: the restorers' T2 error-path
+fallback can enumerate ChangePath-root files (verified: Reconstruct.ps1:1126,
+reconstruct.sh:1288), so RUN.status.json could turn an intact restore into exit 4
+— coordinator recommends adding the skip to both restorers and taking the
+KitRevision bump, which also closes the pre-existing RUN.inprogress case.
+**WP15 ruled a separate package** (see Current State). Approval decision: the
+Owner's, nothing under WP16 may be implemented until then.
