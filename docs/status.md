@@ -41,11 +41,11 @@ last) — it is the record, not required reading for every pass.
   (coordinator decision, delegated 2026-08-31): it touches the prune lock —
   data-integrity surface needing WP14-grade dual review — while WP16 is
   telemetry sized for a single reviewer; WP16's SR-079 scopes prune's logger
-  out accordingly. **Registry defect found during WP16 drafting:** two
-  distinct needs both numbered SN-031 (stakeholder-needs.md:39-40);
-  trace.py counts rather than uniqueness-checks SN ids. Not fixed in-session
-  (renumbering touches the spine and interacts with WP16's proposed SN-036);
-  needs an Owner-sanctioned renumber.
+  out accordingly. **Registry defect found during WP16 drafting and FIXED
+  2026-08-31 on Owner request:** two distinct needs both numbered SN-031; the
+  later one (restore fidelity) is now **SN-036** and WP16's proposed need shifts
+  to **SN-037** (see the audit entry below). trace.py still counts rather than
+  uniqueness-checks SN ids -- that hole is open.
 - *(superseded by the entry above — execution ran 2026-08-31)* **WP14 PLAN
   APPROVED — Owner, 2026-08-31, as revised after the two-reviewer plan-stage
   round.** Execution model set by the Owner: a coordinator
@@ -5405,3 +5405,29 @@ reconstruct.sh:1288), so RUN.status.json could turn an intact restore into exit 
 KitRevision bump, which also closes the pre-existing RUN.inprogress case.
 **WP15 ruled a separate package** (see Current State). Approval decision: the
 Owner's, nothing under WP16 may be implemented until then.
+
+**2026-08-31 — SN-031 duplicate resolved (Owner-requested, out of band).**
+`stakeholder-needs.md` carried two different needs under one id: the
+restore-fidelity need (minted 2026-08-26 with SR-065/SR-066, phase
+`fidelity-v1`) and the externally-damaged-store / self-healing need (minted
+2026-08-23 with SR-053/SR-054). **SN-031 keeps the self-healing need** — it was
+minted first and is the id referenced by SR-053, SR-054, SR-057 (whose
+2026-08-24 rationale predates the fidelity need and means the pool-visibility
+sense), the WP7 plan and the release checklist; nothing outside the spine had to
+move. **The restore-fidelity need is renumbered SN-036** and its row moved into
+id order; its two children **SR-065 and SR-066 now carry `SN-036`** in `SN-Refs`
+(no other requirement pointed at the fidelity sense). The high-water mark is
+therefore SN-036, so **WP16's proposed new need becomes SN-037** — edited in the
+plan (§3 row, §7 commit table, R-26, and Q5, which now records the resolution);
+WP16 is still PROPOSED and unlanded, so nothing else shifts. Older audit entries
+below (e.g. "New: SN-031, SR-065, SR-066 (phase fidelity-v1)") are left as
+written — they are the historical record; read SN-031 there as today's SN-036.
+Evidence: `python scripts/trace.py --strict` → `SN=36 SR=74 LLR=77 TC=201
+orphans=0 integrity=0`. Generated docs refreshed; the release checklist was also
+stale independently of this change (it was missing SN-035 and TC-169/170/194/195
+and an IF-001 ref) and that drift is picked up in the same regeneration — note
+that the pre-fix checklist listed only ONE SN-031 acceptance line, i.e. the
+duplicate had been silently swallowing the fidelity need's acceptance intent out
+of the release evidence. **Not changed:** `trace.py` still does not
+uniqueness-check ids, so an id collision remains undetectable by the harness —
+worth a small kit-side fix.
