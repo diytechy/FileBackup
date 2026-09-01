@@ -4545,6 +4545,304 @@ function Assert-StagingLockOwned {
 
 # endregion
 
+# region Compressibility probe (SR-081)
+
+# The two ruled defaults (plan §2.2, Owner Q2/Q3), module-scope constants IN
+# ENGINE: there is deliberately no Common accessor (Common is kit-bundled and an
+# accessor there would cost a KitRevision for a concept restore has no use for)
+# and no configuration key (SR-081 rationale: two knobs nobody can measure).
+# Tests read them through InModuleScope.
+$script:CompressProbeThreshold   = 0.10      # aggregate shrink a file must show
+$script:CompressProbeMinBytes    = 262144    # 256 KiB floor: below it, no probe
+$script:CompressProbeSampleBytes = 262144    # 256 KiB per sampled window
+$script:CompressProbeSampleCount = 3         # windows: start, middle, end
+
+function Measure-SampleCompressibility {
+    <#
+    .SYNOPSIS
+        Samples a file at fixed offsets, compresses each window into a counting
+        null sink, and reports how much the sampled bytes actually shrink
+        (SR-081). The I/O shell; the decision is Resolve-CompressionDecision's.
+
+    .DESCRIPTION
+        The filename is a claim; the bytes are the evidence. This reads at most
+        Samples x SampleBytes and never touches any destination path.
+
+        It opens the source with FileShare.Read — the same share Get-FileXxHash
+        (Common.psm1:352) and the stored-form sniffer (Common.psm1:847) use — so
+        probe success predicts copy success and no window can sample a file
+        being rewritten underneath it.
+
+        GEOMETRY. When the file is shorter than Samples x SampleBytes it is read
+        ONCE, whole, as a single sample (this avoids the 1.9x over-read three
+        overlapping windows would produce in the 256 KiB-768 KiB band).
+        Otherwise Samples windows of SampleBytes are read at Int64 offsets
+        evenly spaced across the file — for the shipped Samples = 3 those are
+        exactly 0, floor((len - SampleBytes) / 2) and len - SampleBytes. Each
+        window is filled by an exact-read loop that retries a short Read until
+        the window is full or EOF.
+
+        CODEC: BrotliStream at CompressionLevel.Fastest, chosen by the Part B1
+        calibration (docs/plans/wp17-codec-calibration.md, recorded in LLR-086).
+        DeflateStream at Fastest was the drafted alternative and lost on both
+        counts measured: it disagreed with a real `7z -mx=9` outcome on two of
+        eleven corpus files against Brotli's one (Deflate's 32 KiB history
+        cannot see the 64 KiB-period repetition Brotli's ~4 MB window catches
+        inside a single 256 KiB sample), and it cost ~5x the CPU per sample
+        (137 ms vs 28 ms over the corpus).
+
+        The compressed count is read AFTER the encoder's Dispose(): a count
+        taken before the encoder is closed reads short and would call random
+        bytes compressible. TC-223 pins this by asserting random never measures
+        below 0.98.
+
+        ANY failure — a missing path, a share violation, a permission error, an
+        I/O fault — returns $null. This function never throws to its caller
+        (I-6): a lock costs a decision, never a file.
+
+    .PARAMETER Path
+        Full path of the SOURCE file to sample. Never a destination path.
+
+    .PARAMETER SampleBytes
+        Bytes per window. Defaults to $script:CompressProbeSampleBytes (256 KiB).
+
+    .PARAMETER Samples
+        Number of windows. Defaults to $script:CompressProbeSampleCount (3).
+
+    .OUTPUTS
+        [pscustomobject] with SampledBytes (long), CompressedBytes (long),
+        Windows (double[], the per-window compressed/sampled ratio, for the log
+        line) and Ratio (CompressedBytes / SampledBytes) — or $null when the
+        file is empty or could not be sampled at all.
+    #>
+    # Implements: SR-081, LLR-086
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [int]$SampleBytes = $script:CompressProbeSampleBytes,
+        [int]$Samples     = $script:CompressProbeSampleCount
+    )
+
+    if ($SampleBytes -lt 1 -or $Samples -lt 1) { return $null }
+
+    $stream = $null
+    try {
+        # The counting null sink, compiled once per session (the LLR-080 precedent
+        # for Add-Type idempotence). The probe never needs the compressed BYTES,
+        # only how many there are, so nothing is allocated to hold them. It is C#
+        # rather than a PowerShell class because a PowerShell class's methods would
+        # land in the GENERATED module map as bogus top-level functions.
+        if (-not ('FileBackup.CountingSink' -as [type])) {
+            Add-Type -TypeDefinition @'
+namespace FileBackup
+{
+    using System;
+    using System.IO;
+
+    /// <summary>Write-only /dev/null that only counts the bytes written.</summary>
+    public sealed class CountingSink : Stream
+    {
+        private long _count;
+        public long Count { get { return _count; } }
+        public override bool CanRead  { get { return false; } }
+        public override bool CanSeek  { get { return false; } }
+        public override bool CanWrite { get { return true; } }
+        public override long Length   { get { return _count; } }
+        public override long Position { get { return _count; } set { } }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
+        public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
+        public override void SetLength(long value) { throw new NotSupportedException(); }
+        public override void Write(byte[] buffer, int offset, int count) { _count += count; }
+    }
+}
+'@
+        }
+
+        $stream = [System.IO.FileStream]::new(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read)
+
+        $length = $stream.Length
+        if ($length -le 0) { return $null }   # empty file: nothing to measure
+
+        if ($length -lt ([long]$Samples * [long]$SampleBytes)) {
+            $window  = [int]$length
+            $offsets = @([long]0)
+        } else {
+            $window = $SampleBytes
+            $span   = $length - [long]$SampleBytes
+            $offsets = @(0..($Samples - 1) | ForEach-Object {
+                if ($Samples -eq 1) { [long]0 }
+                else { [long][math]::Floor(($_ * $span) / ($Samples - 1)) }
+            })
+        }
+
+        $buffer         = [byte[]]::new($window)
+        $totalSampled   = [long]0
+        $totalCompressed = [long]0
+        $ratios         = [System.Collections.Generic.List[double]]::new()
+
+        foreach ($offset in $offsets) {
+            $null = $stream.Seek($offset, [System.IO.SeekOrigin]::Begin)
+            $filled = 0
+            while ($filled -lt $window) {
+                $read = $stream.Read($buffer, $filled, $window - $filled)
+                if ($read -le 0) { break }    # EOF: take the short window
+                $filled += $read
+            }
+            if ($filled -le 0) { continue }
+
+            $sink    = [FileBackup.CountingSink]::new()
+            $encoder = [System.IO.Compression.BrotliStream]::new(
+                $sink, [System.IO.Compression.CompressionLevel]::Fastest, $true)
+            try { $encoder.Write($buffer, 0, $filled) } finally { $encoder.Dispose() }
+
+            # Read the count only now — the encoder has flushed its final block.
+            $totalSampled    += [long]$filled
+            $totalCompressed += $sink.Count
+            $ratios.Add([double]$sink.Count / [double]$filled)
+        }
+
+        if ($totalSampled -le 0) { return $null }
+
+        return [pscustomobject]@{
+            SampledBytes    = $totalSampled
+            CompressedBytes = $totalCompressed
+            Windows         = $ratios.ToArray()
+            Ratio           = [double]$totalCompressed / [double]$totalSampled
+        }
+    } catch {
+        # Missing, locked, denied, faulted — all the same answer, and never a
+        # throw: the caller falls back to the extension list's opinion (I-6).
+        return $null
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Resolve-CompressionDecision {
+    <#
+    .SYNOPSIS
+        SR-081's ordered rule: composes the CompressEnabled switch, the probe
+        mode, the extension list's opinion, the size floor and the measured
+        sample into ONE { Compress; Reason } record. Pure — no I/O, no logging.
+
+    .DESCRIPTION
+        Rule order, exactly as SR-081 states it (rule 1, a name-based override,
+        was REMOVED by Owner ruling Q7 — no input here is named after a format
+        and no Reason is either):
+
+          0. CompressEnabled = $false  -> raw, CompressDisabled. NOTHING below
+             runs. This is the reviewers' P0: the guard lives inside
+             Test-ShouldCompress today, and a rule that consulted the probe
+             first would name a .7z object and record Compressed=Yes on a Plain
+             set whose 7-Zip is not even resolved.
+          2. Mode 'off'                -> the list's answer, unchanged
+             pre-WP17 behaviour. Reason ModeOff when the list says compress,
+             ListExempt when it says no.
+          3. Length < ProbeMinBytes    -> the list's answer, Reason BelowFloor
+             in BOTH directions: the Reason names WHY the list was consulted,
+             not what it said.
+          4. Mode 'excluded-extensions' and the list says no -> raw, ListExempt.
+          5. Probe unavailable         -> the list's answer, ProbeUnavailable.
+             The CALLER emits the one WARN; this function never logs.
+          6. CompressedBytes <= (1 - Threshold) x SampledBytes -> compress,
+             ProbeCompressible. This is the AGGREGATE rule: a multi-gigabyte
+             random file with a 64 KiB text head reads ~0.93 and stays raw
+             (the defect review's own failure mode), while a file one third
+             text reads ~0.7 and compresses.
+          7. otherwise                 -> raw, ProbeIncompressible.
+
+    .PARAMETER CompressEnabled
+        The set's CompressEnabled flag. $false dominates every other input.
+
+    .PARAMETER Mode
+        The SR-081 probe mode, exact lowercase: 'off', 'excluded-extensions' or
+        'always'. Anything else is rejected by the ValidateSet — the config
+        validator guarantees lowercase before this is ever called.
+
+    .PARAMETER ListSaysCompress
+        The Test-ShouldCompress answer computed with -CompressEnabled $true, so
+        it carries ONLY the extension list's opinion and not the set's switch.
+
+    .PARAMETER Length
+        The source file's length in bytes, compared against ProbeMinBytes.
+
+    .PARAMETER ProbeMinBytes
+        The size floor. Defaults to $script:CompressProbeMinBytes.
+
+    .PARAMETER SampledBytes
+        Measure-SampleCompressibility's SampledBytes total. Zero (the default)
+        means the probe was UNAVAILABLE — that is how a $null probe result is
+        represented here, so the pure core needs no separate availability flag.
+
+    .PARAMETER CompressedBytes
+        Measure-SampleCompressibility's CompressedBytes total.
+
+    .PARAMETER Threshold
+        The fraction the sampled bytes must shrink by. Defaults to
+        $script:CompressProbeThreshold (0.10).
+
+    .OUTPUTS
+        [pscustomobject] @{ Compress = [bool]; Reason = [string] } where Reason
+        is one of CompressDisabled, ModeOff, BelowFloor, ListExempt,
+        ProbeUnavailable, ProbeCompressible, ProbeIncompressible.
+    #>
+    # Implements: SR-081, LLR-086
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][bool]$CompressEnabled,
+        [Parameter(Mandatory)][ValidateSet('off', 'excluded-extensions', 'always')]
+        [string]$Mode,
+        [Parameter(Mandatory)][bool]$ListSaysCompress,
+        [long]$Length          = 0,
+        [long]$ProbeMinBytes   = $script:CompressProbeMinBytes,
+        [long]$SampledBytes    = 0,
+        [long]$CompressedBytes = 0,
+        [double]$Threshold     = $script:CompressProbeThreshold
+    )
+
+    # ValidateSet is case-INSENSITIVE, so pin the exact-lowercase vocabulary the
+    # config validator publishes (the BrowseView precedent, -cnotin).
+    if ($Mode -cnotin @('off', 'excluded-extensions', 'always')) {
+        throw "Resolve-CompressionDecision: Mode must be one of off, excluded-extensions, always (exact lowercase); got '$Mode'."
+    }
+
+    $verdict = { param([bool]$Compress, [string]$Reason)
+        [pscustomobject]@{ Compress = $Compress; Reason = $Reason } }
+
+    # 0. The set switch dominates everything. Nothing below runs.
+    if (-not $CompressEnabled) { return (& $verdict $false 'CompressDisabled') }
+
+    # 2. Mode off: exactly the pre-WP17 path.
+    if ($Mode -ceq 'off') {
+        if ($ListSaysCompress) { return (& $verdict $true 'ModeOff') }
+        return (& $verdict $false 'ListExempt')
+    }
+
+    # 3. Below the floor: never probed, so the list answers.
+    if ($Length -lt $ProbeMinBytes) { return (& $verdict $ListSaysCompress 'BelowFloor') }
+
+    # 4. excluded-extensions: the list still exempts what it knows.
+    if ($Mode -ceq 'excluded-extensions' -and -not $ListSaysCompress) {
+        return (& $verdict $false 'ListExempt')
+    }
+
+    # 5. No measurement: fall back to today's answer, never to a guess.
+    if ($SampledBytes -le 0) { return (& $verdict $ListSaysCompress 'ProbeUnavailable') }
+
+    # 6/7. The aggregate measurement decides.
+    if ($CompressedBytes -le ((1.0 - $Threshold) * $SampledBytes)) {
+        return (& $verdict $true 'ProbeCompressible')
+    }
+    return (& $verdict $false 'ProbeIncompressible')
+}
+
+# endregion
+
 # region Per-set orchestration helpers
 
 function Resolve-BackupSetPaths {

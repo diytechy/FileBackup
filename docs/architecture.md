@@ -218,6 +218,7 @@ Imports (internal): `Common`
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Invoke-StagingLockReclaim` | no | SR-017, SR-075, LLR-017, LLR-080 |
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
+| `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
 | `New-BrowseViewIndex` | yes | SR-062, LLR-061 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
@@ -232,6 +233,7 @@ Imports (internal): `Common`
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
+| `Resolve-CompressionDecision` | no | SR-081, LLR-086 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
 | `Resolve-ViewRootPath` | no | SR-063, LLR-063 |
 | `Save-SupersededData` | yes | SR-010, SR-028, SR-041, SR-059, LLR-010, LLR-028, LLR-041, LLR-059 |
