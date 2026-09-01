@@ -1158,6 +1158,11 @@ Describe 'A Temp holding anything is refused, unchanged from before (TC-188, TC-
         $log = Get-SetLog $fx
         $log | Should -Match '\[SR-075/content-refused\]'
         $log | Should -Match 'A run refuses because Temp exists \(stale Temp folder error\)'
+        # Part D: the refusal states the COUNT it found, how long the lock has
+        # been held, and that the folder is being kept — no hedging (SR-075).
+        $log | Should -Match 'holds 2 entry\(ies\)'
+        $log | Should -Match 'held since \S+ \([^)]+ ago\) by a run that is gone'
+        $log | Should -Match 'being KEPT'
         Get-AsideFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
         Get-SnapshotFolder -ChgPath $fx.Chg | Should -BeNullOrEmpty
         Test-Path -LiteralPath $temp | Should -BeTrue

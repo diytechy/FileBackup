@@ -955,6 +955,29 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   moved folder's *data files* into the backup root under any non-colliding names (skip its
   `MANIFEST.csv` — that is the interrupted run's staging copy of the index) — both restorers
   find content by hash regardless of filename — and verify again.
+
+  **Most of these now recover themselves.** A `Temp` that is *empty*, or that holds
+  *only* a stale `RUN.inprogress` owner record and nothing else, is **reclaimed
+  automatically**: the run confirms with a second sample — taken a while later — that the
+  previous owner really is gone and is not merely quiet, moves the old folder aside,
+  recreates `Temp` and carries on, logging `[SR-075/reclaimed]`. Nothing is deleted to get
+  there. A run that is genuinely still alive is refused, not stomped
+  (`[SR-075/owner-live]`), as is a `Temp` held by a prune (`[SR-075/prune-held]`).
+  The four steps above remain the operator's path for the one case that is never
+  reclaimed: a `Temp` that holds **content** (`[SR-075/content-refused]`).
+
+  **`Temp.stale-<utc>-<hex>` folders** are that moved-aside prior staging folder — created
+  by the automatic reclaim, and the same thing you produce by hand at step (1). They sit
+  beside `Temp` under `ChangePath`, are safe to inspect and safe to copy files out of, and
+  are **never deleted automatically while they hold anything**: an aside folder that proves
+  to contain nothing but the old owner record (or nothing at all) is cleaned up for you,
+  and any other one is kept until you work through steps (3) and (4).
+- **Where a run's log lives.** Per-set detail — the staging-lock messages above included —
+  is written to **`backup.log` inside that set's `ChangePath`**. `Backup_Global.log` (beside
+  the config unless `-GlobalLogPath` / `FILEBACKUP_LOG_PATH` says otherwise) is the
+  orchestrator's sink: configuration, dependency checks, cross-set failure summaries and
+  mail. It is legitimately near-empty while a set is running, so read `ChangePath\backup.log`
+  when you want to know what a run is doing or why it refused.
 - **Unexpected empty source.** A previously populated set fails before mutating the backup
   when its source becomes empty (often an unavailable share). Set `AllowEmptySource = $true`
   on that set only when deleting every backed-up file is intentional.

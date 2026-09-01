@@ -181,6 +181,7 @@ Imports (internal): `Common`
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
+| `Format-StagingAge` | no | SR-075, LLR-017 |
 | `Get-BackupCapacityDemand` | yes | SR-052, SR-013, LLR-052 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
 | `Get-BackupKitRevision` | yes | SR-049, LLR-049 |

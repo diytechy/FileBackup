@@ -3859,6 +3859,32 @@ function Compare-StagingLockIdentity {
     return $null
 }
 
+function Format-StagingAge {
+    <#
+    .SYNOPSIS
+        A short, human duration ("3 h 12 m", "45 s") for the SR-075 refusal
+        sentences, so an operator reads how long a lock has been held without
+        dividing seconds in their head.
+
+    .PARAMETER Seconds
+        Elapsed seconds; negative values (a future-dated marker — the harmless
+        clock-skew direction) render as "0 s".
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-075, LLR-017
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][double]$Seconds)
+
+    if ($Seconds -lt 0) { $Seconds = 0 }
+    $span = [timespan]::FromSeconds($Seconds)
+    if ($span.TotalSeconds -lt 90)   { return ('{0:0} s' -f $span.TotalSeconds) }
+    if ($span.TotalMinutes -lt 90)   { return ('{0:0} min' -f $span.TotalMinutes) }
+    if ($span.TotalHours -lt 48)     { return ('{0:0} h {1:0} min' -f [math]::Floor($span.TotalHours), $span.Minutes) }
+    return ('{0:0} days {1:0} h' -f [math]::Floor($span.TotalDays), $span.Hours)
+}
+
 function Get-StagingRefusalDetail {
     <#
     .SYNOPSIS
@@ -3901,7 +3927,41 @@ function Get-StagingRefusalDetail {
                 return "$token The staging folder '$StagingFolder' is a reparse point / symlink. Moving or deleting through one would act on a tree this guard never classified."
             }
             $others = @($Evidence.Names | Where-Object { $_ -cne $script:StagingRunMarkerName })
-            return "$token The staging folder '$StagingFolder' holds $($others.Count) entry(ies) beyond its own owner record ($($others -join ', ')). It may hold the only physical copy of snapshot-demanded bytes."
+            # "held since <time> (<duration> ago) by a run that is gone; it holds
+            # N file(s), so it is being kept" (SR-075 Part D). The liveness half
+            # is stated only as far as the marker's own age proves it — this
+            # branch never takes a confirmation sample, so it must not claim a
+            # certainty it did not measure.
+            $held = ''
+            if ($Evidence.OwnerRecord -and $null -ne $Evidence.OwnerRecord.LastWriteUtc -and
+                $null -ne $Evidence.OwnerRecord.AgeSeconds) {
+                $beatAge = [double]$Evidence.OwnerRecord.AgeSeconds
+                # The reader's clock, reconstructed: the record read computed
+                # AgeSeconds against it, so we need no second clock source.
+                $nowUtc  = $Evidence.OwnerRecord.LastWriteUtc.AddSeconds($beatAge)
+                $sinceUtc = $Evidence.OwnerRecord.LastWriteUtc
+                if ($Evidence.OwnerRecord.State -eq 'Parsed' -and $Evidence.OwnerRecord.Record) {
+                    $parsed = [datetime]::MinValue
+                    if ([datetime]::TryParse([string]$Evidence.OwnerRecord.Record.StartedUtc, [cultureinfo]::InvariantCulture,
+                            [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal,
+                            [ref]$parsed)) {
+                        # A heartbeat can only ever advance FROM StartedUtc, so a
+                        # record claiming to have started after its own last beat
+                        # is not to be believed: fall back to the mtime, which is
+                        # the signal that survives any payload (SR-075 §2.1).
+                        if ($parsed -le $Evidence.OwnerRecord.LastWriteUtc) { $sinceUtc = $parsed }
+                    }
+                }
+                $ago  = Format-StagingAge -Seconds ($nowUtc - $sinceUtc).TotalSeconds
+                $beat = Format-StagingAge -Seconds $beatAge
+                $who  = if ($beatAge -ge $script:StagingStaleFloorSeconds) {
+                    "a run that is gone (its last heartbeat was $beat ago)"
+                } else {
+                    "a run that was beating $beat ago"
+                }
+                $held = " It has been held since $($sinceUtc.ToString('yyyy-MM-ddTHH:mm:ssZ')) ($ago ago) by $who."
+            }
+            return "$token The staging folder '$StagingFolder' holds $($others.Count) entry(ies) beyond its own owner record ($($others -join ', ')).$held It may hold the only physical copy of snapshot-demanded bytes, so it is being KEPT exactly as it is — nothing was moved and nothing was deleted."
         }
         default {
             return "$token The staging folder '$StagingFolder' could not be classified ($($Verdict.Reason)$(if ($Evidence.Error) { ": $($Evidence.Error)" })). An I/O, stat or access failure is never evidence that a folder is abandoned."
