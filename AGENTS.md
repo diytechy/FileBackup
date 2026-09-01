@@ -169,6 +169,7 @@ Imports (internal): `Common`
 | `Assert-StagingLockOwned` | no | SR-075, LLR-017, LLR-080 |
 | `Clear-ReclaimedStagingFolder` | no | SR-017, SR-075, LLR-017, LLR-080 |
 | `Compare-SourceToBackup` | yes | SR-001, SR-053, LLR-001, LLR-053 |
+| `Compare-StagingLockIdentity` | no | SR-075, LLR-017 |
 | `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
@@ -190,9 +191,11 @@ Imports (internal): `Common`
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
 | `Get-SourceDirectoryRecord` | yes | SR-065, LLR-065 |
 | `Get-StagingBootId` | yes | SR-075, LLR-080 |
+| `Get-StagingConfirmationWait` | no | SR-075, LLR-017 |
 | `Get-StagingContainerId` | yes | SR-075, LLR-080 |
 | `Get-StagingEvidenceSignature` | no | SR-075, LLR-017 |
 | `Get-StagingLockEvidence` | no | SR-017, SR-075, LLR-017, LLR-080 |
+| `Get-StagingLockIdentity` | no | SR-075, LLR-017 |
 | `Get-StagingLockState` | yes | SR-017, SR-075, LLR-080 |
 | `Get-StagingLockVerdict` | no | SR-017, SR-075, LLR-017 |
 | `Get-StagingRefusalDetail` | no | SR-017, SR-075, LLR-017 |
@@ -213,9 +216,11 @@ Imports (internal): `Common`
 | `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
+| `Read-StagingMarkerText` | no | SR-075, LLR-080 |
 | `Read-StagingOwnerRecord` | yes | SR-075, LLR-080 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
+| `Remove-OwnStagingFolder` | no | SR-017, SR-075, LLR-017, LLR-080 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
