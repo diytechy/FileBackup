@@ -6,7 +6,7 @@ Plan owner: driver. Raised by the Owner 2026-08-31 from
 the §6 SN-003 constraint). This plan is the expansion of that review's §5 into an
 executable, requirement-traced package.
 
-**Scope, as this plan proposes it (Owner to confirm — Q0):** the review's **A** (add the
+**Scope (Q0, ruled):** the review's **A** (add the
 proven-compressed extensions, `.z7` first) as the immediate, list-only fix; **B** (a
 sampled compressibility probe) as the durable fix, implemented in **Engine** and
 composed *after* the existing extension list; the **§6 ruled-format override** so B can
@@ -35,7 +35,7 @@ restore byte-exact (SR-050, TC-141 proves restore is insensitive to the `Compres
 column). The one data-integrity-adjacent edit is inside `Invoke-BackupFileGroup`'s write
 branch — the SR-060 owner-election code — which is why §8 sizes the implementation review
 as a dual round rather than a single reviewer. Part A edits `Common.psm1`, which is
-kit-bundled; **Q1** is the KitRevision ruling.
+kit-bundled; Q1 ruled that it bumps `KitRevision` (§6).
 
 ---
 
@@ -50,16 +50,16 @@ because it decides after the match-finder has run; only the caller can decide be
 The list has already been cross-checked against a second list that shared the blind
 spot, so maintaining it harder is not the fix. WP17 does two things. **Part A** adds the
 extensions the review confirmed (`.z7` alone recovers the nine days) and is the change
-the hub needs today. **Part B** stops trusting the name for anything the list does not
-already exempt: for a candidate the list *would* compress, Engine reads three small
-samples (start, middle, end), Deflate-compresses them at the fastest level, and stores
+the hub needs today. **Part B** stops trusting the name: by default (`Always`) for every file above a
+256 KiB floor — in `ExcludedExtensions` mode only for what the list would compress —
+Engine reads three small samples (start, middle, end), Deflate-compresses them at the fastest level, and stores
 raw only when **every** sample fails to shrink by the threshold — erring toward today's
 behaviour, because a false "already compressed" is the silent, permanent direction
 (review §4). A short **ruled list** keeps `.docx`/`.txt`-class formats on their SN-003
 path no matter what the bytes say (review §6): the extension list does not disappear, it
 changes job. The probe runs **lazily** — only when the group actually has to write, never
 for content dedup already owns — and never fails a run: any probe error falls back to the
-list's answer. A per-set `CompressProbe: off` restores exactly today's behaviour.
+list's answer. `CompressProbe: Off` restores exactly today's behaviour.
 
 ---
 
@@ -71,7 +71,7 @@ list's answer. A per-set `CompressProbe: off` restores exactly today's behaviour
 | **I-2** | **SN-003's stakeholder ruling is not reversed by measurement.** *"With compression on, a `.docx`/`.txt` is stored as `.7z`; a `.jpg`/`.mp4` is stored as-is."* | The ruled list (§2.3) is consulted **before** the probe in **every** probing mode, `Always` included, and short-circuits it. A `.docx` — a zip container the probe would otherwise call incompressible — is stored `.7z` exactly as today. TC-224 is the regression pin, and it is the negative control that must fail with the override removed. (SN-003's second clause — `.jpg`/`.mp4` stored as-is — holds under `Always` because those bytes probe incompressible; TC-225 covers it with a real JPEG-class corpus, not by name.) |
 | **I-3** | **Nothing already stored is ever re-formed** (SR-061). | WP17 has no migration in either direction. An object dedup already locates (`$existingBackupWithHash`) is adopted **before** the probe is ever consulted (§2.4 lazy evaluation), so no existing object's form is re-decided. README's "mixed-form store is normal" paragraph gains one clause, not a new rule. |
 | **I-4** | **The extension list stays the ONE definition, in Common** (LLR-004; TC-096 pins one definition site and zero Engine references). | Part A appends to `$script:NonCompressibleExtensions` in place. Part B adds no second copy: Engine calls `Test-ShouldCompress` as it does today and composes the probe *after* it. The ruled list is a **different** set with a different name and job, and TC-096's "Engine has no `NonCompressibleExtensions` reference" arm stays true. |
-| **I-5** | **`Common` never depends on `Engine`; KitRevision bumps whenever a kit-bundled file changes behaviour** (AGENTS.md §3). | The probe, the ruled list and the composition live in **Engine**. Only Part A touches Common (a list edit). Whether that is a "behaviour change" for kit purposes is **Q1**; the plan's recommendation is to bump 10→11 in the Part A commit (cheap: two markers + TC-173's pin) rather than argue the reading. |
+| **I-5** | **`Common` never depends on `Engine`; KitRevision bumps whenever a kit-bundled file changes behaviour** (AGENTS.md §3). | The probe, the ruled list and the composition live in **Engine**. Only Part A touches Common (a list edit). Whether that is a "behaviour change" for kit purposes was **Q1**; the Owner ruled **bump 10→11** in the Part A commit (two markers + TC-173's pin) rather than argue the reading. |
 | **I-6** | **The probe can never fail, slow, or misdirect a run's data path beyond its own read cost.** | Every probe I/O is wrapped; any exception yields the list's answer (compress) and one WARN line. The probe reads at most `3 × 256 KiB` per *written* group, never per file and never for dedup hits. Files below the size floor (§2.2) are not probed at all. The probe never opens the destination. |
 | **I-7** | **Determinism within a run and host** (G7: identical re-runs ⇒ identical manifest rows). | Fixed offsets, fixed sample size, fixed codec and level make the probe a pure function of the bytes on a given runtime. The known limit is stated, not hidden: a Deflate ratio that lands within noise of the threshold could flip across .NET runtime versions — it can only affect an object's **first** write (I-3), and both outcomes are correct forms. §6 Q2's threshold margin exists partly for this. |
 | **I-8** | **No new exit code; IF-001 unchanged.** | A probe decision is a log line and a summary counter, never a failure. `CompressProbe` rides the JSON config's existing per-set object, which passes through IF-001's config bind mount unchanged. |
