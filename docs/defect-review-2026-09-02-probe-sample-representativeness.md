@@ -35,7 +35,7 @@ the file shapes that cost the most to get wrong.**
 | **P-2** | When the middle window says incompressible, the file is incompressible — and the aggregate overrides it | **407 files whose middle window read ≥ 0.95 consumed 4.56 h — 76% of all compression time and 57% of the entire copy phase — to save 1.88 GiB (3.05%).** The other 912 compressed files saved 7.30 GiB in 1.47 h. That is 0.41 GiB/h versus 5.0 GiB/h: a **12× difference in return**, on the one signal the probe already has in hand. |
 | **P-3** | The cost is concentrated in a handful of files, and it is enormous per file | 65 files — 0.3% of the run — consumed 67.4% of the elapsed time. The worst: a 19.98 GiB MKV, `windows=0.62,0.992,0.707`, **87.1 minutes to save 1.5%** (3.6 MiB saved per minute of CPU). |
 | **P-4** | `windows=1,1,0.x` is a reliable signature of zero benefit | Seven observed instances of head and middle both reading ≥ 0.98 with only the tail low. **Realised saving: 0.0% in every one.** Between 4.2 and 16.3 minutes each, ~64 minutes total, for nothing. |
-| **P-5** | The probe itself is NOT the cost, and no fix should slow it down | `ProbeIncompressible` averages 0.548 s/file over 10,429 files — 19.8% of the clock for 43% of the files, at 18.4 MiB/s. The probe pays for itself many times over. The cost is 7-Zip running on what the probe waves through. |
+| **P-5** | The probe itself is NOT the cost, and no fix should slow it down | Isolated by regression against file size (§1e): the probe costs **89.8 ms** on a file ≥ 768 KiB (three windows) and **26.2 ms** below it (one whole-file sample), against a **103.4 ms** fixed per-file cost every file pays whether probed or not. Across all 24,413 files that is **~13.5 minutes — 2.8% of the copy phase.** The probe pays for itself many times over; the cost is 7-Zip running on what it waves through. |
 
 ---
 
@@ -108,6 +108,50 @@ Every `ProbeCompressible` file that took over two minutes, with the realised out
 The pattern is not subtle. **Read the middle column of `windows=` and you have predicted
 the outcome**: `0.976`, `0.992` and `1` produce 0–1.5% savings; `0.452` and `0.676` produce
 12.6–36.7%.
+
+### 1e. What the probe itself costs, separated from the copy
+
+The per-file intervals in §1b are the **whole pipeline** — probe, read, compress-or-copy,
+write the object, write the manifest row — not the probe. Separating them needs no
+instrumentation, because the probe's cost is **independent of file size** (it always reads
+either 3 × 256 KiB or, below 768 KiB, the whole file once) while the copy's cost is
+proportional to it. A least-squares fit of per-file time against file size therefore puts
+the probe in the intercept and the copy in the slope.
+
+Fitted over the 23,091 files that were copied rather than compressed, split by the three
+regimes the geometry actually has:
+
+| class | files | intercept | marginal rate |
+|---|---|---|---|
+| `BelowFloor` — never probed | 12,665 | **103.4 ms** | 4.17 MiB/s |
+| probed, ONE whole-file sample (< 768 KiB) | 1,946 | **129.6 ms** | 17.25 MiB/s |
+| probed, THREE 256 KiB windows (≥ 768 KiB) | 8,480 | **193.2 ms** | 27.56 MiB/s |
+
+Reading the differences against the never-probed baseline:
+
+- **fixed per-file cost, probe or no probe: 103.4 ms** — open, dedup lookup, object create,
+  manifest row. Every file pays it.
+- **three-window probe: 193.2 − 103.4 = 89.8 ms**, i.e. **29.9 ms per 256 KiB window.**
+- **single whole-file sample: 129.6 − 103.4 = 26.2 ms**, cheaper per file but note it reads
+  the file *twice* — once to sample, once to copy.
+
+**29.9 ms per window is an independent confirmation of the Part B1 codec calibration**,
+which measured Brotli-Fastest at ~28 ms per 256 KiB sample on a dev machine. The shipped
+geometry costs what the calibration said it would.
+
+So the 0.548 s that an average 10.06 MiB `ProbeIncompressible` file takes decomposes as:
+
+| component | time | share |
+|---|---|---|
+| fixed per-file cost | 103 ms | 19% |
+| the probe | 90 ms | 16% |
+| copying 10.06 MiB at 27.56 MiB/s | 374 ms | 65% |
+| **predicted total** | **567 ms** | (measured 548 ms) |
+
+Two thirds of it is moving the bytes. **Total probe cost across the whole measured window is
+~13.5 minutes of 8.01 hours.** Any proposal in §4 has that as its budget line: even
+quadrupling the window count on every probed file would cost under an hour, against the ~27
+hours §6 shows are recoverable.
 
 ---
 
@@ -205,12 +249,13 @@ Keep the offsets evenly spaced; raise `Samples` for large files, e.g.
 | 4.20 GiB ISO | 0.63 → compress | more windows find more distributed padding | 19.3% | preserved |
 | 4.11 GiB | 0.158 → compress | middle already 0.452 | 36.7% | preserved |
 
-**Cost.** Brotli-Fastest is quoted at ~28 ms per 256 KiB window in the codec calibration, so
-13 windows is ~364 ms against ~84 ms. That cost lands only on files above the floor, and it
-scales *with* the thing being protected: an extra 280 ms to avoid an 87-minute mistake is
-four orders of magnitude of headroom. Keeping small files at 3 windows means the 12,665
-`BelowFloor` and the bulk of the 10,429 `ProbeIncompressible` files see no change at all
-(P-5).
+**Cost, from §1e's measurement rather than an estimate.** A window costs **29.9 ms** in
+production, so 13 windows is ~389 ms against ~90 ms — **+299 ms** on a file that qualifies.
+Under the formula above only files ≥ 16 MiB get more than three windows: **987 of the 24,413
+files measured**, so the whole-run bill is `987 × 299 ms ≈ 5 minutes` against the ~27 hours
+§6 shows are recoverable. An extra 299 ms to avoid an 87-minute mistake is four orders of
+magnitude of headroom, and the 12,665 `BelowFloor` files plus every probed file under 16 MiB
+see no change at all (P-5).
 
 This is the option that improves accuracy in **both** directions, which is why it is the
 recommendation.
