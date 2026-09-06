@@ -5747,3 +5747,58 @@ UNKNOWN here.
 **Awaiting Owner ruling** on the four questions in the plan's §7: whether the hub
 experiment gates implementation, the three formula constants, the ~37-minute
 acceptance, and the WP number.
+
+---
+
+**2026-09-06 — the first whole-library pass DID complete, and the first
+incremental pass after it spends 98% of `Optimize-ChangeFolders` on syscalls.**
+New review:
+[defect-review-2026-09-06-optimize-changefolders-stat-storm.md](defect-review-2026-09-06-optimize-changefolders-stat-storm.md).
+
+**First, it closes the open question above.** The 2026-09-05 entry records that
+this box could not reach the hub and that "whether the backup run completed is
+UNKNOWN here". It completed: `RunId=333c06fb`, started `2026-09-02T00:00:49Z`,
+finished **`2026-09-04T02:02:46Z`** — ~50 h, exit 0. Verified against the
+destination rather than the exit code, per the HomeHub rule that a successful
+exit is not evidence of a backup: `MANIFEST.csv` carries **181,721 data rows for
+181,721 source files**, and the manifest's summed `Length` is 1,226,813,427,619
+bytes against `du -sb` of 1,226,813,644,236 on the source — the 216,617-byte gap
+being directory entries, which the manifest has no rows for. All nine top-level
+source trees are represented.
+
+**The new finding is about the run AFTER it.** The first incremental pass
+(2026-09-06, `RunId=1cca4a5d`) changed **17 files totalling 38 MB** — all
+`Configs/*` service-state archives — and took **1 h 28 m 25 s**. Preserving the
+changed data took **0.583 s**. `Optimize-ChangeFolders` took **31 m 02.9 s** of
+it, and the review apportions that by measurement rather than by inspection:
+
+| | measured |
+|---|---|
+| `Import-Csv`, 42,376,713 bytes → 181,721 rows | 2.0 s |
+| building the `hash\|length` map, no stat | 26.4 s |
+| **181,721 `Test-Path` calls on fuseblk/NTFS-3G** | **~1,835 s (~10.1 ms each)** |
+| one `readdir` of the same directory (159,771 entries) | **2.288 s** |
+
+So the fix is not in the CSV reader — that is 1.5% — it is replacing the per-row
+existence check with one enumeration per folder into a `HashSet`. The review
+states the four things such a patch must not get wrong, of which only one can
+become a correctness bug: **the comparer's case sensitivity has to match the
+volume, not the platform**, because the reference deployment is a
+case-insensitive NTFS volume reached through case-sensitive Linux APIs and
+`Test-Path` inherits the volume's behaviour today.
+
+Two secondary items in the same document. **`Optimize-ChangeFolders` is
+unconditional** — step 14, no guard; `$manifestChanged` gates only whether
+`Complete-ChangeFolder` publishes a snapshot, and `Changed files count` is not
+computed until after the phase returns — so a zero-change night pays the full
+31 minutes. And the sanitize phase reports **1,570 orphaned objects, 41.4 GiB**,
+verified unreferenced (sampled orphans return 0 manifest matches, a control
+returns 1); they are almost certainly debris from the two bring-up runs killed by
+signal, they are re-reported in full every run, and **nothing reclaims them** —
+`prune` operates on snapshots, not loose objects.
+
+**Nothing here is a data-loss finding and none of it is implemented.** The
+`-not $_.IsBackup` guard on the delete was read and is correct: the phase can
+only remove a duplicate from a change/snapshot folder, never from the backup
+tree. No WP number is claimed and no plan is drafted; this is a measurement
+document awaiting an Owner ruling on whether it becomes work.
