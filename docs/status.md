@@ -5805,32 +5805,68 @@ document awaiting an Owner ruling on whether it becomes work.
 
 **2026-09-06 (same day, extended) — the review now decomposes the WHOLE run, not
 just `Optimize-ChangeFolders`.** Gap analysis over every consecutive pair of log
-lines accounts for all 1 h 28 m 25 s and adds four findings (O-7..O-10).
+lines accounts for all 1 h 28 m 25 s and adds four findings (C-7..C-10).
 
 The one that changes the fix: **`Test-BackupManifest` already builds
 `$existingPaths` at step 6** — every file in the pool, in a `New-RelativePathMap`
 whose whole purpose is that "path keys compare the way the local filesystem
 does" — and discards it. `Optimize-ChangeFolders` re-derives exactly that at step
 14, one `Test-Path` per row, in manifest order rather than directory order
-(~10.1 ms vs ~4.9 ms per call, same volume). So O-1 is a parameter pass, not a
+(~10.1 ms vs ~4.9 ms per call, same volume). So C-1 is a parameter pass, not a
 rewrite, and the case-sensitivity hazard the review flagged is already solved in
 this codebase — just not reused.
 
-**The source tree is also walked twice (O-8):** `Update-SourceManifest` for files
+**The source tree is also walked twice (C-8):** `Update-SourceManifest` for files
 (11 m 18.8 s), then `Get-SourceDirectoryRecord` again with `-Recurse -Directory`
 for the sidecar (8 m 49.4 s) — despite that function's own docstring saying
-emptiness is "decided from the file rows the walk already produced". O-7 and O-8
+emptiness is "decided from the file rows the walk already produced". C-7 and C-8
 together are ~40 of the 88 minutes, and both are changes the surrounding code
 already believes it has made.
 
-Two things are measured but NOT diagnosed, and are labelled that way. **O-9:**
+Two things are measured but NOT diagnosed, and are labelled that way. **C-9:**
 storing an object took 11–25 s each for the 17 config archives, size-independent
 (a 123-byte file took 11.1 s, another took 25.8 s), nothing logged between. Pool
 scale is ruled out by the first run's own history — it stored 3,132 objects in
 its final hour with the pool already ~156k, i.e. **0.87/s against 0.06/s, ~15×**.
-Isolating it wants one instrumented incremental run. **O-10:** the 16 m 39.7 s
+Isolating it wants one instrumented incremental run. **C-10:** the 16 m 39.7 s
 before `Snapshot finalized` is not decomposed; the calibration point is that one
 `Write-Manifest` of the same 181,721 rows took 77.2 s earlier in the same run, so
 that phase costs thirteen of those and the gap is what wants measuring.
 
 Still nothing implemented, still no WP number, still no plan.
+
+**2026-09-06 (same day, third pass) — verify observability, and a finding-ID
+rename.** Two changes to the same review.
+
+**Finding IDs renamed O-n -> C-n** (cost). They collided with
+`defect-review-2026-08-31-run-observability.md`, which numbers its findings O-1
+onward, and plans in this repo cross-reference findings by bare ID.
+
+**New C-11: `verify -Deep` emits nothing for hours, and its progress is sitting
+in `/proc`.** The `auto` gate elected deep (weekday 7, day 6 — first Sunday of
+the month). It ran **3 h 28 m without logging a single line** — no count, no
+percentage, no heartbeat, in any log. From outside, "46% through" and "wedged"
+are indistinguishable, and this is the phase where that matters most: it is the
+longest one the product runs (~7.5 h projected here against 1 h 28 m for the
+whole backup), it starts AFTER the backup has already reported success, and its
+exit 1 / exit 3 outcomes are the ones that make a store untrustworthy.
+
+Progress was obtained without instrumenting anything: `rchar` from
+`/proc/<pid>/io` against `du -sb` of the pool — **545,757,798,260 of
+1,180,424,685,063 bytes, ~46%, mean 43.7 MB/s, ~4 h remaining**. Sound because
+the container has no child processes, so one PID's counter captures every read,
+and because a deep verify reads exactly the set `du` measures. **The trap is
+sampling once:** two consecutive samples gave 16 MiB/s and 41 MiB/s, a 2.5x
+spread, because the pool mixes 123-byte files with 20 GiB media — so a progress
+line should report bytes-done/bytes-total and derive any ETA from the cumulative
+mean, never the last interval.
+
+The cheap fix needs no engine change: the wrapper already knows the container
+name, so `docker inspect -f '{{.State.Pid}}'` plus a once-a-minute sampler
+reproduces that table. That this is even possible is part of the finding — the
+consuming project's operator notes already document a `/proc/<pid>/fd`
+incantation as "the only live signal", i.e. operators have already been driven to
+reverse-engineer progress the product declines to report.
+
+Extends rather than edits the 2026-08-31 observability review, which covers steps
+5 and 10 and mentions verify zero times. Still nothing implemented, no WP number.
