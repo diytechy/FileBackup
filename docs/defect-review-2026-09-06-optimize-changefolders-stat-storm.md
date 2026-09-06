@@ -1,4 +1,4 @@
-# Review — `Optimize-ChangeFolders` spends 98% of its 31 minutes asking a FUSE mount, one file at a time, whether files it could have listed in 2.3 seconds exist
+# Review — an incremental run that changed 17 files took 1 h 28 m, and 0.583 s of it was the change: the whole run decomposed, phase by phase, against its own log
 
 **Found:** 2026-09-06, on the real HomeHub production hub, watching the **first
 incremental pass** — the first run after the whole-library backup completed on
@@ -30,6 +30,13 @@ grows with the library.
 | **O-4** | The phase runs unconditionally, including when nothing changed | `Optimize-ChangeFolders` is step 14 with no guard. `$manifestChanged` gates only whether `Complete-ChangeFolder` publishes a snapshot. A zero-change night pays the full 31 minutes. |
 | **O-5** | ~23,531 of the stats are provably redundant before they are issued | 181,721 rows resolve to **158,190 distinct `hash\|length` keys** and 159,771 objects on disk. Duplicate rows share a `DataPath`, so the same path is stat'ed repeatedly within one run. |
 | **O-6** | *(related, different phase)* Sanitize reports 1,570 orphaned objects and nothing reclaims them | **44,457,076,469 bytes — 41.4 GiB** of stored objects that no manifest row references, verified unreferenced. Re-reported every run, reclaimed by nothing. |
+| **O-7** | **The enumeration O-1 needs has already been built, 30 minutes earlier, and thrown away** | `Test-BackupManifest` builds `$existingPaths` — every file in the pool, in a `New-RelativePathMap` — at step 6. `Optimize-ChangeFolders` at step 14 re-derives exactly that, one `Test-Path` at a time. Passing the map forward makes the O-2 fix nearly free. |
+| **O-8** | The source tree is walked **twice**, in full | `Update-SourceManifest` walks it for files (11 m 18.8 s); `Get-SourceDirectoryRecord` then walks it again with `-Recurse -Directory` for the sidecar (8 m 49.4 s) — despite the function's own docstring saying emptiness is "decided from the file rows the walk already produced". |
+| **O-9** | **Storing an object is ~15× slower in an incremental run than in a full one, at the same pool size** | 17 objects took 4 m 45 s — 11 to 25 s each, size-independent (a **123-byte** file took 11.1 s), with nothing logged between. The first full pass stored **0.87 objects/s** in its final hour with the pool already ~156k. **Not diagnosed** — but measured well enough to rule out directory scale. |
+| **O-10** | Snapshot finalize costs 16 m 39.7 s and is not decomposed here | Observed, cause not isolated. §7 lists what runs in that window. |
+
+**O-1 through O-3 are one finding about one function. O-7 through O-10 are the
+rest of the run**, and together they account for the other ~57 minutes.
 
 ---
 
@@ -144,6 +151,13 @@ the difference between a row that needs checking and one that does not.
 
 ## 3. The fix
 
+> **READ §6 BEFORE IMPLEMENTING THIS.** The enumeration described below already
+> exists at step 6, 30 minutes earlier in the same run, and is thrown away
+> (**O-7**). On the backup path the fix is to *pass that map forward*, not to
+> build a second one. What follows is still the right shape for callers that
+> arrive without one — `-Action Verify`, a standalone `Optimize` — and it is the
+> fallback the parameter needs.
+
 **Replace per-row `Test-Path` with one enumeration per folder.** For each folder
 about to be indexed:
 
@@ -209,7 +223,157 @@ nothing prunes a manifest row. Two independent contributors on this deployment:
 
 ---
 
-## 5. O-6 — 41.4 GiB of orphaned objects, re-reported nightly, reclaimed by nothing
+
+---
+
+## 5. The whole run, decomposed from its own log
+
+§1b listed the phases. This section says what each one *is*, derived by gap
+analysis: every consecutive pair of log lines in `backup.log`, sorted by the
+interval between them. Every number below is a measured gap, not an estimate.
+
+| Gap | Ends at | Phase | Diagnosed? |
+|---|---|---|---|
+| 678.8 s | `Sanitizing backup manifest` | `Update-SourceManifest` — full source walk | necessary, but see **O-8** |
+| 778.6 s | first orphan `WARN` | `Test-BackupManifest` — pool enumeration | **yes — O-7** |
+| ~70 s | `Saving pre-backup manifest` | emitting 1,570 orphan WARNs | cheap; the WARNs are ~2 ms apart |
+| 77.2 s | `New or changed files: 24` | `Write-Manifest` of 181,721 rows to staging | inherent to a full-manifest write |
+| 285 s | last `Stored object` | storing **17 objects** | **no — O-9, anomalous** |
+| 529.4 s | `Directory sidecar: 4570 row(s)` | `Get-SourceDirectoryRecord` — **second** source walk | **yes — O-8** |
+| 999.7 s | `Snapshot finalized` | `New-ReconstructScript` + `Complete-ChangeFolder` | **no — O-10** |
+| 1862.9 s | `Optimize-ChangeFolders completed` | 181,721 `Test-Path` | **yes — O-1** |
+
+The two facts worth carrying out of this table: **the phase that did the work
+took 0.583 s**, and **the three largest phases are all whole-library scans that
+would have cost the same had nothing changed.**
+
+---
+
+## 6. O-7 — the pool listing is built at step 6 and re-derived at step 14
+
+This is the most actionable finding in the document, and it makes §3's fix
+smaller rather than larger.
+
+`Test-BackupManifest` (step 6) already does the right thing. Its comment says so
+— *"SR-064 (LLR-062): ONE pass over the disk and ONE over the rows"* — and the
+code matches:
+
+```powershell
+$existingPaths = New-RelativePathMap
+$rootFull = (Resolve-Path -LiteralPath $FolderRoot).Path
+Get-DataFile -Root $FolderRoot |
+    ForEach-Object { $existingPaths[$_.FullName.Substring($rootFull.Length).TrimStart('\','/')] = $true }
+```
+
+**That map is the exact thing `Get-BackupContentIndex` spends 31 minutes
+rebuilding at step 14**, one `Test-Path` per row, with worse locality. It is
+already keyed by `New-RelativePathMap`, which the comment notes exists precisely
+so "path keys compare the way the local filesystem does" — which is also the
+answer to the case-sensitivity hazard §3 flags. The comparer question is already
+solved in this codebase; it just is not reused.
+
+`$existingPaths` is local to `Test-BackupManifest` and discarded when it
+returns. Returning it alongside `$backupDb`, and threading it into
+`Get-BackupContentIndex` as an optional "already know what is on disk"
+parameter, converts O-1 from a rewrite into a parameter pass. The fallback
+enumeration in §3 is still worth having for callers that arrive without one
+(`-Action Verify`, a standalone `Optimize`), but the backup path would not use
+it.
+
+**This also halves the remaining cost**, because `Get-DataFile`'s own walk is
+where the 778.6 s goes: `Get-ChildItem -Recurse -File -Force` piped through a
+`Where-Object` calling `Test-IsInfrastructureFile` per entry. `-File` forces the
+enumerator to classify every entry, and on a FUSE mount whose `readdir` cannot
+be trusted to carry `d_type` that is a `stat` per entry — 159,771 of them at
+**~4.9 ms**. That is cheaper per call than O-1's ~10.1 ms because it walks in
+directory order rather than manifest order, which is the same locality effect
+from the other side.
+
+Whether that walk can be made cheaper is a separate question from O-7, and a
+smaller prize: **one** stat-per-entry pass over the pool per run is defensible.
+**Two, the second in random order, is not.**
+
+---
+
+## 7. O-10 — the 16 m 39.7 s before `Snapshot finalized`
+
+Not decomposed, and this document does not guess at it. What runs in that window,
+from the step-13 call site:
+
+- `New-ReconstructScript -BackupRoot ... -ChangeRoot ...`
+- `Complete-ChangeFolder`, which iterates all 181,721 staging rows, calls
+  `Write-Manifest` on them, copies seven reconstruct artifacts
+  (`RECONSTRUCT.*`, `FileBackup.Common.psm1`, `System.IO.Hashing.dll`,
+  `RECONSTRUCT.paths.json`), and finishes with one `Rename-Item`.
+
+A calibration point from the same run: the step-7 `Write-Manifest` of the same
+181,721 rows to staging took **77.2 s**. So one full manifest write is ~1.3
+minutes, and the phase costs thirteen of those. **The gap between 77 s and 999 s
+is the thing to measure**, and this review did not.
+
+---
+
+## 8. O-9 — storing an object costs 11–25 s in an incremental run, and 1.1 s in a full one
+
+The 17 objects were stored between 17:03:33 and 17:08:40. Consecutive
+`Stored object` lines are 11 to 25 seconds apart with **nothing logged between
+them**, and the interval does not track file size:
+
+| Object | Source | Bytes | Gap before |
+|---|---|---|---|
+| `ExF7zEE9…_4B.7z` | `Configs/finance.files.tsv` | **123** | 11.1 s |
+| `KmgrAAaDo…_B3.7z` | `Configs/actual.files.tsv` | 514 | 11.3 s |
+| `LtCzBHGBw…_6K.zst` | `Configs/finance.tar.zst` | 245 | 11.3 s |
+| `TK9Md3Rzy…_4B.7z` | `Configs/uptimekuma.files.tsv` | **123** | 25.8 s |
+| `iNMMswXeP…_BXBz.zst` | `Configs/technitium.tar.zst` | 1,761,527 | 22.8 s |
+
+A 123-byte file taking 11.1 s, and another taking 25.8 s, rules out compression
+and I/O volume. Every one of these rows logged `BelowFloor`, so the
+compressibility probe did not run and is not the cost either.
+
+**The obvious explanation — inserting into a directory of 159,771 entries on
+NTFS-3G — is ruled out by the first run's own history.** Counted from the
+journal, the first full pass stored **3,132 objects in its final hour**
+(2026-09-03 20:00–21:00), with the pool already at ~156k entries: **0.87
+objects/s**. The incremental run managed **17 in 285 s — 0.06/s**. Same pool,
+same volume, same build, **~15× apart**.
+
+So the cost is not pool scale and not object size. It is something about the
+shape of a run that stores a handful of objects rather than a stream of them —
+per-object work that the full pass amortised or pipelined and the incremental
+pass pays in full, unlogged. **Candidates not distinguished by this data:** a
+flush or `fsync` per object, an external compressor process spawned per object,
+or a re-read/verify step. Isolating it wants one instrumented incremental run
+with timing around the store call, which is a smaller experiment than it looks
+because 17 objects is the whole sample.
+
+**Why it matters more than 4 m 45 s suggests:** every nightly run stores this
+same handful of config archives (§4), so this is a nightly cost, and it is the
+one term here that scales with *changes* rather than with library size. A night
+with 500 changed files would pay it 500 times.
+
+---
+
+## 9. What the fixes are worth, together
+
+Ordered by measured saving against the 1 h 28 m 25 s run:
+
+| | Fix | Saves | Confidence |
+|---|---|---|---|
+| **O-7 + O-1** | thread `$existingPaths` from step 6 into step 14 | **~31 min** | high — the map already exists and is already correctly compared |
+| **O-8** | capture directories during the source file walk instead of walking again | **~8.8 min** | high — the docstring already describes the intended shape |
+| **O-4** | skip `Optimize-ChangeFolders` when nothing changed | up to 31 min, overlaps O-7 | high, and much smaller than O-7 |
+| **O-10** | unknown, 16.7 min available | ? | needs measurement first |
+| **O-9** | unknown, 4.8 min on this run, scales with change count | ? | needs an instrumented run |
+| **O-6** | reclaim 41.4 GiB and stop re-reporting it | not time, space | high |
+
+**O-7 and O-8 alone are ~40 of the 88 minutes**, both are shape changes rather
+than algorithm changes, and both are changes the surrounding code already
+believes it has made — SR-064 says one pass over the disk, and
+`Get-SourceDirectoryRecord`'s docstring says the walk is not repeated. In each
+case the intent is documented and the implementation does it twice.
+
+## 10. O-6 — 41.4 GiB of orphaned objects, re-reported nightly, reclaimed by nothing
 
 The sanitize phase emitted **1,570** `File exists in backup folder but not in DB`
 warnings. Verified rather than assumed: sampled orphans return **0** matches in
@@ -238,7 +402,7 @@ Worth having, in rough order of value:
 
 ---
 
-## 6. What this review does NOT claim
+## 11. What this review does NOT claim
 
 - **Not a data-loss finding.** The delete in `Optimize-ChangeFolders` is guarded
   by `-not $_.IsBackup`; it can only remove a duplicate from a change/snapshot

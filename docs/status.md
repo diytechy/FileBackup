@@ -5802,3 +5802,35 @@ signal, they are re-reported in full every run, and **nothing reclaims them** �
 only remove a duplicate from a change/snapshot folder, never from the backup
 tree. No WP number is claimed and no plan is drafted; this is a measurement
 document awaiting an Owner ruling on whether it becomes work.
+
+**2026-09-06 (same day, extended) — the review now decomposes the WHOLE run, not
+just `Optimize-ChangeFolders`.** Gap analysis over every consecutive pair of log
+lines accounts for all 1 h 28 m 25 s and adds four findings (O-7..O-10).
+
+The one that changes the fix: **`Test-BackupManifest` already builds
+`$existingPaths` at step 6** — every file in the pool, in a `New-RelativePathMap`
+whose whole purpose is that "path keys compare the way the local filesystem
+does" — and discards it. `Optimize-ChangeFolders` re-derives exactly that at step
+14, one `Test-Path` per row, in manifest order rather than directory order
+(~10.1 ms vs ~4.9 ms per call, same volume). So O-1 is a parameter pass, not a
+rewrite, and the case-sensitivity hazard the review flagged is already solved in
+this codebase — just not reused.
+
+**The source tree is also walked twice (O-8):** `Update-SourceManifest` for files
+(11 m 18.8 s), then `Get-SourceDirectoryRecord` again with `-Recurse -Directory`
+for the sidecar (8 m 49.4 s) — despite that function's own docstring saying
+emptiness is "decided from the file rows the walk already produced". O-7 and O-8
+together are ~40 of the 88 minutes, and both are changes the surrounding code
+already believes it has made.
+
+Two things are measured but NOT diagnosed, and are labelled that way. **O-9:**
+storing an object took 11–25 s each for the 17 config archives, size-independent
+(a 123-byte file took 11.1 s, another took 25.8 s), nothing logged between. Pool
+scale is ruled out by the first run's own history — it stored 3,132 objects in
+its final hour with the pool already ~156k, i.e. **0.87/s against 0.06/s, ~15×**.
+Isolating it wants one instrumented incremental run. **O-10:** the 16 m 39.7 s
+before `Snapshot finalized` is not decomposed; the calibration point is that one
+`Write-Manifest` of the same 181,721 rows took 77.2 s earlier in the same run, so
+that phase costs thirteen of those and the gap is what wants measuring.
+
+Still nothing implemented, still no WP number, still no plan.
