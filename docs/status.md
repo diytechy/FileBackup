@@ -5702,3 +5702,48 @@ Unicode digit lookalikes reach an `[int]` cast that threw at Common import insid
 restore kit. Folded (ordinal match + structural try/catch + lookalike and real-7z
 round-trip arms) plus eight smaller accepted findings; three rejected with recorded
 reasons. Gates coordinator-run: Smoke 814/0 (feature), Smoke 823/0 (fold), trace 0/0.
+
+**2026-09-05 — WP18 probe window geometry: plan drafted and externally reviewed,
+NOT approved and NOT started.** Answers
+[defect-review-2026-09-02-probe-sample-representativeness.md](defect-review-2026-09-02-probe-sample-representativeness.md)
+(§4 Option A). Plan:
+[plans/wp18-probe-window-geometry-plan.md](plans/wp18-probe-window-geometry-plan.md).
+The change is Engine-only geometry — no config key, no `ConfigVersion` move, no
+kit revision, existing objects never re-formed — but new first writes CAN select
+a different stored form, name and `Compressed` value, which the plan states
+explicitly rather than claiming the store is untouched.
+
+Two measured corrections to the defect review, both made on this dev box and both
+independently confirmed by the external reviewer. (1) The review's §1e reads the
+Part B1 calibration as "~28 ms per 256 KiB sample"; the calibration reports 27.6
+ms over the whole 11-file corpus, i.e. 33 windows at ~0.84 ms/window. Measured
+here at 0.36–1.13 ms/window by content type. Consequence: ~97% of production's
+29.9 ms/window is disk seek and read, not Brotli, so the change is bought in I/O
+and will not improve on faster silicon. (2) The review's §4 calls `987 × 299 ms ≈
+5 minutes` the whole-run bill, but 987 is the count from the 13.4% sample; the
+full-run figure is ~37 minutes, 7.4× larger. Still a 44:1 return against the ~27 h
+recoverable.
+
+**Adversarial pre-implementation review: Codex CLI at medium, no P0, two P1 and
+two P2, all four accepted and folded.** Model deviation recorded: the Owner asked
+for `astra`; this ChatGPT account refuses it with the same HTTP 400 that refused
+`terra` on 2026-09-01, so the account default `gpt-5.6-sol` reviewed at medium.
+The load-bearing P1: the formula's 16 MiB base is NOT where the count first
+exceeds three — at exactly 16 MiB `log2(1) = 0` and it returns 3, so the first
+bump is at **32 MiB** and the qualifying cohort must be counted at ≥ 32 MiB, not
+≥ 16 MiB. The second P1: the geometry experiment passes `-Samples` explicitly and
+so is blind to the wiring, so TC-223's new arms must run WITHOUT it and assert
+`Windows.Count`.
+
+Also added: `scripts/probe-window-experiment.ps1`, measurement-only, which
+re-probes real files at several window counts and scores each against the realised
+7-Zip ratio. **This is the review's §7 experiment and it has NOT been run on the
+hub** — this box cannot reach it (the `homehub` alias does not resolve and both
+`known_hosts` addresses refuse the operator key). It has only been exercised on
+synthetic files, which is precisely the assumption §7 says is unproven. No claim
+is made about the production library, and whether the backup run completed is
+UNKNOWN here.
+
+**Awaiting Owner ruling** on the four questions in the plan's §7: whether the hub
+experiment gates implementation, the three formula constants, the ~37-minute
+acceptance, and the WP number.
