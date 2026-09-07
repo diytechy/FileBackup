@@ -7,11 +7,19 @@ changed, totalling 38 MB, took 1 h 28 m**, and the question *"where did the time
 go, when preserving the changed data took 0.583 seconds?"* had a much more
 specific answer than "it is a big library".
 
-**Severity: cost, not correctness.** Nothing is lost, nothing is mis-stored, no
-restore is affected. Every byte the run was supposed to preserve was preserved.
-The finding is that **the price of a run is set by the size of the library and
-not by the size of the change**, and that the dominant term is avoidable by a
-change of shape rather than a change of algorithm.
+**Severity: cost for C-1..C-11 — and C-12 is not a cost finding.** Nothing is
+lost, nothing is mis-stored, no restore is affected: every byte the run was
+supposed to preserve was preserved, and that is true of C-12 as well. For the
+cost findings the story is that **the price of a run is set by the size of the
+library and not by the size of the change**, and the dominant term is avoidable
+by a change of shape rather than of algorithm.
+
+**C-12 is different in kind and was found later the same evening**, when the
+deep verify this document was waiting on came back FAILED — *"the backup is not
+fully restorable"* — about files that are byte-for-byte perfect. The document
+kept its original title because the decomposition is still its spine, but
+**§12 is the finding with consequences**: a verify that reports intact data as
+corrupt spends the credibility that makes a true finding actionable.
 
 **This matters more now than it did last week.** Until 2026-09-04 no
 whole-library pass had ever completed, so no incremental pass had ever run and
@@ -36,10 +44,18 @@ grows with the library.
 | **C-10** | Snapshot finalize costs 16 m 39.7 s and is not decomposed here | Observed, cause not isolated. §7 lists what runs in that window. |
 | **C-11** | **`verify -Deep` ran 3 h 28 m and emitted NOTHING**, while its progress sat in `/proc` the whole time | The longest phase the product runs (~7.5 h projected) logs no count, no percentage, no heartbeat — so "46% done" and "wedged" look identical. `rchar` against `du -sb` of the pool answered it in one command. Extends `defect-review-2026-08-31-run-observability.md`, which covers steps 5 and 10 and **never mentions verify**. |
 
+| **C-12** | **`verify -Deep` FAILED THE RUN over data that is provably intact** | It expands each compressed object to `GetTempPath()` — a Docker tmpfs defaulting to **half of RAM (4,069,416,960 B)** — so anything larger cannot be written, and the `catch` reports ENOSPC as `PayloadMismatch: other bytes`. 20 of 25 rows ≥4 GiB failed, **all `Compressed=Yes`**; the 5 that passed are **all `Compressed=No`**. Two files were expanded and `cmp`'d against source: **identical**. |
+| **C-13** | The other 12 mismatches are `Configs/*` rows **at their superseded lengths**, and are NOT diagnosed | Too small for C-12 by four orders of magnitude. Verify reports the values the SNAPSHOT holds while calling them `'backup'` rows; the live backup rows are healthy. Probably the snapshot/`Optimize-ChangeFolders` interaction, but not established. |
+
 **C-1 through C-3 are one finding about one function. C-7 through C-10 are the
 rest of the run**, and together they account for the other ~57 minutes. **C-11 is
 about the phase that runs after all of them**, and was found by trying to answer
 "how far along is the verify?" with the product's own output, and failing.
+
+**C-12 IS THE ONE TO READ FIRST.** Everything above it costs time; C-12 costs
+trust. It is the only finding here that makes the product report a false
+negative about the safety of the data it holds, and it did so on the first deep
+verify this product has ever run.
 
 ---
 
@@ -376,6 +392,13 @@ believes it has made — SR-064 says one pass over the disk, and
 `Get-SourceDirectoryRecord`'s docstring says the walk is not repeated. In each
 case the intent is documented and the implementation does it twice.
 
+**C-12 is deliberately absent from this table.** It saves no minutes; it is the
+only finding in this document that changes what the product TELLS you about your
+data, and it should be ranked above everything here on that basis alone. Its fix
+— stream the expansion into the hasher instead of materialising it (§12d) —
+happens also to remove a full-file write and read per large object, so it is a
+performance improvement as a side effect. That is not why to do it.
+
 ## 10. C-6 — 41.4 GiB of orphaned objects, re-reported nightly, reclaimed by nothing
 
 The sanitize phase emitted **1,570** `File exists in backup folder but not in DB`
@@ -483,7 +506,211 @@ new ask with evidence rather than a defect against a stated one. It is filed her
 because the evidence was gathered live during a monthly deep pass, which by
 definition is expensive to reproduce.
 
-## 12. What this review does NOT claim
+
+---
+
+## 12. C-12 — `verify -Deep` reports INTACT data as corrupt, because it expands 4 GiB files into a 3.79 GiB RAM disk and calls the failure "other bytes"
+
+**The deep verify §11 was waiting on finished at `2026-09-07T00:29:33Z` (6 h 24 m)
+and FAILED**, exit 1: *"INCOMPLETE: stored content is missing for at least one
+manifest row. The backup is not fully restorable."* The service went `failed`
+and the tracker lane took `ok=false`.
+
+**It is wrong. The data is intact, and this was proven twice by byte
+comparison** — not by re-reading the same hash the verify disagreed with.
+
+**Severity: worse than the cost findings above, and of a different kind.** A
+verify that cries corruption at good data is not merely noisy: it spends the
+credibility that makes a true finding actionable. The one time it is right,
+nobody will believe it. It also fails the run, so `homehub-library-backup`
+reports FAILED on a night when everything worked.
+
+---
+
+### 12a. What was reported
+
+| | |
+|---|---|
+| `[Unreferenced]` | **1,570** — the C-6 orphans, already known, not the failure cause |
+| `[PayloadMismatch]` | **33** — this finding |
+
+The 33 split cleanly: **21 library media files** (§12b–12d) and **12
+`Configs/*` rows** (C-13, §13 — a different and undiagnosed problem).
+
+### 12b. The data is intact — measured, not inferred
+
+Two stored objects were expanded and compared byte-for-byte against their live
+sources, chosen to straddle 2³² in case the boundary was a 32-bit overflow:
+
+| Row | Length | vs 2³² | `cmp` |
+|---|---|---|---|
+| `Shared/…/VID_20200803_163745795.mp4` | 4,080,926,352 (3.80 GiB) | below | **exit 0 — identical** |
+| `NonDocs/…/Twilight Princess HD (USA) (v81).wua` | 4,559,783,561 (4.25 GiB) | above | **exit 0 — identical** |
+
+`7z l` on the first also reported an inner size of exactly 4,080,926,352 —
+the stored archive holds the right file at the right length, and expands to
+bytes identical to the source. **PayloadMismatch on both.**
+
+### 12c. The failures sort themselves perfectly, which is what rules out corruption
+
+Of the **25** manifest rows ≥ 4 GiB, **20 failed and 5 passed**, and the split is
+total:
+
+| | Count | `Compressed` |
+|---|---|---|
+| FAILED | 20 | **`Yes`** — every one |
+| passed | 5 | **`No`** — every one |
+
+Sorted by length, compressed rows divide at a single clean line:
+
+```
+FAILED     4559783561   The Legend of Zelda - Twilight Princess HD
+FAILED     4508221440   Final Fantasy X (USA).iso
+FAILED     4410671104   Jak II (USA) … (v2.01).iso
+FAILED     4080926352   VID_20200803_163745795.mp4
+passed     4066508800   Final Fantasy XII (USA).iso
+passed     3982229504   Final Fantasy X-2 (USA, Canada).iso
+```
+
+Random corruption does not sort itself by a metadata flag and a size threshold.
+
+### 12d. The cause, and it is not subtle
+
+`Modules/FileBackup.Engine.psm1`, the `-Deep` branch:
+
+```powershell
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+try {
+    Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $full -DestinationFile $tmp
+    $payloadOk = ((Get-Item -LiteralPath $tmp).Length -eq [long]$row.Length -and
+                  (Get-FileXxHash -FilePath $tmp) -eq $row.xxH2Hash)
+} catch {
+    $payloadOk = $false
+}
+```
+
+It **materialises the entire decompressed file** to `GetTempPath()` before
+hashing it. In the shipped deployment that path is `/tmp`, and the compose file
+gives the container:
+
+```yaml
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+```
+
+A tmpfs with **no `size=` option**, so Docker applies its default: **50% of host
+RAM**. The arithmetic closes the case:
+
+| | Bytes |
+|---|---|
+| Host RAM | 8,138,833,920 (7.58 GiB) |
+| **Implied `/tmp` cap (50%)** | **4,069,416,960** |
+| Largest row that passed | 4,066,508,800 — **2.9 MB under the cap** |
+| Smallest row that failed | 4,080,926,352 — **11.5 MB over the cap** |
+
+The observed threshold brackets the computed cap. Every compressed object whose
+**uncompressed** size exceeds free tmpfs cannot be written, `7z` fails on ENOSPC,
+and the `catch` turns that into `$payloadOk = $false`.
+
+`Compressed='No'` rows are immune because they never reach this branch — the
+`rawArchiveOk` path hashes the stored file in place, which is exactly what the
+compressed path should also be doing.
+
+**Three defects, and they are separable:**
+
+- **C-12.1 — it expands at all.** Nothing here needs the plaintext on disk; it
+  needs its length and hash. `7z x -so` streamed into the hasher answers both
+  with no scratch file, no size ceiling, and less I/O. This is the fix.
+- **C-12.2 — the scratch is RAM, sized by an implicit default.** Even keeping
+  the temp file, `GetTempPath()` in this container is memory, so verifying a
+  large file competes with the machine's working set. If a scratch file is kept,
+  it belongs on the backup volume with the pool, and the set's largest row is the
+  sizing input — not `free/2` chosen by Docker.
+- **C-12.3 — the `catch` says the wrong thing, and it is the worst wrong thing.**
+  ENOSPC, a missing 7-Zip, a corrupt archive and a genuine hash mismatch all
+  collapse into `'other bytes'`. Only the last is a data finding; the first two
+  are host problems and should exit **4** (*"incomplete for a HOST reason,
+  retriable, the stored data is not implicated"*) — a code this table already
+  defines and this path never reaches. The exception is discarded unlogged, so
+  the run log cannot distinguish them either.
+
+This is the D4 class from `LOOP_TESTING_HANDOFF.md` — several causes collapsed
+into one verdict — arriving in the one place where the wrong verdict is
+"your backup is not restorable".
+
+### 12e. Scope, and why it was not seen sooner
+
+- **`-Deep` only.** `PayloadMismatch` is documented `-Deep only` and the
+  expansion lives under `if ($Deep)`. The weekly shallow verify does not reach
+  it, so this is **monthly** — the first occurrence of the verify weekday each
+  month. Next: **2026-10-04**.
+- **First deep verify ever run.** The gate needs a completed backup, and none
+  existed before 2026-09-04. The defect has been latent for as long as the
+  product has had a `-Deep` path.
+- **It scales the wrong way.** The trigger is uncompressed size against free
+  tmpfs, so more RAM raises the ceiling and a bigger library lowers the odds of
+  staying under it. On this box, 20 of 25 large rows already fail.
+
+### 12f. What an operator should do with a run that fails this way
+
+Nothing to the library. **No file needs re-backing-up; nothing is corrupt.**
+Until C-12 is fixed, a monthly `verify exit 1` whose rows are all
+`Compressed=Yes` and larger than half of RAM is this bug, and the way to confirm
+it in one command per file is the comparison used in §12b:
+
+```
+7z x -so <backup>/<DataPath> | cmp - <source>/<RelativePath>
+```
+
+Silence and exit 0 mean the stored copy is good.
+
+---
+
+## 13. C-13 — the other 12 mismatches are `Configs/*` rows at their SUPERSEDED lengths, and this one is NOT diagnosed
+
+The remaining 12 `PayloadMismatch` rows are the same `Configs/*` service-state
+archives C-9 covers, and they are too small for C-12: the largest is 1,514,349
+bytes, four thousand times under the tmpfs cap. **A different cause.**
+
+What makes them worth a row of their own is the length reported:
+
+| Row | verify says | current backup manifest says |
+|---|---|---|
+| `Configs/caddy.tar.zst` | 9436 | **9430** |
+| `Configs/icedrive.tar.zst` | 30518 | **37618** |
+| `Configs/tracker.tar.zst` | 51369 | **72052** |
+| `Configs/technitium.tar.zst` | 1514349 | **1761527** |
+
+**Verify is reporting the values the SNAPSHOT holds, not the backup's** — these
+are exactly the superseded lengths preserved into
+`Snapshot_2026_09_02_00_00_49` by the run that immediately preceded it (C-9's
+17 changed files). The current backup rows are healthy: `caddy.tar.zst` resolves
+to a stored object of exactly 9430 bytes matching a 9430-byte source.
+
+Two things follow, and only the first is certain:
+
+1. **The message says `'backup'` for rows that are not the backup's.** Whatever
+   the underlying defect, the label misdirects: an operator reading
+   `'backup' row 'Configs/caddy.tar.zst'` will check the live backup, find it
+   perfect, and conclude the verify is lying — which is right for C-12 and would
+   be the wrong lesson here.
+2. **The likely mechanism is the interaction between snapshot preservation and
+   `Optimize-ChangeFolders`** (§6). That pass deletes duplicate payloads from
+   change folders and blanks the corresponding `DataPath`s. If a preserved
+   prior-state object is collapsed against a same-`hash|length` object elsewhere,
+   or blanked while its row still names it, the row no longer reproduces. That
+   would mean **the prior state is not restorable** — a real defect, and a
+   quieter one than C-12 because it concerns history rather than current data.
+
+**Not investigated further here**, and deliberately not asserted: distinguishing
+"the snapshot lost bytes it was supposed to preserve" from "the verify mislabels
+and misreads snapshot rows" needs the snapshot's own manifest walked against its
+own objects, which this session did not do. The evidence above is enough to say
+the 12 are not C-12 and not current-data loss, and not enough to say what they
+are.
+
+## 14. What this review does NOT claim
 
 - **Not a data-loss finding.** The delete in `Optimize-ChangeFolders` is guarded
   by `-not $_.IsBackup`; it can only remove a duplicate from a change/snapshot

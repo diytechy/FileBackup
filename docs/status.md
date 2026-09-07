@@ -5870,3 +5870,35 @@ reverse-engineer progress the product declines to report.
 
 Extends rather than edits the 2026-08-31 observability review, which covers steps
 5 and 10 and mentions verify zero times. Still nothing implemented, no WP number.
+
+**2026-09-06/07 — the first deep verify FAILED, and it was wrong.** C-12 and C-13
+added to `defect-review-2026-09-06-optimize-changefolders-stat-storm.md`.
+
+`verify -Deep` finished 2026-09-07T00:29:33Z after 6 h 24 m and exited 1 —
+"the backup is not fully restorable". **It is not true.** Two of the flagged
+objects were expanded and byte-compared against their live sources, chosen to
+straddle 2^32: a 3.80 GiB mp4 and a 4.25 GiB wua. Both `cmp` exit 0, identical.
+
+The cause is arithmetic, not opinion. The `-Deep` branch materialises each
+decompressed object to `[IO.Path]::GetTempPath()` before hashing it; the compose
+file runs the container `read_only: true` with `tmpfs: /tmp` and **no size=**, so
+Docker defaults it to half of RAM. Host RAM 8,138,833,920 -> cap 4,069,416,960.
+Largest row that passed: 4,066,508,800 (2.9 MB under). Smallest that failed:
+4,080,926,352 (11.5 MB over). Of 25 rows >= 4 GiB, the 20 that failed are ALL
+Compressed=Yes and the 5 that passed are ALL Compressed=No — the raw path hashes
+in place and never expands, which is what the compressed path should also do.
+
+Three separable defects: it expands at all when `7z x -so` into the hasher needs
+no scratch and has no ceiling; the scratch is RAM sized by an implicit Docker
+default rather than by the set's largest row; and the `catch` collapses ENOSPC,
+a missing 7-Zip, a corrupt archive and a real mismatch into 'other bytes' —
+where the first two are host problems that the existing table already assigns
+exit 4, "the stored data is not implicated". Latent since the product gained a
+-Deep path; unseen because the gate needs a completed backup and none existed
+before 2026-09-04. Recurs monthly (next 2026-10-04); the weekly shallow verify
+does not reach it.
+
+C-13 is the other 12 mismatches: all `Configs/*`, all reported at their
+SUPERSEDED lengths while labelled 'backup' rows, four orders of magnitude too
+small for C-12. Live backup rows are healthy. Probably the snapshot /
+Optimize-ChangeFolders interaction, explicitly NOT established here.
