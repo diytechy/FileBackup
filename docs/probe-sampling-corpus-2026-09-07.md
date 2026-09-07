@@ -15,7 +15,7 @@ outcomes rather than against the prediction it is trying to replace.
 **Files are identified by profile, not by path.** The library is a household's,
 and the exact paths carry family names and personal content. Every exemplar below
 is pinned by exact byte length, format, probe windows and realised ratio, which
-is what a corpus needs; §8 regenerates the selection on any library.
+is what a corpus needs; §9 regenerates the selection on any library.
 
 ---
 
@@ -180,10 +180,12 @@ Mean realised ratio by extension, `ProbeCompressible` rows, n ≥ 30:
 | hdr | 141 | 0.573 | 0.6 GiB |
 | sup | 95 | 0.527 | 1.3 GiB |
 
-**132 GiB of MP4 was compressed for a 5.7% mean saving** — the single largest
-pool of wasted effort, and the one a per-extension prior would fix outright.
-`hdr`, `sup`, `pdf` and `ppt` are why a blanket "skip media-ish things" rule is
-too blunt.
+**132 GiB of MP4 was compressed for a 5.7% mean saving** — ~7.5 GiB, which is a
+real return and not waste, bought with a full LZMA2 pass per file. It is the
+largest pool of *slow* saving rather than of wasted saving, and the distinction
+matters: §4a-4d are effort for NO return and are defects; this is effort for a
+small return and is a scheduling trade. `hdr`, `sup`, `pdf` and `ppt` are why a
+blanket "skip media-ish things" rule is too blunt.
 
 ---
 
@@ -271,20 +273,143 @@ reasonable first step that 6a can be layered onto later.
 The recommendation covers **how the windows are combined and at what threshold**.
 It does not settle:
 
-- **Where windows land.** Every rule above is scored on the *existing* head /
-  middle / tail geometry. §7's missing faststart/non-faststart pair means the
-  probe review's P-1 — that the offsets themselves are wrong — is still unproven
-  either way, and a better geometry would change all these numbers.
-- **How many windows, and whether the count should scale with size.** Untested;
-  WP18 is the live plan there.
-- **Whether a per-extension prior beats windowing entirely for media.** §4h is
-  the uncomfortable number: **132 GiB of MP4 compressed for a 5.7% mean saving**
-  across 381 files. A rule of "never 7-Zip an `.mp4`" would have avoided most of
-  that with no probe at all, and no window rule above reaches it. The honest
-  reading is that **windowing and a format prior solve different halves**, and
-  only the format prior addresses the largest single pool of waste.
+- **Where windows land, and how many.** Every rule above is scored on the
+  *existing* head / middle / tail geometry. **§7 now measures both**, and the
+  answer is larger than anything in this section: the head window's correlation
+  with the outcome is **+0.059**, and moving three windows to 25/50/75% lifts
+  correlation from +0.647 to +0.892 at identical cost. **Read §7 before
+  implementing §6a** — placement is the bigger and cheaper win, the two are
+  independent, and the numbers in this section were all computed on the old
+  geometry.
+- **Whether a per-extension prior would be simpler for media.** §4h: 381 MP4s,
+  132 GiB, mean realised 0.943. **That is ~7.5 GiB genuinely saved, and it is not
+  waste** — an earlier draft of this document called it wasted effort and that
+  was wrong. The cost is *time*, not invalidity: those files each paid a full
+  LZMA2 pass to give up 5.7%. A `.mp4` prior would trade that saving away for
+  speed, which is a scheduling decision and not a correctness one, and it is
+  offered here as a lever rather than a recommendation. **Edge conditions are
+  expected**; a probe that occasionally spends effort for a small real return is
+  behaving correctly, and only the cases in §4a–4d — effort for *no* return —
+  are defects.
 
-## 7. What this corpus cannot answer
+
+---
+
+## 7. Window placement and count — measured, on the real library
+
+§6c listed these as open. They are no longer open. **The head window carries
+essentially no signal, and the shipped geometry spends two of its three windows
+on the two worst positions on the file.**
+
+### 7a. Method
+
+166 files, stratified across all ten realised-ratio bands, every one ≥ 32 MiB and
+already stored `Compressed=Yes` so its **realised 7-Zip ratio is known**. Each was
+sampled at **21 offsets** — 0%, 5%, … 100% of `length − 256 KiB` — with the
+probe's own 256 KiB window size. Ground truth is the realised ratio; the score is
+how well a sampling scheme predicts it.
+
+**The sampling compressor is zlib level 1, not the probe's Brotli(Fastest)**,
+because the hub has no brotli and a production appliance was not going to be
+modified for an experiment. **That substitution was then validated rather than
+assumed**, against the probe's own recorded windows for the same 162 files at the
+same three offsets:
+
+| offset | corr(zlib, Brotli) | mean zlib | mean Brotli |
+|---|---|---|---|
+| head 0% | **+0.996** | 0.537 | 0.544 |
+| middle 50% | **+0.993** | 0.623 | 0.625 |
+| tail 100% | **+0.997** | 0.279 | 0.275 |
+
+Agreement to three decimals in both correlation and level. **The two coders are
+interchangeable for this purpose**, so everything below transfers to the shipped
+probe without rescaling.
+
+### 7b. Placement — the head window is noise
+
+Correlation of a **single** window at each position against the realised ratio:
+
+| position | corr | MAE | mean ratio |
+|---|---|---|---|
+| **0% (head)** | **+0.059** | 0.328 | 0.535 |
+| 5% | +0.769 | 0.172 | 0.652 |
+| 20% | +0.818 | 0.165 | 0.634 |
+| 30% | +0.838 | 0.166 | 0.655 |
+| **35%** | **+0.854** | — | — |
+| 40% | +0.841 | 0.156 | 0.645 |
+| 50% | +0.797 | 0.174 | 0.621 |
+| 60% | +0.838 | 0.163 | 0.623 |
+| 70% | +0.832 | 0.161 | 0.601 |
+| 90% | +0.714 | 0.189 | 0.569 |
+| **100% (tail)** | **+0.417** | 0.326 | 0.277 |
+
+**A window at offset 0 predicts the outcome with correlation +0.059.** That is
+not a weak signal, it is no signal — the head is a container header, and its
+compressibility is a fact about the format, not about the file. The tail at
++0.417 is little better, and note its **mean of 0.277**: tails read as highly
+compressible almost everywhere, which is exactly the bias that drags an average
+downward and buys 7-Zip passes on incompressible media (§4a, §4d).
+
+**Everything from 5% to 90% works**, peaking around 30–60%. The plateau is broad,
+so precision is not required — only *staying off the ends*.
+
+### 7c. Count — three interior windows beat twenty-one badly placed ones
+
+Median of N evenly spaced windows, graded against realised:
+
+| N | offsets | MAE | corr |
+|---|---|---|---|
+| 1 | 50% | 0.174 | +0.797 |
+| **3** | **0 / 50 / 100 (shipped)** | **0.191** | **+0.647** |
+| 3 | 25 / 50 / 75 | 0.144 | +0.892 |
+| 5 | 0 / 25 / 50 / 75 / 100 | 0.125 | +0.850 |
+| **7** | 0 / 15 / 35 / 50 / 65 / 85 / 100 | **0.114** | +0.907 |
+| 9 | … | 0.116 | +0.923 |
+| 11 | … | 0.122 | +0.924 |
+| 21 | every 5% | 0.127 | +0.924 |
+
+**The shipped 3-window geometry scores worse than a single window at 50%** —
+0.647 against 0.797. Adding the head and tail to a good middle sample makes the
+estimate *worse*, because two of the three inputs are noise and the third is
+outvoted.
+
+Correlation plateaus at **~0.92 by N=9** and does not improve at 21. MAE is best
+at **N=7**. There is no case for sampling more than about nine windows.
+
+### 7d. What to change, in order of value per unit of effort
+
+1. **Move the windows off the ends.** Keeping three windows and placing them at
+   **25 / 50 / 75%** takes correlation from **+0.647 to +0.892** — a larger gain
+   than any change to the combining rule in §6, at *identical* I/O and CPU cost.
+   Three seeks, three 256 KiB reads, three compressions: the same work, in
+   better places.
+2. **Then, if more accuracy is wanted, raise N to 5–7** interior windows for
+   +0.892 → ~+0.907. This costs proportional I/O and is the only item here that
+   does.
+3. **Combine with the median** (§6). Placement and combination are independent
+   wins: the median protects against a minority of misleading windows, and
+   interior placement means fewer of them are misleading in the first place.
+
+**Do not sample offset 0 or EOF at all.** No weighting scheme rescues a +0.059
+input; the correct weight for the head window is zero, and the cheapest way to
+apply that weight is not to read it.
+
+### 7e. Limits
+
+- **166 files, one library, one 7-Zip level.** The correlations are strong enough
+  that the head/interior split is not in doubt, but exact optima (35% vs 50%) are
+  not resolved at this n.
+- **Files ≥ 32 MiB only.** Below that, 21 non-overlapping 256 KiB windows do not
+  fit, and the probe's own floor already routes small files to a single
+  whole-file sample where placement is moot.
+- **`Compressed=Yes` rows only**, because those are the ones with a realised
+  ratio. Files the probe waved through have no measured outcome to grade against,
+  so this cannot say whether better placement would have *caught* any of them —
+  only that it predicts the graded set far better.
+- Still unmeasured: whether the optimum shifts with 7-Zip level, and the
+  faststart/non-faststart MP4 control of §8.
+
+## 8. What this corpus cannot answer
 
 - **No faststart/non-faststart MP4 pair.** The probe review's P-1 turns on `moov`
   position, and nothing here confirms which layout each file has. Two synthetic
@@ -298,7 +423,7 @@ It does not settle:
 
 ---
 
-## 8. Regenerating the join
+## 9. Regenerating the join
 
 Requires a completed run whose `compress-decision` DEBUG lines are still in the
 journal, and the pool it wrote. Emits
