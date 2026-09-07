@@ -15,7 +15,7 @@ outcomes rather than against the prediction it is trying to replace.
 **Files are identified by profile, not by path.** The library is a household's,
 and the exact paths carry family names and personal content. Every exemplar below
 is pinned by exact byte length, format, probe windows and realised ratio, which
-is what a corpus needs; §7 regenerates the selection on any library.
+is what a corpus needs; §8 regenerates the selection on any library.
 
 ---
 
@@ -203,7 +203,88 @@ near zero** — §4e is the row that will expose a rule that does not.
 
 ---
 
-## 6. What this corpus cannot answer
+
+---
+
+## 6. The recommendation — scored, not argued
+
+The corpus was built to grade rules, so it was used. Every candidate below was
+run over the **5,369** `ProbeCompressible` rows that carry three windows (the
+other 3,165 fell below the 768 KiB three-window floor and got one whole-file
+sample, which no windowing rule can improve). Baseline: 5,369 7-Zip invocations
+on 437.51 GiB of input, realising **71.55 GiB** of saving.
+
+`GiB out` is 7-Zip **input avoided**; `LOST` is realised saving forgone;
+`ratio` is work avoided per unit of saving given up.
+
+| Rule ⇒ store raw | skips | GiB out | LOST | kept | ratio |
+|---|---|---|---|---|---|
+| `median > 0.95` | 2,026 | 168.1 | **1.49** | 97.9% | **113:1** |
+| **`median > 0.95` OR `middle ≥ 0.98`** | **2,407** | **263.8** | **6.53** | **90.9%** | **40:1** |
+| `median > 0.90` OR `middle ≥ 0.98` | 2,597 | 266.2 | 6.83 | 90.5% | 39:1 |
+| `median > 0.90` | 2,405 | 185.0 | 2.21 | 96.9% | 84:1 |
+| `middle ≥ 1.00` | 2,018 | 226.0 | 5.17 | 92.8% | 44:1 |
+| `middle ≥ 0.95` | 2,566 | 305.1 | 10.91 | 84.8% | 28:1 |
+| `middle > 0.90` | 2,830 | 324.9 | 15.38 | 78.5% | 21:1 |
+
+### 6a. Recommended: `median(head, middle, tail) > 0.95` **OR** `middle ≥ 0.98`
+
+**It avoids 263.8 GiB of 7-Zip input — 60% of everything currently compressed —
+for 6.53 GiB of forgone saving, keeping 90.9%.**
+
+**The median is where most of the win comes from, and the reason is structural.**
+In every trap in §4 exactly one or two of the three windows are container
+metadata, and the median is robust to a minority of outliers where the mean is
+not. `1,1,0.269` has median 1 and mean 0.756: the median sees two honest windows
+and one index, the mean is dragged by the index. `0.021,0.452,0` — the ISO
+shape — has median 0.452 against a mean of 0.158, and realised 0.633: the median
+is closer. **Swapping the mean for the median changes no sampling, no I/O and no
+geometry; it changes one line of arithmetic.**
+
+**The `middle ≥ 0.98` clause exists for the one case the median cannot see:**
+head *and* tail both misleading-low. The Matroska remuxes are exactly that —
+`0.62,0.992,0.707`, median 0.707, so a median-only rule still compresses them,
+and they realise 0.985. Two files in that shape are 42 GiB of input for ~600 MiB
+of saving. The clause is deliberately at 0.98 rather than 0.95: dropping it to
+0.95 buys 41 GiB more avoided work but costs 4.4 GiB more saving — a 9:1 marginal
+trade against 19:1 for the step before it, which is where the frontier bends.
+
+**Loss profile, because a total can hide a disaster.** Of the 6.53 GiB forgone,
+only **3.86 GiB** comes from rows that had a real win (realised < 0.90), spread
+over 391 files, and the **largest single forgone saving is 0.96 GiB** — an ISO
+reading `0.021,1,0` that realises 0.745. Nothing large is thrown away; the loss
+is a long tail of marginal wins.
+
+**The §4e counter-case survives**, which was the test the rule had to pass:
+`1,0.08,0.401` has median 0.401 and middle 0.08 — neither clause fires, the file
+is still compressed, and its 1.36 GiB saving is kept.
+
+### 6b. If a smaller change is wanted: `median > 0.95` alone
+
+168.1 GiB avoided for **1.49 GiB** forgone — **113:1**, the best ratio on the
+board, and 97.9% of the saving retained. It is one arithmetic change with no new
+clause and no new constant, and it leaves the Matroska class uncaught. A
+reasonable first step that 6a can be layered onto later.
+
+### 6c. What this does NOT settle
+
+The recommendation covers **how the windows are combined and at what threshold**.
+It does not settle:
+
+- **Where windows land.** Every rule above is scored on the *existing* head /
+  middle / tail geometry. §7's missing faststart/non-faststart pair means the
+  probe review's P-1 — that the offsets themselves are wrong — is still unproven
+  either way, and a better geometry would change all these numbers.
+- **How many windows, and whether the count should scale with size.** Untested;
+  WP18 is the live plan there.
+- **Whether a per-extension prior beats windowing entirely for media.** §4h is
+  the uncomfortable number: **132 GiB of MP4 compressed for a 5.7% mean saving**
+  across 381 files. A rule of "never 7-Zip an `.mp4`" would have avoided most of
+  that with no probe at all, and no window rule above reaches it. The honest
+  reading is that **windowing and a format prior solve different halves**, and
+  only the format prior addresses the largest single pool of waste.
+
+## 7. What this corpus cannot answer
 
 - **No faststart/non-faststart MP4 pair.** The probe review's P-1 turns on `moov`
   position, and nothing here confirms which layout each file has. Two synthetic
@@ -217,7 +298,7 @@ near zero** — §4e is the row that will expose a rule that does not.
 
 ---
 
-## 7. Regenerating the join
+## 8. Regenerating the join
 
 Requires a completed run whose `compress-decision` DEBUG lines are still in the
 journal, and the pool it wrote. Emits
