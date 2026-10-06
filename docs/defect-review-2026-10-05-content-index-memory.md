@@ -177,8 +177,14 @@ growing.
    - The HomeHub hang watchdog will kill or reboot in that window when the host
      is thrashing (HomeHub
      `docs/design/HUB_HANG_WATCHDOG_DESIGN_2026-10-05.md` §4).
-   - Making a killed run's `Temp` safely resumable, or re-classifiable without a
-     person, is FileBackup work. It is not designed here.
+   - **Owner ruling, 2026-10-05: recovering this by hand every time is not
+     acceptable. FileBackup must recover a killed run's staging cleanly by
+     itself.** A run killed or rebooted mid-flight must leave state that the
+     next run can resume, or classify safely without a person, and it must never
+     lose the superseded bytes it was preserving. This is now a required
+     FileBackup work item, not an option. It **gates** the HomeHub watchdog's
+     reboot phase (P4), because a recovery reboot is the main way a run will be
+     interrupted. It is not designed here.
    - A run killed at step 14 (the 2026-10-04 case) is unaffected, because the
      lock is released at step 13.
 

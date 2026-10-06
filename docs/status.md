@@ -5923,3 +5923,13 @@ kept landing. But step 15 never runs, so each failure publishes another snapshot
 named for the stale 2026-09-21 date (`_001` … `_010`, the count growing 15 → 25),
 and `LastHashRun` stays put, so the weekly rehash has run every night since the
 2026-09-28 week rollover. Not implemented; the fix shape is in the review's §4.
+
+**2026-10-05 (later) — Owner ruling: a killed run's staging must self-recover.**
+The HomeHub hang watchdog will kill or reboot during a run when the host is
+thrashing. A run interrupted during steps 7–13 leaves `Temp` classed
+`HoldsContent`, which today only a person can recover. The Owner ruled that hand
+recovery every time is not acceptable: FileBackup must resume, or safely
+re-classify, a killed run's staging without a person, and without losing the
+superseded bytes it holds. Recorded as follow-up 6 of
+[defect-review-2026-10-05-content-index-memory.md](defect-review-2026-10-05-content-index-memory.md);
+it gates the watchdog's reboot phase. Not designed yet.
