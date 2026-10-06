@@ -140,10 +140,20 @@ Pipeline order (AGENTS.md):
    folder from the `DataPath` rows, and re-reads + rewrites only a folder whose
    rows actually change. `Get-SnapshotPrunePlan` builds its demand set as a
    `HashSet[string]` of keys; full rows are read only for manifests it publishes.
-3. **Persist step 15 before step 14** — or make step 14 non-fatal like step 16. The
-   backup's content is final at step 12 and the snapshot is published at 13, so
-   `LastBackupRun` is true from that point; `LastHashRun` is true once the rehash
-   in step 5 finished. Either change on its own stops M-4a/b/c from compounding.
+3. **Persist step 15 before step 14.** The backup's content is final at step 12
+   and the snapshot is published at step 13, so `LastBackupRun` is true from that
+   point, and `LastHashRun` is true once the rehash in step 5 has finished.
+   *(Corrected 2026-10-05 after external review, finding F7.)* An earlier draft
+   offered "make step 14 non-fatal like step 16" as an equivalent. **It is not.**
+   Step 16's non-fatal handling is a PowerShell `try/catch`, and the observed
+   failure is a kernel **SIGKILL**, which no `catch` sees, so step 15 would still
+   never run. Only moving the persistence earlier survives the observed
+   failure.
+   **What fix 3 does and does not stop:** it stops M-4b (stale snapshot names) and
+   M-4c (the nightly rehash). It does **not** stop M-4a: under retention NONE
+   (Q-FB2), a snapshot is still published on most nights, because `Configs/*`
+   changes nightly. The count keeps growing, and only fix 1 makes that growth
+   harmless to memory.
 4. **A memory test that would have caught it.** A synthetic pool of ~30 manifests
    × ~180k rows (mostly blank `DataPath`) must index under a stated ceiling
    (≤ 1 GB is generous for ~180k map entries). Without it, the next regression is
@@ -153,8 +163,24 @@ Pipeline order (AGENTS.md):
    their contents are correct, only their names are not.
 
 Fix 1 alone makes the current pool index in roughly the size of one manifest
-plus 183k map entries. Fix 3 is the smallest possible change that stops the
-compounding even before fix 1 lands.
+plus 183k map entries. Fix 3 is the smallest change that stops the stale names
+and the nightly rehash before fix 1 lands; it does not stop the snapshot count
+growing.
+
+6. **Follow-up — interaction with host recovery** *(added 2026-10-05, external
+   review finding F3)*. A run killed or rebooted during **steps 7–13** leaves `Temp`
+   holding the prior manifest and possibly the only preserved copy of superseded
+   bytes. `Get-StagingLockState` classes that as `HoldsContent`: any entry other
+   than the run marker (`FileBackup.Engine.psm1:3296`), and only `Empty`/`OwnerStale`
+   are reclaimable (`:3259`). Every later run then refuses until a person
+   recovers it.
+   - The HomeHub hang watchdog will kill or reboot in that window when the host
+     is thrashing (HomeHub
+     `docs/design/HUB_HANG_WATCHDOG_DESIGN_2026-10-05.md` §4).
+   - Making a killed run's `Temp` safely resumable, or re-classifiable without a
+     person, is FileBackup work. It is not designed here.
+   - A run killed at step 14 (the 2026-10-04 case) is unaffected, because the
+     lock is released at step 13.
 
 ## 5. What was NOT proven
 
