@@ -5902,3 +5902,24 @@ C-13 is the other 12 mismatches: all `Configs/*`, all reported at their
 SUPERSEDED lengths while labelled 'backup' rows, four orders of magnitude too
 small for C-12. Live backup rows are healthy. Probably the snapshot /
 Optimize-ChangeFolders interaction, explicitly NOT established here.
+
+---
+
+**2026-10-05 — the content index holds every snapshot manifest whole, and since
+2026-09-22 every library run has been OOM-killed at step 14.** New review:
+[defect-review-2026-10-05-content-index-memory.md](defect-review-2026-10-05-content-index-memory.md).
+
+Found from the host side: the HomeHub hub stopped answering on 2026-10-04, and the
+kernel OOM record named this product's `pwsh` at 6.6 GB in an unlimited container
+on a 7.6 GB box. `Get-BackupContentIndex` keeps every manifest in
+`Folders[].Manifest`; at ~2.3 KB per row after `Read-Manifest` that is ~420 MB per
+182k-row manifest. 15 manifests fit (the 09-21 run succeeded) and 16 do not.
+Only 3.87% of the 4.73 M rows carry a `DataPath`, so the index needs almost none
+of what it holds. `Get-SnapshotPrunePlan` retains manifests the same way, so
+`prune` would OOM on that host too.
+
+Steps 1–13 complete before the kill, so **no data was lost** and the nightly copy
+kept landing. But step 15 never runs, so each failure publishes another snapshot
+named for the stale 2026-09-21 date (`_001` … `_010`, the count growing 15 → 25),
+and `LastHashRun` stays put, so the weekly rehash has run every night since the
+2026-09-28 week rollover. Not implemented; the fix shape is in the review's §4.
