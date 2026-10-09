@@ -3455,8 +3455,14 @@ Describe 'Run state is persisted before the cross-snapshot dedupe (defect review
         @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_').Count |
             Should -Be 1 -Because 'the step-13 publish precedes the dedupe'
         # ... and the run state reflects THIS run, not the stale 2024-01-01 value.
-        Get-LastBackupRun -BackupRoot $bkp | Should -Be ([datetime]'2024-02-02 00:00:02') -Because 'LastBackupRun names the next snapshot and must not freeze'
-        Get-LastHashRun -BackupRoot $bkp | Should -Be ([datetime]'2024-02-02 00:00:02') -Because "the rehash ran this run (freq 'A'), so LastHashRun must not freeze"
+        # One assertion over both, so moving EITHER write back past the dedupe fails
+        # here; two sequential Should lines let the first mask the second.
+        $state = [pscustomobject]@{
+            LastBackupRun = Get-LastBackupRun -BackupRoot $bkp
+            LastHashRun   = Get-LastHashRun -BackupRoot $bkp
+        }
+        "$($state.LastBackupRun)|$($state.LastHashRun)" |
+            Should -Be "$([datetime]'2024-02-02 00:00:02')|$([datetime]'2024-02-02 00:00:02')" -Because "LastBackupRun names the next snapshot and the rehash ran this run (freq 'A'); neither may freeze"
     }
 }
 
