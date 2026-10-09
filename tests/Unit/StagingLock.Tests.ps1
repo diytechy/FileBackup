@@ -2031,3 +2031,89 @@ Describe 'A create failure that is not a stale Temp keeps its own error (SR-017,
         ($lines -join "`n") | Should -Match 'not the SR-017 stale-Temp case'
     }
 }
+
+Describe 'The Write-Manifest staging file in Temp is not content (TC-239, SR-083, SR-017, SR-075, LLR-088)' {
+    # A run killed inside step 7's first Write-Manifest used to leave a TORN
+    # MANIFEST.csv in Temp (content, a permanent refusal). Since SR-082 the
+    # manifest is written to MANIFEST.csv.tmp first, and that file is an
+    # INCOMPLETE copy of a file that still exists in the backup root, so it is
+    # never the only physical copy of anything. It is tolerated by exact name;
+    # every other entry still refuses.
+
+    BeforeEach { Set-EngineConfirmationSample -Seconds 0.3 }
+    AfterEach  { Set-EngineConfirmationSample -Seconds 90; Clear-EngineStagingHooks }
+
+    It 'classifies a stale marker plus the staging file as OwnerStale, reclaimable (TC-239, SR-083, LLR-088)' {
+        $v = Get-StagingLockState -Entries @('RUN.inprogress', 'MANIFEST.csv.tmp') `
+            -OwnerRecord (New-ReadResult -State 'Parsed' -AgeSeconds ($script:Floor + 600) -Record (New-OwnerPayload))
+        $v.State | Should -Be 'OwnerStale'
+    }
+
+    It 'classifies a FRESH marker plus the staging file as OwnerLive, refusing (TC-239, SR-083, LLR-088)' {
+        $v = Get-StagingLockState -Entries @('RUN.inprogress', 'MANIFEST.csv.tmp') `
+            -OwnerRecord (New-ReadResult -State 'Parsed' -AgeSeconds 5 -Record (New-OwnerPayload))
+        $v.State | Should -Be 'OwnerLive'
+    }
+
+    It 'still classifies the staging file beside a real MANIFEST.csv as content (TC-239, SR-017, LLR-088)' {
+        $v = Get-StagingLockState -Entries @('RUN.inprogress', 'MANIFEST.csv', 'MANIFEST.csv.tmp') `
+            -OwnerRecord (New-ReadResult -State 'Parsed' -AgeSeconds ($script:Floor + 600) -Record (New-OwnerPayload))
+        $v.State | Should -Be 'HoldsContent'
+    }
+
+    It 'matches the staging file name case-sensitively, fail-closed (TC-239, SR-017, LLR-088)' {
+        $v = Get-StagingLockState -Entries @('RUN.inprogress', 'manifest.csv.tmp') `
+            -OwnerRecord (New-ReadResult -State 'Parsed' -AgeSeconds ($script:Floor + 600) -Record (New-OwnerPayload))
+        $v.State | Should -Be 'HoldsContent'
+    }
+
+    It 'reclaims a stale Temp holding only the marker and the staging file, and the aside folder is GONE (TC-239, SR-083, SR-075)' {
+        $fx = New-BackupSetFixture -Name 'tc239-reclaim'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800
+        [System.IO.File]::WriteAllText((Join-Path $temp 'MANIFEST.csv.tmp'), 'torn,half-written')
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') |
+            Should -BeTrue -Because 'an interrupted step-7 write must not be a permanent interrupt'
+
+        Get-AsideFolder -ChgPath $fx.Chg |
+            Should -BeNullOrEmpty -Because 'the staging file is deleted by exact name and the directory non-recursively'
+    }
+
+    It 'logs the reclaim of that Temp (TC-239, SR-083, SR-075)' {
+        $fx = New-BackupSetFixture -Name 'tc239-reclaim-log'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800
+        [System.IO.File]::WriteAllText((Join-Path $temp 'MANIFEST.csv.tmp'), 'torn,half-written')
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Out-Null
+        (Get-SetLog $fx) | Should -Match '\[SR-075/reclaimed\]'
+    }
+
+    It 'still refuses a stale Temp holding the staging file AND data, byte-identical afterwards (TC-239, SR-017, SR-075)' {
+        $fx = New-BackupSetFixture -Name 'tc239-data'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $temp = New-AbandonedTemp -ChgPath $fx.Chg -MarkerAgeSeconds 10800
+        [System.IO.File]::WriteAllText((Join-Path $temp 'MANIFEST.csv.tmp'), 'torn,half-written')
+        [System.IO.File]::WriteAllText((Join-Path $temp 'evicted.dat'), 'THE ONLY PHYSICAL COPY')
+        $before = Get-FixtureTreeHash $fx
+
+        Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') | Should -BeFalse
+
+        Get-FixtureTreeHash $fx | Should -Be $before
+    }
+
+    It 'removes its own Temp after an early failure that left the staging file in it (TC-239, SR-083, SR-075)' {
+        $fx = New-BackupSetFixture -Name 'tc239-own'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ONE')
+        $chg = $fx.Chg
+        Mock -ModuleName FileBackup.Engine Update-SourceManifest {
+            [System.IO.File]::WriteAllText((Join-Path (Join-Path $chg 'Temp') 'MANIFEST.csv.tmp'), 'torn')
+            throw 'INJECTED: source walk failed'
+        }
+
+        { Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-01 00:00:01') } |
+            Should -Throw -ExpectedMessage '*INJECTED*'
+
+        Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp') | Should -BeFalse
+    }
+}

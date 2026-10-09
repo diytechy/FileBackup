@@ -153,7 +153,7 @@ Imports (internal): _none_
 | `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
-| `Write-Manifest` | yes | SR-025, SR-038, LLR-025, LLR-038 |
+| `Write-Manifest` | yes | SR-025, SR-038, SR-082, LLR-025, LLR-038, LLR-087 |
 | `Write-ManifestWitness` | yes | SR-038, LLR-038 |
 
 ### `Modules/FileBackup.Engine.psm1`
@@ -397,9 +397,12 @@ Imports (internal): `Common`
 - **The manifest witness is written by `Write-Manifest` only** (SR-038). Every
   `MANIFEST.csv` gets a `MANIFEST.csv.meta` beside it — `Version`, `Rows`,
   `Bytes`, `XxH128`, `Written` as UTF-8/no-BOM/LF `Key=Value` lines, published by
-  atomic rename. **The atomic rename covers the WITNESS publish only — `MANIFEST.csv`
-  itself is still written in place by `Export-Csv`** (see §4's crash-window note:
-  the resulting stale witness fails loud in the safe direction). One writer means backup root, staging, dated snapshots, the
+  atomic rename. **Since SR-082 (kit revision 13) the manifest is published the same
+  way: `Write-Manifest` writes `MANIFEST.csv.tmp` beside the destination and renames
+  it over `MANIFEST.csv` with `[System.IO.File]::Move(src, dst, $true)`, so a kill
+  leaves the complete old file or the complete new one — never a torn one** (see
+  §4's crash-window note: the resulting stale witness fails loud in the safe
+  direction). One writer means backup root, staging, dated snapshots, the
   source hash cache, and every rewrite are covered and cannot drift, so **never
   stamp a witness from a caller.** Each snapshot carries **its own** witness for
   its own manifest — do **not** add the witness to `New-ReconstructScript`'s
@@ -499,6 +502,12 @@ Imports (internal): `Common`
   refuses, before it creates anything), and `Compress-FileWithSevenZip` passes
   the resolved digit to `-mx`. Restore never reads the variable, and every
   level's archive restores with the same kit.
+  **Revision 13 (2026-10-09, SR-082): `Write-Manifest` publishes `MANIFEST.csv` by
+  temp-file rename; restorer logic unchanged.** The kit-bundled
+  `FileBackup.Common.psm1` writes `MANIFEST.csv.tmp` and renames it over the
+  destination. Neither restorer calls `Write-Manifest`, so an older kit restores
+  every store identically and **no existing store needs `-RefreshKits`** (E4);
+  the marker moves only because the file is bundled.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the seven kit artifacts and **never**
   `MANIFEST.csv.meta`.
@@ -533,11 +542,17 @@ Imports (internal): `Common`
   `MANIFEST.csv` *then* the witness. A crash between the two leaves a **stale**
   witness that mismatches — i.e. it fails loud in the safe direction (a refused
   restore, exit 3) rather than silently passing, and the next successful run
-  rewrites both. Do not "fix" this by writing the witness first. Note the scope
-  of the atomicity claim: **only the witness publish is an atomic rename**; the
-  manifest is a plain in-place `Export-Csv`. `MANIFEST.csv.meta.tmp` (a crash
-  leftover from that rename) is on the root-level infrastructure allowlist so it
-  is never backed up as user data or warned about as an orphan.
+  rewrites both. Do not "fix" this by writing the witness first. Since SR-082
+  **both files are published by atomic rename**: the manifest is written to
+  `MANIFEST.csv.tmp` and renamed over `MANIFEST.csv` (never `Move-Item -Force`;
+  PowerShell 7+ only, so `[System.IO.File]::Move(src, dst, $true)` always
+  exists), so no kill leaves a zero-length or truncated manifest. What is NOT
+  covered: the rename is not fsynced, so a power loss (as opposed to a process
+  kill) can still lose the newest write. `MANIFEST.csv.meta.tmp` and
+  `MANIFEST.csv.tmp` (crash leftovers from those renames) are on the root-level
+  infrastructure allowlist so neither is ever backed up as user data or warned
+  about as an orphan (SR-083); the Temp staging classifier ignores
+  `MANIFEST.csv.tmp` too, since it is an incomplete copy and never the only one.
 - **Restore verification happens before any mutation.** Both restorers check the
   manifest header shape and the witness *before* creating the target folder or
   their log, so a header or witness refusal (exit 3, and the early exit-2s)

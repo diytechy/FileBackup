@@ -885,11 +885,15 @@ named below so you can recognise every file the tool creates:
 Those names are **infrastructure at the root only**. A file of your own called
 `MANIFEST.csv` in a subfolder is ordinary data and is backed up as such.
 
-One detail about the witness is deliberate and worth knowing: `MANIFEST.csv` is
-written in place, and only the witness beside it is published by atomic rename.
-A crash between the two therefore leaves a witness that *disagrees* with the
-index — which refuses the restore (exit 3) rather than quietly passing, and the
-next successful run rewrites both. It fails in the safe direction on purpose.
+One detail about the witness is deliberate and worth knowing: `MANIFEST.csv` and
+the witness beside it are each published by atomic rename (the new file is
+written as `MANIFEST.csv.tmp` / `MANIFEST.csv.meta.tmp` and renamed over the old
+one), so neither can ever be half-written. The manifest is published first, so a
+crash between the two renames leaves a complete index beside a witness that
+*disagrees* with it — which refuses the restore (exit 3) rather than quietly
+passing, and the next successful run rewrites both. It fails in the safe
+direction on purpose. A `.tmp` file left by a crash is harmless: the next write
+replaces it, and it is never backed up or reported.
 
 ### Manifest columns
 
