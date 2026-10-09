@@ -42,47 +42,51 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 3. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
 4. `Test-ManifestWitness` — Verifies a folder's MANIFEST.csv against its witness sidecar and returns a
 5. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
-6. `Initialize-StagingFolder` — Takes the run's Temp staging lock in the change root, publishes this
-7. `Get-LastHashRun` — Reads the persisted time of the last scheduled re-hash sweep
-8. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
-9. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
-10. `Update-SourceManifest` — Walks the source tree, (re)hashes new/changed files (and all files when
-11. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
-12. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
-13. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
-14. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
-15. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
-16. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
-17. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
-18. `Test-BackupManifest` — Refuses a legacy path-addressed store (SR-061), then blanks DataPaths
-19. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
-20. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
-21. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
-22. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
-23. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
-24. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
-25. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
-26. `New-ProbeStatistic` — A zeroed SR-081 probe-counter accumulator for one backup set.
-27. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
-28. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
-29. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
+6. `Enter-StagingOsLock` — Takes the change root's staging OS lock -- Temp.lock opened with
+7. `Initialize-StagingFolder` — Takes the run's Temp staging lock in the change root, publishes this
+8. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
+9. `Get-LastHashRun` — Reads the persisted time of the last scheduled re-hash sweep
+10. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
+11. `Test-HashRecalcDue` — Decides whether untouched files should be re-hashed this run, given the
+12. `Update-SourceManifest` — Walks the source tree, (re)hashes new/changed files (and all files when
+13. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
+14. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
+15. `Read-Manifest` — Reads MANIFEST.csv from a folder, typing Length as [long] and adding a
+16. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
+17. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
+18. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
+19. `Get-VolumeIdentity` — A stable key naming the volume that contains a path, so two paths can be
+20. `Test-BackupManifest` — Refuses a legacy path-addressed store (SR-061), then blanks DataPaths
+21. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
+22. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
+23. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
+24. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
+25. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
+26. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
+27. `Assert-BackupCapacity` — Refuses a backup set BEFORE any mutation when the destination volumes
+28. `New-ProbeStatistic` — A zeroed SR-081 probe-counter accumulator for one backup set.
+29. `Invoke-BackupFileGroup` — Backs up one (hash,length) group: reuses an existing backup data file if
 30. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
-31. `Save-SupersededData` — Preserves the prior bytes of files whose content was replaced this run
+31. `Move-RemovedFilesToStaging` — Evicts data files for source-removed entries into the staging folder.
 32. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
-33. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
-34. `Get-SourceDirectoryRecord` — Returns the directory rows the manifest cannot carry (SR-065): every
-35. `Write-DirectorySidecar` — Writes DIRECTORIES.csv beside a manifest, or removes it when there is
-36. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
-37. `Stop-StagingHeartbeat` — Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
-38. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
-39. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-40. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-41. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-42. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
-43. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
-44. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
-45. `Test-StagingLockLostError` — True when an ErrorRecord is a staging lock-loss (a lost exclusive
-46. `Stop-StagingHeartbeat` — Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
+33. `Save-SupersededData` — Preserves the prior bytes of files whose content was replaced this run
+34. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
+35. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
+36. `Get-SourceDirectoryRecord` — Returns the directory rows the manifest cannot carry (SR-065): every
+37. `Write-DirectorySidecar` — Writes DIRECTORIES.csv beside a manifest, or removes it when there is
+38. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
+39. `Stop-StagingHeartbeat` — Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
+40. `Invoke-StagingTestHook` — Invokes one of the SR-075 reclaim/fence test seams if the suite has
+41. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+42. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
+43. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
+44. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+45. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+46. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
+47. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
+48. `Test-StagingLockLostError` — True when an ErrorRecord is a staging lock-loss (a lost exclusive
+49. `Stop-StagingHeartbeat` — Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
+50. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -183,6 +187,8 @@ Imports (internal): `Common`
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
+| `Enter-StagingOsLock` | yes | SR-085, SR-086, SR-087, LLR-090 |
+| `Exit-StagingOsLock` | yes | SR-085, SR-087, LLR-090, LLR-093 |
 | `Format-StagingAge` | no | SR-075, LLR-017 |
 | `Get-BackupCapacityDemand` | yes | SR-052, SR-013, LLR-052 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
@@ -208,6 +214,7 @@ Imports (internal): `Common`
 | `Get-StagingLockIdentity` | no | SR-075, LLR-017 |
 | `Get-StagingLockState` | yes | SR-017, SR-075, LLR-080 |
 | `Get-StagingLockVerdict` | no | SR-017, SR-075, LLR-017 |
+| `Get-StagingOsLockPath` | yes | SR-085, SR-087, LLR-090, LLR-093 |
 | `Get-StagingRefusalDetail` | no | SR-017, SR-075, LLR-017 |
 | `Get-StorageFormFinding` | yes | SR-049, LLR-049 |
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
@@ -216,9 +223,9 @@ Imports (internal): `Common`
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, SR-075, LLR-005, LLR-017, LLR-080 |
 | `Initialize-StagingHeartbeatType` | yes | SR-075, LLR-080 |
 | `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
-| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
+| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, SR-085, SR-086, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055, LLR-091 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
-| `Invoke-StagingLockReclaim` | no | SR-017, SR-075, LLR-017, LLR-080 |
+| `Invoke-StagingLockReclaim` | no | SR-017, SR-075, SR-086, LLR-017, LLR-080, LLR-091 |
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
@@ -230,7 +237,7 @@ Imports (internal): `Common`
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Read-StagingMarkerText` | no | SR-075, LLR-080 |
 | `Read-StagingOwnerRecord` | yes | SR-075, LLR-080 |
-| `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
+| `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Remove-OwnStagingFolder` | no | SR-017, SR-075, LLR-017, LLR-080 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |

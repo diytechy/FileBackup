@@ -193,13 +193,18 @@ BeforeAll {
         # SHA-256 of every file under the given roots. TC-187/TC-188 assert
         # HASHES, not presence: a refusal that quietly rewrote a byte would pass
         # a presence check. backup.log is excluded because a refused run is
-        # REQUIRED to write its refusal there.
+        # REQUIRED to write its refusal there. So is the staging OS lock file
+        # (SR-087) while it is ZERO-LENGTH: every run, a refused one included,
+        # takes that lock before it classifies Temp and creates the file on
+        # first use, and it is never written - so a single byte in it still
+        # shows here.
         param([string[]]$Roots)
         $map = [ordered]@{}
         foreach ($root in $Roots) {
             if (-not (Test-Path -LiteralPath $root)) { continue }
             foreach ($file in (Get-ChildItem -LiteralPath $root -Recurse -Force -File | Sort-Object FullName)) {
                 if ($file.Name -eq 'backup.log') { continue }
+                if ($file.Name -ceq 'Temp.lock' -and $file.Length -eq 0) { continue }
                 $map[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
             }
         }
@@ -217,7 +222,7 @@ BeforeAll {
         $infra = @('backup.log', 'MANIFEST.csv', 'MANIFEST.csv.meta', 'MANIFEST.csv.meta.tmp',
                    'DIRECTORIES.csv', 'FileBackupState.json', 'RUN.inprogress', 'RECONSTRUCT.paths.json',
                    'Reconstruct.ps1', 'Reconstruct.cmd', 'Reconstruct.sh', 'Reconstruct.log',
-                   'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
+                   'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'Temp.lock')
         $map = @{}
         foreach ($root in $Roots) {
             if (-not (Test-Path -LiteralPath $root)) { continue }

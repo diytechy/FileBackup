@@ -24,6 +24,38 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **OS LOCK DONE - the staging OS lock, liveness across the no-marker window (2026-10-09,
+  branch fix-staging-os-lock, based on fix-p-atomic-write-manifest; step 2 of 3 of
+  docs/plans/killed-staging-recovery-design-2026-10-09.md on branch
+  design-killed-staging-recovery: its section 3.1, E3 and the lock items of section 7).**
+  Every backup and every prune now holds `<ChangePath>/Temp.lock` opened `FileShare.None`
+  (`Enter-StagingOsLock` / `Exit-StagingOsLock`, Engine only - no kit file changes, kit
+  revision stays 13, no store needs `-RefreshKits`). Backup: taken at step 2.9, BEFORE
+  `Initialize-StagingFolder`; released in step 3's catch or in `Invoke-BackupSet`'s final
+  `finally` - i.e. after `Complete-ChangeFolder`'s rename, the run-state write and the
+  dedupe. Prune: taken once per batch before `Remove-CommittedPruneResidue`, released in a
+  `finally`; `-WhatIf` takes none. Reclaim runs inside the backup that holds it.
+  **Semantics:** any failure to open the lock = LIVE, refuse touching nothing
+  (`[SR-075/lock-held]`; prune code 2 staging-busy); a lock you acquired is NOT proof the
+  Temp owner is dead (an older FileBackup takes no lock), so every SR-075 rule still decides.
+  The file is never written and never deleted (Linux flock is per inode). The owner record,
+  heartbeat, fences and confirmation sample all remain. SR-085..087 new, SR-075 amended
+  (SR-017 deliberately untouched - the next step's), LLR-090..093 new, LLR-017/LLR-080
+  amended, TC-241..250 in `tests/Unit/StagingOsLock.Tests.ps1` (real child pwsh processes
+  parked at seams and killed with `Stop-Process -Force`; SHA-256 of every file under
+  BackupPath and ChangePath in every negative case). Mutation checks: releasing the lock
+  before the RUN.inprogress delete fails TC-244's lock-held assertion (its byte assertion
+  still passes - today's content refusal is the second wall the recovery will remove); a
+  prune that skips the lock prunes under a live backup past its rename and fails TC-245's
+  byte assertion; treating an acquired lock as death reclaims an older run's live Temp and
+  fails TC-248's byte assertion. `tests/Unit/StagingLock.Tests.ps1`'s tree hash now skips a
+  ZERO-LENGTH root `Temp.lock` (every run, a refused one included, creates it on first use).
+  **NOT PROVEN:** nothing ran on Linux, macOS or in the container - the flock claims in
+  SR-085 are the documented .NET behaviour, unmeasured; no cross-host test (SMB/NFS: the
+  lock is NOT guaranteed to exclude a second machine, nor a Windows SMB client against a
+  Samba-hosted store); `-RepairStorage`, `-RefreshKits` and `-Action View` take no lock
+  (unchanged; they did not honour the Temp rail before either); no hub run.
+
 - **P DONE - ATOMIC `Write-Manifest`, kit revision 13 (2026-10-09, branch
   fix-p-atomic-write-manifest; prerequisite P/G2 of
   docs/plans/killed-staging-recovery-design-2026-10-09.md on branch

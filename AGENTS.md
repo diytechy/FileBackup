@@ -44,6 +44,9 @@ Therefore:
    volume).
 1.5 The SR-038/SR-039 manifest-witness gate: refuse with exit 3 before any mutation.
 2. Open `backup.log` in the change root.
+2.9 Take the staging OS lock, `<ChangePath>/Temp.lock` opened `FileShare.None`
+    (SR-085). Held until the set is finished — past the step-13 rename — and
+    released only in the function's final `finally` (or step 3's catch).
 3. Guard against a stale `Temp` staging folder.
 4. Read persisted last-hash-run time; decide if a scheduled rehash is due.
 5. `Update-SourceManifest` — walk source, (re)hash new/changed/scheduled files.
@@ -174,6 +177,8 @@ Imports (internal): `Common`
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
+| `Enter-StagingOsLock` | yes | SR-085, SR-086, SR-087, LLR-090 |
+| `Exit-StagingOsLock` | yes | SR-085, SR-087, LLR-090, LLR-093 |
 | `Format-StagingAge` | no | SR-075, LLR-017 |
 | `Get-BackupCapacityDemand` | yes | SR-052, SR-013, LLR-052 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
@@ -199,6 +204,7 @@ Imports (internal): `Common`
 | `Get-StagingLockIdentity` | no | SR-075, LLR-017 |
 | `Get-StagingLockState` | yes | SR-017, SR-075, LLR-080 |
 | `Get-StagingLockVerdict` | no | SR-017, SR-075, LLR-017 |
+| `Get-StagingOsLockPath` | yes | SR-085, SR-087, LLR-090, LLR-093 |
 | `Get-StagingRefusalDetail` | no | SR-017, SR-075, LLR-017 |
 | `Get-StorageFormFinding` | yes | SR-049, LLR-049 |
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
@@ -207,9 +213,9 @@ Imports (internal): `Common`
 | `Initialize-StagingFolder` | yes | SR-005, SR-017, SR-075, LLR-005, LLR-017, LLR-080 |
 | `Initialize-StagingHeartbeatType` | yes | SR-075, LLR-080 |
 | `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
-| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055 |
+| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, SR-085, SR-086, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055, LLR-091 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
-| `Invoke-StagingLockReclaim` | no | SR-017, SR-075, LLR-017, LLR-080 |
+| `Invoke-StagingLockReclaim` | no | SR-017, SR-075, SR-086, LLR-017, LLR-080, LLR-091 |
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
 | `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
@@ -221,7 +227,7 @@ Imports (internal): `Common`
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
 | `Read-StagingMarkerText` | no | SR-075, LLR-080 |
 | `Read-StagingOwnerRecord` | yes | SR-075, LLR-080 |
-| `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, LLR-045, LLR-046 |
+| `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Remove-OwnStagingFolder` | no | SR-017, SR-075, LLR-017, LLR-080 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
@@ -394,6 +400,19 @@ Imports (internal): `Common`
   atomic test and an existing folder is the staging-busy refusal.
   Retention *policy* is the caller's (IF-001) — the verb takes explicit names,
   never wildcards.
+- **The staging OS lock is the only liveness signal between the `RUN.inprogress`
+  delete and the Temp → `Snapshot_*` rename** (SR-085..SR-087). Backup and prune
+  both hold `<ChangePath>/Temp.lock` (`FileShare.None`) for their whole mutation;
+  the OS releases it when the holder dies, however it dies. Three rules, each
+  pinned by a mutation-checked test in `tests/Unit/StagingOsLock.Tests.ps1`:
+  **never release it before the step-13 rename returns** (TC-244); **a lock
+  that cannot be opened, for ANY reason, is a live holder** and the caller
+  touches nothing (TC-249); and **a lock you acquired is NOT proof the Temp's
+  owner is dead** — an older FileBackup takes no lock, so the `RUN.inprogress`
+  rules still decide (TC-248). The file is never written and **never deleted**:
+  on Linux the lock is an advisory `flock` on an inode, and unlinking it lets two
+  processes each lock a different inode at the same path. It does not cross an
+  SMB/NFS client boundary reliably; see SR-085 for the per-platform guarantee.
 - **The manifest witness is written by `Write-Manifest` only** (SR-038). Every
   `MANIFEST.csv` gets a `MANIFEST.csv.meta` beside it — `Version`, `Rows`,
   `Bytes`, `XxH128`, `Written` as UTF-8/no-BOM/LF `Key=Value` lines, published by
