@@ -24,6 +24,15 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **2026-10-09 — killed-staging recovery (Owner ruling D8) is DESIGNED, not built.**
+  [plans/killed-staging-recovery-design-2026-10-09.md](plans/killed-staging-recovery-design-2026-10-09.md),
+  revised after an adversarial review that found the first draft's roll-back unsafe
+  (after step 13 the staged manifest is blanked; a live run is indistinguishable from a
+  dead one once the marker is deleted). Adopted: an OS-level lock file proves liveness;
+  recovery is split on the commit marker (present → roll back from the pristine staged
+  manifest; absent → roll forward through the idempotent finalize); verified re-entrant
+  moves; atomic `Write-Manifest` is a build prerequisite (Common → kit revision). Three
+  Owner decisions are listed in its §9. **NOT BUILT; gates HomeHub watchdog P4.**
 - **FILEBACKUP_7Z_LEVEL SHIPPED — kit revision 12 (2026-09-01, coordinator session;
   commits 710bd4b + the review-fold commit).** Owner ruling: the right `-mx` level on
   the real library is unknown, so it must be configurable before the hub rerun
