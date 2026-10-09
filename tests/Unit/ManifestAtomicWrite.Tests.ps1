@@ -173,10 +173,14 @@ Describe 'Write-Manifest publishes MANIFEST.csv atomically (TC-237, SR-082, LLR-
     }
 }
 
-Describe 'A real process kill never tears MANIFEST.csv (TC-238, SR-082, LLR-087)' {
-    # Not a seam that throws: a child pwsh is PARKED at the boundary and then
+Describe 'A process killed at each Write-Manifest boundary never tears MANIFEST.csv (TC-238, SR-082, LLR-087)' {
+    # Not a seam that throws: a child pwsh is PARKED at a boundary and then
     # terminated (Stop-Process -Force is TerminateProcess / SIGKILL), so no
-    # finally, catch or flush in the child can run.
+    # finally, catch or flush in the child can run. SCOPE: the kill lands only
+    # at the three boundaries (before the temp write, after it, after the
+    # rename). A torn temp file is SIMULATED by truncating the already-complete
+    # temp before parking; the Export-Csv interval itself is never killed
+    # mid-write (no slow-write seam, by decision).
     BeforeAll {
         $script:ChildScript = Join-Path $TestDrive 'kill-child.ps1'
         $rowFn = ${function:New-ManifestRows}.ToString()

@@ -49,13 +49,13 @@ last) — it is the record, not required reading for every pass.
   864 passed / 0 failed / 1 skipped; PSScriptAnalyzer, doc navigability and arch-map
   freshness pass; traceability has 0 orphans and still FAILS on the same two pre-existing
   findings as New_Fix_Batch (SR-017 and SR-075 are Verification=Test but Status=Draft).
-  Mutation (write in place again) fails the single `Should -BeIn` at
+  Mutation of the by-name delete in `Clear-ReclaimedStagingFolder` (delete removed) fails only the single `Should -BeNullOrEmpty` on the aside folder at StagingLock.Tests.ps1:2080 (7 of 8 TC-239 Temp tests pass). Mutation (write in place again) fails the single `Should -BeIn` at
   ManifestAtomicWrite.Tests.ps1:115 for the torn-at-half and zero-length cases, and at :228
-  for the real-process kill. **Found, not fixed:** `Write-ManifestWitness` ->
+  for the process-kill-at-boundary case (a real kill at each of three boundaries, tearing simulated by truncation). **Found, not fixed:** `Write-ManifestWitness` ->
   `Get-FileXxHash` -> `OpenRead` has never accepted a RELATIVE folder (it resolves against
   the process directory, not `$PWD`); production passes absolute paths. `DIRECTORIES.csv`
   (`Write-DirectorySidecar`) and `FileBackupState.json` writes are not part of this change.
-  **NOT PROVEN:** durability across power loss (no fsync of the temp file before the rename);
+  **NOT PROVEN:** a process kill DURING the Export-Csv write itself (TC-238 kills only at the three boundaries and simulates tearing by truncation; no slow-write seam, by decision); durability across power loss (no fsync of the temp file before the rename);
   the rename was only run on Windows/NTFS (.NET 10, pwsh 7.6) - the Linux path (pwsh 7.5 /
   .NET 9 in `filebackup:local`, ext4 or exFAT bind mounts) rests on documented rename(2)
   semantics and was not run; `Move-Item -Force` in the witness publish was left alone and
