@@ -76,9 +76,9 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 37. `Stop-StagingHeartbeat` — Stops and DRAINS a heartbeat. Idempotent, null-safe, and never throws —
 38. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
 39. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-40. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-41. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-42. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+40. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+41. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+42. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
 43. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
 44. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
 45. `Test-StagingLockLostError` — True when an ErrorRecord is a staging lock-loss (a lost exclusive

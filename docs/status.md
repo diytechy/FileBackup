@@ -24,6 +24,17 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **M-4 FIXED (2026-10-09, branch fix-m4-persist-state-before-dedupe; defect review
+  docs/defect-review-2026-10-05-content-index-memory.md §4 item 3).** Invoke-BackupSet now
+  persists LastHashRun/LastBackupRun (step 14) BEFORE Optimize-ChangeFolders (step 15), so a
+  SIGKILL in dedupe no longer leaves run state stale (stale LastBackupRun froze snapshot
+  names; stale LastHashRun re-ran the weekly rehash nightly). Dependency grep: nothing between
+  the old and new positions reads run state. Evidence: new TC-233 / Coverage.Tests.ps1 test
+  passes; mutation (block moved back) fails it; full Pester unit suite 824 passed / 0 failed /
+  1 skipped; PSScriptAnalyzer clean on both changed .ps1/.psm1. check.ps1 Smoke: the arch map was
+  regenerated (step order changed); Traceability still FAILS on pre-existing SR-017/SR-075 Draft
+  status findings, identical on HEAD. NOT PROVEN: not run on the hub; snapshot-count growth and the memory growth
+  are untouched (separate fixes); re-enabling the hub timer stays the Owner's decision.
 - **FILEBACKUP_7Z_LEVEL SHIPPED — kit revision 12 (2026-09-01, coordinator session;
   commits 710bd4b + the review-fold commit).** Owner ruling: the right `-mx` level on
   the real library is unknown, so it must be configurable before the hub rerun

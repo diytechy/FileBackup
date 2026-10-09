@@ -6680,12 +6680,18 @@ function Invoke-BackupSet {
         New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
         [void](Complete-ChangeFolder -ChgPath $paths.ChgPath -StagingFolder $stagingFolder -BkpPath $paths.BkpPath -ManifestChanged $manifestChanged -Log $log -SnapshotDate $priorBackupDate)
 
-        # 14. De-duplicate data shared across snapshots
-        Optimize-ChangeFolders -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log
-
-        # 15. Record state: hashes ran (B3) + this backup's completion date (dates the next snapshot)
+        # 14. Record state: hashes ran (B3) + this backup's completion date (dates the next snapshot).
+        # This runs BEFORE the cross-snapshot dedupe (15) on purpose (defect review M-4).
+        # Dedupe was OOM-killed (SIGKILL) every night on the hub, and a kill bypasses
+        # any catch, so state recorded after it never landed: LastBackupRun stayed
+        # stale (every snapshot got the same _NNN name) and LastHashRun stayed stale
+        # (the weekly full rehash ran nightly). The backup content is final and the
+        # snapshot is published above, so both facts are true here.
         if ($recalc) { Set-LastHashRun -BackupRoot $paths.BkpPath -When $thisBackupDate }
         Set-LastBackupRun -BackupRoot $paths.BkpPath -When $thisBackupDate
+
+        # 15. De-duplicate data shared across snapshots
+        Optimize-ChangeFolders -ChangeRoot $paths.ChgPath -BackupRoot $paths.BkpPath -Log $log
 
         # 16. Browse view (SR-062): only for sets that asked, skipped while the
         # viewstamp matches the manifest. A failure here is a WARNING, not a set

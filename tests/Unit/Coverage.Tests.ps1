@@ -3424,6 +3424,42 @@ Describe 'A snapshot can never exist without its restore kit (F8, SR-028, WP9 st
     }
 }
 
+Describe 'Run state is persisted before the cross-snapshot dedupe (defect review M-4, SR-028, SR-011)' {
+    It 'a kill in Optimize-ChangeFolders (step 15) still leaves LastBackupRun and LastHashRun at this run' {
+        # The hub was SIGKILLed in dedupe every night, and state recorded after
+        # it never landed: snapshot names froze and the weekly rehash ran nightly.
+        # A kill cannot be caught, so the in-process stand-in is a throw from the
+        # dedupe itself: whatever state the run recorded before step 15 must be
+        # on disk when the run dies there.
+        $root = Join-Path $TestDrive 'm4'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        $set = [pscustomobject]@{
+            Name = 'M4'; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp; ChangePath = $chg
+            HashRecalcFreq = 'A'; CompressEnabled = $false; AllowEmptySource = $false
+            BrowseView = 'off'; ViewPath = ''
+        }
+        $deps = @{ '7z' = $null; 'ffprobe' = $null }
+        $ok = $true; $logs = New-Object System.Collections.Generic.List[string]
+
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'ONE')
+        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01')
+        Get-LastBackupRun -BackupRoot $bkp | Should -Be ([datetime]'2024-01-01 00:00:01')
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'TWO')
+
+        Mock -ModuleName FileBackup.Engine Optimize-ChangeFolders { throw 'INJECTED: killed in dedupe (step 15)' }
+        { Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-02-02 00:00:02') } |
+            Should -Throw -ExpectedMessage '*INJECTED*'
+
+        # The snapshot of the prior state was published (step 13 ran) ...
+        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_').Count |
+            Should -Be 1 -Because 'the step-13 publish precedes the dedupe'
+        # ... and the run state reflects THIS run, not the stale 2024-01-01 value.
+        Get-LastBackupRun -BackupRoot $bkp | Should -Be ([datetime]'2024-02-02 00:00:02') -Because 'LastBackupRun names the next snapshot and must not freeze'
+        Get-LastHashRun -BackupRoot $bkp | Should -Be ([datetime]'2024-02-02 00:00:02') -Because "the rehash ran this run (freq 'A'), so LastHashRun must not freeze"
+    }
+}
+
 Describe 'A directory squatting on a copy destination is refused (step-4 review n6)' {
     It 'Copy-SourceFileToBackup returns the error string instead of silently copying INTO the directory' {
         $root = Join-Path $TestDrive 'n6'
