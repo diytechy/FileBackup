@@ -118,7 +118,7 @@ function Get-G9PhysicalCopyCount {
     # something else entirely, so only the index knows which files ARE the
     # content. The index lists one entry per data file that exists on disk.
     $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $Env.ChgPath | ForEach-Object { $_.FullName })
-    $index = Get-BackupContentIndex -BackupRoot $Env.BkpPath -SnapshotFolder $snapshots
+    $index = Get-BackupContentIndex -BackupRoot $Env.BkpPath -SnapshotFolder $snapshots -IncludeManifests
     $key = "$Hash|$Length"
     if (-not $index.Map.ContainsKey($key)) { return 0 }
     return $index.Map[$key].Count

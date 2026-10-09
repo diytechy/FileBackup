@@ -948,16 +948,24 @@ function Get-BackupContentIndex {
     .PARAMETER SnapshotFolder
         Full paths of the snapshot folders to index, oldest first. May be empty.
 
+    .PARAMETER IncludeManifests
+        Retain each folder's whole manifest in Folders[].Manifest. Off by default
+        (M-1, defect review 2026-10-05): a retained manifest costs ~2.3 KB per row,
+        so the lean default keeps only DataPaths. Callers that read whole rows
+        (prune, pool-resolve, the Verify/Rollback paths) pass it.
+
     .OUTPUTS
         [pscustomobject] Map (hashtable key -> List of location records with
         LocationType/Folder/DataPath/FullPath/IsBackup/FolderOrder) and Folders
-        (one record per indexed folder: Folder, Name, Order, Manifest, IsBackup).
+        (one record per indexed folder: Folder, Name, Order, IsBackup, DataPaths,
+        plus Manifest only under -IncludeManifests).
     #>
     # Implements: SR-026, SR-045, SR-047, LLR-047
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
-        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][string[]]$SnapshotFolder
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][string[]]$SnapshotFolder,
+        [switch]$IncludeManifests
     )
     $map = @{}   # "<hash>|<len>" -> list of location records
 
@@ -983,13 +991,33 @@ function Get-BackupContentIndex {
 
     $folders = New-Object System.Collections.Generic.List[object]
 
+    # Reads one manifest into the map and returns its non-blank DataPaths as an
+    # array. The manifest is then unreferenced unless -IncludeManifests keeps it.
+    $indexFolder = {
+        param([string]$LocationType, [string]$Folder, [object[]]$Rows, [int]$FolderOrder)
+        $dps = New-Object System.Collections.Generic.List[string]
+        foreach ($row in $Rows) {
+            & $addToMap $LocationType $Folder $row $FolderOrder
+            if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $dps.Add([string]$row.DataPath) }
+        }
+        return ,($dps.ToArray())
+    }
+
     if (Test-Path -LiteralPath (Join-Path $BackupRoot $script:Def.DatabaseFilename) -PathType Leaf) {
         $backupManifest = Read-Manifest -FolderPath $BackupRoot
-        $folders.Add([pscustomobject]@{
-            Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
-            Order = -1; Manifest = $backupManifest; IsBackup = $true
-        })
-        foreach ($row in $backupManifest) { & $addToMap 'Backup' $BackupRoot $row -1 }
+        $backupDataPaths = & $indexFolder 'Backup' $BackupRoot $backupManifest -1
+        if ($IncludeManifests) {
+            $folders.Add([pscustomobject]@{
+                Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
+                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths; Manifest = $backupManifest
+            })
+        } else {
+            $folders.Add([pscustomobject]@{
+                Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
+                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths
+            })
+        }
+        $backupManifest = $null
     }
 
     $folderOrder = 0
@@ -998,11 +1026,19 @@ function Get-BackupContentIndex {
     foreach ($dir in @($SnapshotFolder | Where-Object { $_ })) {
         $folderOrder++
         $manifest = Read-Manifest -FolderPath $dir
-        $folders.Add([pscustomobject]@{
-            Folder = $dir; Name = [IO.Path]::GetFileName($dir)
-            Order = $folderOrder; Manifest = $manifest; IsBackup = $false
-        })
-        foreach ($row in $manifest) { & $addToMap 'Change' $dir $row $folderOrder }
+        $dataPaths = & $indexFolder 'Change' $dir $manifest $folderOrder
+        if ($IncludeManifests) {
+            $folders.Add([pscustomobject]@{
+                Folder = $dir; Name = [IO.Path]::GetFileName($dir)
+                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths; Manifest = $manifest
+            })
+        } else {
+            $folders.Add([pscustomobject]@{
+                Folder = $dir; Name = [IO.Path]::GetFileName($dir)
+                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths
+            })
+        }
+        $manifest = $null
     }
 
     return [pscustomobject]@{ Map = $map; Folders = $folders }
@@ -1040,9 +1076,11 @@ function Optimize-ChangeFolders {
     }
 
     # One shared scan (LLR-047): the same index the retention mechanism reads.
+    # Lean index (M-1): no manifests are retained. Only the DataPaths are kept,
+    # and a folder's manifest is re-read below only if one of them has vanished.
     $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($changeDirs | ForEach-Object { $_.FullName })
     $globalMap       = $index.Map
-    $changeManifests = @($index.Folders | Where-Object { -not $_.IsBackup })
+    $changeFolders   = @($index.Folders | Where-Object { -not $_.IsBackup })
 
     foreach ($key in $globalMap.Keys) {
         $entries = $globalMap[$key]
@@ -1068,20 +1106,30 @@ function Optimize-ChangeFolders {
         }
     }
 
-    foreach ($cm in $changeManifests) {
+    foreach ($cf in $changeFolders) {
+        # A folder with every DataPath still on disk has nothing to blank: it is
+        # neither re-read nor rewritten.
+        $vanished = $false
+        foreach ($dp in $cf.DataPaths) {
+            if (-not (Test-Path -LiteralPath (Join-Path $cf.Folder $dp) -PathType Leaf)) { $vanished = $true; break }
+        }
+        if (-not $vanished) { continue }
+
+        $manifest = @(Read-Manifest -FolderPath $cf.Folder)
         $changed = $false
-        foreach ($row in $cm.Manifest) {
+        foreach ($row in $manifest) {
             if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
-            $full = Join-Path $cm.Folder $row.DataPath
+            $full = Join-Path $cf.Folder $row.DataPath
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
                 $row.DataPath = ''
                 $changed = $true
             }
         }
         if ($changed) {
-            & $Log "Updating MANIFEST in change folder '$($cm.Folder)' after datapath cleanup." 'INFO'
-            Write-Manifest -FolderPath $cm.Folder -Records $cm.Manifest
+            & $Log "Updating MANIFEST in change folder '$($cf.Folder)' after datapath cleanup." 'INFO'
+            Write-Manifest -FolderPath $cf.Folder -Records $manifest
         }
+        $manifest = $null
     }
 
     & $Log "Optimize-ChangeFolders completed for '$ChangeRoot'." 'INFO'
@@ -1193,7 +1241,7 @@ function Get-SnapshotPrunePlan {
     $targetFolder = $target.FullName
     $plan.Folder  = $targetFolder
 
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName }) -IncludeManifests
     $plan.Index = $index
     foreach ($f in $index.Folders) { $plan.Manifests[$f.Folder] = $f.Manifest }
     $targetManifest = @($index.Folders | Where-Object { $_.Folder -eq $targetFolder } | ForEach-Object { $_.Manifest })
@@ -1398,7 +1446,7 @@ function Test-PoolResolves {
     $problems  = New-Object System.Collections.Generic.List[object]
     $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot |
                    Where-Object { $_.FullName -ne $ExcludeFolder })
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName }) -IncludeManifests
 
     # WP7 (SR-046 as amended): whether a blank row's located copy must agree in
     # FORM depends on the kit that would restore it — the folder's own. Cached
@@ -1841,7 +1889,7 @@ function Test-BackupStorageForm {
         # $null iteration, and @($null) casts to [string[]] as @('') (AGENTS.md §4).
         @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ } | ForEach-Object { $_.FullName })
     } else { @() }
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder $poolSnapshots
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder $poolSnapshots -IncludeManifests
 
     $all = New-Object System.Collections.Generic.List[object]
     foreach ($folder in @($BackupRoot) + $snapshots) {
