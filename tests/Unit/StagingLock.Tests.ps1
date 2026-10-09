@@ -194,17 +194,29 @@ BeforeAll {
         # HASHES, not presence: a refusal that quietly rewrote a byte would pass
         # a presence check. backup.log is excluded because a refused run is
         # REQUIRED to write its refusal there. So is the staging OS lock file
-        # (SR-087) while it is ZERO-LENGTH: every run, a refused one included,
-        # takes that lock before it classifies Temp and creates the file on
-        # first use, and it is never written - so a single byte in it still
-        # shows here.
-        param([string[]]$Roots)
+        # (SR-087), but ONLY the one at exactly <ChangeRoot>\Temp.lock and only
+        # while it is ZERO-LENGTH: every run, a refused one included, takes that
+        # lock before it classifies Temp and creates the file on first use, and
+        # it is never written - so a single byte in it still shows here. A
+        # Temp.lock ANYWHERE else (nested, in a snapshot, in the backup root) is
+        # not ours and fails the test outright rather than being hashed past.
+        param([string[]]$Roots, [string]$ChangeRoot)
+        $lockPath = $null
+        if ($ChangeRoot -and (Test-Path -LiteralPath $ChangeRoot)) {
+            $lockPath = Join-Path (Resolve-Path -LiteralPath $ChangeRoot).Path 'Temp.lock'
+        }
         $map = [ordered]@{}
         foreach ($root in $Roots) {
             if (-not (Test-Path -LiteralPath $root)) { continue }
             foreach ($file in (Get-ChildItem -LiteralPath $root -Recurse -Force -File | Sort-Object FullName)) {
                 if ($file.Name -eq 'backup.log') { continue }
-                if ($file.Name -ceq 'Temp.lock' -and $file.Length -eq 0) { continue }
+                if ($file.Name -ieq 'Temp.lock') {
+                    if ($null -ne $lockPath -and $file.FullName -eq $lockPath) {
+                        if ($file.Length -eq 0) { continue }
+                    } else {
+                        throw "A stray Temp.lock exists at '$($file.FullName)'; the only one FileBackup creates is '$lockPath' (SR-087)."
+                    }
+                }
                 $map[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
             }
         }
@@ -222,12 +234,16 @@ BeforeAll {
         $infra = @('backup.log', 'MANIFEST.csv', 'MANIFEST.csv.meta', 'MANIFEST.csv.meta.tmp',
                    'DIRECTORIES.csv', 'FileBackupState.json', 'RUN.inprogress', 'RECONSTRUCT.paths.json',
                    'Reconstruct.ps1', 'Reconstruct.cmd', 'Reconstruct.sh', 'Reconstruct.log',
-                   'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'Temp.lock')
+                   'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
         $map = @{}
         foreach ($root in $Roots) {
             if (-not (Test-Path -LiteralPath $root)) { continue }
+            $rootFull = (Resolve-Path -LiteralPath $root).Path.TrimEnd('\', '/')
             foreach ($file in (Get-ChildItem -LiteralPath $root -Recurse -Force -File)) {
                 if ($infra -contains $file.Name) { continue }
+                # The staging OS lock (SR-087) only at a root's top level; a
+                # nested Temp.lock is data like any other file.
+                if ($file.Name -ceq 'Temp.lock' -and $file.DirectoryName -eq $rootFull) { continue }
                 $map[(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash] = $file.FullName
             }
         }
@@ -241,7 +257,7 @@ BeforeAll {
 
     function Get-FixtureTreeHash {
         param([object]$Fixture)
-        return (Format-TreeHashMap (Get-TreeHashMap -Roots @($Fixture.Chg, $Fixture.Bkp, $Fixture.Src)))
+        return (Format-TreeHashMap (Get-TreeHashMap -Roots @($Fixture.Chg, $Fixture.Bkp, $Fixture.Src) -ChangeRoot $Fixture.Chg))
     }
 
     function Get-SetLog {

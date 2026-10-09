@@ -53,8 +53,37 @@ last) — it is the record, not required reading for every pass.
   **NOT PROVEN:** nothing ran on Linux, macOS or in the container - the flock claims in
   SR-085 are the documented .NET behaviour, unmeasured; no cross-host test (SMB/NFS: the
   lock is NOT guaranteed to exclude a second machine, nor a Windows SMB client against a
-  Samba-hosted store); `-RepairStorage`, `-RefreshKits` and `-Action View` take no lock
-  (unchanged; they did not honour the Temp rail before either); no hub run.
+  Samba-hosted store); no hub run.
+- **OS LOCK REVIEW FOLD (2026-10-09, same branch, second commit).** An independent review
+  of the first commit found one MAJOR and one MINOR; both are fixed here.
+  **MAJOR:** `-RepairStorage` (`Repair-BackupStorageForm`: renames pool objects, rewrites
+  manifests) and `-RefreshKits` (`Update-BackupSnapshotKit`: overwrites snapshot kit files)
+  mutated the store without the lock, so they could race a backup's root-manifest publish or
+  finalize, a prune, or the coming recovery. Both now take the same lock as their first act
+  through `Enter-StoreMutationLock` (inside the functions, so direct module callers are
+  covered), with the same fail-closed refusal: `[SR-075/lock-held]` logged and thrown, which
+  `-Action Verify` turns into exit 2. `-WhatIf` takes no lock; no change root refuses; a
+  missing change root is created and then locked. LLR-094, TC-251..254; SR-085/SR-086
+  amended. Mutation checks: each mutator with the lock skipped rewrote the snapshot under a
+  parked live backup and failed its single byte assertion (TC-251 `:833`, TC-252 `:886`).
+  **Entry-point audit** (every engine function that writes the store, by AST): LOCKED are
+  backup, prune, repair and kit refresh. Confirmed READ-ONLY and left lock-free: read-only
+  `-Action Verify`, `-Action Snapshots`, `-Action View` (writes only the view root, outside
+  both roots by the SR-063 rails), the `-Deep` audit (scratch under the system temp dir) and
+  both restorers (write only the target). Still UNLOCKED, by design of their callers: the
+  exported pipeline steps (`Optimize-ChangeFolders`, `Test-BackupManifest`,
+  `Complete-ChangeFolder`, `Move-RemovedFilesToStaging`, `Save-SupersededData`,
+  `Copy-ReHomedDataFile`, `Publish-PruneManifest` and the rest) hold no lock if a caller
+  invokes them directly; every in-repo caller is a locked backup or prune. **MINOR:**
+  `StagingLock.Tests.ps1`'s tree hash exempted a zero-length `Temp.lock` anywhere; it now
+  exempts only the exact `<ChangePath>\Temp.lock` and FAILS the test on a `Temp.lock`
+  anywhere else (its byte inventory likewise skips one only at a root's top level).
+  **What remains for whoever picks this up:** step 3 of the design (split recovery,
+  SR-017 amendment, TC-188 flip) is not started; the Linux/container half of SR-085 is
+  unmeasured (run `StagingOsLock.Tests.ps1` inside `filebackup:local` on the
+  Linux-over-exFAT bind mount, the TC-195 setup); SR-017 and SR-075 stay Draft (the two
+  standing traceability findings); and the hub image must be rebuilt before any of this
+  protects the hub, where an older image takes no lock at all (SR-086).
 
 - **P DONE - ATOMIC `Write-Manifest`, kit revision 13 (2026-10-09, branch
   fix-p-atomic-write-manifest; prerequisite P/G2 of

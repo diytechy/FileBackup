@@ -1927,7 +1927,7 @@ function Repair-BackupStorageForm {
         [pscustomobject] Repaired (count), Skipped (the findings left alone) and
         Findings (the pre-repair audit).
     #>
-    # Implements: SR-049, SR-024, SR-038, LLR-049
+    # Implements: SR-049, SR-024, SR-038, SR-085, SR-086, LLR-049, LLR-094
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -1935,93 +1935,107 @@ function Repair-BackupStorageForm {
         [switch]$BackupRootOnly,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $findings = @(Test-BackupStorageForm -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot -BackupRootOnly:$BackupRootOnly)
-    $repaired = 0
-    $skipped  = New-Object System.Collections.Generic.List[object]
-
-    foreach ($group in ($findings | Group-Object Folder)) {
-        $folder   = $group.Name
-        $manifest = @(Read-Manifest -FolderPath $folder)
-        $dirty    = $false
-
-        # ONE physical file per group: the rename is done once and every row
-        # naming that file adopts the result (finding H1).
-        foreach ($byPath in ($group.Group | Group-Object DataPath)) {
-            $dataPath   = [string]$byPath.Name
-            $repairable = @($byPath.Group | Where-Object { $_.Repairable })
-            foreach ($f in @($byPath.Group | Where-Object { -not $_.Repairable })) { $skipped.Add($f) }
-            if ($repairable.Count -eq 0) { continue }
-
-            # EVERY row that references this physical file, not just the ones
-            # that produced a finding — a row exempted by the '.7z' source rule
-            # still has to follow its data file through a rename.
-            $rows = @($manifest | Where-Object { $_.DataPath -eq $dataPath })
-            if ($rows.Count -eq 0) { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
-
-            $full     = Join-Path $folder $dataPath
-            $observed = Get-StoredFileForm -Path $full
-            if ($observed -eq 'Missing') { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
-
-            # The row loop below rewrites Compressed for EVERY row naming this
-            # file, including rows that produced no finding — so it needs the
-            # SAME payload-keyed exemption Get-StorageFormFinding applies. Read
-            # the bytes' identity ONCE, and BEFORE any rename moves them.
-            $ownHash = $null; $ownLength = ''
-            if ($observed -eq 'Archive') {
-                $ownLength = [string](Get-Item -LiteralPath $full).Length
-                $ownHash   = Get-FileXxHash -FilePath $full
-            }
-
-            # The bytes decide both columns. Rename only when the name's claim
-            # differs from what the bytes are.
-            $newCompressed = if ($observed -eq 'Archive') { 'Yes' } else { 'No' }
-            $newDataPath   = $dataPath
-            $nameIsArchive = ([IO.Path]::GetExtension($dataPath) -ieq '.7z')
-            if ($observed -eq 'Archive' -and -not $nameIsArchive) { $newDataPath = "$dataPath.7z" }
-            if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $dataPath.Substring(0, $dataPath.Length - 3) }
-
-            if ($newDataPath -ne $dataPath) {
-                $target = Join-Path $folder $newDataPath
-                if (Test-IsInfrastructureFile -Root $folder -FullPath ([IO.Path]::GetFullPath($target))) {
-                    & $Log "Refusing to rename '$dataPath' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
-                    foreach ($f in $repairable) { $skipped.Add($f) }; continue
-                }
-                if (Test-Path -LiteralPath $target -PathType Leaf) {
-                    & $Log "Refusing to rename '$dataPath' to '$newDataPath': a file is already there." 'WARN'
-                    foreach ($f in $repairable) { $skipped.Add($f) }; continue
-                }
-                if ($PSCmdlet.ShouldProcess($target, "rename '$dataPath' so its name matches its bytes")) {
-                    Move-Item -LiteralPath $full -Destination $target -Force
-                } else { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
-            }
-
-            foreach ($row in $rows) {
-                # A row whose stored bytes ARE its own payload is an
-                # already-compressed SOURCE file: its Compressed column is not a
-                # disagreement, and rewriting it from the bytes would make the
-                # restorer expand the user's archive. Keyed on the payload, with
-                # a '.7z' RelativePath as the fast path — the source can be named
-                # anything. Such a row still follows the file through the rename.
-                $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z') -or
-                          ($null -ne $ownHash -and $ownHash -eq $row.xxH2Hash -and $ownLength -eq [string]$row.Length)
-                & $Log ("Repaired '$([IO.Path]::GetFileName($folder))' row '$($row.RelativePath)': " +
-                        "Compressed $($row.Compressed) -> $(if ($exempt) { $row.Compressed } else { $newCompressed }), " +
-                        "DataPath '$dataPath' -> '$newDataPath'.") 'INFO'
-                $row.DataPath = $newDataPath
-                if (-not $exempt) { $row.Compressed = $newCompressed }
-            }
-            $dirty = $true
-            $repaired += $repairable.Count
-        }
-
-        # One write per folder, through the SOLE manifest writer, so the SR-038
-        # witness is re-stamped with it (never a caller-side stamp).
-        if ($dirty -and $PSCmdlet.ShouldProcess($folder, 'persist the repaired manifest')) {
-            Write-Manifest -FolderPath $folder -Records $manifest
-        }
+    # The staging OS lock (SR-085, LLR-094), taken BEFORE the audit so the
+    # findings and the repair see one state: a repair renames pool objects
+    # and rewrites manifests, and must not race a backup's root-manifest
+    # publish or finalize, a prune, or the coming staging recovery. A lock
+    # that cannot be taken refuses (throws) touching nothing (SR-086).
+    # -WhatIf mutates nothing and takes no lock.
+    $osLock = $null
+    if (-not $WhatIfPreference) {
+        $osLock = Enter-StoreMutationLock -ChangeRoot $ChangeRoot -Activity 'repair the storage form' -Log $Log
     }
+    try {
+        $findings = @(Test-BackupStorageForm -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot -BackupRootOnly:$BackupRootOnly)
+        $repaired = 0
+        $skipped  = New-Object System.Collections.Generic.List[object]
 
-    return [pscustomobject]@{ Repaired = $repaired; Skipped = $skipped.ToArray(); Findings = $findings }
+        foreach ($group in ($findings | Group-Object Folder)) {
+            $folder   = $group.Name
+            $manifest = @(Read-Manifest -FolderPath $folder)
+            $dirty    = $false
+
+            # ONE physical file per group: the rename is done once and every row
+            # naming that file adopts the result (finding H1).
+            foreach ($byPath in ($group.Group | Group-Object DataPath)) {
+                $dataPath   = [string]$byPath.Name
+                $repairable = @($byPath.Group | Where-Object { $_.Repairable })
+                foreach ($f in @($byPath.Group | Where-Object { -not $_.Repairable })) { $skipped.Add($f) }
+                if ($repairable.Count -eq 0) { continue }
+
+                # EVERY row that references this physical file, not just the ones
+                # that produced a finding — a row exempted by the '.7z' source rule
+                # still has to follow its data file through a rename.
+                $rows = @($manifest | Where-Object { $_.DataPath -eq $dataPath })
+                if ($rows.Count -eq 0) { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
+
+                $full     = Join-Path $folder $dataPath
+                $observed = Get-StoredFileForm -Path $full
+                if ($observed -eq 'Missing') { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
+
+                # The row loop below rewrites Compressed for EVERY row naming this
+                # file, including rows that produced no finding — so it needs the
+                # SAME payload-keyed exemption Get-StorageFormFinding applies. Read
+                # the bytes' identity ONCE, and BEFORE any rename moves them.
+                $ownHash = $null; $ownLength = ''
+                if ($observed -eq 'Archive') {
+                    $ownLength = [string](Get-Item -LiteralPath $full).Length
+                    $ownHash   = Get-FileXxHash -FilePath $full
+                }
+
+                # The bytes decide both columns. Rename only when the name's claim
+                # differs from what the bytes are.
+                $newCompressed = if ($observed -eq 'Archive') { 'Yes' } else { 'No' }
+                $newDataPath   = $dataPath
+                $nameIsArchive = ([IO.Path]::GetExtension($dataPath) -ieq '.7z')
+                if ($observed -eq 'Archive' -and -not $nameIsArchive) { $newDataPath = "$dataPath.7z" }
+                if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $dataPath.Substring(0, $dataPath.Length - 3) }
+
+                if ($newDataPath -ne $dataPath) {
+                    $target = Join-Path $folder $newDataPath
+                    if (Test-IsInfrastructureFile -Root $folder -FullPath ([IO.Path]::GetFullPath($target))) {
+                        & $Log "Refusing to rename '$dataPath' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
+                        foreach ($f in $repairable) { $skipped.Add($f) }; continue
+                    }
+                    if (Test-Path -LiteralPath $target -PathType Leaf) {
+                        & $Log "Refusing to rename '$dataPath' to '$newDataPath': a file is already there." 'WARN'
+                        foreach ($f in $repairable) { $skipped.Add($f) }; continue
+                    }
+                    if ($PSCmdlet.ShouldProcess($target, "rename '$dataPath' so its name matches its bytes")) {
+                        Move-Item -LiteralPath $full -Destination $target -Force
+                    } else { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
+                }
+
+                foreach ($row in $rows) {
+                    # A row whose stored bytes ARE its own payload is an
+                    # already-compressed SOURCE file: its Compressed column is not a
+                    # disagreement, and rewriting it from the bytes would make the
+                    # restorer expand the user's archive. Keyed on the payload, with
+                    # a '.7z' RelativePath as the fast path — the source can be named
+                    # anything. Such a row still follows the file through the rename.
+                    $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z') -or
+                              ($null -ne $ownHash -and $ownHash -eq $row.xxH2Hash -and $ownLength -eq [string]$row.Length)
+                    & $Log ("Repaired '$([IO.Path]::GetFileName($folder))' row '$($row.RelativePath)': " +
+                            "Compressed $($row.Compressed) -> $(if ($exempt) { $row.Compressed } else { $newCompressed }), " +
+                            "DataPath '$dataPath' -> '$newDataPath'.") 'INFO'
+                    $row.DataPath = $newDataPath
+                    if (-not $exempt) { $row.Compressed = $newCompressed }
+                }
+                $dirty = $true
+                $repaired += $repairable.Count
+            }
+
+            # One write per folder, through the SOLE manifest writer, so the SR-038
+            # witness is re-stamped with it (never a caller-side stamp).
+            if ($dirty -and $PSCmdlet.ShouldProcess($folder, 'persist the repaired manifest')) {
+                Write-Manifest -FolderPath $folder -Records $manifest
+            }
+        }
+
+        return [pscustomobject]@{ Repaired = $repaired; Skipped = $skipped.ToArray(); Findings = $findings }
+    } finally {
+        Exit-StagingOsLock -Lock $osLock -Log $Log
+    }
 }
 
 function Update-BackupSnapshotKit {
@@ -2054,30 +2068,43 @@ function Update-BackupSnapshotKit {
         [pscustomobject] Refreshed (folder count) and Revision (the kit revision
         now present in each).
     #>
-    # Implements: SR-049, SR-007, SR-038, LLR-049
+    # Implements: SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
         [Parameter(Mandatory)][string]$ChangeRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
-                   $script:Def.ReconstructCommandName, $script:Def.ReconstructShName,
-                   $script:Def.CommonModuleName,
-                   'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
-    $refreshed = 0
-    foreach ($snapshot in @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ })) {
-        if (-not $PSCmdlet.ShouldProcess($snapshot.FullName, 'refresh the bundled restore kit')) { continue }
-        foreach ($artifact in $artifacts) {
-            $src = Join-Path $BackupRoot $artifact
-            if (Test-Path -LiteralPath $src -PathType Leaf) {
-                Copy-Item -LiteralPath $src -Destination (Join-Path $snapshot.FullName $artifact) -Force
-            }
-        }
-        & $Log "Refreshed the restore kit in '$($snapshot.Name)' (the manifest witness was NOT copied)." 'INFO'
-        $refreshed++
+    # The staging OS lock (SR-085, LLR-094): a kit refresh overwrites files
+    # inside every Snapshot_* folder and must not race a backup publishing
+    # or deduplicating snapshots, a prune, or the coming staging recovery.
+    # A lock that cannot be taken refuses (throws) touching nothing
+    # (SR-086). -WhatIf mutates nothing and takes no lock.
+    $osLock = $null
+    if (-not $WhatIfPreference) {
+        $osLock = Enter-StoreMutationLock -ChangeRoot $ChangeRoot -Activity 'refresh the snapshot restore kits' -Log $Log
     }
-    return [pscustomobject]@{ Refreshed = $refreshed; Revision = (Get-BackupKitRevision -Folder $BackupRoot) }
+    try {
+        $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
+                       $script:Def.ReconstructCommandName, $script:Def.ReconstructShName,
+                       $script:Def.CommonModuleName,
+                       'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+        $refreshed = 0
+        foreach ($snapshot in @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ })) {
+            if (-not $PSCmdlet.ShouldProcess($snapshot.FullName, 'refresh the bundled restore kit')) { continue }
+            foreach ($artifact in $artifacts) {
+                $src = Join-Path $BackupRoot $artifact
+                if (Test-Path -LiteralPath $src -PathType Leaf) {
+                    Copy-Item -LiteralPath $src -Destination (Join-Path $snapshot.FullName $artifact) -Force
+                }
+            }
+            & $Log "Refreshed the restore kit in '$($snapshot.Name)' (the manifest witness was NOT copied)." 'INFO'
+            $refreshed++
+        }
+        return [pscustomobject]@{ Refreshed = $refreshed; Revision = (Get-BackupKitRevision -Folder $BackupRoot) }
+    } finally {
+        Exit-StagingOsLock -Lock $osLock -Log $Log
+    }
 }
 
 function Get-PruneCapacityRefusal {
@@ -4812,6 +4839,72 @@ function Exit-StagingOsLock {
     } catch {
         Write-Debug "Exit-StagingOsLock swallowed: $($_.Exception.Message)"
     }
+}
+
+function Enter-StoreMutationLock {
+    <#
+    .SYNOPSIS
+        Takes the staging OS lock for a store-maintenance mutator that is not a
+        backup or a prune (-RepairStorage, -RefreshKits), or throws a refusal
+        carrying '[SR-075/lock-held]' after logging it (SR-085, SR-086).
+
+    .DESCRIPTION
+        The same lock and the same fail-closed rule every backup and prune
+        uses: ANY failure to take it is a live holder, and the caller must
+        mutate nothing. Two edge cases:
+
+          * no change root was given -- there is nowhere to take the lock, so
+            it refuses, since nothing then proves no backup is running;
+          * the change root does not exist -- it is CREATED (a backup would
+            create it too) and then locked, so a backup that is in its first
+            instants either already holds the lock or will find it held.
+
+        The caller releases with Exit-StagingOsLock in a finally. It is called
+        from the mutator itself, not from the entry point, so a direct module
+        caller is covered exactly like FileBackup.ps1.
+
+    .PARAMETER ChangeRoot
+        The store's change root.
+
+    .PARAMETER Activity
+        What the caller was about to do, for the refusal sentence.
+
+    .PARAMETER Log
+        The caller's logger, or $null.
+
+    .OUTPUTS
+        [pscustomobject] the Enter-StagingOsLock handle.
+    #>
+    # Implements: SR-085, SR-086, LLR-094
+    [CmdletBinding()]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$ChangeRoot,
+        [Parameter(Mandatory)][string]$Activity,
+        [AllowNull()][scriptblock]$Log
+    )
+
+    $message = $null
+    if ([string]::IsNullOrWhiteSpace($ChangeRoot)) {
+        $message = ("[SR-075/lock-held] Refusing to ${Activity}: no change root was given, so the staging lock that " +
+            'excludes a running backup or prune cannot be taken (SR-086). Nothing was touched.')
+    } else {
+        try {
+            if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) {
+                New-Item -ItemType Directory -Path $ChangeRoot -Force | Out-Null
+            }
+            return (Enter-StagingOsLock -ChgPath $ChangeRoot -Log $Log)
+        } catch {
+            $detail = $_.Exception.Message
+            if ($detail.IndexOf('[SR-075/lock-held]', [System.StringComparison]::Ordinal) -lt 0) {
+                $detail = "[SR-075/lock-held] the staging lock could not be taken: $detail"
+            }
+            $message = "Refusing to ${Activity}: $detail Nothing was touched."
+        }
+    }
+    if ($null -ne $Log) {
+        try { & $Log $message 'ERROR' } catch { Write-Debug "Refusal log line swallowed: $($_.Exception.Message)" }
+    }
+    throw $message
 }
 
 # endregion

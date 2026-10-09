@@ -188,6 +188,7 @@ Imports (internal): `Common`
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
 | `Enter-StagingOsLock` | yes | SR-085, SR-086, SR-087, LLR-090 |
+| `Enter-StoreMutationLock` | no | SR-085, SR-086, LLR-094 |
 | `Exit-StagingOsLock` | yes | SR-085, SR-087, LLR-090, LLR-093 |
 | `Format-StagingAge` | no | SR-075, LLR-017 |
 | `Get-BackupCapacityDemand` | yes | SR-052, SR-013, LLR-052 |
@@ -240,7 +241,7 @@ Imports (internal): `Common`
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Remove-OwnStagingFolder` | no | SR-017, SR-075, LLR-017, LLR-080 |
-| `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, LLR-049 |
+| `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
 | `Resolve-CompressionDecision` | no | SR-081, LLR-086 |
@@ -265,7 +266,7 @@ Imports (internal): `Common`
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
 | `Test-StagingLockLostError` | no | SR-075, LLR-017 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
-| `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, LLR-049 |
+| `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Update-SourceManifest` | yes | SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
 | `Write-ProbeStatistic` | no | SR-081, LLR-086 |

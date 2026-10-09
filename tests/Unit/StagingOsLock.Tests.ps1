@@ -787,3 +787,238 @@ Describe 'Where the lock is taken and released, statically (TC-250, SR-085, LLR-
         ($enter.Count -eq 1 -and $residue.Count -eq 1 -and $enter[0] -lt $residue[0]) | Should -BeTrue
     }
 }
+
+Describe 'Storage repair against a live backup (TC-251, SR-085, SR-086, LLR-094)' {
+    # -RepairStorage renames pool objects and rewrites manifests. A backup is
+    # parked inside the no-marker window; the store carries a genuinely
+    # repairable finding (a raw object under a Compressed=Yes row in the older
+    # snapshot), so a repair that ran would visibly change bytes -- the control
+    # arm proves it does, once the backup is gone.
+
+    BeforeAll {
+        $fx = New-LockFixture 'repair-vs-backup'
+        $snapshot = Initialize-TwoRunStore -Fixture $fx
+        $snapDir  = Join-Path $fx.Chg $snapshot
+        $rows = @(Read-Manifest -FolderPath $snapDir)
+        $target = @($rows | Where-Object { -not [string]::IsNullOrWhiteSpace($_.DataPath) })[0]
+        if ($null -eq $target) { throw 'fixture error: the snapshot has no row with a DataPath to tamper' }
+        $target.Compressed = 'Yes'
+        Write-Manifest -FolderPath $snapDir -Records $rows
+        $script:Rep = @{}
+        $script:Rep.Repairable = @(Test-BackupStorageForm -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg | Where-Object Repairable).Count
+
+        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingTestHook_AfterMarkerDelete' -When ($script:D3.ToString('o'))
+        try {
+            $lines = New-Object System.Collections.Generic.List[string]
+            $before = Get-FixtureStoreHash -Fixture $fx
+            $script:Rep.Message = ''
+            try {
+                Repair-BackupStorageForm -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Log { param($m, $l) $lines.Add("$l $m") }.GetNewClosure() | Out-Null
+            } catch { $script:Rep.Message = $_.Exception.Message }
+            $script:Rep.Log    = ($lines -join "`n")
+            $script:Rep.After  = Get-FixtureStoreHash -Fixture $fx
+            $script:Rep.Before = $before
+        } finally {
+            Stop-ParkedChild -Process $child
+        }
+        # Control arm: the holder gone, the same repair runs.
+        $script:Rep.Control = Repair-BackupStorageForm -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Log { param($m, $l) }
+    }
+
+    It 'has a repairable finding to work on (precondition) (TC-251)' {
+        $script:Rep.Repairable | Should -BeGreaterThan 0
+    }
+
+    It 'leaves every byte under BkpPath and ChgPath unchanged while the backup holds the lock (TC-251, SR-086)' {
+        $script:Rep.After | Should -Be $script:Rep.Before
+    }
+
+    It 'refuses by throwing the lock-held token (TC-251, SR-086)' {
+        $script:Rep.Message | Should -Match ([regex]::Escape($script:LockHeldToken))
+    }
+
+    It 'logs the refusal through the caller''s logger (TC-251, SR-086)' {
+        $script:Rep.Log | Should -Match ([regex]::Escape($script:LockHeldToken))
+    }
+
+    It 'control: repairs the finding once the backup is gone (TC-251, SR-049)' {
+        $script:Rep.Control.Repaired | Should -BeGreaterThan 0
+    }
+}
+
+Describe 'Kit refresh against a live backup (TC-252, SR-085, SR-086, LLR-094)' {
+    # -RefreshKits overwrites kit files inside every Snapshot_* folder. The older
+    # snapshot carries a STALE kit (its RECONSTRUCT.ps1 differs from the root's),
+    # so a refresh that ran would visibly change bytes.
+
+    BeforeAll {
+        $fx = New-LockFixture 'refresh-vs-backup'
+        $snapshot = Initialize-TwoRunStore -Fixture $fx
+        $script:RefSnapKit = Join-Path (Join-Path $fx.Chg $snapshot) 'RECONSTRUCT.ps1'
+        $script:RefRootKit = Join-Path $fx.Bkp 'RECONSTRUCT.ps1'
+        [System.IO.File]::AppendAllText($script:RefSnapKit, "`n# an older kit revision`n")
+        $script:Ref = @{}
+        $script:Ref.Stale = ((Get-FileHash -LiteralPath $script:RefSnapKit).Hash -ne (Get-FileHash -LiteralPath $script:RefRootKit).Hash)
+
+        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingTestHook_AfterMarkerDelete' -When ($script:D3.ToString('o'))
+        try {
+            $lines = New-Object System.Collections.Generic.List[string]
+            $before = Get-FixtureStoreHash -Fixture $fx
+            $script:Ref.Message = ''
+            try {
+                Update-BackupSnapshotKit -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Log { param($m, $l) $lines.Add("$l $m") }.GetNewClosure() | Out-Null
+            } catch { $script:Ref.Message = $_.Exception.Message }
+            $script:Ref.Log    = ($lines -join "`n")
+            $script:Ref.After  = Get-FixtureStoreHash -Fixture $fx
+            $script:Ref.Before = $before
+        } finally {
+            Stop-ParkedChild -Process $child
+        }
+        Update-BackupSnapshotKit -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Log { param($m, $l) } | Out-Null
+        $script:Ref.ControlRefreshed = ((Get-FileHash -LiteralPath $script:RefSnapKit).Hash -eq (Get-FileHash -LiteralPath $script:RefRootKit).Hash)
+    }
+
+    It 'has a stale snapshot kit to refresh (precondition) (TC-252)' {
+        $script:Ref.Stale | Should -BeTrue
+    }
+
+    It 'leaves every byte under BkpPath and ChgPath unchanged while the backup holds the lock (TC-252, SR-086)' {
+        $script:Ref.After | Should -Be $script:Ref.Before
+    }
+
+    It 'refuses by throwing the lock-held token (TC-252, SR-086)' {
+        $script:Ref.Message | Should -Match ([regex]::Escape($script:LockHeldToken))
+    }
+
+    It 'logs the refusal through the caller''s logger (TC-252, SR-086)' {
+        $script:Ref.Log | Should -Match ([regex]::Escape($script:LockHeldToken))
+    }
+
+    It 'control: refreshes the stale kit once the backup is gone (TC-252, SR-049)' {
+        $script:Ref.ControlRefreshed | Should -BeTrue
+    }
+}
+
+Describe '-Action Verify through the entry point with the lock held (TC-253, SR-085, SR-086, SR-040, LLR-094)' {
+    # The real FileBackup.ps1 in a child process, so the SR-040 code is the
+    # process exit code. THIS process holds the store's OS lock throughout,
+    # standing in for a live backup.
+
+    BeforeAll {
+        $fx = New-LockFixture 'verify-entry'
+        Initialize-TwoRunStore -Fixture $fx | Out-Null
+        $cfg = Join-Path $fx.Root 'config.xml'
+        @{ Secrets = $null; BackupSets = @([pscustomobject]@{
+                    Name = 'V'; SourcePath = $fx.Src; SourceStatePath = $fx.State; BackupPath = $fx.Bkp
+                    ChangePath = $fx.Chg; HashRecalcFreq = 'A'; CompressEnabled = $false }) } |
+            Export-Clixml -LiteralPath $cfg
+        $entry = Join-Path $script:Repo 'FileBackup.ps1'
+        $pwsh  = (Get-Process -Id $PID).Path
+        $run = {
+            param([string[]]$Extra)
+            $out = & $pwsh -NoProfile -File $entry -ConfigPath $cfg -Action Verify -NoMail -NonInteractive -ExitCode @Extra *>&1
+            return [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($out | Out-String) }
+        }
+        $script:VE = @{}
+        $holder = Enter-StagingOsLock -ChgPath $fx.Chg -Log $null
+        try {
+            $before = Get-FixtureStoreHash -Fixture $fx
+            $script:VE.Plain   = & $run @()
+            $script:VE.Repair  = & $run @('-RepairStorage')
+            $script:VE.Refresh = & $run @('-RefreshKits')
+            $script:VE.After   = Get-FixtureStoreHash -Fixture $fx
+            $script:VE.Before  = $before
+        } finally {
+            Exit-StagingOsLock -Lock $holder -Log $null
+        }
+    }
+
+    It 'still runs a read-only Verify, which takes no lock (exit 0) (TC-253, SR-049)' {
+        $script:VE.Plain.Code | Should -Be 0
+    }
+
+    It 'refuses -RepairStorage with exit 2 (TC-253, SR-086, SR-040)' {
+        $script:VE.Repair.Code | Should -Be 2
+    }
+
+    It 'names the lock in the -RepairStorage refusal (TC-253, SR-086)' {
+        $script:VE.Repair.Text | Should -Match ([regex]::Escape($script:LockHeldToken))
+    }
+
+    It 'refuses -RefreshKits with exit 2 (TC-253, SR-086, SR-040)' {
+        $script:VE.Refresh.Code | Should -Be 2
+    }
+
+    It 'names the lock in the -RefreshKits refusal (TC-253, SR-086)' {
+        $script:VE.Refresh.Text | Should -Match ([regex]::Escape($script:LockHeldToken))
+    }
+
+    It 'leaves every byte unchanged across all three invocations (TC-253, SR-086)' {
+        $script:VE.After | Should -Be $script:VE.Before
+    }
+}
+
+Describe 'The maintenance lock edge cases and placement (TC-254, SR-085, SR-086, LLR-094)' {
+
+    BeforeAll {
+        $script:Edge = @{}
+        $fx = New-LockFixture 'maint-edge'
+        Initialize-TwoRunStore -Fixture $fx | Out-Null
+        $script:EdgeFx = $fx
+
+        # -WhatIf takes no lock: it must run while the lock is held.
+        $holder = Enter-StagingOsLock -ChgPath $fx.Chg -Log $null
+        try {
+            $script:Edge.WhatIfRepair = $null
+            try { Repair-BackupStorageForm -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Log { param($m, $l) } -WhatIf | Out-Null; $script:Edge.WhatIfRepair = 'ran' }
+            catch { $script:Edge.WhatIfRepair = $_.Exception.Message }
+            try { Update-BackupSnapshotKit -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Log { param($m, $l) } -WhatIf | Out-Null; $script:Edge.WhatIfRefresh = 'ran' }
+            catch { $script:Edge.WhatIfRefresh = $_.Exception.Message }
+        } finally { Exit-StagingOsLock -Lock $holder -Log $null }
+
+        # No change root at all: refused.
+        $script:Edge.NoRoot = ''
+        try { Repair-BackupStorageForm -BackupRoot $fx.Bkp -Log { param($m, $l) } | Out-Null } catch { $script:Edge.NoRoot = $_.Exception.Message }
+
+        # A change root that does not exist yet: created, locked, and released.
+        $missing = Join-Path $fx.Root 'chg-not-yet'
+        Repair-BackupStorageForm -BackupRoot $fx.Bkp -ChangeRoot $missing -BackupRootOnly -Log { param($m, $l) } | Out-Null
+        $script:Edge.MissingLock = Test-Path -LiteralPath (Join-Path $missing 'Temp.lock') -PathType Leaf
+        $script:Edge.MissingReleased = Test-LockAcquirable -ChgPath $missing
+
+        $engine = Join-Path $script:Repo 'Modules\FileBackup.Engine.psm1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($engine, [ref]$null, [ref]$null)
+        $script:EdgeFns = @{}
+        foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+            $script:EdgeFns[$fn.Name] = $fn
+        }
+        $script:EdgeCallLines = {
+            param([string]$Function, [string[]]$Command)
+            @($script:EdgeFns[$Function].Body.FindAll({ param($n)
+                        $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in $Command }, $true) |
+                    ForEach-Object { $_.Extent.StartLineNumber })
+        }
+    }
+
+    It 'lets Repair-BackupStorageForm -WhatIf run while the lock is held (TC-254, SR-085)' {
+        $script:Edge.WhatIfRepair | Should -Be 'ran'
+    }
+
+    It 'lets Update-BackupSnapshotKit -WhatIf run while the lock is held (TC-254, SR-085)' {
+        $script:Edge.WhatIfRefresh | Should -Be 'ran'
+    }
+
+    It 'refuses a repair given no change root, with the lock-held token (TC-254, SR-086)' {
+        $script:Edge.NoRoot | Should -Match ([regex]::Escape($script:LockHeldToken))
+    }
+
+    It 'creates a missing change root, takes the lock there and releases it (TC-254, SR-085)' {
+        "$($script:Edge.MissingLock)/$($script:Edge.MissingReleased)" | Should -Be 'True/True'
+    }
+
+    It 'takes the lock in <_> before any mutating command (TC-254, SR-085)' -ForEach @('Repair-BackupStorageForm', 'Update-BackupSnapshotKit') {
+        $enter = @(& $script:EdgeCallLines $_ @('Enter-StoreMutationLock'))
+        $first = @(& $script:EdgeCallLines $_ @('Test-BackupStorageForm', 'Move-Item', 'Write-Manifest', 'Copy-Item', 'Get-PoolSnapshotFolder') | Sort-Object)
+        ($enter.Count -eq 1 -and $first.Count -gt 0 -and $enter[0] -lt $first[0]) | Should -BeTrue
+    }
+}

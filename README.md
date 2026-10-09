@@ -1074,8 +1074,9 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   are **never deleted automatically while they hold anything**: an aside folder that proves
   to contain nothing but the old owner record (or nothing at all) is cleaned up for you,
   and any other one is kept until you work through steps (3) and (4).
-- **`Temp.lock` and the `[SR-075/lock-held]` refusal.** Every backup and every prune holds
-  an exclusive lock on the empty file `Temp.lock` in `ChangePath` for as long as it runs;
+- **`Temp.lock` and the `[SR-075/lock-held]` refusal.** Every backup and every prune —
+  and `-Action Verify` when given `-RepairStorage` or `-RefreshKits` (exit 2 if refused) —
+  holds an exclusive lock on the empty file `Temp.lock` in `ChangePath` for as long as it runs;
   the operating system drops it the instant that process ends, however it ends. A run that
   finds it held refuses straight away with `[SR-075/lock-held]` and touches nothing: another
   backup or prune of this store is still alive. If none is, something else has the file
