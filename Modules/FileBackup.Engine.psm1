@@ -6737,14 +6737,6 @@ function Invoke-BackupSet {
         return
     }
 
-    # 2. Logger. It reads no store state; it only (re)creates this set's own
-    # backup.log, which is why it may precede the lock -- a refusal must be
-    # written somewhere the operator reads.
-    $logPath = Join-Path $paths.ChgPath 'backup.log'
-    $log = New-Logger -LogFile $logPath
-    $LogPaths.Add($logPath)
-    & $log "----- Backup set '$($Set.Name)' starting -----"
-
     # 2.9 Take the staging OS lock (SR-085) BEFORE this run reads ANY store
     # state its decisions depend on, and hold it until this set is finished --
     # past the Temp -> Snapshot_* rename, across the window from the
@@ -6752,10 +6744,16 @@ function Invoke-BackupSet {
     # fence exists. A lock that cannot be taken is a LIVE holder, whatever the
     # reason, and the set refuses touching nothing (SR-086). Released only by
     # the finally at the end of this function, or below if step 2.95 or 3 fails.
+    $logPath = Join-Path $paths.ChgPath 'backup.log'
     try {
-        $osLock = Enter-StagingOsLock -ChgPath $paths.ChgPath -Log $log
+        $osLock = Enter-StagingOsLock -ChgPath $paths.ChgPath -Log $null
     } catch {
-        & $log "Refusing backup set '$($Set.Name)': $($_.Exception.Message)" 'ERROR'
+        # The refusal is APPENDED as one line, never through New-Logger, which
+        # truncates: backup.log belongs to the live run that holds the lock.
+        $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') [ERROR] Refusing backup set '$($Set.Name)': $($_.Exception.Message)"
+        try { Add-Content -LiteralPath $logPath -Value $line } catch { Write-Warning "Could not append to '$logPath': $($_.Exception.Message)" }
+        Write-Host $line
+        $LogPaths.Add($logPath)
         $OverallSuccess.Value = $false
         return
     }
@@ -6797,11 +6795,24 @@ function Invoke-BackupSet {
         }
     } catch {
         # Release, then rethrow the ORIGINAL record: the entry point maps the
-        # witness ErrorId onto exit code 3.
-        Exit-StagingOsLock -Lock $osLock -Log $log
+        # witness ErrorId onto exit code 3. No set log has been opened yet, so
+        # a refusal here leaves backup.log exactly as the last run left it.
+        Exit-StagingOsLock -Lock $osLock -Log $null
         throw
     }
     $thisBackupDate  = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
+
+    # 2. Logger -- opened only now, once this run holds the lock and its prior
+    # state has passed the gates, because New-Logger TRUNCATES backup.log.
+    try {
+        $log = New-Logger -LogFile $logPath
+        $LogPaths.Add($logPath)
+        & $log "----- Backup set '$($Set.Name)' starting -----"
+        & $log "Staging OS lock held at '$($osLock.Path)' (SR-085)."
+    } catch {
+        Exit-StagingOsLock -Lock $osLock -Log $null
+        throw
+    }
 
     # 3. Guard the staging folder, take the lock, publish the owner record and
     # start its heartbeat (SR-017, SR-075).

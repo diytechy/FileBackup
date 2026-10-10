@@ -62,8 +62,12 @@ last) — it is the record, not required reading for every pass.
   deleted a Temp holding the superseded bytes it had just moved. Those three reads now sit in
   a new step 2.95 straight after the lock (same calls, same order, inside a try that releases
   the lock and rethrows the original record, so the witness refusal is still exit 3). Before
-  the lock now: only `Resolve-BackupSetPaths` (path resolution) and `New-Logger` (the set's
-  own `backup.log`). **No I/O added** - three calls moved, nothing new. New Describe 'A run
+  the lock now: only `Resolve-BackupSetPaths` (path resolution). `New-Logger`, which
+  TRUNCATES `backup.log`, now opens only after the lock and the gates; a lock refusal instead
+  APPENDS one line, so a refused contender no longer wipes the live run's log (the first two
+  commits did), and a witness refusal leaves `backup.log` untouched again - Coverage.Tests'
+  witness-gate "nothing mutated" test caught the in-between version. **No I/O added** - the
+  same calls, moved; the refusal path's one append replaces the logger's create. New Describe 'A run
   reads the prior store state only after it holds the lock' under TC-250 (no new TC id was
   allocated): a parked first backup is released to completion while the second run goes for
   the lock; mutation (the reads moved back above the lock) reproduced the loss - the second

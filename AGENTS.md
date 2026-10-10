@@ -42,16 +42,18 @@ Therefore:
 1. Resolve `SourcePath`/`BackupPath`/`ChangePath` (+ `ViewPath` when the set asks
    for a browse view — SR-062/SR-063 place it outside both roots, on the backup
    volume).
-2. Open `backup.log` in the change root.
 2.9 Take the staging OS lock, `<ChangePath>/Temp.lock` opened `FileShare.None`
     (SR-085), BEFORE any read of store state. Held until the set is finished —
     past the step-13 rename — and released only in the function's final
-    `finally` (or the step-2.95 / step-3 catches).
+    `finally` (or the early catches below). A refusal APPENDS one line to
+    `backup.log`, which belongs to the live holder.
 2.95 Read the prior state UNDER the lock: `LastBackupRun`, the
     no-`LastBackupRun`-but-rows guard (SR-035), and the SR-038/SR-039
     manifest-witness gate (refuse with exit 3 before any mutation). Read before
     the lock, a run starting while another finished took itself for a first
     backup and discarded a Temp holding superseded bytes.
+2. Open `backup.log` in the change root — only now, because `New-Logger`
+   truncates it.
 3. Guard against a stale `Temp` staging folder.
 4. Read persisted last-hash-run time; decide if a scheduled rehash is due.
 5. `Update-SourceManifest` — walk source, (re)hash new/changed/scheduled files.

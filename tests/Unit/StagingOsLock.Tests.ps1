@@ -784,14 +784,14 @@ Describe 'Where the lock is taken and released, statically (TC-250, SR-085, LLR-
         ($enter.Count -eq 1 -and $init.Count -eq 1 -and $enter[0] -lt $init[0]) | Should -BeTrue
     }
 
-    It 'releases the OS lock in Invoke-BackupSet only in the step-2.95 and step-3 catches and after Complete-ChangeFolder (TC-250, SR-085)' {
+    It 'releases the OS lock in Invoke-BackupSet only in the step-2.95, logger and step-3 catches and after Complete-ChangeFolder (TC-250, SR-085)' {
         $exits    = @(& $script:CallLine 'Invoke-BackupSet' 'Exit-StagingOsLock')
         $enter    = @(& $script:CallLine 'Invoke-BackupSet' 'Enter-StagingOsLock')[0]
         $init     = @(& $script:CallLine 'Invoke-BackupSet' 'Initialize-StagingFolder')[0]
         $finalize = @(& $script:CallLine 'Invoke-BackupSet' 'Complete-ChangeFolder')[0]
         $early    = @($exits | Where-Object { $_ -gt $enter -and $_ -lt ($init + 4) })
         $late     = @($exits | Where-Object { $_ -gt $finalize })
-        "$($exits.Count)/$($early.Count)/$($late.Count)" | Should -Be '3/2/1'
+        "$($exits.Count)/$($early.Count)/$($late.Count)" | Should -Be '4/3/1'
     }
 
     It 'reads no prior store state in Invoke-BackupSet before taking the OS lock (TC-250, SR-085)' {
