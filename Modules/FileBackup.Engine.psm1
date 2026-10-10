@@ -6689,49 +6689,21 @@ function Invoke-BackupSet {
         return
     }
 
-    # Completion date of the PREVIOUS backup names this run's snapshot (SR-005);
-    # $null on the first backup ⇒ no snapshot. Read before we overwrite state.
-    $priorBackupDate = Get-LastBackupRun -BackupRoot $paths.BkpPath
-    $existingManifest = Join-Path $paths.BkpPath $script:Def.DatabaseFilename
-    if ($null -eq $priorBackupDate -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
-        $existingRows = @(Read-Manifest -FolderPath $paths.BkpPath)
-        if ($existingRows.Count -gt 0) {
-            throw "Backup state at '$($paths.BkpPath)' has no LastBackupRun, but its existing MANIFEST.csv contains $($existingRows.Count) row(s). Refusing to mutate it because the prior state could not be snapshotted safely."
-        }
-    }
-
-    # 1.5 The witness gate the rest of the fleet already honors (SR-038/SR-039):
-    # both restorers and prune refuse a manifest whose witness disagrees, but the
-    # backup pipeline used to read the same manifest unchecked and then re-stamp
-    # a FRESH witness over state derived from a torn index — laundering crash
-    # damage into a permanent, silent hole. Mismatch/Malformed refuses the set
-    # before anything is staged or mutated; Absent stays legal (a pre-SR-038
-    # store must still back up). The distinct ErrorId lets the entry point map
-    # this onto the SR-040 witness code (3) instead of the generic set failure.
-    if (Test-Path -LiteralPath $existingManifest -PathType Leaf) {
-        $witness = Test-ManifestWitness -FolderPath $paths.BkpPath
-        if ($witness.Status -in 'Mismatch', 'Malformed') {
-            Write-Error -ErrorId 'ManifestWitnessMismatch' -ErrorAction Stop -Message (
-                "Backup manifest witness check failed at '$($paths.BkpPath)': $($witness.Detail) " +
-                'Refusing to back up over a possibly torn index. Verify the store (-Action Verify) and, ' +
-                'if the manifest proves intact or repairable, -RepairStorage re-publishes a matching witness.')
-        }
-    }
-    $thisBackupDate  = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
-
-    # 2. Logger
+    # 2. Logger. It reads no store state; it only (re)creates this set's own
+    # backup.log, which is why it may precede the lock -- a refusal must be
+    # written somewhere the operator reads.
     $logPath = Join-Path $paths.ChgPath 'backup.log'
     $log = New-Logger -LogFile $logPath
     $LogPaths.Add($logPath)
     & $log "----- Backup set '$($Set.Name)' starting -----"
 
-    # 2.9 Take the staging OS lock (SR-085) BEFORE anything can touch Temp, and
-    # hold it until this set is finished -- past the Temp -> Snapshot_* rename,
-    # across the window from the RUN.inprogress delete to that rename in which
-    # no marker, heartbeat or fence exists. A lock that cannot be taken is a
-    # LIVE holder, whatever the reason, and the set refuses touching nothing
-    # (SR-086). Released only by the finally at the end of this function, or
-    # just below if step 3 fails.
+    # 2.9 Take the staging OS lock (SR-085) BEFORE this run reads ANY store
+    # state its decisions depend on, and hold it until this set is finished --
+    # past the Temp -> Snapshot_* rename, across the window from the
+    # RUN.inprogress delete to that rename in which no marker, heartbeat or
+    # fence exists. A lock that cannot be taken is a LIVE holder, whatever the
+    # reason, and the set refuses touching nothing (SR-086). Released only by
+    # the finally at the end of this function, or below if step 2.95 or 3 fails.
     try {
         $osLock = Enter-StagingOsLock -ChgPath $paths.ChgPath -Log $log
     } catch {
@@ -6739,6 +6711,49 @@ function Invoke-BackupSet {
         $OverallSuccess.Value = $false
         return
     }
+
+    # 2.95 The prior state, read ONLY under the lock (SR-085). Read before it,
+    # a run that started while another was finishing would act on what the
+    # other had not yet written: with no LastBackupRun yet, it takes itself for
+    # a FIRST backup, and Complete-ChangeFolder then deletes a Temp holding the
+    # superseded bytes it has just moved there. These are the same reads, in
+    # the same order, as before the lock existed -- moved, not added.
+    try {
+        # Completion date of the PREVIOUS backup names this run's snapshot (SR-005);
+        # $null on the first backup ⇒ no snapshot. Read before we overwrite state.
+        $priorBackupDate = Get-LastBackupRun -BackupRoot $paths.BkpPath
+        $existingManifest = Join-Path $paths.BkpPath $script:Def.DatabaseFilename
+        if ($null -eq $priorBackupDate -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
+            $existingRows = @(Read-Manifest -FolderPath $paths.BkpPath)
+            if ($existingRows.Count -gt 0) {
+                throw "Backup state at '$($paths.BkpPath)' has no LastBackupRun, but its existing MANIFEST.csv contains $($existingRows.Count) row(s). Refusing to mutate it because the prior state could not be snapshotted safely."
+            }
+        }
+
+        # 1.5 The witness gate the rest of the fleet already honors (SR-038/SR-039):
+        # both restorers and prune refuse a manifest whose witness disagrees, but the
+        # backup pipeline used to read the same manifest unchecked and then re-stamp
+        # a FRESH witness over state derived from a torn index — laundering crash
+        # damage into a permanent, silent hole. Mismatch/Malformed refuses the set
+        # before anything is staged or mutated; Absent stays legal (a pre-SR-038
+        # store must still back up). The distinct ErrorId lets the entry point map
+        # this onto the SR-040 witness code (3) instead of the generic set failure.
+        if (Test-Path -LiteralPath $existingManifest -PathType Leaf) {
+            $witness = Test-ManifestWitness -FolderPath $paths.BkpPath
+            if ($witness.Status -in 'Mismatch', 'Malformed') {
+                Write-Error -ErrorId 'ManifestWitnessMismatch' -ErrorAction Stop -Message (
+                    "Backup manifest witness check failed at '$($paths.BkpPath)': $($witness.Detail) " +
+                    'Refusing to back up over a possibly torn index. Verify the store (-Action Verify) and, ' +
+                    'if the manifest proves intact or repairable, -RepairStorage re-publishes a matching witness.')
+            }
+        }
+    } catch {
+        # Release, then rethrow the ORIGINAL record: the entry point maps the
+        # witness ErrorId onto exit code 3.
+        Exit-StagingOsLock -Lock $osLock -Log $log
+        throw
+    }
+    $thisBackupDate  = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
 
     # 3. Guard the staging folder, take the lock, publish the owner record and
     # start its heartbeat (SR-017, SR-075).

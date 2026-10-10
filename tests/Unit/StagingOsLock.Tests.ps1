@@ -155,11 +155,20 @@ BeforeAll {
     $script:ChildScript = Join-Path $TestDrive 'oslock-child.ps1'
     $childText = @'
 param([string]$Repo, [string]$Mode, [string]$Hook, [string]$Ready,
-      [string]$Src, [string]$State, [string]$Bkp, [string]$Chg, [string]$When, [string]$SnapshotName)
+      [string]$Src, [string]$State, [string]$Bkp, [string]$Chg, [string]$When, [string]$SnapshotName,
+      [string]$Phase, [string]$Go)
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $Repo 'Modules/FileBackup.Common.psm1') -Force
 Import-Module (Join-Path $Repo 'Modules/FileBackup.Engine.psm1') -Force
-$park = { param($c) [System.IO.File]::WriteAllText($Ready, 'parked'); Start-Sleep -Seconds 600 }.GetNewClosure()
+# -Phase: park only at that fence phase (the fence seam fires at five). -Go:
+# park until that file appears, then CONTINUE the run, instead of sleeping.
+$park = {
+    param($c)
+    if ($Phase -and -not ($c.PSObject.Properties['Phase'] -and $c.Phase -eq $Phase)) { return }
+    [System.IO.File]::WriteAllText($Ready, 'parked')
+    if ($Go) { while (-not (Test-Path -LiteralPath $Go)) { Start-Sleep -Milliseconds 100 } }
+    else { Start-Sleep -Seconds 600 }
+}.GetNewClosure()
 if ($Hook) {
     $engine = Get-Module FileBackup.Engine
     & $engine { param($n, $h) Set-Variable -Name $n -Value $h -Scope Script } $Hook $park
@@ -190,7 +199,8 @@ switch ($Mode) {
         # Starts the driver and waits until it reports PARKED. A child that
         # finishes or dies first is a fixture error -- the test would prove
         # nothing -- and its output is quoted.
-        param([object]$Fixture, [string]$Mode, [string]$Hook = '', [string]$When = '', [string]$SnapshotName = '')
+        param([object]$Fixture, [string]$Mode, [string]$Hook = '', [string]$When = '', [string]$SnapshotName = '',
+              [string]$Phase = '', [string]$Go = '')
         $tag   = [guid]::NewGuid().ToString('N').Substring(0, 8)
         $ready = Join-Path $TestDrive "ready-$tag.flag"
         $out   = Join-Path $TestDrive "child-$tag.out"
@@ -202,6 +212,8 @@ switch ($Mode) {
         if ($Hook) { $argv += @('-Hook', $Hook) }
         if ($When) { $argv += @('-When', $When) }
         if ($SnapshotName) { $argv += @('-SnapshotName', $SnapshotName) }
+        if ($Phase) { $argv += @('-Phase', $Phase) }
+        if ($Go) { $argv += @('-Go', $Go) }
         $proc = Start-Process -FilePath $pwsh -PassThru -WindowStyle Hidden -ArgumentList $argv `
             -RedirectStandardOutput $out -RedirectStandardError $err
         $deadline = [datetime]::UtcNow.AddSeconds(120)
@@ -772,13 +784,24 @@ Describe 'Where the lock is taken and released, statically (TC-250, SR-085, LLR-
         ($enter.Count -eq 1 -and $init.Count -eq 1 -and $enter[0] -lt $init[0]) | Should -BeTrue
     }
 
-    It 'releases the OS lock in Invoke-BackupSet only in the step-3 catch and after Complete-ChangeFolder (TC-250, SR-085)' {
+    It 'releases the OS lock in Invoke-BackupSet only in the step-2.95 and step-3 catches and after Complete-ChangeFolder (TC-250, SR-085)' {
         $exits    = @(& $script:CallLine 'Invoke-BackupSet' 'Exit-StagingOsLock')
+        $enter    = @(& $script:CallLine 'Invoke-BackupSet' 'Enter-StagingOsLock')[0]
         $init     = @(& $script:CallLine 'Invoke-BackupSet' 'Initialize-StagingFolder')[0]
         $finalize = @(& $script:CallLine 'Invoke-BackupSet' 'Complete-ChangeFolder')[0]
-        $early    = @($exits | Where-Object { $_ -gt $init -and $_ -lt ($init + 4) })
+        $early    = @($exits | Where-Object { $_ -gt $enter -and $_ -lt ($init + 4) })
         $late     = @($exits | Where-Object { $_ -gt $finalize })
-        "$($exits.Count)/$($early.Count)/$($late.Count)" | Should -Be '2/1/1'
+        "$($exits.Count)/$($early.Count)/$($late.Count)" | Should -Be '3/2/1'
+    }
+
+    It 'reads no prior store state in Invoke-BackupSet before taking the OS lock (TC-250, SR-085)' {
+        $enter = @(& $script:CallLine 'Invoke-BackupSet' 'Enter-StagingOsLock')[0]
+        $reads = @(& $script:CallLine 'Invoke-BackupSet' 'Get-LastBackupRun') +
+                 @(& $script:CallLine 'Invoke-BackupSet' 'Get-LastHashRun') +
+                 @(& $script:CallLine 'Invoke-BackupSet' 'Read-Manifest') +
+                 @(& $script:CallLine 'Invoke-BackupSet' 'Test-ManifestWitness') +
+                 @(& $script:CallLine 'Invoke-BackupSet' 'Test-Path')
+        @($reads | Where-Object { $_ -lt $enter }).Count | Should -Be 0
     }
 
     It 'takes the OS lock in Remove-BackupSnapshot before the residue completion (TC-250, SR-085)' {
@@ -1020,5 +1043,70 @@ Describe 'The maintenance lock edge cases and placement (TC-254, SR-085, SR-086,
         $enter = @(& $script:EdgeCallLines $_ @('Enter-StoreMutationLock'))
         $first = @(& $script:EdgeCallLines $_ @('Test-BackupStorageForm', 'Move-Item', 'Write-Manifest', 'Copy-Item', 'Get-PoolSnapshotFolder') | Sort-Object)
         ($enter.Count -eq 1 -and $first.Count -gt 0 -and $enter[0] -lt $first[0]) | Should -BeTrue
+    }
+}
+
+Describe 'A run reads the prior store state only after it holds the lock (TC-250, SR-085, LLR-091)' {
+    # Run A is the store's FIRST backup. It is parked holding the lock at its
+    # first fence (step 7), before it has written a manifest or LastBackupRun.
+    # Run B starts then; the moment B goes for the lock, the seam lets A run to
+    # completion (writing LastBackupRun = D1) and waits for it to exit, so B's
+    # open then succeeds. A B that read the prior state BEFORE the lock would
+    # still believe this is the first backup: it would supersede A's a.txt,
+    # move A's bytes into Temp, and Complete-ChangeFolder would DELETE that Temp
+    # as a first-run no-snapshot staging folder -- the version A stored, gone.
+
+    BeforeAll {
+        $fx = New-LockFixture 'read-after-lock'
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'ALPHA as run A stored it')
+        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'b.txt'), 'BRAVO')
+        $script:RalAHash = (Get-FileHash -LiteralPath (Join-Path $fx.Src 'a.txt') -Algorithm SHA256).Hash
+        $go = Join-Path $TestDrive 'read-after-lock.go'
+        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingFenceTestHook' -Phase 'Write-StagingManifest' `
+                    -Go $go -When ($script:D1.ToString('o'))
+        $null = $child.Handle   # cache the handle, so ExitCode is readable after the exit
+        $st = @{ Fired = $false; AExited = $false; AExitCode = $null }
+        try {
+            $aFile = Join-Path $fx.Src 'a.txt'
+            Set-EngineVariable -Name 'StagingOsLockTestHook_BeforeOpen' -Value ({
+                    param($p)
+                    if ($st.Fired) { return }
+                    $st.Fired = $true
+                    [System.IO.File]::WriteAllText($go, 'go')
+                    $st.AExited = $child.WaitForExit(120000)
+                    if ($st.AExited) { $st.AExitCode = $child.ExitCode }
+                    # Only now does the source change: run A copied it unchanged,
+                    # and run B walks the source after it holds the lock.
+                    [System.IO.File]::WriteAllText($aFile, 'ALPHA as run B found it')
+                }.GetNewClosure())
+            $script:RalBError = ''
+            try { $script:RalBOk = Invoke-LockBackup -Fixture $fx -When $script:D2 }
+            catch { $script:RalBOk = $false; $script:RalBError = $_.Exception.Message }
+        } finally {
+            Set-EngineVariable -Name 'StagingOsLockTestHook_BeforeOpen' -Value $null
+            Stop-ParkedChild -Process $child
+        }
+        $script:RalState = $st
+        $script:RalSnapshots = @(Get-ChildItem -LiteralPath $fx.Chg -Directory | Where-Object Name -match '^Snapshot_' | ForEach-Object Name)
+        $script:RalHashes = @(foreach ($root in $fx.Bkp, $fx.Chg) {
+                Get-ChildItem -LiteralPath $root -Recurse -Force -File |
+                    Where-Object Name -ne 'Temp.lock' |
+                    ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } })
+    }
+
+    It 'let run A finish while run B was going for the lock (precondition) (TC-250)' {
+        "$($script:RalState.Fired)/$($script:RalState.AExited)/$($script:RalState.AExitCode)" | Should -Be 'True/True/0'
+    }
+
+    It 'keeps the bytes run A stored for a.txt (TC-250, SR-085)' {
+        $script:RalHashes | Should -Contain $script:RalAHash
+    }
+
+    It 'makes run B see run A''s state: one snapshot, dated by run A (TC-250, SR-085, SR-005)' {
+        ($script:RalSnapshots -join '|') | Should -Be ('Snapshot_' + $script:D1.ToString('yyyy_MM_dd_HH_mm_ss'))
+    }
+
+    It 'completes run B (TC-250, SR-014)' {
+        $script:RalBOk | Should -BeTrue
     }
 }

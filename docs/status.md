@@ -54,6 +54,26 @@ last) — it is the record, not required reading for every pass.
   SR-085 are the documented .NET behaviour, unmeasured; no cross-host test (SMB/NFS: the
   lock is NOT guaranteed to exclude a second machine, nor a Windows SMB client against a
   Samba-hosted store); no hub run.
+- **OS LOCK BLOCKER FIX - prior state is read only under the lock (2026-10-10, same branch,
+  third commit).** A second review found `Invoke-BackupSet` read `LastBackupRun`, the
+  no-`LastBackupRun`-but-rows guard and the manifest-witness gate BEFORE taking the lock. A run
+  starting while another (the store's first backup) was finishing read "no prior backup",
+  waited through the lock retries, then ran as a first backup, and `Complete-ChangeFolder`
+  deleted a Temp holding the superseded bytes it had just moved. Those three reads now sit in
+  a new step 2.95 straight after the lock (same calls, same order, inside a try that releases
+  the lock and rethrows the original record, so the witness refusal is still exit 3). Before
+  the lock now: only `Resolve-BackupSetPaths` (path resolution) and `New-Logger` (the set's
+  own `backup.log`). **No I/O added** - three calls moved, nothing new. New Describe 'A run
+  reads the prior store state only after it holds the lock' under TC-250 (no new TC id was
+  allocated): a parked first backup is released to completion while the second run goes for
+  the lock; mutation (the reads moved back above the lock) reproduced the loss - the second
+  run reported SUCCESS while discarding the first run's a.txt - and failed the single byte
+  assertion `StagingOsLock.Tests.ps1:1102`. A static test now pins that no state read in
+  `Invoke-BackupSet` precedes `Enter-StagingOsLock`. **Performance:** the lock path adds one
+  lock-file open per run (up to three, 250 ms apart, only while it is held) and, for
+  repair/refresh, one `Test-Path` of the change root; no per-object probe and no extra
+  enumeration. Not changed and worth the Owner's attention under the probing rule: the
+  pre-existing per-row `Test-Path` in `Complete-ChangeFolder`'s DataPath blanking loop.
 - **OS LOCK REVIEW FOLD (2026-10-09, same branch, second commit).** An independent review
   of the first commit found one MAJOR and one MINOR; both are fixed here.
   **MAJOR:** `-RepairStorage` (`Repair-BackupStorageForm`: renames pool objects, rewrites
@@ -65,7 +85,8 @@ last) — it is the record, not required reading for every pass.
   `-Action Verify` turns into exit 2. `-WhatIf` takes no lock; no change root refuses; a
   missing change root is created and then locked. LLR-094, TC-251..254; SR-085/SR-086
   amended. Mutation checks: each mutator with the lock skipped rewrote the snapshot under a
-  parked live backup and failed its single byte assertion (TC-251 `:833`, TC-252 `:886`).
+  parked live backup and failed its single byte assertion (TC-251 `:856`, TC-252 `:909`
+  of `StagingOsLock.Tests.ps1` as of the third commit).
   **Entry-point audit** (every engine function that writes the store, by AST): LOCKED are
   backup, prune, repair and kit refresh. Confirmed READ-ONLY and left lock-free: read-only
   `-Action Verify`, `-Action Snapshots`, `-Action View` (writes only the view root, outside
