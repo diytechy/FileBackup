@@ -24,6 +24,43 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **P DONE - ATOMIC `Write-Manifest`, kit revision 13 (2026-10-09, branch
+  fix-p-atomic-write-manifest; prerequisite P/G2 of
+  docs/plans/killed-staging-recovery-design-2026-10-09.md on branch
+  design-killed-staging-recovery).** `Write-Manifest` now writes `MANIFEST.csv.tmp`
+  beside the destination and publishes it with `[System.IO.File]::Move(tmp, dest, $true)`
+  (rename(2) on Linux, MoveFileEx REPLACE_EXISTING on Windows; PowerShell 7+ is the only
+  supported edition, so the overload always exists; `Move-Item -Force` deliberately not
+  used), then stamps the witness exactly as before. The old claim "atomicity covers the
+  witness only" (AGENTS.md section 3 and 4, README, Write-ManifestWitness NOTES, SR-038,
+  LLR-025, LLR-038) is amended. SR-082 (atomic publish), SR-083 (the leftover is
+  infrastructure and not Temp content), SR-084 (kit-compatible); LLR-087..089;
+  TC-237..240. **Leftover handling:** the next write deletes and rewrites it;
+  `Test-IsInfrastructureFile` allowlists it root-level (so `Get-DataFile`, the orphan scan,
+  the storage-form audit and the prune sweep all ignore it); `Get-StagingLockState` ignores
+  it by exact case-sensitive name, so a stale Temp holding only the marker and it is now
+  RECLAIMED (before: a torn MANIFEST.csv was content, a permanent refusal) -
+  `Clear-ReclaimedStagingFolder` and `Remove-OwnStagingFolder` delete it by exact name;
+  any other entry still refuses (SR-017 amended, TC-188 unchanged and green). **E4:
+  existing stores need NO `Update-BackupSnapshotKit` / `-RefreshKits`:** neither restorer
+  calls `Write-Manifest`, so every older kit restores identically; the marker moved
+  12 -> 13 only because the bundled file changed (WP16, PROPOSED, had reserved 13 and takes
+  the next free number). **Evidence:** full Pester unit suite (via `check.ps1 -Tier Smoke`)
+  864 passed / 0 failed / 1 skipped; PSScriptAnalyzer, doc navigability and arch-map
+  freshness pass; traceability has 0 orphans and still FAILS on the same two pre-existing
+  findings as New_Fix_Batch (SR-017 and SR-075 are Verification=Test but Status=Draft).
+  Mutation of the by-name delete in `Clear-ReclaimedStagingFolder` (delete removed) fails only the single `Should -BeNullOrEmpty` on the aside folder at StagingLock.Tests.ps1:2080 (7 of 8 TC-239 Temp tests pass). Mutation (write in place again) fails the single `Should -BeIn` at
+  ManifestAtomicWrite.Tests.ps1:115 for the torn-at-half and zero-length cases, and at :228
+  for the process-kill-at-boundary case (a real kill at each of three boundaries, tearing simulated by truncation). **Found, not fixed:** `Write-ManifestWitness` ->
+  `Get-FileXxHash` -> `OpenRead` has never accepted a RELATIVE folder (it resolves against
+  the process directory, not `$PWD`); production passes absolute paths. `DIRECTORIES.csv`
+  (`Write-DirectorySidecar`) and `FileBackupState.json` writes are not part of this change.
+  **NOT PROVEN:** a process kill DURING the Export-Csv write itself (TC-238 kills only at the three boundaries and simulates tearing by truncation; no slow-write seam, by decision); durability across power loss (no fsync of the temp file before the rename);
+  the rename was only run on Windows/NTFS (.NET 10, pwsh 7.6) - the Linux path (pwsh 7.5 /
+  .NET 9 in `filebackup:local`, ext4 or exFAT bind mounts) rests on documented rename(2)
+  semantics and was not run; `Move-Item -Force` in the witness publish was left alone and
+  its atomicity on pwsh 7 is not proven; the container image was not rebuilt, so the hub
+  still runs the in-place writer until the image is rebuilt and deployed.
 - **M-4 FIXED (2026-10-09, branch fix-m4-persist-state-before-dedupe; defect review
   docs/defect-review-2026-10-05-content-index-memory.md §4 item 3).** Invoke-BackupSet now
   persists LastHashRun/LastBackupRun (step 14) BEFORE Optimize-ChangeFolders (step 15), so a

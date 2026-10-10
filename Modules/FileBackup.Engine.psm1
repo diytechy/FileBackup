@@ -69,6 +69,13 @@ function Test-IsInfrastructureFile {
         # WriteAllText and Move-Item leaves this behind, and a leftover must not
         # be backed up as user data or warned about as an orphan (SR-038).
         "$($script:Def.WitnessFilename).tmp",
+        # Write-Manifest's own publish-by-rename staging file (SR-082): a kill
+        # between the Export-Csv into it and the rename over MANIFEST.csv leaves
+        # it behind. It is never data and never referenced by a row, so it must
+        # not be backed up, warned about as an orphan, or read as a storage-form
+        # finding (SR-083). Root-level only, like the rest: a nested user file
+        # called MANIFEST.csv.tmp is data (B6).
+        $script:Def.DatabaseTempFilename,
         # The directory sidecar (SR-065). Root-level only, like the rest: a
         # nested user file called DIRECTORIES.csv is data (B6).
         $script:Def.DirectorySidecarName
@@ -3341,6 +3348,12 @@ function Get-StagingLockState {
     if ($names -ccontains $script:StagingPruneMarkerName) {
         return & $verdict 'PruneHeld' 'PruneMarkerPresent' $null $null
     }
+    # SR-083: Write-Manifest's staging file is not content. It is the INCOMPLETE
+    # copy of a file whose complete predecessor still sits beside it (or does not
+    # exist yet), so it is never the only physical copy of anything. Ignored by
+    # exact, case-sensitive name; the aside-folder clean-up deletes it by that
+    # same name (Clear-ReclaimedStagingFolder), and anything else still refuses.
+    $names  = @($names | Where-Object { $_ -cne $script:Def.DatabaseTempFilename })
     $others = @($names | Where-Object { $_ -cne $script:StagingRunMarkerName })
     if ($others.Count -gt 0) {
         return & $verdict 'HoldsContent' "UnrecognizedEntries: $($others -join ', ')" $null $null
@@ -4277,7 +4290,9 @@ function Clear-ReclaimedStagingFolder {
         }
 
         $names  = @($evidence.Names)
-        $others = @($names | Where-Object { $_ -cne $script:StagingRunMarkerName })
+        # SR-083: Write-Manifest's staging file is tolerated and deleted by exact
+        # name below, exactly like the marker (see Get-StagingLockState).
+        $others = @($names | Where-Object { $_ -cne $script:StagingRunMarkerName -and $_ -cne $script:Def.DatabaseTempFilename })
         if ($others.Count -gt 0) {
             & $keep ("the re-enumeration found $($others.Count) entry(ies) that appeared after the classification " +
                 "($($others -join ', ')) — a frozen owner resumed and wrote into it")
@@ -4289,6 +4304,14 @@ function Clear-ReclaimedStagingFolder {
         # delete is what makes that safe.
         Invoke-StagingTestHook -Hook $script:StagingReclaimTestHook_BeforeAsideDelete -Context $AsidePath
 
+        if ($names -ccontains $script:Def.DatabaseTempFilename) {
+            try {
+                [System.IO.File]::Delete((Join-Path $AsidePath $script:Def.DatabaseTempFilename))
+            } catch {
+                & $keep "its manifest staging file could not be deleted ($($_.Exception.Message))"
+                return $false
+            }
+        }
         if ($names -ccontains $script:StagingRunMarkerName) {
             try {
                 # The EXACT leaf by name — never a pattern, never a sweep.
@@ -4407,7 +4430,11 @@ function Remove-OwnStagingFolder {
             $script:StagingRunMarkerName,
             $script:Def.DatabaseFilename,
             $script:Def.WitnessFilename,
-            $script:Def.DirectorySidecarName
+            $script:Def.DirectorySidecarName,
+            # Write-Manifest's staging file (SR-082/SR-083): a killed or failed
+            # step-7 write can leave it; it is an incomplete copy, never the
+            # only one.
+            $script:Def.DatabaseTempFilename
         )
         $names  = @($evidence.Names)
         $others = @($names | Where-Object { $disposable -cnotcontains $_ })

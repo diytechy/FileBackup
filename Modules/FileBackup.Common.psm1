@@ -25,6 +25,18 @@
 # region Shared defaults
 
 $script:DatabaseFilename      = 'MANIFEST.csv'
+# Write-Manifest's publish-by-rename staging file (SR-082): the new manifest is
+# written HERE, beside the destination, and only renamed over MANIFEST.csv once
+# complete, so a kill at any instant leaves the old or the new file, never a
+# torn one. A leftover from such a kill is overwritten by the next write and is
+# root-level infrastructure everywhere a folder is classified (SR-083).
+$script:DatabaseTempFilename  = 'MANIFEST.csv.tmp'
+# Test seam (SR-082): $null in production, installed only by the suite. When set
+# it is called as `& $hook <stage> <context>` at the three boundaries of
+# Write-Manifest ('BeforeTempWrite', 'AfterTempWrite', 'AfterRename') so a test
+# can throw, or hold the process for an external kill, exactly where a real
+# kill would land. Costs a production write three null checks.
+$script:ManifestWriteTestHook = $null
 # Witness sidecar for the manifest (SR-038): row count + byte length + xxHash128 of
 # MANIFEST.csv exactly as written, so a restore can tell a truncated/replaced index
 # from a genuinely small job. Written only by Write-Manifest, so it cannot drift.
@@ -233,6 +245,7 @@ function Get-FileBackupDefaults {
     param()
     return @{
         DatabaseFilename         = $script:DatabaseFilename
+        DatabaseTempFilename     = $script:DatabaseTempFilename
         WitnessFilename          = $script:WitnessFilename
         WitnessFormatVersion     = $script:WitnessFormatVersion
         ReconstructPs1Name       = $script:ReconstructPs1Name
@@ -1194,13 +1207,25 @@ function Read-Manifest {
 function Write-Manifest {
     <#
     .SYNOPSIS
-        Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
-        witness sidecar so the index can be proven intact at restore time.
+        Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
+        sibling MANIFEST.csv.tmp, then a rename over the destination), then
+        stamps its witness sidecar so the index can be proven intact at restore
+        time.
     .NOTES
         Sole writer of MANIFEST.csv.meta (SR-038) — every origin is covered here
         rather than in the callers, so the witness cannot drift from its manifest.
+
+        Atomic publish (SR-082, LLR-087): at every instant MANIFEST.csv is the
+        complete old file or the complete new one. The rename is
+        [System.IO.File]::Move(src, dst, overwrite: $true), which is rename(2)
+        on Linux and MoveFileEx(REPLACE_EXISTING) on Windows. Move-Item -Force
+        is deliberately not used: it is a provider cmdlet whose overwrite path
+        is not specified to be a single rename. PowerShell 7+ only (AGENTS.md
+        section 4), so the .NET Core 3.0+ overload always exists; 5.1 is
+        unsupported. A MANIFEST.csv.tmp left by a killed earlier write is
+        deleted before the new one is written and is never read.
     #>
-    # Implements: SR-025, SR-038, LLR-025, LLR-038
+    # Implements: SR-025, SR-038, SR-082, LLR-025, LLR-038, LLR-087
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderPath,
@@ -1230,7 +1255,38 @@ function Write-Manifest {
         }
     }
 
-    $out | Export-Csv -LiteralPath $path -NoTypeInformation
+    # SR-082: write beside the destination, publish by rename. Absolute paths for
+    # the .NET calls: they resolve against the PROCESS directory, while every
+    # path in this module is relative to the PowerShell location.
+    $tempPath = Join-Path $FolderPath $script:DatabaseTempFilename
+    $fullDest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
+    $fullTemp = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($tempPath)
+    $hook     = $script:ManifestWriteTestHook
+    $context  = [pscustomobject]@{ Destination = $fullDest; Temp = $fullTemp }
+
+    # The hook calls sit OUTSIDE the try blocks on purpose: a seam that throws
+    # stands in for a kill, and a real kill runs no catch block, so the cleanup
+    # below must not run for it.
+    if ($null -ne $hook) { & $hook 'BeforeTempWrite' $context }
+    try {
+        # A leftover from a killed earlier write is not trusted and not appended
+        # to: remove it (a no-op when absent), then write from scratch.
+        [System.IO.File]::Delete($fullTemp)
+        $out | Export-Csv -LiteralPath $tempPath -NoTypeInformation
+    } catch {
+        # An ordinary failure (disk full, access denied) leaves the destination
+        # untouched; do not also leave a partial staging file behind.
+        try { [System.IO.File]::Delete($fullTemp) } catch { Write-Verbose "could not remove '$fullTemp': $($_.Exception.Message)" }
+        throw
+    }
+    if ($null -ne $hook) { & $hook 'AfterTempWrite' $context }
+    try {
+        [System.IO.File]::Move($fullTemp, $fullDest, $true)
+    } catch {
+        try { [System.IO.File]::Delete($fullTemp) } catch { Write-Verbose "could not remove '$fullTemp': $($_.Exception.Message)" }
+        throw
+    }
+    if ($null -ne $hook) { & $hook 'AfterRename' $context }
 
     # The row count is already known here (one CSV row per record, and an empty
     # set writes no rows), so the witness does not re-read the file to count it.
@@ -1288,12 +1344,14 @@ function Write-ManifestWitness {
 
     .NOTES
         The SIDECAR is published by rename (write .tmp, Move-Item -Force), the
-        repo's atomicity idiom — atomicity here covers the witness publish only;
-        MANIFEST.csv itself is still written in place by Export-Csv. That is
-        deliberate: the manifest is written BEFORE the witness, so a crash
-        between the two leaves a *stale* witness that mismatches and the failure
-        lands in the safe direction (a loud refusal) rather than a silent pass.
-        The next successful run rewrites both.
+        repo's atomicity idiom, and since SR-082 so is MANIFEST.csv itself
+        (Write-Manifest writes MANIFEST.csv.tmp and renames it over the
+        destination), so neither file can ever be torn. The ORDER is still
+        deliberate: the manifest is published BEFORE the witness, so a crash
+        between the two leaves a complete manifest beside a *stale* witness that
+        mismatches, and the failure lands in the safe direction (a loud
+        refusal) rather than a silent pass. The next successful run rewrites
+        both. Do not "fix" this by stamping the witness first.
     #>
     # Implements: SR-038, LLR-038
     [CmdletBinding()]

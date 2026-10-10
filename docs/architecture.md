@@ -57,7 +57,7 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 18. `Test-BackupManifest` — Refuses a legacy path-addressed store (SR-061), then blanks DataPaths
 19. `Remove-OwnStagingFolder` — Releases and removes THIS RUN'S staging folder on an early failure —
 20. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
-21. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+21. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
 22. `Compare-SourceToBackup` — Pure diff: returns NewOrChanged (source rows) and RemovedFromSource
 23. `New-RelativePathMap` — An empty hashtable whose RelativePath keys compare the way the local
 24. `Get-BackupCapacityDemand` — Bytes this run will add to the backup volume and to the change volume
@@ -69,7 +69,7 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 30. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
 31. `Save-SupersededData` — Preserves the prior bytes of files whose content was replaced this run
 32. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
-33. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder, then stamps its
+33. `Write-Manifest` — Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
 34. `Get-SourceDirectoryRecord` — Returns the directory rows the manifest cannot carry (SR-065): every
 35. `Write-DirectorySidecar` — Writes DIRECTORIES.csv beside a manifest, or removes it when there is
 36. `Assert-StagingLockOwned` — The SR-075 §2.5 RunId FENCE: re-reads Temp's owner record at a phase
@@ -162,7 +162,7 @@ Imports (internal): _none_
 | `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
-| `Write-Manifest` | yes | SR-025, SR-038, LLR-025, LLR-038 |
+| `Write-Manifest` | yes | SR-025, SR-038, SR-082, LLR-025, LLR-038, LLR-087 |
 | `Write-ManifestWitness` | yes | SR-038, LLR-038 |
 
 ### `Modules/FileBackup.Engine.psm1`
