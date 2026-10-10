@@ -24,6 +24,18 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **M-1 SINGLE PROBE PASS (2026-10-10, branch fix-m1-single-probe-pass off New_Fix_Batch;
+  NOT merged, awaiting review).** Review finding (performance, the Owner's NTFS probing
+  rule), verified: M-1's merged `Optimize-ChangeFolders` probed a change folder's DataPaths
+  up to the first vanished one, then re-read the manifest and probed every row AGAIN - up to
+  2x the stats of the pre-M-1 code plus a manifest read. Now each distinct DataPath is probed
+  exactly once into an ordinal "missing" set, rows are blanked by set membership with no
+  second probe, and the manifest is read only when something vanished and the index does
+  not already carry it. TC-235 (e): a probe-counting test (Test-Path mocked as a pass-through
+  counter) asserts 6 probes for 6 DataPaths; restoring the second pass gives 12 and fails it.
+  LLR-026 amended. Left alone on purpose (queued by the Owner): the per-row `Test-Path` in
+  `Complete-ChangeFolder`'s DataPath blanking.
+
 - **OS LOCK DONE - the staging OS lock, liveness across the no-marker window (2026-10-09,
   branch fix-staging-os-lock, based on fix-p-atomic-write-manifest; step 2 of 3 of
   docs/plans/killed-staging-recovery-design-2026-10-09.md on branch
