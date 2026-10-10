@@ -17,6 +17,31 @@ v7.5.0; `NET:` = dotnet/runtime at tag v9.0.0, under `src/libraries/System.Priva
 `src/libraries/Common/src/Interop/Windows/Kernel32/Interop.MoveFileEx.cs`. Line numbers are from
 the raw files at those tags.
 
+### Revision 2026-10-10 (round-3 confirmation, a6fb66d)
+
+The round-3 confirmation found all six round-2 fixes consistent for kills and throws. It raised
+three items, applied as the coordinator triaged them under the Owner's balance rule: protect
+against real data loss, add no I/O to normal runs, and do not design for vanishingly narrow
+windows.
+1. **Durability: accepted narrowly (G10).**
+   - ONE batched barrier per rollback, after every restore and before RECOVERY.done (3.2 step
+     3a). On Linux it is `sync -f <BkpPath>`, which is `syncfs`. On Windows it is
+     `FlushFileBuffers`, on the volume or on the restored files.
+   - Rejected: a per-file fsync on Linux, and any fsync on normal runs. The round-2 flush of
+     RUN.state is therefore WITHDRAWN.
+   - Verifying the "tamper guard catches a lost RUN.state" reasoning found a real hole (G11).
+     For a run that moved nothing there are no data files for the guard to see. Row 2 now also
+     checks the root witness against Temp's: two small reads, in recovery only.
+2. **P2 under power loss on ntfs-3g: documented as an accepted residual (§10), not redesigned.**
+   - The residue pattern was read from the driver source: `<name>.ntfs-3g-<10 digits>`.
+   - Classification recognises the residue and names it, and never deletes it.
+   - The hub's driver (ntfs3 or ntfs-3g) must be confirmed at build time.
+3. **Probe residue: accepted (G12).**
+   - The probe has a fixed name, and every row of classification accepts it as residue.
+   - Both exact probe paths are removed on success, on failure, and in cleanup before
+     RECOVERY.done is deleted, whatever the saved enumeration says.
+   - A §6.2 row and a §7 test are added.
+
 ### Revision 2026-10-10 (second review, d4a95b3)
 
 A second review of d4a95b3 returned MERGE AFTER FIXES. Each item was checked against the code and
@@ -221,6 +246,26 @@ enumerates the pool and never re-hashes an object. The first matching row wins:
 A marker alone, or with `MANIFEST.csv.tmp` only (E′:3389), stays the existing OwnerStale reclaim,
 unchanged.
 
+**Residue accepted by classification in every row (added 2026-10-10, round 3).**
+- **Probe residue.** An empty directory with the exact name `.fbrecover-probe` (3.3) is set aside
+  before any row's set test. A Temp holding nothing else is row 5: remove the probe
+  non-recursively, then the folder. A NON-empty `.fbrecover-probe` was not made by recovery: keep
+  it and refuse loudly.
+- **ntfs-3g rename residue.** It matches `^<whitelisted name>\.ntfs-3g-\d{10}$`, for example
+  `MANIFEST.csv.meta.ntfs-3g-0000000042` (§10). It is never set aside and never deleted
+  automatically, because it can be the only name left for the OLD file. A row that meets it
+  refuses, and NAMES it as ntfs-3g rename residue instead of reporting an unknown entry.
+- Both are recognised by name within the enumeration already in hand.
+
+**Missing RUN.state never leads to a discard unguarded (verified 2026-10-10).**
+- Row 2 is the only row that discards on RUN.state's absence. It is guarded by the data-name
+  check and by the root-witness check below.
+- Row 3 requires RUN.state.
+- Row 4, with RUN.state absent, PUBLISHES, so it deletes nothing.
+- Row 4's discard branch acts only on a PRESENT RUN.state, and it refuses if a data-named entry
+  appears.
+- Row 1 acts only on a published RECOVERY.done.
+
 **RUN.state (G1's record, now written before step 10).** The record is written ONCE, after the
 step 9.4 capacity preflight (E′:6916-6929) and before step 10's first write. It holds `RunId`
 (it must equal the marker's), `ManifestChanged` (final at E′:6909) and `SnapshotDate`
@@ -230,15 +275,24 @@ step 9.4 capacity preflight (E′:6916-6929) and before step 10's first write. I
   11 or 11.5 write has happened, and no step-12 root rewrite.
 - **Fail-closed (added 2026-10-10).** "Written before step 10" means *successfully published*.
   The publication goes in this order:
-  1. Write `RUN.state.tmp` and flush it (`FileStream.Flush($true)`).
+  1. Write `RUN.state.tmp`.
   2. `[IO.File]::Move(tmp, RUN.state, $true)`. That is a same-directory rename, never a
      cross-volume copy (3.3).
   3. Only after that returns does step 10 begin.
 
-  Any failure along the way (a write error, a flush error, a rename error) throws out of the
-  set before step 10, leaving Temp in the pre-mutation shape, which row 2 then discards. There
-  is no fallback that continues without the record. If there were, the absence of RUN.state
-  would prove nothing.
+  Any failure along the way (a write error or a rename error) throws out of the set before step
+  10, leaving Temp in the pre-mutation shape, which row 2 then discards. There is no fallback
+  that continues without the record. If there were, the absence of RUN.state would prove
+  nothing.
+- **No fsync of RUN.state (revised 2026-10-10, round 3).** a6fb66d added `FileStream.Flush($true)`
+  at step 1. That is an fsync on every normal run, and it is withdrawn.
+  - A process kill or throw does not need it: the OS cache outlives the process, so a returned
+    rename is visible to the next run.
+  - Power loss is the only case it would serve. There, a RUN.state that never became durable
+    while later Temp moves did is caught by the guards in row 2: the data-name guard, plus the
+    root-witness check added in round 3 for a run that moved nothing. Both refuse rather than
+    discard. That needs a person but loses nothing, which is accepted for a power-loss-only
+    window (§10).
 - It is deleted only by `Complete-ChangeFolder` (3.5) and by recovery cleanup, never while the
   marker exists.
 - Upgrade: the owner record's `SchemaVersion` (E′:3063) goes to 2 when RUN.state ships, and RUN.state's absence means
@@ -246,8 +300,8 @@ step 9.4 capacity preflight (E′:6916-6929) and before step 10's first write. I
   engine, is rolled back when its Temp manifest verifies (row 3 without the record). **What
   happens otherwise is Owner decision (d), still open.** The proposed answer is today's
   refusal. Nothing in this design prescribes it until (d) is decided.
-- Cost: on a normal run, one ~200-byte write, one flush and one rename, and one delete at
-  finalize. In runtime calls, the rename adds one existence check of the source (NET File.cs:1050).
+- Cost: on a normal run, one ~200-byte write, one rename and one delete at finalize. There is no
+  flush. In runtime calls, the rename adds one existence check of the source (NET File.cs:1050).
   For recovery, one small read.
 
 **Row 2: discard (pre-mutation). Finding 2's step-7 case.** A kill between C′:1284 and C′:1386
@@ -265,8 +319,29 @@ through the 9.4 refusal's `Remove-OwnStagingFolder`.
   cleanup deletes it by name. It is recognised by name in the enumeration already in hand, so
   there is no extra filesystem pass. The same applies in row 3: a leftover `RECOVERY.done.tmp`
   is not a data file and is never moved.
+- **Root-witness check (added 2026-10-10, round 3: a real hole, power loss only).** The
+  data-name guard does NOT stand between a missing RUN.state and a discard in every case.
+  - The case it misses: a run whose steps 11 and 11.5 moved nothing has no data files in Temp.
+    If power loss lost RUN.state's rename while step 12's later root rewrite survived, row 2
+    would see a pre-mutation shape and discard. Temp's manifest is then the only copy of the
+    prior index, so the discard loses a restore point. No bytes are lost.
+  - This can happen only where metadata is not committed in order. ntfs-3g, which has no
+    journal, is the realistic case (§10).
+  - So row 2 also requires ONE of these, using only the two small witness files:
+    - (a) Temp has no `MANIFEST.csv.meta`. By program order the kill was inside step 7's
+      witness publish, so step 12 has not run.
+    - (b) Temp's `MANIFEST.csv.meta` and the root's carry the same `Bytes` and `XxH128`. Steps 6
+      and 7 witness byte-identical files, and only step 12 makes them differ.
+
+    Otherwise recovery refuses loudly and moves nothing.
+  - This is the current step-6 behaviour. If G8 option (c) is adopted, step 6 no longer writes
+    the root, and (b) would refuse legitimate kills on a healing run. Under (c), (b) becomes:
+    the root `.meta`'s `Written` is EARLIER than the marker's `StartedUtc` (E′:3071), so the
+    root has not been rewritten during this run. G8 must carry this change.
+  - Cost: two reads of files of about 150 bytes, in recovery only. Nothing on a normal run, no
+    hash.
 - Action: publish `RECOVERY.done` (Outcome=Discarded), then clean up (3.5). The root is not
-  touched.
+  touched. A discard restores nothing, so it needs no durability barrier (row 3, step 3a).
 - Why no witness is needed: the Temp manifest is a copy of the root's. Step 6 wrote the same
   `$backupDb` object to the root one statement earlier (E′:929 returning to E′:6858, then
   E′:6874), and nothing mutates it in between. Temp holds no bytes, and the root has not been
@@ -300,19 +375,52 @@ first draft's rule, now correctly scoped. The steps:
    (G7).
 3. Restore the root DIRECTORIES.csv from Temp (tmp then rename). If Temp has none, because the
    root had none at step 7, delete the root's: step 12.5 may have written one.
+
+   3a. **Durability barrier: ONE per recovery (added 2026-10-10, round 3).** It runs after every
+   restore in steps 1-3, and before RECOVERY.done is published, and so before cleanup deletes
+   any Temp source.
+   - The case it closes: the copy branch (3.3) writes an object's bytes to the root. Cleanup
+     then deletes the Temp source. Power loss before the copied bytes are durable would lose the
+     only copy. The same reasoning applies to the root manifest, which cleanup's deletion of the
+     Temp manifest leaves as the only copy of the prior index.
+   - Linux: one `sync -f <BkpPath>`, run as a process. That is `syncfs(2)` on the store's
+     filesystem (coreutils 8.24 and later) and covers every restored file, its directory entries
+     and the root manifest, witness and sidecar. .NET has no `syncfs`, and `Add-Type` to
+     P/Invoke it costs a compile. The container image must ship a `sync` that accepts `-f`;
+     that is checked at build time (§10).
+   - Windows: `FlushFileBuffers`, via `FileStream.Flush($true)` on a handle opened for write.
+     There are two ways to apply it:
+     - On the volume of BkpPath, where the account may open the volume handle. This needs
+       administrator rights, which are not assumed.
+     - Otherwise, on each file the copy branch restored, plus the root `MANIFEST.csv`, its
+       `.meta` and `DIRECTORIES.csv`. Windows has no unprivileged whole-volume barrier, so this
+       is the coordinator's "FlushFileBuffers on the restored files".
+   - The rename branch needs no flush of its own. A rename that power loss undoes leaves the
+     object in Temp, where it is still present. In the rename branch, cleanup never deletes the
+     only copy: "exists" means the root original, which is long durable.
+   - Rejected: a per-file fsync on Linux, and any fsync on normal runs, including RUN.state's
+     (see above).
+   - A kill or power loss before the barrier completes leaves no RECOVERY.done, so row 3
+     repeats, and the repeat runs the barrier again.
+   - Cost:
+     - Linux: one process spawn and one `syncfs` per rollback. Nothing per object. Its time
+       scales with the dirty data on that filesystem, which here is mostly the restored copies.
+     - Windows: one volume flush, or one flush per copy-branch object plus 3 for the root files.
+       That flush is per object only in the copy branch, and only during a recovery.
+     - Normal runs: nothing.
 4. Publish `RECOVERY.done` (Outcome=RolledBack, RunId). This is the rollback's commit. **The
    marker is NOT deleted here.**
 5. Clean up (3.5).
 
 A kill anywhere in steps 1-4 leaves the marker and RUN.state, with no RECOVERY.done. The next
-recovery lands on row 3 again and repeats steps 1-4. Each step is idempotent: moves per 3.3, and
-the root Write-Manifest is a fixed point.
+recovery lands on row 3 again and repeats steps 1-4. Each step is idempotent: moves per 3.3, the
+root Write-Manifest is a fixed point, and the barrier can be repeated.
 - Cost: one read and hash of the Temp manifest (the witness check) plus one `Read-Manifest` of
   it; sharing that read is E8. Then, when N > 0, the one rename probe of 3.3, followed by N
   renames or N copies plus N same-directory renames, where N is the number of data files in Temp.
-  Then one manifest write at the root, one sidecar copy and one record write. The runtime calls
-  under each move are counted in 3.3. No pool enumeration, no per-object hash, no
-  application-level per-row probe.
+  Then one manifest write at the root, one sidecar copy, the step-3a barrier and one record
+  write. The runtime calls under each move are counted in 3.3. No pool enumeration, no
+  per-object hash, no application-level per-row probe.
 
 **Row 4: roll forward, or finish the run's own discard.** A marker-less, non-empty Temp means
 E′:7045 ran. After this revision nothing else deletes the marker of a non-empty Temp. Recovery
@@ -333,6 +441,9 @@ absent, never partial.
     of steps 11.5 and 11 (E′:6909, E′:6963, E′:6981), so neither step moved anything.
   - `SnapshotDate` null is reachable only on a store whose root manifest has no rows: E′:6694-6700
     refuses a null `LastBackupRun` beside a non-empty manifest. So nothing existed to move.
+  - Guard (round 3): it deletes only the fixed infrastructure names and the kit. An entry whose
+    name parses by the SR-069 grammar contradicts the record's decision, so it refuses rather
+    than deleting. The check uses the same enumeration.
   - Cost: one RUN.state read and the leaf deletes. No manifest read, no hash.
 - **RUN.state says PUBLISH, or is absent** (absent means publish, by the coordinator rule G1):
   re-run `Complete-ChangeFolder` with the record's values, after these witness checks:
@@ -403,9 +514,17 @@ broken:
     will copy.
 - **Branch by a rename probe, once per rollback.** This runs only when Temp holds data files to
   move.
-  1. Remove any leftover `.fbrecover-probe` directory non-recursively, in both places.
+  The probe's name is FIXED, `.fbrecover-probe`, so its two possible paths are known without
+  enumerating: `Temp\.fbrecover-probe` and `BkpPath\.fbrecover-probe`.
+  1. Remove any leftover at both exact paths, non-recursively.
   2. Create an empty `Temp\.fbrecover-probe`.
-  3. `[IO.Directory]::Move` it to `BkpPath\.fbrecover-probe`, then remove it.
+  3. `[IO.Directory]::Move` it to `BkpPath\.fbrecover-probe`.
+  4. **On success AND on failure**, remove both exact paths, non-recursively. On failure the probe
+     is still in Temp.
+
+  Revised 2026-10-10, round 3: the probe is created AFTER Temp was enumerated, so no step may
+  rely on the saved enumeration to find it. Cleanup (3.5) removes both exact paths again before
+  it deletes RECOVERY.done.
 
   `Directory.Move` never copies:
   - On Windows it checks the path root, then calls MoveFileEx, which cannot move a directory
@@ -455,20 +574,31 @@ The marker state then decides rollback or roll-forward exactly as for a kill.
 discard publishes RECOVERY.done:
 1. Delete every leaf except RECOVERY.done, in any order and each by exact name. That covers the
    marker, `RUN.state` and `RUN.state.tmp`, `RECOVERY.done.tmp` (an unpublished record, see row
-   2), the manifest set (`.csv`, `.meta` and both `.tmp`), DIRECTORIES.csv, the kit files, a
-   leftover empty `.fbrecover-probe` directory (removed non-recursively, 3.3) and the data files.
-   The names come from the enumeration the classifier already made, so there is no extra pass. A data file is a name that parses by the
-   SR-069 grammar, which is a pure check with no I/O. Every one of these leaves is redundant:
-   RECOVERY.done is published only after the rollback put each byte back at the root (or found it
-   already there), or after the discard proved that none was ever moved.
+   2), the manifest set (`.csv`, `.meta` and both `.tmp`), DIRECTORIES.csv, the kit files and
+   the data files. The names come from the enumeration the classifier already made, so there is
+   no extra pass. A data file is a name that parses by the SR-069 grammar, which is a pure check
+   with no I/O. Every one of these leaves is redundant: RECOVERY.done is published only after the
+   rollback put each byte back at the root (or found it already there) and the step-3a barrier
+   made it durable, or after the discard proved that none was ever moved.
+   1a. **Remove BOTH exact probe paths, `Temp\.fbrecover-probe` and `BkpPath\.fbrecover-probe`,
+   non-recursively, whatever the saved enumeration says** (revised 2026-10-10, round 3).
+   - Why: the probe is created after the enumeration, so a cleanup driven by that enumeration
+     used to miss it. It deleted RECOVERY.done, the rmdir then failed on the probe, and what
+     remained was a Temp with no marker, no record and only the probe.
+   - Removing an absent path is a no-op. A probe that cannot be removed (non-empty, or in use)
+     keeps RECOVERY.done in place, logs loudly and stops, so the next recovery is still on row 1.
+   - Cost: two non-recursive directory deletes per cleanup. In runtime calls on Unix, each
+     `Directory.Delete` makes one `rmdir`. Nothing on a normal run.
 2. Delete RECOVERY.done LAST, then `Directory.Delete(Temp, recursive: $false)`.
 
 An entry outside that set keeps the folder, and recovery logs it loudly. It is not a kill state.
+ntfs-3g rename residue is named as such (3.2) and is never deleted by cleanup.
 
 | Cleanup kill point | Next recovery sees | Does |
 |---|---|---|
 | after RECOVERY.done is published, before any delete | row 1 | cleanup from the start |
 | part-way through step 1 (any subset gone, marker included) | row 1 | resumes deleting |
+| step 1 done, before or during 1a | row 1 | 1a again: both probe paths, then the record |
 | step 1 done, RECOVERY.done not yet deleted | row 1 | deletes the record, then rmdir |
 | RECOVERY.done deleted, rmdir not done | row 5 (empty) | existing Empty reclaim |
 | after rmdir | no Temp | nothing |
@@ -622,6 +752,27 @@ Found by the 2026-10-09 independent review, and while answering it:
 - **G9. §2.2's "all callers run BEFORE step 7" was wrong.** `$refuseCapacity` (E:6469) runs at
   step 9.4 (E:6553). That is why RUN.state is written after 9.4 rather than at step 7.
 
+Found by the round-3 confirmation (2026-10-10), triaged under the Owner's balance rule: protect
+against real data loss, add no I/O to normal runs, and do not design for vanishingly narrow
+windows.
+
+- **G10. Durability of cross-volume restores. Accepted narrowly.**
+  - The defect: cleanup deleted a Temp source whose copy might not yet be durable at the root.
+  - Fixed by ONE batched barrier per rollback (3.2, step 3a).
+  - A per-file fsync on Linux, and any fsync on normal runs, are rejected. That includes the
+    RUN.state flush a6fb66d had added, which is withdrawn.
+- **G11. A missing RUN.state could reach a discard unguarded. A real hole, power loss only,
+  found while verifying G10.**
+  - The case: a run that moved nothing, with RUN.state's rename lost and step 12's survived. The
+    data-name guard sees no data and discards the only copy of the prior index.
+  - Fixed by row 2's root-witness check (3.2). It costs two small reads in recovery only.
+  - It must change if G8 (c) is adopted (3.2).
+- **G12. Probe residue. Accepted.**
+  - The defect: cleanup derived its names from an enumeration taken before the probe existed.
+  - Fixed: the probe's name is fixed, residue is accepted in classification, and both exact
+    paths are removed on success, on failure, and in cleanup before RECOVERY.done (3.3, 3.5).
+- **P2 under power loss on ntfs-3g. Documented, not redesigned: §10.**
+
 ### Coordinator resolution of G1 and G2 (2026-10-09)
 
 - **G1 → option (a).** Write `ManifestChanged` into a small Temp-only record before step 12
@@ -758,6 +909,8 @@ Temp and nowhere else. "Row" is the 3.2 classification. Cites are E′ (fix-stag
 | Discard (row 2), `RECOVERY.done.tmp` written, not renamed | untouched | step-7 set + `RECOVERY.done.tmp` | row 2 again: the `.tmp` is in its set, and the next publication overwrites it | no |
 | Discard (row 2), RECOVERY.done published or mid-deletes | untouched | subset + record | row 1 | no |
 | Rollback rename probe (3.3), probe dir left in Temp or in BkpPath | partly restored, or not | unchanged + empty `.fbrecover-probe` | row 3: remove the leftover probe, probe again, repeat | as before the probe |
+| Rollback step 3a, kill or power loss before the barrier completes | restored, possibly not durable | unchanged, sources intact | row 3: repeat, including the barrier | **yes** (the sources are kept until after RECOVERY.done) |
+| Cleanup ran on a saved enumeration that lacked a probe left after it (the pre-round-3 order) | restored | ONLY an empty `.fbrecover-probe`: no marker, no record | set aside by name, so row 5: remove the probe, then rmdir. 1a now prevents this state | no |
 | Roll forward, anywhere in the re-run | new, Verified | as in the step-13 rows of 6.1 | row 4 again | as 6.1 |
 
 **6.3 The witness-replace window (P2, added 2026-10-10)**
@@ -845,7 +998,7 @@ recovery a second time and asserts that the result equals the single-pass result
     refuse.
 - **`RECOVERY.done.tmp` left by a killed discard** (2026-10-10): assert row 2 discards and
   cleanup removes the `.tmp`. The same check applies to a killed rollback in row 3.
-- **RUN.state is fail-closed** (2026-10-10): make the RUN.state write, flush or rename throw.
+- **RUN.state is fail-closed** (2026-10-10): make the RUN.state write or rename throw.
   - Assert the set fails before step 10, with nothing moved and no step-10 object written.
   - Assert the next recovery takes row 2.
 - **P2, the witness replace** (2026-10-10): put a seam between the old-witness removal and the
@@ -861,6 +1014,31 @@ recovery a second time and asserts that the result equals the single-pass result
   - Then kill mid-copy. Assert no torn object ever appears at a final root name, and that the
     Temp source survives until after RECOVERY.done.
   - **Mutation check:** branching on `$sameVolume` instead must fail this test.
+- **Probe residue** (2026-10-10, round 3). Leave `Temp\.fbrecover-probe` behind after Temp was
+  enumerated, by killing between probe steps 2 and 4.
+  - Then run cleanup. Assert it removes both exact probe paths before deleting RECOVERY.done,
+    and that Temp is gone.
+  - Separately, construct a Temp holding ONLY an empty `.fbrecover-probe`. Assert row 5 (probe
+    removed, folder removed), never row 4.
+  - A NON-empty `.fbrecover-probe` must refuse, with hashes unchanged.
+  - **Mutation check:** cleanup driven only by the saved enumeration must leave the probe-only
+    Temp.
+- **Durability barrier** (2026-10-10, round 3). Count barrier calls through a seam.
+  - Assert exactly one barrier per rollback, after the step-1 to step-3 restores and before
+    RECOVERY.done is published.
+  - Assert none on a discard, a roll-forward or a normal run, and none on RUN.state.
+  - Run on both platforms, with the copy branch forced: Linux, one `sync -f`; Windows, the volume
+    flush or the per-file flushes of 3a.
+  - **Mutation check:** moving the barrier after RECOVERY.done must fail the ordering assertion.
+  - Power loss itself is not simulated. The test pins the ORDER, not durability.
+- **Power-loss reorder in row 2** (2026-10-10, round 3). Construct: marker present, no RUN.state,
+  no data files, and a root manifest and witness rewritten as step 12 would leave them, while
+  Temp holds the step-7 copy with its witness.
+  - Assert row 2 REFUSES, with hashes unchanged.
+  - With Temp's `.meta` absent, assert it discards.
+- **ntfs-3g residue** (2026-10-10, round 3). Place `MANIFEST.csv.meta.ntfs-3g-0000000001` in
+  Temp, and separately at the root.
+  - Assert the refusal names it as ntfs-3g rename residue, and that it is not deleted.
 - **SchemaVersion-1 Temp** (upgrade): with a verifying Temp manifest it rolls back. Without a
   witness, the expectation is set by Owner decision (d), which is still open. The proposed
   expectation is today's refusal; the test is written once (d) is decided.
@@ -868,8 +1046,8 @@ recovery a second time and asserts that the result equals the single-pass result
   APPLICATION level, and count runtime calls separately, for example with `strace -c` in the
   container or ProcMon on Windows. Do not merge the two counts.
   - Application level, normal run with no Temp: zero existence tests added over today. Exactly
-    one record write, one flush, one rename and one delete are added. The witness publish costs
-    fewer calls than today (P2, §5).
+    one record write, one rename and one delete are added, with NO flush (round 3). The witness
+    publish costs fewer calls than today (P2, §5).
   - Runtime level, same run: the RUN.state rename adds one source-existence check plus the
     rename (NET File.cs:1050).
   - Application level, recovery: no pool enumeration, no per-object hash, at most one rename
@@ -919,6 +1097,11 @@ Engineering (decidable without the Owner):
   data can be large. Cost not measured.
   **Revised 2026-10-09 (Owner speed constraint): no re-hash.**
   - The whitelist adds `RUN.state`, `RECOVERY.done`, their `.tmp`s and `MANIFEST.csv.meta.tmp`.
+  - Added 2026-10-10, round 3: the empty probe directory `.fbrecover-probe` is accepted residue
+    (set aside, then removed).
+  - Added 2026-10-10, round 3: ntfs-3g rename residue, `^<whitelisted name>\.ntfs-3g-\d{10}$`,
+    is RECOGNISED, by the Temp and pool classifiers alike, so that a refusal names it. It is
+    never whitelisted for deletion.
   - A data file is accepted when its name parses by the SR-069 grammar (pure) and a Temp manifest
     row names it. Both checks use only data already in hand: the one enumeration and the one
     manifest read.
@@ -1006,6 +1189,32 @@ Genuine Owner decisions:
   - **P2 through the translation layer.** P2 assumes `MoveFileEx(REPLACE_EXISTING)` and
     `rename(2)` are atomic through the layer. They are treated as being as atomic as P's manifest
     rename; neither is measured.
+  - **Accepted residual: P2 (and P) under power loss on ntfs-3g** (round 3).
+    - What ntfs-3g does: it emulates a rename over an existing file with links, in
+      `ntfs_fuse_safe_rename` (ntfs-3g 2022.10.3, `src/ntfs-3g.c` L2587-2633, called from
+      `ntfs_fuse_rename_existing_dest` L2635-2677). The sequence is `link(new → tmp)`,
+      `unlink(new)`, `link(old → new)`, `unlink(old)`, `unlink(tmp)`.
+    - The residue name is `<new>.ntfs-3g-<10-digit sequence>`: L2639 sets `".ntfs-3g-"`,
+      and L2651 formats it with `"%s%s%010d"`. The round-3 review cited ~L2478-2485; in the
+      2022.10.3 file the code is at the lines above.
+    - The window: power loss inside that sequence can leave the witness, or under P the
+      manifest, ABSENT, with the old file surviving only under the residue name.
+    - The outcome: a refusal that names the residue, not a loss. The residue is never deleted
+      automatically (3.2).
+    - Scope: power loss only. A process kill does not interrupt the sequence, because it runs in
+      the FUSE daemon, so P and P2 still cover kills. The window is a few metadata operations
+      during a power cut, and it is not redesigned.
+  - **The hub's NTFS driver must be confirmed at build time.** If it is the kernel `ntfs3`
+    rather than FUSE `ntfs-3g`, ntfs3's rename-over-existing and its metadata ordering under
+    power loss were not read here, and may behave differently. The same check covers whether
+    `sync -f` reaches the store through that driver (3.2 step 3a).
+  - **Metadata ordering under power loss.** The design assumes a journaled filesystem (NTFS on
+    Windows, ext4) commits metadata in order. ntfs-3g has no journal, so G11's check exists. No
+    stronger guarantee is designed for.
+  - **`sync -f` in the container.** It needs coreutils 8.24 or later, or a BusyBox with `-f`. The
+    image's `sync` is not checked here. If it lacks `-f`, the fallback is `FileStream.Flush($true)`
+    on each copy-branch file plus the 3 root files: per object, and still only during a
+    recovery.
   - **Source revisions.** The runtime behaviour cited (PS v7.5.0, .NET v9.0.0) was read from
     source. This dev PC runs pwsh 7.6.6 on .NET 10.0.12, and the production container's versions
     were not checked. The two cited paths should be re-read at the versions that ship. Note that
