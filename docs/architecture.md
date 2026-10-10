@@ -80,9 +80,9 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 41. `Invoke-StagingTestHook` — Invokes one of the SR-075 reclaim/fence test seams if the suite has
 42. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
 43. `Complete-ChangeFolder` — Finalizes the staging folder into a dated point-in-time snapshot, or
-44. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
-45. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
-46. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+44. `Set-LastHashRun` — Persists the time of the completed re-hash sweep to FileBackupState.json.
+45. `Set-LastBackupRun` — Persists this run's completion date to FileBackupState.json
+46. `Optimize-ChangeFolders` — Collapses duplicate (hash,length) data files across change folders,
 47. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
 48. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
 49. `Test-StagingLockLostError` — True when an ErrorRecord is a staging lock-loss (a lost exclusive

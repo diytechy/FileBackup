@@ -89,8 +89,10 @@ Therefore:
     dated `Snapshot_<prior-backup-date>`, or discard it when nothing was superseded.
     The kit is copied into staging BEFORE the publish rename, so a `Snapshot_*`
     folder structurally cannot exist without its restore kit (F8).
-14. `Optimize-ChangeFolders` — collapse data shared across snapshots.
-15. Persist `LastHashRun` (if a rehash ran) + `LastBackupRun` (this run's date).
+14. Persist `LastHashRun` (if a rehash ran) + `LastBackupRun` (this run's date).
+    This runs BEFORE the dedupe so a kill in step 15 cannot leave run state stale
+    (defect review M-4).
+15. `Optimize-ChangeFolders` — collapse data shared across snapshots.
 16. Browse view (SR-062), only when `BrowseView` is `index` and the `.viewstamp`
     is stale. A failure here is a WARNING, never a set failure — the view is
     cosmetic by construction and nothing in the engine or the restorers reads it.
@@ -617,7 +619,8 @@ pwsh -File tests\Setup.ps1 -InstallDeps -InstallTestTools
 Get-ChildItem -Recurse -Include *.ps1,*.psm1 -Path FileBackup.ps1,Reconstruct.ps1,Modules,tests |
     ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Settings tests\PSScriptAnalyzerSettings.psd1 }
 
-# unit (Pester 5)
+# unit (Pester 5). This runs EVERYTHING, including the Full-tagged TC-236
+# production-shape memory test (~24 min); scripts\check.ps1 -Tier Smoke excludes it.
 Invoke-Pester -Path tests\Unit -Output Detailed
 
 # integration (Subst backend; no admin)
