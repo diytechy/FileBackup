@@ -1114,20 +1114,28 @@ function Optimize-ChangeFolders {
     }
 
     foreach ($cf in $changeFolders) {
-        # A folder with every DataPath still on disk has nothing to blank: it is
+        # ONE probe pass per folder (Owner ruling: on the hub every stat crosses
+        # an NTFS translation layer). Each DISTINCT DataPath is probed exactly
+        # once and the vanished ones are kept; the blanking below works from
+        # that set and never probes again. A folder with nothing vanished is
         # neither re-read nor rewritten.
-        $vanished = $false
+        $probed  = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
+        $missing = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
         foreach ($dp in $cf.DataPaths) {
-            if (-not (Test-Path -LiteralPath (Join-Path $cf.Folder $dp) -PathType Leaf)) { $vanished = $true; break }
+            if (-not $probed.Add([string]$dp)) { continue }
+            if (-not (Test-Path -LiteralPath (Join-Path $cf.Folder $dp) -PathType Leaf)) { [void]$missing.Add([string]$dp) }
         }
-        if (-not $vanished) { continue }
+        if ($missing.Count -eq 0) { continue }
 
-        $manifest = @(Read-Manifest -FolderPath $cf.Folder)
+        # The lean index keeps no rows, so the manifest is read here -- once,
+        # and only for a folder that has something to blank. An index built
+        # with -IncludeManifests already holds them.
+        $manifest = if ($cf.PSObject.Properties['Manifest'] -and $null -ne $cf.Manifest) { @($cf.Manifest) }
+                    else { @(Read-Manifest -FolderPath $cf.Folder) }
         $changed = $false
         foreach ($row in $manifest) {
             if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
-            $full = Join-Path $cf.Folder $row.DataPath
-            if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+            if ($missing.Contains([string]$row.DataPath)) {
                 $row.DataPath = ''
                 $changed = $true
             }

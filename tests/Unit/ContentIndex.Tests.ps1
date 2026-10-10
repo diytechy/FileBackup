@@ -302,6 +302,71 @@ Describe 'Optimize-ChangeFolders on the lean index (TC-235)' {
     }
 }
 
+Describe 'Optimize-ChangeFolders probes each DataPath once (TC-235, LLR-026)' {
+    # The Owner's rule: on the hub every stat crosses an NTFS translation
+    # layer, so a probe pass must not be repeated. One snapshot holds six
+    # distinct DataPaths and the LAST one has vanished (the shape a dedupe
+    # deletion leaves). Optimize-ChangeFolders runs over the REAL index of that
+    # folder, captured before the deletion, with its Map emptied so no
+    # duplicate-removal probe runs: every leaf probe under the snapshot is then
+    # the blanking pass's own. A second probe pass shows up as twelve.
+
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ('probe-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $bkp = Join-Path $script:Root 'bkp'; $chg = Join-Path $script:Root 'chg'
+        $script:Snap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        New-Item -ItemType Directory -Path $bkp, $script:Snap -Force | Out-Null
+        Write-Manifest -FolderPath $bkp -Records @()
+        $rows = foreach ($i in 1..6) {
+            $name = "obj$i.dat"
+            New-IdxFile -Folder $script:Snap -Name $name -Content "content $i" | Out-Null
+            New-IdxRow -DataPath $name -RelativePath "f$i.txt" -Length 9 -Hash ("H{0:D31}" -f $i)
+        }
+        Write-Manifest -FolderPath $script:Snap -Records @($rows)
+        $script:Bkp = $bkp; $script:Chg = $chg
+    }
+
+    It 'probes exactly once per DataPath when one has vanished (TC-235, LLR-026)' {
+        $real = Get-BackupContentIndex -BackupRoot $script:Bkp -SnapshotFolder @($script:Snap)
+        $script:Index = [pscustomobject]@{ Map = @{}; Folders = $real.Folders }
+        if ($script:Index.Folders[-1].DataPaths.Count -ne 6) { throw 'fixture error: the snapshot must index six DataPaths' }
+        Remove-Item -LiteralPath (Join-Path $script:Snap 'obj6.dat')
+        Mock -ModuleName FileBackup.Engine Get-BackupContentIndex { $script:Index }
+        $prefix = $script:Snap
+        Mock -ModuleName FileBackup.Engine Test-Path { [System.IO.File]::Exists($LiteralPath) } `
+            -ParameterFilter { $PathType -eq 'Leaf' -and $LiteralPath -like "$prefix*" }
+
+        Optimize-ChangeFolders -ChangeRoot $script:Chg -BackupRoot $script:Bkp -Log { param($m, $l) }
+
+        Should -Invoke -CommandName Test-Path -ModuleName FileBackup.Engine -Exactly -Times 6 `
+            -ParameterFilter { $PathType -eq 'Leaf' -and $LiteralPath -like "$prefix*" }
+    }
+
+    It 'blanks exactly the vanished row from that one pass (TC-235, LLR-026)' {
+        $real = Get-BackupContentIndex -BackupRoot $script:Bkp -SnapshotFolder @($script:Snap)
+        $script:Index = [pscustomobject]@{ Map = @{}; Folders = $real.Folders }
+        Remove-Item -LiteralPath (Join-Path $script:Snap 'obj6.dat')
+        Mock -ModuleName FileBackup.Engine Get-BackupContentIndex { $script:Index }
+
+        Optimize-ChangeFolders -ChangeRoot $script:Chg -BackupRoot $script:Bkp -Log { param($m, $l) }
+
+        (@(Read-Manifest -FolderPath $script:Snap) | ForEach-Object { "$($_.RelativePath)=$($_.DataPath)" }) -join '|' |
+            Should -Be 'f1.txt=obj1.dat|f2.txt=obj2.dat|f3.txt=obj3.dat|f4.txt=obj4.dat|f5.txt=obj5.dat|f6.txt='
+    }
+
+    It 'does not re-read the manifest when the index already holds its rows (TC-235, LLR-026)' {
+        $real = Get-BackupContentIndex -BackupRoot $script:Bkp -SnapshotFolder @($script:Snap) -IncludeManifests
+        $script:Index = [pscustomobject]@{ Map = @{}; Folders = $real.Folders }
+        Remove-Item -LiteralPath (Join-Path $script:Snap 'obj6.dat')
+        Mock -ModuleName FileBackup.Engine Get-BackupContentIndex { $script:Index }
+        Mock -ModuleName FileBackup.Engine Read-Manifest { throw 'the rows were already in hand' }
+
+        Optimize-ChangeFolders -ChangeRoot $script:Chg -BackupRoot $script:Bkp -Log { param($m, $l) }
+
+        Should -Invoke -CommandName Read-Manifest -ModuleName FileBackup.Engine -Exactly -Times 0
+    }
+}
+
 Describe 'Lean content index at production shape (TC-236)' -Tag 'Full' {
     It 'indexes 30 snapshots x 180,000 rows with the lean default in at most 1 GB retained (LLR-047, performance budget)' {
         $big = New-SyntheticPool -Root (Join-Path $TestDrive 'tc236') -Snapshots 30 -Rows 180000 -DataRows 6
