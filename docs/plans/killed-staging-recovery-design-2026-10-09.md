@@ -17,6 +17,29 @@ v7.5.0; `NET:` = dotnet/runtime at tag v9.0.0, under `src/libraries/System.Priva
 `src/libraries/Common/src/Interop/Windows/Kernel32/Interop.MoveFileEx.cs`. Line numbers are from
 the raw files at those tags.
 
+### Revision 2026-10-10 (round 4, review of a935023)
+
+The review confirmed the rest and raised two items. Both are valid, both were applied, and both
+cost something in recovery only.
+1. **G11's check was unsound** (3.2 row 2).
+   - The flaw: power loss can keep step 12's new root manifest and lose the root's witness
+     replace. The OLD witness then still equals Temp's, and round 3 discarded the only prior
+     index.
+   - Now: the root manifest is verified against its own witness, the same check as the 1.5
+     gate, before any discard that relies on the root. Temp's `.meta` must then equal the root
+     witness. When Temp has no `.meta`, Temp's `MANIFEST.csv` is hashed against the root's
+     digest instead.
+   - A Temp with no manifest at all is discarded without a check.
+   - The `Written` variant for G8 (c) is withdrawn and replaced by a pre-run digest in the owner
+     record.
+   - Cost: one manifest read and hash on that branch, plus a second one only when Temp's `.meta`
+     is absent.
+2. **The barrier now covers retained destinations** (3.2 step 3a, 3.3; G13).
+   - The flaw: an "already exists" destination may be an earlier pass's unflushed copy.
+   - Now, on Windows, it joins the flush set whatever the current probe says, and a failed
+     flush keeps RECOVERY.done unpublished. On Linux the single `syncfs` already covered it.
+   - Cost: recovery only, bounded by Temp's data-file count.
+
 ### Revision 2026-10-10 (round-3 confirmation, a6fb66d)
 
 The round-3 confirmation found all six round-2 fixes consistent for kills and throws. It raised
@@ -259,7 +282,8 @@ unchanged.
 
 **Missing RUN.state never leads to a discard unguarded (verified 2026-10-10).**
 - Row 2 is the only row that discards on RUN.state's absence. It is guarded by the data-name
-  check and by the root-witness check below.
+  check and by the root-verification check below (round 4: the root manifest verified against
+  its own witness, not merely two witnesses compared).
 - Row 3 requires RUN.state.
 - Row 4, with RUN.state absent, PUBLISHES, so it deletes nothing.
 - Row 4's discard branch acts only on a PRESENT RUN.state, and it refuses if a data-named entry
@@ -290,7 +314,7 @@ step 9.4 capacity preflight (E′:6916-6929) and before step 10's first write. I
     rename is visible to the next run.
   - Power loss is the only case it would serve. There, a RUN.state that never became durable
     while later Temp moves did is caught by the guards in row 2: the data-name guard, plus the
-    root-witness check added in round 3 for a run that moved nothing. Both refuse rather than
+    root-verification check (round 3, corrected in round 4) for a run that moved nothing. Both refuse rather than
     discard. That needs a person but loses nothing, which is accepted for a power-loss-only
     window (§10).
 - It is deleted only by `Complete-ChangeFolder` (3.5) and by recovery cleanup, never while the
@@ -327,26 +351,62 @@ through the 9.4 refusal's `Remove-OwnStagingFolder`.
     prior index, so the discard loses a restore point. No bytes are lost.
   - This can happen only where metadata is not committed in order. ntfs-3g, which has no
     journal, is the realistic case (§10).
-  - So row 2 also requires ONE of these, using only the two small witness files:
-    - (a) Temp has no `MANIFEST.csv.meta`. By program order the kill was inside step 7's
-      witness publish, so step 12 has not run.
-    - (b) Temp's `MANIFEST.csv.meta` and the root's carry the same `Bytes` and `XxH128`. Steps 6
-      and 7 witness byte-identical files, and only step 12 makes them differ.
+  - **Revised 2026-10-10, round 4: the round-3 check was unsound.**
+    - The sequence: an additions-only run reaches step 12, and P renames the new root manifest
+      in. Power loss then keeps that rename, but loses RUN.state and the root's witness replace.
+    - What remains: the root's OLD witness sits beside a NEW root manifest. That is the
+      `Mismatch` pair §6.1 already lists. Temp's witness equals that old witness.
+    - So round 3's test (b), "Temp's `.meta` equals the root's", passed and discarded the only
+      prior index, though the root manifest differs.
+    - Comparing two witnesses never looks at the root manifest. The round-3 `Written`
+      alternative for G8(c) has the same flaw.
+  - **The rule now.** Before a row-2 discard that relies on the root, verify the actual root
+    manifest against its own witness, with the same `Test-ManifestWitness` the 1.5 gate runs on
+    every normal run. Then:
 
-    Otherwise recovery refuses loudly and moves nothing.
-  - This is the current step-6 behaviour. If G8 option (c) is adopted, step 6 no longer writes
-    the root, and (b) would refuse legitimate kills on a healing run. Under (c), (b) becomes:
-    the root `.meta`'s `Written` is EARLIER than the marker's `StartedUtc` (E′:3071), so the
-    root has not been rewritten during this run. G8 must carry this change.
-  - Cost: two reads of files of about 150 bytes, in recovery only. Nothing on a normal run, no
-    hash.
+    | Temp holds | Discard only if | Why |
+    |---|---|---|
+    | no `MANIFEST.csv` at all (killed before the step-7 rename, or after the 9.4 refusal deleted it) | always: no root check | Temp holds no index, so a discard cannot lose one |
+    | `MANIFEST.csv` and its `.meta` | the root is `Verified` AND Temp's `.meta` carries the root witness's `Bytes` and `XxH128` | `Verified` proves those values describe the root's ACTUAL bytes. Equality then proves the root is byte-identical to what step 7 copied, so Temp is a redundant copy. |
+    | `MANIFEST.csv`, no `.meta` (the step-7 kill, which is the common case) | the root is `Verified` AND the hash of Temp's `MANIFEST.csv` equals the root's verified `XxH128` | see the next paragraph |
+
+    Anything else refuses loudly and moves nothing: the root is `Mismatch`, `Absent` or
+    `Malformed`, or the digests differ. With P2, `Absent` cannot come from a kill after step 6.
+  - **The no-`.meta` row, precisely.**
+    - Under process kills and throws, which follow program order, a missing Temp `.meta` means
+      the kill landed inside step 7's witness publish, so step 12 has not run. A `Verified` root
+      is then the untouched step-6 manifest. Temp's `MANIFEST.csv` is a complete copy of it (P),
+      so the discard is safe on the root check alone.
+    - Under power loss, which can reorder, Temp's `.meta` can be lost while a LATER step 12
+      survived COMPLETE. The new manifest and new witness are then `Verified` as well, and the
+      root check alone would discard the only prior index.
+    - Hashing Temp's `MANIFEST.csv` against the root's digest closes that. It costs one more
+      manifest hash, on this sub-branch only.
+    - Steps 6 and 7 write byte-identical files from the same `$backupDb` (E′:929, E′:6874), so a
+      legitimate kill always passes.
+  - **Under G8 option (c)** step 6 does not write the root, so the root keeps its PRE-RUN bytes
+    while Temp holds the sanitized rows. The equalities above would then refuse legitimate kills
+    on a healing run.
+    - Under (c) the rule becomes: the root is `Verified` AND its `XxH128` equals a pre-run digest
+      recorded in the owner record at step 3.
+    - Recording it costs no I/O: the 1.5 gate (E′:6712) has already read the root witness, and
+      the owner record is written anyway (E′:3063-3071). `Test-ManifestWitness` would have to
+      return the digest.
+    - A root that had no witness at run start (a pre-SR-038 store) records none. Row 2 then
+      refuses, once, until a run completes.
+    - G8 must carry this change. It replaces round 3's `Written` comparison, which is withdrawn.
+  - Cost, recovery only and on this branch only: one read and hash of the root manifest, the
+    same cost as the normal run's 1.5 gate. Add a second manifest hash, of Temp's copy, only when
+    Temp's `.meta` is absent. Plus two reads of files of about 150 bytes. Nothing on a normal
+    run.
 - Action: publish `RECOVERY.done` (Outcome=Discarded), then clean up (3.5). The root is not
   touched. A discard restores nothing, so it needs no durability barrier (row 3, step 3a).
 - Why no witness is needed: the Temp manifest is a copy of the root's. Step 6 wrote the same
   `$backupDb` object to the root one statement earlier (E′:929 returning to E′:6858, then
   E′:6874), and nothing mutates it in between. Temp holds no bytes, and the root has not been
-  rewritten since. So Temp is redundant whatever state its manifest/witness pair is in. The
-  witness verdict never enters the decision.
+  rewritten since. So Temp is redundant whatever state its manifest/witness pair is in. Temp's
+  OWN witness verdict never enters the decision. The ROOT's verdict does (round 4, above),
+  because it is what proves "rewritten since" did not happen.
 - **Is data-file absence alone a sound signal? No.** (i) A run whose steps 11 and 11.5 move
   nothing keeps Temp data-free all the way through step 13. Step 12 has replaced the root by
   then, and Temp's manifest is the ONLY copy of the prior index; discarding there would lose a
@@ -356,9 +416,10 @@ through the 9.4 refusal's `Remove-OwnStagingFolder`.
   name check stays as a tamper guard, not as the signal.
 - Rejected: a separate "step 7 complete" marker. It would be a second write with its own kill
   window, and RUN.state already dates every kill before step 10.
-- Cost: recovery reads nothing beyond the classifier's enumeration and its marker read. It does
-  one record write, at most 9 deletes (the 8 names of the set plus RECOVERY.done) and one
-  rmdir: no hash, no manifest read.
+- Cost: the classifier's enumeration and marker read, plus the root-verification cost above
+  (round 4). That is one root-manifest hash, and a second hash only when Temp has no `.meta`.
+  Then one record write, at most 9 deletes (the 8 names of the set plus RECOVERY.done) and one
+  rmdir. Recovery only.
 
 **Row 3: roll back.** Precondition: the Temp manifest verifies against its own witness. With
 RUN.state present, the step-7 witness was published before the record, by program order. So
@@ -392,12 +453,32 @@ first draft's rule, now correctly scoped. The steps:
      There are two ways to apply it:
      - On the volume of BkpPath, where the account may open the volume handle. This needs
        administrator rights, which are not assumed.
-     - Otherwise, on each file the copy branch restored, plus the root `MANIFEST.csv`, its
-       `.meta` and `DIRECTORIES.csv`. Windows has no unprivileged whole-volume barrier, so this
-       is the coordinator's "FlushFileBuffers on the restored files".
-   - The rename branch needs no flush of its own. A rename that power loss undoes leaves the
-     object in Temp, where it is still present. In the rename branch, cleanup never deletes the
-     only copy: "exists" means the root original, which is long durable.
+     - Otherwise, on the FLUSH SET. That is: each file the copy branch restored in this pass;
+       each destination RETAINED through the "already exists" branch in this pass, whatever
+       the probe said this time (round 4, below); and the root `MANIFEST.csv`, its `.meta` and
+       `DIRECTORIES.csv`. Windows has no unprivileged whole-volume barrier, so this is the
+       coordinator's "FlushFileBuffers on the restored files".
+     - If any flush fails, including a destination that cannot be opened for write, RECOVERY.done
+       is NOT published. The Temp sources are kept, and the next pass retries. The barrier fails
+       closed.
+   - A plain rename needs no flush of its own. A rename that power loss undoes leaves the object
+     in Temp, where it is still present.
+   - **Retained destinations are NOT "long durable" (revised 2026-10-10, round 4).** Round 3
+     argued that "exists" always meant the root original. That is wrong across passes:
+     1. A transient probe failure, such as an antivirus handle on the probe, selects the copy
+        branch.
+     2. A copied object is published at its root name.
+     3. A kill lands before the barrier.
+     4. The next pass's probe succeeds. Its rename meets the existing destination and retains
+        it.
+     5. A Windows flush set holding only this pass's copies would skip that file. Cleanup would
+        then delete the Temp source, and a later power loss could lose the unflushed copy.
+
+     So every destination retained through "already exists" in this pass joins the flush set.
+     The pass cannot tell an earlier pass's unflushed copy from an old original without
+     recording something, and flushing an already durable file is cheap.
+     - On Linux the single `syncfs` already covers every file on the store's filesystem,
+       retained destinations included, so Linux needs no change.
    - Rejected: a per-file fsync on Linux, and any fsync on normal runs, including RUN.state's
      (see above).
    - A kill or power loss before the barrier completes leaves no RECOVERY.done, so row 3
@@ -405,8 +486,11 @@ first draft's rule, now correctly scoped. The steps:
    - Cost:
      - Linux: one process spawn and one `syncfs` per rollback. Nothing per object. Its time
        scales with the dirty data on that filesystem, which here is mostly the restored copies.
-     - Windows: one volume flush, or one flush per copy-branch object plus 3 for the root files.
-       That flush is per object only in the copy branch, and only during a recovery.
+     - Windows: one volume flush. Or else one open-for-write plus one `FlushFileBuffers` for each
+       copy-branch object and each retained destination, plus 3 for the root files. Recovery
+       only, and bounded by Temp's data-file count, since each Temp data file produces at most
+       one restored or retained destination. A retained destination that is already durable
+       costs an open and an empty flush.
      - Normal runs: nothing.
 4. Publish `RECOVERY.done` (Outcome=RolledBack, RunId). This is the rollback's commit. **The
    marker is NOT deleted here.**
@@ -543,11 +627,17 @@ broken:
     already held, and this object was in the pool at step 10.
   - The Temp copy is then redundant and is left for cleanup. The failed call is the existence
     test, so the application makes no additional probe.
+  - **The destination is still added to this pass's flush set (round 4).** "Exists" can be an
+    EARLIER pass's copy-branch output that was published but never made durable, so it is not
+    necessarily long durable. On Windows it is flushed with the rest at step 3a; on Linux the
+    one `syncfs` already covers it. The set is kept in memory, one path per retained file, so it
+    needs no extra filesystem call to build.
 - **Copy branch** (the probe failed): `File.Copy(src, BkpPath\<leaf>.recover.tmp, $true)`, which
   overwrites a torn leftover from a killed pass. Compare the copy's length with the source length
   from the Temp enumeration, with no extra stat. Then `File.Move(tmp, dst, overwrite: $false)`.
   That is a same-directory move, so it is always a rename and is never degraded. "Exists" is
-  handled as above. The source stays in Temp, and cleanup deletes it after RECOVERY.done.
+  handled as above, and the destination joins the flush set. The source stays in Temp, and
+  cleanup deletes it after RECOVERY.done.
 - **The first draft's "collision with different bytes, quarantine the destination" branch** is
   unreachable by the argument above. If it is ever hit (dst exists and one stat shows a length
   different from the Temp source), refuse loudly: it is not a kill state.
@@ -767,6 +857,21 @@ windows.
     data-name guard sees no data and discards the only copy of the prior index.
   - Fixed by row 2's root-witness check (3.2). It costs two small reads in recovery only.
   - It must change if G8 (c) is adopted (3.2).
+  - **Round 4 (2026-10-10): that fix was unsound.**
+    - Power loss can keep step 12's new root manifest and lose the root's witness replace, so
+      the OLD witness still matches Temp's.
+    - Comparing witnesses never checks the root manifest itself.
+    - Now: verify the root manifest against its own witness first, then require Temp's `.meta`
+      to equal it. When Temp has no `.meta`, hash Temp's `MANIFEST.csv` instead. A Temp with no
+      manifest is discarded with no check.
+    - Cost: one root-manifest hash in recovery only, plus one more hash when Temp's `.meta` is
+      absent.
+    - The `Written` variant for G8 (c) is withdrawn and replaced by a pre-run digest kept in
+      the owner record (3.2).
+- **G13. The barrier missed retained destinations (round 4, Windows).** Across passes, an
+  "already exists" destination can be an earlier pass's unflushed copy. It now joins the
+  Windows flush set; Linux's `syncfs` already covered it (3.2 step 3a, 3.3). Recovery only, and
+  bounded by Temp's data-file count.
 - **G12. Probe residue. Accepted.**
   - The defect: cleanup derived its names from an enumeration taken before the probe existed.
   - Fixed: the probe's name is fixed, residue is accepted in classification, and both exact
@@ -883,6 +988,7 @@ Temp and nowhere else. "Row" is the 3.2 classification. Cites are E′ (fix-stag
 | Step 11.5 mid-loop (E′:6154) | prior manifest claims moved objects | moved superseded objects | row 3: rollback moves them back | **yes** |
 | Step 12, before rename (E′:7012) | prior, Verified | prior manifest + witness + objects + RUN.state | row 3: rollback | **yes** |
 | **Step 12, after rename, before witness** | new, complete; prior witness, **Mismatch** | same | 1.5 defers; **row 3: rollback**, never reading the root witness (G7) | **yes** |
+| Same, plus power loss that lost RUN.state (round 4) | new, complete; old witness, Mismatch | no data, prior manifest + witness, no RUN.state | row 2: the root does not verify, so it REFUSES (was: discarded, G11) | **yes** (index) |
 | Step 12.5, after DIRECTORIES write (E′:7023) | new | same | row 3: rollback, which restores DIRECTORIES too | **yes** |
 | 12.9 after fence (E′:7042), before delete | new, complete | marker present | row 3: rollback | **yes** |
 | 12.9 after delete (E′:7045), before E′:6221 | new, Verified | prior manifest + objects + RUN.state; **no marker** | row 4: roll forward | **yes** |
@@ -910,6 +1016,7 @@ Temp and nowhere else. "Row" is the 3.2 classification. Cites are E′ (fix-stag
 | Discard (row 2), RECOVERY.done published or mid-deletes | untouched | subset + record | row 1 | no |
 | Rollback rename probe (3.3), probe dir left in Temp or in BkpPath | partly restored, or not | unchanged + empty `.fbrecover-probe` | row 3: remove the leftover probe, probe again, repeat | as before the probe |
 | Rollback step 3a, kill or power loss before the barrier completes | restored, possibly not durable | unchanged, sources intact | row 3: repeat, including the barrier | **yes** (the sources are kept until after RECOVERY.done) |
+| Copy-branch pass killed before the barrier; the next pass's probe succeeds (round 4) | earlier pass's copy published, maybe not durable | sources intact | row 3: the rename meets "exists" and RETAINS the destination, which joins the flush set; the barrier, then RECOVERY.done | **yes**, until the barrier |
 | Cleanup ran on a saved enumeration that lacked a probe left after it (the pre-round-3 order) | restored | ONLY an empty `.fbrecover-probe`: no marker, no record | set aside by name, so row 5: remove the probe, then rmdir. 1a now prevents this state | no |
 | Roll forward, anywhere in the re-run | new, Verified | as in the step-13 rows of 6.1 | row 4 again | as 6.1 |
 
@@ -1030,12 +1137,30 @@ recovery a second time and asserts that the result equals the single-pass result
   - Run on both platforms, with the copy branch forced: Linux, one `sync -f`; Windows, the volume
     flush or the per-file flushes of 3a.
   - **Mutation check:** moving the barrier after RECOVERY.done must fail the ordering assertion.
+  - **Retained destinations, round 4 (Windows):**
+    1. Pass 1: force the probe to fail, copy one object, then kill before the barrier.
+    2. Pass 2: let the probe succeed.
+    3. Assert that the retained destination is in the flush set, and is flushed BEFORE
+       RECOVERY.done.
+    4. Assert that a failed flush keeps RECOVERY.done unpublished and the Temp source in place.
+    - **Mutation check:** flushing only this pass's copies must fail.
   - Power loss itself is not simulated. The test pins the ORDER, not durability.
 - **Power-loss reorder in row 2** (2026-10-10, round 3). Construct: marker present, no RUN.state,
   no data files, and a root manifest and witness rewritten as step 12 would leave them, while
   Temp holds the step-7 copy with its witness.
   - Assert row 2 REFUSES, with hashes unchanged.
   - With Temp's `.meta` absent, assert it discards.
+  - **Round 4, added cases:**
+    - (i) A NEW root manifest beside the OLD root witness, with Temp's `.meta` equal to that old
+      witness. This is the case round 3 discarded. Assert a REFUSAL.
+      **Mutation check:** comparing the witnesses without verifying the root must discard here
+      and fail the test.
+    - (ii) A complete new root (manifest and witness, `Verified`) with Temp's `.meta` absent.
+      Assert a refusal by the Temp-manifest hash.
+    - (iii) The step-7 process-kill case, with the root untouched and no Temp `.meta`. Assert a
+      discard.
+    - (iv) A Temp with no `MANIFEST.csv` at all. Assert a discard with no root hash, counted
+      through the seam.
 - **ntfs-3g residue** (2026-10-10, round 3). Place `MANIFEST.csv.meta.ntfs-3g-0000000001` in
   Temp, and separately at the root.
   - Assert the refusal names it as ntfs-3g rename residue, and that it is not deleted.
