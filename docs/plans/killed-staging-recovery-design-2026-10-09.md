@@ -17,6 +17,18 @@ v7.5.0; `NET:` = dotnet/runtime at tag v9.0.0, under `src/libraries/System.Priva
 `src/libraries/Common/src/Interop/Windows/Kernel32/Interop.MoveFileEx.cs`. Line numbers are from
 the raw files at those tags.
 
+### Revision 2026-10-10 (round 5, review of 0bd2b3c): the last design change
+
+The review confirmed G13, and that neither round-4 change adds a call to a normal run. It found
+one item in G11: "no `MANIFEST.csv`" does not prove that Temp holds no index.
+- The sequence: power loss keeps step 12 complete and Temp's witness, but loses RUN.state and
+  step 7's manifest rename. The prior index then exists only as `Temp\MANIFEST.csv.tmp`.
+- Now (3.2 row 2): a lone `.tmp` is treated like the no-`.meta` case. Discard only if the root
+  verifies AND the hash of `MANIFEST.csv.tmp` equals the root's verified hash; otherwise
+  refuse. "No `MANIFEST.csv` and no `.tmp`" stays an unconditional discard.
+- Cost: one hash, on that sub-branch only. Nothing on a normal run.
+- §10 records the review closure and lists the open Owner decisions.
+
 ### Revision 2026-10-10 (round 4, review of a935023)
 
 The review confirmed the rest and raised two items. Both are valid, both were applied, and both
@@ -30,6 +42,8 @@ cost something in recovery only.
      witness. When Temp has no `.meta`, Temp's `MANIFEST.csv` is hashed against the root's
      digest instead.
    - A Temp with no manifest at all is discarded without a check.
+     (Round 5: "no manifest" now means no `MANIFEST.csv` AND no `MANIFEST.csv.tmp`; a lone `.tmp`
+     is hashed like the no-`.meta` case.)
    - The `Written` variant for G8 (c) is withdrawn and replaced by a pre-run digest in the owner
      record.
    - Cost: one manifest read and hash on that branch, plus a second one only when Temp's `.meta`
@@ -366,7 +380,8 @@ through the 9.4 refusal's `Remove-OwnStagingFolder`.
 
     | Temp holds | Discard only if | Why |
     |---|---|---|
-    | no `MANIFEST.csv` at all (killed before the step-7 rename, or after the 9.4 refusal deleted it) | always: no root check | Temp holds no index, so a discard cannot lose one |
+    | no `MANIFEST.csv` AND no `MANIFEST.csv.tmp` (the 9.4 refusal deleted both, or step 7 never began its write) | always, with no root check | Temp holds no index, so a discard cannot lose one |
+    | no `MANIFEST.csv`, but a `MANIFEST.csv.tmp` (round 5) | the root is `Verified` AND the hash of `MANIFEST.csv.tmp` equals the root's verified `XxH128` | Under power loss, step 7's rename can be lost while step 12 survives. The prior index then exists ONLY as the `.tmp`. A torn `.tmp` fails the hash and refuses. Under process kills alone this is the kill before the step-7 rename: the root is untouched and the `.tmp` is a copy of it, or torn |
     | `MANIFEST.csv` and its `.meta` | the root is `Verified` AND Temp's `.meta` carries the root witness's `Bytes` and `XxH128` | `Verified` proves those values describe the root's ACTUAL bytes. Equality then proves the root is byte-identical to what step 7 copied, so Temp is a redundant copy. |
     | `MANIFEST.csv`, no `.meta` (the step-7 kill, which is the common case) | the root is `Verified` AND the hash of Temp's `MANIFEST.csv` equals the root's verified `XxH128` | see the next paragraph |
 
@@ -397,8 +412,8 @@ through the 9.4 refusal's `Remove-OwnStagingFolder`.
     - G8 must carry this change. It replaces round 3's `Written` comparison, which is withdrawn.
   - Cost, recovery only and on this branch only: one read and hash of the root manifest, the
     same cost as the normal run's 1.5 gate. Add a second manifest hash, of Temp's copy, only when
-    Temp's `.meta` is absent. Plus two reads of files of about 150 bytes. Nothing on a normal
-    run.
+    Temp's `.meta` is absent, or of `MANIFEST.csv.tmp` only when `MANIFEST.csv` is absent and the
+    `.tmp` exists (round 5). Plus two reads of files of about 150 bytes. Nothing on a normal run.
 - Action: publish `RECOVERY.done` (Outcome=Discarded), then clean up (3.5). The root is not
   touched. A discard restores nothing, so it needs no durability barrier (row 3, step 3a).
 - Why no witness is needed: the Temp manifest is a copy of the root's. Step 6 wrote the same
@@ -863,7 +878,9 @@ windows.
     - Comparing witnesses never checks the root manifest itself.
     - Now: verify the root manifest against its own witness first, then require Temp's `.meta`
       to equal it. When Temp has no `.meta`, hash Temp's `MANIFEST.csv` instead. A Temp with no
-      manifest is discarded with no check.
+      manifest is discarded with no check. Round 5: a lone `MANIFEST.csv.tmp` counts as a
+      manifest and is hashed against the root's digest. Only "no `MANIFEST.csv` and no `.tmp`"
+      skips the check.
     - Cost: one root-manifest hash in recovery only, plus one more hash when Temp's `.meta` is
       absent.
     - The `Written` variant for G8 (c) is withdrawn and replaced by a pre-run digest kept in
@@ -1159,8 +1176,13 @@ recovery a second time and asserts that the result equals the single-pass result
       Assert a refusal by the Temp-manifest hash.
     - (iii) The step-7 process-kill case, with the root untouched and no Temp `.meta`. Assert a
       discard.
-    - (iv) A Temp with no `MANIFEST.csv` at all. Assert a discard with no root hash, counted
-      through the seam.
+    - (iv) A Temp with no `MANIFEST.csv` and no `MANIFEST.csv.tmp`. Assert a discard with no
+      root hash, counted through the seam.
+    - (v) Round 5: the root is a complete new manifest and witness (`Verified`), and Temp holds
+      its `.meta` and the prior index ONLY as `MANIFEST.csv.tmp`. Assert a REFUSAL.
+      Repeat with an untouched root and a `.tmp` byte-identical to it: assert a discard. Repeat
+      with a torn `.tmp`: assert a refusal.
+      **Mutation check:** treating a lone `.tmp` as "no manifest" must fail this test.
 - **ntfs-3g residue** (2026-10-10, round 3). Place `MANIFEST.csv.meta.ntfs-3g-0000000001` in
   Temp, and separately at the root.
   - Assert the refusal names it as ntfs-3g rename residue, and that it is not deleted.
@@ -1348,3 +1370,16 @@ Genuine Owner decisions:
 - Behaviour under a container memory limit (DR §5), which can move where a kill lands.
 - Steps 14-15 (Optimize-ChangeFolders rewrites snapshot manifests in place, E:1062-1083) are out of
   scope but carry the same in-place-write hazard.
+- **Review closure (2026-10-10).** Design review stopped after round 5.
+  - Every residual still known needs COMPOUND out-of-order metadata persistence under power
+    loss. One example: a marker plus a lone `MANIFEST.csv.tmp` after RUN.state, step 7's
+    manifest rename AND its witness were all lost while step 12 survived. That shape takes the
+    existing reclaim (E′:3389), which deletes the `.tmp`.
+  - These residuals are left for the build review, against real code.
+  - Process kills and throws are covered throughout.
+  - Open Owner decisions:
+    - **G8 / (e)**, the step-6 pair gap. It is a BUILD BLOCKER.
+    - (a) Retire the README's manual recovery.
+    - (b) Aside-folder retention.
+    - (c) Automatic recovery, or a watchdog-invoked action.
+    - (d) The SchemaVersion-1 upgrade refusal.
