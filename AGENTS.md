@@ -575,7 +575,8 @@ pwsh -File tests\Setup.ps1 -InstallDeps -InstallTestTools
 Get-ChildItem -Recurse -Include *.ps1,*.psm1 -Path FileBackup.ps1,Reconstruct.ps1,Modules,tests |
     ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Settings tests\PSScriptAnalyzerSettings.psd1 }
 
-# unit (Pester 5)
+# unit (Pester 5). This runs EVERYTHING, including the Full-tagged TC-236
+# production-shape memory test (~24 min); scripts\check.ps1 -Tier Smoke excludes it.
 Invoke-Pester -Path tests\Unit -Output Detailed
 
 # integration (Subst backend; no admin)

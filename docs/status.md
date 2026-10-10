@@ -35,6 +35,26 @@ last) — it is the record, not required reading for every pass.
   regenerated (step order changed); Traceability still FAILS on pre-existing SR-017/SR-075 Draft
   status findings, identical on HEAD. NOT PROVEN: not run on the hub; snapshot-count growth and the memory growth
   are untouched (separate fixes); re-enabling the hub timer stays the Owner's decision.
+- **M-1 — the nightly content index keeps DataPaths, not whole manifests (2026-10-09,
+  branch `fix-m1-lean-content-index`; defect review 2026-10-05, fixes 1 and 4).**
+  `Get-BackupContentIndex` now retains only each folder's `DataPaths` by default;
+  `-IncludeManifests` restores whole manifests for prune, `Test-PoolResolves`,
+  `Test-BackupStorageForm` and the G9 suite helper. `Optimize-ChangeFolders` re-reads
+  and rewrites only a folder whose DataPaths name a vanished file. Evidence: TC-234
+  (12 x 5,000-row snapshots: lean is within GC noise of zero, observed -1.2 MB to +0.2 MB, vs 129,775,720 B with the switch;
+  one manifest 10,873,224 B); TC-235 (Optimize byte-identical to a verbatim copy of the
+  pre-change body; an untouched folder is not rewritten); TC-236 (Full, 30 x 180,000
+  rows: lean 454,312 B against the 1 GB bound, run once in 1,448 s). Mutations: retained
+  Manifest, skipped re-read, forced rewrite, each caught by a named test. Unit suite
+  Pester 831 pass / 0 fail / 1 skip, with the Full-tier TC-236 excluded (824 baseline + 9 new tests); `check.ps1 -Tier Smoke` all steps PASS except Traceability at the pre-existing status-findings=2 (SR-017/SR-075 Draft under G3, unchanged); trace 0 orphans, 0 integrity. LLR-026 and
+  LLR-047 amended; TC-234..236 added (Status Pass, as TC-232).
+  **NOT PROVEN / NOT DONE:** not run on the hub or in the container; per-row cost measured
+  on Windows pwsh 7 only. `-Action Prune` and the other `-IncludeManifests` callers still
+  hold whole manifests, so prune would still OOM on the hub (fix 2 prune half outstanding).
+  The snapshot count still grows (fix 3 is on `fix-m4-persist-state-before-dedupe`, not
+  this branch). Re-enabling the hub timer is the Owner's (HomeHub open-items E13). No
+  performance-budgets row: that registry's Refs accept SR/LLR/Module only and it has no
+  Status column, so TC-236 cannot be traced from it.
 - **FILEBACKUP_7Z_LEVEL SHIPPED — kit revision 12 (2026-09-01, coordinator session;
   commits 710bd4b + the review-fold commit).** Owner ruling: the right `-mx` level on
   the real library is unknown, so it must be configurable before the hub rerun

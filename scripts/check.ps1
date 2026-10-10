@@ -141,6 +141,9 @@ Invoke-Step 'Architecture map freshness' {
 Invoke-Step 'Pester unit' {
     $cfg = New-PesterConfiguration
     $cfg.Run.Path = (Join-Path $repo 'tests\Unit')
+    # Full-tier-only unit tests (tagged 'Full', e.g. TC-236's production-shape
+    # memory run) are excluded from the Smoke gate and run from Full upward.
+    if ($Tier -eq 'Smoke') { $cfg.Filter.ExcludeTag = @('Full') }
     $cfg.Run.Exit = $false
     $cfg.Run.PassThru = $true
     $cfg.Output.Verbosity = 'Normal'
