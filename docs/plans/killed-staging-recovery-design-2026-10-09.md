@@ -1,7 +1,8 @@
 # Design note: recovering a killed run's staging folder (Temp)
 
 Status: REVISED 2026-10-09 after adversarial review; recommendation replaced. REVISED AGAIN
-2026-10-09 after an independent review (two findings, below). Design only. No code, no repo
+2026-10-09 after an independent review (two findings, below), and on 2026-10-10 after a second
+review (six items, below). Design only. No code, no repo
 change. All facts read with `git show <branch>:<path>` on C:\Projects\FileBackup; that working
 tree was not touched.
 
@@ -10,6 +11,37 @@ Cite key (branch New_Fix_Batch, line numbers from that blob): `E:` = Modules/Fil
 `E′:` = Engine re-verified against `fix-staging-os-lock` (058ffc5, which carries P as well);
 `C′:` = Common re-verified against `fix-p-atomic-write-manifest` (23793f3; byte-identical on
 `fix-staging-os-lock`). Line numbers marked `~` were read by context, not exact.
+`PS:` = PowerShell `src/System.Management.Automation/namespaces/FileSystemProvider.cs` at tag
+v7.5.0; `NET:` = dotnet/runtime at tag v9.0.0, under `src/libraries/System.Private.CoreLib/src/System/IO/`
+(`File.cs`, `FileSystem.Unix.cs`, `FileSystem.Windows.cs`), plus
+`src/libraries/Common/src/Interop/Windows/Kernel32/Interop.MoveFileEx.cs`. Line numbers are from
+the raw files at those tags.
+
+### Revision 2026-10-10 (second review, d4a95b3)
+
+A second review of d4a95b3 returned MERGE AFTER FIXES. Each item was checked against the code and
+the runtime sources before it was applied. All six were applied; none was pushed back.
+1. **G8 is now a BUILD BLOCKER** (§4, §6.1). The recovery build may not start until the Owner
+   decides G8. Option (c) is recommended, and what it changes about healing is listed. This
+   design does not decide it.
+2. **An interrupted no-op discard failed row 4's witness checks** (§3.2 row 4). Row 4 now acts on
+   RUN.state's complete discard decision BEFORE it reads Temp's manifest or witness.
+3. **`RECOVERY.done.tmp` was missing** from row 2's set and from cleanup's set (§3.2, §3.5). It is
+   now in both, as an unpublished record, with no extra filesystem pass.
+4. **P2, a new prerequisite** (§5). Atomic witness replacement. `Move-Item -Force` overwrites by
+   deleting the destination and then moving (PS:5980-5993). So a kill between the two leaves NO
+   witness, and at step 13 row 4 would refuse beside only-copy data. The boundary is added to §6
+   and §7.
+5. **Runtime-level probes are counted** (§3.3, §7). "No additional application probe" is now
+   kept apart from "no probe". Verifying this item found a further defect: both runtimes' file
+   move silently degrades to copy-then-delete across volumes (NET Interop.MoveFileEx.cs:35,
+   `MOVEFILE_COPY_ALLOWED`; NET FileSystem.Unix.cs:197-201 and 235, EXDEV and link fallbacks). A
+   kill during that copy can leave a torn object at its FINAL root name, which 3.3's "exists ⇒
+   redundant" rule would then treat as safe. Fixed in 3.3 with a one-time rename probe, run once
+   per recovery.
+6. **RUN.state publication is fail-closed** (§3.2): a failed publish aborts the run before any
+   mutation. The SchemaVersion-1 refusal is marked as conditional on Owner decision (d)
+   everywhere it appears.
 
 ### Revision 2026-10-09 (review)
 
@@ -196,14 +228,27 @@ step 9.4 capacity preflight (E′:6916-6929) and before step 10's first write. I
 - After 9.4, so `$refuseCapacity`'s `Remove-OwnStagingFolder` never meets it (G9).
 - Before step 10, so its absence is a proof: marker present and no RUN.state means no step-10,
   11 or 11.5 write has happened, and no step-12 root rewrite.
+- **Fail-closed (added 2026-10-10).** "Written before step 10" means *successfully published*.
+  The publication goes in this order:
+  1. Write `RUN.state.tmp` and flush it (`FileStream.Flush($true)`).
+  2. `[IO.File]::Move(tmp, RUN.state, $true)`. That is a same-directory rename, never a
+     cross-volume copy (3.3).
+  3. Only after that returns does step 10 begin.
+
+  Any failure along the way (a write error, a flush error, a rename error) throws out of the
+  set before step 10, leaving Temp in the pre-mutation shape, which row 2 then discards. There
+  is no fallback that continues without the record. If there were, the absence of RUN.state
+  would prove nothing.
 - It is deleted only by `Complete-ChangeFolder` (3.5) and by recovery cleanup, never while the
   marker exists.
 - Upgrade: the owner record's `SchemaVersion` (E′:3063) goes to 2 when RUN.state ships, and RUN.state's absence means
   "pre-mutation" ONLY under a SchemaVersion-2 marker. A SchemaVersion-1 Temp, left by an older
-  engine, is rolled back when its Temp manifest verifies (row 3 without the record). Otherwise it
-  refuses as it does today. That is a one-time upgrade boundary; Owner decision (d).
-- Cost: on a normal run, one ~200-byte write plus one rename, and one delete at finalize. For
-  recovery, one small read.
+  engine, is rolled back when its Temp manifest verifies (row 3 without the record). **What
+  happens otherwise is Owner decision (d), still open.** The proposed answer is today's
+  refusal. Nothing in this design prescribes it until (d) is decided.
+- Cost: on a normal run, one ~200-byte write, one flush and one rename, and one delete at
+  finalize. In runtime calls, the rename adds one existence check of the source (NET File.cs:1050).
+  For recovery, one small read.
 
 **Row 2: discard (pre-mutation). Finding 2's step-7 case.** A kill between C′:1284 and C′:1386
 inside step 7 leaves a complete `MANIFEST.csv`, no `MANIFEST.csv.meta`, and possibly a
@@ -211,8 +256,15 @@ inside step 7 leaves a complete `MANIFEST.csv`, no `MANIFEST.csv.meta`, and poss
 through the 9.4 refusal's `Remove-OwnStagingFolder`.
 - Condition: every entry in the enumeration is in the pre-mutation set: `RUN.inprogress`,
   `MANIFEST.csv`, `MANIFEST.csv.tmp`, `MANIFEST.csv.meta`, `MANIFEST.csv.meta.tmp`,
-  `DIRECTORIES.csv`, `RUN.state.tmp`. Any other entry, such as a data file, contradicts program
-  order. That is not a kill state, so recovery refuses loudly and moves nothing.
+  `DIRECTORIES.csv`, `RUN.state.tmp`, `RECOVERY.done.tmp`. Any other entry, such as a data file,
+  contradicts program order. That is not a kill state, so recovery refuses loudly and moves
+  nothing.
+- `RECOVERY.done.tmp` (added 2026-10-10) is an UNPUBLISHED record: a discard or rollback was
+  killed after writing it and before renaming it. It carries no meaning. The next publication
+  overwrites it (`File.Move(tmp, RECOVERY.done, $true)` from a freshly written `.tmp`), and
+  cleanup deletes it by name. It is recognised by name in the enumeration already in hand, so
+  there is no extra filesystem pass. The same applies in row 3: a leftover `RECOVERY.done.tmp`
+  is not a data file and is never moved.
 - Action: publish `RECOVERY.done` (Outcome=Discarded), then clean up (3.5). The root is not
   touched.
 - Why no witness is needed: the Temp manifest is a copy of the root's. Step 6 wrote the same
@@ -230,7 +282,8 @@ through the 9.4 refusal's `Remove-OwnStagingFolder`.
 - Rejected: a separate "step 7 complete" marker. It would be a second write with its own kill
   window, and RUN.state already dates every kill before step 10.
 - Cost: recovery reads nothing beyond the classifier's enumeration and its marker read. It does
-  one record write, at most 8 deletes and one rmdir: no hash, no manifest read.
+  one record write, at most 9 deletes (the 8 names of the set plus RECOVERY.done) and one
+  rmdir: no hash, no manifest read.
 
 **Row 3: roll back.** Precondition: the Temp manifest verifies against its own witness. With
 RUN.state present, the step-7 witness was published before the record, by program order. So
@@ -255,15 +308,34 @@ A kill anywhere in steps 1-4 leaves the marker and RUN.state, with no RECOVERY.d
 recovery lands on row 3 again and repeats steps 1-4. Each step is idempotent: moves per 3.3, and
 the root Write-Manifest is a fixed point.
 - Cost: one read and hash of the Temp manifest (the witness check) plus one `Read-Manifest` of
-  it; sharing that read is E8. Then N renames on the same volume, or N copies across volumes,
-  where N is the number of data files in Temp. Then one manifest write at the root, one sidecar
-  copy and one record write. No pool enumeration, no per-object hash, no per-row probe.
+  it; sharing that read is E8. Then, when N > 0, the one rename probe of 3.3, followed by N
+  renames or N copies plus N same-directory renames, where N is the number of data files in Temp.
+  Then one manifest write at the root, one sidecar copy and one record write. The runtime calls
+  under each move are counted in 3.3. No pool enumeration, no per-object hash, no
+  application-level per-row probe.
 
-**Row 4: roll forward.** A marker-less, non-empty Temp means E′:7045 ran. After this revision
-nothing else deletes the marker of a non-empty Temp. Recovery keeps it until RECOVERY.done exists
-(rows 1-3). `Remove-OwnStagingFolder` deletes it last, after every other leaf (E′:4527), which
-leaves an empty folder (row 5). Re-run `Complete-ChangeFolder` with RUN.state's values. If
-RUN.state is absent, publish (coordinator rule, G1). Then check the witnesses:
+**Row 4: roll forward, or finish the run's own discard.** A marker-less, non-empty Temp means
+E′:7045 ran. After this revision nothing else deletes the marker of a non-empty Temp. Recovery
+keeps it until RECOVERY.done exists (rows 1-3). `Remove-OwnStagingFolder` deletes it last, after
+every other leaf (E′:4527), which leaves an empty folder (row 5).
+
+**Read RUN.state FIRST, and branch on its complete decision before reading anything else
+(revised 2026-10-10, second review).** RUN.state is published by rename, so it is complete or
+absent, never partial.
+- **RUN.state says DISCARD** (`ManifestChanged = false`, or `SnapshotDate` null): finish the
+  discard exactly as 3.5 specifies, deleting leaves by exact name with RUN.state LAST. **Neither
+  the Temp manifest nor its witness is read.**
+  - Reason: the interrupted no-op discard may already have deleted `MANIFEST.csv` or its
+    `.meta`. The witness checks below would then report `Absent` or `Malformed` and refuse,
+    sending it to a person.
+  - Why the discard depends on neither: `ManifestChanged = false` means both
+    `$diff.NewOrChanged` and `$diff.RemovedFromSource` are empty. Those are exactly the inputs
+    of steps 11.5 and 11 (E′:6909, E′:6963, E′:6981), so neither step moved anything.
+  - `SnapshotDate` null is reachable only on a store whose root manifest has no rows: E′:6694-6700
+    refuses a null `LastBackupRun` beside a non-empty manifest. So nothing existed to move.
+  - Cost: one RUN.state read and the leaf deletes. No manifest read, no hash.
+- **RUN.state says PUBLISH, or is absent** (absent means publish, by the coordinator rule G1):
+  re-run `Complete-ChangeFolder` with the record's values, after these witness checks:
 - Temp witness `Verified`: proceed.
 - Temp witness `Mismatch`: by program order, the only writer of the Temp manifest after E′:7045
   is E′:6221, and P makes that write complete. So this is the BLANKED manifest beside the step-7
@@ -274,6 +346,14 @@ RUN.state is absent, publish (coordinator rule, G1). Then check the witnesses:
   - Then re-run. The blank is a fixed point, and Write-Manifest re-stamps the witness.
   - `Rows` disagreeing, `Absent` or `Malformed` is not a kill state: refuse loudly. The residual
     risk is in §10.
+  - `Absent` is "not a kill state" ONLY GIVEN P2 (§5). Today's `Move-Item -Force` deletes the
+    old witness before moving the new one in (PS:5992-5993). Without P2, a kill between those
+    two calls at E′:6221 leaves the blanked manifest, NO `.meta` and a complete `.meta.tmp`. This
+    row would refuse that, beside only-copy data, which sends it to a person.
+  - P2 removes that window, and that is why P2 is a build prerequisite and not a recovery rule.
+    Accepting `Absent` here instead was rejected. Absent-plus-`.meta.tmp` cannot tell a complete
+    witness from a torn one, so accepting it would mean re-hashing the manifest to judge the
+    witness.
 - Root witness: it must be `Verified`, because step 12 completed before E′:7045. Anything else
   is not a kill state: refuse.
 - Cost: one RUN.state read and one witness check of the Temp manifest (read and hash), plus
@@ -308,25 +388,61 @@ broken:
 - **What a Temp data file is.** It is a PRIOR pool object, moved out at step 11 or 11.5
   (`Move-Item -Force`, E′:6076, E′:6154). It was name-proven when created (SR-059), and objects
   are immutable.
-- **Same volume** (`$sameVolume`, E′:6850): move back with
+- **A file move is not always a rename (added 2026-10-10, found while verifying the second
+  review's item 5).** `[IO.File]::Move` quietly degrades to copy-then-delete across volumes.
+  - On Windows, .NET always passes `MOVEFILE_COPY_ALLOWED` (NET Interop.MoveFileEx.cs:35).
+  - On Unix it falls back to copying on `EXDEV` (NET FileSystem.Unix.cs:197-201), or through
+    `LinkOrCopyFile` (L235, L75-99).
+  - Either way the copy goes to the FINAL name. A kill mid-copy leaves a torn object at
+    `BkpPath\<leaf>` while the source is still in Temp. The next pass's "dst exists" rule would
+    then call the intact Temp copy redundant, and cleanup would delete the only good copy.
+  - `$sameVolume` (E′:6850; Get-VolumeIdentity is a longest-prefix match over
+    `DriveInfo.GetDrives()`, C′:~1135-1161) cannot be trusted to predict this. A folder mount
+    point on Windows, a container bind mount (Linux `rename` returns EXDEV across mount points
+    even on one filesystem) or the Owner's translation layer can each read "same" where the OS
+    will copy.
+- **Branch by a rename probe, once per rollback.** This runs only when Temp holds data files to
+  move.
+  1. Remove any leftover `.fbrecover-probe` directory non-recursively, in both places.
+  2. Create an empty `Temp\.fbrecover-probe`.
+  3. `[IO.Directory]::Move` it to `BkpPath\.fbrecover-probe`, then remove it.
+
+  `Directory.Move` never copies:
+  - On Windows it checks the path root, then calls MoveFileEx, which cannot move a directory
+    across volumes (NET FileSystem.Windows.cs:176-~200).
+  - On Unix it calls `rename` and throws on EXDEV (NET FileSystem.Unix.cs:397-462).
+
+  So success proves that file moves between those two directories are real renames. Failure
+  selects the cross-volume branch. The probe never holds data, so a kill leaves only an empty
+  directory, which the next pass removes.
+- **Rename branch** (the probe succeeded): move back with
   `[IO.File]::Move(src, dst, overwrite: $false)`. A rename cannot change bytes.
   - If the move fails because dst exists, the root already holds that object. It is either the
-    cross-volume original whose delete never ran, or this rollback's own earlier pass. Step 10
-    cannot have created it: content addressing never writes over a name the pool already held,
-    and this object was in the pool at step 10.
-  - The Temp copy is then redundant and is left for cleanup. The failed call IS the existence
-    test, so there are no extra probes.
-- **Cross volume:** copy to `BkpPath\<leaf>.recover.tmp`, deleting any leftover first. Compare
-  the copy's length with the source length from the Temp enumeration (no stat). Then
-  `File.Move(tmp, dst, overwrite: $false)`; "exists" is handled as above. The source stays in
-  Temp, and cleanup deletes it after RECOVERY.done. A torn `.recover.tmp` from a killed pass is
-  overwritten by the next pass.
+    original whose forward delete never ran, or this rollback's own earlier pass. A forward
+    copy-then-delete (E5) copies INTO Temp, so it never tears a root object.
+  - Step 10 cannot have created dst: content addressing never writes over a name the pool
+    already held, and this object was in the pool at step 10.
+  - The Temp copy is then redundant and is left for cleanup. The failed call is the existence
+    test, so the application makes no additional probe.
+- **Copy branch** (the probe failed): `File.Copy(src, BkpPath\<leaf>.recover.tmp, $true)`, which
+  overwrites a torn leftover from a killed pass. Compare the copy's length with the source length
+  from the Temp enumeration, with no extra stat. Then `File.Move(tmp, dst, overwrite: $false)`.
+  That is a same-directory move, so it is always a rename and is never degraded. "Exists" is
+  handled as above. The source stays in Temp, and cleanup deletes it after RECOVERY.done.
 - **The first draft's "collision with different bytes, quarantine the destination" branch** is
   unreachable by the argument above. If it is ever hit (dst exists and one stat shows a length
   different from the Temp source), refuse loudly: it is not a kill state.
 - **Hashing** stays available as an explicit audit (`-Action Verify`), not as a recovery step.
-- **Cost:** per Temp data file, one rename (same volume), or one copy plus one rename (cross
-  volume). No hash, no pool scan, no per-object probe.
+- **Cost (revised 2026-10-10: runtime calls counted).** "No additional application probe" is
+  not the same as "no probe". The runtime's own metadata calls are listed here.
+
+| Operation | Application calls | Runtime calls underneath |
+|---|---|---|
+| Probe, once per rollback that has data to move | create dir, `Directory.Move`, remove dir; plus up to 2 leftover removals | Unix: `LStat(dst)` + `rename`. Windows: string root check + `MoveFileEx` |
+| Rename branch, per data file | one `File.Move` | Windows: source existence check (`GetFileAttributesEx`, NET File.cs:1050) + `MoveFileEx`. Unix: `stat` (File.cs:1050) + `LStat(src)` + `LStat(dst)` + `rename` (FileSystem.Unix.cs:225-229). On "exists", Unix skips the rename and calls `link()` instead, which fails `EEXIST` (L235, L77) |
+| Copy branch, per data file | one `File.Copy`, one `File.Move` | the copy's own opens and data transfer, then the same-directory move as above |
+
+  No hash, no pool scan, no per-row probe. Every count is linear in Temp's data-file count.
 
 ### 3.4 Runs that threw, not only killed
 
@@ -338,8 +454,10 @@ The marker state then decides rollback or roll-forward exactly as for a kill.
 *New 2026-10-09 (review).* **Cleanup** is entered from row 1, or straight after a rollback or a
 discard publishes RECOVERY.done:
 1. Delete every leaf except RECOVERY.done, in any order and each by exact name. That covers the
-   marker, `RUN.state` and `RUN.state.tmp`, the manifest set (`.csv`, `.meta` and both `.tmp`),
-   DIRECTORIES.csv, the kit files and the data files. A data file is a name that parses by the
+   marker, `RUN.state` and `RUN.state.tmp`, `RECOVERY.done.tmp` (an unpublished record, see row
+   2), the manifest set (`.csv`, `.meta` and both `.tmp`), DIRECTORIES.csv, the kit files, a
+   leftover empty `.fbrecover-probe` directory (removed non-recursively, 3.3) and the data files.
+   The names come from the enumeration the classifier already made, so there is no extra pass. A data file is a name that parses by the
    SR-069 grammar, which is a pure check with no I/O. Every one of these leaves is redundant:
    RECOVERY.done is published only after the rollback put each byte back at the root (or found it
    already there), or after the discard proved that none was ever moved.
@@ -369,7 +487,8 @@ or would meet a Temp with no manifest at all.
 - Replace it with the same shape: delete the leaves by exact name, RUN.state LAST, then a
   non-recursive rmdir.
   - A kill before RUN.state is deleted lands on row 4 with ManifestChanged=false (or SnapshotDate
-    null), which discards again.
+    null). Row 4 reads that decision FIRST and discards again, without reading the manifest or
+    witness this discard may already have deleted (second review, item 2).
   - A kill after it leaves an empty Temp: row 5.
 - The failure is no longer silent.
 - Cost: no more operations than today, since the recursive delete enumerates and deletes the same
@@ -446,12 +565,22 @@ Found by the 2026-10-09 independent review, and while answering it:
   - Rejected for step 13: pinning the blanked manifest's digest in a second record before the
     rename. That costs a second record write per finalizing run, and Common would have to expose
     the digest before the rename (a kit revision). It would buy only the residual named in §10.
-- **G8. The same pair gap at step 6. It exists under P, and it is NOT handled. Flagged.**
+- **G8. The same pair gap at step 6. It exists under P, and it is NOT handled. BUILD BLOCKER
+  (raised 2026-10-10): the recovery build may not start until the Owner decides G8.**
   - `Test-BackupManifest` rewrites the root unconditionally (E′:929). A kill between the rename
     and the witness leaves a complete sanitized root beside the pre-run witness: `Mismatch`.
     Temp then holds only the marker.
   - The 1.5 deferral lets the next run reach recovery. But the existing marker-only reclaim does
     not touch the root, so the gate then refuses, and that is a person.
+  - **Reachable through the supported healing path.** When sanitization blanks a missing
+    DataPath (E′:915-917, the SR-053 heal input), the rewritten bytes differ from what the stale
+    witness describes, so the kill reads `Mismatch`.
+    - If sanitization blanked nothing, the rewrite may be byte-identical, in which case the stale
+      witness still verifies. Not verified here; it does not matter, because the healing case
+      certainly reaches the gap.
+    - Before P2, a kill between `Move-Item -Force`'s delete and its move (PS:5992-5993) leaves
+      the root witness `Absent` instead. The gate refuses only `Mismatch` and `Malformed` (E′:6712-6713), so that
+      variant heals itself on the next run. The `Mismatch` variant does not.
   - Options:
     - (a) Recognise it by program order. The marker is present, there is no Temp manifest, and
       this run's own 1.5 gate passed before the marker existed. Then re-run sanitization, which
@@ -462,9 +591,34 @@ Found by the 2026-10-09 independent review, and while answering it:
       sanitized rows, and a failed run leaves the pre-run root, which the next run re-sanitizes.
       Row 2's argument still holds: the root is then the pre-run manifest rather than step 6's,
       and either way Temp is redundant.
-  - (c) closes the window and also removes one full manifest write from EVERY run, which suits
-    the Owner's speed constraint. Recommended; not decided. It needs the coordinator, because it
-    changes step 6's contract (SR-061/SR-064 wording).
+  - **Recommendation: (c). This design does NOT decide it.** It changes how healing persists,
+    so it is the Owner's decision (§9, Owner decision (e)).
+  - Rationale for (c): it closes the window, where (b) only narrows it and (a) re-witnesses an
+    unverified root. It also removes one full manifest write, and the witness's re-read and hash
+    of it, from EVERY run, which suits the Owner's speed constraint.
+  - **What (c) changes about healing persistence:**
+    1. The step-6 blanks of missing DataPaths reach the root only when the run gets to step 12,
+       or when a rollback restores the Temp copy, which carries them. Today they reach it at
+       step 6.
+    2. A run that fails or refuses between step 6 and step 12 (the 9.4 capacity refusal, any
+       throw) leaves the root still NAMING the missing DataPaths. Today those are blanked. A
+       restorer or `-Action Verify` that runs before the next completed run then sees a named,
+       missing file rather than a blank row.
+       - The restorers' hash fallback for a missing named file is AGENTS §3, kit revision 4.
+       - Whether that path's form decision matches SR-050's blank-row path is NOT verified here.
+       - Whether `Test-StorageFormAgreement` and `Test-PoolResolves` classify the two the same
+         way is NOT verified here.
+
+       Both must be checked before (c) is built.
+    3. The "Datapath missing in backup DB" warning (E′:916) repeats on each failed run until a
+       run completes. Today the persisted blank silences it after the first step 6.
+    4. Unchanged: the heal itself (SR-053's re-copy at step 10 of the same run, which works from
+       the in-memory sanitized `$backupDb`); the orphan scan and its warnings (SR-064); the
+       step-7 Temp copy, so snapshots; and row 2's argument (the root becomes the pre-run
+       manifest instead of step 6's, and Temp is redundant either way).
+    5. The spine text that says step 6 writes the root (SR-061/SR-064 wording, AGENTS §2 step 6)
+       and any TC asserting that write must be revised.
+  - §6.1 shows the step-6 pair row as **BLOCKED ON G8**.
 - **G9. §2.2's "all callers run BEFORE step 7" was wrong.** `$refuseCapacity` (E:6469) runs at
   step 9.4 (E:6553). That is why RUN.state is written after 9.4 rather than at step 7.
 
@@ -492,8 +646,13 @@ reversed.
   follows the manifest. A kill between them leaves the complete blanked manifest beside the
   step-7 witness, which reads `Mismatch`. Roll-forward proceeds through row 4's acceptance rule,
   not unconditionally (G7).
+- Build order (2026-10-10): P2 joins P as a prerequisite, and G8 blocks the build until the Owner
+  decides it (§5).
 
-## 5. Separate items (P is now a build prerequisite — see the resolution above; A1 is not a gate)
+## 5. Separate items (P and P2 are build prerequisites; G8 is a build blocker; A1 is not a gate)
+
+Build order, revised 2026-10-10: **the Owner decides G8 → P and P2 (one kit revision) → OS lock
+→ split recovery.** The recovery build does not start while G8 is open.
 
 **P. Atomic `Write-Manifest`.** `Test-BackupManifest` calls `Write-Manifest` unconditionally on
 success (E:922). `Write-Manifest` writes the final path directly (`Export-Csv -LiteralPath`,
@@ -508,13 +667,48 @@ C:1233). Only the witness uses tmp plus rename (C:1327-1328). Change `Write-Mani
   still follows it (C′:1293). That pair window is G6/G7/G8. P also whitelists only
   `MANIFEST.csv.tmp` (E′:78, E′:3389); recovery adds `MANIFEST.csv.meta.tmp` (G6).
 
+**P2. Atomic witness replacement. A build PREREQUISITE beside P (added 2026-10-10, second
+review).**
+- What happens now: `Write-ManifestWitness` publishes the witness with
+  `Move-Item -LiteralPath $tempPath -Destination $witnessPath -Force` (C′:1386). Over an EXISTING
+  witness, PowerShell's provider does this (PS:5908-5993, `MoveFileInfoItem`):
+  1. It first tries `FileInfo.MoveTo(dest)` without overwrite (PS:5925), which fails because the
+     destination exists.
+  2. In the `IOException` handler it checks `File.Exists(dest)` (PS:5983), clears attributes,
+     `Delete()`s the destination (PS:5992), and only then calls `MoveTo` again (PS:5993).
+
+  A kill between 5992 and 5993 leaves NO witness beside a complete manifest. That window exists
+  at every witness REPLACE: step 6 and step 12 at the root, step 13 in Temp (E′:6221), and
+  rollback step 2. It does not exist at step 7, because Temp has no prior witness there, so the
+  first `MoveTo` succeeds.
+- Change: `[IO.File]::Move($tempPath, $witnessPath, $true)`, the same call P uses for the
+  manifest (C′:1284). That is `MoveFileEx(REPLACE_EXISTING)` on Windows and `rename(2)` on Unix
+  (NET FileSystem.Unix.cs:193-195, overwrite branch). It is same-directory, so it never takes
+  the copy fallback. The witness is then the old file or the new one, never absent.
+- Why it matters: step 13 is the only place where `Absent` would strand data. Without P2, row
+  4 refuses there, beside only-copy data, and that sends it to a person. At step 12 and in
+  rollback step 2 an `Absent` root witness is harmless: Temp exists, so row 3 rewrites both
+  files. At step 6 `Absent` passes the gate and heals itself (G8).
+- Consequences:
+  - Common changes, so there is a kit revision (AGENTS §3). It should ride P's revision if the
+    two ship together (E4).
+  - The restorers' and the gate's reading of the witness is unchanged, and so is the
+    manifest-then-witness ORDER (AGENTS §4: do not stamp the witness first). P2 does not change
+    the order; it removes only the moment with no witness at all.
+- No verification pass is needed. The `.meta.tmp` left by a kill BEFORE the rename is already
+  covered: it reads `Absent` at step 7 (row 2) and `Mismatch` at step 13 (row 4).
+- Cost: fewer calls than today. Today, a replace costs a failed `MoveTo`, `File.Exists`, an
+  attribute write, `Delete` and a second `MoveTo`. P2 costs one source-existence check
+  (NET File.cs:1050) and one rename.
+
 **A1. Audit: torn step-10 objects.** Step 10 writes final content-addressed names directly
 (E:811, E:824). A kill mid-write leaves a torn object at a name it does not hash to. Audit whether
 any reader trusts a name without checking. Treat as an orphan (O2 default: report, do not delete).
 
 ## 6. Interruption table (corrected; revised 2026-10-09 for P and the review)
 
-P is a build prerequisite, so the table assumes it: no manifest is ever torn. The old pre-P rows
+P and P2 are build prerequisites, so the table assumes both: no manifest is ever torn, and no
+witness is ever absent mid-replace (6.3 shows the P2 window). The old pre-P rows
 ("mid-Export, torn") are therefore replaced by the manifest/witness PAIR windows, written "after
 rename, before witness" (C′:1284 to C′:1386). "Only copy" means the bytes or the index exist in
 Temp and nowhere else. "Row" is the 3.2 classification. Cites are E′ (fix-staging-os-lock).
@@ -525,7 +719,7 @@ Temp and nowhere else. "Row" is the 3.2 classification. Cites are E′ (fix-stag
 |---|---|---|---|---|
 | Before E′:6746 | untouched | nothing | none | no |
 | Step 6, before rename (E′:929 → C′:1275) | prior; maybe a root `MANIFEST.csv.tmp` (infrastructure, E′:78) | marker only | existing reclaim | no |
-| Step 6, after rename, before witness | sanitized, complete; witness pre-run, so **Mismatch** | marker only | 1.5 defers, reclaim; root still Mismatch, so the run **refuses**: **G8, open** | no |
+| Step 6, after rename, before witness | sanitized, complete; witness pre-run, so **Mismatch** | marker only | **BLOCKED ON G8** (build blocker; Owner decision (e)). Today: 1.5 defers, the marker-only reclaim runs, the root is still Mismatch, so the run refuses: a person | no |
 | Step 7, before rename (C′:1275-1284) | sanitized, Verified | marker + `MANIFEST.csv.tmp` | existing reclaim (E′:3389) | no |
 | **Step 7, after rename, before witness (C′:1284-1386)** | sanitized, Verified | marker + complete MANIFEST.csv, **no .meta**, maybe `.meta.tmp` | **row 2: discard** (was: refuse, a person) | no |
 | Step 7, after witness, before or mid DIRECTORIES copy (E′:6878-6880) | sanitized, Verified | marker + manifest + witness (+ partial sidecar) | row 2: discard | no |
@@ -544,7 +738,7 @@ Temp and nowhere else. "Row" is the 3.2 classification. Cites are E′ (fix-stag
 | **Step 13, E′:6221 after rename, before witness** | new, Verified | **blanked** manifest + step-7 witness (**Mismatch**) | row 4: accepted when Rows agree; re-run re-witnesses (G7) | **yes** |
 | Step 13, after witness, kit copy partial (E′:6229-6239) | new, Verified | blanked + Verified + partial kit | row 4: roll forward; blank and kit copy are idempotent | yes |
 | Step 13, after RUN.state delete, before rename (E′:6254) | new, Verified | complete, no record | row 4: no record, so publish (correct here) | yes |
-| No-op / first-run discard, part-way (E′:6209 as replaced, 3.5) | new, Verified | leaves remaining + RUN.state (deleted last) | row 4: ManifestChanged=false or no date, so discard again | no |
+| No-op / first-run discard, part-way (E′:6209 as replaced, 3.5) | new, Verified | leaves remaining + RUN.state (deleted last) | row 4: RUN.state's discard decision is read FIRST, so it discards again without reading the manifest or witness (which may be gone) | no |
 | No-op discard, after RUN.state delete | new, Verified | empty | row 5 | no |
 | After rename (E′:6254) | Snapshot_* published | none | none; steps 14-15 out of scope | n/a |
 
@@ -561,15 +755,32 @@ Temp and nowhere else. "Row" is the 3.2 classification. Cites are E′ (fix-stag
 | RECOVERY.done published, before any delete | restored | full | row 1: cleanup | no |
 | Cleanup mid-deletes (marker possibly gone) | restored | subset + RECOVERY.done | **row 1** (it used to be roll forward, **G5**) | no |
 | Cleanup, RECOVERY.done deleted, before rmdir | restored | empty | row 5 | no |
+| Discard (row 2), `RECOVERY.done.tmp` written, not renamed | untouched | step-7 set + `RECOVERY.done.tmp` | row 2 again: the `.tmp` is in its set, and the next publication overwrites it | no |
 | Discard (row 2), RECOVERY.done published or mid-deletes | untouched | subset + record | row 1 | no |
+| Rollback rename probe (3.3), probe dir left in Temp or in BkpPath | partly restored, or not | unchanged + empty `.fbrecover-probe` | row 3: remove the leftover probe, probe again, repeat | as before the probe |
 | Roll forward, anywhere in the re-run | new, Verified | as in the step-13 rows of 6.1 | row 4 again | as 6.1 |
+
+**6.3 The witness-replace window (P2, added 2026-10-10)**
+
+This is the kill between `Move-Item -Force`'s `Delete()` of the old witness and its `MoveTo` of
+the new one (PS:5992-5993). It exists only without P2. With P2 every row below reads "the old
+or the new witness; no Absent state exists".
+
+| Witness replace | Without P2 | With P2 |
+|---|---|---|
+| Step 6, root | complete root, NO witness. The gate accepts `Absent` (E′:6712-6713), so it heals itself on the next run | old or new witness; the `Mismatch` case is G8 |
+| Step 12, root | new root, NO witness. Temp exists, so row 3 rolls back and rewrites both | old or new; 6.1 rows |
+| **Step 13, Temp (E′:6221)** | blanked manifest, NO witness, complete `.meta.tmp`. **Row 4 refuses beside only-copy data: a person** | old witness (Mismatch, accepted when Rows agree) or new (Verified) |
+| Rollback step 2, root | prior root, NO witness. Marker and RUN.state remain, so row 3 repeats | old or new; 6.2 rows |
+| Step 7, Temp | not reachable: Temp has no prior witness, so the first `MoveTo` succeeds (PS:5925) | same |
 
 Summary:
 - Temp holds the only copy from step 11 through step 13, in every sub-point.
 - Kills up to step 10 leave Temp redundant; deleting it loses nothing. Through step 9.4 the
   absence of RUN.state proves it without reading the witness.
 - Under P no manifest is torn. Every remaining index window is a manifest/witness pair. Steps
-  7, 12 and 13 and rollback step 2 resolve automatically (G6, G7). **Step 6 does not, G8.**
+  7, 12 and 13 and rollback step 2 resolve automatically (G6, G7), given P2 for step 13.
+  **Step 6 does not: G8 is a build blocker.**
 - No row of 6.2 asks a person. Every kill inside recovery lands on a row that resumes.
 
 ## 7. Test plan
@@ -626,13 +837,45 @@ recovery a second time and asserts that the result equals the single-pass result
     blank of the prior manifest.
   - Negative: the same state with a row deleted from the blanked manifest must refuse.
 - **No-op discard killed part-way** (3.5): no Snapshot_*, and the next run is not blocked.
-- **SchemaVersion-1 Temp** (upgrade): with a verifying Temp manifest it rolls back. With no
-  witness it refuses as today.
-- **Cost assertions** (the Owner's speed constraint): count filesystem calls through the seams.
-  - A normal run with no Temp adds zero existence tests over today, and exactly one record write,
-    one rename and one delete.
-  - A recovery makes no pool enumeration and no per-object hash, and its call count is linear in
-    Temp's entry count.
+  - Added 2026-10-10: kill it after `MANIFEST.csv` is deleted, again after `.meta` is deleted,
+    while RUN.state remains each time.
+  - Assert row 4 discards without reading the manifest or witness: no `Read-Manifest` and no
+    `Test-ManifestWitness` call through the seams.
+  - **Mutation check:** moving the RUN.state branch after the witness checks must make this
+    refuse.
+- **`RECOVERY.done.tmp` left by a killed discard** (2026-10-10): assert row 2 discards and
+  cleanup removes the `.tmp`. The same check applies to a killed rollback in row 3.
+- **RUN.state is fail-closed** (2026-10-10): make the RUN.state write, flush or rename throw.
+  - Assert the set fails before step 10, with nothing moved and no step-10 object written.
+  - Assert the next recovery takes row 2.
+- **P2, the witness replace** (2026-10-10): put a seam between the old-witness removal and the
+  new witness's arrival, at step 13 (Temp), step 12 (root) and rollback step 2.
+  - With P2, assert the witness is the old or the new file at every instant, never absent, and
+    that row 4 publishes at step 13.
+  - **Mutation check:** restoring `Move-Item -Force` must reproduce `Absent` at step 13, and
+    row 4 must then refuse there.
+- **Silent copy degrade (3.3)** (2026-10-10): put Temp and BkpPath on different volumes where
+  `$sameVolume` still says "same". A folder mount point on Windows does this, and so do two bind
+  mounts of one filesystem in the container.
+  - Assert the probe selects the copy branch.
+  - Then kill mid-copy. Assert no torn object ever appears at a final root name, and that the
+    Temp source survives until after RECOVERY.done.
+  - **Mutation check:** branching on `$sameVolume` instead must fail this test.
+- **SchemaVersion-1 Temp** (upgrade): with a verifying Temp manifest it rolls back. Without a
+  witness, the expectation is set by Owner decision (d), which is still open. The proposed
+  expectation is today's refusal; the test is written once (d) is decided.
+- **Cost assertions** (the Owner's speed constraint). Count calls through the seams at the
+  APPLICATION level, and count runtime calls separately, for example with `strace -c` in the
+  container or ProcMon on Windows. Do not merge the two counts.
+  - Application level, normal run with no Temp: zero existence tests added over today. Exactly
+    one record write, one flush, one rename and one delete are added. The witness publish costs
+    fewer calls than today (P2, §5).
+  - Runtime level, same run: the RUN.state rename adds one source-existence check plus the
+    rename (NET File.cs:1050).
+  - Application level, recovery: no pool enumeration, no per-object hash, at most one rename
+    probe, and a call count linear in Temp's entry count.
+  - Runtime level, recovery: per moved file, 2 calls on Windows and 4 on Unix. On "exists",
+    Unix still makes 4 calls: `link()` replaces the rename. See 3.3's table.
 - P: at every Write-Manifest kill point, MANIFEST.csv is the old or new complete file, never
   zero-length or torn. Mutation check: reverting P must fail this test.
 - TC-188 is rewritten to the recovered expectation, not weakened. A new test keeps the
@@ -661,6 +904,11 @@ and TC-234 to TC-236 are reserved by another branch in progress.
   - SR-017's recoverable set gains `RUN.state`, `RECOVERY.done`, their `.tmp`s and
     `MANIFEST.csv.meta.tmp`.
   - SR-059's "name-proven" restore is stated as preserved by rename, not re-hashed (3.3).
+- Added 2026-10-10 (second review):
+  - SR-038's witness-publish wording changes under P2: the replace is atomic, `File.Move` with
+    overwrite; the LLR-038 row is not re-verified here.
+  - SR-075 states that RUN.state publication is fail-closed.
+  - Whatever G8 decides changes SR-061/SR-064's step-6 wording.
 - README "A run refuses because Temp exists" is rewritten on ship. Step (4) is removed.
 
 ## 9. Open questions
@@ -692,6 +940,9 @@ Engineering (decidable without the Owner):
   existing stores.
 - E5. Same-volume moves are renames (E:6474 SameVolume); cross-volume they are copy-then-delete.
   Confirm a mid-copy kill is safe.
+  (2026-10-10: for the FORWARD moves of steps 11 and 11.5 this is safe, because the copy goes
+  INTO Temp. For the REVERSE moves of rollback it was NOT safe, so 3.3 now branches on a rename
+  probe instead of `$sameVolume`.)
 - E6. Watchdog contract (P4): a recovered run must report a status distinct from a refusal.
 - G1 and G2 (section 4) block roll-forward. Both need a decision before build.
   (Both were decided by the coordinator, and amended in §4.)
@@ -703,8 +954,8 @@ Engineering (decidable without the Owner):
   it ships with the build, or alone as a speed fix.
 - E8. Rollback reads the Temp manifest twice: `Test-ManifestWitness` hashes it, and
   `Read-Manifest` parses it. Can one streamed read serve both? Not required for correctness.
-- E9. G8, the step-6 pair gap. Option (c) is recommended; it needs a decision before build,
-  because D8 forbids a person.
+- E9. G8, the step-6 pair gap. Moved to the Owner decisions as (e) on 2026-10-10. It is a BUILD
+  BLOCKER (§4, §5).
 
 Engineering defaults (were Owner questions; now decided here):
 - O1. Never lose. Rollback to the pre-run state, with the backup one cycle behind until the next run.
@@ -720,7 +971,12 @@ Genuine Owner decisions:
 - (d) Added 2026-10-09: the upgrade boundary. Should a Temp left by a pre-RUN.state engine
   (owner record SchemaVersion 1) that cannot be rolled back keep today's refusal? That happens
   only on a one-time state, at the first run after the upgrade. Proposed: yes, keep the refusal.
-  The alternative is guessing the kill point without the record.
+  The alternative is guessing the kill point without the record. Until this is decided, 3.2 and
+  §7 treat that refusal as PROPOSED, not adopted.
+- (e) Added 2026-10-10: **G8, a BUILD BLOCKER.** Should step 6 stop writing the root manifest
+  (option (c))? That changes when healing blanks persist. §4 lists exactly what it changes and
+  what must be verified first. The recommendation is (c). Alternatives (a) and (b) are in §4.
+  The recovery build does not start until this is decided.
 
 ## 10. Not determined
 
@@ -741,6 +997,20 @@ Genuine Owner decisions:
 - Whether a durable record write (RUN.state, RECOVERY.done) through the translation layer is
   durable at rename time. It is assumed to be as durable as the witness rename it copies. Not
   measured.
+- Added 2026-10-10:
+  - **The rename probe.** 3.3 assumes that, through the Owner's NTFS translation layer, a
+    directory rename succeeding between Temp and BkpPath implies file renames there are true
+    renames. That holds for NTFS and for Linux mount semantics, read from the .NET sources cited.
+    It is not tested through the translation layer, and a layer that emulates directory rename by
+    copying would defeat it.
+  - **P2 through the translation layer.** P2 assumes `MoveFileEx(REPLACE_EXISTING)` and
+    `rename(2)` are atomic through the layer. They are treated as being as atomic as P's manifest
+    rename; neither is measured.
+  - **Source revisions.** The runtime behaviour cited (PS v7.5.0, .NET v9.0.0) was read from
+    source. This dev PC runs pwsh 7.6.6 on .NET 10.0.12, and the production container's versions
+    were not checked. The two cited paths should be re-read at the versions that ship. Note that
+    the second review's PS line cite (L5504-5517) does not match the v7.5.0 file read here: the
+    same code is at PS:5980-5993.
 - Behaviour under a container memory limit (DR §5), which can move where a kill lands.
 - Steps 14-15 (Optimize-ChangeFolders rewrites snapshot manifests in place, E:1062-1083) are out of
   scope but carry the same in-place-write hazard.
