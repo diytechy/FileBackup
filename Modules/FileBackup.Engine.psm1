@@ -1975,7 +1975,7 @@ function Repair-BackupStorageForm {
         [pscustomobject] Repaired (count), Skipped (the findings left alone) and
         Findings (the pre-repair audit).
     #>
-    # Implements: SR-049, SR-024, SR-038, LLR-049
+    # Implements: SR-049, SR-024, SR-038, SR-085, SR-086, LLR-049, LLR-094
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -1983,93 +1983,107 @@ function Repair-BackupStorageForm {
         [switch]$BackupRootOnly,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $findings = @(Test-BackupStorageForm -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot -BackupRootOnly:$BackupRootOnly)
-    $repaired = 0
-    $skipped  = New-Object System.Collections.Generic.List[object]
-
-    foreach ($group in ($findings | Group-Object Folder)) {
-        $folder   = $group.Name
-        $manifest = @(Read-Manifest -FolderPath $folder)
-        $dirty    = $false
-
-        # ONE physical file per group: the rename is done once and every row
-        # naming that file adopts the result (finding H1).
-        foreach ($byPath in ($group.Group | Group-Object DataPath)) {
-            $dataPath   = [string]$byPath.Name
-            $repairable = @($byPath.Group | Where-Object { $_.Repairable })
-            foreach ($f in @($byPath.Group | Where-Object { -not $_.Repairable })) { $skipped.Add($f) }
-            if ($repairable.Count -eq 0) { continue }
-
-            # EVERY row that references this physical file, not just the ones
-            # that produced a finding — a row exempted by the '.7z' source rule
-            # still has to follow its data file through a rename.
-            $rows = @($manifest | Where-Object { $_.DataPath -eq $dataPath })
-            if ($rows.Count -eq 0) { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
-
-            $full     = Join-Path $folder $dataPath
-            $observed = Get-StoredFileForm -Path $full
-            if ($observed -eq 'Missing') { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
-
-            # The row loop below rewrites Compressed for EVERY row naming this
-            # file, including rows that produced no finding — so it needs the
-            # SAME payload-keyed exemption Get-StorageFormFinding applies. Read
-            # the bytes' identity ONCE, and BEFORE any rename moves them.
-            $ownHash = $null; $ownLength = ''
-            if ($observed -eq 'Archive') {
-                $ownLength = [string](Get-Item -LiteralPath $full).Length
-                $ownHash   = Get-FileXxHash -FilePath $full
-            }
-
-            # The bytes decide both columns. Rename only when the name's claim
-            # differs from what the bytes are.
-            $newCompressed = if ($observed -eq 'Archive') { 'Yes' } else { 'No' }
-            $newDataPath   = $dataPath
-            $nameIsArchive = ([IO.Path]::GetExtension($dataPath) -ieq '.7z')
-            if ($observed -eq 'Archive' -and -not $nameIsArchive) { $newDataPath = "$dataPath.7z" }
-            if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $dataPath.Substring(0, $dataPath.Length - 3) }
-
-            if ($newDataPath -ne $dataPath) {
-                $target = Join-Path $folder $newDataPath
-                if (Test-IsInfrastructureFile -Root $folder -FullPath ([IO.Path]::GetFullPath($target))) {
-                    & $Log "Refusing to rename '$dataPath' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
-                    foreach ($f in $repairable) { $skipped.Add($f) }; continue
-                }
-                if (Test-Path -LiteralPath $target -PathType Leaf) {
-                    & $Log "Refusing to rename '$dataPath' to '$newDataPath': a file is already there." 'WARN'
-                    foreach ($f in $repairable) { $skipped.Add($f) }; continue
-                }
-                if ($PSCmdlet.ShouldProcess($target, "rename '$dataPath' so its name matches its bytes")) {
-                    Move-Item -LiteralPath $full -Destination $target -Force
-                } else { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
-            }
-
-            foreach ($row in $rows) {
-                # A row whose stored bytes ARE its own payload is an
-                # already-compressed SOURCE file: its Compressed column is not a
-                # disagreement, and rewriting it from the bytes would make the
-                # restorer expand the user's archive. Keyed on the payload, with
-                # a '.7z' RelativePath as the fast path — the source can be named
-                # anything. Such a row still follows the file through the rename.
-                $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z') -or
-                          ($null -ne $ownHash -and $ownHash -eq $row.xxH2Hash -and $ownLength -eq [string]$row.Length)
-                & $Log ("Repaired '$([IO.Path]::GetFileName($folder))' row '$($row.RelativePath)': " +
-                        "Compressed $($row.Compressed) -> $(if ($exempt) { $row.Compressed } else { $newCompressed }), " +
-                        "DataPath '$dataPath' -> '$newDataPath'.") 'INFO'
-                $row.DataPath = $newDataPath
-                if (-not $exempt) { $row.Compressed = $newCompressed }
-            }
-            $dirty = $true
-            $repaired += $repairable.Count
-        }
-
-        # One write per folder, through the SOLE manifest writer, so the SR-038
-        # witness is re-stamped with it (never a caller-side stamp).
-        if ($dirty -and $PSCmdlet.ShouldProcess($folder, 'persist the repaired manifest')) {
-            Write-Manifest -FolderPath $folder -Records $manifest
-        }
+    # The staging OS lock (SR-085, LLR-094), taken BEFORE the audit so the
+    # findings and the repair see one state: a repair renames pool objects
+    # and rewrites manifests, and must not race a backup's root-manifest
+    # publish or finalize, a prune, or the coming staging recovery. A lock
+    # that cannot be taken refuses (throws) touching nothing (SR-086).
+    # -WhatIf mutates nothing and takes no lock.
+    $osLock = $null
+    if (-not $WhatIfPreference) {
+        $osLock = Enter-StoreMutationLock -ChangeRoot $ChangeRoot -Activity 'repair the storage form' -Log $Log
     }
+    try {
+        $findings = @(Test-BackupStorageForm -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot -BackupRootOnly:$BackupRootOnly)
+        $repaired = 0
+        $skipped  = New-Object System.Collections.Generic.List[object]
 
-    return [pscustomobject]@{ Repaired = $repaired; Skipped = $skipped.ToArray(); Findings = $findings }
+        foreach ($group in ($findings | Group-Object Folder)) {
+            $folder   = $group.Name
+            $manifest = @(Read-Manifest -FolderPath $folder)
+            $dirty    = $false
+
+            # ONE physical file per group: the rename is done once and every row
+            # naming that file adopts the result (finding H1).
+            foreach ($byPath in ($group.Group | Group-Object DataPath)) {
+                $dataPath   = [string]$byPath.Name
+                $repairable = @($byPath.Group | Where-Object { $_.Repairable })
+                foreach ($f in @($byPath.Group | Where-Object { -not $_.Repairable })) { $skipped.Add($f) }
+                if ($repairable.Count -eq 0) { continue }
+
+                # EVERY row that references this physical file, not just the ones
+                # that produced a finding — a row exempted by the '.7z' source rule
+                # still has to follow its data file through a rename.
+                $rows = @($manifest | Where-Object { $_.DataPath -eq $dataPath })
+                if ($rows.Count -eq 0) { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
+
+                $full     = Join-Path $folder $dataPath
+                $observed = Get-StoredFileForm -Path $full
+                if ($observed -eq 'Missing') { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
+
+                # The row loop below rewrites Compressed for EVERY row naming this
+                # file, including rows that produced no finding — so it needs the
+                # SAME payload-keyed exemption Get-StorageFormFinding applies. Read
+                # the bytes' identity ONCE, and BEFORE any rename moves them.
+                $ownHash = $null; $ownLength = ''
+                if ($observed -eq 'Archive') {
+                    $ownLength = [string](Get-Item -LiteralPath $full).Length
+                    $ownHash   = Get-FileXxHash -FilePath $full
+                }
+
+                # The bytes decide both columns. Rename only when the name's claim
+                # differs from what the bytes are.
+                $newCompressed = if ($observed -eq 'Archive') { 'Yes' } else { 'No' }
+                $newDataPath   = $dataPath
+                $nameIsArchive = ([IO.Path]::GetExtension($dataPath) -ieq '.7z')
+                if ($observed -eq 'Archive' -and -not $nameIsArchive) { $newDataPath = "$dataPath.7z" }
+                if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $dataPath.Substring(0, $dataPath.Length - 3) }
+
+                if ($newDataPath -ne $dataPath) {
+                    $target = Join-Path $folder $newDataPath
+                    if (Test-IsInfrastructureFile -Root $folder -FullPath ([IO.Path]::GetFullPath($target))) {
+                        & $Log "Refusing to rename '$dataPath' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
+                        foreach ($f in $repairable) { $skipped.Add($f) }; continue
+                    }
+                    if (Test-Path -LiteralPath $target -PathType Leaf) {
+                        & $Log "Refusing to rename '$dataPath' to '$newDataPath': a file is already there." 'WARN'
+                        foreach ($f in $repairable) { $skipped.Add($f) }; continue
+                    }
+                    if ($PSCmdlet.ShouldProcess($target, "rename '$dataPath' so its name matches its bytes")) {
+                        Move-Item -LiteralPath $full -Destination $target -Force
+                    } else { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
+                }
+
+                foreach ($row in $rows) {
+                    # A row whose stored bytes ARE its own payload is an
+                    # already-compressed SOURCE file: its Compressed column is not a
+                    # disagreement, and rewriting it from the bytes would make the
+                    # restorer expand the user's archive. Keyed on the payload, with
+                    # a '.7z' RelativePath as the fast path — the source can be named
+                    # anything. Such a row still follows the file through the rename.
+                    $exempt = ([IO.Path]::GetExtension([string]$row.RelativePath) -ieq '.7z') -or
+                              ($null -ne $ownHash -and $ownHash -eq $row.xxH2Hash -and $ownLength -eq [string]$row.Length)
+                    & $Log ("Repaired '$([IO.Path]::GetFileName($folder))' row '$($row.RelativePath)': " +
+                            "Compressed $($row.Compressed) -> $(if ($exempt) { $row.Compressed } else { $newCompressed }), " +
+                            "DataPath '$dataPath' -> '$newDataPath'.") 'INFO'
+                    $row.DataPath = $newDataPath
+                    if (-not $exempt) { $row.Compressed = $newCompressed }
+                }
+                $dirty = $true
+                $repaired += $repairable.Count
+            }
+
+            # One write per folder, through the SOLE manifest writer, so the SR-038
+            # witness is re-stamped with it (never a caller-side stamp).
+            if ($dirty -and $PSCmdlet.ShouldProcess($folder, 'persist the repaired manifest')) {
+                Write-Manifest -FolderPath $folder -Records $manifest
+            }
+        }
+
+        return [pscustomobject]@{ Repaired = $repaired; Skipped = $skipped.ToArray(); Findings = $findings }
+    } finally {
+        Exit-StagingOsLock -Lock $osLock -Log $Log
+    }
 }
 
 function Update-BackupSnapshotKit {
@@ -2102,30 +2116,43 @@ function Update-BackupSnapshotKit {
         [pscustomobject] Refreshed (folder count) and Revision (the kit revision
         now present in each).
     #>
-    # Implements: SR-049, SR-007, SR-038, LLR-049
+    # Implements: SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
         [Parameter(Mandatory)][string]$ChangeRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
-                   $script:Def.ReconstructCommandName, $script:Def.ReconstructShName,
-                   $script:Def.CommonModuleName,
-                   'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
-    $refreshed = 0
-    foreach ($snapshot in @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ })) {
-        if (-not $PSCmdlet.ShouldProcess($snapshot.FullName, 'refresh the bundled restore kit')) { continue }
-        foreach ($artifact in $artifacts) {
-            $src = Join-Path $BackupRoot $artifact
-            if (Test-Path -LiteralPath $src -PathType Leaf) {
-                Copy-Item -LiteralPath $src -Destination (Join-Path $snapshot.FullName $artifact) -Force
-            }
-        }
-        & $Log "Refreshed the restore kit in '$($snapshot.Name)' (the manifest witness was NOT copied)." 'INFO'
-        $refreshed++
+    # The staging OS lock (SR-085, LLR-094): a kit refresh overwrites files
+    # inside every Snapshot_* folder and must not race a backup publishing
+    # or deduplicating snapshots, a prune, or the coming staging recovery.
+    # A lock that cannot be taken refuses (throws) touching nothing
+    # (SR-086). -WhatIf mutates nothing and takes no lock.
+    $osLock = $null
+    if (-not $WhatIfPreference) {
+        $osLock = Enter-StoreMutationLock -ChangeRoot $ChangeRoot -Activity 'refresh the snapshot restore kits' -Log $Log
     }
-    return [pscustomobject]@{ Refreshed = $refreshed; Revision = (Get-BackupKitRevision -Folder $BackupRoot) }
+    try {
+        $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
+                       $script:Def.ReconstructCommandName, $script:Def.ReconstructShName,
+                       $script:Def.CommonModuleName,
+                       'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+        $refreshed = 0
+        foreach ($snapshot in @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ })) {
+            if (-not $PSCmdlet.ShouldProcess($snapshot.FullName, 'refresh the bundled restore kit')) { continue }
+            foreach ($artifact in $artifacts) {
+                $src = Join-Path $BackupRoot $artifact
+                if (Test-Path -LiteralPath $src -PathType Leaf) {
+                    Copy-Item -LiteralPath $src -Destination (Join-Path $snapshot.FullName $artifact) -Force
+                }
+            }
+            & $Log "Refreshed the restore kit in '$($snapshot.Name)' (the manifest witness was NOT copied)." 'INFO'
+            $refreshed++
+        }
+        return [pscustomobject]@{ Refreshed = $refreshed; Revision = (Get-BackupKitRevision -Folder $BackupRoot) }
+    } finally {
+        Exit-StagingOsLock -Lock $osLock -Log $Log
+    }
 }
 
 function Get-PruneCapacityRefusal {
@@ -2648,7 +2675,7 @@ function Remove-BackupSnapshot {
         [pscustomobject] per name: Name, Status (Pruned|Refused|WhatIf), Code,
         BytesReclaimed, BytesReHomed, ReHomeDestinations, Refusals, Message.
     #>
-    # Implements: SR-045, SR-046, SR-040, LLR-045, LLR-046
+    # Implements: SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -2665,97 +2692,128 @@ function Remove-BackupSnapshot {
     $bkp = (Resolve-Path -LiteralPath $BackupRoot).Path
     $chg = (Resolve-Path -LiteralPath $ChangeRoot).Path
 
-    foreach ($snapshotName in $Name) {
-        # The one pre-rail action, scoped to THIS name: finish its own committed
-        # deletion if one is outstanding. A host failure here is retriable (4),
-        # not an unclassified throw out of the cmdlet.
-        if (-not $WhatIfPreference) {
-            try {
-                Remove-CommittedPruneResidue -ChangeRoot $chg -Name $snapshotName -Log $log | Out-Null
-            } catch {
-                & $log "Could not complete the outstanding deletion of 'Pruning_$snapshotName': $($_.Exception.Message)" 'ERROR'
-                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4
+    # The staging OS lock (SR-085), the SAME lock every backup holds, taken
+    # before anything -- the residue completion included -- and held for the
+    # whole batch. Without it the Temp-folder rail below excludes a backup only
+    # while that backup's Temp exists; a backup past its finalize rename (Temp
+    # gone, Optimize-ChangeFolders rewriting snapshot manifests) would be pruned
+    # under. A lock that cannot be taken is LIVE (SR-086): every name is refused
+    # as staging-busy (code 2) and nothing is touched. -WhatIf mutates nothing,
+    # so it takes no lock.
+    $osLock = $null
+    if (-not $WhatIfPreference) {
+        try {
+            $osLock = Enter-StagingOsLock -ChgPath $chg -Log $log
+        } catch {
+            $held = $_.Exception.Message
+            & $log "Refusing to prune [2/staging-busy]: $held" 'ERROR'
+            foreach ($snapshotName in $Name) {
+                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 2
                     BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = @()
-                    Refusals = @([pscustomobject]@{ Code = 4; Kind = 'host-io'; Message = $_.Exception.Message })
-                    Message = "The outstanding deletion of 'Pruning_$snapshotName' could not be completed; nothing else was attempted. $($_.Exception.Message)" }
+                    Refusals = @([pscustomobject]@{ Code = 2; Kind = 'staging-busy'; Message = $held })
+                    Message = $held }
+            }
+            return
+        }
+    }
+
+    try {
+        foreach ($snapshotName in $Name) {
+            # The one pre-rail action, scoped to THIS name: finish its own committed
+            # deletion if one is outstanding. A host failure here is retriable (4),
+            # not an unclassified throw out of the cmdlet.
+            if (-not $WhatIfPreference) {
+                try {
+                    Remove-CommittedPruneResidue -ChangeRoot $chg -Name $snapshotName -Log $log | Out-Null
+                } catch {
+                    & $log "Could not complete the outstanding deletion of 'Pruning_$snapshotName': $($_.Exception.Message)" 'ERROR'
+                    [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4
+                        BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = @()
+                        Refusals = @([pscustomobject]@{ Code = 4; Kind = 'host-io'; Message = $_.Exception.Message })
+                        Message = "The outstanding deletion of 'Pruning_$snapshotName' could not be completed; nothing else was attempted. $($_.Exception.Message)" }
+                    continue
+                }
+            }
+
+            $plan     = Get-SnapshotPrunePlan -BackupRoot $bkp -ChangeRoot $chg -Name $snapshotName
+            $refusals = @(Assert-PrunePrecondition -BackupRoot $bkp -ChangeRoot $chg -Plan $plan `
+                            -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify `
+                            -AllowUnverifiedIndex:$AllowUnverifiedIndex -DiscardUnreferencedData:$DiscardUnreferencedData)
+            $destinations = @($plan.Items.ToArray() | ForEach-Object { $_.DestinationFolder } | Select-Object -Unique)
+            & $log ("Plan for '$snapshotName': folder='$($plan.Folder)', rows=$($plan.Rows), re-home $($plan.Items.Count) file(s)/$($plan.BytesReHomed) byte(s), reclaim $($plan.BytesReclaimed) byte(s), refusals=$($refusals.Count).") 'DEBUG'
+
+            if ($refusals.Count -gt 0) {
+                $worst = @($refusals | Sort-Object { switch ($_.Code) { 2 { 0 } 3 { 1 } 4 { 2 } default { 3 } } })[0]
+                foreach ($refusal in $refusals) { & $log "Refusing to remove '$snapshotName' [$($refusal.Code)/$($refusal.Kind)]: $($refusal.Message)" 'ERROR' }
+                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = $worst.Code
+                    BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
+                    Refusals = $refusals; Message = $worst.Message }
                 continue
             }
-        }
 
-        $plan     = Get-SnapshotPrunePlan -BackupRoot $bkp -ChangeRoot $chg -Name $snapshotName
-        $refusals = @(Assert-PrunePrecondition -BackupRoot $bkp -ChangeRoot $chg -Plan $plan `
-                        -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify `
-                        -AllowUnverifiedIndex:$AllowUnverifiedIndex -DiscardUnreferencedData:$DiscardUnreferencedData)
-        $destinations = @($plan.Items.ToArray() | ForEach-Object { $_.DestinationFolder } | Select-Object -Unique)
-        & $log ("Plan for '$snapshotName': folder='$($plan.Folder)', rows=$($plan.Rows), re-home $($plan.Items.Count) file(s)/$($plan.BytesReHomed) byte(s), reclaim $($plan.BytesReclaimed) byte(s), refusals=$($refusals.Count).") 'DEBUG'
-
-        if ($refusals.Count -gt 0) {
-            $worst = @($refusals | Sort-Object { switch ($_.Code) { 2 { 0 } 3 { 1 } 4 { 2 } default { 3 } } })[0]
-            foreach ($refusal in $refusals) { & $log "Refusing to remove '$snapshotName' [$($refusal.Code)/$($refusal.Kind)]: $($refusal.Message)" 'ERROR' }
-            [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = $worst.Code
-                BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
-                Refusals = $refusals; Message = $worst.Message }
-            continue
-        }
-
-        $what = "remove it, re-homing $($plan.Items.Count) file(s) / $($plan.BytesReHomed) byte(s) first and reclaiming $($plan.BytesReclaimed) byte(s)"
-        if (-not $PSCmdlet.ShouldProcess($plan.Folder, $what)) {
-            & $log "Dry run: '$snapshotName' would $what." 'INFO'
-            [pscustomobject]@{ Name = $snapshotName; Status = 'WhatIf'; Code = 0
-                BytesReclaimed = $plan.BytesReclaimed; BytesReHomed = $plan.BytesReHomed
-                ReHomeDestinations = $destinations; Refusals = @(); Message = "Dry run: would $what." }
-            continue
-        }
-
-        # Creating the lock directory IS the test (M4): -Force would succeed on
-        # an existing folder, letting two prunes past the staging-busy rail
-        # between its check and here. Failure means someone else holds it, so it
-        # is the staging-busy refusal — and the finally below must not delete a
-        # folder this invocation did not create.
-        $staging = Join-Path $chg 'Temp'
-        try {
-            New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
-        } catch {
-            & $log "Refusing to remove '$snapshotName' [2/staging-busy]: the staging lock at '$staging' could not be taken: $($_.Exception.Message)" 'ERROR'
-            $busy = [pscustomobject]@{ Code = 2; Kind = 'staging-busy'
-                Message = "The staging folder '$staging' already exists — a backup or another prune is running. Prune and backup are mutually exclusive (SR-017)." }
-            [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 2
-                BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
-                Refusals = @($busy); Message = $busy.Message }
-            continue
-        }
-        try {
-            Set-Content -LiteralPath (Join-Path $staging 'PRUNE.inprogress') -Value $snapshotName -Encoding UTF8
-            # Inside the transaction: staged copies are residue, and clearing
-            # them is host I/O like any other (code 4 if it fails).
-            Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
-            foreach ($item in $plan.Items.ToArray()) {
-                & $log "Re-homing '$($item.SourceRow.RelativePath)' from '$snapshotName' to '$($item.DestinationFolder)' as '$($item.DestinationDataPath)'." 'INFO'
-                Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify | Out-Null
-            }
-            Publish-PruneManifest -Plan $plan -Log $log | Out-Null
-
-            $unresolved = @(Test-PoolResolves -BackupRoot $bkp -ChangeRoot $chg -ExcludeFolder $plan.Folder)
-            if ($unresolved.Count -gt 0) {
-                foreach ($problem in $unresolved) { & $log "Aborting: $($problem.Message)" 'ERROR' }
-                throw "The surviving pool would not resolve without '$snapshotName' ($($unresolved.Count) row(s)); nothing was deleted."
+            $what = "remove it, re-homing $($plan.Items.Count) file(s) / $($plan.BytesReHomed) byte(s) first and reclaiming $($plan.BytesReclaimed) byte(s)"
+            if (-not $PSCmdlet.ShouldProcess($plan.Folder, $what)) {
+                & $log "Dry run: '$snapshotName' would $what." 'INFO'
+                [pscustomobject]@{ Name = $snapshotName; Status = 'WhatIf'; Code = 0
+                    BytesReclaimed = $plan.BytesReclaimed; BytesReHomed = $plan.BytesReHomed
+                    ReHomeDestinations = $destinations; Refusals = @(); Message = "Dry run: would $what." }
+                continue
             }
 
-            Complete-PruneDeletion -SnapshotFolder $plan.Folder -Log $log
-            & $log "Removed '$snapshotName': reclaimed $($plan.BytesReclaimed) byte(s), re-homed $($plan.BytesReHomed)." 'INFO'
-            [pscustomobject]@{ Name = $snapshotName; Status = 'Pruned'; Code = 0
-                BytesReclaimed = $plan.BytesReclaimed; BytesReHomed = $plan.BytesReHomed
-                ReHomeDestinations = $destinations; Refusals = @()
-                Message = "Removed '$snapshotName'." }
-        } catch {
-            & $log "Removal of '$snapshotName' failed before the commit point; NO DATA WAS LOST: $($_.Exception.Message)" 'ERROR'
-            [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4
-                BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
-                Refusals = @([pscustomobject]@{ Code = 4; Kind = 'host-io'; Message = $_.Exception.Message })
-                Message = "Removal aborted before the commit point; no data was lost. $($_.Exception.Message)" }
-        } finally {
-            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+            # Creating the lock directory IS the test (M4): -Force would succeed on
+            # an existing folder, letting two prunes past the staging-busy rail
+            # between its check and here. Failure means someone else holds it, so it
+            # is the staging-busy refusal — and the finally below must not delete a
+            # folder this invocation did not create.
+            $staging = Join-Path $chg 'Temp'
+            try {
+                New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
+            } catch {
+                & $log "Refusing to remove '$snapshotName' [2/staging-busy]: the staging lock at '$staging' could not be taken: $($_.Exception.Message)" 'ERROR'
+                $busy = [pscustomobject]@{ Code = 2; Kind = 'staging-busy'
+                    Message = "The staging folder '$staging' already exists — a backup or another prune is running. Prune and backup are mutually exclusive (SR-017)." }
+                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 2
+                    BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
+                    Refusals = @($busy); Message = $busy.Message }
+                continue
+            }
+            try {
+                Set-Content -LiteralPath (Join-Path $staging 'PRUNE.inprogress') -Value $snapshotName -Encoding UTF8
+                # Test seam: park a live prune inside its transaction (TC-246).
+                Invoke-StagingTestHook -Hook $script:PruneTestHook_InTransaction -Context $staging
+                # Inside the transaction: staged copies are residue, and clearing
+                # them is host I/O like any other (code 4 if it fails).
+                Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
+                foreach ($item in $plan.Items.ToArray()) {
+                    & $log "Re-homing '$($item.SourceRow.RelativePath)' from '$snapshotName' to '$($item.DestinationFolder)' as '$($item.DestinationDataPath)'." 'INFO'
+                    Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify | Out-Null
+                }
+                Publish-PruneManifest -Plan $plan -Log $log | Out-Null
+
+                $unresolved = @(Test-PoolResolves -BackupRoot $bkp -ChangeRoot $chg -ExcludeFolder $plan.Folder)
+                if ($unresolved.Count -gt 0) {
+                    foreach ($problem in $unresolved) { & $log "Aborting: $($problem.Message)" 'ERROR' }
+                    throw "The surviving pool would not resolve without '$snapshotName' ($($unresolved.Count) row(s)); nothing was deleted."
+                }
+
+                Complete-PruneDeletion -SnapshotFolder $plan.Folder -Log $log
+                & $log "Removed '$snapshotName': reclaimed $($plan.BytesReclaimed) byte(s), re-homed $($plan.BytesReHomed)." 'INFO'
+                [pscustomobject]@{ Name = $snapshotName; Status = 'Pruned'; Code = 0
+                    BytesReclaimed = $plan.BytesReclaimed; BytesReHomed = $plan.BytesReHomed
+                    ReHomeDestinations = $destinations; Refusals = @()
+                    Message = "Removed '$snapshotName'." }
+            } catch {
+                & $log "Removal of '$snapshotName' failed before the commit point; NO DATA WAS LOST: $($_.Exception.Message)" 'ERROR'
+                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4
+                    BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = $destinations
+                    Refusals = @([pscustomobject]@{ Code = 4; Kind = 'host-io'; Message = $_.Exception.Message })
+                    Message = "Removal aborted before the commit point; no data was lost. $($_.Exception.Message)" }
+            } finally {
+                Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
+    } finally {
+        Exit-StagingOsLock -Lock $osLock -Log $log
     }
 }
 
@@ -2941,6 +2999,29 @@ $script:StagingTestHook_AfterCreateBeforePublish = $null   # TC-197 (victim side
 $script:StagingReclaimTestHook_BeforeMove        = $null   # TC-189 (resurrection before the move)
 $script:StagingReclaimTestHook_BeforeAsideDelete = $null   # TC-198 (resurrection after the re-check)
 $script:StagingFenceTestHook                     = $null   # TC-204 (marker swapped at a fence)
+# The OS-lock seams (SR-085..SR-087). The first three park a run inside the
+# window the OS lock exists for -- from the RUN.inprogress delete to the
+# Temp -> Snapshot_* rename, where no marker, heartbeat or fence exists -- and
+# just past its end; the fourth parks a prune inside its transaction; the fifth
+# makes the lock-file open fail for a reason other than a sharing violation.
+$script:StagingTestHook_AfterMarkerDelete        = $null   # TC-244 (E3: start of the no-marker window)
+$script:StagingTestHook_BeforeFinalizeRename     = $null   # TC-244 (E3: end of the no-marker window)
+$script:StagingTestHook_AfterFinalizeRename      = $null   # TC-245 (prune vs a live backup, Temp already gone)
+$script:PruneTestHook_InTransaction              = $null   # TC-246 (backup vs a live prune)
+$script:StagingOsLockTestHook_BeforeOpen         = $null   # TC-249 (an open failure that is not a sharing violation)
+
+# The staging OS lock (SR-085). A plain file at the CHANGE ROOT, outside Temp:
+# the change root is enumerated for DIRECTORIES only by every consumer (the
+# engine's snapshot enumerators, both restorers), and a run's own backup.log
+# already lives beside it, so a file here is invisible to all of them. It is
+# opened with FileShare.None and held for the whole of a backup or prune; the
+# OS closes the handle however the holder dies. Never deleted (SR-087).
+$script:StagingOsLockFileName    = 'Temp.lock'
+# An open that fails is retried briefly before it refuses: a scanner holding the
+# file for a moment must not cost a nightly run. A lock that STAYS unopenable is
+# LIVE, whatever the reason (SR-086) -- retrying only ever delays a refusal.
+$script:StagingOsLockOpenAttempts = 3
+$script:StagingOsLockRetryDelayMs = 250
 
 function Invoke-StagingTestHook {
     <#
@@ -4121,16 +4202,25 @@ function Invoke-StagingLockReclaim {
         (Get-StagingConfirmationWait). The suite compresses the base; nothing
         else may.
 
+    .PARAMETER OsLock
+        The staging OS lock the caller holds (Enter-StagingOsLock), or $null.
+        Holding it is what makes this reclaim exclusive against every
+        current-version FileBackup (SR-085). It is deliberately NOT evidence
+        that the folder's owner is dead (SR-086): a run of an older FileBackup
+        never takes the OS lock, so the classification below decides exactly
+        as it did before the lock existed.
+
     .OUTPUTS
         [string] full path of the aside folder.
     #>
-    # Implements: SR-017, SR-075, LLR-017, LLR-080
+    # Implements: SR-017, SR-075, SR-086, LLR-017, LLR-080, LLR-091
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     param(
         [Parameter(Mandatory)][string]$StagingFolder,
         [Parameter(Mandatory)][scriptblock]$Log,
-        [double]$ConfirmationSampleSeconds = $script:StagingConfirmationSampleSeconds
+        [double]$ConfirmationSampleSeconds = $script:StagingConfirmationSampleSeconds,
+        [AllowNull()][object]$OsLock
     )
 
     $refuse = {
@@ -4138,6 +4228,15 @@ function Invoke-StagingLockReclaim {
         & $Log $Detail 'ERROR'
         & $Log $script:StagingRecoveryPointer 'ERROR'
         throw "$Token Cannot initialize staging folder; Temp already exists at '$StagingFolder'"
+    }
+
+    if ($null -ne $OsLock) {
+        # SR-086: a lock WE acquired proves no current-version run is alive
+        # here, and nothing more. It must never short-circuit the evidence:
+        # an older FileBackup -- the hub's image lags this repository -- takes
+        # no OS lock at all, and is alive exactly when the rules below say so.
+        & $Log ("This run holds the staging OS lock '$($OsLock.Path)', so no current FileBackup run is alive here; an " +
+            'older FileBackup takes no OS lock, so the owner record and the confirmation sample still decide (SR-086).')
     }
 
     # --- Step 1: classify ------------------------------------------------
@@ -4631,6 +4730,229 @@ function Assert-StagingLockOwned {
         'anything, and cleaning up NOTHING — the staging folder belongs to its successor now.') 'ERROR'
     throw ("$($script:StagingLockLostPrefix): the staging lock at '$($StagingLock.Path)' was lost before '$Phase'. " +
         "Aborting without touching anything. [SR-075/lock-lost]")
+}
+
+function Get-StagingOsLockPath {
+    <#
+    .SYNOPSIS
+        The path of a change root's staging OS lock file (SR-085):
+        <ChangeRoot>/Temp.lock, OUTSIDE Temp.
+
+    .PARAMETER ChgPath
+        The change root.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-085, SR-087, LLR-090, LLR-093
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ChgPath)
+
+    return (Join-Path $ChgPath $script:StagingOsLockFileName)
+}
+
+function Enter-StagingOsLock {
+    <#
+    .SYNOPSIS
+        Takes the change root's staging OS lock -- Temp.lock opened with
+        FileShare.None, non-blocking -- and returns the handle the caller must
+        release with Exit-StagingOsLock in a finally. Throws
+        '[SR-075/lock-held] ...' when it cannot.
+
+    .DESCRIPTION
+        The lock is the one liveness signal a killed process cannot fake: the
+        OS closes the handle however its holder ends -- normal exit, throw,
+        TerminateProcess, SIGKILL, OOM kill, container stop -- so a held lock
+        means a holder that is ALIVE, and nothing else does (SR-085).
+
+        Fail closed (SR-086). ANY failure to open the file is LIVE: a sharing
+        violation (another FileBackup holds it), access denied, an antivirus or
+        indexer holding it, a directory squatting on the name, an I/O error.
+        None of those is evidence that no run is alive, so every one refuses,
+        after a short retry that only ever delays the refusal. The caller must
+        then touch nothing -- not Temp, not the pool, not a manifest.
+
+        Acquiring it proves only that no CURRENT-version FileBackup is alive
+        here. A run of an older FileBackup -- and the hub's container image
+        lags this repository -- never takes it, so a free lock is NOT evidence
+        of death: the owner record, heartbeat and confirmation sample (SR-075)
+        still decide whatever they decided before. The lock only ever ADDS a
+        refusal (SR-086).
+
+        The file is opened OpenOrCreate with READ access only, so a read-only
+        attribute on it cannot wedge the store, and it is never written and
+        never deleted (SR-087).
+
+        Platform semantics (SR-085): on Windows FileShare.None is a mandatory
+        share mode that every opener honours, FileBackup or not. On Linux and
+        macOS .NET emulates it with an ADVISORY flock(LOCK_EX | LOCK_NB), which
+        excludes only processes that also flock the file -- every FileBackup
+        does -- and which .NET silently skips when the filesystem does not
+        support flock or when System.IO.DisableFileLocking is set: the open then
+        SUCCEEDS without a lock, and the SR-075 rules are all that remains.
+
+    .PARAMETER ChgPath
+        The change root (must exist).
+
+    .PARAMETER Log
+        The set logger, or $null.
+
+    .OUTPUTS
+        [pscustomobject] Path, Stream.
+    #>
+    # Implements: SR-085, SR-086, SR-087, LLR-090
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ChgPath,
+        [AllowNull()][scriptblock]$Log
+    )
+
+    $path     = Get-StagingOsLockPath -ChgPath $ChgPath
+    $attempts = [math]::Max(1, [int]$script:StagingOsLockOpenAttempts)
+    $failure  = $null
+    for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+        if ($attempt -gt 1) { Start-Sleep -Milliseconds ([int]$script:StagingOsLockRetryDelayMs) }
+        try {
+            # Test seam INSIDE the try: a throwing seam stands in for an open
+            # that fails for a reason other than a sharing violation (TC-249).
+            Invoke-StagingTestHook -Hook $script:StagingOsLockTestHook_BeforeOpen -Context $path
+            $stream = [System.IO.FileStream]::new($path,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::Read,
+                [System.IO.FileShare]::None)
+            if ($null -ne $Log) {
+                try { & $Log "Staging OS lock taken at '$path' (SR-085)." } catch { Write-Debug "OS-lock log line swallowed: $($_.Exception.Message)" }
+            }
+            return [pscustomobject]@{ Path = $path; Stream = $stream }
+        } catch {
+            $failure = $_
+        }
+    }
+
+    # Wording only -- every branch below refuses identically (SR-086).
+    $inner = $failure.Exception
+    while ($inner -is [System.Management.Automation.MethodInvocationException] -and $null -ne $inner.InnerException) {
+        $inner = $inner.InnerException
+    }
+    $hr = $inner.HResult
+    $sharing = ($inner -is [System.IO.IOException]) -and (
+        $hr -eq [int]0x80070020 -or $hr -eq [int]0x80070021 -or
+        ($IsLinux -and $hr -eq 11) -or ($IsMacOS -and $hr -eq 35))
+    $why = if ($sharing) {
+        'another process holds it -- a FileBackup run or prune that is ALIVE, since the OS releases this lock when its holder exits, however it exits'
+    } else {
+        "it could not be opened ($($inner.GetType().Name): $($inner.Message)); an open failure is never evidence that no run is alive"
+    }
+    throw ("[SR-075/lock-held] The staging lock '$path' is held: $why. Refusing without touching the staging folder, " +
+        "the pool or any manifest (SR-086). Wait for the other run to finish; if none is running, find what holds the file.")
+}
+
+function Exit-StagingOsLock {
+    <#
+    .SYNOPSIS
+        Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
+        $null-safe and never throws; the file is left in place (SR-087).
+
+    .DESCRIPTION
+        The file is deliberately NOT deleted. On Linux the lock is an flock on
+        an INODE: unlinking the path while (or just after) it is held lets a
+        process that opened the old inode lock it, while a third creates a fresh
+        file at the path and locks THAT -- two holders at once. Leaving one
+        permanent, never-written, zero-length file has no such window on any
+        platform.
+
+    .PARAMETER Lock
+        The Enter-StagingOsLock result, or $null.
+
+    .PARAMETER Log
+        The set logger, or $null.
+
+    .OUTPUTS
+        None.
+    #>
+    # Implements: SR-085, SR-087, LLR-090, LLR-093
+    [CmdletBinding()]
+    param(
+        [AllowNull()][object]$Lock,
+        [AllowNull()][scriptblock]$Log
+    )
+
+    if ($null -eq $Lock) { return }
+    try {
+        $stream = $Lock.Stream
+        if ($null -eq $stream) { return }
+        $Lock.Stream = $null
+        $stream.Dispose()
+        if ($null -ne $Log) { & $Log "Staging OS lock released at '$($Lock.Path)' (SR-085)." }
+    } catch {
+        Write-Debug "Exit-StagingOsLock swallowed: $($_.Exception.Message)"
+    }
+}
+
+function Enter-StoreMutationLock {
+    <#
+    .SYNOPSIS
+        Takes the staging OS lock for a store-maintenance mutator that is not a
+        backup or a prune (-RepairStorage, -RefreshKits), or throws a refusal
+        carrying '[SR-075/lock-held]' after logging it (SR-085, SR-086).
+
+    .DESCRIPTION
+        The same lock and the same fail-closed rule every backup and prune
+        uses: ANY failure to take it is a live holder, and the caller must
+        mutate nothing. Two edge cases:
+
+          * no change root was given -- there is nowhere to take the lock, so
+            it refuses, since nothing then proves no backup is running;
+          * the change root does not exist -- it is CREATED (a backup would
+            create it too) and then locked, so a backup that is in its first
+            instants either already holds the lock or will find it held.
+
+        The caller releases with Exit-StagingOsLock in a finally. It is called
+        from the mutator itself, not from the entry point, so a direct module
+        caller is covered exactly like FileBackup.ps1.
+
+    .PARAMETER ChangeRoot
+        The store's change root.
+
+    .PARAMETER Activity
+        What the caller was about to do, for the refusal sentence.
+
+    .PARAMETER Log
+        The caller's logger, or $null.
+
+    .OUTPUTS
+        [pscustomobject] the Enter-StagingOsLock handle.
+    #>
+    # Implements: SR-085, SR-086, LLR-094
+    [CmdletBinding()]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$ChangeRoot,
+        [Parameter(Mandatory)][string]$Activity,
+        [AllowNull()][scriptblock]$Log
+    )
+
+    $message = $null
+    if ([string]::IsNullOrWhiteSpace($ChangeRoot)) {
+        $message = ("[SR-075/lock-held] Refusing to ${Activity}: no change root was given, so the staging lock that " +
+            'excludes a running backup or prune cannot be taken (SR-086). Nothing was touched.')
+    } else {
+        try {
+            if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) {
+                New-Item -ItemType Directory -Path $ChangeRoot -Force | Out-Null
+            }
+            return (Enter-StagingOsLock -ChgPath $ChangeRoot -Log $Log)
+        } catch {
+            $detail = $_.Exception.Message
+            if ($detail.IndexOf('[SR-075/lock-held]', [System.StringComparison]::Ordinal) -lt 0) {
+                $detail = "[SR-075/lock-held] the staging lock could not be taken: $detail"
+            }
+            $message = "Refusing to ${Activity}: $detail Nothing was touched."
+        }
+    }
+    if ($null -ne $Log) {
+        try { & $Log $message 'ERROR' } catch { Write-Debug "Refusal log line swallowed: $($_.Exception.Message)" }
+    }
+    throw $message
 }
 
 # endregion
@@ -5341,6 +5663,12 @@ function Initialize-StagingFolder {
         The reclaim path's confirmation-sample wait (90 s in production, the
         module default). The suite compresses it; nothing else may.
 
+    .PARAMETER OsLock
+        The staging OS lock the caller already holds (SR-085) -- Invoke-BackupSet
+        takes it BEFORE this function, so the create, the classification and
+        any reclaim all run under it. Passed through to the reclaim, which logs
+        it and must not treat it as proof of death (SR-086).
+
     .OUTPUTS
         [pscustomobject] Path, MarkerPath, RunId, Heartbeat — the rooted
         heartbeat handle the caller must stop and drain in a finally.
@@ -5352,7 +5680,8 @@ function Initialize-StagingFolder {
         [Parameter(Mandatory)][scriptblock]$Log,
         [AllowEmptyString()][string]$SetName = '',
         [double]$HeartbeatIntervalSeconds = $script:StagingHeartbeatIntervalSeconds,
-        [double]$ConfirmationSampleSeconds = $script:StagingConfirmationSampleSeconds
+        [double]$ConfirmationSampleSeconds = $script:StagingConfirmationSampleSeconds,
+        [AllowNull()][object]$OsLock
     )
     $stagingFolder = Join-Path $ChgPath 'Temp'
     # The create IS the lock take: CreateDirectory-without-Force fails when the
@@ -5382,7 +5711,7 @@ function Initialize-StagingFolder {
         # Classify, and reclaim only what is PROVED to hold neither content nor
         # a live owner. Throws the branch's refusal otherwise.
         $asidePath = Invoke-StagingLockReclaim -StagingFolder $stagingFolder -Log $Log `
-                        -ConfirmationSampleSeconds $ConfirmationSampleSeconds
+                        -ConfirmationSampleSeconds $ConfirmationSampleSeconds -OsLock $OsLock
     } else {
         # Test seam: park a victim inside its own create->marker window so the
         # exclusive publish below can be shown to lose (TC-197).
@@ -5967,7 +6296,11 @@ function Complete-ChangeFolder {
         $n++
     }
     $finalSnapshot = Join-Path $ChgPath $finalName
+    # Test seams (SR-085): the last instant of the no-marker window, and the
+    # first instant after it. The caller's staging OS lock must be held at both.
+    Invoke-StagingTestHook -Hook $script:StagingTestHook_BeforeFinalizeRename -Context $StagingFolder
     Rename-Item -LiteralPath $StagingFolder -NewName $finalName
+    Invoke-StagingTestHook -Hook $script:StagingTestHook_AfterFinalizeRename -Context $finalSnapshot
 
     & $Log "Snapshot finalized: $finalSnapshot"
     return $finalSnapshot
@@ -6385,7 +6718,7 @@ function Invoke-BackupSet {
         removed files, preserve superseded bytes no live row still claims,
         finalize the dated snapshot, persist run state.
     #>
-    # Implements: SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055
+    # Implements: SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, SR-085, SR-086, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055, LLR-091
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][pscustomobject]$Set,
@@ -6404,47 +6737,89 @@ function Invoke-BackupSet {
         return
     }
 
-    # Completion date of the PREVIOUS backup names this run's snapshot (SR-005);
-    # $null on the first backup ⇒ no snapshot. Read before we overwrite state.
-    $priorBackupDate = Get-LastBackupRun -BackupRoot $paths.BkpPath
-    $existingManifest = Join-Path $paths.BkpPath $script:Def.DatabaseFilename
-    if ($null -eq $priorBackupDate -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
-        $existingRows = @(Read-Manifest -FolderPath $paths.BkpPath)
-        if ($existingRows.Count -gt 0) {
-            throw "Backup state at '$($paths.BkpPath)' has no LastBackupRun, but its existing MANIFEST.csv contains $($existingRows.Count) row(s). Refusing to mutate it because the prior state could not be snapshotted safely."
-        }
+    # 2.9 Take the staging OS lock (SR-085) BEFORE this run reads ANY store
+    # state its decisions depend on, and hold it until this set is finished --
+    # past the Temp -> Snapshot_* rename, across the window from the
+    # RUN.inprogress delete to that rename in which no marker, heartbeat or
+    # fence exists. A lock that cannot be taken is a LIVE holder, whatever the
+    # reason, and the set refuses touching nothing (SR-086). Released only by
+    # the finally at the end of this function, or below if step 2.95 or 3 fails.
+    $logPath = Join-Path $paths.ChgPath 'backup.log'
+    try {
+        $osLock = Enter-StagingOsLock -ChgPath $paths.ChgPath -Log $null
+    } catch {
+        # The refusal is APPENDED as one line, never through New-Logger, which
+        # truncates: backup.log belongs to the live run that holds the lock.
+        $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') [ERROR] Refusing backup set '$($Set.Name)': $($_.Exception.Message)"
+        try { Add-Content -LiteralPath $logPath -Value $line } catch { Write-Warning "Could not append to '$logPath': $($_.Exception.Message)" }
+        Write-Host $line
+        $LogPaths.Add($logPath)
+        $OverallSuccess.Value = $false
+        return
     }
 
-    # 1.5 The witness gate the rest of the fleet already honors (SR-038/SR-039):
-    # both restorers and prune refuse a manifest whose witness disagrees, but the
-    # backup pipeline used to read the same manifest unchecked and then re-stamp
-    # a FRESH witness over state derived from a torn index — laundering crash
-    # damage into a permanent, silent hole. Mismatch/Malformed refuses the set
-    # before anything is staged or mutated; Absent stays legal (a pre-SR-038
-    # store must still back up). The distinct ErrorId lets the entry point map
-    # this onto the SR-040 witness code (3) instead of the generic set failure.
-    if (Test-Path -LiteralPath $existingManifest -PathType Leaf) {
-        $witness = Test-ManifestWitness -FolderPath $paths.BkpPath
-        if ($witness.Status -in 'Mismatch', 'Malformed') {
-            Write-Error -ErrorId 'ManifestWitnessMismatch' -ErrorAction Stop -Message (
-                "Backup manifest witness check failed at '$($paths.BkpPath)': $($witness.Detail) " +
-                'Refusing to back up over a possibly torn index. Verify the store (-Action Verify) and, ' +
-                'if the manifest proves intact or repairable, -RepairStorage re-publishes a matching witness.')
+    # 2.95 The prior state, read ONLY under the lock (SR-085). Read before it,
+    # a run that started while another was finishing would act on what the
+    # other had not yet written: with no LastBackupRun yet, it takes itself for
+    # a FIRST backup, and Complete-ChangeFolder then deletes a Temp holding the
+    # superseded bytes it has just moved there. These are the same reads, in
+    # the same order, as before the lock existed -- moved, not added.
+    try {
+        # Completion date of the PREVIOUS backup names this run's snapshot (SR-005);
+        # $null on the first backup ⇒ no snapshot. Read before we overwrite state.
+        $priorBackupDate = Get-LastBackupRun -BackupRoot $paths.BkpPath
+        $existingManifest = Join-Path $paths.BkpPath $script:Def.DatabaseFilename
+        if ($null -eq $priorBackupDate -and (Test-Path -LiteralPath $existingManifest -PathType Leaf)) {
+            $existingRows = @(Read-Manifest -FolderPath $paths.BkpPath)
+            if ($existingRows.Count -gt 0) {
+                throw "Backup state at '$($paths.BkpPath)' has no LastBackupRun, but its existing MANIFEST.csv contains $($existingRows.Count) row(s). Refusing to mutate it because the prior state could not be snapshotted safely."
+            }
         }
+
+        # 1.5 The witness gate the rest of the fleet already honors (SR-038/SR-039):
+        # both restorers and prune refuse a manifest whose witness disagrees, but the
+        # backup pipeline used to read the same manifest unchecked and then re-stamp
+        # a FRESH witness over state derived from a torn index — laundering crash
+        # damage into a permanent, silent hole. Mismatch/Malformed refuses the set
+        # before anything is staged or mutated; Absent stays legal (a pre-SR-038
+        # store must still back up). The distinct ErrorId lets the entry point map
+        # this onto the SR-040 witness code (3) instead of the generic set failure.
+        if (Test-Path -LiteralPath $existingManifest -PathType Leaf) {
+            $witness = Test-ManifestWitness -FolderPath $paths.BkpPath
+            if ($witness.Status -in 'Mismatch', 'Malformed') {
+                Write-Error -ErrorId 'ManifestWitnessMismatch' -ErrorAction Stop -Message (
+                    "Backup manifest witness check failed at '$($paths.BkpPath)': $($witness.Detail) " +
+                    'Refusing to back up over a possibly torn index. Verify the store (-Action Verify) and, ' +
+                    'if the manifest proves intact or repairable, -RepairStorage re-publishes a matching witness.')
+            }
+        }
+    } catch {
+        # Release, then rethrow the ORIGINAL record: the entry point maps the
+        # witness ErrorId onto exit code 3. No set log has been opened yet, so
+        # a refusal here leaves backup.log exactly as the last run left it.
+        Exit-StagingOsLock -Lock $osLock -Log $null
+        throw
     }
     $thisBackupDate  = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
 
-    # 2. Logger
-    $logPath = Join-Path $paths.ChgPath 'backup.log'
-    $log = New-Logger -LogFile $logPath
-    $LogPaths.Add($logPath)
-    & $log "----- Backup set '$($Set.Name)' starting -----"
+    # 2. Logger -- opened only now, once this run holds the lock and its prior
+    # state has passed the gates, because New-Logger TRUNCATES backup.log.
+    try {
+        $log = New-Logger -LogFile $logPath
+        $LogPaths.Add($logPath)
+        & $log "----- Backup set '$($Set.Name)' starting -----"
+        & $log "Staging OS lock held at '$($osLock.Path)' (SR-085)."
+    } catch {
+        Exit-StagingOsLock -Lock $osLock -Log $null
+        throw
+    }
 
     # 3. Guard the staging folder, take the lock, publish the owner record and
     # start its heartbeat (SR-017, SR-075).
     try {
-        $stagingLock = Initialize-StagingFolder -ChgPath $paths.ChgPath -Log $log -SetName $Set.Name
+        $stagingLock = Initialize-StagingFolder -ChgPath $paths.ChgPath -Log $log -SetName $Set.Name -OsLock $osLock
     } catch {
+        Exit-StagingOsLock -Lock $osLock -Log $log
         & $log "Failed to initialize staging folder: $($_.Exception.Message)" 'ERROR'
         $OverallSuccess.Value = $false
         return
@@ -6750,6 +7125,10 @@ function Invoke-BackupSet {
             & $log "Cannot remove the staging owner record '$($stagingLock.MarkerPath)': $($_.Exception.Message). Refusing to finalize a snapshot that would carry it (SR-075/SR-046)." 'ERROR'
             throw "Cannot remove the staging owner record before finalize: $($_.Exception.Message)"
         }
+        # From here to Complete-ChangeFolder's rename there is no marker, no
+        # heartbeat and no fence: the staging OS lock taken at step 2.9 is the
+        # ONLY sign this run is alive (SR-085). Test seam: park inside it.
+        Invoke-StagingTestHook -Hook $script:StagingTestHook_AfterMarkerDelete -Context $stagingLock
 
         # 13. Finalize the dated snapshot (of the PRIOR state) + reconstruct scripts
         New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
@@ -6804,7 +7183,15 @@ function Invoke-BackupSet {
         # Idempotent and never throws: by the healthy path the heartbeat was
         # already stopped and drained before finalize (step 12.9). A beat that
         # died mid-run is reported here rather than staying invisible (§11 R-5).
-        Stop-StagingHeartbeat $stagingLock.Heartbeat -Log $log
+        try {
+            Stop-StagingHeartbeat $stagingLock.Heartbeat -Log $log
+        } finally {
+            # The staging OS lock goes LAST (SR-085): after the rename on the
+            # healthy path, and on every throw or lock-lost return. A Temp a
+            # throw leaves behind is then judged by its marker, never by a lock
+            # this run still holds (SR-086).
+            Exit-StagingOsLock -Lock $osLock -Log $log
+        }
     }
 }
 
@@ -7321,6 +7708,7 @@ Export-ModuleMember -Function @(
     'Get-StagingContainerId', 'Get-StagingBootId',
     'Initialize-StagingHeartbeatType', 'Start-StagingHeartbeat', 'Stop-StagingHeartbeat',
     'Resolve-BackupSetPaths', 'Initialize-StagingFolder',
+    'Get-StagingOsLockPath', 'Enter-StagingOsLock', 'Exit-StagingOsLock',
     'Compare-SourceToBackup', 'Invoke-BackupFileGroup', 'Move-RemovedFilesToStaging',
     'Save-SupersededData', 'Complete-ChangeFolder', 'Invoke-BackupSet',
     'New-BrowseViewIndex',

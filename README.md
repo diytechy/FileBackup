@@ -1074,6 +1074,20 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   are **never deleted automatically while they hold anything**: an aside folder that proves
   to contain nothing but the old owner record (or nothing at all) is cleaned up for you,
   and any other one is kept until you work through steps (3) and (4).
+- **`Temp.lock` and the `[SR-075/lock-held]` refusal.** Every backup and every prune —
+  and `-Action Verify` when given `-RepairStorage` or `-RefreshKits` (exit 2 if refused) —
+  holds an exclusive lock on the empty file `Temp.lock` in `ChangePath` for as long as it runs;
+  the operating system drops it the instant that process ends, however it ends. A run that
+  finds it held refuses straight away with `[SR-075/lock-held]` and touches nothing: another
+  backup or prune of this store is still alive. If none is, something else has the file
+  open (an antivirus scanner, a backup agent) — find it rather than deleting the file.
+  **Leave `Temp.lock` where it is.** It is never written, it is not part of the backup, and
+  deleting it while a run holds it can let a second run lock a fresh copy alongside the
+  first on Linux. On Linux the lock is advisory (`flock`): it excludes every FileBackup
+  process on the same host, containers included, but it is not guaranteed to exclude a run
+  on another machine reaching the same store over SMB or NFS — do not point two machines at
+  one `ChangePath`. A run of a FileBackup older than this lock takes no lock at all; the
+  `RUN.inprogress` rules above still protect against it.
 - **Where a run's log lives.** Per-set detail — the staging-lock messages above included —
   is written to **`backup.log` inside that set's `ChangePath`**. `Backup_Global.log` (beside
   the config unless `-GlobalLogPath` / `FILEBACKUP_LOG_PATH` says otherwise) is the

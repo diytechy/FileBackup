@@ -24,6 +24,92 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **OS LOCK DONE - the staging OS lock, liveness across the no-marker window (2026-10-09,
+  branch fix-staging-os-lock, based on fix-p-atomic-write-manifest; step 2 of 3 of
+  docs/plans/killed-staging-recovery-design-2026-10-09.md on branch
+  design-killed-staging-recovery: its section 3.1, E3 and the lock items of section 7).**
+  Every backup and every prune now holds `<ChangePath>/Temp.lock` opened `FileShare.None`
+  (`Enter-StagingOsLock` / `Exit-StagingOsLock`, Engine only - no kit file changes, kit
+  revision stays 13, no store needs `-RefreshKits`). Backup: taken at step 2.9, BEFORE
+  `Initialize-StagingFolder`; released in step 3's catch or in `Invoke-BackupSet`'s final
+  `finally` - i.e. after `Complete-ChangeFolder`'s rename, the run-state write and the
+  dedupe. Prune: taken once per batch before `Remove-CommittedPruneResidue`, released in a
+  `finally`; `-WhatIf` takes none. Reclaim runs inside the backup that holds it.
+  **Semantics:** any failure to open the lock = LIVE, refuse touching nothing
+  (`[SR-075/lock-held]`; prune code 2 staging-busy); a lock you acquired is NOT proof the
+  Temp owner is dead (an older FileBackup takes no lock), so every SR-075 rule still decides.
+  The file is never written and never deleted (Linux flock is per inode). The owner record,
+  heartbeat, fences and confirmation sample all remain. SR-085..087 new, SR-075 amended
+  (SR-017 deliberately untouched - the next step's), LLR-090..093 new, LLR-017/LLR-080
+  amended, TC-241..250 in `tests/Unit/StagingOsLock.Tests.ps1` (real child pwsh processes
+  parked at seams and killed with `Stop-Process -Force`; SHA-256 of every file under
+  BackupPath and ChangePath in every negative case). Mutation checks: releasing the lock
+  before the RUN.inprogress delete fails TC-244's lock-held assertion (its byte assertion
+  still passes - today's content refusal is the second wall the recovery will remove); a
+  prune that skips the lock prunes under a live backup past its rename and fails TC-245's
+  byte assertion; treating an acquired lock as death reclaims an older run's live Temp and
+  fails TC-248's byte assertion. `tests/Unit/StagingLock.Tests.ps1`'s tree hash now skips a
+  ZERO-LENGTH root `Temp.lock` (every run, a refused one included, creates it on first use).
+  **NOT PROVEN:** nothing ran on Linux, macOS or in the container - the flock claims in
+  SR-085 are the documented .NET behaviour, unmeasured; no cross-host test (SMB/NFS: the
+  lock is NOT guaranteed to exclude a second machine, nor a Windows SMB client against a
+  Samba-hosted store); no hub run.
+- **OS LOCK BLOCKER FIX - prior state is read only under the lock (2026-10-10, same branch,
+  third commit).** A second review found `Invoke-BackupSet` read `LastBackupRun`, the
+  no-`LastBackupRun`-but-rows guard and the manifest-witness gate BEFORE taking the lock. A run
+  starting while another (the store's first backup) was finishing read "no prior backup",
+  waited through the lock retries, then ran as a first backup, and `Complete-ChangeFolder`
+  deleted a Temp holding the superseded bytes it had just moved. Those three reads now sit in
+  a new step 2.95 straight after the lock (same calls, same order, inside a try that releases
+  the lock and rethrows the original record, so the witness refusal is still exit 3). Before
+  the lock now: only `Resolve-BackupSetPaths` (path resolution). `New-Logger`, which
+  TRUNCATES `backup.log`, now opens only after the lock and the gates; a lock refusal instead
+  APPENDS one line, so a refused contender no longer wipes the live run's log (the first two
+  commits did), and a witness refusal leaves `backup.log` untouched again - Coverage.Tests'
+  witness-gate "nothing mutated" test caught the in-between version. **No I/O added** - the
+  same calls, moved; the refusal path's one append replaces the logger's create. New Describe 'A run
+  reads the prior store state only after it holds the lock' under TC-250 (no new TC id was
+  allocated): a parked first backup is released to completion while the second run goes for
+  the lock; mutation (the reads moved back above the lock) reproduced the loss - the second
+  run reported SUCCESS while discarding the first run's a.txt - and failed the single byte
+  assertion `StagingOsLock.Tests.ps1:1102`. A static test now pins that no state read in
+  `Invoke-BackupSet` precedes `Enter-StagingOsLock`. **Performance:** the lock path adds one
+  lock-file open per run (up to three, 250 ms apart, only while it is held) and, for
+  repair/refresh, one `Test-Path` of the change root; no per-object probe and no extra
+  enumeration. Not changed and worth the Owner's attention under the probing rule: the
+  pre-existing per-row `Test-Path` in `Complete-ChangeFolder`'s DataPath blanking loop.
+- **OS LOCK REVIEW FOLD (2026-10-09, same branch, second commit).** An independent review
+  of the first commit found one MAJOR and one MINOR; both are fixed here.
+  **MAJOR:** `-RepairStorage` (`Repair-BackupStorageForm`: renames pool objects, rewrites
+  manifests) and `-RefreshKits` (`Update-BackupSnapshotKit`: overwrites snapshot kit files)
+  mutated the store without the lock, so they could race a backup's root-manifest publish or
+  finalize, a prune, or the coming recovery. Both now take the same lock as their first act
+  through `Enter-StoreMutationLock` (inside the functions, so direct module callers are
+  covered), with the same fail-closed refusal: `[SR-075/lock-held]` logged and thrown, which
+  `-Action Verify` turns into exit 2. `-WhatIf` takes no lock; no change root refuses; a
+  missing change root is created and then locked. LLR-094, TC-251..254; SR-085/SR-086
+  amended. Mutation checks: each mutator with the lock skipped rewrote the snapshot under a
+  parked live backup and failed its single byte assertion (TC-251 `:856`, TC-252 `:909`
+  of `StagingOsLock.Tests.ps1` as of the third commit).
+  **Entry-point audit** (every engine function that writes the store, by AST): LOCKED are
+  backup, prune, repair and kit refresh. Confirmed READ-ONLY and left lock-free: read-only
+  `-Action Verify`, `-Action Snapshots`, `-Action View` (writes only the view root, outside
+  both roots by the SR-063 rails), the `-Deep` audit (scratch under the system temp dir) and
+  both restorers (write only the target). Still UNLOCKED, by design of their callers: the
+  exported pipeline steps (`Optimize-ChangeFolders`, `Test-BackupManifest`,
+  `Complete-ChangeFolder`, `Move-RemovedFilesToStaging`, `Save-SupersededData`,
+  `Copy-ReHomedDataFile`, `Publish-PruneManifest` and the rest) hold no lock if a caller
+  invokes them directly; every in-repo caller is a locked backup or prune. **MINOR:**
+  `StagingLock.Tests.ps1`'s tree hash exempted a zero-length `Temp.lock` anywhere; it now
+  exempts only the exact `<ChangePath>\Temp.lock` and FAILS the test on a `Temp.lock`
+  anywhere else (its byte inventory likewise skips one only at a root's top level).
+  **What remains for whoever picks this up:** step 3 of the design (split recovery,
+  SR-017 amendment, TC-188 flip) is not started; the Linux/container half of SR-085 is
+  unmeasured (run `StagingOsLock.Tests.ps1` inside `filebackup:local` on the
+  Linux-over-exFAT bind mount, the TC-195 setup); SR-017 and SR-075 stay Draft (the two
+  standing traceability findings); and the hub image must be rebuilt before any of this
+  protects the hub, where an older image takes no lock at all (SR-086).
+
 - **P DONE - ATOMIC `Write-Manifest`, kit revision 13 (2026-10-09, branch
   fix-p-atomic-write-manifest; prerequisite P/G2 of
   docs/plans/killed-staging-recovery-design-2026-10-09.md on branch
