@@ -141,7 +141,7 @@ together.
 
 | # | Question | Options | Default taken | Rows affected |
 |---|---|---|---|---|
-| P-08 | The change-detection record at a source root shares its name with a backup's own record, so a source whose root holds such a file (a copied store) has it overwritten. | (a) give the record a name no other artifact uses, reading the old name once; (b) keep the name and refuse a source root holding a backup's record; (c) keep today's behaviour | (a) | IF-029, LLR-114, LLR-001, gap list |
+| P-08 | The change-detection record at a source root shares its name with a backup's own record, so a source whose root holds such a file (a copied store) has it overwritten. | (a) give the record a name no other artifact uses, reading the old name once; (b) keep the name and refuse a source root holding a backup's record; (c) keep today's behaviour | **Ruled (a)** by the Owner, 2026-10-18, named `MANIFEST.fb.src.csv`. Renaming the backup's own record as well (`MANIFEST.fb.bkp.csv`) was considered and declined: nothing of the owner's shares that folder (stored objects are named by hash), and every existing kit reads `MANIFEST.csv` | IF-029, LLR-114, LLR-001, gap M65 |
 | P-09 | SR-144 says a resumed former owner "changes nothing further", but no fence can close the window between its check and its next write. Align the requirement with its acceptance (it changes no file the successor wrote or published, publishes nothing, and at most leaves one reclaimable temporary)? | (a) align; (b) keep the absolute and require a mechanism with no window | (a) | SR-144, LLR-125 |
 | P-10 | A restore of the very state a concurrent removal deletes cannot complete. | (a) SR-106 holds for every state the concurrent operation does not remove; that one restore ends 4, naming the removal, never wrong; (b) a removal waits for readers (needs reader-visible state, which the shell route cannot keep) | (a) | SR-106, LLR-123 |
 | P-11 | The Owner's link ruling lists the backup, saved states, change-detection state and logs as the system's own locations. Add the listing location (the views)? | (a) add it; (b) leave it out, so a link into the views is followed | (a) | SR-151, LLR-109, IF-018 |
@@ -156,7 +156,7 @@ place until the collapse ends. That meets the disposition's obligation without
 a moment with no owner record. Under R3O-012, 28 LLRs lost a `constrains`
 cell that placed them wrongly, so they show as unplaced (allowed). New names
 the builder chose, for the reviewers to check: the change-detection record
-`FILEBACKUP-CHANGES.csv` (P-08), kit revision 14 with a revision line in every
+`FILEBACKUP-CHANGES.csv` (P-08; the Owner later chose `MANIFEST.fb.src.csv`), kit revision 14 with a revision line in every
 kit file (R3S-015), and IF-010 version 2.
 
 The fixes are applied by an Opus builder (`r3b-change-log.md`). Then a fresh
