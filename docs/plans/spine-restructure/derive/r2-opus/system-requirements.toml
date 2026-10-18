@@ -1,0 +1,1470 @@
+# System requirements (SR-###), round-2 blind derivation (r2-opus).
+#
+# Derived from the needs, the depth-0 frame, the assumptions, the hats roster
+# and the user manual's declared vocabulary only. Numbered from SR-101; the
+# coordinator renumbers matched rows. All rows Drafted.
+
+# --- BACKUP: WHAT IS CAPTURED -------------------------------------------------
+
+[requirement.SR-101]
+title = "Every file in a source tree is captured"
+sn_refs = ["SN-001"]
+boundary_refs = ["B-01", "B-13"]
+requirement = """When a run completes for a source, the system shall have recorded in that source's latest state every file in the source tree, hidden, system and dot-named files and files nested anywhere that share a name with the backup's own files included, apart from the exclusions the system declares."""
+rationale = """Without it a file can be left out silently and is found missing only when it is needed. The alternative of skipping hidden or system files as noise lost: for a backup, capturing too much is recoverable, capturing too little is not."""
+acceptance_criteria = """After one run against a known tree, a restore of the latest state yields every file of the tree outside the declared exclusions, including hidden, system and dot-named files at any depth and nested files whose names match the backup's own files; any file absent from the restore is a failure."""
+permutations = """file_kind=set{ordinary,hidden,system,dot-named,nested-infrastructure-name}; depth=range[0..32]; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-04"]
+delivered_with = ["SR-102", "SR-104"]
+form = "assumption"
+
+[requirement.SR-102]
+title = "The capture exclusions are exactly the system's own files and a volume's system folders at a volume root"
+sn_refs = ["SN-001"]
+boundary_refs = ["B-01"]
+requirement = """The system shall leave out of a backup only its own working files and, where a source is the root of a volume, the volume's own system folders at that root, and no other file or folder of the same name elsewhere in the tree."""
+rationale = """An exclusion set wider than this silently drops owner data that happens to share a name; none at all makes a volume-root source fail every run on a folder nobody can read and backs up already-deleted files. A per-set exclusion list lost: scoping the source is the declared way to leave things out."""
+acceptance_criteria = """A volume-root source omits only the volume's system folders at its root; the same folder names nested in the tree, or at the top of a non-volume source, are backed up; the system's own working files are not backed up; nothing else is omitted."""
+permutations = """source_root=set{volume-root,ordinary-folder}; folder_position=set{top-level,nested}; folder_name=set{volume-system,recycle,own-working-file,ordinary}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-12"]
+form = "assumption"
+
+[requirement.SR-103]
+title = "New and changed files are picked up on later runs"
+sn_refs = ["SN-001"]
+boundary_refs = ["B-01", "B-13"]
+requirement = """When a later run finds a file that is new, or whose size or modification time differs from the previous run's record, the system shall record the file's current content in the latest state."""
+rationale = """Without it the backup holds only the first run's tree. Re-reading every file on every run lost as the default: the owner chooses that trade-off separately (SN-007)."""
+acceptance_criteria = """After a file is added and another edited between two runs, the second run's latest state restores the added file and the edited file at its new content."""
+permutations = """change=set{added,edited-size,edited-time,edited-both}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-14", "DA-04"]
+form = "assumption"
+
+[requirement.SR-104]
+title = "A file not captured is named and fails the run"
+sn_refs = ["SN-001", "SN-044"]
+boundary_refs = ["B-06", "B-08"]
+requirement = """If a run cannot capture a file or a folder of a source, then the system shall name it with the cause in the run's record and report the run as failed."""
+rationale = """A file skipped without a failure status is the silent loss SN-001 forbids. Skipping unreadable folders quietly lost: it cannot tell a system folder from an owner folder whose permissions changed."""
+acceptance_criteria = """With one file and one folder made unreadable, the run's record names both with their causes and the run reports the part-failed outcome; every readable file is still captured."""
+permutations = """unreadable=set{file,folder,both}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The run's record and its outcome are the output the owner and host read; reporting them is the delivered outcome."""
+form = "interface"
+
+[requirement.SR-105]
+title = "A briefly locked file is retried within the run"
+sn_refs = ["SN-052"]
+boundary_refs = ["B-01"]
+requirement = """If a source file cannot be read when a run reaches it, then the system shall try it again later in the same run and capture it once it can be read."""
+rationale = """Other programs hold files open for a moment; giving up at the first refusal leaves a gap for no reason. Waiting on the file until it opens lost: it can hang the run."""
+acceptance_criteria = """A file held locked for less than the retry window when the run first reaches it is captured by that run and is not reported failed."""
+permutations = """lock_duration=range[0s..retry-window]; @boundaries"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-106", "SR-107"]
+coincident = """The captured file is the outcome; no assumption sits between the retry and the copy in the backup."""
+form = "interface"
+
+[requirement.SR-106]
+title = "Retrying unreadable files is bounded per run"
+sn_refs = ["SN-052"]
+boundary_refs = ["B-01", "B-08"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = """The system shall bound the total extra time a run spends waiting on unreadable files to a documented limit, however many files are unreadable."""
+rationale = """Per-file retries multiplied by many locked files can stretch a run past its window or make it look hung. An unbounded per-file retry lost because it fails the host at 3am with nobody watching."""
+acceptance_criteria = """With many files held unreadable throughout a run, the run's extra time over the same run with them readable stays within the documented limit, and the run ends with the part-failed outcome."""
+permutations = """unreadable_count=range[1..10000]; @boundaries"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-105"]
+coincident = """The run's own duration is the observed outcome."""
+form = "interface"
+
+[requirement.SR-107]
+title = "A persistently unreadable file keeps its earlier copy"
+sn_refs = ["SN-052"]
+boundary_refs = ["B-13", "B-06"]
+requirement = """If a file or folder that an earlier run captured stays unreadable for a whole run, then the system shall keep its earlier content in the latest state rather than record it as removed."""
+rationale = """Recording an unreadable file as removed turns a passing lock or a permissions change into data loss. Dropping it lost because the source still holds it."""
+acceptance_criteria = """After a run in which a previously captured file and folder stay unreadable, the run reports them with the cause and fails, and the latest state still restores their previously saved content."""
+permutations = """unreadable=set{file,folder}; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-105"]
+coincident = """The latest state's content is itself the outcome the restorer depends on."""
+form = "interface"
+
+[requirement.SR-108]
+title = "File names restore exactly"
+sn_refs = ["SN-032"]
+boundary_refs = ["B-01", "B-16"]
+requirement = """The system shall restore every captured file under the exact name it had in the source, Unicode, brackets, parentheses and spaces included, through every restorer."""
+rationale = """A file back under another name, or lost to a misread name, is a lost file. Escaping or transliterating names lost: it changes what the owner gets back."""
+acceptance_criteria = """Files whose names contain Unicode, brackets, parentheses and spaces restore with byte-identical names through each restorer on each supported restore system."""
+permutations = """name_feature=set{unicode,brackets,parentheses,spaces,mixed}; restorer=set{windows,linux,macos}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-08"]
+form = "assumption"
+
+[requirement.SR-109]
+title = "A name invalid on Windows or Linux is refused at backup time"
+sn_refs = ["SN-032"]
+boundary_refs = ["B-01", "B-06", "B-08"]
+requirement = """If a source file's name cannot exist on Windows or on Linux, then the system shall not back that file up, shall name it in the run's record with the offending character, shall report the run as failed, and shall back up every other file of that source."""
+rationale = """A name one platform cannot hold breaks the promise that every backup restores on every supported system. Half-handling it (mangling, or storing it for a restore that will fail) lost; so did aborting the whole source over one name."""
+acceptance_criteria = """A source holding one file with a name invalid on one platform and other ordinary files: the run's record names that file and its offending character, the run reports part failed, and every other file restores."""
+permutations = """invalid_on=set{windows,linux}; invalid_feature=set{reserved-character,reserved-name,trailing-dot-or-space,control-character}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The refusal, the record and the outcome are the delivered result."""
+form = "interface"
+
+[requirement.SR-110]
+title = "Backing up never alters the source"
+sn_refs = ["SN-037"]
+boundary_refs = ["B-01"]
+requirement = """The system shall not write, move, delete or change the times or attributes of any file or folder in a source."""
+rationale = """The source is what is being protected and the reference a restore is compared against. Touching it, even a time stamp, can damage it."""
+acceptance_criteria = """After any run, every file and folder in the source is byte-identical, with unchanged modification times and attributes, and no file or folder has been added or removed."""
+permutations = """action=set{Backup,Snapshots,Prune,Verify,View}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The untouched source is itself the outcome."""
+form = "cross-cutting"
+
+[requirement.SR-111]
+title = "A run succeeds with read-only access to the source"
+sn_refs = ["SN-037", "SN-024"]
+boundary_refs = ["B-01", "B-12"]
+requirement = """The system shall complete a run against a source it is only allowed to read."""
+rationale = """A tool that needs write access to the source cannot be prevented from damaging it, and cannot run under a read-only mount. Keeping the system's working state inside the source lost against this need."""
+acceptance_criteria = """With the source readable but not writable by the run's account, a run completes with the complete outcome and its backup restores byte-exact."""
+permutations = """host=set{windows,container}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-13"]
+delivered_with = ["SR-110"]
+form = "interface"
+
+[requirement.SR-112]
+title = "A source that suddenly looks empty is refused"
+sn_refs = ["SN-038"]
+boundary_refs = ["B-01", "B-02", "B-08"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = """If a source that held files on the previous run shows none, then the system shall refuse that source before changing its backup and report failure, unless AllowEmptySource is true for it."""
+rationale = """An unattended run cannot tell a dropped drive from a deliberate wipe. Trusting the empty view records every file as deleted. Inferring intent lost; the owner's explicit setting decides."""
+acceptance_criteria = """A previously populated source now empty: the backup is byte-identical after the run and the run reports failure; with AllowEmptySource true, the run records the removals; a source empty from its first run is backed up normally."""
+permutations = """previous=set{populated,empty-from-first-run}; AllowEmptySource=bool; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The unchanged backup and the failure outcome are the delivered result."""
+form = "interface"
+
+[requirement.SR-113]
+title = "One configuration covers several locations in one run"
+sn_refs = ["SN-009"]
+boundary_refs = ["B-05", "B-07", "B-02"]
+requirement = """When a run is launched with a configuration naming several source and backup locations, the system shall back up each of them in that run."""
+rationale = """One job per root multiplies setup and the places to look for failures."""
+acceptance_criteria = """A configuration naming three location pairs produces, in one run, three backups each restoring its own source."""
+permutations = """location_count=range[1..8]; shared_volume=bool; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-114"]
+coincident = """The backups produced are the outcome."""
+form = "interface"
+
+[requirement.SR-114]
+title = "One location's failure does not stop the others"
+sn_refs = ["SN-009"]
+boundary_refs = ["B-02", "B-08"]
+requirement = """If one configured location fails during a run, then the system shall still back up every other location and report the run as a whole failed."""
+rationale = """Aborting all roots over one leaves good data unprotected for an unrelated reason; reporting success because most worked hides the failure."""
+acceptance_criteria = """With one of three locations made to fail, the other two complete and restore, and the run reports the part-failed outcome."""
+permutations = """failing_position=set{first,middle,last}; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-113"]
+coincident = """The completed backups and the outcome are the result."""
+form = "interface"
+
+# --- SPACE --------------------------------------------------------------------
+
+[requirement.SR-115]
+title = "Identical content is stored once"
+sn_refs = ["SN-002"]
+boundary_refs = ["B-02", "B-13"]
+requirement = """The system shall store content with identical bytes once in a backup, however many files, folders, runs or saved states contain it."""
+rationale = """Storing each copy again multiplies the space the backup costs with no gain in what restores. Deduplicating by name or path lost: it misses renamed and copied files."""
+acceptance_criteria = """Two files with identical bytes, under different names, in the same run or different runs, add the space of one stored copy, and both restore byte-exact."""
+permutations = """placement=set{same-folder,different-folder,different-run,different-saved-state}; size=range[0..4GiB]; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-05"]
+form = "assumption"
+
+[requirement.SR-116]
+title = "With compression on, content is compressed only when measured to save space"
+sn_refs = ["SN-003"]
+boundary_refs = ["B-02", "B-10"]
+requirement = """Where CompressEnabled is true, the system shall store newly written content compressed only when measuring that content shows compression saves at least the documented minimum, whatever the file's name."""
+rationale = """Media is already compressed and only gets slower; text shrinks a lot. Choosing by file name lost: it wastes space on misnamed text and time on misnamed media."""
+acceptance_criteria = """With compression on, a compressible file under a media name is stored compressed and an incompressible file under a document name is stored as it is; both restore byte-exact."""
+permutations = """content=set{compressible,incompressible,partly-compressible}; name_class=set{media-extension,document-extension,none}; CompressProbe=set{off,excluded-extensions,always}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-18"]
+form = "interface"
+
+[requirement.SR-117]
+title = "With compression off, nothing is compressed"
+sn_refs = ["SN-003"]
+boundary_refs = ["B-02"]
+requirement = """Where CompressEnabled is false, the system shall store all newly written content as it is."""
+rationale = """An owner who turns compression off has decided against its cost; compressing anyway overrides that choice."""
+acceptance_criteria = """With compression off, no newly stored content is in compressed form and every file restores byte-exact."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The stored form is the outcome."""
+form = "interface"
+
+[requirement.SR-118]
+title = "The space view lists files by space taken"
+sn_refs = ["SN-051"]
+boundary_refs = ["B-06"]
+requirement = """Where the space view is turned on, the system shall let the owner list the backed-up files ordered by the space each takes."""
+rationale = """The owner can only reduce the space the backup costs by knowing what fills it."""
+acceptance_criteria = """With the space view on, the owner obtains a listing of the latest state's files ordered by stored size, largest first, covering every file."""
+priority = "C"
+verification = "Test"
+status = "Drafted"
+coincident = """The listing is the outcome."""
+form = "interface"
+
+[requirement.SR-119]
+title = "The space view gives a media encoding measure"
+sn_refs = ["SN-051"]
+boundary_refs = ["B-06", "B-10"]
+requirement = """Where the space view is turned on and the media-measurement tool is available, the system shall record for each media file a measure of how heavily it is encoded."""
+rationale = """Media that could be re-encoded at a lower bitrate is the biggest saving the owner can make and is invisible without a per-file measure."""
+acceptance_criteria = """With the feature on and the tool present, each backed-up media file carries an encoding-rate figure in the view; non-media files carry none."""
+priority = "C"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-18"]
+delivered_with = ["SR-120"]
+form = "interface"
+
+[requirement.SR-120]
+title = "A missing media measure changes nothing else and is recorded"
+sn_refs = ["SN-051", "SN-015"]
+boundary_refs = ["B-06", "B-10"]
+requirement = """If the space view is off or the media measure cannot be taken on this host, then the system shall back up exactly as it otherwise would and record that the measure was not taken."""
+rationale = """An optional view must not change what is backed up or turn a good run into a failure; but a silently missing column looks like zero."""
+acceptance_criteria = """With the tool absent, a run's stored content and outcome equal those of a run with the feature off, and the run's record says the measure was not taken."""
+permutations = """feature=bool; tool_present=bool; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-119", "SR-200"]
+coincident = """The backup's content, outcome and record are the outcome."""
+form = "interface"
+
+# --- HISTORY AND RETENTION ----------------------------------------------------
+
+[requirement.SR-121]
+title = "A changing run keeps the previous state as a dated saved state"
+sn_refs = ["SN-004"]
+boundary_refs = ["B-02", "B-13"]
+requirement = """When a run changes the backed-up state, the system shall keep the previous state as a saved state identified by its date, alongside the latest state."""
+rationale = """Without earlier states the backup faithfully copies a mistake and the good version is gone. Keeping only the latest state lost."""
+acceptance_criteria = """After several runs with changes between them, each earlier state is listed by its date in order and restores as it was, and the latest state is present."""
+permutations = """runs=range[2..20]; change_kind=set{add,edit,remove,rename}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-16"]
+form = "assumption"
+
+[requirement.SR-122]
+title = "A run that changes nothing adds no saved state"
+sn_refs = ["SN-004", "SN-021"]
+boundary_refs = ["B-02"]
+requirement = """When a run finds no change in a source, the system shall create no new saved state for it."""
+rationale = """A saved state that holds nothing new costs a listing entry and buries the states that matter."""
+acceptance_criteria = """Two consecutive runs over an unchanged source leave the same set of saved states."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The saved-state set is the outcome."""
+form = "interface"
+
+[requirement.SR-123]
+title = "No operation alters or loses content a state depends on"
+sn_refs = ["SN-034"]
+boundary_refs = ["B-02"]
+hat_refs = ["SHARED-CONTENT"]
+requirement = """The system shall not alter or remove any stored content that the latest state or any saved state still depends on, in any operation."""
+rationale = """Files and states share stored content; rewriting or removing one copy because one file changed silently breaks every other file and state using it, found only at restore."""
+acceptance_criteria = """After one of two identical files is edited, and after files are removed, renamed and re-added, every earlier saved state still restores the old bytes for every path that held them and the latest state restores the new bytes."""
+permutations = """operation=set{Backup,Prune,Verify-repair,kit-refresh}; change=set{edit-one-twin,remove,rename,re-add}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The restorability of every state is itself the outcome."""
+form = "cross-cutting"
+
+[requirement.SR-124]
+title = "Removing a named saved state keeps every other state whole"
+sn_refs = ["SN-029"]
+boundary_refs = ["B-05", "B-07", "B-02"]
+hat_refs = ["SHARED-CONTENT"]
+requirement = """When the owner asks for a named saved state to be removed (Prune), the system shall remove it and leave every remaining saved state and the latest state restorable byte-exact, including when the removed state held the only stored copy of shared content."""
+rationale = """Without it history grows until the volume fills, and removing a state from outside the tool is silent loss of shared content. Retention policy inside the tool lost: the owner or host names what to remove."""
+acceptance_criteria = """After removing a saved state that held the only copy of content other states share, with compression on and off, every remaining state and the latest state restore byte-exact."""
+permutations = """CompressEnabled=bool; holds_only_copy=bool; position=set{oldest,middle,newest}; count=range[1..3]; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """Every remaining state restoring is the outcome."""
+form = "interface"
+
+[requirement.SR-125]
+title = "A removal that would lose content is refused"
+sn_refs = ["SN-029"]
+boundary_refs = ["B-02", "B-08"]
+requirement = """If removing a named saved state would lose content any remaining state needs, then the system shall refuse that removal before changing anything, with its own documented outcome."""
+rationale = """Pruning into a store that is already damaged can turn a recoverable problem into a permanent one. Removing what it can and reporting the rest lost."""
+acceptance_criteria = """With shared content already missing from the store, a removal is refused, the store is byte-identical afterwards, and the outcome differs from complete and from part-failed."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The untouched store and the outcome are the result."""
+form = "interface"
+
+[requirement.SR-126]
+title = "An interrupted removal loses nothing and can be re-run"
+sn_refs = ["SN-029"]
+boundary_refs = ["B-02"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+requirement = """If a removal is interrupted at any point, then the system shall have lost no content any state needs, and the same request run again shall complete the removal."""
+rationale = """A removal killed midway that leaves content stranded or a state half-removed is silent data loss. A recovery journal the owner must replay lost: re-running the same request is all the owner should need."""
+acceptance_criteria = """With a removal killed at each of its steps in turn, every remaining state and the latest state restore byte-exact, and re-running the same request completes the removal with the complete outcome."""
+permutations = """interrupt_point=range[first-step..last-step]; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-01", "DA-15"]
+form = "assumption"
+
+[requirement.SR-127]
+title = "The saved-state report gives what each removal would reclaim"
+sn_refs = ["SN-046"]
+boundary_refs = ["B-06", "B-08"]
+hat_refs = ["SHARED-CONTENT"]
+requirement = """When asked for the saved-state report (Snapshots), the system shall give for every saved state the space its removal would free and the space that would have to be moved to keep shared content."""
+rationale = """With shared content a state's folder size is not what removing it frees, and nobody outside the tool can work out the true figure. Reporting folder sizes lost."""
+acceptance_criteria = """For each saved state, the reported freed figure equals the drop in the store's size when that state is then removed, and the moved figure equals the content moved by that removal."""
+permutations = """shared_fraction=range[0..100%]; CompressEnabled=bool; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-128", "SR-129"]
+coincident = """The figures are the outcome the owner or host acts on."""
+form = "interface"
+
+[requirement.SR-128]
+title = "Read-only actions change nothing in the store"
+sn_refs = ["SN-030", "SN-046"]
+boundary_refs = ["B-02"]
+requirement = """When the saved-state report or a check without a repair or refresh option is run, the system shall leave the backup byte-identical."""
+rationale = """A report or a check that writes can itself damage what it inspects, and cannot then be run freely before a decision."""
+acceptance_criteria = """The store is byte-identical, with unchanged times, before and after the saved-state report and before and after a check, on an intact store and on a damaged one."""
+permutations = """action=set{Snapshots,Verify,Verify-BackupRootOnly,Verify-Deep}; store=set{intact,damaged}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The unchanged store is the outcome."""
+form = "interface"
+
+[requirement.SR-129]
+title = "Reports and checks return machine-readable findings"
+sn_refs = ["SN-046", "SN-045", "SN-030"]
+boundary_refs = ["B-08"]
+requirement = """When the saved-state report or a check completes, the system shall return its findings in a documented machine-readable form."""
+rationale = """A host deciding retention or acting on a check cannot be asked to parse prose that may change wording between versions."""
+acceptance_criteria = """The output of the saved-state report and of a check parses as the documented structured form, and every figure and finding in the human-readable output is present in it."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The returned findings are the outcome."""
+form = "interface"
+
+[requirement.SR-130]
+title = "An unchanged source reports no changes and leaves the latest state as it was"
+sn_refs = ["SN-021"]
+boundary_refs = ["B-02", "B-06"]
+requirement = """When a run finds no change in a source, the system shall report no added, changed or removed files and leave the record of its latest state identical."""
+rationale = """Spurious changes bury real ones and teach the owner to distrust every change the tool reports."""
+acceptance_criteria = """Two consecutive runs over an unchanged source leave identical records of the latest state and the second run reports zero added, changed and removed files."""
+permutations = """HashRecalcFreq=set{A,N}; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-122"]
+coincident = """The report and the unchanged record are the outcome."""
+form = "interface"
+
+[requirement.SR-131]
+title = "The re-read frequency decides deterministically when unchanged-looking files are re-read"
+sn_refs = ["SN-007"]
+boundary_refs = ["B-05", "B-07", "B-01"]
+requirement = """The system shall re-read the content of a file whose size and modification time are unchanged exactly on the runs its source's HashRecalcFreq setting (A, E, D, W, M, Y or N) makes due, and on no others."""
+rationale = """Re-reading everything every run can overrun the backup window; never re-reading trusts size and time completely. The owner, not the tool, picks the point on that trade-off, and the choice is useless unless it decides the same way every time."""
+acceptance_criteria = """For each setting value and elapsed time since the last full re-read, whether a run re-reads unchanged-looking files matches the documented rule, every time; N never re-reads and A or E always does."""
+permutations = """HashRecalcFreq=set{A,E,D,W,M,Y,N}; elapsed=range[0..400d]; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-16"]
+delivered_with = ["SR-132"]
+form = "interface"
+
+[requirement.SR-132]
+title = "A re-read that finds new content captures it"
+sn_refs = ["SN-007"]
+boundary_refs = ["B-01", "B-13"]
+requirement = """When a re-read finds content different from the recorded content of a file whose size and modification time are unchanged, the system shall record the new content in the latest state."""
+rationale = """A re-read that notices a change but keeps the old copy buys the cost of re-reading for nothing."""
+acceptance_criteria = """A file edited without changing its size or time is restored at its new content after the first run its setting makes re-read it, and at its old content from the states before."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-131"]
+coincident = """The captured content is the outcome."""
+form = "interface"
+
+[requirement.SR-133]
+title = "A damaged change-detection state never costs a change or stored content"
+sn_refs = ["SN-001", "SN-034"]
+boundary_refs = ["B-20"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+requirement = """If a source's change-detection state is missing, unreadable or inconsistent with the backup, then the system shall work out what changed without relying on it, and report that it did so."""
+rationale = """Derived through INTEGRITY-RECOVERABILITY: the change-detection state is a durable artifact outside the backup, and trusting a torn or stale copy would mark changed files unchanged (breaking SN-001's capture of changed files) or removed (breaking SN-034). Refusing the run until someone repairs it lost: the backup alone holds enough to proceed."""
+acceptance_criteria = """With the change-detection state deleted, truncated, or replaced by an older copy, the next run captures every file edited since, records no unchanged file as removed, and its record says the state was not used."""
+permutations = """state_fault=set{missing,truncated,stale,foreign}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The captured content and the record are the outcome."""
+form = "interface"
+
+# --- STORE INTEGRITY ----------------------------------------------------------
+
+[requirement.SR-134]
+title = "An interrupted run leaves only complete states"
+sn_refs = ["SN-013"]
+boundary_refs = ["B-02", "B-13"]
+requirement = """If a run is interrupted at any point, then the system shall leave every visible saved state complete and the latest state either as it was before the run or as it would be after it."""
+rationale = """Unattended runs are killed by reboots, power cuts and stopped containers. A half-written state that a restore reads as complete hands back a shrunken tree."""
+acceptance_criteria = """With a run killed at each step in turn, and with power removed during writing, every visible saved state restores, and the latest state restores as either the pre-run or the post-run tree."""
+permutations = """interrupt=set{kill,power-loss,container-stop}; interrupt_point=range[first-step..last-step]; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-01", "DA-15"]
+form = "assumption"
+
+[requirement.SR-135]
+title = "A run after a dead interrupted run proceeds by itself when nothing would be lost"
+sn_refs = ["SN-013"]
+boundary_refs = ["B-02", "B-04"]
+requirement = """When a run finds traces of an earlier interrupted run and can tell from the backup alone that the earlier run is dead and that proceeding loses nothing, the system shall recover and complete the run without intervention."""
+rationale = """A run that refuses forever after one interruption stops all future backups until someone notices."""
+acceptance_criteria = """After a run is killed at a point that left no content in transit, the next run completes with the complete outcome and the store restores every state."""
+permutations = """leftover=set{none,empty-staging,owner-record-only}; earlier_run=set{dead,alive}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-02", "DA-16"]
+delivered_with = ["SR-136"]
+form = "assumption"
+
+[requirement.SR-136]
+title = "A run that cannot tell it is safe refuses and says what it found"
+sn_refs = ["SN-013"]
+boundary_refs = ["B-06", "B-08"]
+requirement = """If a run finds traces of an earlier run and cannot tell from the backup alone that the earlier run is dead and that proceeding loses nothing, then the system shall refuse before changing anything and name what it found."""
+rationale = """A later run that builds on half-finished work corrupts the store; guessing that it is safe lost."""
+acceptance_criteria = """With an earlier run's leftovers holding content in transit, or with that run still alive, the next run changes nothing, reports the not-ready outcome, and its message names what it found."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-135"]
+coincident = """The refusal and the untouched store are the outcome."""
+form = "interface"
+
+[requirement.SR-137]
+title = "Only one changing operation proceeds on a backup at a time"
+sn_refs = ["SN-039"]
+boundary_refs = ["B-04", "B-08"]
+requirement = """While a backup, a removal, a repair or a kit refresh is changing a backup, the system shall refuse any other of those operations on the same backup, change nothing for it, and name the operation holding the backup."""
+rationale = """Overlapping scheduled runs or a removal during a backup let two writers act on state the other is changing and destroy content neither meant to touch. Queueing the second lost: it stacks runs behind a hung one."""
+acceptance_criteria = """For each ordered pair of changing operations started on one backup, the second is refused with the busy outcome, its message names the first, and the store matches what the first alone produces."""
+permutations = """first=set{Backup,Prune,Verify-RepairStorage,Verify-RefreshKits}; second=set{Backup,Prune,Verify-RepairStorage,Verify-RefreshKits}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-03"]
+delivered_with = ["SR-138", "SR-139"]
+form = "assumption"
+
+[requirement.SR-138]
+title = "Reading and restoring still work while a backup is held"
+sn_refs = ["SN-039"]
+boundary_refs = ["B-04"]
+requirement = """While a changing operation holds a backup, the system shall still run a check, a listing or a restore started against it."""
+rationale = """Locking readers out turns every long backup into an outage for restores and checks."""
+acceptance_criteria = """A check, the saved-state report and a restore started while a backup is running each complete with their normal outcome."""
+permutations = """reader=set{Verify,Snapshots,restore}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-137"]
+coincident = """The reader's completion is the outcome."""
+form = "interface"
+
+[requirement.SR-139]
+title = "A dead holder's claim on a backup is released"
+sn_refs = ["SN-039"]
+boundary_refs = ["B-04"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+requirement = """When the operation holding a backup ends, or its process dies, the system shall let the next changing operation on that backup proceed."""
+rationale = """A claim nothing reclaims once its holder is gone stops all future backups. Expiring claims by age lost: it can let a second writer in beside a live slow one."""
+acceptance_criteria = """After a holding operation completes, and after its process is killed, a new backup on the same store proceeds without manual clean-up."""
+permutations = """end=set{normal,killed,crashed}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-02"]
+delivered_with = ["SR-137"]
+form = "assumption"
+
+[requirement.SR-140]
+title = "Content lost from the backup is stored again from the source"
+sn_refs = ["SN-031"]
+boundary_refs = ["B-02", "B-01"]
+hat_refs = ["SHARED-CONTENT"]
+requirement = """When a run finds that stored content the latest state relies on is missing from the backup and the source still holds those bytes, the system shall store the content again."""
+rationale = """Antivirus quarantine and sync space sweeps remove files inside a backup that looks like a plain copy. If the loss is only forgotten, every later run reports success over a file that can no longer be restored."""
+acceptance_criteria = """After stored content is deleted from outside the tool, the next run succeeds and the affected file restores byte-exact from the latest state."""
+permutations = """removed=set{one-object,many-objects,shared-object}; CompressEnabled=bool; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-11"]
+delivered_with = ["SR-141"]
+form = "assumption"
+
+[requirement.SR-141]
+title = "New content is deduplicated only against content actually present"
+sn_refs = ["SN-031"]
+boundary_refs = ["B-02"]
+hat_refs = ["SHARED-CONTENT"]
+requirement = """When a run stores a new file whose content the backup records as already held, the system shall store it for real if that content is not actually present in the backup."""
+rationale = """Recording a new file as sharing content that was lost silently extends the loss to the new file."""
+acceptance_criteria = """After stored content is deleted from outside the tool, a new source file with identical content is restorable byte-exact from the latest state after the next run."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-11"]
+delivered_with = ["SR-140"]
+form = "assumption"
+
+[requirement.SR-142]
+title = "A check reports every disagreement between the record and what is stored"
+sn_refs = ["SN-030"]
+boundary_refs = ["B-05", "B-07", "B-06", "B-08"]
+requirement = """When the owner asks for a check (Verify), the system shall report, for the latest state and every saved state, each file whose stored content is missing, altered, or in a form other than its record says, with the kind of problem, and report failure when there is any."""
+rationale = """The record of how each file was stored is kept apart from the bytes; unless something compares them a wrong record or a lost file stays invisible until a restore fails."""
+acceptance_criteria = """After stored content is deleted, altered, and recorded in the wrong form in the latest state and in a saved state, the check names each affected file and its kind of problem and reports the findings outcome; on an intact backup it reports clean."""
+permutations = """damage=set{deleted,altered,wrong-form,none}; location=set{latest,saved-state}; scope=set{full,BackupRootOnly}; Deep=bool; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-11"]
+delivered_with = ["SR-128", "SR-129"]
+form = "interface"
+
+[requirement.SR-143]
+title = "A repair fixes only what is certain"
+sn_refs = ["SN-047"]
+boundary_refs = ["B-02", "B-06"]
+requirement = """When the owner asks for a repair (Verify with RepairStorage), the system shall correct every check finding whose right answer is certain from what is stored, and leave and report every other finding."""
+rationale = """A problem that can only be reported leaves the owner choosing between living with it and a fresh backup that throws away history; a repair that guesses can lose a recoverable store."""
+acceptance_criteria = """After a repair, a check no longer reports any finding of a certain kind, still reports every other finding, and every state that restored before restores byte-exact."""
+permutations = """finding=set{form-recorded-wrong,name-claims-wrong-form,missing,payload-mismatch,unreferenced}; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The repaired store and the remaining report are the outcome."""
+form = "interface"
+
+[requirement.SR-144]
+title = "An interrupted repair or kit refresh leaves every state restorable"
+sn_refs = ["SN-047", "SN-041"]
+boundary_refs = ["B-02"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+requirement = """If a repair or a kit refresh is interrupted at any point, then the system shall leave every state that restored before still restorable byte-exact."""
+rationale = """Derived through INTEGRITY-RECOVERABILITY: both operations write inside saved states, which are otherwise left alone, and the needs promise that states still restore after them; an operation that updates a record or a kit in place without an all-or-nothing guarantee breaks that promise when killed."""
+acceptance_criteria = """With a repair and a kit refresh each killed at each step in turn, every state restores byte-exact with its own restore kit and with the current one."""
+permutations = """operation=set{repair,kit-refresh}; interrupt_point=range[first-step..last-step]; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-01", "DA-15"]
+form = "assumption"
+
+[requirement.SR-145]
+title = "A change of compression setting leaves stored content as it is"
+sn_refs = ["SN-048"]
+boundary_refs = ["B-02"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """When CompressEnabled or CompressProbe changes between runs, the system shall leave content already stored in the form it has and apply the new setting only to content stored afterwards."""
+rationale = """Rewriting stored content on a setting change costs a full re-pack and puts every saved state at risk mid-migration."""
+acceptance_criteria = """After a run under each change of setting, every previously stored item keeps its bytes and form, and new content follows the new setting."""
+permutations = """from_compress=bool; to_compress=bool; CompressProbe_change=set{none,off-to-always,always-to-excluded-extensions}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The stored forms are the outcome."""
+form = "interface"
+
+[requirement.SR-146]
+title = "A store holding both forms restores byte-exact"
+sn_refs = ["SN-048"]
+boundary_refs = ["B-13", "B-16"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """The restore kit shall restore every state of a store holding content in both compressed and uncompressed form byte-exact, whatever form each state's record says its content is in."""
+rationale = """After a setting change one content can exist in both forms; a restorer that trusts the recorded form can hand back archive bytes under the original name and report success."""
+acceptance_criteria = """In a store whose compression was turned on and off between runs, every saved state and the latest state restore byte-exact through every restorer, including states whose recorded form disagrees with the copy found."""
+permutations = """history=set{on-off,off-on,on-off-on}; restorer=set{windows,linux,macos}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-18"]
+form = "interface"
+
+[requirement.SR-147]
+title = "A backup refuses before writing when its destination lacks space"
+sn_refs = ["SN-019"]
+boundary_refs = ["B-03", "B-06", "B-08"]
+requirement = """If a backup's new content would not fit in the free space of its destination volume, combined with every other configured location on that volume, then the system shall refuse before writing, naming the volume with the space needed and the space free, and report failure."""
+rationale = """A backup that fills its volume midway can leave the record and the content out of step. Checking each location alone lost: several locations sharing a volume pass singly and fail together."""
+acceptance_criteria = """With new content larger than the free space, alone or summed across two locations on one volume, the backup volume is unchanged, the message names the volume, needed and free space, and the run reports failure."""
+permutations = """locations_on_volume=range[1..3]; need_vs_free=set{below,equal,above}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-06"]
+form = "assumption"
+
+[requirement.SR-148]
+title = "A restore refuses before writing when its target lacks space"
+sn_refs = ["SN-019"]
+boundary_refs = ["B-17", "B-15"]
+requirement = """If a restore's expanded content would not fit in the free space of its target, then the restore kit shall refuse before writing, naming the volume with the space needed and the space free, and report the precondition outcome."""
+rationale = """A restore that fills its target leaves a partial tree that looks finished."""
+acceptance_criteria = """With a target whose free space is below the restore's expanded size, nothing is written to the target, the message names the volume, needed and free space, and the restore reports exit code 2."""
+permutations = """need_vs_free=set{below,equal,above}; CompressEnabled=bool; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-06"]
+form = "assumption"
+
+[requirement.SR-149]
+title = "Runs, checks and restores fit their documented time budgets at scale"
+sn_refs = ["SN-043"]
+boundary_refs = ["B-07", "B-08", "B-15"]
+hat_refs = ["PERFORMANCE"]
+requirement = """For a library at the documented scale on the documented host class, the system shall complete a run with few changes, a check and a full restore each within its documented time budget."""
+rationale = """Off the single-crossing rule on purpose: a time budget is a property of the whole operation, from launch to outcome. Without it the run quietly stops fitting its nightly window as the library grows."""
+acceptance_criteria = """On the documented host class with a library of the documented size and file count, each of the three operations finishes within its documented budget."""
+permutations = """operation=set{run-few-changes,Verify,full-restore}; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The elapsed time is the outcome."""
+form = "cross-cutting"
+
+[requirement.SR-150]
+title = "Runs, checks and restores stay within documented memory bounds at scale"
+sn_refs = ["SN-043"]
+boundary_refs = ["B-07", "B-15"]
+hat_refs = ["PERFORMANCE"]
+requirement = """For a library at the documented scale on the documented host class, the system shall keep a run, a check and a full restore each within its documented memory bound."""
+rationale = """Off the single-crossing rule on purpose: memory is a whole-operation property. A tool whose memory grows with the library eventually stops fitting the host."""
+acceptance_criteria = """Peak memory of each of the three operations on the documented library stays at or below its documented bound."""
+permutations = """operation=set{run-few-changes,Verify,full-restore}; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The memory used is the outcome."""
+form = "cross-cutting"
+
+[requirement.SR-151]
+title = "A run's time follows what changed, not stored history"
+sn_refs = ["SN-043"]
+boundary_refs = ["B-07", "B-08"]
+hat_refs = ["PERFORMANCE"]
+requirement = """The system shall keep the time of a run with few changes independent of how much saved history the backup holds."""
+rationale = """Off the single-crossing rule on purpose: a scaling property of the whole run. A run whose cost grows with history slows every year without the source changing."""
+acceptance_criteria = """Doubling the number of saved states without changing the source increases the time of a run with few changes by less than a factor of two, by no more than the documented margin."""
+permutations = """saved_states=range[1..1000]; @boundaries"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The elapsed time is the outcome."""
+form = "cross-cutting"
+
+# --- COMPATIBILITY ACROSS VERSIONS --------------------------------------------
+
+[requirement.SR-152]
+title = "The current version continues a backup written by the previous release"
+sn_refs = ["SN-040"]
+boundary_refs = ["B-02"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """When run against a backup written by the previous released version, the system shall continue that backup without a fresh start, with every one of its states still restorable."""
+rationale = """An upgrade that strands years of history forces two stores or the loss of that history."""
+acceptance_criteria = """A backup written by the previous release, continued by the current version, restores every earlier state and the new latest state byte-exact."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The continued, restorable backup is the outcome."""
+form = "interface"
+
+[requirement.SR-153]
+title = "A backup in a form this version cannot continue is refused by name"
+sn_refs = ["SN-040"]
+boundary_refs = ["B-02", "B-06", "B-08"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """If a backup is in a retired or unrecognised form, then the system shall refuse to change it, before any change, with a message naming the form and what to do."""
+rationale = """A version that half-understands an unfamiliar form can damage a store it should have left alone. Best-effort continuation lost."""
+acceptance_criteria = """A backup in a retired form and one in an unrecognised form are each byte-identical after the attempt, and the message names the form and the action to take."""
+permutations = """form=set{retired,unrecognised,newer-than-this-version}; action=set{Backup,Prune,Verify-RepairStorage}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The untouched backup and the message are the outcome."""
+form = "interface"
+
+[requirement.SR-154]
+title = "The system never writes what a kit already in the backup cannot read"
+sn_refs = ["SN-041"]
+boundary_refs = ["B-02", "B-13"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """The system shall write nothing into an existing backup that leaves a saved state unrestorable by the restore kit it carries."""
+rationale = """A saved state may be restored years later with the kit it carries; a later version that leaves that kit unable to read what is now stored loses history without deleting a file."""
+acceptance_criteria = """A saved state written by each earlier supported version restores byte-exact with its own restore kit after the current version has run against the store, including with compression changed."""
+permutations = """writer_version=set{oldest-supported,previous,current}; CompressEnabled_changed=bool; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The state's restorability with its own kit is the outcome."""
+form = "interface"
+
+[requirement.SR-155]
+title = "The current restore kit restores states written by older versions"
+sn_refs = ["SN-041"]
+boundary_refs = ["B-13", "B-16"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """The restore kit shall restore byte-exact a saved state written by any earlier supported version."""
+rationale = """A newer kit that cannot read an older state leaves the owner depending on the old kit's defects."""
+acceptance_criteria = """Saved states written by each earlier supported version restore byte-exact with the current restore kit."""
+permutations = """writer_version=set{oldest-supported,previous}; restorer=set{windows,linux,macos}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The restored tree is the outcome."""
+form = "interface"
+
+[requirement.SR-156]
+title = "Content recorded before a newer kind of record restores and says what it could not check"
+sn_refs = ["SN-041"]
+boundary_refs = ["B-15", "B-16"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """When a state was recorded before a newer kind of record existed, the restore kit shall restore it as before and report each check it could not make."""
+rationale = """Refusing older states because they lack a newer record strands history; restoring them silently hides that a check was skipped."""
+acceptance_criteria = """A state written before the integrity record of its contents existed restores byte-exact and its outcome reports that record as unverified."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The restore and its report are the outcome."""
+form = "interface"
+
+[requirement.SR-157]
+title = "The owner can refresh the restore kits in an existing backup"
+sn_refs = ["SN-041"]
+boundary_refs = ["B-05", "B-02", "B-13"]
+requirement = """When the owner asks for a kit refresh (Verify with RefreshKits), the system shall place the current restore kit in the latest state and every saved state and change nothing else."""
+rationale = """A defect fixed in the kit is otherwise fixed only for new states. Refreshing automatically lost: it writes inside states that are otherwise left alone, so it is the owner's choice."""
+acceptance_criteria = """After a kit refresh, every state carries the current restore kit, each state's record is byte-identical to before, and every state restores byte-exact; a normal backup run leaves saved states' kits untouched."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-144"]
+coincident = """The refreshed backup is the outcome."""
+form = "interface"
+
+[requirement.SR-158]
+title = "Backups from Linux and Windows hosts restore through every restorer"
+sn_refs = ["SN-023"]
+boundary_refs = ["B-13", "B-16"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """The system shall write a backup in the same form whether run from a Linux host or from Windows, so that each restores byte-exact through every restorer."""
+rationale = """If each host wrote its own form, moving backup duty would strand history and a restorer would need to know which host made the backup."""
+acceptance_criteria = """A backup made from a Linux host and one made from Windows each restore byte-exact through each restorer."""
+permutations = """backup_host=set{windows,linux-container}; restorer=set{windows,linux,macos}; @full"""
+priority = "C"
+verification = "Test"
+status = "Drafted"
+coincident = """The restored tree is the outcome."""
+form = "interface"
+
+[requirement.SR-159]
+title = "Each host continues the other's backup identically"
+sn_refs = ["SN-023"]
+boundary_refs = ["B-02"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+requirement = """When a backup written from one host type is continued from the other, the system shall treat its shared content, compression and saved states as the original host would."""
+rationale = """A continuation that re-stores shared content, or forms saved states differently, doubles space or splits history."""
+acceptance_criteria = """A run from a Linux host on a Windows-written backup, and the reverse, add no duplicate of already stored content, apply the same compression decisions, and create the same saved states as a same-host run would."""
+permutations = """direction=set{windows-to-linux,linux-to-windows}; CompressEnabled=bool; @full"""
+priority = "C"
+verification = "Test"
+status = "Drafted"
+coincident = """The continued store is the outcome."""
+form = "interface"
+
+# --- RESTORE ------------------------------------------------------------------
+
+[requirement.SR-160]
+title = "Every state in a backup carries a restore kit"
+sn_refs = ["SN-005"]
+boundary_refs = ["B-13"]
+requirement = """The system shall place, with the latest state and with each saved state, a restore kit able to restore that state on a machine that has never had FileBackup."""
+rationale = """A backup that only the tool that made it can restore is hostage to that tool existing at the moment of disaster."""
+acceptance_criteria = """The backup folder, copied whole to a machine that has never had FileBackup, restores the latest state and every saved state from the kits it carries."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-19"]
+delivered_with = ["SR-161"]
+form = "assumption"
+
+[requirement.SR-161]
+title = "A restore needs only the documented tool floor and downloads nothing"
+sn_refs = ["SN-005", "SN-022"]
+boundary_refs = ["B-18"]
+requirement = """The restore kit shall restore using only the documented restore-tool floor, with nothing downloaded at restore time."""
+rationale = """A restore that fetches anything depends on a network and a source that may be gone; one that needs uncommon tools fails on the machine at hand."""
+acceptance_criteria = """With network access removed and only the documented floor installed, a restore of the latest state produces a tree byte-identical to the source at that run."""
+permutations = """restore_system=set{windows,linux,macos}; route=set{shell-tools,language-runtime}; compressed_content=bool; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-10", "DA-18"]
+form = "assumption"
+
+[requirement.SR-162]
+title = "A restore reproduces exactly the chosen state"
+sn_refs = ["SN-006"]
+boundary_refs = ["B-14", "B-16"]
+requirement = """When a restore is started for a saved state, the restore kit shall rebuild exactly that state, with nothing from a newer state mixed in, and when started without choosing a state, the latest state."""
+rationale = """History exists to get back what was there before a mistake; a restore that mixes in newer content brings the mistake back."""
+acceptance_criteria = """Restoring each saved state yields a tree byte-identical to the source at that state's run, with no file added, changed or removed since; restoring without a choice yields the latest state."""
+permutations = """state=set{latest,oldest,middle}; later_change=set{edit,remove,add}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The restored tree is the outcome."""
+form = "interface"
+
+[requirement.SR-163]
+title = "A restore behaves the same on Windows, Linux and macOS"
+sn_refs = ["SN-022"]
+boundary_refs = ["B-19", "B-16"]
+hat_refs = ["CROSS-PLATFORM"]
+requirement = """The restore kit shall restore any state to an identical tree on a stock Windows, Linux or macOS machine meeting the documented tool floor, including one without the backup tool's runtime."""
+rationale = """The machine at hand after a disaster is often not the one that made the backup."""
+acceptance_criteria = """The same backup restores the latest state and a saved state to byte-identical trees on each of the three systems, with the backup runtime absent."""
+permutations = """restore_system=set{windows,linux,macos}; state=set{latest,saved}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-10", "DA-18"]
+form = "assumption"
+
+[requirement.SR-164]
+title = "A missing restore tool is refused by name"
+sn_refs = ["SN-022"]
+boundary_refs = ["B-18", "B-15"]
+requirement = """If a tool the restore needs is missing from the restore host, then the restore kit shall refuse before writing anything, naming the tool to install."""
+rationale = """A restore that starts and then fails for a missing tool leaves a partial tree and no clear fix."""
+acceptance_criteria = """With each floor tool removed in turn, the restore writes nothing and its message names that tool and how to obtain it."""
+permutations = """missing=set{hash-utility,archive-extractor,text-processor,shell-version}; compressed_content=bool; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The refusal message is the outcome."""
+form = "interface"
+
+[requirement.SR-165]
+title = "A restore reports no damage that is not there, whatever the host's tool flavour"
+sn_refs = ["SN-022"]
+boundary_refs = ["B-19", "B-18", "B-15"]
+hat_refs = ["CROSS-PLATFORM"]
+requirement = """The restore kit shall report an intact backup as complete on every supported restore host, whichever flavour of system tools it has."""
+rationale = """A restorer that misreads a different tool set reports damage on an intact backup, sending the restorer to an older copy or a loss that never happened."""
+acceptance_criteria = """An intact backup restores with exit code 0 on hosts with GNU and with BSD system tools, every file byte-exact."""
+permutations = """tool_flavour=set{gnu,bsd,windows}; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-18"]
+form = "assumption"
+
+[requirement.SR-166]
+title = "A double-clicked restore asks for the target and keeps its outcome on screen"
+sn_refs = ["SN-035"]
+boundary_refs = ["B-14", "B-15", "B-19"]
+requirement = """When a restore is opened by double-click from the backup folder on Windows or macOS, the restore kit shall ask for the target folder, restore, and keep the outcome on screen until it is dismissed."""
+rationale = """The moment of restore is the worst moment to recall a parameter, and a window that closes on its result leaves the restorer not knowing whether the files are back."""
+acceptance_criteria = """Double-clicking the restore on Windows and on macOS presents a folder choice, restores into the chosen folder, and leaves the outcome visible until dismissed."""
+permutations = """restore_system=set{windows,macos}; outcome=set{complete,failed}; @full"""
+priority = "S"
+verification = "Demonstration"
+status = "Drafted"
+coincident = """The interaction is the outcome."""
+form = "interface"
+
+[requirement.SR-167]
+title = "A scripted restore asks nothing"
+sn_refs = ["SN-035", "SN-011"]
+boundary_refs = ["B-14", "B-15"]
+requirement = """When a restore is started with its arguments, the restore kit shall run without asking anything and return its outcome."""
+rationale = """A script cannot answer a dialog; a scripted restore that prompts hangs."""
+acceptance_criteria = """A restore started with a state and a target by a script, with input closed, completes and returns its outcome without any prompt or dialog."""
+permutations = """restore_system=set{windows,linux,macos}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The unprompted completion is the outcome."""
+form = "interface"
+
+[requirement.SR-168]
+title = "A successful restore has checked every file it wrote"
+sn_refs = ["SN-033"]
+boundary_refs = ["B-16", "B-15"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+requirement = """The restore kit shall report a restore complete only when every file it wrote has been checked to have the content the backup recorded for it."""
+rationale = """A wrong stored copy, a flipped bit or a truncated file would otherwise restore with a success status. Trusting the store lost."""
+acceptance_criteria = """With stored content altered, bit-flipped at the same length, and truncated, the restore never reports exit code 0 with any written file differing from its recorded content."""
+permutations = """damage=set{altered,same-length-bit-flip,truncated}; compressed=bool; restorer=set{windows,linux}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-05", "DA-18"]
+delivered_with = ["SR-169"]
+form = "assumption"
+
+[requirement.SR-169]
+title = "A damaged file is restored from another intact copy or named"
+sn_refs = ["SN-033", "SN-053"]
+boundary_refs = ["B-16", "B-15"]
+requirement = """If a file's stored content does not match its record, then the restore kit shall produce it from another intact copy in the backup where one exists, and otherwise name the file and report failure."""
+rationale = """Giving up on a file while an intact copy sits elsewhere in the backup throws away what could be saved."""
+acceptance_criteria = """With one copy of a content damaged and another intact in a saved state, the file restores byte-exact; with every copy damaged, the file is named and the restore reports the content-missing outcome."""
+permutations = """intact_copy=set{none,latest,saved-state}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-168", "SR-170"]
+coincident = """The restored file or the named failure is the outcome."""
+form = "interface"
+
+[requirement.SR-170]
+title = "A partial restore restores everything else and names what did not come back"
+sn_refs = ["SN-053"]
+boundary_refs = ["B-16", "B-15"]
+requirement = """If some files of a state cannot be restored, then the restore kit shall restore every other file, name every file it could not restore with the cause, report how many, and report failure."""
+rationale = """A restore that stops at the first problem throws away what could be saved; one that does not list what is missing leaves the restorer believing the tree is whole."""
+acceptance_criteria = """With some stored content missing or damaged beyond recovery, every other file restores byte-exact, each unrestored file is named with its cause, the count is reported, and the outcome is not complete."""
+permutations = """unrestorable_count=range[1..1000]; cause=set{missing,damaged,host-problem}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-169", "SR-177"]
+coincident = """The restored tree and the report are the outcome."""
+form = "interface"
+
+[requirement.SR-171]
+title = "A restore refuses a damaged or substituted record of contents"
+sn_refs = ["SN-025"]
+boundary_refs = ["B-13", "B-15"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+requirement = """If the record of the state being restored is truncated, partly written or replaced, then the restore kit shall refuse before creating the target or writing anything, with exit code 3."""
+rationale = """A restore that trusts a shrunken record reproduces a shrunken tree and reports success, and the restorer cannot know files are missing."""
+acceptance_criteria = """With the record of the latest state and of a saved state each truncated, partly written, and replaced by another state's record, every restorer exits 3 and the target does not exist or is unchanged."""
+permutations = """fault=set{truncated,partly-written,replaced}; state=set{latest,saved}; restorer=set{windows,linux}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The refusal and the untouched target are the outcome."""
+form = "interface"
+
+[requirement.SR-172]
+title = "A restore target inside the backup is refused"
+sn_refs = ["SN-042"]
+boundary_refs = ["B-17", "B-15"]
+hat_refs = ["SECURITY"]
+requirement = """If the restore target lies inside the backup folder, directly or through a link, then the restore kit shall refuse before writing anything."""
+rationale = """A restorer under stress may pick the wrong folder; writing into the backup can destroy the content being restored."""
+acceptance_criteria = """Targets equal to the backup folder, inside it, and reaching it through a link are each refused with exit code 2 and the backup is byte-identical; a target outside the backup restores normally."""
+permutations = """target=set{equal,inside,via-link,outside}; restorer=set{windows,linux,macos}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The refusal and the untouched backup are the outcome."""
+form = "interface"
+
+[requirement.SR-173]
+title = "A restore never writes outside its target"
+sn_refs = ["SN-042"]
+boundary_refs = ["B-16", "B-15"]
+hat_refs = ["SECURITY"]
+requirement = """If an entry in the record of a state has a path that would land outside the restore target, then the restore kit shall not write it, shall name it, and shall report failure."""
+rationale = """A damaged or crafted record can name a path that climbs out of the target and overwrites files the restorer never meant to touch."""
+acceptance_criteria = """A record holding entries with parent-climbing and absolute paths restores every other entry, writes nothing outside the target, names each such entry, and reports a non-complete outcome."""
+permutations = """path_form=set{parent-climb,absolute,drive-qualified,via-link}; restorer=set{windows,linux}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """Nothing written outside the target is the outcome."""
+form = "interface"
+
+[requirement.SR-174]
+title = "Each restored file gets its own modification time"
+sn_refs = ["SN-036"]
+boundary_refs = ["B-01", "B-16"]
+requirement = """The restore kit shall give each restored file the modification time recorded for it, including files that share one stored copy."""
+rationale = """Identical files are stored once; unless each file's own time is applied, every twin comes back with the time of whichever was stored first."""
+acceptance_criteria = """Two identical files with different modification times restore with their own times, with compression on and off, through every restorer."""
+permutations = """CompressEnabled=bool; restorer=set{windows,linux,macos}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-07"]
+form = "assumption"
+
+[requirement.SR-175]
+title = "Empty folders are recreated"
+sn_refs = ["SN-036"]
+boundary_refs = ["B-01", "B-16"]
+requirement = """The restore kit shall recreate every folder of the state that holds no file, nested empty folders included."""
+rationale = """A tree missing its empty folders is not the tree the owner had; the folder structure may itself be meaningful to applications."""
+acceptance_criteria = """An empty folder and a nested chain of empty folders in the source exist in the restored tree through every restorer."""
+permutations = """nesting=range[1..8]; restorer=set{windows,linux,macos}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The recreated folders are the outcome."""
+form = "interface"
+
+[requirement.SR-176]
+title = "Hidden and system folders come back hidden, or the gap is reported"
+sn_refs = ["SN-036"]
+boundary_refs = ["B-01", "B-16", "B-15"]
+hat_refs = ["CROSS-PLATFORM"]
+requirement = """The restore kit shall apply a folder's recorded hidden and system attributes where the target supports them, and where it does not, create the folder and report the attributes it could not apply."""
+rationale = """A hidden folder that comes back visible is not the tree the owner had; pretending to apply attributes a system lacks hides the difference."""
+acceptance_criteria = """A hidden and system folder restores hidden and system on Windows; on Linux and macOS the folder is created and the restore's report lists the attributes not applied."""
+permutations = """restore_system=set{windows,linux,macos}; attribute=set{hidden,system,both}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-07"]
+form = "assumption"
+
+[requirement.SR-177]
+title = "Names that would collide on the restore target are reported, never merged"
+sn_refs = ["SN-032", "SN-053"]
+boundary_refs = ["B-16", "B-15"]
+hat_refs = ["CROSS-PLATFORM"]
+requirement = """If two recorded names would land on the same name on the restore target, then the restore kit shall write neither over the other, name both, and report failure."""
+rationale = """Derived through CROSS-PLATFORM: names that differ only by case, or by Unicode normalisation, are distinct on the backup host and one file on a case-insensitive or normalising target, so one file silently replaces the other. SN-032 asks that names come back exactly and SN-053 that the restorer is told which files did not; refusing the whole restore lost because every other file can still come back."""
+acceptance_criteria = """A state holding two names differing only by case, restored onto a case-insensitive target, restores every other file, names both colliding entries, and reports a non-complete outcome; on a case-sensitive target both restore."""
+permutations = """collision=set{case,unicode-normalisation}; target_case_sensitive=bool; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-08"]
+form = "assumption"
+
+[requirement.SR-178]
+title = "Every restorer reports the same documented outcome per failure class"
+sn_refs = ["SN-026"]
+boundary_refs = ["B-15", "B-19"]
+requirement = """The restore kit shall end every restore with one documented outcome value per class: 0 complete, 1 content missing, 2 bad request or precondition, 3 damaged record of contents, 4 host or tool problem, applying a documented precedence when several apply, identically on every supported system."""
+rationale = """A host supervising restores must tell "the bytes are gone" from "fix this machine and retry" from "wrong folder"; one generic failure sends a script into retrying over real damage. A fixed precedence is needed so that a mixed failure maps to one value."""
+acceptance_criteria = """Deliberately induced instances of each class, alone and in combination, produce the documented value through every restorer on every supported system."""
+permutations = """class=set{complete,content-missing,precondition,damaged-record,host-problem}; combined_with=set{none,content-missing,host-problem}; restorer=set{windows,linux,macos}; @pairwise"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The outcome value is itself the outcome."""
+form = "interface"
+
+[requirement.SR-179]
+title = "Where turned on, a browsable listing of the latest state is produced"
+sn_refs = ["SN-008"]
+boundary_refs = ["B-06", "B-20"]
+requirement = """Where BrowseView is index, the system shall produce after each run a listing of every backed-up path of the latest state, duplicates included, searchable by name, in which opening an entry opens that file's stored content."""
+rationale = """The backup is organised by content, not by the original tree, so it cannot be browsed by eye; without another way in, finding one file means restoring everything."""
+acceptance_criteria = """With BrowseView index, after a run the listing holds every path of the latest state including duplicates, a name search finds a given file, and opening its entry yields its content; with off, no listing is produced."""
+permutations = """BrowseView=set{off,index}; duplicates=bool; @full"""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The listing is the outcome."""
+form = "interface"
+
+[requirement.SR-180]
+title = "A listing location that overlaps a source or a backup is refused"
+sn_refs = ["SN-037", "SN-034", "SN-027"]
+boundary_refs = ["B-05", "B-07", "B-08"]
+requirement = """If the configured listing location overlaps a source or a backup, by lying inside one, equalling one or containing one, then the system shall refuse the run before it starts."""
+rationale = """The listing is regenerated from scratch, so a location that overlaps the source would alter it (SN-037) and one that overlaps a backup would remove stored content (SN-034); SN-027 asks that such a wrong setting stop the run rather than be guessed at."""
+acceptance_criteria = """With ViewPath inside, equal to, and containing the source, the backup and the saved-state location in turn, the run is refused with the configuration-refused outcome and nothing is created or changed."""
+permutations = """relation=set{inside,equal,containing}; other=set{source,backup,saved-states}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The refusal is the outcome."""
+form = "interface"
+
+# --- UNATTENDED OPERATION AND OUTCOMES ----------------------------------------
+
+[requirement.SR-181]
+title = "An operation with nobody present never prompts"
+sn_refs = ["SN-011"]
+boundary_refs = ["B-07", "B-08", "B-14", "B-15"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = """If an operation is started with no person present, then the system shall not ask anything, and where an answer would have been needed shall report failure with the reason."""
+rationale = """A scheduled task that hangs on a prompt is a silent backup failure that may also block the next run."""
+acceptance_criteria = """A backup, a removal, a check and a restore each started non-interactively, with input redirected, and with no console and no desktop, finish without waiting; one that needed an answer reports a failure outcome naming the reason."""
+permutations = """operation=set{Backup,Prune,Verify,restore}; absence=set{non-interactive-flag,redirected-input,no-console-no-desktop}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """Finishing without waiting is the outcome."""
+form = "cross-cutting"
+
+[requirement.SR-182]
+title = "Backups, removals and checks report one of a few documented outcomes"
+sn_refs = ["SN-045"]
+boundary_refs = ["B-08", "B-12"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = """The system shall end every backup, removal and check with a distinct documented outcome value for each of: complete, some part failed, configuration refused, and operation refused because the backup is busy or not in a state to proceed."""
+rationale = """A host deciding whether to retry, alert or carry on cannot act if every failure looks the same, and a run that backed up nothing must not look like one that worked."""
+acceptance_criteria = """Deliberately induced instances of each of the four classes, for a backup, a removal and a check, each produce their own documented value, including through the container's exit status."""
+permutations = """operation=set{Backup,Prune,Verify}; class=set{complete,part-failed,configuration-refused,busy-or-not-ready}; host=set{direct,container}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-09"]
+form = "interface"
+
+[requirement.SR-183]
+title = "Each run's record says what was added, changed, removed and failed"
+sn_refs = ["SN-044"]
+boundary_refs = ["B-06", "B-20"]
+requirement = """When a run ends, the system shall have recorded each file added, changed, removed or failed, the cause of every failure, and summary counts."""
+rationale = """An unattended tool is trusted only as far as its record can be checked; without it a failure cannot be diagnosed and a success cannot be believed."""
+acceptance_criteria = """After a run with known additions, changes, removals and one failure, the record names each file in its category, gives the failure's cause, and its counts match."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The record is the outcome."""
+form = "interface"
+
+[requirement.SR-184]
+title = "A long run shows progress"
+sn_refs = ["SN-044"]
+boundary_refs = ["B-06"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = """While a run is in progress, the system shall show progress in its record or display at intervals no longer than the documented progress interval of a few minutes."""
+rationale = """A long run that shows nothing cannot be told apart from a hung one."""
+acceptance_criteria = """During a run lasting several times the documented interval, consecutive progress entries are never further apart than that interval."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The progress shown is the outcome."""
+form = "interface"
+
+[requirement.SR-185]
+title = "Every refusal states what was found and what to do"
+sn_refs = ["SN-044", "SN-027", "SN-015", "SN-040"]
+boundary_refs = ["B-06", "B-08", "B-15"]
+requirement = """When the system refuses an operation, it shall state what it found and what to do."""
+rationale = """A refusal without a cause and a remedy sends the owner to the log or to the code; it is the package-wide legibility property each of the cited needs asks for in its own case."""
+acceptance_criteria = """For each documented refusal, the message names the condition found and an action that resolves it."""
+priority = "M"
+verification = "Inspection"
+status = "Drafted"
+coincident = """The message is the outcome."""
+form = "cross-cutting"
+
+[requirement.SR-186]
+title = "Where notification is set up, each run's outcome is sent"
+sn_refs = ["SN-010"]
+boundary_refs = ["B-09"]
+requirement = """Where notification is set up, the system shall send a message stating success or failure after each run, unless the run was started with NoMail."""
+rationale = """For scheduled runs the owner wants to know without checking logs."""
+acceptance_criteria = """With notification set up, a message stating the run's outcome reaches the relay after each run; with it not set up, or the run started with NoMail, none is sent."""
+permutations = """configured=bool; NoMail=bool; outcome=set{success,failure}; @full"""
+priority = "C"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-09"]
+delivered_with = ["SR-187"]
+form = "assumption"
+
+[requirement.SR-187]
+title = "A failed notification never changes the run's outcome"
+sn_refs = ["SN-010"]
+boundary_refs = ["B-09", "B-08"]
+requirement = """If sending the notification fails, then the system shall record a warning and report the same outcome the run would have had without notification."""
+rationale = """A mail outage must not turn a good backup into a reported failure, nor a failed one into a success."""
+acceptance_criteria = """With the relay unreachable or refusing, a successful run still reports complete and a failed run still reports failure, and each records a warning."""
+permutations = """relay=set{unreachable,auth-refused,ok}; outcome=set{success,failure}; @full"""
+priority = "C"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-186"]
+coincident = """The outcome is unchanged; that is the delivered result."""
+form = "interface"
+
+[requirement.SR-188]
+title = "Notification credentials are never readable in plain form"
+sn_refs = ["SN-049"]
+boundary_refs = ["B-21", "B-13", "B-06"]
+hat_refs = ["SECURITY"]
+requirement = """The system shall never write the notification account's credentials in readable form into the configuration, the backup or a run's record."""
+rationale = """Configurations are copied, shared with hosts and kept beside backups; a readable mail password there gives anyone holding the folder the owner's mail account."""
+acceptance_criteria = """After credentials are set up and a run sends a notification, no readable form of the credentials appears in the configuration, anywhere in the backup, or in the run's record."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-20"]
+delivered_with = ["SR-189"]
+form = "assumption"
+
+[requirement.SR-189]
+title = "A configuration carrying readable credentials is refused"
+sn_refs = ["SN-049"]
+boundary_refs = ["B-05", "B-07", "B-08"]
+hat_refs = ["SECURITY"]
+requirement = """If a configuration carries notification credentials in readable form, then the system shall refuse it before any backup data is touched."""
+rationale = """Accepting such a configuration keeps the secret readable wherever the configuration travels; refusing is the only way to stop it being used."""
+acceptance_criteria = """A configuration holding a readable password for notification is refused with the configuration-refused outcome and nothing is created or changed."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-188"]
+coincident = """The refusal is the outcome."""
+form = "interface"
+
+# --- CONTAINER AND HOSTS ------------------------------------------------------
+
+[requirement.SR-190]
+title = "Backups run inside a container with nothing installed on the host"
+sn_refs = ["SN-024"]
+boundary_refs = ["B-12"]
+requirement = """The system shall run backups inside a container that carries the runtime and every required component, so that the host needs none of them installed."""
+rationale = """A home server or NAS runs its services as containers and should not need a separate runtime to protect its files."""
+acceptance_criteria = """On a host with no backup runtime installed, a containerised run with compression on produces a backup that restores byte-exact."""
+permutations = """CompressEnabled=bool; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The completed backup is the outcome."""
+form = "interface"
+
+[requirement.SR-191]
+title = "The container needs no more access than reading the source and writing its own locations"
+sn_refs = ["SN-024"]
+boundary_refs = ["B-12"]
+hat_refs = ["SECURITY"]
+requirement = """The system shall complete a containerised run as an unprivileged user with read-only access to the source and write access only to the backup, its working-state and its record locations."""
+rationale = """A container needing write access to the source or administrative rights puts the files at risk to protect them."""
+acceptance_criteria = """A run in a container with a read-only source mount, an unprivileged user, no added capabilities and no network completes with the complete outcome."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+da_refs = ["DA-13"]
+form = "assumption"
+
+[requirement.SR-192]
+title = "Shipped third-party components are licensed for it and carry their notices"
+sn_refs = ["SN-054"]
+boundary_refs = ["B-13", "B-12"]
+hat_refs = ["LEGAL"]
+requirement = """The system shall ship inside a backup folder or the container only third-party components whose licences permit that redistribution, each with its required notices alongside it."""
+rationale = """Every backup the owner hands on carries other people's code; shipped against its licence, each is a breach whose risk the owner carries."""
+acceptance_criteria = """For each third-party component found in a backup folder and in the container, its licence permits that redistribution and its required notices are present beside it."""
+priority = "S"
+verification = "Inspection"
+status = "Drafted"
+coincident = """The shipped components and notices are the outcome."""
+form = "interface"
+
+# --- SETUP AND LAUNCH ---------------------------------------------------------
+
+[requirement.SR-193]
+title = "Shipped guidance takes a new user to a first backup"
+sn_refs = ["SN-012"]
+boundary_refs = ["B-05"]
+requirement = """The system shall ship quick-start guidance and a configuration helper with which a new user on a supported host builds a configuration and completes a first backup."""
+rationale = """A tool that can only be configured by reading its code is set up wrongly or not at all."""
+acceptance_criteria = """A user new to the tool, following only the shipped quick-start guidance and its configuration helper on a supported host, completes a first backup with the complete outcome."""
+priority = "S"
+verification = "Demonstration"
+status = "Drafted"
+coincident = """The first completed backup is the outcome."""
+form = "interface"
+
+[requirement.SR-194]
+title = "A required component absent on first use is obtained or named"
+sn_refs = ["SN-012", "SN-015"]
+boundary_refs = ["B-10", "B-11", "B-08"]
+requirement = """When a required component is absent at launch, the system shall obtain it from the package source or, where it cannot, refuse before changing any backup, naming the component and how to obtain it."""
+rationale = """Hunting for prerequisites stops a new owner; a run that proceeds without them writes a backup that cannot be trusted."""
+acceptance_criteria = """On a host lacking the required hashing component, the first launch either obtains it and completes, or refuses with nothing changed and a message naming the component and how to install it."""
+permutations = """package_source=set{reachable,unreachable}; attended=bool; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The obtained component or the refusal is the outcome."""
+form = "interface"
+
+[requirement.SR-195]
+title = "The configuration has a documented, versioned description matching the launch checks"
+sn_refs = ["SN-050"]
+boundary_refs = ["B-05", "B-07"]
+requirement = """The system shall publish a documented, versioned description of the configuration that accepts and refuses exactly the configurations the launch checks accept and refuse."""
+rationale = """A host generating configurations needs a contract it can rely on across versions; a description that drifts from what launch enforces leaves every integrator guessing."""
+acceptance_criteria = """For a corpus of valid and invalid configurations, the published description and the launch checks give the same verdict on every one."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The agreement between description and checks is the outcome."""
+form = "interface"
+
+[requirement.SR-196]
+title = "The shipped example configuration is accepted"
+sn_refs = ["SN-050"]
+boundary_refs = ["B-05", "B-07"]
+requirement = """The system shall ship an example configuration that passes the launch checks unchanged apart from its locations."""
+rationale = """A shipped example that is itself rejected teaches an integrator nothing and suggests the contract is not real."""
+acceptance_criteria = """The shipped example, with only its locations changed to existing folders, is accepted by the launch checks and by the published description."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The acceptance is the outcome."""
+form = "interface"
+
+[requirement.SR-197]
+title = "Each configuration states the version of the description it follows"
+sn_refs = ["SN-050"]
+boundary_refs = ["B-05", "B-07"]
+requirement = """The system shall require each configuration to state, in ConfigVersion, which version of the configuration description it follows."""
+rationale = """Without a stated version, a configuration written for another version can only be half-understood; with it, the launch can refuse what it does not support."""
+acceptance_criteria = """A configuration without ConfigVersion is refused with the configuration-refused outcome; one stating the current version is accepted."""
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = """The acceptance or refusal is the outcome."""
+form = "interface"
+
+[requirement.SR-198]
+title = "A wrong or missing configuration is refused before any backup is touched"
+sn_refs = ["SN-027"]
+boundary_refs = ["B-05", "B-07", "B-08"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = """If the configuration is missing, or has an unknown key, a value of the wrong kind, a missing required setting, or an unsupported ConfigVersion, then the system shall refuse the run before any backup data is touched, naming the setting and what was expected, with the configuration-refused outcome, creating and changing nothing."""
+rationale = """A mistyped key or a quoted "false" where a yes-or-no belongs silently changes what the owner asked for, including disarming a safety setting. Coercing or ignoring lost."""
+acceptance_criteria = """Each fault in turn refuses with exit code 2, the message names the setting and the expected kind or value, and no backup, saved state, log or listing is created or changed."""
+permutations = """fault=set{missing-file,unknown-key,wrong-type,quoted-boolean,missing-required,version-too-old,version-too-new,non-integer-version}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = """The refusal and the untouched environment are the outcome."""
+form = "interface"
+
+[requirement.SR-199]
+title = "A missing required component or unsupported runtime stops the run first"
+sn_refs = ["SN-015"]
+boundary_refs = ["B-10", "B-08"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = """If the runtime is unsupported, or a required component or a tool a chosen setting needs is missing, then the system shall refuse before changing the backup, naming what is missing and how to obtain it."""
+rationale = """A run that proceeds without its content-identity function or the tool its storage setting needs writes a backup that cannot be trusted or restored; failing first costs one run, failing later costs the store."""
+acceptance_criteria = """With an unsupported runtime, with the hashing component absent, and with compression on but the archive tool absent, each run refuses, the backup is byte-identical, and the message names the missing item and how to obtain it."""
+permutations = """missing=set{unsupported-runtime,hashing-component,archive-tool-with-compression}; @full"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-194"]
+coincident = """The refusal and the untouched backup are the outcome."""
+form = "interface"
+
+[requirement.SR-200]
+title = "A missing optional extra is skipped visibly"
+sn_refs = ["SN-015"]
+boundary_refs = ["B-10", "B-06"]
+requirement = """If only an optional extra is missing, then the system shall complete the run and record that the extra was skipped."""
+rationale = """Refusing a run over an optional extra stops backups for no data reason; skipping it silently hides that the owner is not getting what they set up."""
+acceptance_criteria = """With only the media-measurement tool absent, the run completes with the complete outcome and its record says the extra was skipped."""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+delivered_with = ["SR-120"]
+coincident = """The completed run and its record are the outcome."""
+form = "interface"

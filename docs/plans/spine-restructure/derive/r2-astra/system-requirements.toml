@@ -1,0 +1,1126 @@
+# Re-derivation draft. Read notes for blindness qualifications and proposed thresholds.
+
+[requirement.SR-101]
+title = "Capture the source tree"
+sn_refs = ["SN-001"]
+boundary_refs = ["B-01","B-02","B-13"]
+requirement = "When a backup runs, the system shall capture each readable source file in the latest backed-up state except its own operational artifacts and volume-owned system folders."
+rationale = "SN-001 loses coverage if enumeration is limited to visible files; exclusion by ownership wins over exclusion by a bare name."
+acceptance_criteria = "Every eligible path, including hidden, system, dot-named and nested names resembling operational artifacts, is recoverable with the content captured on that run."
+permutations = "visibility=set{ordinary,hidden,system,dot}; location=set{root,nested}; change=set{new,changed,unchanged}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-04","DA-12","DA-14"]
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+delivered_with = ["SR-102"]
+
+[requirement.SR-102]
+title = "Report capture gaps"
+sn_refs = ["SN-001","SN-052"]
+boundary_refs = ["B-01","B-06","B-08","B-20"]
+requirement = "If a source file or directory cannot be captured, then the system shall report the affected paths and causes as a failed backup result."
+rationale = "SN-001 and SN-052 require visible gaps; treating an unreadable subtree as absent would conceal loss."
+acceptance_criteria = "No inaccessible file or subtree is silently counted as captured or deliberately deleted; the record identifies every known affected path and inaccessible subtree and the run reports failure."
+permutations = "failure=set{file-read,directory-read,copy}; prior=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-101","SR-103","SR-104"]
+
+[requirement.SR-103]
+title = "Bound temporary-read recovery"
+sn_refs = ["SN-052"]
+boundary_refs = ["B-01","B-06"]
+requirement = "If source reads fail transiently, then the system shall retry within a total additional waiting budget of five seconds per configured source."
+rationale = "SN-052 rejects both immediate abandonment and unbounded waiting; UNATTENDED-OPS derives a finite aggregate wait budget rather than a per-file delay that grows without bound. Five seconds is a proposed operating limit requiring owner confirmation."
+acceptance_criteria = "A read that becomes available before its next retry within the five-second budget is captured; the aggregate deliberate retry waits do not exceed five seconds regardless of the number of unreadable files."
+permutations = "files=set{one,many}; availability=set{next-retry,after-budget,never}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-102","SR-104"]
+
+[requirement.SR-104]
+title = "Preserve unreadable prior versions"
+sn_refs = ["SN-052"]
+boundary_refs = ["B-01","B-02","B-13"]
+requirement = "If a previously backed-up file cannot be captured on a later run, then the system shall retain its previously saved version as recoverable."
+rationale = "SN-052 loses the only safe copy if failure is interpreted as deletion; retaining prior content wins over replacing it with an absent entry."
+acceptance_criteria = "The prior bytes remain restorable after an exhausted read failure, including when another source file shared those bytes."
+permutations = "shared=bool; failure=set{read,copy}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["SHARED-CONTENT"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-102","SR-103"]
+
+[requirement.SR-105]
+title = "Preserve portable names"
+sn_refs = ["SN-032"]
+boundary_refs = ["B-13","B-16"]
+requirement = "When a captured file is restored, the restore kit shall reproduce its exact recorded relative name."
+rationale = "SN-032 treats renamed recovery as loss; literal names win over interpreting name characters."
+acceptance_criteria = "Unicode, brackets, parentheses and spaces survive unchanged through every restore route; all recorded distinct paths remain distinct."
+permutations = "name=set{unicode,brackets,parentheses,spaces,mixed}; host=set{Windows,Linux,macOS}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-08"]
+hat_refs = ["CROSS-PLATFORM"]
+delivered_with = ["SR-106"]
+
+[requirement.SR-106]
+title = "Refuse nonportable source names"
+sn_refs = ["SN-032"]
+boundary_refs = ["B-01","B-06","B-08"]
+requirement = "If a source name is invalid on Windows or Linux, then the system shall reject that entry with a named portability failure while continuing other entries."
+rationale = "SN-032 rejects partial name handling; local rejection wins over silently translating a name or abandoning its peers."
+acceptance_criteria = "The offending path and character or naming rule are reported, that entry is not captured, the run fails, and eligible peers are captured."
+permutations = "invalid=set{Windows,Linux,both}; peers=bool; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["CROSS-PLATFORM"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-105"]
+
+[requirement.SR-107]
+title = "Leave the source untouched"
+sn_refs = ["SN-037"]
+boundary_refs = ["B-01"]
+requirement = "While operating on a source, the system shall leave its content, paths, modification times and attributes unchanged."
+rationale = "SN-037 forbids sacrificing live data for protection; read-only operation wins over keeping operational state in the source."
+acceptance_criteria = "Successful and failed runs cause zero source changes, and a readable source requires no write permission."
+permutations = "outcome=set{success,failure,refusal}; sourceWritable=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "cross-cutting"
+hat_refs = ["SECURITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-108]
+title = "Refuse unexpected empty sources"
+sn_refs = ["SN-038"]
+boundary_refs = ["B-01","B-02","B-05","B-06","B-08"]
+requirement = "If a previously populated source now appears empty and AllowEmptySource is false, then the system shall refuse that source before changing its backup."
+rationale = "SN-038 cannot distinguish an unmounted source from deliberate deletion; explicit permission wins over assuming deletion."
+acceptance_criteria = "Refusal reports failure and leaves the backup unchanged; an initially empty source and an explicitly allowed empty source pass this guard."
+permutations = "previous=set{empty,populated}; current=set{empty,populated}; AllowEmptySource=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-109]
+title = "Isolate configured sources"
+sn_refs = ["SN-009"]
+boundary_refs = ["B-05","B-07","B-08","B-02"]
+requirement = "When a job names multiple independent backup locations, the system shall attempt each location regardless of another location failing."
+rationale = "SN-009 loses unrelated protection when one location aborts the job; independent outcomes win over fail-fast job handling."
+acceptance_criteria = "All otherwise valid locations finish; the aggregate result is failure if any location fails."
+permutations = "locations=set{one,multiple}; failure=set{none,first,middle,last}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-110]
+title = "Store identical content once"
+sn_refs = ["SN-002"]
+boundary_refs = ["B-02","B-13"]
+requirement = "When content is shared by multiple backed-up paths or states, the system shall retain only one durable stored copy of that content."
+rationale = "SN-002 pays for repeated bytes otherwise; sharing wins over separate physical copies per path or state."
+acceptance_criteria = "At completed operation boundaries, duplicate content across names, runs and states occupies one content copy while all references remain recoverable."
+permutations = "scope=set{same-run,later-run,saved-state}; names=set{same,different}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-05"]
+hat_refs = ["SHARED-CONTENT"]
+
+[requirement.SR-111]
+title = "Compress only for measured savings"
+sn_refs = ["SN-003"]
+boundary_refs = ["B-01","B-02","B-10"]
+requirement = "Where CompressEnabled is true, the system shall store newly captured content compressed exactly when measured compression reduces its stored byte count."
+rationale = "SN-003 requires a space result; name-based guesses lose to measurable reduction."
+acceptance_criteria = "Compressed stored bytes are fewer than the uncompressed bytes; nonshrinking content stays uncompressed regardless of name."
+permutations = "content=set{shrinking,unchanged,expanding}; extension=set{media,document,none}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-18"]
+delivered_with = ["SR-112"]
+
+[requirement.SR-112]
+title = "Honor disabled compression"
+sn_refs = ["SN-003"]
+boundary_refs = ["B-05","B-02"]
+requirement = "Where CompressEnabled is false, the system shall store newly captured content without compression."
+rationale = "SN-003 gives the owner the decision; automatic compression despite the setting would override it."
+acceptance_criteria = "New content is stored verbatim regardless of compressibility."
+permutations = "compressibility=set{high,low}; empty=bool; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-111"]
+
+[requirement.SR-113]
+title = "Show space consumption"
+sn_refs = ["SN-051"]
+boundary_refs = ["B-06","B-10"]
+requirement = "Where space analysis is enabled, the system shall present backed-up files ordered by stored space with media encoding-rate measurements when available."
+rationale = "SN-051 cannot guide space reduction from logical names alone; quantified space and rates win over an undifferentiated listing."
+acceptance_criteria = "The owner can identify the largest stored contributions and see media rates with units; unavailable measurements are explicitly marked."
+permutations = "media=bool; measurement=set{available,unavailable}; shared=bool; @pairwise"
+priority = "C"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-114"]
+
+[requirement.SR-114]
+title = "Isolate optional space analysis"
+sn_refs = ["SN-051"]
+boundary_refs = ["B-06","B-08","B-10","B-20"]
+requirement = "If space analysis is disabled or cannot measure media, then the system shall preserve the backup outcome and record that measurement was not taken."
+rationale = "SN-051 calls the view optional; aborting backups for a missing measurement would reverse that priority."
+acceptance_criteria = "Capture and recoverability match a run without analysis; the record identifies skipped analysis."
+permutations = "enabled=bool; tool=set{present,missing,failing}; @pairwise"
+priority = "C"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-113"]
+
+[requirement.SR-115]
+title = "Retain dated predecessor states"
+sn_refs = ["SN-004"]
+boundary_refs = ["B-02","B-13"]
+requirement = "When a backup changes the latest state, the system shall preserve its predecessor as a saved state identified by that predecessor state date."
+rationale = "SN-004 needs a recoverable point before each mistake; overwriting the only state loses history."
+acceptance_criteria = "A sequence of changes leaves each predecessor selectable by its own date alongside the new latest state."
+permutations = "change=set{add,edit,delete,rename}; priorStates=set{zero,multiple}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-16"]
+delivered_with = ["SR-116"]
+
+[requirement.SR-116]
+title = "Keep unchanged states stable"
+sn_refs = ["SN-021","SN-004"]
+boundary_refs = ["B-02","B-06"]
+requirement = "When a run finds no source change, the system shall preserve the backed-up state record without adding a saved state."
+rationale = "SN-021 and SN-004 reject fictitious history; stable state records win over recording each run as a content change."
+acceptance_criteria = "Consecutive unchanged runs leave byte-identical state records, add zero saved states, and report zero added, changed and removed paths."
+permutations = "files=set{zero,one,many}; compression=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-115"]
+
+[requirement.SR-117]
+title = "Protect all retained content"
+sn_refs = ["SN-034"]
+boundary_refs = ["B-02","B-13"]
+requirement = "While performing a store-changing operation, the system shall preserve the content required by every state retained after that operation."
+rationale = "SN-034 protects shared dependencies; acting on only the edited path loses to preserving all retained states."
+acceptance_criteria = "Every retained path restores the same recorded bytes after changes to another path or state; no retained content becomes unaccounted for."
+permutations = "operation=set{backup,Prune,repair,kit-refresh}; change=set{edit,remove,rename,readd}; shared=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "cross-cutting"
+da_refs = ["DA-01","DA-15"]
+hat_refs = ["SHARED-CONTENT"]
+delivered_with = ["SR-173"]
+
+[requirement.SR-118]
+title = "Remove requested history safely"
+sn_refs = ["SN-029"]
+boundary_refs = ["B-05","B-07","B-02","B-08"]
+requirement = "When Prune is requested for a named saved state, the system shall remove that state only if every surviving state remains recoverable."
+rationale = "SN-029 needs bounded history without sacrificing survivors; deleting a state regardless of shared content is rejected."
+acceptance_criteria = "A safe requested state disappears and its unneeded space is released; an unsafe removal changes nothing and returns refusal."
+permutations = "shared=set{none,sole-copy,other-copy}; compression=bool; safe=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["SHARED-CONTENT"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-119","SR-172"]
+
+[requirement.SR-119]
+title = "Resume interrupted removal"
+sn_refs = ["SN-029"]
+boundary_refs = ["B-02","B-07","B-08","B-13"]
+requirement = "If a removal is interrupted, then the system shall allow the same removal request to be repeated without losing any surviving state."
+rationale = "SN-029 rejects manual reconstruction as the recovery path; repeatable removal wins over leaving an ambiguous partial deletion."
+acceptance_criteria = "After interruption at any removal stage, surviving states restore unchanged; repeating the request completes or reports that the requested state is already absent."
+permutations = "stage=set{before-change,during-change,after-removal}; interruption=set{kill,power-loss}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-01","DA-15"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+delivered_with = ["SR-118","SR-172"]
+
+[requirement.SR-120]
+title = "Report actual retention savings"
+sn_refs = ["SN-046"]
+boundary_refs = ["B-05","B-07","B-06","B-08","B-02"]
+requirement = "When Snapshots is requested, the system shall report each saved state with machine-readable bytes reclaimable by its removal and bytes requiring relocation."
+rationale = "SN-046 needs the marginal saving; folder size alone overstates reclaim when content is shared."
+acceptance_criteria = "The report changes no store bytes; reclaimable bytes equal the store-size decrease after the indicated removal in an otherwise unchanged store."
+permutations = "sharing=set{none,partial,all}; states=set{one,many}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["SHARED-CONTENT"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-121]
+title = "Apply the chosen recheck schedule"
+sn_refs = ["SN-007"]
+boundary_refs = ["B-05","B-07","B-01","B-20"]
+requirement = "When a backup begins, the system shall reread unchanged-looking content according to HashRecalcFreq."
+rationale = "SN-007 reserves the cost-versus-detection choice to the owner; a fixed always-or-never policy loses that control."
+acceptance_criteria = "A and E reread every run, N never schedules a reread, and D/W/M/Y reread on the first run at or after one calendar day/week/month/year since the last completed full reread; the first due run captures same-size same-time changes. Calendar periods use the backup host local time, with missing month-end dates clamped to the last day of the destination month."
+permutations = "HashRecalcFreq=set{A,E,D,W,M,Y,N}; due=bool; hiddenChange=bool; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-04","DA-16"]
+
+[requirement.SR-122]
+title = "Expose only complete states after interruption"
+sn_refs = ["SN-013"]
+boundary_refs = ["B-02","B-13"]
+requirement = "If a backup is interrupted, then the system shall expose only complete saved states and either the complete preceding or complete succeeding latest state."
+rationale = "SN-013 rejects a half-state that looks usable; endpoint consistency wins over exposing incremental publication."
+acceptance_criteria = "After a kill or power loss at any mutation stage, every visible state restores completely and the latest matches one complete endpoint."
+permutations = "interruption=set{kill,power-loss}; stage=set{content-write,state-write,history-publication}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-01","DA-15"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+delivered_with = ["SR-123"]
+
+[requirement.SR-123]
+title = "Recover only provably abandoned work"
+sn_refs = ["SN-013"]
+boundary_refs = ["B-02","B-04","B-06","B-08"]
+requirement = "When a subsequent backup encounters interrupted work, the system shall continue automatically only if the backup alone proves the prior operation dead and continuation lossless."
+rationale = "SN-013 needs both eventual progress and preserved evidence; unconditional cleanup and permanent refusal each lose one of those outcomes."
+acceptance_criteria = "Proven-safe abandoned work does not require intervention; live, ambiguous or potentially lossy work causes a nonmutating refusal identifying the evidence."
+permutations = "owner=set{dead,live,unknown}; safety=set{proven,unknown}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-02"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+delivered_with = ["SR-122"]
+
+[requirement.SR-124]
+title = "Exclude overlapping writers"
+sn_refs = ["SN-039"]
+boundary_refs = ["B-04","B-02","B-06","B-08"]
+requirement = "While an operation changes a backup, the system shall refuse another operation seeking to change that backup without making changes on its behalf."
+rationale = "SN-039 cannot tolerate two inconsistent decisions over one store; exclusive mutation wins over concurrent writers."
+acceptance_criteria = "Overlaps among backup, removal, repair and kit refresh produce exactly one writer; refusal identifies the holder and returns a distinct refused outcome."
+permutations = "first=set{backup,Prune,repair,kit-refresh}; second=set{backup,Prune,repair,kit-refresh}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-03"]
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+delivered_with = ["SR-125","SR-126"]
+
+[requirement.SR-125]
+title = "Release completed or dead ownership"
+sn_refs = ["SN-039"]
+boundary_refs = ["B-04","B-08"]
+requirement = "When a modifying operation finishes or its process dies, the system shall cease refusing later operations merely because that operation held exclusive use."
+rationale = "SN-039 rejects abandoned ownership blocking progress; recoverable ownership wins over permanent busy state."
+acceptance_criteria = "A later operation can acquire exclusive use after either normal completion or process death, subject to independent interrupted-work safety checks."
+permutations = "end=set{success,failure,kill}; next=set{backup,Prune,repair,kit-refresh}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-02"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+delivered_with = ["SR-124","SR-126"]
+
+[requirement.SR-126]
+title = "Keep readers available"
+sn_refs = ["SN-039"]
+boundary_refs = ["B-02","B-08","B-13","B-15"]
+requirement = "While a modifying operation holds exclusive use, the system shall allow checks, listings and restores to run without a busy refusal based on that ownership."
+rationale = "SN-039 explicitly preserves read access; a store-wide reader lock would overconstrain availability."
+acceptance_criteria = "Each read-only action starts against a coherent available state during mutation; exclusive ownership alone does not reject it."
+permutations = "reader=set{check,listing,restore}; writer=set{backup,Prune,repair,kit-refresh}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-124","SR-125"]
+
+[requirement.SR-127]
+title = "Heal externally lost content"
+sn_refs = ["SN-031"]
+boundary_refs = ["B-01","B-02","B-13"]
+requirement = "If externally damaged stored content is still available in the source, then the system shall restore its recoverability during the next backup."
+rationale = "SN-031 rejects perpetuating externally caused loss; real replacement wins over trusting a prior presence record."
+acceptance_criteria = "The next run restores the affected latest-state files byte-exact; newly encountered duplicate source files do not inherit a missing-content reference."
+permutations = "damage=set{deleted,moved,corrupted}; duplicate=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-04","DA-11"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+
+[requirement.SR-128]
+title = "Audit all backed-up states without mutation"
+sn_refs = ["SN-030"]
+boundary_refs = ["B-05","B-07","B-02","B-06","B-08"]
+requirement = "When a whole-backup check is requested, the system shall report every missing-content or content-description disagreement across the latest and saved states without changing the store."
+rationale = "SN-030 requires evidence of health; checking only latest or trusting recorded form would hide damage."
+acceptance_criteria = "Every affected path and problem kind is reported; damaged stores return failure, intact stores return clean, and all store bytes remain unchanged."
+permutations = "damage=set{missing,altered,wrong-form,none}; state=set{latest,saved}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-05","DA-11","DA-18"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+
+[requirement.SR-129]
+title = "Repair only certain findings"
+sn_refs = ["SN-047"]
+boundary_refs = ["B-05","B-07","B-02","B-06"]
+requirement = "When repair is requested, the system shall correct precisely those findings whose correct replacement is unambiguous from available evidence."
+rationale = "SN-047 rejects a guessed repair that destroys evidence; certain corrections win over best-effort guesses."
+acceptance_criteria = "Correctable findings disappear from a subsequent check, uncertain findings remain reported and unchanged, and previously restorable states remain byte-exact."
+permutations = "certainty=set{certain,ambiguous,insufficient}; sharing=bool; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["SHARED-CONTENT"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-130]
+title = "Preserve existing storage forms"
+sn_refs = ["SN-048"]
+boundary_refs = ["B-05","B-02","B-13"]
+requirement = "When compression settings change, the system shall apply the new settings only to newly stored content."
+rationale = "SN-048 rejects rewriting history as a cost of policy changes; per-content preservation wins over forced conversion."
+acceptance_criteria = "Existing stored content retains its form; later new content follows the new setting and every retained state still restores correctly or reports a failure rather than wrong bytes."
+permutations = "change=set{on-to-off,off-to-on,selection-mode}; state=set{latest,saved}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-131]
+title = "Refuse insufficient backup capacity"
+sn_refs = ["SN-019"]
+boundary_refs = ["B-03","B-02","B-06","B-08"]
+requirement = "If the destination volumes cannot hold a backup operation, then the system shall refuse before writing and report required and available bytes for each insufficient volume."
+rationale = "SN-019 cannot be met by checking each path independently; aggregate volume demand wins over separate path budgets."
+acceptance_criteria = "The destination is unchanged; demand for all locations sharing one volume is combined, and each reported shortage equals required minus available bytes."
+permutations = "capacity=set{below,equal,above}; locations=set{separate-volume,shared-volume}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-06"]
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+delivered_with = ["SR-132"]
+
+[requirement.SR-132]
+title = "Refuse insufficient restore capacity"
+sn_refs = ["SN-019"]
+boundary_refs = ["B-17","B-16","B-15"]
+requirement = "If the target volumes cannot hold a restore operation, then the restore kit shall refuse before writing and report required expanded bytes and available bytes for each insufficient volume."
+rationale = "SN-019 protects against a partial recovered tree; expanded demand wins over counting only compressed storage."
+acceptance_criteria = "The target remains unchanged; combined demand on shared volumes includes expanded content and reports each shortage in bytes."
+permutations = "capacity=set{below,equal,above}; compressed=bool; sharedVolume=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-06"]
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+delivered_with = ["SR-131"]
+
+[requirement.SR-133]
+title = "Bound large-library resource use"
+sn_refs = ["SN-043"]
+boundary_refs = ["B-02","B-08","B-15","B-16"]
+requirement = "When processing a library of at most two TiB and one million files on the declared reference host, the system shall complete a whole-backup check or full restore within eight hours and within four GiB peak process memory."
+rationale = "SN-043 demands finite budgets; PERFORMANCE supplies these provisional acceptance budgets instead of an unmeasurable promise of scalability. The proposed reference host and limits require owner confirmation."
+acceptance_criteria = "Each operation meets both bounds on a four-core host with eight GiB available memory, local storage sustaining 200 MiB per second, supported tools and no competing load."
+permutations = "operation=set{check,restore}; files=range[1..1000000]; bytes=range[0..2TiB]; compressed=bool; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "cross-cutting"
+da_refs = ["DA-18"]
+hat_refs = ["PERFORMANCE"]
+delivered_with = ["SR-134"]
+
+[requirement.SR-134]
+title = "Bound small-change runs"
+sn_refs = ["SN-043"]
+boundary_refs = ["B-01","B-02","B-08"]
+requirement = "When at most one GiB changes in a library of at most two TiB and one million files with no full recheck due, the system shall complete backup within thirty minutes and four GiB peak process memory on the declared reference host."
+rationale = "SN-043 requires change-driven cost; PERFORMANCE supplies provisional limits and an explicit history-growth comparison rather than accepting a linear history penalty. Owner confirmation is required for these budgets."
+acceptance_criteria = "On a four-core host with eight GiB available memory and local storage sustaining 200 MiB per second without competing load, the bounds hold; doubling stored history with source unchanged increases elapsed time by less than a factor of two."
+permutations = "history=set{baseline,doubled}; changedBytes=range[0..1GiB]; files=range[1..1000000]; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "cross-cutting"
+da_refs = ["DA-14","DA-18"]
+hat_refs = ["PERFORMANCE"]
+delivered_with = ["SR-133"]
+
+[requirement.SR-135]
+title = "Continue the previous released store"
+sn_refs = ["SN-040"]
+boundary_refs = ["B-02","B-13"]
+requirement = "When an existing backup was written by the previous released version, the system shall continue it while preserving recoverability of its existing states."
+rationale = "SN-040 rejects an upgrade that forces history abandonment; continuation wins over requiring a fresh backup for every release."
+acceptance_criteria = "The current version adds a subsequent backup to the same store and every preceding state still restores byte-exact."
+permutations = "compression=bool; history=set{none,multiple}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-136"]
+
+[requirement.SR-136]
+title = "Refuse unsupported store forms"
+sn_refs = ["SN-040"]
+boundary_refs = ["B-02","B-06","B-08"]
+requirement = "If a backup has a retired or unrecognized form, then the system shall refuse to modify it and identify the form and corrective action."
+rationale = "SN-040 rejects partial interpretation; explicit refusal wins over attempting an uncertain continuation."
+acceptance_criteria = "A refused store is byte-identical afterwards; the result names the unsupported form, or explicitly reports that it is unrecognized, and gives a usable remedy."
+permutations = "form=set{retired,unknown}; operation=set{backup,Prune,repair,kit-refresh}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-135"]
+
+[requirement.SR-137]
+title = "Preserve restore-version interoperability"
+sn_refs = ["SN-041"]
+boundary_refs = ["B-02","B-13","B-15","B-16"]
+requirement = "When a newer version modifies an existing backup, the system shall preserve each retained state for both its supplied restore kit and the current restore kit."
+rationale = "SN-041 protects older recovery routes; assuming only the newest kit is used would strand saved states."
+acceptance_criteria = "Each retained state restores the same bytes with both kit generations; missing newer record features retain prior recovery behavior and the omitted checks are reported."
+permutations = "kit=set{original,current}; recordFeature=set{present,predates-feature}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-10","DA-18","DA-19"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+delivered_with = ["SR-138"]
+
+[requirement.SR-138]
+title = "Refresh kits on request"
+sn_refs = ["SN-041"]
+boundary_refs = ["B-05","B-07","B-02","B-13"]
+requirement = "When the owner requests RefreshKits, the system shall update existing restore kits without changing the backed-up states they restore."
+rationale = "SN-041 puts updates under owner control; requiring a fresh backup loses the ability to maintain existing history."
+acceptance_criteria = "All requested states carry the current kit and reproduce exactly the same content before and after refresh."
+permutations = "states=set{latest,saved,both}; previousKit=set{current,older}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-137"]
+
+[requirement.SR-139]
+title = "Interchange backup hosts"
+sn_refs = ["SN-023"]
+boundary_refs = ["B-01","B-02","B-13","B-16"]
+requirement = "When backup responsibility moves between Windows and Linux, the system shall continue the same backup with equivalent shared-content, compression and history behavior."
+rationale = "SN-023 rejects host-specific stores; a common observable store contract wins over migration by fresh backup."
+acceptance_criteria = "Both host-transition directions preserve old states and capture the next state; backups from either host restore through every supported restore route."
+permutations = "origin=set{Windows,Linux}; next=set{Windows,Linux}; restore=set{Windows,Linux,macOS}; compression=bool; @pairwise"
+priority = "C"
+verification = "Test"
+status = "Drafted"
+form = "cross-cutting"
+da_refs = ["DA-08","DA-18"]
+hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
+
+[requirement.SR-140]
+title = "Deliver standalone recovery"
+sn_refs = ["SN-005"]
+boundary_refs = ["B-13","B-18","B-16"]
+requirement = "When handing off a backup, the system shall provide a restore kit for the latest and each saved state that recovers their recorded bytes using only the whole backup and documented commodity tools."
+rationale = "SN-005 rejects dependence on the original installation; a self-contained recovery capability wins over requiring the backup engine later."
+acceptance_criteria = "On a clean host without FileBackup installed, each state restores byte-exact without downloading anything during restore."
+permutations = "state=set{latest,saved}; compressed=bool; host=set{Windows,Linux,macOS}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-10","DA-18","DA-19"]
+delivered_with = ["SR-143"]
+
+[requirement.SR-141]
+title = "Restore the selected state only"
+sn_refs = ["SN-006"]
+boundary_refs = ["B-14","B-16"]
+requirement = "When a restore is requested, the restore kit shall recover exactly the selected dated state or the latest state when no date is selected."
+rationale = "SN-006 needs history as it was; overlaying later states would reintroduce the mistake the restorer is escaping."
+acceptance_criteria = "The output has precisely the paths and bytes of that state; no path or newer content is mixed in from a subsequent state."
+permutations = "selection=set{latest,oldest,middle}; laterChange=set{add,edit,delete}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-08","DA-19"]
+
+[requirement.SR-142]
+title = "Support each restore host family"
+sn_refs = ["SN-022"]
+boundary_refs = ["B-18","B-19","B-16","B-15"]
+requirement = "Where the documented restore tools are available, the restore kit shall recover equivalent trees on Windows, Linux and macOS including a route independent of the backup runtime."
+rationale = "SN-022 rejects dependence on the original host; portable recovery wins over one-platform interpretation."
+acceptance_criteria = "Latest and saved states yield identical portable paths and bytes across the three host families; host tool differences do not produce false damage findings."
+permutations = "host=set{Windows,Linux,macOS}; backupRuntime=bool; state=set{latest,saved}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-08","DA-10","DA-18"]
+hat_refs = ["CROSS-PLATFORM"]
+delivered_with = ["SR-143"]
+
+[requirement.SR-143]
+title = "Identify missing restore prerequisites"
+sn_refs = ["SN-022","SN-005"]
+boundary_refs = ["B-18","B-15","B-16"]
+requirement = "If a required restore tool is absent or unsupported, then the restore kit shall refuse with the tool name and installation remedy before writing the target."
+rationale = "SN-022 rejects diagnosing a missing tool as backup damage; explicit prerequisites win over attempting an unusable route."
+acceptance_criteria = "Missing or unsupported tools produce a precondition result, identify what to obtain, and leave the target unchanged."
+permutations = "tool=set{shell,text-processing,hash,archive}; condition=set{missing,unsupported}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["CROSS-PLATFORM"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-140","SR-142"]
+
+[requirement.SR-144]
+title = "Offer interactive restore launch"
+sn_refs = ["SN-035"]
+boundary_refs = ["B-14","B-15","B-19"]
+requirement = "When a person opens the restore capability from a backup on Windows or macOS without arguments, the restore kit shall obtain the target interactively and keep the resulting outcome visible until dismissal."
+rationale = "SN-035 rejects memorized commands and disappearing results; an interactive launch wins for a person recovering under stress."
+acceptance_criteria = "Double-click launch asks for a target, restores the chosen state and leaves the outcome readable until the person closes it."
+permutations = "host=set{Windows,macOS}; outcome=set{complete,incomplete,refused}; @pairwise"
+priority = "S"
+verification = "Demonstration"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-156"]
+
+[requirement.SR-145]
+title = "Prove restored content before success"
+sn_refs = ["SN-033"]
+boundary_refs = ["B-02","B-16","B-15","B-18"]
+requirement = "When a restore finishes, the restore kit shall report success only if every restored file has been verified against its recorded content identity."
+rationale = "SN-033 rejects an unchecked copy as proof; verified output wins over trusting that a readable stored object is correct."
+acceptance_criteria = "Changed, flipped or truncated stored content either yields the correct recovered bytes from an intact available copy or causes a named failed file; wrong bytes never accompany a successful result."
+permutations = "damage=set{none,altered,truncated}; intactAlternative=bool; compressed=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-05","DA-11","DA-18"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+
+[requirement.SR-146]
+title = "Salvage every recoverable entry"
+sn_refs = ["SN-053"]
+boundary_refs = ["B-02","B-16"]
+requirement = "If some recorded content cannot be restored, then the restore kit shall recover every other recoverable entry."
+rationale = "SN-053 rejects fail-fast data loss; per-entry continuation wins over abandoning the entire tree."
+acceptance_criteria = "Each unaffected path is restored byte-exact despite missing or damaged peers."
+permutations = "damage=set{missing,corrupt,mixed}; failurePosition=set{first,middle,last}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-18","DA-19"]
+delivered_with = ["SR-147"]
+
+[requirement.SR-147]
+title = "Report incomplete recovery precisely"
+sn_refs = ["SN-053"]
+boundary_refs = ["B-15"]
+requirement = "If any entry cannot be restored, then the restore kit shall return failure with each unrecovered path, its cause and the total unrecovered count."
+rationale = "SN-053 needs an exact account of what remains missing; a generic failure would leave the recovered tree misleading."
+acceptance_criteria = "The reported list equals the unrecovered path set and the count equals its size; no incomplete restore reports complete."
+permutations = "cause=set{content,host,mixed}; unrecovered=set{one,multiple,all}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-146"]
+
+[requirement.SR-148]
+title = "Reject damaged state authority"
+sn_refs = ["SN-025"]
+boundary_refs = ["B-02","B-15","B-16"]
+requirement = "If the selected record of a backed-up state is damaged or substituted, then the restore kit shall refuse before creating or writing the target."
+rationale = "SN-025 rejects a reduced tree falsely reported complete; validating authority wins over trusting whatever record can be parsed."
+acceptance_criteria = "Truncated, partly written and substituted state records each return the damaged-record outcome with zero target changes."
+permutations = "state=set{latest,saved}; damage=set{truncated,partial,substituted}; targetExists=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-11"]
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+
+[requirement.SR-149]
+title = "Refuse targets inside the backup"
+sn_refs = ["SN-042"]
+boundary_refs = ["B-14","B-17","B-15","B-16"]
+requirement = "If the selected restore target resolves within the backup being restored, then the restore kit shall refuse before any write."
+rationale = "SN-042 protects the recovery source; checking the resolved location wins over trusting the displayed path."
+acceptance_criteria = "Direct paths and linked aliases into the backup produce refusal and leave the backup and target unchanged."
+permutations = "alias=set{direct,link}; target=set{backup-root,backup-child,outside}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["SECURITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-150"]
+
+[requirement.SR-150]
+title = "Confine restore writes to the target"
+sn_refs = ["SN-042"]
+boundary_refs = ["B-02","B-17","B-16","B-15"]
+requirement = "If a recorded path or link would direct output outside the selected target, then the restore kit shall reject that entry with a named failure."
+rationale = "SN-042 rejects content-controlled write destinations; resolved containment wins over blindly joining path text."
+acceptance_criteria = "Zero writes escape the target for parent traversal, absolute paths or link redirection; each rejected path is reported and the restore fails."
+permutations = "escape=set{parent,absolute,link}; targetExists=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["SECURITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-149"]
+
+[requirement.SR-151]
+title = "Restore each modification time"
+sn_refs = ["SN-036"]
+boundary_refs = ["B-16"]
+requirement = "When restoring a file, the restore kit shall apply that path's own recorded modification time."
+rationale = "SN-036 rejects the stored copy's time as a substitute for each original path's time."
+acceptance_criteria = "Identical-content files with different recorded times retain their individual times through all restore routes."
+permutations = "shared=bool; compressed=bool; host=set{Windows,Linux,macOS}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-07"]
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+delivered_with = ["SR-152","SR-153"]
+
+[requirement.SR-152]
+title = "Restore empty directories"
+sn_refs = ["SN-036"]
+boundary_refs = ["B-16"]
+requirement = "When restoring a recorded tree, the restore kit shall recreate its empty directories."
+rationale = "SN-036 treats empty structure as part of the tree; a files-only recovery loses that structure."
+acceptance_criteria = "Top-level and nested empty directories exist at their recorded relative paths after restore."
+permutations = "depth=set{root,nested}; host=set{Windows,Linux,macOS}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-08"]
+delivered_with = ["SR-151","SR-153"]
+
+[requirement.SR-153]
+title = "Restore supported directory attributes"
+sn_refs = ["SN-036"]
+boundary_refs = ["B-16","B-15","B-19"]
+requirement = "When restoring recorded directory attributes, the restore kit shall apply supported attributes and report each unsupported attribute without omitting the directory."
+rationale = "SN-036 rejects silent metadata loss; explicit capability reporting wins over pretending every target supports the same attributes."
+acceptance_criteria = "Hidden and System attributes are applied on supporting targets; other targets receive the directories and a report naming unapplied attributes."
+permutations = "attribute=set{Hidden,System,both}; supported=bool; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-07"]
+hat_refs = ["CROSS-PLATFORM"]
+delivered_with = ["SR-151","SR-152"]
+
+[requirement.SR-154]
+title = "Return uniform restore outcome classes"
+sn_refs = ["SN-026"]
+boundary_refs = ["B-15"]
+requirement = "When a restore returns a result, the restore kit shall use the same documented outcome classification across all restore routes."
+rationale = "SN-026 rejects reading logs to decide retries; stable classified results win over generic errors."
+acceptance_criteria = "Exit codes are 0 complete, 1 incomplete content, 2 usage or precondition, 3 damaged state record, and 4 incomplete host; simultaneous failures resolve with precedence 2 then 3 then 4 then 1. Incomplete output includes counts for both content and host failures even when one class takes precedence."
+permutations = "class=set{complete,content,precondition,record,host,mixed}; host=set{Windows,Linux,macOS}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["CROSS-PLATFORM"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-155]
+title = "Browse the latest backup"
+sn_refs = ["SN-008"]
+boundary_refs = ["B-05","B-06","B-20"]
+requirement = "Where BrowseView is index, the system shall provide a searchable listing of every latest-state path with access to its stored content."
+rationale = "SN-008 cannot find logical paths through shared storage alone; a complete name view wins over browsing stored objects directly."
+acceptance_criteria = "After each completed backup the listing matches its latest paths, includes duplicate-content paths, finds entries by name and opens the corresponding stored content without restoring the tree."
+permutations = "shared=bool; change=set{add,edit,remove,none}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-156]
+title = "Never prompt unattended operations"
+sn_refs = ["SN-011","SN-035"]
+boundary_refs = ["B-07","B-08","B-14","B-15","B-19"]
+requirement = "While an operation runs without an interactive person, the system shall complete or fail without requesting human input."
+rationale = "SN-011 and SN-035 reject hanging automation; an explicit failure wins over a prompt nobody can answer."
+acceptance_criteria = "Backup, removal, checks, repairs, kit refresh and argument-driven restore return without waiting for an answer; any missing answer becomes a failure with its reason."
+permutations = "operation=set{backup,Prune,check,repair,kit-refresh,restore}; missingInput=bool; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "cross-cutting"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-144"]
+
+[requirement.SR-157]
+title = "Classify operational results"
+sn_refs = ["SN-045"]
+boundary_refs = ["B-08"]
+requirement = "When a backup, removal or check returns, the system shall distinguish complete, partially failed, configuration-refused and busy-or-state-refused outcomes without requiring its log."
+rationale = "SN-045 needs host decisions without prose parsing; stable result classes win over one undifferentiated failure."
+acceptance_criteria = "Each class is separately documented and distinguishable from the result alone, including an aggregate partial failure; no refused or failed operation reports complete. Under -ExitCode, backup complete is 0, backup-set failure is 1 and invalid configuration is 2; a separate busy-or-state-refused result remains distinguishable from these classes."
+permutations = "operation=set{backup,Prune,check}; result=set{complete,partial,configuration,busy,state}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-158"]
+
+[requirement.SR-158]
+title = "Expose machine-readable findings"
+sn_refs = ["SN-045"]
+boundary_refs = ["B-08"]
+requirement = "When a listing or check is requested, the system shall return its findings in machine-readable form."
+rationale = "SN-045 requires reliable host integration; structured findings win over scraping human descriptions."
+acceptance_criteria = "The findings identify each listed state or affected path and its associated values without extracting information from narrative prose."
+permutations = "operation=set{listing,check}; findings=set{none,one,many}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-157"]
+
+[requirement.SR-159]
+title = "Record each run's changes and failures"
+sn_refs = ["SN-044"]
+boundary_refs = ["B-06","B-20"]
+requirement = "When a backup run ends, the system shall provide a readable record of added, changed, removed and failed paths with failure causes and summary counts."
+rationale = "SN-044 cannot diagnose a status alone; a path-level account wins over a success-or-failure summary only."
+acceptance_criteria = "The named path sets and counts exactly match the run's observable effects and failures."
+permutations = "change=set{added,changed,removed,failed,mixed,none}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-160","SR-161"]
+
+[requirement.SR-160]
+title = "Show bounded progress intervals"
+sn_refs = ["SN-044"]
+boundary_refs = ["B-06","B-20"]
+requirement = "While a backup run remains active for more than two minutes, the system shall emit progress at intervals no longer than two minutes."
+rationale = "SN-044 requires visibility every few minutes; UNATTENDED-OPS derives a proposed two-minute silence limit so a continuing run remains distinguishable from a hung one instead of leaving frequency subjective."
+acceptance_criteria = "The record or display has no active interval longer than 120 seconds without an updated progress indication."
+permutations = "phase=set{reading,storing,finalizing}; duration=set{short,long}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-159","SR-161"]
+
+[requirement.SR-161]
+title = "Explain refusals with a remedy"
+sn_refs = ["SN-044"]
+boundary_refs = ["B-06","B-15"]
+requirement = "If an operation is refused, then the system shall report what condition was found and what action can resolve it."
+rationale = "SN-044 needs the owner to recover; bare refusal codes alone leave the next action unknown."
+acceptance_criteria = "Each refusal identifies the observed condition and an actionable next step rather than only an error category."
+permutations = "cause=set{configuration,busy,integrity,capacity,tool,unsupported-form}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-159","SR-160"]
+
+[requirement.SR-162]
+title = "Send configured run notifications"
+sn_refs = ["SN-010"]
+boundary_refs = ["B-05","B-09"]
+requirement = "Where notifications are configured and not disabled for the run, the system shall submit a message stating that run's success or failure to the configured relay."
+rationale = "SN-010 needs an outbound outcome; unconditional mail loses owner control and local-only records lose notification."
+acceptance_criteria = "Each completed run submits one outcome message; unconfigured or NoMail runs submit none."
+permutations = "configured=bool; NoMail=bool; outcome=set{success,failure}; @pairwise"
+priority = "C"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "Submission of the correctly classified message is the observable system output; relay delivery and human attention remain external dependencies not guaranteed by this row."
+delivered_with = ["SR-163"]
+
+[requirement.SR-163]
+title = "Keep notification failures separate"
+sn_refs = ["SN-010"]
+boundary_refs = ["B-09","B-06","B-08","B-20"]
+requirement = "If notification delivery fails, then the system shall record a warning without changing the backup run's own outcome."
+rationale = "SN-010 rejects mail availability changing data-protection results; separate warning wins over overriding backup status."
+acceptance_criteria = "Success stays success and failure stays failure; the record identifies the notification failure."
+permutations = "backup=set{success,failure}; relay=set{unreachable,rejected}; @pairwise"
+priority = "C"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-162"]
+
+[requirement.SR-164]
+title = "Keep credentials out of readable artifacts"
+sn_refs = ["SN-049"]
+boundary_refs = ["B-05","B-07","B-21","B-02","B-06","B-20"]
+requirement = "While handling notification credentials, the system shall prevent their plaintext disclosure through configuration, backups and run records."
+rationale = "SN-049 rejects distributing the mail account with a backup; protected credential handling wins over embedded passwords."
+acceptance_criteria = "Readable plaintext credentials are refused in configuration and absent from produced backups and records, including error output."
+permutations = "surface=set{configuration,backup,record,error}; lifecycle=set{provision,run}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "cross-cutting"
+da_refs = ["DA-20"]
+hat_refs = ["SECURITY"]
+
+[requirement.SR-165]
+title = "Operate with container least privilege"
+sn_refs = ["SN-024"]
+boundary_refs = ["B-12","B-01","B-02","B-20"]
+requirement = "Where deployed in a container, the system shall perform backups as an unprivileged user with read-only source access and writable backup and working-state locations without a backup runtime installed on the host."
+rationale = "SN-024 rejects a runtime or privilege burden on the host; confined container operation wins over privileged installation."
+acceptance_criteria = "A compressed backup completes under those permissions and restores byte-exact; source write access and host administrative rights are not required."
+permutations = "compression=bool; sourceWritable=set{false}; user=set{unprivileged}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+da_refs = ["DA-13","DA-18"]
+hat_refs = ["SECURITY"]
+
+[requirement.SR-166]
+title = "Redistribute components lawfully"
+sn_refs = ["SN-054"]
+boundary_refs = ["B-13"]
+requirement = "When delivering third-party components in a backup or container, the system shall include the required terms and notices under licenses permitting that redistribution."
+rationale = "SN-054 rejects handing the owner a license breach; permission and accompanying terms win over undocumented bundling. This row intentionally extends beyond the operational frame for container delivery, whose crossing is absent."
+acceptance_criteria = "Every delivered third-party component has redistribution permission and all accompanying notices required by its terms."
+permutations = "delivery=set{backup,container}; component=set{runtime,hash,archive,media}; @pairwise"
+priority = "S"
+verification = "Inspection"
+status = "Drafted"
+form = "cross-cutting"
+hat_refs = ["LEGAL"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-167]
+title = "Provide a complete first-backup path"
+sn_refs = ["SN-012"]
+boundary_refs = ["B-05","B-06","B-10","B-11"]
+requirement = "When a new owner follows the shipped quick-start guidance and configuration helper on a supported host, the system shall enable a first successful backup without inspecting implementation."
+rationale = "SN-012 rejects reverse engineering as setup; an end-to-end guided route wins over isolated reference descriptions. The setup guidance is delivered alongside the operational input surface, which has no separate documentation crossing in the frame."
+acceptance_criteria = "The guidance and helper provide every required configuration choice and prerequisite acquisition instruction; their resulting configuration completes a first backup."
+permutations = "host=set{Windows,Linux-container}; notification=bool; prerequisites=set{present,absent}; @pairwise"
+priority = "S"
+verification = "Demonstration"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-168]
+title = "Publish a versioned configuration contract"
+sn_refs = ["SN-050"]
+boundary_refs = ["B-05","B-07"]
+requirement = "When accepting a configuration, the system shall apply the documented versioned contract exactly."
+rationale = "SN-050 rejects divergence between integration guidance and launch behavior; one accepted contract wins over undocumented runtime rules."
+acceptance_criteria = "Every configuration identifies its contract version; documented valid combinations are accepted and documented invalid combinations refused; the shipped example is accepted with only locations changed."
+permutations = "version=set{supported,missing,older,newer}; input=set{example,generated}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-169]
+title = "Reject invalid configuration before mutation"
+sn_refs = ["SN-027"]
+boundary_refs = ["B-05","B-07","B-08","B-06","B-02","B-20"]
+requirement = "If configuration is missing or violates the supported contract, then the system shall refuse before creating or changing operational artifacts and identify the setting and expected value kind."
+rationale = "SN-027 rejects guessing owner intent; strict preflight wins over defaults for unrecognized input."
+acceptance_criteria = "Missing input, unknown keys, wrong types, missing required settings and unsupported versions each produce configuration-refused outcomes with no backup or working-state changes."
+permutations = "fault=set{missing,unknown-key,wrong-type,required-missing,unsupported-version}; launch=set{interactive,unattended}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+
+[requirement.SR-170]
+title = "Reject missing mandatory dependencies"
+sn_refs = ["SN-015"]
+boundary_refs = ["B-10","B-06","B-08","B-02"]
+requirement = "If the runtime or a component required by the selected operation is missing or unsupported, then the system shall refuse before changing the backup with the component name and acquisition remedy."
+rationale = "SN-015 rejects creating untrustworthy content without prerequisites; fail-before-mutation wins over partial operation."
+acceptance_criteria = "Each mandatory absence or incompatible version causes a nonmutating failure identifying what to install; selected compression does not proceed without its required tool."
+permutations = "component=set{runtime,hash,archive}; availability=set{missing,unsupported}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-171"]
+
+[requirement.SR-171]
+title = "Degrade optional dependencies visibly"
+sn_refs = ["SN-015"]
+boundary_refs = ["B-10","B-06","B-08","B-20"]
+requirement = "If only an optional component is unavailable, then the system shall continue the requested backup with the omitted capability explicitly reported."
+rationale = "SN-015 distinguishes extras from prerequisites; visible degradation wins over failing core backup or silently omitting the extra."
+acceptance_criteria = "The backup completes normally and the record names the skipped optional capability."
+permutations = "optional=set{media-measurement}; availability=set{missing,failing}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["UNATTENDED-OPS"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-170"]
+
+[requirement.SR-172]
+title = "Confine removal to the chosen backup"
+sn_refs = ["SN-029"]
+boundary_refs = ["B-05","B-07","B-02","B-06","B-08"]
+requirement = "If a removal request or stored path would affect a location outside the chosen backup through traversal or a link, then the system shall refuse that removal before mutation."
+rationale = "SECURITY derives a containment obligation beyond SN-029's surviving-state guarantee: a crafted removal must not reach unrelated data. Trusting request names loses to an explicit boundary on destructive authority."
+acceptance_criteria = "Absolute escapes, parent traversal and linked escape destinations leave both the backup and outside locations unchanged and produce refusal."
+permutations = "escape=set{absolute,parent,link}; direction=set{read,write,delete}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["SECURITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-118","SR-119"]
+
+[requirement.SR-173]
+title = "Protect content when auxiliary state is lost"
+sn_refs = ["SN-034"]
+boundary_refs = ["B-20","B-02","B-06","B-08"]
+requirement = "If working-state or browse artifacts are missing or unreadable, then the system shall preserve all content required by retained backed-up states."
+rationale = "INTEGRITY-RECOVERABILITY derives the auxiliary-state failure case of SN-034 across the external working-state boundary. Treating a lost acceleration or presentation artifact as authority to discard content would turn incidental loss into data loss."
+acceptance_criteria = "An operation with unavailable change-detection state or browse output either completes safely or reports refusal; no retained path loses recoverability because of the auxiliary failure."
+permutations = "artifact=set{change-detection,browse}; condition=set{missing,unreadable,partial}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+form = "interface"
+hat_refs = ["INTEGRITY-RECOVERABILITY"]
+coincident = "The specified boundary output is the observable outcome for the cited need; siblings supply the other stated obligations."
+delivered_with = ["SR-117"]
