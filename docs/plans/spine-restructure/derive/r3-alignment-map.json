@@ -1,0 +1,4694 @@
+{
+ "counts": {
+  "components": 24,
+  "interfaces": 45,
+  "interfaces_boundary": 41,
+  "interfaces_internal": 4,
+  "interfaces_conditional": 2,
+  "interface_clusters": 47,
+  "llr_clusters": 129,
+  "llr_rows": 128,
+  "llr_top": 106,
+  "llr_child": 22,
+  "legacy_ids_kept": 73,
+  "new_ids": 55,
+  "folded": 1,
+  "legacy_retired": 10,
+  "astra_llrs": 85,
+  "opus_llrs": 128,
+  "astra_ifs": 40,
+  "opus_ifs": 43,
+  "conflicts": 38,
+  "owner_level": 6,
+  "design_gaps": 57,
+  "srs_covered": 123,
+  "verdicts": {
+   "take A": 3,
+   "take O": 48,
+   "union": 69,
+   "conflict": 8,
+   "fold": 1
+  },
+  "clusters_with_conflict": 33
+ },
+ "components": [
+  {
+   "id": "CMP-001",
+   "name": "FileBackup",
+   "part_of": null,
+   "source": "A CMP-001 + O CMP-001",
+   "note": "Root. Keep O's structural rule: the restore kit depends on nothing backup-only."
+  },
+  {
+   "id": "CMP-002",
+   "name": "Operation launch and outcome",
+   "part_of": "CMP-001",
+   "source": "O CMP-002; A CMP-012 (dispatch, cross-location outcome)",
+   "note": "Owns the one outcome vocabulary and the per-location fold."
+  },
+  {
+   "id": "CMP-003",
+   "name": "Configuration",
+   "part_of": "CMP-001",
+   "source": "O CMP-003; A CMP-012 (validation, defaults)",
+   "note": "Owns both document forms and the cross-location overlap checks at launch."
+  },
+  {
+   "id": "CMP-004",
+   "name": "Provisioning",
+   "part_of": "CMP-001",
+   "source": "O CMP-004; A CMP-013 (dependency discovery)",
+   "note": "Runtime floor, required component, tool location; never prompts unattended."
+  },
+  {
+   "id": "CMP-005",
+   "name": "Notification",
+   "part_of": "CMP-001",
+   "source": "O CMP-005; A CMP-014 (notification)",
+   "note": ""
+  },
+  {
+   "id": "CMP-006",
+   "name": "Run record and progress",
+   "part_of": "CMP-001",
+   "source": "O CMP-006; A CMP-014 (progress, run records)",
+   "note": ""
+  },
+  {
+   "id": "CMP-007",
+   "name": "Backup engine",
+   "part_of": "CMP-001",
+   "source": "O CMP-007; A CMP-002 (backup production, narrower)",
+   "note": "O's engine also holds the guard, removal, check and views; A spread those over top-level components."
+  },
+  {
+   "id": "CMP-008",
+   "name": "Source capture",
+   "part_of": "CMP-007",
+   "source": "O CMP-008; A CMP-003 (traversal, portability, links)",
+   "note": ""
+  },
+  {
+   "id": "CMP-009",
+   "name": "Change detection",
+   "part_of": "CMP-007",
+   "source": "O CMP-009; A CMP-003 (cached identities)",
+   "note": "A merged capture and change detection; the SRs give them different parents (SR-001/074 against SR-088/105/035/011)."
+  },
+  {
+   "id": "CMP-010",
+   "name": "Content writer",
+   "part_of": "CMP-007",
+   "source": "O CMP-010; A CMP-004",
+   "note": ""
+  },
+  {
+   "id": "CMP-011",
+   "name": "State publication",
+   "part_of": "CMP-007",
+   "source": "O CMP-011; A CMP-005",
+   "note": ""
+  },
+  {
+   "id": "CMP-012",
+   "name": "Exclusive-use guard",
+   "part_of": "CMP-007",
+   "source": "O CMP-012; A CMP-006 (store coordination, top-level in A)",
+   "note": "A puts coordination at the top because its read-generation session (A IF-040) makes readers participants; that design is not recommended (conflict K22), so the guard stays backup-only under the engine."
+  },
+  {
+   "id": "CMP-013",
+   "name": "Removal and saved-state report",
+   "part_of": "CMP-007",
+   "source": "O CMP-013; A CMP-009 (retention)",
+   "note": "Owns the content-location index (O IF-043)."
+  },
+  {
+   "id": "CMP-014",
+   "name": "Check, repair and kit refresh",
+   "part_of": "CMP-007",
+   "source": "O CMP-014; A CMP-010",
+   "note": ""
+  },
+  {
+   "id": "CMP-015",
+   "name": "Views",
+   "part_of": "CMP-007",
+   "source": "O CMP-015; A CMP-014 (generated views)",
+   "note": ""
+  },
+  {
+   "id": "CMP-016",
+   "name": "Store format",
+   "part_of": "CMP-001",
+   "source": "O CMP-016; A CMP-007 (store representation); A CMP-013 (digest text, volume measurement)",
+   "note": "Shared by every writer and both restore routes; owns the digest text form (see interface cluster I13)."
+  },
+  {
+   "id": "CMP-017",
+   "name": "Restore kit",
+   "part_of": "CMP-001",
+   "source": "O CMP-017; A CMP-011",
+   "note": "One set of requirements binds both routes (both sides agree)."
+  },
+  {
+   "id": "CMP-018",
+   "name": "Restore admission",
+   "part_of": "CMP-017",
+   "source": "O CMP-018; A CMP-011 (admission)",
+   "note": ""
+  },
+  {
+   "id": "CMP-019",
+   "name": "Entry restoration",
+   "part_of": "CMP-017",
+   "source": "O CMP-019; A CMP-011 (file recovery) + A CMP-008 (content resolution, restore side)",
+   "note": "A's CMP-008 'Content resolution' shared between maintenance and restore is not adopted as its own component: the backup-side index (CMP-013) and the restore-side search (CMP-019) have different forms (O IF-043 against A IF-018) and the kit may not depend on backup-only code. Recorded as conflict K38."
+  },
+  {
+   "id": "CMP-020",
+   "name": "Tree finishing",
+   "part_of": "CMP-017",
+   "source": "O CMP-020; A CMP-011 (metadata application)",
+   "note": ""
+  },
+  {
+   "id": "CMP-021",
+   "name": "Restore outcome and report",
+   "part_of": "CMP-017",
+   "source": "O CMP-021",
+   "note": ""
+  },
+  {
+   "id": "CMP-022",
+   "name": "Restore launch and target choice",
+   "part_of": "CMP-017",
+   "source": "O CMP-022; A CMP-015 (launchers)",
+   "note": ""
+  },
+  {
+   "id": "CMP-023",
+   "name": "Container",
+   "part_of": "CMP-001",
+   "source": "O CMP-023; A CMP-016 (container adapter, part_of A CMP-012) + A CMP-015 (licensed image)",
+   "note": "A nests the adapter under launch; O keeps adapter and image together. O preferred: SR-034/130/143 are one delivery responsibility."
+  },
+  {
+   "id": "CMP-024",
+   "name": "Release guidance",
+   "part_of": "CMP-001",
+   "source": "O CMP-024; A CMP-015 (setup delivery)",
+   "note": ""
+  }
+ ],
+ "interfaces": [
+  {
+   "merged_id": "IF-002",
+   "title": "Backup launch request",
+   "astra": [
+    "IF-003"
+   ],
+   "opus": [
+    "IF-002"
+   ],
+   "verdict": "take O",
+   "note": "Both have it. O is more correct: it names the real switches (-AutoInstallDeps, not A's -AutoInstallHashing), states applicability and the bad-request rule. A lists -DiscardUnreferencedData and -AllowUnverifiedIndex, which are module-level options, not entry switches. Disagree on -WhatIf (removal dry run, K04) and -Deep (K05). Neither lists -IncludeSnapshots or the -VerifyStorage alias that the entry point also accepts; -BackupTime is a test seam and stays out of the form."
+  },
+  {
+   "merged_id": "IF-003",
+   "title": "Operation outcome value",
+   "astra": [
+    "IF-004"
+   ],
+   "opus": [
+    "IF-003"
+   ],
+   "verdict": "take O",
+   "note": "Both: {0,1,2,3,4} with the ruled meanings. O adds the closed list of operations, matching the ruling 'every operation' (A omits the report and the view rebuild)."
+  },
+  {
+   "merged_id": "IF-004",
+   "title": "Configuration settings catalogue",
+   "astra": [
+    "IF-002"
+   ],
+   "opus": [
+    "IF-004"
+   ],
+   "verdict": "take O, conflicts K02, K03",
+   "note": "Both. A states one row for both forms; O splits catalogue / JSON form / native form (IF-004/005/006, carried_by) and adds the reserved word link and the retired key PreserveFolderTree. Disagree on ConfigVersion (A 3, O 2; K02) and SpaceView type (A off|on, O boolean; K03). BEHAVIOUR FLAG: both state the schedule letters' timing in the form (A elapsed periods, O calendar buckets); the letters' value set is form, their timing belongs to LLR-011 only."
+  },
+  {
+   "merged_id": "IF-005",
+   "title": "JSON configuration document",
+   "astra": [
+    "IF-002"
+   ],
+   "opus": [
+    "IF-005"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-006",
+   "title": "Native-Windows configuration document",
+   "astra": [
+    "IF-002"
+   ],
+   "opus": [
+    "IF-006"
+   ],
+   "verdict": "take O",
+   "note": "Both admit a host-protected credential only in this form (owner ruling)."
+  },
+  {
+   "merged_id": "IF-007",
+   "title": "Environment settings",
+   "astra": [
+    "IF-024"
+   ],
+   "opus": [
+    "IF-007"
+   ],
+   "verdict": "take O",
+   "note": "O adds FILEBACKUP_LOG_PATH and FILEBACKUP_NO_GUI (both read by today's code). A's discovery-source order is behaviour and belongs to LLR-037."
+  },
+  {
+   "merged_id": "IF-008",
+   "title": "Release guidance set",
+   "astra": [
+    "IF-035"
+   ],
+   "opus": [
+    "IF-008"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-009",
+   "title": "Run record",
+   "astra": [
+    "IF-027"
+   ],
+   "opus": [
+    "IF-009"
+   ],
+   "verdict": "take O, flag",
+   "note": "Both. O concrete (names, entry grammar, prefixes). FLAG: O's refusal tokens embed requirement ids ([SR-075/...]); they exist in today's code, so keep them frozen as form but do not mint new id-bearing tokens (requirement renumbering would change a host-visible string)."
+  },
+  {
+   "merged_id": "IF-010",
+   "title": "Machine-readable findings",
+   "astra": [
+    "IF-028",
+    "IF-029"
+   ],
+   "opus": [
+    "IF-010"
+   ],
+   "verdict": "take O + A note",
+   "note": "Both. O matches the code's field names (Class, FolderName, KitRevision; A says Kind and invents WitnessMismatch/UnsupportedForm where the code has LegacyStoredForm). O adds Repaired for SR-104 (gap). A adds that BytesReclaimed may be negative; keep that as a stated value range if the plan can yield it."
+  },
+  {
+   "merged_id": "IF-011",
+   "title": "Notification message",
+   "astra": [
+    "IF-031"
+   ],
+   "opus": [
+    "IF-011"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-012",
+   "title": "Protected notification credential",
+   "astra": [
+    "IF-032"
+   ],
+   "opus": [
+    "IF-012"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-013",
+   "title": "Backup store layout",
+   "astra": [
+    "IF-011",
+    "IF-041"
+   ],
+   "opus": [
+    "IF-013"
+   ],
+   "verdict": "take O, flag",
+   "note": "Both. A states roles without names and puts the leaf names into LLRs (K36); O names them in the form, which the brief allows and which gives each name one home. A's IF-041 (B-02 live storage exchange) folds in as O's second crossing. BEHAVIOUR FLAG in O: 'the date is the completion time of the state it holds' and 'the retired launcher name is never written' move to LLR-028 and LLR-007."
+  },
+  {
+   "merged_id": "IF-014",
+   "title": "Record of contents",
+   "astra": [
+    "IF-007"
+   ],
+   "opus": [
+    "IF-014"
+   ],
+   "verdict": "union",
+   "note": "Same nine columns, both backslash separators (today's Linux writer uses '/', gap M42). A adds canonical bytes (LF, BOM tolerated on input, Length range, Duplicate may be empty); O adds Original as the retired layout-marker value and the boundary crossing. Union."
+  },
+  {
+   "merged_id": "IF-015",
+   "title": "Completeness evidence",
+   "astra": [
+    "IF-008"
+   ],
+   "opus": [
+    "IF-015"
+   ],
+   "verdict": "conflict K14",
+   "note": "Same keys today (Version=2, Rows, Bytes, XxH128, Written; A matches the code). O proposes Version=3 with DirRows/LinkRows as positive age evidence."
+  },
+  {
+   "merged_id": "IF-016",
+   "title": "Stored object name and form",
+   "astra": [
+    "IF-010"
+   ],
+   "opus": [
+    "IF-016"
+   ],
+   "verdict": "take O",
+   "note": "Same grammar and alphabet. O is correct that a compressed object's extension becomes .7z (A's 'outer .7z suffix' reads as appended); O adds the retired grammars the code recognises (separator in name; space at index 16 in 27+ characters). BEHAVIOUR FLAG: 'the electing file's extension' is LLR-058's decision."
+  },
+  {
+   "merged_id": "IF-017",
+   "title": "Folder record",
+   "astra": [
+    "IF-012"
+   ],
+   "opus": [
+    "IF-017"
+   ],
+   "verdict": "take O, conflicts K15, K16",
+   "note": "A's semicolon separator contradicts today's comma (both routes split on ','); changing it breaks kits already in backups (SR-084). A's always-present header-only record against O's present-only-with-rows (today's behaviour)."
+  },
+  {
+   "merged_id": "IF-018",
+   "title": "Link record",
+   "astra": [
+    "IF-013"
+   ],
+   "opus": [
+    "IF-018"
+   ],
+   "verdict": "conflict K17",
+   "note": "Both new form, separate file LINKS.csv. Column names and value sets differ."
+  },
+  {
+   "merged_id": "IF-019",
+   "title": "Restore kit artifact set",
+   "astra": [
+    "IF-033"
+   ],
+   "opus": [
+    "IF-019"
+   ],
+   "verdict": "take O, flag",
+   "note": "O names the on-disk artifacts that are data or launchers and names the kit's code files by role (correct per brief). BEHAVIOUR FLAG: the launcher's 'one line passing every argument' is LLR-074's."
+  },
+  {
+   "merged_id": "IF-020",
+   "title": "Restore request",
+   "astra": [
+    "IF-005"
+   ],
+   "opus": [
+    "IF-020"
+   ],
+   "verdict": "take O",
+   "note": "O gives the real switches of both routes; A abstract."
+  },
+  {
+   "merged_id": "IF-021",
+   "title": "Restore outcome value",
+   "astra": [
+    "IF-006"
+   ],
+   "opus": [
+    "IF-021"
+   ],
+   "verdict": "take O",
+   "note": "Same value set."
+  },
+  {
+   "merged_id": "IF-022",
+   "title": "Restore report",
+   "astra": [
+    "IF-006"
+   ],
+   "opus": [
+    "IF-022"
+   ],
+   "verdict": "take O, flag",
+   "note": "O's cause tokens match the code. BEHAVIOUR FLAG: 'nothing is written to the target before admission passes' is LLR (admission) text."
+  },
+  {
+   "merged_id": "IF-023",
+   "title": "Restored tree",
+   "astra": [
+    "IF-022"
+   ],
+   "opus": [
+    "IF-023"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-024",
+   "title": "Restore tool floor",
+   "astra": [
+    "IF-026"
+   ],
+   "opus": [
+    "IF-024"
+   ],
+   "verdict": "take O",
+   "note": "A's 'POSIX byte-count fallback' is behaviour (LLR-071)."
+  },
+  {
+   "merged_id": "IF-025",
+   "title": "Restore target probe",
+   "astra": [
+    "IF-020"
+   ],
+   "opus": [
+    "IF-025"
+   ],
+   "verdict": "union",
+   "note": "A adds allocation-unit bytes and target name/attribute/link semantics, needed by the declared allowance (K09) and collision detection."
+  },
+  {
+   "merged_id": "IF-026",
+   "title": "Restore host session",
+   "astra": [
+    "IF-039"
+   ],
+   "opus": [
+    "IF-026"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-027",
+   "title": "Folder choice dialog",
+   "astra": [
+    "IF-039"
+   ],
+   "opus": [
+    "IF-027"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-028",
+   "title": "Source tree view",
+   "astra": [
+    "IF-021"
+   ],
+   "opus": [
+    "IF-028"
+   ],
+   "verdict": "union",
+   "note": "Same. BEHAVIOUR FLAG in O: 'read-only opens that share reading only' belongs to the source-never-changed LLR."
+  },
+  {
+   "merged_id": "IF-029",
+   "title": "Change-detection record",
+   "astra": [
+    "IF-036",
+    "IF-037"
+   ],
+   "opus": [
+    "IF-029"
+   ],
+   "verdict": "take O, conflict K12",
+   "note": "A splits the external location (B-20) and the source-root cache (B-24) and adds a source/store identity binding and generation id (new form); O one row on both crossings, no new fields."
+  },
+  {
+   "merged_id": "IF-030",
+   "title": "Run-state record",
+   "astra": [
+    "IF-017"
+   ],
+   "opus": [
+    "IF-030"
+   ],
+   "verdict": "take O, flag",
+   "note": "A adds a state-generation identity and source/store binding (new form, tied to K12/K20). BEHAVIOUR FLAG in O: 'written to .tmp and published by rename' is LLR-028/087 text; the .tmp name itself is form."
+  },
+  {
+   "merged_id": "IF-031",
+   "title": "Volume space and identity",
+   "astra": [
+    "IF-019"
+   ],
+   "opus": [
+    "IF-031"
+   ],
+   "verdict": "union",
+   "note": "A adds allocation-unit bytes. BEHAVIOUR FLAG in O: the mount-table rule is FileBackup's measurement (LLR for volume identity), not the external party's form."
+  },
+  {
+   "merged_id": "IF-032",
+   "title": "Exclusive-use claim",
+   "astra": [
+    "IF-015"
+   ],
+   "opus": [
+    "IF-032"
+   ],
+   "verdict": "take O, flag",
+   "note": "Same artifact (Temp.lock at the saved-state root). BEHAVIOUR FLAG in O: 'never written and never deleted' is LLR-093's."
+  },
+  {
+   "merged_id": "IF-033",
+   "title": "Staging area and owner record",
+   "astra": [
+    "IF-016"
+   ],
+   "opus": [
+    "IF-033"
+   ],
+   "verdict": "take O, flag",
+   "note": "Same fields as the code. A puts the classification verdict in this row; O moves it to the internal IF-044 (better: verdict is a result, not the record). Add: PRUNE.inprogress holds the saved-state name as text. BEHAVIOUR FLAG in O: 'written once by exclusive create', 'modification time is the liveness evidence' belong to LLR-080."
+  },
+  {
+   "merged_id": "IF-034",
+   "title": "Content digest",
+   "astra": [
+    "IF-009",
+    "IF-025"
+   ],
+   "opus": [
+    "IF-034"
+   ],
+   "verdict": "take O, owner change",
+   "note": "Both: XXH128, 32 uppercase hex, most significant byte first. Owner differs: A CMP-007 (internal store representation), O external:EXT-06. Recommend owner CMP-016 for the text form, which is FileBackup's choice, with the hashing service itself in IF-046. FLAG: O names the third-party package; move the package identity to IF-037."
+  },
+  {
+   "merged_id": "IF-035",
+   "title": "Archive tool",
+   "astra": [
+    "IF-025"
+   ],
+   "opus": [
+    "IF-035"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-036",
+   "title": "Media probe",
+   "astra": [
+    "IF-025"
+   ],
+   "opus": [
+    "IF-036"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-037",
+   "title": "Package source",
+   "astra": [
+    "IF-038"
+   ],
+   "opus": [
+    "IF-037"
+   ],
+   "verdict": "take O",
+   "note": "O pins 8.0.0 identified by the published SHA-256 (as the image build does today); A allows 'a declared compatible release'."
+  },
+  {
+   "merged_id": "IF-038",
+   "title": "Container actions and environment",
+   "astra": [
+    "IF-023"
+   ],
+   "opus": [
+    "IF-038"
+   ],
+   "verdict": "take O + A values, conflicts K04, K25",
+   "note": "A's truthy set (1,true,TRUE,True,yes,YES,Yes) matches the entry script exactly; O's 'any case' is wrong. A keeps FILEBACKUP_DRY_RUN; O drops it."
+  },
+  {
+   "merged_id": "IF-039",
+   "title": "Container mounts and user",
+   "astra": [
+    "IF-023"
+   ],
+   "opus": [
+    "IF-039"
+   ],
+   "verdict": "take O, conflict K26",
+   "note": "O names the mounts and uid 65532 and adds /tmp scratch (the shipped compose file mounts /tmp as tmpfs)."
+  },
+  {
+   "merged_id": "IF-040",
+   "title": "Container image contents",
+   "astra": [
+    "IF-034"
+   ],
+   "opus": [
+    "IF-040"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-041",
+   "title": "Browse view",
+   "astra": [
+    "IF-030"
+   ],
+   "opus": [
+    "IF-041"
+   ],
+   "verdict": "take O",
+   "note": ""
+  },
+  {
+   "merged_id": "IF-042",
+   "title": "Space view",
+   "astra": [
+    "IF-030"
+   ],
+   "opus": [
+    "IF-042"
+   ],
+   "verdict": "take O",
+   "note": "New form both sides; O concrete (SPACE.tsv)."
+  },
+  {
+   "merged_id": "IF-043",
+   "title": "Content-location index (internal)",
+   "astra": [],
+   "opus": [
+    "IF-043"
+   ],
+   "verdict": "take O",
+   "note": "O only. A's nearest is IF-018 (per-key query), a different form."
+  },
+  {
+   "merged_id": "IF-044",
+   "title": "Leftover classification verdict (internal)",
+   "astra": [
+    "IF-016"
+   ],
+   "opus": [
+    "IF-044"
+   ],
+   "verdict": "take O",
+   "note": "A carries the verdict set inside its owner-record row."
+  },
+  {
+   "merged_id": "IF-045",
+   "title": "Content search by key (internal, restore side)",
+   "astra": [
+    "IF-018"
+   ],
+   "opus": [],
+   "verdict": "take A",
+   "note": "A only. O states the same answer set in LLR-050 text; a typed, symbol-free form is the target shape for a call that crosses components. Owner CMP-019."
+  },
+  {
+   "merged_id": "IF-046",
+   "title": "Backup runtime and tool floor",
+   "astra": [
+    "IF-025"
+   ],
+   "opus": [],
+   "verdict": "take A (part)",
+   "note": "A states the backup-side runtime floor at B-10; O states it only in LLR-020. Owner external:EXT-06."
+  },
+  {
+   "merged_id": "(not adopted)",
+   "title": "State format descriptor and publication intent",
+   "astra": [
+    "IF-014"
+   ],
+   "opus": [],
+   "verdict": "conflicts K14, K20",
+   "note": "A only (STATE-FORMAT.json plus a durable intent). Adopted only if K14 or K20 goes A's way."
+  },
+  {
+   "merged_id": "(not adopted)",
+   "title": "Read-generation session",
+   "astra": [
+    "IF-040"
+   ],
+   "opus": [],
+   "verdict": "conflict K22",
+   "note": "A only. Adopted only if K22 goes A's way."
+  }
+ ],
+ "llrs": [
+  {
+   "cluster": "Every operation ends with one value of the shared vocabulary",
+   "srs": [
+    "SR-043"
+   ],
+   "astra": [
+    "LLR-043"
+   ],
+   "opus": [
+    "LLR-043"
+   ],
+   "keep_id": "LLR-043",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "O adds the full operation list (report and view rebuild included, per the ruling 'every operation'), the precondition list and the unclassified-error rule (2 before any change, 4 after). A adds nothing O lacks. Move the multi-location fold out (to LLR-014) so it has one home.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Configured locations run independently and fold into one value",
+   "srs": [
+    "SR-014",
+    "SR-095"
+   ],
+   "astra": [
+    "LLR-014"
+   ],
+   "opus": [
+    "LLR-014"
+   ],
+   "keep_id": "LLR-014",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "O carries the fold rule; A adds that the full location set is resolved and validated before admission and that a multi-location configuration draws no warning.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An unattended operation never asks",
+   "srs": [
+    "SR-016"
+   ],
+   "astra": [
+    "LLR-016"
+   ],
+   "opus": [
+    "LLR-016"
+   ],
+   "keep_id": "LLR-016",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O",
+   "note": "Same obligation; O enumerates the session signals and the per-operation scope. Today redirected or closed input is not detected (gap M15).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The report and the check write one findings document on standard output",
+   "srs": [
+    "SR-104"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-096"
+   ],
+   "keep_id": "LLR-096",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A states SR-104 only through interface forms and the sr_refs of its check and report rows. O adds 'nothing else on standard output' and the repaired flag.",
+   "astra_partial": [
+    "LLR-047",
+    "LLR-049"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Container actions map onto the same request and outcome",
+   "srs": [
+    "SR-048",
+    "SR-142"
+   ],
+   "astra": [
+    "LLR-048"
+   ],
+   "opus": [
+    "LLR-048"
+   ],
+   "keep_id": "LLR-048",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union; conflicts K04, K25",
+   "note": "A also bundles mounts and identity (moved to the container-access cluster) and keeps the dry-run variable; O forces notification off and the unattended declaration (both true of today's entry script).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Configuration validated against the one catalogue before anything is touched",
+   "srs": [
+    "SR-018"
+   ],
+   "astra": [
+    "LLR-042"
+   ],
+   "opus": [
+    "LLR-042"
+   ],
+   "keep_id": "LLR-042",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A's row carries five SRs (018, 042, 123, 135, 129); split per O so each SR's obligation has its own row. Both: closed keys, kind-checked values, first fault in document order, defaults materialised.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A configuration location naming no document is refused",
+   "srs": [
+    "SR-018"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-018"
+   ],
+   "keep_id": "LLR-018",
+   "legacy_kept": true,
+   "parent": "LLR-042",
+   "verdict": "take O (child)",
+   "note": "A merged this into LLR-042; the legacy meaning survives and O's child adds 'creates nothing, the global record included'.",
+   "astra_partial": [
+    "LLR-042"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A retired setting is refused by name, as retired",
+   "srs": [
+    "SR-018"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-063"
+   ],
+   "keep_id": "LLR-063",
+   "legacy_kept": true,
+   "parent": "LLR-042",
+   "verdict": "take O (child)",
+   "note": "A retired LLR-063 into LLR-042 text; SR-018's AC names the retired-by-name message, a distinct decision.",
+   "astra_partial": [
+    "LLR-042"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An older supported description version keeps its meaning",
+   "srs": [
+    "SR-123"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-098"
+   ],
+   "keep_id": "LLR-098",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O; conflict K02",
+   "note": "A states a version-specific meaning table inside LLR-042.",
+   "astra_partial": [
+    "LLR-042"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every configuration document states its description version",
+   "srs": [
+    "SR-135"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-099"
+   ],
+   "keep_id": "LLR-099",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-042. O adds that the helper writes the current version.",
+   "astra_partial": [
+    "LLR-042"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A configuration carrying a readable credential is refused",
+   "srs": [
+    "SR-129"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-100"
+   ],
+   "keep_id": "LLR-100",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-042 and LLR-104.",
+   "astra_partial": [
+    "LLR-042",
+    "LLR-104"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The published description and the launch checks give the same verdict",
+   "srs": [
+    "SR-042"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-101"
+   ],
+   "keep_id": "LLR-101",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-042 and LLR-027.",
+   "astra_partial": [
+    "LLR-042",
+    "LLR-027"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The shipped example configuration is accepted",
+   "srs": [
+    "SR-134"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-102"
+   ],
+   "keep_id": "LLR-102",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-027.",
+   "astra_partial": [
+    "LLR-027"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Configured locations may not overlap a source or the store",
+   "srs": [
+    "SR-138",
+    "SR-063",
+    "SR-149"
+   ],
+   "astra": [
+    "LLR-095"
+   ],
+   "opus": [
+    "LLR-103"
+   ],
+   "keep_id": "LLR-103",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union; conflict K35",
+   "note": "Both physical, across every set, before anything is created. O adds drive-root sources, foreign content left in place, and 'listing location not on the backup's volume' (today's code; no SR asks, K35).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A read-only source with no state location elsewhere is refused up front",
+   "srs": [
+    "SR-140"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-104"
+   ],
+   "keep_id": "LLR-104",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A inside LLR-095 (names the SourceStatePath setting). O: an access query that writes nothing, no probe file.",
+   "astra_partial": [
+    "LLR-095"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Tool locations and compression effort",
+   "srs": [
+    "SR-019",
+    "SR-081"
+   ],
+   "astra": [
+    "LLR-037"
+   ],
+   "opus": [
+    "LLR-037"
+   ],
+   "keep_id": "LLR-037",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same precedence and the exact single-digit rule; O adds that reading the effort never raises (the restore-safe library reads it), A that restores and non-compressing actions ignore an invalid value (both say so).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The runtime and every needed tool are checked before any location is touched",
+   "srs": [
+    "SR-019",
+    "SR-133"
+   ],
+   "astra": [
+    "LLR-020"
+   ],
+   "opus": [
+    "LLR-020"
+   ],
+   "keep_id": "LLR-020",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A also covers SR-132 (moved to the next cluster). O adds the runtime floor; neither side's code has a runtime check (gap M14).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The hashing component is obtained on first use, or the launch is refused",
+   "srs": [
+    "SR-132"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-105"
+   ],
+   "keep_id": "LLR-105",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O; conflict K07",
+   "note": "A inside LLR-020 ('the permitted package fetch').",
+   "astra_partial": [
+    "LLR-020"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A run's outcome is sent where set up; a send failure changes nothing",
+   "srs": [
+    "SR-015",
+    "SR-127"
+   ],
+   "astra": [
+    "LLR-015"
+   ],
+   "opus": [
+    "LLR-015"
+   ],
+   "keep_id": "LLR-015",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O",
+   "note": "Same; O adds login only where the configuration carries one (owner ruling: SMTP login only where the server needs one).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Notification credentials are never written in readable form",
+   "srs": [
+    "SR-128"
+   ],
+   "astra": [
+    "LLR-104"
+   ],
+   "opus": [
+    "LLR-106"
+   ],
+   "keep_id": "LLR-106",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A adds sanitising provider failures; A's SR-129 part goes to the readable-credential cluster.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "No record is created or truncated before the configuration is admitted",
+   "srs": [
+    "SR-018"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-095"
+   ],
+   "keep_id": "LLR-095",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O; conflict K27",
+   "note": "A states 'before creating or changing any location or log' inside LLR-042 and lists appending as a gap.",
+   "astra_partial": [
+    "LLR-042"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Each run's record names every change and failure, with counts",
+   "srs": [
+    "SR-124"
+   ],
+   "astra": [
+    "LLR-103"
+   ],
+   "opus": [
+    "LLR-107"
+   ],
+   "keep_id": "LLR-107",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A's LLR-103 carries four SRs (124, 125, 126, 089); split per O.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Progress at least every two minutes of active time",
+   "srs": [
+    "SR-125"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-108"
+   ],
+   "keep_id": "LLR-108",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "Same in A LLR-103.",
+   "astra_partial": [
+    "LLR-103"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every refusal states what was found and what to do",
+   "srs": [
+    "SR-126"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-097"
+   ],
+   "keep_id": "LLR-097",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "Same in A LLR-103; A's secret-sanitising clause goes to the credentials cluster.",
+   "astra_partial": [
+    "LLR-103"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every entry is walked; only the declared exclusions are left out",
+   "srs": [
+    "SR-001",
+    "SR-074"
+   ],
+   "astra": [
+    "LLR-001"
+   ],
+   "opus": [
+    "LLR-001"
+   ],
+   "keep_id": "LLR-001",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A's LLR-001 also states change detection (moved to the change-set cluster) and SR-089 naming (moved to the uncapturable cluster).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Volume system folders are left out only at a volume-root source",
+   "srs": [
+    "SR-074"
+   ],
+   "astra": [
+    "LLR-078"
+   ],
+   "opus": [
+    "LLR-078"
+   ],
+   "keep_id": "LLR-078",
+   "legacy_kept": true,
+   "parent": "LLR-001",
+   "verdict": "take O (child of LLR-001) + A clause",
+   "note": "A adds that an unknown volume-root status defaults to capture; O that every store enumeration applies the same test.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A name invalid on Windows or Linux is refused and named",
+   "srs": [
+    "SR-055"
+   ],
+   "astra": [
+    "LLR-055"
+   ],
+   "opus": [
+    "LLR-055"
+   ],
+   "keep_id": "LLR-055",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "O adds that a non-portable folder name is left out of the folder record with a warning.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Folder links: followed outside, recorded inside or into own locations",
+   "srs": [
+    "SR-137",
+    "SR-150",
+    "SR-151"
+   ],
+   "astra": [
+    "LLR-105",
+    "LLR-106"
+   ],
+   "opus": [
+    "LLR-109"
+   ],
+   "keep_id": "LLR-109",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union; conflicts K17, K18",
+   "note": "One classification decision (O); A splits following (105) from recording (106). A adds the 60-second bounded wait per remote request (K18); O adds the ancestor test 'inside a followed outside folder too'.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A recorded link carries its kind and where it led",
+   "srs": [
+    "SR-150",
+    "SR-151"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-110"
+   ],
+   "keep_id": "LLR-110",
+   "legacy_kept": false,
+   "parent": "LLR-109",
+   "verdict": "take O; conflict K17",
+   "note": "A states it inside LLR-106.",
+   "astra_partial": [
+    "LLR-106"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A briefly unreadable file is retried within a bounded per-location limit",
+   "srs": [
+    "SR-067",
+    "SR-090"
+   ],
+   "astra": [
+    "LLR-067"
+   ],
+   "opus": [
+    "LLR-067"
+   ],
+   "keep_id": "LLR-067",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same values (3 attempts, 250 ms then 1000 ms, 60 s per location, a folder at the destination is permanent); both cover the digest read, which today's code does not (gap M29).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A file or folder that cannot be captured is named and keeps its earlier content",
+   "srs": [
+    "SR-089",
+    "SR-091"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-111"
+   ],
+   "keep_id": "LLR-111",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A states it across LLR-001, LLR-055 and LLR-067.",
+   "astra_partial": [
+    "LLR-001",
+    "LLR-055",
+    "LLR-067"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Empty and attributed folders are recorded",
+   "srs": [
+    "SR-065",
+    "SR-122"
+   ],
+   "astra": [
+    "LLR-065"
+   ],
+   "opus": [
+    "LLR-065"
+   ],
+   "keep_id": "LLR-065",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union; conflicts K15, K16",
+   "note": "A's LLR-065 also applies the record at restore (split to the folder-application cluster).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A run never changes the source",
+   "srs": [
+    "SR-093"
+   ],
+   "astra": [
+    "LLR-096"
+   ],
+   "opus": [
+    "LLR-112"
+   ],
+   "keep_id": "LLR-112",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A's row also carries SR-094/139/148 (to the record-location cluster).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A source that suddenly looks empty is refused unless declared",
+   "srs": [
+    "SR-036"
+   ],
+   "astra": [
+    "LLR-036"
+   ],
+   "opus": [
+    "LLR-036"
+   ],
+   "keep_id": "LLR-036",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Both value 2. O adds that a source whose only files were left out still counts as showing files; A that an unreadable source is distinguished from an empty one.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Source-derived paths are taken literally",
+   "srs": [
+    "SR-021"
+   ],
+   "astra": [
+    "LLR-021"
+   ],
+   "opus": [
+    "LLR-021"
+   ],
+   "keep_id": "LLR-021",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A's cross-host clause moves to the one-store-form cluster; A constrains IF-014, O nothing (an LLR need not name an interface).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The change set comes from size, time and, when re-read, content",
+   "srs": [
+    "SR-088",
+    "SR-105",
+    "SR-024"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-113"
+   ],
+   "keep_id": "LLR-113",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A states it inside LLR-001 and LLR-011 (O split legacy LLR-001's diff out because it serves different SRs).",
+   "astra_partial": [
+    "LLR-001",
+    "LLR-011"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The re-read schedule decides the same way every time",
+   "srs": [
+    "SR-011"
+   ],
+   "astra": [
+    "LLR-011"
+   ],
+   "opus": [
+    "LLR-011"
+   ],
+   "keep_id": "LLR-011",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take A; conflict K01",
+   "note": "SR-011 says 'at or after its period has elapsed since the last completed full re-read': A's elapsed periods meet it, O's calendar buckets follow today's code. A also keeps N as never with no history (the code re-reads).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An unusable change-detection record is rebuilt from the backup's own record",
+   "srs": [
+    "SR-035"
+   ],
+   "astra": [
+    "LLR-113"
+   ],
+   "opus": [
+    "LLR-114"
+   ],
+   "keep_id": "LLR-114",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O; conflict K12",
+   "note": "A binds the record to a source/store identity and generation (new form); O reconciles per path against the backup's latest record. Both log the rebuild.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The change-detection record lives at the source root unless configured elsewhere",
+   "srs": [
+    "SR-139",
+    "SR-148",
+    "SR-094"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-115"
+   ],
+   "keep_id": "LLR-115",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-096.",
+   "astra_partial": [
+    "LLR-096"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A missing run-state record never makes a populated backup a first backup",
+   "srs": [
+    "SR-035",
+    "SR-005"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-035"
+   ],
+   "keep_id": "LLR-035",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O; conflict K11",
+   "note": "A states it inside LLR-028 ('recover the prior state date from durable evidence or refuse').",
+   "astra_partial": [
+    "LLR-028"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A saved state is named by the completion time of the state it holds",
+   "srs": [
+    "SR-005"
+   ],
+   "astra": [
+    "LLR-028"
+   ],
+   "opus": [
+    "LLR-028"
+   ],
+   "keep_id": "LLR-028",
+   "legacy_kept": true,
+   "parent": "LLR-005",
+   "verdict": "union (child of LLR-005)",
+   "note": "Both: written after publication, before the collapse; today the name comes from the previous run's start time (gap M06, found by O only).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Identical content is stored once",
+   "srs": [
+    "SR-003"
+   ],
+   "astra": [
+    "LLR-003"
+   ],
+   "opus": [
+    "LLR-003"
+   ],
+   "keep_id": "LLR-003",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A adds that a blank or missing location is demand, not supply (shared with LLR-053).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Each content group has one owner and one stored form, decided once",
+   "srs": [
+    "SR-003"
+   ],
+   "astra": [
+    "LLR-058"
+   ],
+   "opus": [
+    "LLR-058"
+   ],
+   "keep_id": "LLR-058",
+   "legacy_kept": true,
+   "parent": "LLR-003",
+   "verdict": "union (child of LLR-003)",
+   "note": "Same election (shortest path, ordinal tie). A adds create-through-temporary-then-publish without replacing a claimed object (see K33).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A stored object is never merged into leftovers at its name",
+   "srs": [
+    "SR-003"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-117"
+   ],
+   "keep_id": "LLR-117",
+   "legacy_kept": false,
+   "parent": "LLR-003",
+   "verdict": "union; conflict K33",
+   "note": "A's private-temporary publication in LLR-058 serves the same hazard.",
+   "astra_partial": [
+    "LLR-058"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Lost content is stored again; adoption needs content actually present",
+   "srs": [
+    "SR-053",
+    "SR-108"
+   ],
+   "astra": [
+    "LLR-053"
+   ],
+   "opus": [
+    "LLR-053"
+   ],
+   "keep_id": "LLR-053",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Compression decided by measured saving, by file type where nothing is measured",
+   "srs": [
+    "SR-081",
+    "SR-096",
+    "SR-111"
+   ],
+   "astra": [
+    "LLR-086"
+   ],
+   "opus": [
+    "LLR-086"
+   ],
+   "keep_id": "LLR-086",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O",
+   "note": "Same order and values (floor 256 KiB inclusive, 0.90 aggregate); O adds the decision's reason names. Today a file of exactly 262144 bytes is probed (gap M57, found by A only).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "One list of already-compressed types is the file-type rule",
+   "srs": [
+    "SR-081"
+   ],
+   "astra": [
+    "LLR-004"
+   ],
+   "opus": [
+    "LLR-004"
+   ],
+   "keep_id": "LLR-004",
+   "legacy_kept": true,
+   "parent": "LLR-086",
+   "verdict": "union (child of LLR-086); conflict K30",
+   "note": "O's child structure, A's explicit list (the values need one spine home).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The measurement samples three windows and never fails a run",
+   "srs": [
+    "SR-081"
+   ],
+   "astra": [
+    "LLR-109"
+   ],
+   "opus": [
+    "LLR-116"
+   ],
+   "keep_id": "LLR-116",
+   "legacy_kept": false,
+   "parent": "LLR-086",
+   "verdict": "union",
+   "note": "Same geometry and bounds; A names the codec (fastest Brotli level), O describes it. Keep the named algorithm: it fixes the measured ratio, and it is not a code symbol.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A backup refuses before writing when a volume lacks the space it needs",
+   "srs": [
+    "SR-052"
+   ],
+   "astra": [
+    "LLR-052"
+   ],
+   "opus": [
+    "LLR-052"
+   ],
+   "keep_id": "LLR-052",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "conflicts K08, K09, K10",
+   "note": "Same demand terms and value 2. Disagree on an unmeasurable volume, on declared allowance values and on when the plan runs.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Volume identity and free space are measured the same way on every host",
+   "srs": [
+    "SR-052",
+    "SR-023"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-135"
+   ],
+   "keep_id": "LLR-135",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O + A's allocation unit",
+   "note": "A states it in IF-019/020 data and its capacity rows.",
+   "astra_partial": [
+    "LLR-052",
+    "LLR-023"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A changing run keeps the previous state; an unchanged run adds none",
+   "srs": [
+    "SR-005",
+    "SR-100"
+   ],
+   "astra": [
+    "LLR-005"
+   ],
+   "opus": [
+    "LLR-005"
+   ],
+   "keep_id": "LLR-005",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union; conflict K37",
+   "note": "A adds folder-only and link-only changes to the change set (today a new empty folder alone adds no saved state, gap M48).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Content leaves the latest state only when no final-record entry claims it",
+   "srs": [
+    "SR-059"
+   ],
+   "astra": [
+    "LLR-051"
+   ],
+   "opus": [
+    "LLR-051"
+   ],
+   "keep_id": "LLR-051",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O",
+   "note": "Same rule at both removal sites; A merged legacy LLR-006 and LLR-059 into it.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Superseded content is kept with the saved state",
+   "srs": [
+    "SR-059",
+    "SR-005"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-059"
+   ],
+   "keep_id": "LLR-059",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A merged it into LLR-051; O's row states the preservation itself, which the claim test does not.",
+   "astra_partial": [
+    "LLR-051",
+    "LLR-005"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Earlier content stays reachable until the replacing state is published",
+   "srs": [
+    "SR-082",
+    "SR-059",
+    "SR-041"
+   ],
+   "astra": [],
+   "opus": [],
+   "keep_id": "LLR-150",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take A (orphan ii)",
+   "note": "A states it inside LLR-115 and LLR-041; O misses it. Today removed and superseded objects move into the staging area before the new latest record is published, so a kill there leaves a witnessed record whose bytes only staging holds (gap M53, confirmed in code).",
+   "astra_partial": [
+    "LLR-115",
+    "LLR-041"
+   ],
+   "orphan_class": "ii"
+  },
+  {
+   "cluster": "Earlier content that cannot be placed stays restorable, and the run fails",
+   "srs": [
+    "SR-041"
+   ],
+   "astra": [
+    "LLR-041"
+   ],
+   "opus": [
+    "LLR-041"
+   ],
+   "keep_id": "LLR-041",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Both: continue per file, report part failed, publish no saved state missing content.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A record is published whole or not at all",
+   "srs": [
+    "SR-082",
+    "SR-038"
+   ],
+   "astra": [
+    "LLR-087"
+   ],
+   "opus": [
+    "LLR-087"
+   ],
+   "keep_id": "LLR-087",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take A on durability; conflict K19",
+   "note": "A flushes before the rename; O says it does not, accepting a torn newest record after power loss, which SR-082's AC forbids.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An interrupted publication is completed when positively identified",
+   "srs": [
+    "SR-082"
+   ],
+   "astra": [
+    "LLR-115"
+   ],
+   "opus": [
+    "LLR-118"
+   ],
+   "keep_id": "LLR-118",
+   "legacy_kept": false,
+   "parent": "LLR-087",
+   "verdict": "conflict K20",
+   "note": "O: evidence temporary written before the record rename; A: a durable publication intent with old/new identities.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every record carries its own completeness evidence",
+   "srs": [
+    "SR-038"
+   ],
+   "astra": [
+    "LLR-038"
+   ],
+   "opus": [
+    "LLR-038"
+   ],
+   "keep_id": "LLR-038",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union; conflict K14",
+   "note": "O adds the folder- and link-record row counts to the evidence.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every state carries a restore kit",
+   "srs": [
+    "SR-007"
+   ],
+   "astra": [
+    "LLR-007"
+   ],
+   "opus": [
+    "LLR-007"
+   ],
+   "keep_id": "LLR-007",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A adds 'before the state is visible' and the kit's closed dependency set; A's SR-131 part goes to the notices cluster.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Third-party components travel with their licences and notices",
+   "srs": [
+    "SR-131"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-119"
+   ],
+   "keep_id": "LLR-119",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-007.",
+   "astra_partial": [
+    "LLR-007"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "No write leaves an existing kit unable to read its state",
+   "srs": [
+    "SR-084"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-120"
+   ],
+   "keep_id": "LLR-120",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A spreads SR-084 over LLR-060, LLR-076 and LLR-111.",
+   "astra_partial": [
+    "LLR-060",
+    "LLR-076",
+    "LLR-111"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "One kit revision, moved whenever a kit file changes behaviour",
+   "srs": [
+    "SR-084"
+   ],
+   "astra": [
+    "LLR-076"
+   ],
+   "opus": [
+    "LLR-076"
+   ],
+   "keep_id": "LLR-076",
+   "legacy_kept": true,
+   "parent": "LLR-120",
+   "verdict": "union (child of the SR-084 row)",
+   "note": "A's coherent-refresh clauses move to the kit-refresh cluster.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Content duplicated across saved states is collapsed to one copy",
+   "srs": [
+    "SR-003"
+   ],
+   "astra": [
+    "LLR-026"
+   ],
+   "opus": [
+    "LLR-026"
+   ],
+   "keep_id": "LLR-026",
+   "legacy_kept": true,
+   "parent": "LLR-003",
+   "verdict": "union (child of LLR-003)",
+   "note": "A adds: remove a redundant copy only after the keeper is verified and every dependent state still resolves (a SR-059 safeguard O lacks).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every host writes and continues one store form",
+   "srs": [
+    "SR-033",
+    "SR-136",
+    "SR-114"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-121"
+   ],
+   "keep_id": "LLR-121",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O; conflict K13",
+   "note": "Both choose the backslash separator (A in its record form); only O lists the gap (today's Linux writer uses '/') and the migration it causes.",
+   "astra_partial": [
+    "LLR-021",
+    "LLR-024"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "One changing operation at a time holds the backup through the OS claim",
+   "srs": [
+    "SR-085",
+    "SR-086",
+    "SR-107"
+   ],
+   "astra": [
+    "LLR-090"
+   ],
+   "opus": [
+    "LLR-090"
+   ],
+   "keep_id": "LLR-090",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same primitive (3 attempts 250 ms apart, never unlinked). A also states the failure classes (split to the next cluster).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A claim that cannot be taken is classified and touches nothing",
+   "srs": [
+    "SR-086"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-122"
+   ],
+   "keep_id": "LLR-122",
+   "legacy_kept": false,
+   "parent": "LLR-090",
+   "verdict": "take O",
+   "note": "Same values in A LLR-090 (contention or I/O 4; denial or unusable location 2).",
+   "astra_partial": [
+    "LLR-090"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A backup holds the claim from its first store read to its last write",
+   "srs": [
+    "SR-085"
+   ],
+   "astra": [
+    "LLR-091"
+   ],
+   "opus": [
+    "LLR-091"
+   ],
+   "keep_id": "LLR-091",
+   "legacy_kept": true,
+   "parent": "LLR-090",
+   "verdict": "take O (child of LLR-090)",
+   "note": "A's LLR-091 also absorbs removal, repair, refresh and the reader rule; split per legacy ids.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A removal holds the claim for its whole batch",
+   "srs": [
+    "SR-085"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-092"
+   ],
+   "keep_id": "LLR-092",
+   "legacy_kept": true,
+   "parent": "LLR-090",
+   "verdict": "take O (child of LLR-090)",
+   "note": "A merged it into LLR-091; each window has its own start and end point.",
+   "astra_partial": [
+    "LLR-091"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A repair and a kit refresh hold the claim",
+   "srs": [
+    "SR-085"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-094"
+   ],
+   "keep_id": "LLR-094",
+   "legacy_kept": true,
+   "parent": "LLR-090",
+   "verdict": "take O (child of LLR-090)",
+   "note": "A merged it into LLR-091.",
+   "astra_partial": [
+    "LLR-091"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The claim file is never deleted and is invisible to every reader",
+   "srs": [
+    "SR-085"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-093"
+   ],
+   "keep_id": "LLR-093",
+   "legacy_kept": true,
+   "parent": "LLR-090",
+   "verdict": "take O (child of LLR-090)",
+   "note": "A states it in LLR-090 and LLR-022.",
+   "astra_partial": [
+    "LLR-090",
+    "LLR-022"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Checks, the report and restores take no claim and still complete",
+   "srs": [
+    "SR-106",
+    "SR-103"
+   ],
+   "astra": [
+    "LLR-116"
+   ],
+   "opus": [
+    "LLR-123"
+   ],
+   "keep_id": "LLR-123",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "conflict K22",
+   "note": "A adds a pinned read generation and writer-side deferral (new IF-040); O relies on published states not changing in place, which repair, collapse and removal contradict.",
+   "astra_partial": [
+    "LLR-091"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An earlier run's leftovers are classified from the disk alone",
+   "srs": [
+    "SR-017",
+    "SR-107"
+   ],
+   "astra": [
+    "LLR-017"
+   ],
+   "opus": [
+    "LLR-017"
+   ],
+   "keep_id": "LLR-017",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same classes and precedence (2 over 3 over 4). A adds the unchanged second sample here; O in LLR-080.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Record publication temporaries are not content",
+   "srs": [
+    "SR-017"
+   ],
+   "astra": [
+    "LLR-110"
+   ],
+   "opus": [
+    "LLR-088"
+   ],
+   "keep_id": "LLR-088",
+   "legacy_kept": true,
+   "parent": "LLR-017",
+   "verdict": "union (child of LLR-017)",
+   "note": "Legacy LLR-088 means the staging allowlist; O kept that meaning. A reused the id LLR-088 for the move-aside reclaim (next-but-one cluster) and minted LLR-110 (child of LLR-022) for this; keep LLR-088 with O's meaning and A's root-scoped, case-exact detail.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A backup's owner record and its age are the liveness evidence",
+   "srs": [
+    "SR-075"
+   ],
+   "astra": [
+    "LLR-080"
+   ],
+   "opus": [
+    "LLR-080"
+   ],
+   "keep_id": "LLR-080",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union; take A's sample formula (K24)",
+   "note": "Same 60 s refresh and 1800 s floor. A is a child of LLR-017; O is top-level because it serves SR-075, not SR-017 (O's rule, adopted).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A provably dead run's leftovers are reclaimed by moving them aside",
+   "srs": [
+    "SR-075",
+    "SR-082"
+   ],
+   "astra": [
+    "LLR-088"
+   ],
+   "opus": [
+    "LLR-124"
+   ],
+   "keep_id": "LLR-124",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same protocol (move aside, re-check identity, fresh staging and record, non-recursive delete, keep on any surprise).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A run whose claim was lost changes nothing more",
+   "srs": [
+    "SR-144"
+   ],
+   "astra": [
+    "LLR-108"
+   ],
+   "opus": [
+    "LLR-125"
+   ],
+   "keep_id": "LLR-125",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "conflict K21",
+   "note": "A fences before every mutation; O at five fixed boundaries.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Content only the removed state holds is re-homed first",
+   "srs": [
+    "SR-045"
+   ],
+   "astra": [
+    "LLR-045"
+   ],
+   "opus": [
+    "LLR-045"
+   ],
+   "keep_id": "LLR-045",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same election and verification; both refuse a conflicting destination and reuse an identical one.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A removal that could lose content is refused before anything changes",
+   "srs": [
+    "SR-046"
+   ],
+   "astra": [
+    "LLR-046"
+   ],
+   "opus": [
+    "LLR-046"
+   ],
+   "keep_id": "LLR-046",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union; conflicts K04, K06",
+   "note": "Both collect every cause; values per SR-046 (3 only for failing evidence alone, else 2). A's confinement clauses move to the next cluster.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A removal is confined to the chosen backup",
+   "srs": [
+    "SR-102"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-126"
+   ],
+   "keep_id": "LLR-126",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-046.",
+   "astra_partial": [
+    "LLR-046"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An interrupted removal loses nothing and completes when re-run",
+   "srs": [
+    "SR-101"
+   ],
+   "astra": [
+    "LLR-098"
+   ],
+   "opus": [
+    "LLR-127"
+   ],
+   "keep_id": "LLR-127",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A adds resuming the removal's own pre-commit work (today a killed pre-commit removal wedges on its own staging marker, gap M51, found by A only).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The saved-state report gives what each removal would free and move",
+   "srs": [
+    "SR-047"
+   ],
+   "astra": [
+    "LLR-047"
+   ],
+   "opus": [
+    "LLR-047"
+   ],
+   "keep_id": "LLR-047",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same: figures from the removal's own plan.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The report and a check without repair change nothing",
+   "srs": [
+    "SR-103"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-128"
+   ],
+   "keep_id": "LLR-128",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-047 and LLR-049.",
+   "astra_partial": [
+    "LLR-047",
+    "LLR-049"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Whole-backup passes grow with the entries; the index with the stored objects",
+   "srs": [
+    "SR-064",
+    "SR-112"
+   ],
+   "astra": [
+    "LLR-062"
+   ],
+   "opus": [
+    "LLR-062"
+   ],
+   "keep_id": "LLR-062",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same linear reference-set audit with filesystem case semantics; O adds the lean index default.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A run's work follows what changed, within the memory bound",
+   "srs": [
+    "SR-113",
+    "SR-064",
+    "SR-112"
+   ],
+   "astra": [
+    "LLR-114"
+   ],
+   "opus": [
+    "LLR-149"
+   ],
+   "keep_id": "LLR-149",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A adds numbers (index bound 1 GiB, one archive job at a time) and a spill mechanism; keep the numbers, drop the spill until a measurement shows the need (orphan iii part).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A check reports every disagreement between records and what is stored",
+   "srs": [
+    "SR-049"
+   ],
+   "astra": [
+    "LLR-049"
+   ],
+   "opus": [
+    "LLR-049"
+   ],
+   "keep_id": "LLR-049",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union (Opus call 4: both agree)",
+   "note": "Both make reading every distinct stored object once the default check.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Missing content is told apart from content missing only from its place",
+   "srs": [
+    "SR-049"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-054"
+   ],
+   "keep_id": "LLR-054",
+   "legacy_kept": true,
+   "parent": "LLR-049",
+   "verdict": "take O (child of LLR-049)",
+   "note": "A states it in LLR-049's dimensions only.",
+   "astra_partial": [
+    "LLR-049"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A repair corrects only what is certain",
+   "srs": [
+    "SR-109"
+   ],
+   "astra": [
+    "LLR-099"
+   ],
+   "opus": [
+    "LLR-129"
+   ],
+   "keep_id": "LLR-129",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same three certain classes and copy-back with a hash before use (owner ruling).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An interrupted repair or kit refresh leaves every state restorable",
+   "srs": [
+    "SR-110"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-130"
+   ],
+   "keep_id": "LLR-130",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union; conflicts K20, K23",
+   "note": "A covers it in LLR-115 and LLR-076.",
+   "astra_partial": [
+    "LLR-115",
+    "LLR-076"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A kit refresh places the current kit in every state and changes nothing else",
+   "srs": [
+    "SR-117"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-131"
+   ],
+   "keep_id": "LLR-131",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "conflict K23",
+   "note": "A inside LLR-076.",
+   "astra_partial": [
+    "LLR-076"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A store or state in a retired or unrecognised form is refused by name",
+   "srs": [
+    "SR-061"
+   ],
+   "astra": [
+    "LLR-060"
+   ],
+   "opus": [
+    "LLR-060"
+   ],
+   "keep_id": "LLR-060",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Both value 2 with a fresh-location remedy, a check reports only, a damaged entry is not a retired store, the retired test is positive.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Stored names are encoded, decoded and parsed one way",
+   "srs": [
+    "SR-003",
+    "SR-061"
+   ],
+   "astra": [
+    "LLR-069"
+   ],
+   "opus": [
+    "LLR-069"
+   ],
+   "keep_id": "LLR-069",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Where turned on, the browse view lists every path",
+   "srs": [
+    "SR-062"
+   ],
+   "astra": [
+    "LLR-061"
+   ],
+   "opus": [
+    "LLR-061"
+   ],
+   "keep_id": "LLR-061",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "O adds that a rebuild wipes only a folder already holding a generated view (SR-063).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Where turned on, the space view lists files by stored size",
+   "srs": [
+    "SR-097"
+   ],
+   "astra": [
+    "LLR-097"
+   ],
+   "opus": [
+    "LLR-132"
+   ],
+   "keep_id": "LLR-132",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A's LLR-097 carries four SRs; split per O.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The space view gives a media encoding rate where a playing time is measured",
+   "srs": [
+    "SR-098"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-133"
+   ],
+   "keep_id": "LLR-133",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O; conflict K31",
+   "note": "A inside LLR-097.",
+   "astra_partial": [
+    "LLR-097"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A media measure not taken changes nothing else, and says so",
+   "srs": [
+    "SR-099",
+    "SR-133",
+    "SR-147"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-134"
+   ],
+   "keep_id": "LLR-134",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-097.",
+   "astra_partial": [
+    "LLR-097"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The content digest is computed and written one way everywhere",
+   "srs": [
+    "SR-003",
+    "SR-056",
+    "SR-033"
+   ],
+   "astra": [
+    "LLR-002"
+   ],
+   "opus": [
+    "LLR-002"
+   ],
+   "keep_id": "LLR-002",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Infrastructure names count only at a folder's own root",
+   "srs": [
+    "SR-001",
+    "SR-074"
+   ],
+   "astra": [
+    "LLR-022"
+   ],
+   "opus": [
+    "LLR-022"
+   ],
+   "keep_id": "LLR-022",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A adds the source-root rule (backup-only names there are owner content), which SR-074's AC states.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Records are read and written one way, on every route",
+   "srs": [
+    "SR-024",
+    "SR-033"
+   ],
+   "astra": [
+    "LLR-025"
+   ],
+   "opus": [
+    "LLR-025"
+   ],
+   "keep_id": "LLR-025",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A: an absent record is not an empty state and refuses; O: it reads empty only where the run-state record shows no earlier backup. Compatible; keep both.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An unchanged re-run writes an identical record",
+   "srs": [
+    "SR-024"
+   ],
+   "astra": [
+    "LLR-024"
+   ],
+   "opus": [
+    "LLR-024"
+   ],
+   "keep_id": "LLR-024",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A stored item's form is decided from its bytes",
+   "srs": [
+    "SR-068"
+   ],
+   "astra": [
+    "LLR-068"
+   ],
+   "opus": [
+    "LLR-068"
+   ],
+   "keep_id": "LLR-068",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O (top-level)",
+   "note": "A makes it a child of a multi-SR LLR-008 (K29).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every whole-restore check is made before anything is written",
+   "srs": [
+    "SR-145"
+   ],
+   "astra": [
+    "LLR-102"
+   ],
+   "opus": [
+    "LLR-136"
+   ],
+   "keep_id": "LLR-136",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same order; A adds deciding the archive-tool need from actual content forms.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A restore target inside the backup is refused",
+   "srs": [
+    "SR-009"
+   ],
+   "astra": [
+    "LLR-009"
+   ],
+   "opus": [
+    "LLR-009"
+   ],
+   "keep_id": "LLR-009",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Both value 2, physical, separator boundary. A's SR-141 part goes to its own cluster.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Containment compares physical locations and refuses rather than guesses",
+   "srs": [
+    "SR-009"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-079"
+   ],
+   "keep_id": "LLR-079",
+   "legacy_kept": true,
+   "parent": "LLR-009",
+   "verdict": "take O (child of LLR-009)",
+   "note": "A merged LLR-079 and LLR-072 into LLR-009.",
+   "astra_partial": [
+    "LLR-009"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An unresolvable target or one with a parent-folder component is refused",
+   "srs": [
+    "SR-141"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-137"
+   ],
+   "keep_id": "LLR-137",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-009.",
+   "astra_partial": [
+    "LLR-009"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The record is verified against its evidence before the target exists",
+   "srs": [
+    "SR-039"
+   ],
+   "astra": [
+    "LLR-039"
+   ],
+   "opus": [
+    "LLR-039"
+   ],
+   "keep_id": "LLR-039",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same values (3; not-a-record 2; count-only warns; strict refuses). O adds checking a newer evidence version on its known fields.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Only positive evidence excuses a check an older state cannot support",
+   "srs": [
+    "SR-116",
+    "SR-146"
+   ],
+   "astra": [
+    "LLR-111"
+   ],
+   "opus": [
+    "LLR-138"
+   ],
+   "keep_id": "LLR-138",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "conflict K14",
+   "note": "",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The tools a route needs are checked before writing",
+   "srs": [
+    "SR-118"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-139"
+   ],
+   "keep_id": "LLR-139",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O, with value fix K32",
+   "note": "A inside LLR-102.",
+   "astra_partial": [
+    "LLR-102"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The target's space is checked, with allowances, before writing",
+   "srs": [
+    "SR-023"
+   ],
+   "astra": [
+    "LLR-023"
+   ],
+   "opus": [
+    "LLR-023"
+   ],
+   "keep_id": "LLR-023",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "conflicts K08, K09",
+   "note": "",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A restore needs only the kit and the documented floor",
+   "srs": [
+    "SR-008",
+    "SR-031"
+   ],
+   "astra": [
+    "LLR-008"
+   ],
+   "opus": [
+    "LLR-008"
+   ],
+   "keep_id": "LLR-008",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O (flat); conflict K29",
+   "note": "A makes LLR-008 an eight-SR parent of five children.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The shell route behaves the same whatever the host's tool flavour",
+   "srs": [
+    "SR-071"
+   ],
+   "astra": [
+    "LLR-071"
+   ],
+   "opus": [
+    "LLR-071"
+   ],
+   "keep_id": "LLR-071",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The chosen state's own record is the sole authority",
+   "srs": [
+    "SR-010"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-010"
+   ],
+   "keep_id": "LLR-010",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "take O",
+   "note": "Legacy LLR-010 means point-in-time authority (O); A reused LLR-010 for the verified pool lookup (merged into LLR-050) and states authority in LLR-008.",
+   "astra_partial": [
+    "LLR-008"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "States written by earlier supported versions restore with the current kit",
+   "srs": [
+    "SR-115"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-140"
+   ],
+   "keep_id": "LLR-140",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-060 and LLR-076.",
+   "astra_partial": [
+    "LLR-060",
+    "LLR-076"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "An entry that would land outside the target is not written",
+   "srs": [
+    "SR-121"
+   ],
+   "astra": [
+    "LLR-101"
+   ],
+   "opus": [
+    "LLR-141"
+   ],
+   "keep_id": "LLR-141",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "Both value 3. A adds re-checking containment immediately before each write and never writing through a link met since admission (orphan ii clause).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every written file is verified, with one recovery from another copy",
+   "srs": [
+    "SR-056",
+    "SR-119"
+   ],
+   "astra": [
+    "LLR-056"
+   ],
+   "opus": [
+    "LLR-056"
+   ],
+   "keep_id": "LLR-056",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Searching by content key gives one cause per lookup and proves the form",
+   "srs": [
+    "SR-056",
+    "SR-119"
+   ],
+   "astra": [
+    "LLR-010",
+    "LLR-050"
+   ],
+   "opus": [
+    "LLR-050"
+   ],
+   "keep_id": "LLR-050",
+   "legacy_kept": true,
+   "parent": "LLR-056",
+   "verdict": "union (child of LLR-056)",
+   "note": "A splits verified lookup (its LLR-010) from the proven form (its LLR-050).",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Two names that would collide on the target are both reported",
+   "srs": [
+    "SR-092"
+   ],
+   "astra": [
+    "LLR-100"
+   ],
+   "opus": [
+    "LLR-142"
+   ],
+   "keep_id": "LLR-142",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "Both value 1, neither written.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Every entry not restored is recorded with its cause, and counted",
+   "srs": [
+    "SR-029",
+    "SR-120"
+   ],
+   "astra": [
+    "LLR-029"
+   ],
+   "opus": [
+    "LLR-029"
+   ],
+   "keep_id": "LLR-029",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Each restored file gets its own recorded modification time",
+   "srs": [
+    "SR-066"
+   ],
+   "astra": [
+    "LLR-066"
+   ],
+   "opus": [
+    "LLR-066"
+   ],
+   "keep_id": "LLR-066",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Both value 1 for a bad time on a current-form record.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Restored files never inherit the store's read-only protection",
+   "srs": [
+    "SR-056",
+    "SR-119"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-077"
+   ],
+   "keep_id": "LLR-077",
+   "legacy_kept": true,
+   "parent": "LLR-056",
+   "verdict": "conflict K28 (orphan i)",
+   "note": "A retired it; O keeps it under SR-010. Today's code does it on both routes.",
+   "astra_partial": [],
+   "orphan_class": "i"
+  },
+  {
+   "cluster": "Folders and their attributes are applied last; gaps are reported",
+   "srs": [
+    "SR-065",
+    "SR-122",
+    "SR-146"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-143"
+   ],
+   "keep_id": "LLR-143",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A inside LLR-065. O adds OR-ing attributes into existing bits.",
+   "astra_partial": [
+    "LLR-065"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Recorded links are rebuilt at their places",
+   "srs": [
+    "SR-152"
+   ],
+   "astra": [
+    "LLR-107"
+   ],
+   "opus": [
+    "LLR-144"
+   ],
+   "keep_id": "LLR-144",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A restore returns one value, the same on every route and system",
+   "srs": [
+    "SR-040"
+   ],
+   "astra": [
+    "LLR-040"
+   ],
+   "opus": [
+    "LLR-040"
+   ],
+   "keep_id": "LLR-040",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same classes and precedence; O adds the unclassified-error rule and the bare switch as 2.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A restore asks for a target only where someone can answer",
+   "srs": [
+    "SR-073",
+    "SR-016"
+   ],
+   "astra": [
+    "LLR-073"
+   ],
+   "opus": [
+    "LLR-073"
+   ],
+   "keep_id": "LLR-073",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "Same decision.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The folder choice never fails the restore",
+   "srs": [
+    "SR-073"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-145"
+   ],
+   "keep_id": "fold:LLR-073",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "fold into LLR-073 (orphan i)",
+   "note": "Its observable part (absent, failed or cancelled choice gives no target) joins LLR-073; the thread-context and quoting rules mirror code and go to the test tier.",
+   "astra_partial": [],
+   "orphan_class": "i"
+  },
+  {
+   "cluster": "The launchers start a restore and hold the outcome only when started by hand",
+   "srs": [
+    "SR-072"
+   ],
+   "astra": [
+    "LLR-074"
+   ],
+   "opus": [
+    "LLR-074"
+   ],
+   "keep_id": "LLR-074",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union; conflict K34",
+   "note": "",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The container carries everything a backup needs",
+   "srs": [
+    "SR-034"
+   ],
+   "astra": [
+    "LLR-112"
+   ],
+   "opus": [
+    "LLR-146"
+   ],
+   "keep_id": "LLR-146",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union",
+   "note": "A's row carries SR-034, SR-130 and SR-143; split per O.",
+   "astra_partial": [],
+   "orphan_class": null
+  },
+  {
+   "cluster": "A containerised run needs no more access than its own locations",
+   "srs": [
+    "SR-130"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-147"
+   ],
+   "keep_id": "LLR-147",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "union; conflict K26",
+   "note": "A inside LLR-112 and LLR-048.",
+   "astra_partial": [
+    "LLR-112",
+    "LLR-048"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "Third-party components in the image carry their licences and notices",
+   "srs": [
+    "SR-143"
+   ],
+   "astra": [],
+   "opus": [
+    "LLR-148"
+   ],
+   "keep_id": "LLR-148",
+   "legacy_kept": false,
+   "parent": null,
+   "verdict": "take O",
+   "note": "A inside LLR-112 (adds: a dependency without permission is excluded; O says the same).",
+   "astra_partial": [
+    "LLR-112"
+   ],
+   "orphan_class": null
+  },
+  {
+   "cluster": "The quick start and the helper take a new user to a first backup",
+   "srs": [
+    "SR-027"
+   ],
+   "astra": [
+    "LLR-027"
+   ],
+   "opus": [
+    "LLR-027"
+   ],
+   "keep_id": "LLR-027",
+   "legacy_kept": true,
+   "parent": null,
+   "verdict": "union",
+   "note": "A's SR-134 and SR-042 parts go to their own clusters.",
+   "astra_partial": [],
+   "orphan_class": null
+  }
+ ],
+ "conflicts": [
+  {
+   "id": "K01",
+   "topic": "Re-read schedule timing",
+   "astra": "Elapsed periods since the last completed full re-read; N never re-reads, history or not; the time is stamped only when a full re-read completes.",
+   "opus": "Calendar buckets in host-local time (day, ISO week, month, year differ), as today's code; a run with no completed re-read re-reads.",
+   "bearing": "SR-011 (AC: 'at or after its period has elapsed since the last completed full re-read'; 'a never schedule never does').",
+   "recommendation": "Take A. SR-011 decides it; O followed the code. Today N with no history re-reads and the time is stamped whenever a re-read was due, even partly (gap M07).",
+   "level": "design (coordinator); settled by SR-011",
+   "owner_level": false
+  },
+  {
+   "id": "K02",
+   "topic": "Configuration description version",
+   "astra": "Bump to ConfigVersion 3 (adds SpaceView, uniform versioning); keep a v2 meaning table; asks whether calendar scheduling is v2's meaning.",
+   "opus": "Stay at 2: an optional key with a meaning-preserving default does not bump (the published description already says so of CompressProbe).",
+   "bearing": "SR-123, SR-135, SR-011, SR-097; ruling 'Configuration: version stated, unknown keys refused'.",
+   "recommendation": "Stay at 2. The documented v2 meaning of D/W/M/Y is 'daily, weekly, monthly, yearly', which elapsed periods satisfy, so SR-011's rule does not change v2's meaning; SpaceView defaults off. If the Owner reads calendar buckets as v2's meaning, SR-123 forces version 3 with two schedule semantics kept forever.",
+   "level": "OWNER (what a v2 document means; integrators see the version)",
+   "owner_level": true
+  },
+  {
+   "id": "K03",
+   "topic": "SpaceView value kind",
+   "astra": "Enum off|on.",
+   "opus": "Boolean, default false.",
+   "bearing": "SR-097.",
+   "recommendation": "Boolean, matching AllowEmptySource and CompressEnabled; BrowseView is an enum only because it has a second non-off value.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K04",
+   "topic": "Removal dry run",
+   "astra": "Kept: -WhatIf with Prune and FILEBACKUP_DRY_RUN in the container.",
+   "opus": "Dropped: code beyond the design; -WhatIf becomes a bad request.",
+   "bearing": "No SR asks for it; listed as a possible missing need at the SR merge. Implementation-born.",
+   "recommendation": "Do not drop silently: it is a working, documented feature a host may call. Either the Owner adds a need (then a dry-run LLR and the form stay) or it is retired with a release note. Until ruled, keep it out of the LLRs and list it under code beyond the design.",
+   "level": "OWNER (removes a feature hosts can see)",
+   "owner_level": true
+  },
+  {
+   "id": "K05",
+   "topic": "Full-payload check by default; the -Deep switch (Opus call 4)",
+   "astra": "Full payload check is the default; -Deep still listed in the request form.",
+   "opus": "Full payload check is the default; -Deep dropped from the form.",
+   "bearing": "SR-049 (altered content must be reported), SR-064 (8 h budget; about 3 h of reading at the reference host).",
+   "recommendation": "Both agree on the default, so SR-049 settles it. Keep -Deep accepted with no meaning, like -ExitCode, so existing callers are not refused.",
+   "level": "design (coordinator); the cost change is worth telling the Owner",
+   "owner_level": false
+  },
+  {
+   "id": "K06",
+   "topic": "Removal overrides in the request",
+   "astra": "-DiscardUnreferencedData and -AllowUnverifiedIndex listed as launch switches.",
+   "opus": "Not in the form; module-level overrides are code beyond the design.",
+   "bearing": "SR-046 refuses those cases without exception. The entry point has no such switches today.",
+   "recommendation": "Take O. A's switches do not exist at the entry point; retire the module overrides or keep them test-only.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K07",
+   "topic": "Permission to fetch the hashing component",
+   "astra": "'The permitted package fetch'; an auto-install switch kept with meaning.",
+   "opus": "Fetched without a question, attended or not; -AutoInstallDeps accepted with no meaning.",
+   "bearing": "SR-132 ('attended or not, either obtains it ... or is refused'); SR-016.",
+   "recommendation": "Take O. Today attended runs prompt and unattended runs need the switch (gap M15).",
+   "level": "design (coordinator); settled by SR-132",
+   "owner_level": false
+  },
+  {
+   "id": "K08",
+   "topic": "A volume whose free space cannot be measured (backup and restore)",
+   "astra": "Refused with 2 (needed, free and volume named).",
+   "opus": "Not refused; the record says the check was not made (today's behaviour on both routes).",
+   "bearing": "SR-052 and SR-023 refuse only when demand exceeds free space; silent on unknown. Ruling: 2 = precondition not met.",
+   "recommendation": "Take O. Refusing on unknown would stop every run on a share or mount that hides its free space, a precondition the owner cannot always fix; the record line keeps it visible.",
+   "level": "OWNER (changes the outcome an owner sees on such hosts)",
+   "owner_level": true
+  },
+  {
+   "id": "K09",
+   "topic": "Declared allowance values",
+   "astra": "Declared numbers: allocation rounding (observed unit, else 64 KiB), 4096 bytes per folder and per record entry, 16 MiB fixed, twice the largest expanded object (restore) or the largest temporary objects (backup).",
+   "opus": "'A declared allowance' without numbers; restore scratch is the largest compressed item's expanded size.",
+   "bearing": "SR-052, SR-023 ('a declared allowance').",
+   "recommendation": "Take A's numbers: an allowance the SR calls declared must be stated somewhere; review the values in round 4 against the harvested test edges.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K10",
+   "topic": "When the backup's space plan runs",
+   "astra": "A read-only plan over every location before any root, claim, log, record or staging is created; revalidated after the claim is taken.",
+   "opus": "After the change set is known and before anything is written.",
+   "bearing": "SR-052 ('nothing is created or changed on the volume'); SR-085.",
+   "recommendation": "Take A. O's order lets the claim file, staging and the log exist before a refusal; the revalidation under the claim closes the race.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K11",
+   "topic": "Missing or unreadable run-state record with a populated backup (Opus call 1)",
+   "astra": "Recover the prior completion date from durable evidence, or refuse.",
+   "opus": "Always rebuild: completion time from the evidence's Written time, a full re-read due, the rebuild reported.",
+   "bearing": "SR-035 (names the change-detection state only), SR-005, SR-082; ruling 'missing change-detection state: re-derive from the backup's record, then report it'.",
+   "recommendation": "Take O: the evidence time is the completion time and the ruling's spirit is 'rebuild and report'. Ask the Owner to confirm that the ruling extends to the run-state record (today the run is refused, value 1).",
+   "level": "OWNER (confirm the ruling's reach)",
+   "owner_level": true
+  },
+  {
+   "id": "K12",
+   "topic": "How a stale or foreign change-detection record is caught",
+   "astra": "Bind the record to a source/store identity and a completed generation (new fields).",
+   "opus": "Reconcile per path against the backup's latest record; the backup's values win where they differ.",
+   "bearing": "SR-035; SR-084 (form changes).",
+   "recommendation": "Take O: no new form, and any disagreement with the backup's own record is caught whatever its cause.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K13",
+   "topic": "One path separator and the migration (Opus call 2)",
+   "astra": "Backslash in the record (form); no gap listed.",
+   "opus": "Backslash; lists the gap and the migration: a Linux-written store sees one full rewrite of its latest record and one extra saved state on the first run after the change.",
+   "bearing": "SR-033, SR-136, SR-114; code: a Linux run writes '/' today (confirmed).",
+   "recommendation": "Take the backslash (both agree). The migration is real for container deployments and must be flagged downstream.",
+   "level": "OWNER (a one-time extra saved state in every Linux-written store)",
+   "owner_level": true
+  },
+  {
+   "id": "K14",
+   "topic": "Positive age evidence (Opus call 3)",
+   "astra": "An immutable state-format descriptor per state (STATE-FORMAT.json) bound into publication evidence; current states always carry a header-only folder record; kit revision is never age evidence.",
+   "opus": "The state's own kit revision (for missing completeness evidence) and evidence version 3 with DirRows/LinkRows (for folder and link records).",
+   "bearing": "SR-116, SR-146, SR-117, SR-084, SR-039.",
+   "recommendation": "Hybrid. O's evidence version 3 is immutable (a refresh never copies evidence) and settles folder and link records with no new file. For a state with no evidence at all, O's kit revision fails once a refresh replaces the kit (A's point, and O's own LLR-131), and A's descriptor exists in no state written so far. So the refresh must keep the state's original kit revision readable, or must refuse to refresh a state that predates evidence. Coordinator to choose; the release that introduced evidence must be read from history.",
+   "level": "design (coordinator); owner-visible if a refreshed old state starts refusing",
+   "owner_level": false
+  },
+  {
+   "id": "K15",
+   "topic": "Folder record when a state has none",
+   "astra": "Always present, header-only when empty.",
+   "opus": "Present only with rows (today).",
+   "bearing": "SR-116, SR-146, SR-084.",
+   "recommendation": "Take O together with evidence DirRows=0 (K14). It keeps today's form, and old kits need no change.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K16",
+   "topic": "Folder attribute separator",
+   "astra": "Semicolon.",
+   "opus": "Comma (today; both routes split on ',').",
+   "bearing": "SR-084.",
+   "recommendation": "Take O. A semicolon breaks every kit already in a backup for multi-attribute rows.",
+   "level": "design (coordinator); A's value is an error against the code",
+   "owner_level": false
+  },
+  {
+   "id": "K17",
+   "topic": "Link record form (Opus call 5)",
+   "astra": "Columns RelativePath, Kind {directory-symlink, junction}, TargetScope {source-relative, external-absolute}, Target (original absolute target).",
+   "opus": "Columns RelativePath, LinkKind {symlink, junction}, TargetClass {inside-source, own-location}, Target (absolute path as resolved at backup time); file LINKS.csv present only with rows.",
+   "bearing": "SR-150, SR-151, SR-152; ruling: an inside link is re-pointed under the target, an own-location link is rebuilt to its original path.",
+   "recommendation": "Take O: its class names are the ruling's two classes. 'Original path' means where the link led, as resolved. A separate file keeps old kits safe (SR-084), as both say.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K18",
+   "topic": "Bounded wait for an unreachable link target",
+   "astra": "60 seconds per remote resolution or enumeration request.",
+   "opus": "'The run's bounded wait', no value.",
+   "bearing": "SR-137 ('within the run's bounded wait').",
+   "recommendation": "Take A's value. The SR requires a bound, and only A declares one.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K19",
+   "topic": "Durability of record publication",
+   "astra": "Flush the temporary to stable storage before the rename.",
+   "opus": "No flush; a power loss may lose the newest record, reported later as damage.",
+   "bearing": "SR-082 (AC: power removed during writing; 'never a torn one').",
+   "recommendation": "Take A. O's choice contradicts SR-082's AC.",
+   "level": "design (coordinator); settled by SR-082",
+   "owner_level": false
+  },
+  {
+   "id": "K20",
+   "topic": "Completing an interrupted publication",
+   "astra": "A durable publication intent (old and new record identities, required content keys) written before any change.",
+   "opus": "Write order: record temporary, evidence of the temporary, rename record, rename evidence; the next run publishes a matching evidence temporary.",
+   "bearing": "SR-082, SR-110.",
+   "recommendation": "Take O's write order as the mechanism (minimal, positively identified, no new artifact). Carry A's other concern as its own LLR: earlier content stays reachable until the replacing state is published (orphan ii, gap M53).",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K21",
+   "topic": "Fencing a resumed former owner",
+   "astra": "Revalidate ownership before every publication, move, delete and record replacement.",
+   "opus": "Five fixed boundaries.",
+   "bearing": "SR-144 ('changes no file the successor wrote or published').",
+   "recommendation": "Between O's fences a resumed run can still move or delete. Fence before every destructive step (move, delete, replace, publish). Object creation through a temporary name that never replaces an existing name needs no fence, which keeps the cost off the million-file path.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K22",
+   "topic": "Readers while a writer holds the backup",
+   "astra": "Readers pin a complete generation; writers defer disposal of pinned supply (new read-session form).",
+   "opus": "Readers take no claim and read only published states, which 'never change in place'.",
+   "bearing": "SR-106, SR-103, SR-059.",
+   "recommendation": "O's premise is false (repair renames objects, the collapse blanks references and deletes duplicates, a removal deletes a folder). A's pinning needs reader-visible state that the shell route cannot keep. Middle course: no claim and no reader artifact; a reader that finds a location vanished re-resolves by content key, and one that reads a record whose evidence changed mid-read re-reads it (bounded).",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K23",
+   "topic": "Kit refresh mechanism",
+   "astra": "Refresh the root's kit from the installed program first, then stage a complete kit per state and activate it as a whole.",
+   "opus": "Copy each kit file through a temporary name and rename, never deleting (an older state may then hold both launcher names).",
+   "bearing": "SR-117, SR-110; code: copies the root's existing kit directly, no temporary (confirmed).",
+   "recommendation": "Union: source is the installed program's kit; per-file temporary plus rename, never deleting (O); the revision marker files are written last, so a mixed kit is detectable rather than silent (A's concern, at lower cost).",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K24",
+   "topic": "Liveness second-sample wait",
+   "astra": "max(90, min(declared cadence, 600) + 30) seconds (up to 630).",
+   "opus": "Declared cadence + 30, between 90 and 600 seconds.",
+   "bearing": "SR-075; code uses A's formula.",
+   "recommendation": "Take A (matches the code; no requirement asks for a change).",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K25",
+   "topic": "Container truthy values",
+   "astra": "Exactly 1, true, TRUE, True, yes, YES, Yes.",
+   "opus": "1, true or yes in any case.",
+   "bearing": "SR-048; the shipped entry script uses A's exact set.",
+   "recommendation": "Take A.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K26",
+   "topic": "Container scratch space",
+   "astra": "All scratch inside the writable working-state mounts; today's host temporary use is a gap.",
+   "opus": "/tmp is a writable scratch mount, possibly in memory (the shipped compose file mounts it as tmpfs).",
+   "bearing": "SR-130 ('writes nowhere else').",
+   "recommendation": "Take O with /tmp declared in the mount form, and have the reviewers check that SR-130's wording admits a non-persistent scratch mount. If it does not, A's routing is the fix.",
+   "level": "design (coordinator); SR-130 wording to reviewers",
+   "owner_level": false
+  },
+  {
+   "id": "K27",
+   "topic": "A refused configuration and the existing global record",
+   "astra": "No change at all to an existing log (lists today's append as a gap).",
+   "opus": "Never created or truncated; the refusal is appended to an existing global record.",
+   "bearing": "SR-018 (AC: 'an existing log is not truncated').",
+   "recommendation": "Take O. SR-018 forbids truncation, not an appended refusal line, and the appended line is how the owner learns of the refusal.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K28",
+   "topic": "Restored files made writable (legacy LLR-077)",
+   "astra": "Retired: read-only state is outside the fidelity contract; needed writability is covered by verification and time stamping.",
+   "opus": "Kept under SR-010.",
+   "bearing": "SR-010, SR-056, SR-066. Implementation-born (orphan i), done today on both routes.",
+   "recommendation": "Keep LLR-077 as a child of LLR-056, reworded as: a stored item's protection never blocks verification or the time stamp, and is not handed to the restored file. Its meaning survives, and without it the verification fails on read-only stores.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K29",
+   "topic": "Shape of the restore tree",
+   "astra": "LLR-008 is a parent carrying eight SRs, with children 010, 029, 050, 056 and 068.",
+   "opus": "Flat: each row carries its own SR.",
+   "bearing": "Pointer rules: a child's SR is derived up its chain; one obligation per row.",
+   "recommendation": "Take O. Under A's shape every child inherits eight SRs, which blurs coverage and the blast radius.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K30",
+   "topic": "Where the already-compressed type list lives",
+   "astra": "Enumerated in LLR-004.",
+   "opus": "'One list, defined once'; the user manual's table equals the live list; no list in the spine.",
+   "bearing": "SR-081 ('a type declared as already compressed').",
+   "recommendation": "Take A's enumeration in LLR-004: the declaration needs one spine home, and the manual is generated from or checked against it.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K31",
+   "topic": "Which files the media rate is measured for",
+   "astra": "Every file for which the tool gives a duration.",
+   "opus": "Each file whose content is read in the run; the rate travels with the entry.",
+   "bearing": "SR-098, SR-113 (run time follows what changed).",
+   "recommendation": "Take O. Running the probe over every file each run breaks SR-113.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K32",
+   "topic": "A restore tool present but failing its self-test at admission",
+   "astra": "(A states tool availability and version as 2, and a known-good probe to tell archive damage from tool failure.)",
+   "opus": "Host fault, 4.",
+   "bearing": "SR-040; ruling: 4 = busy or a host fault mid-work; 2 = needs a person, precondition not met.",
+   "recommendation": "Return 2 at admission. Nothing is mid-work yet, and a retry will not fix a broken tool. O's 4 contradicts the outcome-vocabulary ruling.",
+   "level": "design (coordinator); ruling decides",
+   "owner_level": false
+  },
+  {
+   "id": "K33",
+   "topic": "Writing a stored object where leftovers may sit",
+   "astra": "Write to a private temporary object, verify the content key, publish without replacing any object still claimed.",
+   "opus": "Clear unreferenced debris at the name first, then write (the archive tool appends to an existing archive).",
+   "bearing": "SR-003, SR-082, SR-059.",
+   "recommendation": "Take A's temporary-then-publish (no delete on the hot path); O's hazard (appending to debris) cannot occur when the archive is built at a fresh temporary name.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K34",
+   "topic": "macOS double-click",
+   "astra": "The launcher must arrive launchable; a Windows-written kit carried by zip needs a manual chmod today, which falls short of SR-072.",
+   "opus": "'Runs the shell route without needing an executable bit on the restorer' (true), silent on the launcher's own bit.",
+   "bearing": "SR-072 (double-click on macOS presents a folder choice).",
+   "recommendation": "A is right about the gap (the launcher file says so itself). The fix may lie outside the code (how a kit reaches a Mac), so the Owner decides whether SR-072's double-click holds for zip-transferred kits.",
+   "level": "OWNER (support boundary)",
+   "owner_level": true
+  },
+  {
+   "id": "K35",
+   "topic": "Listing location on the backup's volume",
+   "astra": "Not required.",
+   "opus": "Refused when not on the backup's volume (today's code).",
+   "bearing": "SR-063 does not ask. Implementation-born (orphan i).",
+   "recommendation": "Keep only if the browse view's relative links need it (they cannot cross drives on Windows). State that reason in the LLR, or drop the rule.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K36",
+   "topic": "Where on-disk names live",
+   "astra": "Leaf names (MANIFEST.csv, DIRECTORIES.csv, LINKS.csv, Temp.lock, RUN.inprogress, FileBackupState.json, STATE-FORMAT.json) in LLRs; interfaces state roles.",
+   "opus": "Names in the interface form; LLRs refer to them by role.",
+   "bearing": "Brief: on-disk data names that are the agreed form are allowed in interface data; single home.",
+   "recommendation": "Take O. The name is form, both sides spell it, and a rename then touches one row.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K37",
+   "topic": "Folder-only or link-only change and the saved state",
+   "astra": "A difference in the folder or link record is a change and keeps a saved state.",
+   "opus": "Change set is files plus heals; silent on folder-only changes.",
+   "bearing": "SR-005 ('when a run changes the backed-up state'), SR-065.",
+   "recommendation": "Take A. The folder record is part of the backed-up state; today a new empty folder alone discards the prior folder record (gap M48).",
+   "level": "design (coordinator)",
+   "owner_level": false
+  },
+  {
+   "id": "K38",
+   "topic": "Component cuts",
+   "astra": "Store coordination and content resolution as top-level components; capture and change detection one component; container adapter under launch.",
+   "opus": "Guard under the backup engine; index under removal; restore search under entry restoration; capture and change detection separate; container on its own.",
+   "bearing": "Responsibilities the SRs demand; the kit-independence rule.",
+   "recommendation": "Take O's tree (proposed tree above). A's shared 'content resolution' would make the restore kit depend on the backup-side index unless it moves into the store format; revisit only if K22 goes A's way.",
+   "level": "design (coordinator)",
+   "owner_level": false
+  }
+ ],
+ "design_gaps": [
+  {
+   "id": "M01",
+   "srs": [
+    "SR-137",
+    "SR-150",
+    "SR-151",
+    "SR-152"
+   ],
+   "llrs": [
+    "LLR-109",
+    "LLR-110",
+    "LLR-144"
+   ],
+   "found_by": "both",
+   "code": "The walk neither follows a folder link nor records one; no link record exists; neither restore route recreates a link. File links are followed.",
+   "settled": "O's inference is consistent with the code: the walk lists a folder link with no files beneath it, so it is probably written to the folder record as an empty folder."
+  },
+  {
+   "id": "M02",
+   "srs": [
+    "SR-138",
+    "SR-063",
+    "SR-149"
+   ],
+   "llrs": [
+    "LLR-103"
+   ],
+   "found_by": "both",
+   "code": "A backup or saved-state location overlapping a source is not refused. The listing location is checked only when the view is on, per location during the run, failing it (1). State-location overlap is checked only against its own set, failing it (1). Roots are created before these checks.",
+   "settled": ""
+  },
+  {
+   "id": "M03",
+   "srs": [
+    "SR-140"
+   ],
+   "llrs": [
+    "LLR-104"
+   ],
+   "found_by": "both",
+   "code": "No up-front writability check; the run works, then fails when the change-detection record is written (1).",
+   "settled": ""
+  },
+  {
+   "id": "M04",
+   "srs": [
+    "SR-035"
+   ],
+   "llrs": [
+    "LLR-114"
+   ],
+   "found_by": "both",
+   "code": "A missing record is silently treated as empty; a malformed one throws and fails the location; its evidence is never checked on read; a stale or foreign record is trusted wherever size and time match.",
+   "settled": "Settled for O: missing means empty (no refusal). A's 'refuses malformed state' concerns the run-state record (M05)."
+  },
+  {
+   "id": "M05",
+   "srs": [
+    "SR-035",
+    "SR-005"
+   ],
+   "llrs": [
+    "LLR-035"
+   ],
+   "found_by": "both",
+   "code": "A populated backup whose run-state record is missing or unparseable is refused (location fails, 1).",
+   "settled": ""
+  },
+  {
+   "id": "M06",
+   "srs": [
+    "SR-005"
+   ],
+   "llrs": [
+    "LLR-028"
+   ],
+   "found_by": "O",
+   "code": "A saved state is named by the previous run's start time; LastBackupRun stores a time taken near the run's start.",
+   "settled": "Confirmed in code; A missed it."
+  },
+  {
+   "id": "M07",
+   "srs": [
+    "SR-011",
+    "SR-105"
+   ],
+   "llrs": [
+    "LLR-011"
+   ],
+   "found_by": "A",
+   "code": "Calendar-boundary decision; N with no recorded re-read does re-read; the re-read time is stamped whenever a re-read was due, including runs with unreadable folders.",
+   "settled": "Confirmed in code; O's design followed the code (conflict K01)."
+  },
+  {
+   "id": "M08",
+   "srs": [
+    "SR-043",
+    "SR-040"
+   ],
+   "llrs": [
+    "LLR-043",
+    "LLR-040"
+   ],
+   "found_by": "both",
+   "code": "A backup returns 1 for busy, capacity, retired form and empty source, and 3 only for witness mismatch; the saved-state report always returns 0; unhandled errors in removal or the report get no mapped value; non-backup actions and both restorers' classified exits are gated by -ExitCode.",
+   "settled": "Settled: the backup's own exit is not gated by -ExitCode (A over-generalised); configuration failures, non-backup actions and the restorers are."
+  },
+  {
+   "id": "M09",
+   "srs": [
+    "SR-085",
+    "SR-086"
+   ],
+   "llrs": [
+    "LLR-122"
+   ],
+   "found_by": "both",
+   "code": "Every claim failure is one refusal (backup 1, removal 2); contention and I/O are not told from denial or an unusable location; the holder is not reliably named.",
+   "settled": ""
+  },
+  {
+   "id": "M10",
+   "srs": [
+    "SR-017",
+    "SR-107"
+   ],
+   "llrs": [
+    "LLR-017"
+   ],
+   "found_by": "O",
+   "code": "Every leftover refusal fails the location with 1; an unfinished removal's refusal does not name re-running it as the remedy.",
+   "settled": "A's G-14 touches only the lock side."
+  },
+  {
+   "id": "M11",
+   "srs": [
+    "SR-036"
+   ],
+   "llrs": [
+    "LLR-036"
+   ],
+   "found_by": "O",
+   "code": "The empty-source refusal fails the location with 1, not 2.",
+   "settled": ""
+  },
+  {
+   "id": "M12",
+   "srs": [
+    "SR-052"
+   ],
+   "llrs": [
+    "LLR-052"
+   ],
+   "found_by": "both",
+   "code": "The demand is per location set, content only (no records, kits, logs, temporary space or allocation), checked after roots, claim, log and staging exist; a shortfall fails the location with 1.",
+   "settled": ""
+  },
+  {
+   "id": "M13",
+   "srs": [
+    "SR-061"
+   ],
+   "llrs": [
+    "LLR-060"
+   ],
+   "found_by": "both",
+   "code": "A backup over a retired form fails with 1; the shell route checks the retired form after creating the target and its log; an unrecognised marker or header is not refused as a form.",
+   "settled": ""
+  },
+  {
+   "id": "M14",
+   "srs": [
+    "SR-019"
+   ],
+   "llrs": [
+    "LLR-020"
+   ],
+   "found_by": "O",
+   "code": "No backup-side runtime-version check.",
+   "settled": ""
+  },
+  {
+   "id": "M15",
+   "srs": [
+    "SR-132",
+    "SR-016"
+   ],
+   "llrs": [
+    "LLR-105",
+    "LLR-016"
+   ],
+   "found_by": "O",
+   "code": "Obtaining the hashing component prompts when attended and needs -AutoInstallDeps when unattended; the fetched package is not checked against a digest; a missing optional tool may prompt; redirected or closed input is not detected.",
+   "settled": "Confirmed in code (no digest check found)."
+  },
+  {
+   "id": "M16",
+   "srs": [
+    "SR-008",
+    "SR-016"
+   ],
+   "llrs": [
+    "LLR-008"
+   ],
+   "found_by": "O",
+   "code": "If the kit's hashing library is missing, the language-runtime restore falls back to a package-source install with a prompt, even with -NonInteractive.",
+   "settled": "Confirmed."
+  },
+  {
+   "id": "M17",
+   "srs": [
+    "SR-118"
+   ],
+   "llrs": [
+    "LLR-139"
+   ],
+   "found_by": "O",
+   "code": "The language-runtime route checks neither its runtime version nor the kit's hashing library before writing; the shell route checks the archive extractor only after creating the target.",
+   "settled": "Second clause from the code check."
+  },
+  {
+   "id": "M18",
+   "srs": [
+    "SR-009",
+    "SR-141"
+   ],
+   "llrs": [
+    "LLR-009",
+    "LLR-079",
+    "LLR-137"
+   ],
+   "found_by": "both",
+   "code": "The language-runtime route normalises the path lexically first (a parent component is cancelled, not refused), resolves only the deepest existing component, and falls back to the text when resolution fails; on GNU systems the shell route accepts a parent component through its resolver.",
+   "settled": "Both sides right; each saw part."
+  },
+  {
+   "id": "M19",
+   "srs": [
+    "SR-023",
+    "SR-145"
+   ],
+   "llrs": [
+    "LLR-023",
+    "LLR-136"
+   ],
+   "found_by": "both",
+   "code": "Both routes leave compressed entries out of the demand and add no allowance; the language-runtime route creates the target and its log before the space and archive-tool checks; an unmeasurable volume is skipped (silently on that route).",
+   "settled": ""
+  },
+  {
+   "id": "M20",
+   "srs": [
+    "SR-039",
+    "SR-116"
+   ],
+   "llrs": [
+    "LLR-039",
+    "LLR-138"
+   ],
+   "found_by": "both",
+   "code": "Absent evidence is excused for every state; no positive age evidence is consulted; the shell route silently skips non-numeric Rows or Bytes.",
+   "settled": ""
+  },
+  {
+   "id": "M21",
+   "srs": [
+    "SR-121"
+   ],
+   "llrs": [
+    "LLR-141"
+   ],
+   "found_by": "both",
+   "code": "An escaping entry is counted as missing content (1), not a damaged record (3); an escaping folder-record row only warns.",
+   "settled": ""
+  },
+  {
+   "id": "M22",
+   "srs": [
+    "SR-092"
+   ],
+   "llrs": [
+    "LLR-142"
+   ],
+   "found_by": "both",
+   "code": "Collisions are not detected: on Windows the language-runtime route keeps the last of two case-differing rows; elsewhere both are written to one file; the shell route lets the second overwrite the first.",
+   "settled": ""
+  },
+  {
+   "id": "M23",
+   "srs": [
+    "SR-146",
+    "SR-122",
+    "SR-065"
+   ],
+   "llrs": [
+    "LLR-143"
+   ],
+   "found_by": "both",
+   "code": "A missing or malformed folder record never changes the outcome; nothing tells a state that should have one from one that has none; the language-runtime route assigns attributes (replacing existing bits); the shell route never applies attributes, only logs them.",
+   "settled": "Shell-route clause from the code check; neither side listed it."
+  },
+  {
+   "id": "M24",
+   "srs": [
+    "SR-066"
+   ],
+   "llrs": [
+    "LLR-066"
+   ],
+   "found_by": "both",
+   "code": "A blank time is skipped silently and an unparseable one only warns; the restore still ends complete.",
+   "settled": ""
+  },
+  {
+   "id": "M25",
+   "srs": [
+    "SR-040",
+    "SR-068",
+    "SR-119"
+   ],
+   "llrs": [
+    "LLR-040",
+    "LLR-050"
+   ],
+   "found_by": "both",
+   "code": "An unclassified error mid-restore reports 2 although files were written; a shell switch without its value exits 127; a direct object's expansion failure is a host failure (4) with no tool self-test (the self-test runs only in the pool search); a missing item whose search ends in a host cause is recorded as missing content.",
+   "settled": "A found the direct-expansion case, O the rest."
+  },
+  {
+   "id": "M26",
+   "srs": [
+    "SR-120"
+   ],
+   "llrs": [
+    "LLR-029"
+   ],
+   "found_by": "O",
+   "code": "The summaries give counts and names but no per-entry causes (causes only in separate log lines); the report entries are not in the IF-022 form.",
+   "settled": ""
+  },
+  {
+   "id": "M27",
+   "srs": [
+    "SR-124"
+   ],
+   "llrs": [
+    "LLR-107"
+   ],
+   "found_by": "O",
+   "code": "The record gives one new-or-changed count and a removed count; added files are not told from changed ones and most are not named.",
+   "settled": ""
+  },
+  {
+   "id": "M28",
+   "srs": [
+    "SR-125"
+   ],
+   "llrs": [
+    "LLR-108"
+   ],
+   "found_by": "both",
+   "code": "No progress entries at all; the only periodic activity is the owner-record refresh.",
+   "settled": ""
+  },
+  {
+   "id": "M29",
+   "srs": [
+    "SR-089",
+    "SR-091",
+    "SR-067"
+   ],
+   "llrs": [
+    "LLR-111",
+    "LLR-067"
+   ],
+   "found_by": "both",
+   "code": "A file that cannot be read for its digest aborts the whole location; retries cover only the copy.",
+   "settled": ""
+  },
+  {
+   "id": "M30",
+   "srs": [
+    "SR-049"
+   ],
+   "llrs": [
+    "LLR-049"
+   ],
+   "found_by": "both",
+   "code": "The default check reads only an object's opening bytes; altered content is found only with -Deep.",
+   "settled": ""
+  },
+  {
+   "id": "M31",
+   "srs": [
+    "SR-109"
+   ],
+   "llrs": [
+    "LLR-129"
+   ],
+   "found_by": "both",
+   "code": "Repair renames and rewrites forms but never copies content back from a verified copy elsewhere.",
+   "settled": ""
+  },
+  {
+   "id": "M32",
+   "srs": [
+    "SR-117",
+    "SR-110"
+   ],
+   "llrs": [
+    "LLR-131",
+    "LLR-130"
+   ],
+   "found_by": "A",
+   "code": "The refresh copies the backup root's existing kit into each saved state (it does not regenerate it from the installed program), file by file with no temporary name, so a kill can leave a mixed kit.",
+   "settled": "Confirmed in code; O had left it unconfirmed. Whether each repair rename publishes by temporary and rename is still unconfirmed."
+  },
+  {
+   "id": "M33",
+   "srs": [
+    "SR-097"
+   ],
+   "llrs": [
+    "LLR-132"
+   ],
+   "found_by": "both",
+   "code": "No space view and no setting for it.",
+   "settled": ""
+  },
+  {
+   "id": "M34",
+   "srs": [
+    "SR-098",
+    "SR-099",
+    "SR-147"
+   ],
+   "llrs": [
+    "LLR-133",
+    "LLR-134"
+   ],
+   "found_by": "O",
+   "code": "The media rate is never computed: the switch that would enable the tool is hard-wired off, and no record entry says the measure was not taken.",
+   "settled": "Settled for O: the measurement function is called per hashed file but returns nothing because the tool is never resolved. A's 'invokes measurement when the tool is available' is wrong."
+  },
+  {
+   "id": "M35",
+   "srs": [
+    "SR-131"
+   ],
+   "llrs": [
+    "LLR-119"
+   ],
+   "found_by": "both",
+   "code": "No licence or notice file in any backup; the hashing library is redistributed without its notice.",
+   "settled": ""
+  },
+  {
+   "id": "M36",
+   "srs": [
+    "SR-143"
+   ],
+   "llrs": [
+    "LLR-148"
+   ],
+   "found_by": "O",
+   "code": "The container image carries no notices file.",
+   "settled": "Confirmed from the image build definition (A had not read it)."
+  },
+  {
+   "id": "M37",
+   "srs": [
+    "SR-135",
+    "SR-027"
+   ],
+   "llrs": [
+    "LLR-099"
+   ],
+   "found_by": "both",
+   "code": "The native-Windows form carries no version and the helper writes none.",
+   "settled": ""
+  },
+  {
+   "id": "M38",
+   "srs": [
+    "SR-018",
+    "SR-042"
+   ],
+   "llrs": [
+    "LLR-042",
+    "LLR-101"
+   ],
+   "found_by": "both",
+   "code": "The native-Windows form gets a shape check only: no closed key set, no strict value kinds; the published description covers JSON only.",
+   "settled": ""
+  },
+  {
+   "id": "M39",
+   "srs": [
+    "SR-129"
+   ],
+   "llrs": [
+    "LLR-100"
+   ],
+   "found_by": "both",
+   "code": "A native-Windows credential in plain text is not refused.",
+   "settled": ""
+  },
+  {
+   "id": "M40",
+   "srs": [
+    "SR-095"
+   ],
+   "llrs": [
+    "LLR-014"
+   ],
+   "found_by": "both",
+   "code": "A multi-set JSON configuration draws a warning; removal, report, check and view act on the first set only.",
+   "settled": "First-set clause from O, confirmed."
+  },
+  {
+   "id": "M41",
+   "srs": [
+    "SR-048",
+    "SR-103"
+   ],
+   "llrs": [
+    "LLR-048",
+    "LLR-128"
+   ],
+   "found_by": "O",
+   "code": "Removal and the report resolve locations in the backup's mode: they need the source to exist and create missing backup or saved-state folders.",
+   "settled": ""
+  },
+  {
+   "id": "M42",
+   "srs": [
+    "SR-033",
+    "SR-136"
+   ],
+   "llrs": [
+    "LLR-121"
+   ],
+   "found_by": "O",
+   "code": "A Linux run writes '/' where a Windows run writes '\\'; a run from the other host type then sees every file removed and added.",
+   "settled": "Confirmed; A's record form says backslash but A listed no gap. Migration: K13."
+  },
+  {
+   "id": "M43",
+   "srs": [
+    "SR-082"
+   ],
+   "llrs": [
+    "LLR-087",
+    "LLR-118"
+   ],
+   "found_by": "both",
+   "code": "The evidence is written only after the record is renamed, and nothing is flushed; a kill between the two leaves a mismatch the next run refuses.",
+   "settled": "Flush clause from A."
+  },
+  {
+   "id": "M44",
+   "srs": [
+    "SR-027"
+   ],
+   "llrs": [
+    "LLR-027"
+   ],
+   "found_by": "O",
+   "code": "The quick start's first run asks before installing the hashing component; the helper writes an unversioned document; the user manual states two different current configuration versions.",
+   "settled": ""
+  },
+  {
+   "id": "M45",
+   "srs": [
+    "SR-064",
+    "SR-112",
+    "SR-113"
+   ],
+   "llrs": [
+    "LLR-149",
+    "LLR-062"
+   ],
+   "found_by": "both",
+   "code": "The time and memory budgets have never been measured at the declared scale; removal and the audit keep whole records; restore recovery scans candidates per unresolved row.",
+   "settled": "Not a measured failure: a missing measurement."
+  },
+  {
+   "id": "M46",
+   "srs": [
+    "SR-104"
+   ],
+   "llrs": [
+    "LLR-096"
+   ],
+   "found_by": "O",
+   "code": "The repair's findings document has no per-finding Repaired field (a fresh re-check is printed instead).",
+   "settled": ""
+  },
+  {
+   "id": "M47",
+   "srs": [
+    "SR-001",
+    "SR-074"
+   ],
+   "llrs": [
+    "LLR-001",
+    "LLR-022"
+   ],
+   "found_by": "A",
+   "code": "With the change-detection record at the source root, the whole backup infrastructure list is excluded at the source root (owner files sharing a backup-only name are skipped); with the record elsewhere, that branch also skips the volume-root filter.",
+   "settled": "A's claim, not re-checked by the alignment; confirm when the code is headed."
+  },
+  {
+   "id": "M48",
+   "srs": [
+    "SR-005",
+    "SR-065"
+   ],
+   "llrs": [
+    "LLR-005"
+   ],
+   "found_by": "A",
+   "code": "The saved-state decision comes from the file-row diff only; a run whose only change is a new empty folder adds no saved state and overwrites the folder record.",
+   "settled": "Confirmed in code."
+  },
+  {
+   "id": "M49",
+   "srs": [
+    "SR-101",
+    "SR-017"
+   ],
+   "llrs": [
+    "LLR-127"
+   ],
+   "found_by": "A",
+   "code": "A removal killed before its commit point leaves its staging marker; the next removal refuses any existing staging area and backups refuse the marker, so the store wedges until a person clears it.",
+   "settled": "Confirmed in code."
+  },
+  {
+   "id": "M50",
+   "srs": [
+    "SR-046",
+    "SR-102"
+   ],
+   "llrs": [
+    "LLR-046",
+    "LLR-126"
+   ],
+   "found_by": "both",
+   "code": "Target checks are lexical (a link to outside is not resolved); module-level options can waive the unreferenced-content and evidence refusals.",
+   "settled": ""
+  },
+  {
+   "id": "M51",
+   "srs": [
+    "SR-082",
+    "SR-059",
+    "SR-041"
+   ],
+   "llrs": [
+    "LLR-150"
+   ],
+   "found_by": "A",
+   "code": "Removed and superseded objects move into staging before the new latest record is published; a kill there leaves a witnessed latest record whose bytes only staging holds, and no restore searches staging.",
+   "settled": "Confirmed in code; O missed it."
+  },
+  {
+   "id": "M52",
+   "srs": [
+    "SR-081"
+   ],
+   "llrs": [
+    "LLR-086"
+   ],
+   "found_by": "A",
+   "code": "A file of exactly 262144 bytes is measured; the SR gives files at or below 256 KiB the file-type rule.",
+   "settled": "Confirmed (both code conditions treat 262144 as above the floor)."
+  },
+  {
+   "id": "M53",
+   "srs": [
+    "SR-072"
+   ],
+   "llrs": [
+    "LLR-074"
+   ],
+   "found_by": "A",
+   "code": "A Windows-written kit carried to a Mac by zip needs a manual chmod before Finder opens the launcher; the restorer holds the window on success and on classified exits but not on its error trap.",
+   "settled": "Hold-on-trap clause from the code check. See K34."
+  },
+  {
+   "id": "M54",
+   "srs": [
+    "SR-073"
+   ],
+   "llrs": [
+    "LLR-073"
+   ],
+   "found_by": "neither",
+   "code": "The language-runtime route never checks for a desktop session (only the console and input), and a cancelled folder choice falls back to a typed prompt.",
+   "settled": "Found by the alignment's code check."
+  },
+  {
+   "id": "M55",
+   "srs": [
+    "SR-144"
+   ],
+   "llrs": [
+    "LLR-125"
+   ],
+   "found_by": "A",
+   "code": "The owner identity is re-checked at five boundaries only; a resumed former owner can still move or delete between them.",
+   "settled": "A gap under the recommended K21 design."
+  },
+  {
+   "id": "M56",
+   "srs": [
+    "SR-106",
+    "SR-103"
+   ],
+   "llrs": [
+    "LLR-123"
+   ],
+   "found_by": "A",
+   "code": "A reader meeting a location that a concurrent repair, collapse or removal has just moved has no re-resolution or re-read rule.",
+   "settled": "Reworded to the recommended K22 design."
+  },
+  {
+   "id": "M57",
+   "srs": [
+    "SR-130"
+   ],
+   "llrs": [
+    "LLR-147"
+   ],
+   "found_by": "A",
+   "code": "Scratch uses the host temporary folder; the shipped compose file mounts /tmp as tmpfs.",
+   "settled": "Remains a gap only if SR-130's wording excludes a non-persistent scratch mount (K26)."
+  }
+ ],
+ "sr_constrains": [
+  [
+   "SR-043",
+   "IF-003"
+  ],
+  [
+   "SR-040",
+   "IF-021"
+  ],
+  [
+   "SR-010",
+   "IF-023"
+  ],
+  [
+   "SR-104",
+   "IF-010"
+  ],
+  [
+   "SR-120",
+   "IF-022"
+  ],
+  [
+   "SR-142",
+   "IF-038"
+  ],
+  [
+   "SR-130",
+   "IF-039"
+  ],
+  [
+   "SR-131",
+   "IF-019"
+  ],
+  [
+   "SR-143",
+   "IF-040"
+  ],
+  [
+   "SR-139",
+   "IF-029"
+  ],
+  [
+   "SR-148",
+   "IF-029"
+  ],
+  [
+   "SR-132",
+   "IF-037"
+  ],
+  [
+   "SR-073",
+   "IF-026"
+  ]
+ ],
+ "legacy_retired": [
+  "LLR-006",
+  "LLR-030",
+  "LLR-031",
+  "LLR-032",
+  "LLR-033",
+  "LLR-057",
+  "LLR-064",
+  "LLR-070",
+  "LLR-072",
+  "LLR-075"
+ ],
+ "crosswalk": {
+  "astra": {
+   "LLR-043": "LLR-043",
+   "LLR-014": "LLR-014",
+   "LLR-016": "LLR-016",
+   "LLR-048": "LLR-048",
+   "LLR-042": "LLR-042",
+   "LLR-095": "LLR-103",
+   "LLR-037": "LLR-037",
+   "LLR-020": "LLR-020",
+   "LLR-015": "LLR-015",
+   "LLR-104": "LLR-106",
+   "LLR-103": "LLR-107",
+   "LLR-001": "LLR-001",
+   "LLR-078": "LLR-078",
+   "LLR-055": "LLR-055",
+   "LLR-105": "LLR-109",
+   "LLR-106": "LLR-109",
+   "LLR-067": "LLR-067",
+   "LLR-065": "LLR-065",
+   "LLR-096": "LLR-112",
+   "LLR-036": "LLR-036",
+   "LLR-021": "LLR-021",
+   "LLR-011": "LLR-011",
+   "LLR-113": "LLR-114",
+   "LLR-028": "LLR-028",
+   "LLR-003": "LLR-003",
+   "LLR-058": "LLR-058",
+   "LLR-053": "LLR-053",
+   "LLR-086": "LLR-086",
+   "LLR-004": "LLR-004",
+   "LLR-109": "LLR-116",
+   "LLR-052": "LLR-052",
+   "LLR-005": "LLR-005",
+   "LLR-051": "LLR-051",
+   "LLR-041": "LLR-041",
+   "LLR-087": "LLR-087",
+   "LLR-115": "LLR-118",
+   "LLR-038": "LLR-038",
+   "LLR-007": "LLR-007",
+   "LLR-076": "LLR-076",
+   "LLR-026": "LLR-026",
+   "LLR-090": "LLR-090",
+   "LLR-091": "LLR-091",
+   "LLR-116": "LLR-123",
+   "LLR-017": "LLR-017",
+   "LLR-110": "LLR-088",
+   "LLR-080": "LLR-080",
+   "LLR-088": "LLR-124",
+   "LLR-108": "LLR-125",
+   "LLR-045": "LLR-045",
+   "LLR-046": "LLR-046",
+   "LLR-098": "LLR-127",
+   "LLR-047": "LLR-047",
+   "LLR-062": "LLR-062",
+   "LLR-114": "LLR-149",
+   "LLR-049": "LLR-049",
+   "LLR-099": "LLR-129",
+   "LLR-060": "LLR-060",
+   "LLR-069": "LLR-069",
+   "LLR-061": "LLR-061",
+   "LLR-097": "LLR-132",
+   "LLR-002": "LLR-002",
+   "LLR-022": "LLR-022",
+   "LLR-025": "LLR-025",
+   "LLR-024": "LLR-024",
+   "LLR-068": "LLR-068",
+   "LLR-102": "LLR-136",
+   "LLR-009": "LLR-009",
+   "LLR-039": "LLR-039",
+   "LLR-111": "LLR-138",
+   "LLR-023": "LLR-023",
+   "LLR-008": "LLR-008",
+   "LLR-071": "LLR-071",
+   "LLR-101": "LLR-141",
+   "LLR-056": "LLR-056",
+   "LLR-010": "LLR-050",
+   "LLR-050": "LLR-050",
+   "LLR-100": "LLR-142",
+   "LLR-029": "LLR-029",
+   "LLR-066": "LLR-066",
+   "LLR-107": "LLR-144",
+   "LLR-040": "LLR-040",
+   "LLR-073": "LLR-073",
+   "LLR-074": "LLR-074",
+   "LLR-112": "LLR-146",
+   "LLR-027": "LLR-027"
+  },
+  "opus": {
+   "LLR-043": "LLR-043",
+   "LLR-014": "LLR-014",
+   "LLR-016": "LLR-016",
+   "LLR-096": "LLR-096",
+   "LLR-048": "LLR-048",
+   "LLR-042": "LLR-042",
+   "LLR-018": "LLR-018",
+   "LLR-063": "LLR-063",
+   "LLR-098": "LLR-098",
+   "LLR-099": "LLR-099",
+   "LLR-100": "LLR-100",
+   "LLR-101": "LLR-101",
+   "LLR-102": "LLR-102",
+   "LLR-103": "LLR-103",
+   "LLR-104": "LLR-104",
+   "LLR-037": "LLR-037",
+   "LLR-020": "LLR-020",
+   "LLR-105": "LLR-105",
+   "LLR-015": "LLR-015",
+   "LLR-106": "LLR-106",
+   "LLR-095": "LLR-095",
+   "LLR-107": "LLR-107",
+   "LLR-108": "LLR-108",
+   "LLR-097": "LLR-097",
+   "LLR-001": "LLR-001",
+   "LLR-078": "LLR-078",
+   "LLR-055": "LLR-055",
+   "LLR-109": "LLR-109",
+   "LLR-110": "LLR-110",
+   "LLR-067": "LLR-067",
+   "LLR-111": "LLR-111",
+   "LLR-065": "LLR-065",
+   "LLR-112": "LLR-112",
+   "LLR-036": "LLR-036",
+   "LLR-021": "LLR-021",
+   "LLR-113": "LLR-113",
+   "LLR-011": "LLR-011",
+   "LLR-114": "LLR-114",
+   "LLR-115": "LLR-115",
+   "LLR-035": "LLR-035",
+   "LLR-028": "LLR-028",
+   "LLR-003": "LLR-003",
+   "LLR-058": "LLR-058",
+   "LLR-117": "LLR-117",
+   "LLR-053": "LLR-053",
+   "LLR-086": "LLR-086",
+   "LLR-004": "LLR-004",
+   "LLR-116": "LLR-116",
+   "LLR-052": "LLR-052",
+   "LLR-135": "LLR-135",
+   "LLR-005": "LLR-005",
+   "LLR-051": "LLR-051",
+   "LLR-059": "LLR-059",
+   "LLR-041": "LLR-041",
+   "LLR-087": "LLR-087",
+   "LLR-118": "LLR-118",
+   "LLR-038": "LLR-038",
+   "LLR-007": "LLR-007",
+   "LLR-119": "LLR-119",
+   "LLR-120": "LLR-120",
+   "LLR-076": "LLR-076",
+   "LLR-026": "LLR-026",
+   "LLR-121": "LLR-121",
+   "LLR-090": "LLR-090",
+   "LLR-122": "LLR-122",
+   "LLR-091": "LLR-091",
+   "LLR-092": "LLR-092",
+   "LLR-094": "LLR-094",
+   "LLR-093": "LLR-093",
+   "LLR-123": "LLR-123",
+   "LLR-017": "LLR-017",
+   "LLR-088": "LLR-088",
+   "LLR-080": "LLR-080",
+   "LLR-124": "LLR-124",
+   "LLR-125": "LLR-125",
+   "LLR-045": "LLR-045",
+   "LLR-046": "LLR-046",
+   "LLR-126": "LLR-126",
+   "LLR-127": "LLR-127",
+   "LLR-047": "LLR-047",
+   "LLR-128": "LLR-128",
+   "LLR-062": "LLR-062",
+   "LLR-149": "LLR-149",
+   "LLR-049": "LLR-049",
+   "LLR-054": "LLR-054",
+   "LLR-129": "LLR-129",
+   "LLR-130": "LLR-130",
+   "LLR-131": "LLR-131",
+   "LLR-060": "LLR-060",
+   "LLR-069": "LLR-069",
+   "LLR-061": "LLR-061",
+   "LLR-132": "LLR-132",
+   "LLR-133": "LLR-133",
+   "LLR-134": "LLR-134",
+   "LLR-002": "LLR-002",
+   "LLR-022": "LLR-022",
+   "LLR-025": "LLR-025",
+   "LLR-024": "LLR-024",
+   "LLR-068": "LLR-068",
+   "LLR-136": "LLR-136",
+   "LLR-009": "LLR-009",
+   "LLR-079": "LLR-079",
+   "LLR-137": "LLR-137",
+   "LLR-039": "LLR-039",
+   "LLR-138": "LLR-138",
+   "LLR-139": "LLR-139",
+   "LLR-023": "LLR-023",
+   "LLR-008": "LLR-008",
+   "LLR-071": "LLR-071",
+   "LLR-010": "LLR-010",
+   "LLR-140": "LLR-140",
+   "LLR-141": "LLR-141",
+   "LLR-056": "LLR-056",
+   "LLR-050": "LLR-050",
+   "LLR-142": "LLR-142",
+   "LLR-029": "LLR-029",
+   "LLR-066": "LLR-066",
+   "LLR-077": "LLR-077",
+   "LLR-143": "LLR-143",
+   "LLR-144": "LLR-144",
+   "LLR-040": "LLR-040",
+   "LLR-073": "LLR-073",
+   "LLR-145": "folded into LLR-073",
+   "LLR-074": "LLR-074",
+   "LLR-146": "LLR-146",
+   "LLR-147": "LLR-147",
+   "LLR-148": "LLR-148",
+   "LLR-027": "LLR-027"
+  }
+ }
+}
