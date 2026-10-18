@@ -159,7 +159,7 @@ interface_to_external = ["B-06", "B-20"]
 coincident = """The record the owner reads is the record the system writes."""
 data = """Two kinds of record, each UTF-8 text, one entry per line:
 - the global record, one per launch, at the location the launch request or FILEBACKUP_LOG_PATH gives, by default Backup_Global.log beside the configuration document;
-- one location record per configured location, named backup.log in that location's saved-state root (IF-013).
+- one location record per configured location: backup.log in that location's saved-state root (IF-013), the record of the last run that published one there. A run writes its own record as backup-<RunId>.log in the saved-state root's run folder (IF-033), RunId as in its owner record, and publishes it at its end by renaming it to backup.log, replacing the one before. The record of a run killed or reclaimed keeps its run name: in its run folder, and after a reclaim among that root's reclaimed leftovers, at Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>/Run-<RunId>/backup-<RunId>.log.
 Entry grammar: <yyyy-MM-dd HH:mm:ss.fff host-local> [<LEVEL>] <message>, LEVEL one of DEBUG, INFO, WARN, ERROR. The console carries the same entries in the same grammar.
 Message kinds:
 - Added: <path> | Changed: <path> | Removed: <path>
@@ -174,6 +174,7 @@ Message kinds:
 - Leftovers kept: <folder> - <recovery guidance>
 - Notification skipped: <reason> | Notification failed: <cause>
 - Media measure not taken: <reason> | Extra skipped: <name>
+- Not checked: <saved-state folder name or latest> - record and evidence not settled while a changing operation may hold the backup
 Refusal tokens, a closed set, each with the outcome value it reports:
 - [SR-075/owner-live]: an earlier run alive or not proven dead (4);
 - [SR-075/content-refused]: unfinished work holding content, reached through a link, or whose evidence cannot be read (2);
@@ -197,8 +198,8 @@ Refusal tokens, a closed set, each with the outcome value it reports:
 - [2/removal-refused]: a removal that could lose content;
 - [3/record-damage]: a state's record failing its completeness evidence;
 - [4/host-fault]: a host fault while the operation worked."""
-rationale = """An owner reading why a run failed, and a host searching for a refusal class, need stable entry kinds; free prose cannot be searched and a count without the names cannot be acted on. A structured log in a machine format lost for the owner-facing record: the machine-readable form is IF-010, and a person reads this one. The tokens already in use are kept exactly as hosts already search for them; every other token names the value and the cause and no requirement, because requirement numbering is not a host-visible form, and the set is closed so a host can match every refusal."""
-version = "1"
+rationale = """An owner reading why a run failed, and a host searching for a refusal class, need stable entry kinds; free prose cannot be searched and a count without the names cannot be acted on. A structured log in a machine format lost for the owner-facing record: the machine-readable form is IF-010, and a person reads this one. The tokens already in use are kept exactly as hosts already search for them; every other token names the value and the cause and no requirement, because requirement numbering is not a host-visible form, and the set is closed so a host can match every refusal. One location record written in place lost because a run that lost its claim could still append to the record its successor writes; a record per run, reachable only through that run's own folder until it is published, cannot be."""
+version = "2"
 status = "Drafted"
 
 [interface.IF-010]
@@ -273,7 +274,7 @@ Backup root (BackupPath), the latest state:
 Saved-state root (ChangePath):
 - one folder per saved state, named Snapshot_<yyyy>_<MM>_<dd>_<HH>_<mm>_<ss>[_<NNN>] and matching exactly ^Snapshot_\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2}_\\d{2}(_\\d{3})?$; the date and time are host-local, and the optional three-digit suffix separates two folders of the same second. Each holds its own MANIFEST.csv, MANIFEST.csv.meta, DIRECTORIES.csv and LINKS.csv where present, its own restore kit, the stored objects only it preserves and their publication temporaries;
 - Temp: the saved-state root's staging area (IF-033); Temp.lock: the claim file (IF-032); Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>: reclaimed leftovers; Pruning_<saved-state folder name>: a removal past its commit point;
-- backup.log: the location record (IF-009).
+- backup.log: the location record of the last run that published one (IF-009); a run's record in progress is backup-<RunId>.log in its run folder (IF-033).
 Infrastructure names are names at a folder's own root; the same names deeper in a folder are data. RECONSTRUCT.bat, the retired launcher name, is an infrastructure name."""
 rationale = """A restorer years later, holding only the folder, must find the latest state, every saved state and the kit by name; without fixed names a restore depends on the tool that made the backup. Mirroring the source tree as stored files lost: deduplication and compression need content-addressed objects, and a mirror cannot hold one copy for many paths."""
 version = "3"
@@ -587,13 +588,14 @@ SchemaVersion, Kind, RunId, StartedUtc, HeartbeatIntervalSeconds and StaleAfterS
 Each staging area of a backup contains that run's folder, Run-<RunId>, RunId as in the owner record.
 While a removal holds it, the saved-state root's Temp contains PRUNE.inprogress, UTF-8 text holding the name of the saved-state folder being removed.
 Entries of a run folder, a closed set:
-- in the saved-state root's run folder only: the folder of the saved state being prepared, named as it will be published (IF-013), holding copies of the backup root's record of contents, its completeness evidence, the folder record and the link record where present, the kit (IF-019) and their publication temporaries;
+- in the saved-state root's run folder only: the folder of the saved state being prepared, named as it will be published (IF-013), holding a copy of the backup root's record of contents, completeness evidence written for that copy (IF-015), copies of the folder record and the link record where present, the kit (IF-019) and their publication temporaries;
+- in the saved-state root's run folder only: backup-<RunId>.log, the run's location record (IF-009), RunId as in the run folder's name;
 - a publication temporary: <name>.tmp, for a record, its evidence, the run-state record or a kit file whose destination is <name> at the root of the folder holding the run folder's staging area; <saved-state folder name>.<name>.tmp for a destination in that saved state;
 - a stored-object temporary: <stored name>.fb-<8 lowercase hex digits>.tmp, prefixed <saved-state folder name>. where its destination lies in a saved state;
 - an entry being deleted: the name it had followed by .fb-deleted, prefixed <saved-state folder name>. where it came from a saved state.
 Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>, beside either Temp: that root's reclaimed leftovers."""
 rationale = """A dead run's leftovers must be told from a live run's by any later FileBackup, on any host or container sharing the store, from the disk alone, and a run that lost its claim must be unable to change anything its successor made; a process-identity check lost because a container shares neither process namespace nor host with the reader, and one fixed staging folder shared by every run lost because a reclaim could then not take a former owner's working folder away from it."""
-version = "2"
+version = "3"
 status = "Drafted"
 
 # --- Tools and package source ------------------------------------------------
@@ -730,18 +732,18 @@ title = "Leftover classification verdict"
 owner = "CMP-012"
 consumers = ["CMP-011", "CMP-013"]
 channel = "in-process call"
-data = """Request: each staging area as read, the saved-state root's and the backup root's: whether it exists and whether it is a link; its listing (entry names), with the listing of each run folder in it, or unreadable; its own modification time and age, or unreadable; the form of each entry of a run folder (IF-033), with, for an entry being deleted, whether a published folder holds an object of its stored name or no published record names it, and, for a prepared saved-state folder, whether it holds a stored object or any file outside its closed set and whether each record file in it is byte-identical to the backup root's file of the same name; the owner record (IF-033) as read, one of absent, parsed, unparseable or of an unknown schema (its bytes readable), or unreadable after three reads, with its modification time and age where readable; and optionally a second sample of the owner record's modification time.
+data = """Request: each staging area as read, the saved-state root's and the backup root's: whether it exists and whether it is a link; its listing (entry names), with the listing of each run folder in it, or unreadable; its own modification time and age, or unreadable; the form of each entry of a run folder (IF-033), with, for an entry being deleted, whether a published folder holds an object of its stored name or no published record names it, and, for a prepared saved-state folder, whether it holds a stored object or any file outside its closed set, whether its record of contents, folder record and link record are each byte-identical to the backup root's file of the same name, and whether its evidence parses and matches its own record of contents; the owner record (IF-033) as read, one of absent, parsed, unparseable or of an unknown schema (its bytes readable), or unreadable after three reads, with its run identity where it carries a RunId in canonical form, and its modification time and age where readable; and optionally a second sample of the owner record's modification time.
 Answer: one verdict, with the evidence it rests on:
 - Empty: no entry but entries holding no content, no owner record, the areas' own times stale;
 - EmptyFresh: the same, an area's own time fresh;
-- OwnerStale: the owner record readable, older than its stale time and unchanged at the second sample, every other entry holding no content;
+- OwnerStale: the owner record readable, a torn one included, older than its stale time and unchanged at the second sample, every other entry holding no content;
 - OwnerLive: the owner record readable and fresh, future-dated, or not yet confirmed stale;
 - PruneHeld: a removal's marker;
 - HoldsContent: any other entry;
 - Indeterminate: an area is a link, or a listing, an area's own time or the owner record could not be read.
-Entries holding no content: the owner record; a run folder named for the owner record's run identity, or, with no owner record, an empty one; and in a run folder, a publication temporary, a stored-object temporary, an entry being deleted whose stored name a published folder holds or no published record names, and a prepared saved-state folder holding no stored object, nothing outside its closed set, and record files byte-identical to the backup root's."""
+Entries holding no content: the owner record; a run folder named for the owner record's run identity; where there is no owner record, or it carries no RunId in canonical form, a run folder that is empty or holds only its own location record; and in a run folder, the run's location record, a publication temporary, a stored-object temporary, an entry being deleted whose stored name a published folder holds or no published record names, and a prepared saved-state folder holding no stored object and nothing outside its closed set, whose record of contents, folder record and link record are byte-identical to the backup root's and whose evidence is valid and matches its own record of contents."""
 rationale = """The decision whether an earlier run's leftovers may be reclaimed must be testable over every combination without a filesystem; a classifier that performs its own reads lost because its matrix could then only be exercised on real disks."""
-version = "2"
+version = "3"
 status = "Drafted"
 
 [interface.IF-045]

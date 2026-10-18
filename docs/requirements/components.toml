@@ -44,7 +44,7 @@ name = "Run record and progress"
 category = "software"
 part_of = "CMP-001"
 status = "Drafted"
-notes = """Keeps each run's record: the global record and one record per location, the files added, changed, removed and failed with causes, summary counts, warnings, progress entries at a bounded interval, and every refusal stated as what was found and what to do. Opens a record only once the configuration and the record's own location have been admitted, so a refused launch creates, truncates and appends to no record and reports on the console only. Today the logger lives in the restore-safe shared library and the per-location record lives in the location's saved-state root; there is no progress reporting at all."""
+notes = """Keeps each run's record: the global record and one record per location, the files added, changed, removed and failed with causes, summary counts, warnings, progress entries at a bounded interval, and every refusal stated as what was found and what to do. Opens a record only once the configuration and the record's own location have been admitted, so a refused launch creates, truncates and appends to no record and reports on the console only. Today the logger lives in the restore-safe shared library and the per-location record is truncated and appended in place in the location's saved-state root, outside any run folder; there is no progress reporting at all."""
 
 [component.CMP-007]
 name = "Backup engine"
