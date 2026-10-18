@@ -1,0 +1,38 @@
+[
+  {
+    "id": "R3K-001",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-162",
+      "LLR-118",
+      "IF-015",
+      "LLR-138",
+      "SR-082"
+    ],
+    "finding": "The pre-publication digest upgrade misses supported version-2 evidence. LLR-162 S12 applies only when the latest evidence is version 3, and its closing explanation likewise protects only that version. IF-015 explicitly retains version 2, including states written after folder records existed; version 2 binds neither metadata record, even by row count. Take such a latest state, change both a file and an empty folder, and kill after S14 but before S16. Its old file record still matches the old version-2 evidence, while its new folder record is present and can be applied under LLR-138. The restore can therefore finish with old files and new folders, rather than detecting the mismatch and leaving the folder record unapplied as S14 and SR-082 require. LLR-118's description of an earlier version as binding by row count does not resolve the explicit version-3-only step.",
+    "suggested_fix": "Require the unchanged-state version-4 evidence publication before replacing any state record whenever the published evidence lacks metadata digests, including supported versions 2 and 3. Make LLR-118 and S12 use the same closed version set and include the version-2 interruption case in the dimensions."
+  },
+  {
+    "id": "R3K-002",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-162",
+      "LLR-124",
+      "LLR-088",
+      "LLR-161",
+      "SR-075"
+    ],
+    "finding": "Early-failure cleanup is not closed over the listed kill shapes. LLR-124 permits a run to delete its own disposable prepared saved state non-recursively, through its run folders, with only the owner record required to be last. After a failed preparation or saved-state publication, that folder can contain complete record copies and valid evidence. The permitted cleanup can remove its record of contents before its evidence; a kill then leaves whole evidence beside a missing record in the still-staged prepared folder. This is neither the S09 shape (whole evidence valid for its own records) nor a shape of S24-S27, although LLR-162 explicitly says early cleanup leaves only those shapes. LLR-088 positively classifies that invalid-evidence prepared folder as content, so the next run refuses with 2 even once the owner is proven dead, rather than reclaiming these content-free leftovers under SR-075.",
+    "suggested_fix": "Specify an interruption-safe order for dismantling an owned prepared folder, removing its evidence before any record it binds, and explicitly enumerate the cleanup deletion intermediates in LLR-162. Ensure each intermediate, including any rename-in deletion entry, satisfies LLR-088; keep the fail-closed rule for unrelated or genuinely differing prepared folders."
+  },
+  {
+    "id": "R3K-003",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-118",
+      "SR-082"
+    ],
+    "finding": "An unidentified latest-state metadata mismatch has two incompatible next-run obligations. LLR-118 explicitly replaces a disagreeing folder or link record that cannot be identified from matching publication evidence with a publication derived from the source, records the replacement and continues. SR-082's acceptance instead requires damage or leftovers that cannot be positively identified as an interrupted publication to be refused with nothing changed. For a verifying file record beside a disagreeing folder record and no matching evidence temporary, the child publishes and continues while the system requirement refuses untouched. The new permission to restore files with metadata unapplied does not resolve this separate next-backup decision.",
+    "suggested_fix": "Choose one next-backup policy for unidentified latest-state folder/link damage and state it consistently. If source-derived replacement is intended, explicitly distinguish that case from unidentified record-of-contents damage in SR-082's recovery/refusal criteria; otherwise remove LLR-118's replacement-and-continue exception."
+  }
+]

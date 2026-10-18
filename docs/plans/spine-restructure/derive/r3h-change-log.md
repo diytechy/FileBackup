@@ -42,3 +42,14 @@ warnings.
 | R3I-001 | LLR-162, LLR-118 | New step S12 re-binds a version-3-evidenced latest state by digest before any record is replaced (S12..S26 become S13..S27). |
 | R3I-002 | SR-082, SR-106, LLR-123 | The metadata-only exception (P-16) is in SR-082's requirement and SR-106's acceptance; LLR-123's 4 covers only the record of contents. |
 | R3I-003 | LLR-162, LLR-124 | The identity-mismatch rollback moves back in reverse order; it is the table's new R3 (R3..R5 become R4..R6). |
+
+## Round 3l: the second scoped check's fixes
+
+Applied by `r3-merged/_r3l_apply.py`. Structural check: 0 errors, 140 LLR, the
+same 14 warnings.
+
+| Finding | Rows | What changed |
+|---|---|---|
+| R3K-001 | LLR-162, LLR-118 | S12's digest upgrade covers evidence versions 2 and 3. |
+| R3K-002 | LLR-124, LLR-162 | The early-failure cleanup empties a prepared folder evidence-first; the table's new row C1. |
+| R3K-003 | LLR-118, LLR-017 | An unidentified latest folder or link record mismatch is a damaged record (3), refused with nothing changed; round 3h's replace-from-source is reversed. |

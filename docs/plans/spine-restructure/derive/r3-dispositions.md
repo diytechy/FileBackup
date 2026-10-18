@@ -345,3 +345,23 @@ three are **confirmed** and fixed by `r3-merged/_r3j_apply.py`
 
 These fixes have not had a convergence check of their own. The method allows
 one scoped check per pass, so whether to run another is the Owner's call.
+
+## Second scoped check (the Owner asked for it)
+
+Input: `r3k-convergence-sol/` (Codex gpt-6.1-sol, high, a fresh session),
+scoped to the 6 rows changed at `5bade31`: 2 BLOCKER, 1 MAJOR. All three are
+**confirmed** and fixed by `r3-merged/_r3l_apply.py` (round 3l).
+
+| Finding | Rows | Disposition and fix |
+|---|---|---|
+| R3K-001 (BLOCKER) | LLR-162, LLR-118 | Confirmed. Version-2 evidence is still a supported form and binds the folder record not at all, yet S12 upgraded only version 3. S12 and LLR-118 now cover versions 2 and 3: any evidence without the digests. LLR-162's dimensions gain `evidence_before`. |
+| R3K-002 (MAJOR) | LLR-124, LLR-162 | Confirmed. An early failure's cleanup could delete a prepared folder's record copy before its evidence, leaving a shape LLR-088 refuses. The cleanup empties a prepared folder in place, evidence first, then the record copies, then the kit and temporaries, then the folder. This is the table's new row C1. |
+| R3K-003 (BLOCKER) | LLR-118, LLR-017, SR-082 | Confirmed. **Coordinator call: refuse.** Round 3h's replace-from-source clause is reversed. A latest folder or link record that disagrees with its evidence, and cannot be identified as an interrupted publication, is a damaged record (3), refused with nothing changed, as SR-017 and SR-082 already require. Replacing it was also unsafe: the saved state the run keeps copies the latest state's records and would bind the damage with fresh evidence. |
+
+**Closing note.** The staging class gave three findings at each of the last
+two checks, each narrower than the one before (a version transition, a
+cleanup order, a policy contradiction). These round-3l fixes are not
+re-checked. The coordinator stops here, as the method's cap and the Owner's
+request to close the branch both say. A future check of LLR-162, LLR-118,
+LLR-124 and LLR-017 is the first thing to run if this branch is taken
+forward.

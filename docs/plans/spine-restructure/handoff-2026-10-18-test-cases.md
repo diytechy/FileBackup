@@ -1,5 +1,16 @@
 # Handoff 2026-10-18 (b): FileBackup spine restructure, design tier done, into round 4
 
+> **Branch paused for comparison (2026-10-18, session c).** The Owner closed
+> this session here and is starting a different design branch, to compare the
+> builds for capability, maintainability and compatibility. This branch's spine
+> is self-consistent at its last commit: 0 structural errors and every finding
+> adjudicated. The round-3l fixes are unreviewed (open item 1), 13 Owner rulings
+> stand at their defaults (P-01..P-13), and nothing is approved. What it
+> offers a comparison: the needs, SRs and design tier in
+> `docs/requirements/*.toml`; the staging table (LLR-162); the build list
+> (`derive/r3-merged/design-gaps.md`, M01..M95); and the decision record
+> (`derive/r3-dispositions.md`). To resume this branch, start at open item 1.
+
 *Branch `DirectRebuild`. Nothing is pushed, merged or approved. ai-template is
 untouched by this work. Round 3 ran unattended (the Owner was not present),
 under the rules in [handoff-2026-10-18-design-tier.md](handoff-2026-10-18-design-tier.md),
@@ -70,9 +81,14 @@ The design moved most in two places: the fence and the staging sequence.
      R3G-001, R3G-002, R3G-004 and SR-144 are fixed. The build list gains
      M91..M95.
    - The scoped convergence check (`r3i-convergence-sol/`) found 1 BLOCKER and
-     2 MAJOR, all confirmed and fixed (round 3j). **Those fixes are not
-     re-checked.** One more scoped check of LLR-162, LLR-118, LLR-123,
-     LLR-124, SR-082 and SR-106 is the Owner's call.
+     2 MAJOR, all confirmed and fixed (round 3j). A second scoped check, at the
+     Owner's request (`r3k-convergence-sol/`), found 2 BLOCKER and 1 MAJOR, all
+     confirmed and fixed (round 3l). **The round-3l fixes are not re-checked**:
+     if this branch is taken forward, first run one scoped check of LLR-162,
+     LLR-118, LLR-124 and LLR-017.
+   - Also open, for the Owner: SN-013 still reads "restores correctly or is
+     refused". P-16's case (files restored, folder metadata left unapplied and
+     reported as 1) arguably fits it; the need may want to say so.
 2. **The Owner's pending rulings** below. Each is written to its default;
    flipping one is a row edit.
 3. **Owner approval of the need tier, then the SR tier, then the design
