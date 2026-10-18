@@ -113,7 +113,9 @@ The design moved most in two places: the fence and the staging sequence.
    - kit revision 14, with a revision line in every kit file;
    - IF-010 version 2;
    - the per-run location record;
-   - superseded content copied, not renamed (P-13).
+   - superseded content copied, not renamed (P-13);
+   - a backup to a destination whose free space cannot be measured is
+     refused (2), with UNC shares now measured (P-04, M96).
 
 ## Pending Owner rulings
 
@@ -125,7 +127,7 @@ rows affected, are in `r3-dispositions.md`.
 | P-01 | Does a version-2 configuration's D/W/M/Y schedule mean elapsed periods (SR-011) or calendar buckets (today's code)? | **Ruled (c)** by the Owner, 2026-10-18: calendar periods, as today's code; SR-011 and LLR-011 rewritten; still version 2 |
 | P-02 | Keep or retire the removal dry run (no need asks for it)? | Kept working, with no LLR, until ruled |
 | P-03 | The check reads every stored object by default (about 3 h at the reference host). Accept? | **Ruled (b)** by the Owner, 2026-10-18: keep today's quick check, -Deep proves content; SR-049 narrowed |
-| P-04 | A volume whose free space cannot be measured: refuse, or proceed and record? | Proceed and record |
+| P-04 | A volume whose free space cannot be measured: refuse, or proceed and record? | **Ruled** by the Owner, 2026-10-18: measure UNC shares (gap M96); a backup volume still unmeasurable is refused (2); restore unchanged |
 | P-05 | Does "re-derive and report" also cover a missing run-state record? | Yes, rebuild and report |
 | P-06 | The record's path separator becomes the backslash on every host (Linux stores change form at their next real change, with no spurious saved state). Accept? | Accept |
 | P-07 | Does SR-072's macOS double-click cover a kit carried in a zip? | No: supported from the backup's own volume; the manual gives the remedy |

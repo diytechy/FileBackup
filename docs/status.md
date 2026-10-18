@@ -43,9 +43,10 @@ last) — it is the record, not required reading for every pass.
   re-checked. The Owner is comparing this branch with a different design
   branch. **Next, if this branch resumes:** one scoped check of LLR-162,
   LLR-118, LLR-124 and LLR-017; then the Owner's remaining rulings (P-02 and
-  P-04..P-13, each written to its default; ruled 2026-10-18, both keeping
-  today's code: **P-01 calendar re-read periods** (SR-011, LLR-011) and **P-03
-  quick check plus -Deep** (SR-049, LLR-049)), then the Owner's approval of the need,
+  P-05..P-13, each written to its default; ruled 2026-10-18: **P-01 calendar
+  re-read periods** and **P-03 quick check plus -Deep**, both today's code;
+  **P-04 measure UNC shares, refuse a backup volume still unmeasurable** (SR-052,
+  LLR-052, new gap M96: today every UNC backup skips its space check)), then the Owner's approval of the need,
   SR and design tiers. Then round 4, the test cases, regenerated from the new
   LLRs; it needs the ai-template test-tagging ruling first. The need tier
   (48), SR tier (123) and design tier (24 CMP, 45 IF, 140 LLR in

@@ -26,7 +26,7 @@ One line per legacy id from LLR-001 to LLR-094, saying what became of it in the 
 | LLR-020 | Kept | LLR-020 (constrains IF-046) | Runtime and tool presence before any location is touched; the hashing component's fetch moved to LLR-105. |
 | LLR-021 | Kept | LLR-021 | Literal paths survive as a rule independent of any interface; the cross-host clause went to LLR-121. |
 | LLR-022 | Kept | LLR-022; infrastructure names to IF-013 | Root-only infrastructure recognition survives, now with the source-root rule (backup-only names there are owner content). |
-| LLR-023 | Kept | LLR-023 | Restore space check before the target exists, with Astra's declared allowance values (K09) and no refusal of an unmeasurable volume (K08, P-04). |
+| LLR-023 | Kept | LLR-023 | Restore space check before the target exists, with Astra's declared allowance values (K09) and no refusal of an unmeasurable volume (K08; P-04's refusal ruling is for the backup only). |
 | LLR-024 | Kept | LLR-024 | Deterministic record output survives. |
 | LLR-025 | Kept, merged LLR-032; split | LLR-025 (one reader, one writer, every route); columns to IF-014; publication to LLR-087 | The column schema is form; readers accept either separator in older records (K13). |
 | LLR-026 | Kept as child | LLR-026 (child of LLR-003) | Cross-state collapse serves store-once; it now deletes a copy only once the kept copy and every rewritten dependent state resolve. |
