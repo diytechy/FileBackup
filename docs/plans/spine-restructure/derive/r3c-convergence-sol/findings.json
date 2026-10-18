@@ -1,0 +1,103 @@
+[
+  {
+    "id": "R3C-001",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-109",
+      "LLR-115",
+      "IF-004",
+      "IF-018",
+      "LLR-144",
+      "SR-150",
+      "SR-152"
+    ],
+    "finding": "With SourceStatePath omitted, the change-detection state location is the source root. LLR-109 gives targets in that location priority over inside-source targets, and IF-018 defines own-location by lying in the state location. Consequently an ordinary link to another folder of the source is classified own-location, recorded with its original absolute target, and rebuilt there by LLR-144. SR-150/SR-152 instead require that same internal link to lead to the matching restored folder. The default configuration therefore produces the wrong link class and restore target.",
+    "suggested_fix": "Exclude the source-root cache location from the folder-subtree own-location rule: only the cache artifacts there are system-owned. Keep the subtree exclusion for a separate configured state location, and require ordinary links within the source to retain the inside-source class and be re-pointed under the restore target."
+  },
+  {
+    "id": "R3C-002",
+    "severity": "BLOCKER",
+    "rows": [
+      "SR-144",
+      "LLR-125"
+    ],
+    "finding": "The stated fencing mechanism cannot keep its stated promise in the very cross-host suspension case SR-144 includes. LLR-125 uses a separate owner-record read before each mutation, including publication, replacement and deletion, but concludes that a former owner can perform at most one unpublished temporary write after takeover. A holder can be suspended after that read and before the guarded publication or deletion. After a successor reclaims and writes, the resumed holder still performs that pending mutation without another ownership test. The window is not limited to temporary creation, so it can publish further or change a successor's file. No compromised host is needed; this is the row's declared resume-while-publishing case.",
+    "suggested_fix": "Either bound the guarantee to participants covered by the shared exclusion assumption DA-03, explicitly withdrawing automatic cross-host takeover outside it, or require a mutation/fencing mechanism that makes ownership validation and the protected commit indivisible. A separate pre-write read cannot justify the current guarantee."
+  },
+  {
+    "id": "R3C-003",
+    "severity": "MAJOR",
+    "rows": [
+      "SR-086",
+      "LLR-122",
+      "LLR-091",
+      "LLR-095",
+      "IF-013"
+    ],
+    "finding": "The same failed claim must both leave the store byte-identical and append to it. SR-086's acceptance requires a byte-identical store for contention and other claim failures; LLR-122 prohibits changing any record on that path. LLR-091 nevertheless requires a claim refusal to append to the location record, and LLR-095 likewise requires an appended entry before location admission. IF-013 places that existing backup.log inside the saved-state root. An ordinary second backup refused by a live holder cannot satisfy both sets of obligations.",
+    "suggested_fix": "Choose one rule consistently. To retain SR-086's untouched-store promise, send the claim refusal to the console and any admitted global record outside the store, removing the required location-log append. Alternatively explicitly exclude that append from the parent and child immutability guarantees."
+  },
+  {
+    "id": "R3C-004",
+    "severity": "MAJOR",
+    "rows": [
+      "SR-106",
+      "LLR-123",
+      "LLR-130",
+      "LLR-159"
+    ],
+    "finding": "LLR-123 promises a concurrent restore the quiet-store outcome for every state the writer does not remove, including a kit-refresh writer. LLR-130 refreshes the restorers and other kit files by separate renames, so a normal live refresh exposes mixed revisions even without an interruption. LLR-159 requires a restore observing those revisions to refuse with 3. A clean retained state that restores with 0 before and after refresh can therefore be required to return both the quiet-store outcome and damaged-record refusal during refresh. The reader's specified retries cover record/evidence changes, not this kit transition.",
+    "suggested_fix": "State one explicit policy for a restore meeting an active kit replacement and carry it through the concurrency and mixed-kit rows. If quiet-store completion remains required, specify how the reader obtains a consistent kit before applying LLR-159; distinguish an interrupted mixed kit from a live refresh."
+  },
+  {
+    "id": "R3C-005",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-150",
+      "IF-033",
+      "LLR-017",
+      "LLR-124",
+      "SR-075",
+      "SR-082"
+    ],
+    "finding": "The new staging layout has no recovery path for a prepared, unpublished saved-state folder. LLR-150/IF-033 put the prior record, evidence and kit in a subfolder of Temp while all stored content remains in the published pool. If the backup dies after that preparation, LLR-017 classifies the subfolder as content simply because it is neither the owner record nor a publication temporary; LLR-124 can reclaim only empty or owner-only leftovers. The next run must refuse even when the staged record/evidence match the still-published latest state and no stored content is in transit. This conflicts with SR-075's automatic recovery for that no-content-in-transit case and SR-082's recovery of positively identifiable interrupted publication.",
+    "suggested_fix": "Define how the metadata-only prepared folder of LLR-150 is positively recognised and safely reused or discarded after the owner is proven dead. Preserve refusal for unknown folders or unique content, and make the classifier and reclaim rules admit this specified recovery case."
+  },
+  {
+    "id": "R3C-006",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-022",
+      "IF-023",
+      "LLR-010",
+      "LLR-142",
+      "LLR-143",
+      "LLR-144"
+    ],
+    "finding": "The report-name form avoids recorded files only, whereas the restore obligations protect every recorded entry. A valid state can contain an empty folder or recorded link named RECONSTRUCT.log, with no file at that path. IF-022 therefore selects RECONSTRUCT.log for the report, occupying the place LLR-143 or LLR-144 must recreate. The same problem occurs when a recorded file needs RECONSTRUCT.log as a parent folder. LLR-010 forbids the report taking a recorded entry's name, and LLR-142 requires a noncolliding report name, so the prescribed allocation rule does not satisfy its consumers.",
+    "suggested_fix": "Choose the first report name free under the target's comparison rules across files, recorded folders, links and required parent folders. Apply that same rule in IF-022 and the restored-tree/report obligations."
+  },
+  {
+    "id": "R3C-007",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-019",
+      "LLR-131",
+      "LLR-138",
+      "LLR-159"
+    ],
+    "finding": "LLR-159 requires reading and comparing the kit revision of every artifact in the kit name set. IF-019 expressly exempts KIT-ORIGIN.txt from carrying the current kit revision: it holds only OriginalKitRevision, and LLR-131 requires preserving that historical value across later refreshes. For an older state refreshed successfully to the current kit, this artifact either has no comparable current revision or supplies a deliberately different original one. The all-artifacts comparison would refuse a valid completed refresh as a mixed kit, contrary to LLR-131, and defeats the original-age evidence LLR-138 needs.",
+    "suggested_fix": "Make LLR-159 compare only the current-revision-bearing artifacts defined by IF-019, plus the specified hashing-library version check. Explicitly exclude KIT-ORIGIN.txt from revision equality while retaining its historical value for age decisions."
+  },
+  {
+    "id": "R3C-008",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-073",
+      "LLR-157",
+      "SR-073"
+    ],
+    "finding": "The parent and child give different behavior for the same ordinary shell restore with an interactive console, no desktop and no target. LLR-073, following SR-073, requires a typed target prompt in that session. Its child LLR-157 says the shell route never asks by typed prompt and, without the folder-choice switch, must return usage and 2 whatever the session. This is a route-specific exception to the parent's obligation, rather than a decomposition that satisfies it.",
+    "suggested_fix": "Either provide the required typed prompt on the shell route or amend SR-073 and LLR-073 to state the intended route-specific admission policy consistently with LLR-157. Keep the unattended-session prohibition in either policy."
+  }
+]

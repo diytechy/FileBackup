@@ -162,3 +162,28 @@ kit file (R3S-015), and IF-010 version 2.
 The fixes are applied by an Opus builder (`r3b-change-log.md`). Then a fresh
 convergence check (Codex Sol, high, a new session) reviews only the changed
 rows. This is full round 1 of at most 3.
+
+## Convergence check 1 and full round 2
+
+Input: `r3c-convergence-sol/` (Codex gpt-6.1-sol, high, a fresh session that
+saw no earlier verdicts), scoped to the 149 rows changed at `45aca03`:
+2 BLOCKER, 6 MAJOR, 0 MINOR. The tier has not converged, so this is full
+round 2 of at most 3. All eight findings are **confirmed**.
+
+| Finding | Rows | Disposition and fix |
+|---|---|---|
+| R3C-001 | LLR-109, LLR-115, IF-004, IF-018, LLR-144 | Confirmed. Where the change-detection state sits at the source root (the default), only the change-detection record and its temporaries are system-owned; the source-root folder is not an own location. A link to another folder of the source stays inside-source and is re-pointed under the target. The subtree rule applies only to a separately configured state location. |
+| R3C-002 | SR-144, LLR-125 | Confirmed. **Coordinator design call:** a separate owner-record check before each mutation always leaves a window, so the fence becomes the filesystem's own. Each run works in a staging folder unique to its run identity, one on each volume it changes, under the claim. Every store mutation is a rename whose source or destination lies in that folder: a publication renames out of it, and a delete renames the object into it before the folder is purged. A successor's reclaim moves the former owner's run folder aside, so any rename the resumed run then issues fails by itself, with no check to race. The owner-record re-read stays as the early exit. The one residual is a write through a handle the run already held open, which lands in the moved-aside leftovers, never in a file the successor wrote or published. That is why P-09 (a) still stands. A build gap records the staging layout change. |
+| R3C-003 | SR-086, LLR-122, LLR-091, LLR-095, IF-013 | Confirmed: a refused claim leaves the store byte-identical. The refusal goes to the console and to the admitted global record, never to a log inside the store. |
+| R3C-004 | SR-106, LLR-123, LLR-130, LLR-159 | Confirmed. A restore that finds a mixed kit while a kit refresh holds the backup waits, bounded (as LLR-123 re-reads a changed record), and re-checks; past the bound it ends with 4, naming the refresh. A mixed kit with no live holder is an interrupted refresh, refused with 3 (LLR-159). P-10 is widened to cover this case. |
+| R3C-005 | LLR-150, IF-033, LLR-017, LLR-124 | Confirmed. A prepared, unpublished saved-state folder is positively recognised: it holds no stored object, and its record and evidence match the published latest state. Once its owner is proven dead it is reclaimable as holding no content. Any other folder in staging still refuses. |
+| R3C-006 | IF-022, IF-023, LLR-010, LLR-142, LLR-143, LLR-144 | Confirmed: the report takes the first name free, under the target's comparison rules, across recorded files, folders and links, and the parent folders they need. IF-022 and the restore rows use that one rule. |
+| R3C-007 | IF-019, LLR-131, LLR-138, LLR-159 | Confirmed: the kit-origin artifact carries no current revision and is excluded from LLR-159's revision equality. |
+| R3C-008 | LLR-073, LLR-157, SR-073 | Confirmed: SR-073 stands. The shell route asks for the target by typed prompt in an interactive console with no desktop, and refuses (2) only in an unattended session. If today's shell route does not, that is a gap. |
+
+P-10 is widened: (a) also covers a restore that meets a live kit refresh
+outlasting its bounded wait (4, naming the refresh).
+
+Applied by an Opus builder (`r3d-change-log.md`), then checked by a fresh
+convergence reviewer (Codex Sol, high, a new session), scoped to the rows
+round 2 changes.
