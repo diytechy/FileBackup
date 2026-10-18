@@ -35,6 +35,15 @@ last) — it is the record, not required reading for every pass.
   HELD there and must not be picked up here. The tooling (`trace.py`,
   `check.ps1`) is expected to fail on the new spine shape until the tooling
   phase; do not "fix" the spine to satisfy the old checker.
+  **Next:** the Owner approves the need tier (`requirements/stakeholder-needs.toml`,
+  48 needs, with the frame in `external.toml` and `assumptions.toml`) and then the
+  SR tier (`requirements/system-requirements.toml`, 120 rows). All rows are
+  Drafted, and only the Owner's reviewed Status-change commit approves them.
+  After that comes the design tier: components, interfaces (form only) and LLRs
+  in contract voice, derived twice independently and cross-compared like the
+  tiers above (method and records in `plans/spine-restructure/`). The legacy
+  `low-level-requirements.csv` and `test/test-cases.csv` still point at old ids
+  until they are rebuilt.
 
 - **M-1 SINGLE PROBE PASS (2026-10-10, branch fix-m1-single-probe-pass off New_Fix_Batch;
   NOT merged, awaiting review).** Review finding (performance, the Owner's NTFS probing
