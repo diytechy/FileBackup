@@ -133,7 +133,7 @@ rows affected, are in `r3-dispositions.md`.
 | P-06 | The record's path separator becomes the backslash on every host (Linux stores change form at their next real change, with no spurious saved state). Accept? | **Ruled (a)** by the Owner, 2026-10-18: accept |
 | P-07 | Does SR-072's macOS double-click cover a kit carried in a zip? | **Ruled (a)** by the Owner, 2026-10-18: from the backup's own volume only, plus a kit readme (RECONSTRUCT-README.txt) naming the remedy |
 | P-08 | The change-detection record shares its name with a backup's own record. Rename it? | **Ruled (a)** by the Owner, 2026-10-18: renamed `MANIFEST.fb.src.csv`, reading the old name once; the backup's `MANIFEST.csv` keeps its name |
-| P-09 | SR-144's "changes nothing further" cannot be absolute. Scope it to the store, with the change-detection state and views outside the guarantee? | Scope it to the store (the requirement text still needs "in the store", item 1) |
+| P-09 | SR-144's "changes nothing further" cannot be absolute. Scope it to the store, with the change-detection state and views outside the guarantee? | **Ruled (a)** by the Owner, 2026-10-18: store-scoped, as drafted |
 | P-10 | SR-106's "normal outcome during a writer": exceptions for the very state being removed, a kit refresh outlasting the wait, and a record pair that does not settle within 60 s? | Those cases end with 4, never wrong |
 | P-11 | Add the listing location (the views) to the system's own locations for links? | Add it |
 | P-12 | A pre-row-count state missing its folder record: complete (unverified) or part failed? | Complete, with the folder record reported unverified |
