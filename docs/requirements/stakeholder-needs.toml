@@ -13,7 +13,7 @@ status = "Drafted"
 need = """Every run backs up the whole of each source tree, capturing every file in it, and picks up new and changed files on later runs. A file the run could not capture is never skipped silently."""
 why = """The point of a backup is that whatever was in the source is in the backup. A file that is silently left out is discovered missing only when it is needed, which is the one moment it cannot be recovered."""
 priority = "M"
-acceptance = """After a run against a known tree, every file in that tree is restorable, including hidden, system and dot-named files and files nested anywhere that happen to share a name with the backup's own files; the only things left out are the declared exclusions: the backup's own files, the volume's own system folders, the change-detection record at the source root, what lies behind folder links that are not followed, which are named in the run's record, and files whose names are refused as non-portable, which are named and make the run report failure; a later run restores new and changed files at their new content; any file not captured is named in the run's record and the run reports failure."""
+acceptance = """After a run against a known tree, every file in that tree is restorable, including hidden, system and dot-named files and files nested anywhere that happen to share a name with the backup's own files; the only things left out are the declared exclusions: the backup's own files, the volume's own system folders, the change-detection record at the source root, what lies behind folder links that lead inside the same source, back to one of their own ancestors or into the backup's own locations, which are recorded and rebuilt at restore rather than followed, while links to folders anywhere else are followed and their content captured, and files whose names are refused as non-portable, which are named and make the run report failure; a later run restores new and changed files at their new content; any file not captured is named in the run's record and the run reports failure."""
 tags = ["filesystem"]
 stakeholder_refs = ["STK-01"]
 
@@ -323,10 +323,10 @@ stakeholder_refs = ["STK-02"]
 
 [need.SN-036]
 status = "Drafted"
-need = """A restored tree comes back the way it was, not merely with the right bytes: every file with its own modification time, empty folders present, and a folder made hidden still hidden where the target system supports it."""
+need = """A restored tree comes back the way it was, not merely with the right bytes: every file with its own modification time, empty folders present, links within the tree still links, and a folder made hidden still hidden where the target system supports it."""
 why = """Identical files are stored once, so unless each file's own time is restored, every twin comes back with the time of whichever was stored first; and a tree missing its empty folders or its hidden folders is not the tree the owner had."""
 priority = "S"
-acceptance = """Two identical files with different modification times restore with their own times, with compression on or off and through every restorer; an empty folder and a nested empty folder are recreated; a hidden and system folder comes back hidden and system on Windows, and on a system without those attributes the folder is created and the attributes it could not apply are reported."""
+acceptance = """Two identical files with different modification times restore with their own times, with compression on or off and through every restorer; an empty folder and a nested empty folder are recreated; a hidden and system folder comes back hidden and system on Windows, and on a system without those attributes the folder is created and the attributes it could not apply are reported; a link from one folder of the tree to another comes back as a link to the restored folder, and one the target cannot hold is reported."""
 tags = ["filesystem", "restore-host"]
 stakeholder_refs = ["STK-02"]
 

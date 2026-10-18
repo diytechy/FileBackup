@@ -12,7 +12,7 @@ title = "Every file in a source tree is captured"
 sn_refs = ["SN-001"]
 boundary_refs = ["B-01", "B-13"]
 requirement = """When a run ends for a source, the system shall have either recorded in that source's latest state or named in the run's record as not captured every file in the source tree outside the declared exclusions, hidden, system and dot-named files and files nested anywhere that share a name with the backup's own files included."""
-rationale = """Without it a file can be left out silently and is found missing only when it is needed. Skipping hidden or system files as noise lost: for a backup, capturing too much is recoverable and capturing too little is not. The capture domain is every file in the source except the declared exclusions, which SR-074 lists in full: the change-detection record at the source root, a volume's system folders at a volume-root source, what lies behind a folder link or junction that is not followed (SR-137), and a file whose name is refused as non-portable (SR-055). Inside that domain a file is either captured or named as not captured; a run that names one reports part failed (SR-089, SR-055), so the record of an attempt is never mistaken for a successful capture."""
+rationale = """Without it a file can be left out silently and is found missing only when it is needed. Skipping hidden or system files as noise lost: for a backup, capturing too much is recoverable and capturing too little is not. The capture domain is every file in the source except the declared exclusions, which SR-074 lists in full: the change-detection record at the source root, a volume's system folders at a volume-root source, what lies behind a folder link or junction that is recorded rather than followed (SR-150, SR-151), its content being captured at its real place or the system's own, and a file whose name is refused as non-portable (SR-055). Inside that domain a file is either captured or named as not captured; a run that names one reports part failed (SR-089, SR-055), so the record of an attempt is never mistaken for a successful capture."""
 acceptance_criteria = """After one run against a known tree, every file of the tree outside the declared exclusions, including dot-named files, nested dot-named folders, hidden and system files and folders at any depth, and nested files whose names match the backup's own files, is either restored from the latest state or named in the run's record as not captured, with compression on and off; any such file neither restored nor named is a failure. With every file of the domain readable and portably named, every one restores and the run reports complete; a file named as not captured makes the run report part failed."""
 permutations = """file_kind=set{ordinary,hidden,system,dot-named,nested-dot-folder,nested-own-file-name}; depth=range[0..32]; compress=bool; @pairwise"""
 priority = "M"
@@ -785,9 +785,9 @@ form = "interface"
 title = "Only the declared exclusions are left out of a backup"
 sn_refs = ["SN-001"]
 boundary_refs = ["B-01"]
-requirement = """The system shall leave out of a backup only the declared exclusions: the change-detection state it keeps at a source's root; where a source is the root of a volume, the volume's own system folders at that root, matched without regard to letter case, and no other file or folder of the same name elsewhere in the tree; what lies behind a folder link or junction it does not follow (SR-137); and a file whose name it refuses as non-portable (SR-055)."""
-rationale = """An exclusion set wider than this silently drops owner data that happens to share a name; none at all makes a volume-root source fail every run on a folder nobody can read and backs up files the owner already discarded. A per-location exclusion list lost: scoping the source is the declared way to leave things out. A setting that leaves files out by hidden, system or dot-named status lost too: it silently drops owner data. What is the system's own is what it writes into the source, not what shares a name with it. Matching ignores case because the systems that create those folders do. The list is complete, so the capture domain of SR-001 is exactly the source less these; a link not followed and a refused name are named in the run's record, never left out silently (SR-137, SR-055)."""
-acceptance_criteria = """A source at the root of a local drive or of a network share omits only the volume's metadata folder and recycle folder at that root, whatever their letter case; the same folder names nested in the tree, or directly under an ordinary folder that is a source, are backed up in full. Where the change-detection state is kept at the source root it is not backed up, and same-named files nested elsewhere are; where it is kept elsewhere, a root-level owner file sharing its name is backed up; a root-level owner file sharing a name with a file the system keeps only in the backup is backed up. What lies behind a folder link or junction not followed, and a file whose name is refused, are left out and named in the run's record. Nothing else is omitted. An unreadable volume system folder at the root neither fails the run nor adds an entry, and does not change the outcome class of a later restore."""
+requirement = """The system shall leave out of a backup only the declared exclusions: the change-detection state it keeps at a source's root; where a source is the root of a volume, the volume's own system folders at that root, matched without regard to letter case, and no other file or folder of the same name elsewhere in the tree; what lies behind a folder link or junction it records rather than follows (SR-150, SR-151); and a file whose name it refuses as non-portable (SR-055)."""
+rationale = """An exclusion set wider than this silently drops owner data that happens to share a name; none at all makes a volume-root source fail every run on a folder nobody can read and backs up files the owner already discarded. A per-location exclusion list lost: scoping the source is the declared way to leave things out. A setting that leaves files out by hidden, system or dot-named status lost too: it silently drops owner data. What is the system's own is what it writes into the source, not what shares a name with it. Matching ignores case because the systems that create those folders do. The list is complete, so the capture domain of SR-001 is exactly the source less these; a recorded link is kept in the record and rebuilt at restore, and a refused name is named in the run's record, so nothing is left out silently (SR-150, SR-151, SR-152, SR-055)."""
+acceptance_criteria = """A source at the root of a local drive or of a network share omits only the volume's metadata folder and recycle folder at that root, whatever their letter case; the same folder names nested in the tree, or directly under an ordinary folder that is a source, are backed up in full. Where the change-detection state is kept at the source root it is not backed up, and same-named files nested elsewhere are; where it is kept elsewhere, a root-level owner file sharing its name is backed up; a root-level owner file sharing a name with a file the system keeps only in the backup is backed up. What lies behind a folder link or junction that is recorded rather than followed is left out and the link is recorded; a file whose name is refused is left out and named in the run's record. Nothing else is omitted. An unreadable volume system folder at the root neither fails the run nor adds an entry, and does not change the outcome class of a later restore."""
 permutations = """source_root=set{drive-root,share-root,ordinary-folder}; folder_position=set{top-level,nested}; folder_name=set{volume-metadata,recycle,state-record,backup-only-name,ordinary}; state_location=set{source-root,elsewhere}; name_case=set{as-created,different-case}; @pairwise"""
 priority = "M"
 verification = "Test"
@@ -1399,8 +1399,8 @@ title = "A restore never writes outside its target"
 sn_refs = ["SN-042"]
 boundary_refs = ["B-16", "B-15"]
 hat_refs = ["SECURITY"]
-requirement = """If an entry in the record of a state being restored has a path or a link that would land outside the restore target, in a restore that has passed admission (SR-145), then the restore kit shall leave it unwritten, name it, and report the damaged-record outcome."""
-rationale = """A damaged or crafted record can name a path that climbs out of the target, or redirect through a link, and overwrite files the restorer never meant to touch. Joining path text blindly lost to checking where the write really lands."""
+requirement = """If a file entry in the record of a state being restored would land outside the restore target, by its path or through a link, or a recorded link inside its source would be re-pointed to outside the target, in a restore that has passed admission (SR-145), then the restore kit shall leave it unwritten, name it, and report the damaged-record outcome."""
+rationale = """A damaged or crafted record can name a path that climbs out of the target, or redirect through a link, and overwrite files the restorer never meant to touch. Joining path text blindly lost to checking where the write really lands. A recorded link that led outside its source is the owner's and is recreated as a link pointing there (SR-152); it is made after every file, so nothing is written through it."""
 acceptance_criteria = """A record holding entries with parent-climbing, absolute and drive-qualified paths, and entries redirected outside the target through a link, restores every other entry, writes nothing outside the target, names and counts each such entry as not restored, and returns exit code 3. A record holding such an entry whose completeness evidence does not match is refused before anything is written, with exit code 3 (SR-039, SR-145)."""
 permutations = """path_form=set{parent-climb,absolute,drive-qualified,via-link}; restorer=set{windows,linux,macos}; target_exists=bool; @pairwise"""
 priority = "M"
@@ -1640,18 +1640,18 @@ delivered_with = ["SR-033"]
 form = "interface"
 
 [requirement.SR-137]
-title = "A link or junction to a folder in a source is named, never silently left out"
+title = "A link or junction to a folder outside its source is followed"
 sn_refs = ["SN-001"]
 boundary_refs = ["B-01", "B-06"]
-requirement = """If a source holds a link or junction that leads to a folder, then the system shall name it in the run's record and leave the folder it leads to unfollowed."""
-rationale = """A link leads outside the tree the owner chose, or back into it: following it can capture a tree the owner never named, the same content twice, or loop without end. Not following it is safe only if it is visible, because SN-001 forbids a silent omission; naming it lets the owner add what it leads to as a source of its own. Following links lost: the owner names sources, not the links inside them. A link to a single file is a file of the tree, and its content is captured under the link's name."""
-acceptance_criteria = """With a folder link and a junction inside a source, one leading outside the source and one leading to an ancestor folder (a cycle), the run finishes, captures nothing from behind them, names each in its record as a link not followed, and captures every other file, and their presence alone does not make the outcome other than complete; a link to a single file is captured as the content it leads to, under the link's name, and restores as an ordinary file."""
-permutations = """link=set{folder-link,junction,file-link}; leads_to=set{outside-source,ancestor,inside-source}; @pairwise"""
+requirement = "When a source holds a link or junction to a folder outside that source and outside the system's own locations, the system shall capture what it leads to as part of the source, under the link's path."
+rationale = "An owner who backs up a folder holding a junction assumes the junction's content is in the backup; leaving it out, even visibly, loses data the owner believes is protected. Recording the link alone lost: the folder it leads to may be on a volume no other source covers, and a restore elsewhere could not reach it. Two links to one folder are each followed: the content is stored once, because identical content is (SN-002), and only the record grows. A link to a single file is a file of the tree, captured under the link's name. A link whose target cannot be reached is a file the run could not capture."
+acceptance_criteria = "With a folder link and a junction inside a source, each leading to a folder on another volume outside every system location, the run captures every file behind them under the link's path, and a restore produces them as ordinary folders and files at that path under the target; two links to the same outside folder both appear in the record and the content behind them is stored once; a link to a single file is captured and restored as the file it leads to; a link whose target cannot be reached within the run's bounded wait is named in the run's record as not captured, its earlier captured content is not recorded as removed, and the run reports part failed (value 1, SR-043)."
+permutations = "link=set{folder-link,junction,file-link}; target=set{other-volume,network-share,unreachable}; repeated=bool; @pairwise"
 priority = "M"
 verification = "Test"
 status = "Drafted"
-coincident = """The run's record naming each link, and the captured tree, are the outcome."""
-delivered_with = ["SR-001", "SR-089"]
+coincident = "The captured tree under the link's path is the outcome."
+delivered_with = ["SR-001", "SR-089", "SR-150"]
 form = "interface"
 
 [requirement.SR-138]
@@ -1834,4 +1834,52 @@ verification = "Test"
 status = "Drafted"
 coincident = """The refusal and the untouched locations are the outcome."""
 delivered_with = ["SR-148", "SR-138", "SR-063"]
+form = "interface"
+
+[requirement.SR-150]
+title = "A link inside its own source, or back to its own ancestor, is recorded, not followed"
+sn_refs = ["SN-001", "SN-036"]
+boundary_refs = ["B-01", "B-02"]
+hat_refs = ["PERFORMANCE"]
+requirement = "When a source holds a link or junction to a folder inside that same source, or to a folder that is one of the link's own ancestors in the walk, the system shall record the link and where it leads without following it."
+rationale = "Derived in part through PERFORMANCE: a link back to one of its own ancestors makes a walk that follows it never end, and a link to a folder already inside the source would capture that content a second time under another path for no gain, since the content itself is captured at its real place. Recording the link instead keeps the restored tree the way it was (SN-036): the link comes back as a link. Following inside links and relying on de-duplication lost: it cannot end on a cycle."
+acceptance_criteria = "With a link and a junction inside a source each leading to another folder of that source, and a link inside a followed outside folder leading to one of its own ancestors, the run finishes, captures the content behind each only at its real place, records each link with where it leads, and their presence does not change the outcome from complete."
+permutations = "link=set{folder-link,junction}; leads_to=set{inside-source,ancestor-in-source,ancestor-in-followed-folder}; @pairwise"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = "The record of each link, and the captured tree, are the outcome."
+delivered_with = ["SR-137", "SR-152"]
+form = "interface"
+
+[requirement.SR-151]
+title = "A link into the system's own locations is recorded, not followed"
+sn_refs = ["SN-001"]
+boundary_refs = ["B-01", "B-02"]
+hat_refs = ["PERFORMANCE"]
+requirement = "If a source holds a link or junction to a folder inside the backup, its saved states, the change-detection state or the logs, then the system shall record the link and where it leads without following it."
+rationale = "Derived through PERFORMANCE: following a link into the backup backs the backup up into itself, and the store grows by its own size every run until the volume fills. The link is the owner's, so it is recorded and comes back at restore like any other (SR-152), pointing where it pointed; only what lies behind it is the system's own, which SN-001 already leaves out."
+acceptance_criteria = "With a link inside a source leading to the backup root, one to a saved state's folder and one to the log location, the run captures nothing from behind them, the store does not grow by their content, each link is recorded with where it leads, and their presence does not change the outcome from complete."
+permutations = "leads_to=set{backup-root,saved-state,state-location,log-location}; @full"
+priority = "M"
+verification = "Test"
+status = "Drafted"
+coincident = "The unchanged store and the record of each link are the outcome."
+delivered_with = ["SR-074", "SR-152"]
+form = "interface"
+
+[requirement.SR-152]
+title = "A recorded link is rebuilt at restore"
+sn_refs = ["SN-036"]
+boundary_refs = ["B-16"]
+hat_refs = ["CROSS-PLATFORM"]
+requirement = "When a restored state records a link, the restore kit shall recreate it at its place under the target after every file is written, pointing at the matching path under the target where it led inside its source, and at the path it led to otherwise."
+rationale = "A tree whose internal links come back missing or as empty folders is not the tree the owner had (SN-036); an inside link re-pointed under the target works in the restored tree as it did in the source. A link into the system's own locations is rebuilt to its original path because it is the owner's link, even where it leads nowhere on the restore machine. Links are made last so no file is ever written through one (SR-121). Derived through CROSS-PLATFORM: a target that cannot hold a link of that kind must not turn an intact restore into a failure."
+acceptance_criteria = "A state recording a link inside its source, a junction inside its source and a link into the backup restores each as a link at its place: the inside ones lead to the matching folders under the target and open their restored content, the other leads to its original path; no file is written through any of them. On a target that cannot create a link of that kind, or without the right to, the restore names each link it could not recreate and the outcome stays complete (value 0)."
+permutations = "link=set{inside-source,junction-inside-source,own-location}; target_os=set{windows,linux,macos}; can_create_links=bool; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+coincident = "The rebuilt links in the restored tree are the outcome."
+delivered_with = ["SR-150", "SR-151", "SR-121"]
 form = "interface"
