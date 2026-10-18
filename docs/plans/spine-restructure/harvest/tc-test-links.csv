@@ -1,0 +1,687 @@
+TC-ID,file,line,kind,block
+TC-002,tests/Unit/StorageForm.Tests.ps1,1198,comment,The already-compressed extension list is one list (SR-004)
+TC-002,tests/Unit/StorageForm.Tests.ps1,1198,comment,The already-compressed extension list is one list (SR-004)
+TC-002,tests/Unit/StorageForm.Tests.ps1,1221,comment,declines to compress <Ext> (SR-004)
+TC-004,tests/Unit/Common.Tests.ps1,15,title,"round-trips a full 128-bit hash EXACTLY, all 32 hex digits (SR-069, TC-004)"
+TC-019,tests/Common/PoolAudit.ps1,4,code,
+TC-019,tests/Common/PoolAudit.ps1,108,code,
+TC-019,tests/Suites/G2-Incremental.ps1,51,comment,
+TC-034,tests/Unit/CompressProbeWiring.Tests.ps1,153,comment,
+TC-034,tests/Unit/StorageForm.Tests.ps1,39,comment,
+TC-049,tests/Suites/G9-Rollback.ps1,113,code,
+TC-049,tests/Suites/G9-Rollback.ps1,130,code,
+TC-049,tests/Suites/G9-Rollback.ps1,237,comment,
+TC-049,tests/Unit/Coverage.Tests.ps1,1638,comment,"keeps the backup copy, elects the newest snapshot without one, blanks vanished rows, and leaves one physical copy per key (SR-026)"
+TC-053,tests/bash/hash_conformance.bats,2,comment,
+TC-053,tests/bash/hash_conformance.bats,13,title,"hash_file equals the committed Get-FileXxHash goldens for every fixture (TC-053, SR-030)"
+TC-053,tests/bash/hash_conformance.bats,31,title,"hash_file handles the empty file (TC-053, SR-030)"
+TC-053,tests/bash/hash_conformance.bats,37,title,"hash_file streams a >1 MiB binary correctly (multi-buffer) (TC-053, SR-030)"
+TC-053,tests/bash/name_grammar.bats,15,comment,
+TC-054,tests/bash/restore.bats,2,comment,
+TC-054,tests/bash/restore.bats,27,title,"HashAddressed: root + every snapshot restore byte-exact (TC-054, SR-031)"
+TC-054,tests/bash/restore.bats,31,title,"HashAddressed+Compress: root + every snapshot restore byte-exact (TC-054, SR-031)"
+TC-054,tests/bash/restore.bats,35,title,"explicit --backup-root/--change-root overrides restore a snapshot byte-exact (TC-054, SR-031)"
+TC-054,tests/Suites/G4-Sanitization.ps1,170,code,
+TC-055,tests/bash/exit_codes.bats,5,comment,
+TC-055,tests/bash/fail_loudly.bats,2,comment,
+TC-055,tests/bash/fail_loudly.bats,14,title,"a clean (untampered) restore exits 0 (TC-055, SR-031)"
+TC-055,tests/bash/fail_loudly.bats,19,title,"missing data source: salvages the rest and exits non-zero naming the count (TC-055, SR-031)"
+TC-055,tests/bash/fail_loudly.bats,35,title,"hash-unrecoverable: a blank-DataPath row whose only pool copy is gone exits non-zero (TC-055, SR-031)"
+TC-055,tests/bash/fail_loudly.bats,49,title,"refuses a path-traversal RelativePath and exits non-zero (TC-055, SR-031)"
+TC-056,tests/bash/manifest_parse.bats,2,comment,
+TC-056,tests/bash/manifest_parse.bats,25,title,"parses a plain row (TC-056, SR-032)"
+TC-056,tests/bash/manifest_parse.bats,32,title,"parses a quoted field containing a comma (TC-056, SR-032)"
+TC-056,tests/bash/manifest_parse.bats,38,title,"unescapes a doubled quote inside a quoted field (TC-056, SR-032)"
+TC-056,tests/bash/manifest_parse.bats,44,title,"preserves an EMPTY leading DataPath field (TC-056, SR-032)"
+TC-056,tests/bash/manifest_parse.bats,51,title,"keeps unicode / bracket / space / backslash names intact (TC-056, SR-032)"
+TC-056,tests/bash/manifest_parse.bats,60,title,"tolerates a bare (unquoted) empty trailing field (TC-056, SR-032)"
+TC-056,tests/bash/manifest_parse.bats,67,title,"tolerates a UTF-8 BOM on the header (TC-056, SR-032)"
+TC-056,tests/bash/manifest_parse.bats,74,title,"parses the real committed fixture manifests without error (TC-056, SR-032)"
+TC-058,tests/bash/restore.bats,52,comment,"a NESTED infra-named pool file is scanned by hash recovery (root-level-only skip) (B6, SR-022/SR-031)"
+TC-058,tests/Unit/Coverage.Tests.ps1,863,title,"recovers a blanked row whose only copy is a NESTED infra-named pool file (B6, TC-058)"
+TC-060,tests/Unit/Coverage.Tests.ps1,2650,comment,container/entrypoint.sh dispatches on the action word and passes 
+TC-066,tests/Unit/Common.Tests.ps1,295,comment,Manifest witness sidecar (SR-038)
+TC-067,tests/Unit/Coverage.Tests.ps1,755,comment,"Manifest witness is infrastructure (SR-022, SR-038)"
+TC-068,tests/bash/witness.bats,5,comment,
+TC-068,tests/Unit/Coverage.Tests.ps1,901,comment,Manifest witness verification on restore (SR-039)
+TC-069,tests/bash/witness.bats,2,comment,
+TC-070,tests/bash/exit_codes.bats,4,comment,
+TC-070,tests/bash/exit_codes.bats,61,comment,2: precondition — a FILE occupies the target path (SR-040)
+TC-070,tests/Unit/Coverage.Tests.ps1,1072,comment,Restore exit-code table (SR-040)
+TC-071,tests/bash/exit_codes.bats,2,comment,
+TC-072,tests/Unit/Coverage.Tests.ps1,991,comment,Hash-recovery failure causes are distinguishable (SR-040)
+TC-073,tests/Unit/Coverage.Tests.ps1,1191,comment,Move loops aggregate failures (SR-041)
+TC-073,tests/Unit/StagingLock.Tests.ps1,859,comment,"Every exit stops the heartbeat (TC-196, SR-075, LLR-017, LLR-080)"
+TC-074,tests/Common/ConfigFixtures.ps1,3,code,
+TC-074,tests/Common/ConfigFixtures.ps1,28,code,
+TC-074,tests/Unit/Coverage.Tests.ps1,8,comment,
+TC-074,tests/Unit/Engine.Tests.ps1,301,comment,Configuration loader fails loudly and names the key (SR-042)
+TC-075,tests/Common/ConfigFixtures.ps1,3,code,
+TC-075,tests/Common/ConfigFixtures.ps1,28,code,
+TC-075,tests/Unit/Coverage.Tests.ps1,8,comment,
+TC-076,tests/Unit/Coverage.Tests.ps1,1336,code,"runs the checked-in container/FileBackup.example.json, with only its paths and 7-Zip path retargeted, to a byte-exact restore (SR-042, SR-034)"
+TC-076,tests/Unit/Coverage.Tests.ps1,2650,comment,container/entrypoint.sh dispatches on the action word and passes 
+TC-077,tests/Common/ConfigFixtures.ps1,4,code,
+TC-077,tests/Common/ConfigFixtures.ps1,28,code,
+TC-077,tests/Unit/CompressProbeWiring.Tests.ps1,599,title,"publishes ONE CompressProbe vocabulary: schema enum = validator = every ValidateSet (TC-227, TC-077, R-6)"
+TC-077,tests/Unit/CompressProbeWiring.Tests.ps1,600,comment,"publishes ONE CompressProbe vocabulary: schema enum = validator = every ValidateSet (TC-227, TC-077, R-6)"
+TC-077,tests/Unit/Coverage.Tests.ps1,8,comment,
+TC-077,tests/Unit/Engine.Tests.ps1,6,comment,
+TC-077,tests/Unit/Engine.Tests.ps1,301,comment,Configuration loader fails loudly and names the key (SR-042)
+TC-081,tests/Unit/Coverage.Tests.ps1,31,comment,
+TC-081,tests/Unit/Coverage.Tests.ps1,1924,comment,Prune re-homes the last copy before deleting (SR-045)
+TC-082,tests/Run-All.ps1,110,comment,
+TC-082,tests/Suites/G9-Rollback.ps1,113,code,
+TC-082,tests/Suites/G9-Rollback.ps1,130,code,
+TC-082,tests/Suites/G9-Rollback.ps1,237,comment,
+TC-083,tests/Unit/Coverage.Tests.ps1,2218,comment,Prune is idempotent and resumable (SR-046)
+TC-083,tests/Unit/Coverage.Tests.ps1,2303,comment,"The entry sweep removes residue only, never user content (SR-046)"
+TC-084,tests/Unit/Coverage.Tests.ps1,31,comment,
+TC-084,tests/Unit/Coverage.Tests.ps1,1729,comment,Prune refuses before mutating (SR-046)
+TC-084,tests/Unit/Coverage.Tests.ps1,1849,comment,still refuses a mismatched witness when -AllowUnverifiedIndex is passed (absent is not damaged) (SR-039)
+TC-084,tests/Unit/Coverage.Tests.ps1,2127,comment,"Prune reports host I/O as code 4 before the commit point (SR-046, SR-040)"
+TC-085,tests/Unit/Coverage.Tests.ps1,2078,comment,Prune re-stamps every manifest it rewrites (SR-038)
+TC-086,tests/Unit/Coverage.Tests.ps1,2038,comment,Prune changes only the storage-form columns (SR-045)
+TC-087,tests/Unit/Coverage.Tests.ps1,1662,comment,Snapshot inventory reports true dedup-aware reclaim (SR-047)
+TC-087,tests/Unit/Coverage.Tests.ps1,2185,comment,Reported reclaim equals measured reclaim (SR-047)
+TC-088,tests/Unit/Coverage.Tests.ps1,2498,comment,Retention at the entry point and the container boundary (SR-048)
+TC-089,tests/Unit/Coverage.Tests.ps1,1554,comment,Optimize-ChangeFolders is unchanged by the shared index (SR-026)
+TC-090,tests/Run-All.ps1,110,comment,
+TC-090,tests/Suites/G9-Rollback.ps1,130,code,
+TC-090,tests/Suites/G9-Rollback.ps1,150,comment,
+TC-091,tests/Unit/StorageForm.Tests.ps1,4,code,
+TC-091,tests/Unit/StorageForm.Tests.ps1,107,code,
+TC-091,tests/Unit/StorageForm.Tests.ps1,220,comment,"A backup run never re-forms stored data (SR-049, SR-061)"
+TC-092,tests/Unit/StorageForm.Tests.ps1,164,code,
+TC-092,tests/Unit/StorageForm.Tests.ps1,273,comment,Hash recovery trusts the located file
+TC-093,tests/Unit/StorageForm.Tests.ps1,444,comment,Storage-form verification reports without mutating (SR-049)
+TC-093,tests/Unit/StorageForm.Tests.ps1,837,comment,"Verify does not re-hash raw-stored archives (SR-049, SR-081)"
+TC-094,tests/Unit/StorageForm.Tests.ps1,4,code,
+TC-094,tests/Unit/StorageForm.Tests.ps1,164,code,
+TC-094,tests/Unit/StorageForm.Tests.ps1,656,comment,Storage-form repair makes the index agree with the bytes (SR-049)
+TC-096,tests/Unit/StorageForm.Tests.ps1,4,code,
+TC-096,tests/Unit/StorageForm.Tests.ps1,1198,comment,The already-compressed extension list is one list (SR-004)
+TC-097,tests/Suites/G4-Sanitization.ps1,8,code,
+TC-097,tests/Suites/G4-Sanitization.ps1,151,code,
+TC-098,tests/bash/storage_form.bats,2,comment,
+TC-098,tests/Unit/StorageForm.Tests.ps1,4,code,
+TC-098,tests/Unit/StorageForm.Tests.ps1,292,comment,Hash recovery reports the located file
+TC-099,tests/bash/storage_form.bats,2,comment,
+TC-099,tests/bash/storage_form.bats,42,title,"row says Compressed=No but the located file is a .7z: restores the payload (TC-099, SR-050)"
+TC-099,tests/bash/storage_form.bats,50,title,"row says Compressed=Yes but the located file is raw: copies it (TC-099, SR-050)"
+TC-099,tests/bash/storage_form.bats,58,title,"a .7z-named file holding RAW bytes is recovered, not called a candidate error (TC-099, SR-050)"
+TC-099,tests/bash/storage_form.bats,67,title,"a NON-blank DataPath row is still decided by its own Compressed (TC-099, SR-050)"
+TC-099,tests/bash/storage_form.bats,74,title,"a blank row for a GENUINE .7z source file is recovered, not called missing (TC-099, SR-050)"
+TC-099,tests/bash/storage_form.bats,102,title,"an unexpandable, unmatching .7z candidate is CONTENT damage, exit 1, candidate named (TC-099, SR-040, kit rev 6)"
+TC-099,tests/bash/storage_form.bats,115,title,"genuinely absent content is still the CONTENT class, exit 1 (TC-099, SR-040)"
+TC-099,tests/Suites/G4-Sanitization.ps1,170,code,
+TC-100,tests/Unit/StorageForm.Tests.ps1,4,code,
+TC-100,tests/Unit/StorageForm.Tests.ps1,1283,comment,Backup capacity preflight refuses before mutating (SR-052)
+TC-101,tests/Unit/StorageForm.Tests.ps1,4,code,
+TC-101,tests/Unit/StorageForm.Tests.ps1,1447,comment,"Free space is measured the same way on both platforms (SR-052, SR-023)"
+TC-101,tests/Unit/StorageForm.Tests.ps1,1482,comment,"answers a MOUNT POINT from the mount table, longest prefix wins (SR-052)"
+TC-102,tests/Unit/Coverage.Tests.ps1,2551,comment,prints the literal empty JSON document for a store with no snapshots (-Action Snapshots)
+TC-102,tests/Unit/StorageForm.Tests.ps1,587,comment,"prints the findings document as parseable JSON, the literal [] when clean (SR-049)"
+TC-107,tests/Unit/Coverage.Tests.ps1,1167,comment,returns 4 when hash recovery needs a 7-Zip this host lacks (host class) (SR-040)
+TC-108,tests/bash/restore_verify.bats,4,comment,
+TC-108,tests/Unit/RestoreVerify.Tests.ps1,5,code,
+TC-108,tests/Unit/RestoreVerify.Tests.ps1,236,comment,"Restore verifies the bytes it wrote (SR-056, D-2)"
+TC-108,tests/Unit/RestoreVerify.Tests.ps1,240,title,"heals a wrong-payload data file from a surviving pool copy: exit 0, byte-exact, warning logged (TC-108)"
+TC-108,tests/Unit/RestoreVerify.Tests.ps1,260,title,a same-length bit-flip with no surviving copy fails loudly naming the row: exit 1 (TC-108)
+TC-108,tests/Unit/RestoreVerify.Tests.ps1,281,title,truncation is caught by the length check before any hashing (TC-108)
+TC-108,tests/Unit/RestoreVerify.Tests.ps1,294,title,a valid archive with the WRONG payload at the row
+TC-109,tests/bash/restore_verify.bats,2,comment,
+TC-109,tests/bash/restore_verify.bats,29,title,"0: a wrong-payload data file is healed from a surviving pool copy, warning logged (SR-056 / TC-109)"
+TC-109,tests/bash/restore_verify.bats,42,title,"1: a same-length bit-flip with no surviving copy fails loudly, bad bytes deleted (SR-056 / TC-109)"
+TC-109,tests/bash/restore_verify.bats,54,title,1: truncation is caught by the length check before any hashing (SR-056 / TC-109)
+TC-109,tests/bash/restore_verify.bats,163,title,0: a valid archive with the WRONG payload at the row
+TC-109,tests/Unit/RestoreVerify.Tests.ps1,5,code,
+TC-110,tests/bash/verify_damage_interop.sh,2,comment,
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,5,code,
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,84,comment,"Locator exit-code honesty — a bad pool candidate is data damage, not a host problem (SR-040, D-3)"
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,88,title,"an unrelated unexpandable .7z in the pool yields ContentMissing / exit 1, naming the candidate (TC-111)"
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,114,title,a candidate that cannot be READ is a host condition: StorageUnreadable / exit 4 (TC-111)
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,138,title,"a no-7-Zip unreadable candidate records exactly ONE cause (TC-111, folded nit)"
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,164,title,a row
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,186,title,a row
+TC-111,tests/Unit/RestoreVerify.Tests.ps1,209,title,"a genuine host failure alongside a content failure still reports 4 (SR-040 precedence, TC-111)"
+TC-112,tests/bash/exit_codes.bats,159,title,"1: an unrelated unexpandable .7z in the pool is data damage, not a host problem (kit rev 6, SR-040 / TC-112)"
+TC-112,tests/bash/exit_codes.bats,186,title,4: a row
+TC-112,tests/Unit/RestoreVerify.Tests.ps1,5,code,
+TC-113,tests/Suites/G5-EdgeCases.ps1,36,comment,
+TC-113,tests/Unit/RestoreVerify.Tests.ps1,322,comment,"Hidden and dot-prefixed entries are captured and located (SR-057, TC-114)"
+TC-114,tests/bash/restore_verify.bats,149,title,0: a DOT-NAMED pool file is found by hash recovery (SR-057 regression pin / TC-114 twin)
+TC-114,tests/Unit/RestoreVerify.Tests.ps1,5,code,
+TC-114,tests/Unit/RestoreVerify.Tests.ps1,320,title,"Hidden and dot-prefixed entries are captured and located (SR-057, TC-114)"
+TC-114,tests/Unit/RestoreVerify.Tests.ps1,324,title,no Get-ChildItem in the maintained surface lacks -Force — the anti-regression guard (TC-114)
+TC-114,tests/Unit/RestoreVerify.Tests.ps1,341,title,"a DOT-NAMED pool data file is found by (hash,length) recovery (TC-114)"
+TC-114,tests/Unit/RestoreVerify.Tests.ps1,359,title,"a pool data file carrying the Windows HIDDEN attribute is found by (hash,length) recovery (TC-114)"
+TC-114,tests/Unit/RestoreVerify.Tests.ps1,377,title,Expand-FileWithSevenZip picks up a payload 7-Zip restored with the Hidden attribute (TC-114)
+TC-114,tests/Unit/RestoreVerify.Tests.ps1,470,title,"a HIDDEN Snapshot_* folder is still part of the pool (Get-PoolSnapshotFolder, TC-114)"
+TC-115,tests/bash/exit_codes.bats,38,title,2: no --target-root dies loudly with usage — the RECONSTRUCT.ps1 -NonInteractive twin (SR-016 / TC-115)
+TC-115,tests/Unit/RestoreVerify.Tests.ps1,5,code,
+TC-115,tests/Unit/RestoreVerify.Tests.ps1,479,title,"Non-interactive TargetRoot parity (SR-016, TC-115)"
+TC-115,tests/Unit/RestoreVerify.Tests.ps1,485,title,-NonInteractive with no -TargetRoot exits 2 with usage and never blocks (TC-115)
+TC-115,tests/Unit/RestoreVerify.Tests.ps1,494,title,"-NonInteractive without -ExitCode still exits the process with 2, not the throw path"
+TC-115,tests/Unit/RestoreVerify.Tests.ps1,501,title,"with -TargetRoot given, -NonInteractive changes nothing (TC-115)"
+TC-116,tests/Common/PoolAudit.ps1,2,code,
+TC-116,tests/Common/PoolAudit.ps1,79,code,
+TC-116,tests/Run-All.ps1,56,comment,
+TC-116,tests/Suites/G2-Incremental.ps1,76,comment,
+TC-116,tests/Suites/G3-Reconstruction.ps1,71,comment,
+TC-116,tests/Suites/G9-Rollback.ps1,96,comment,
+TC-116,tests/Suites/G9-Rollback.ps1,322,comment,
+TC-117,tests/Unit/Coverage.Tests.ps1,2692,comment,classifies portability per name component (SR-055)
+TC-118,tests/Common/PoolAudit.ps1,157,code,
+TC-118,tests/Unit/Coverage.Tests.ps1,118,comment,
+TC-118,tests/Unit/Coverage.Tests.ps1,3117,comment,"hash-recovers a row whose named data file is gone but whose bytes survive in the pool (SR-031, SR-010)"
+TC-118,tests/Unit/Coverage.Tests.ps1,3125,title,"Shared content survives an edit by one holder (D-1, SR-059, TC-118)"
+TC-118,tests/Unit/Coverage.Tests.ps1,3126,comment,"Shared content survives an edit by one holder (D-1, SR-059, TC-118)"
+TC-118,tests/Unit/Coverage.Tests.ps1,3583,title,"keeps the pool object a FROZEN row still claims when the last walkable holder edits away (SR-057, TC-118 frozen-claim arm, <Mode>)"
+TC-118,tests/Unit/Coverage.Tests.ps1,3621,title,"parks exactly one staged copy when eviction and supersession share content in one run (R4, TC-118 arm, <Mode>)"
+TC-118,tests/Unit/Coverage.Tests.ps1,3653,title,"keeps the old object in the pool when the replacement copy FAILS (TC-118 failed-copy arm, <Mode>)"
+TC-119,tests/Unit/Coverage.Tests.ps1,118,comment,
+TC-119,tests/Unit/Coverage.Tests.ps1,3117,comment,"hash-recovers a row whose named data file is gone but whose bytes survive in the pool (SR-031, SR-010)"
+TC-119,tests/Unit/Coverage.Tests.ps1,3294,title,"Same-run duplicates are stored once (D-5, SR-060, TC-119)"
+TC-120,tests/Unit/Coverage.Tests.ps1,3750,title,"One (hash,length) group elects one physical object (SR-060, TC-120)"
+TC-121,tests/Unit/Coverage.Tests.ps1,3554,title,"Every stored row is content-addressed (SR-058, TC-121)"
+TC-122,tests/Common/PoolAudit.ps1,157,code,
+TC-122,tests/Common/PoolAudit.ps1,222,code,
+TC-122,tests/Unit/Coverage.Tests.ps1,3183,title,"The pool is immutable and every name is justified (SR-059, TC-122)"
+TC-122,tests/Unit/Coverage.Tests.ps1,3184,comment,"The pool is immutable and every name is justified (SR-059, TC-122)"
+TC-122,tests/Unit/Coverage.Tests.ps1,3232,code,never changes the content at a claimed DataPath across <Runs> runs (<Mode>)
+TC-123,tests/Common/PoolAudit.ps1,119,code,
+TC-123,tests/Suites/G2-Incremental.ps1,69,comment,
+TC-123,tests/Unit/Coverage.Tests.ps1,3028,comment,"backs up a source file named like ROOT-LEVEL infrastructure as ordinary data (SR-022, SR-058)"
+TC-124,tests/Suites/G4-Sanitization.ps1,4,code,
+TC-124,tests/Suites/G4-Sanitization.ps1,17,comment,
+TC-124,tests/Unit/Coverage.Tests.ps1,3816,title,"A compression flip re-forms nothing already stored (SR-061, TC-124)"
+TC-125,tests/Common/ConfigFixtures.ps1,111,comment,
+TC-125,tests/Unit/Engine.Tests.ps1,354,title,"refuses a JSON PreserveFolderTree with the NAMED removal diagnostic, not the generic unknown-key message (SR-063, TC-125)"
+TC-126,tests/Unit/Engine.Tests.ps1,348,title,"refuses ConfigVersion 1 as TOO OLD, naming the v2 change (SR-063, TC-126)"
+TC-126,tests/Unit/Engine.Tests.ps1,361,title,"refuses a CLIXML PreserveFolderTree with the SAME named diagnostic — silent divergence is the failure class WP9 kills (SR-063, TC-126)"
+TC-127,tests/Common/ConfigFixtures.ps1,118,comment,
+TC-127,tests/Unit/Engine.Tests.ps1,370,title,"accepts BrowseView off/index, defaults it OFF, and defaults ViewPath beside the backup root (SR-063, TC-127)"
+TC-127,tests/Unit/Engine.Tests.ps1,380,title,refuses BrowseView 
+TC-128,tests/Unit/Engine.Tests.ps1,387,title,"refuses a ViewPath inside BackupPath or ChangePath at path resolution (SR-063, TC-128)"
+TC-128,tests/Unit/Engine.Tests.ps1,403,title,"refuses a ViewPath that CONTAINS a storage root or the source tree (SR-063, TC-128, WP9 review MAJ-1)"
+TC-128,tests/Unit/Engine.Tests.ps1,439,title,"refuses a ViewPath on a different volume; the default beside the backup root resolves (SR-063, TC-128)"
+TC-129,tests/Suites/G10-View.ps1,2,code,
+TC-129,tests/Suites/G10-View.ps1,38,comment,
+TC-129,tests/Suites/G10-View.ps1,50,comment,
+TC-129,tests/Unit/View.Tests.ps1,3,code,
+TC-129,tests/Unit/View.Tests.ps1,65,title,"The view mirrors the manifest exactly (SR-062, TC-129)"
+TC-130,tests/Suites/G10-View.ps1,2,code,
+TC-130,tests/Suites/G10-View.ps1,77,comment,
+TC-130,tests/Unit/View.Tests.ps1,3,code,
+TC-130,tests/Unit/View.Tests.ps1,191,title,"The view is invisible to the engine and the restorers (SR-062, TC-130)"
+TC-131,tests/Suites/G10-View.ps1,3,code,
+TC-131,tests/Suites/G10-View.ps1,69,comment,
+TC-131,tests/Unit/View.Tests.ps1,3,code,
+TC-131,tests/Unit/View.Tests.ps1,130,title,"Freshness, idempotence, torn views (SR-062, TC-131)"
+TC-132,tests/Unit/Coverage.Tests.ps1,3482,title,"The unreferenced-data audit is linear (SR-064, LLR-062, TC-132)"
+TC-132,tests/Unit/Coverage.Tests.ps1,3509,comment,scales linearly from 1k to 4k rows and still catches the orphan and the missing file
+TC-133,tests/Suites/G10-View.ps1,3,code,
+TC-133,tests/Suites/G10-View.ps1,85,comment,
+TC-133,tests/Unit/View.Tests.ps1,3,code,
+TC-133,tests/Unit/View.Tests.ps1,212,title,"Snapshots get no view (SR-062, TC-133)"
+TC-134,tests/bash/restore.bats,5,comment,
+TC-134,tests/bash/restore.bats,79,title,reconstruct.sh scans the pool with plain 
+TC-135,tests/Unit/Coverage.Tests.ps1,309,code,
+TC-135,tests/Unit/Coverage.Tests.ps1,3708,title,"One dedup member deleted while the others live (B9, SR-006, TC-135)"
+TC-136,tests/bash/restore_fidelity.bats,2,comment,
+TC-136,tests/bash/restore_fidelity.bats,35,title,a deduplicated twin keeps its OWN modification time (SR-066 / TC-136)
+TC-136,tests/bash/restore_fidelity.bats,47,title,a garbage LastWriteTimeStr warns but still restores the bytes (SR-066 / TC-136)
+TC-136,tests/Unit/RestoreFidelity.Tests.ps1,5,code,
+TC-136,tests/Unit/RestoreFidelity.Tests.ps1,89,title,"a deduplicated twin keeps its OWN mtime, not the pool object owner"
+TC-136,tests/Unit/RestoreFidelity.Tests.ps1,108,title,"a blank or garbage LastWriteTimeStr warns but still restores the bytes (TC-136, <Mode>)"
+TC-137,tests/bash/restore_fidelity.bats,2,comment,
+TC-137,tests/bash/restore_fidelity.bats,79,title,the sidecar recreates empty directories and reports the attributes as inapplicable (SR-065 / TC-137)
+TC-137,tests/bash/restore_fidelity.bats,92,title,"an absent sidecar restores exactly as before, with no empty directories (SR-065 / TC-137)"
+TC-137,tests/bash/restore_fidelity.bats,103,title,a garbage sidecar never fails the restore (SR-065 / TC-137)
+TC-137,tests/bash/restore_fidelity.bats,113,title,the sidecar cannot write outside the target root (SR-065 / TC-137)
+TC-137,tests/Unit/RestoreFidelity.Tests.ps1,5,code,
+TC-137,tests/Unit/RestoreFidelity.Tests.ps1,126,title,"records exactly the empty and attributed directories, and nothing else (TC-137)"
+TC-137,tests/Unit/RestoreFidelity.Tests.ps1,139,title,recreates empty directories and re-applies folder attributes on restore (TC-137)
+TC-137,tests/Unit/RestoreFidelity.Tests.ps1,154,title,writes NO sidecar for a tree with no empty or attributed directory (TC-137)
+TC-137,tests/Unit/RestoreFidelity.Tests.ps1,165,title,an absent or garbage sidecar still restores every file and exits 0 (TC-137)
+TC-137,tests/Unit/RestoreFidelity.Tests.ps1,181,title,"a store carrying a sidecar still audits CLEAN, in the root and in a snapshot (TC-137)"
+TC-137,tests/Unit/RestoreFidelity.Tests.ps1,201,title,"a snapshot carries the sidecar of the state it preserves, not the live one (TC-137)"
+TC-138,tests/bash/restore_fidelity.bats,2,comment,
+TC-138,tests/bash/restore_fidelity.bats,150,title,"a legacy store marked StoredAsHashSize=Original is refused, writing nothing (SR-061 / TC-138)"
+TC-138,tests/bash/restore_fidelity.bats,161,title,a legacy store marked by a path-addressed DataPath is refused too (SR-061 / TC-138)
+TC-138,tests/Unit/RestoreFidelity.Tests.ps1,5,code,
+TC-138,tests/Unit/RestoreFidelity.Tests.ps1,313,title,"refuses with exit 2 and writes nothing (TC-138, <Marker>)"
+TC-139,tests/Unit/RestoreFidelity.Tests.ps1,6,code,
+TC-139,tests/Unit/RestoreFidelity.Tests.ps1,538,title,overwrites a valid orphan archive instead of adding a second member (TC-139)
+TC-139,tests/Unit/RestoreFidelity.Tests.ps1,562,title,overwrites truncated debris rather than merging into it (TC-139)
+TC-140,tests/Unit/RestoreFidelity.Tests.ps1,337,title,a file whose content is UNIQUE is rescued when the lock clears (TC-140)
+TC-140,tests/Unit/RestoreFidelity.Tests.ps1,388,title,a permanently unreadable file is failed loudly and gets NO manifest row (TC-140)
+TC-140,tests/Unit/RestoreFidelity.Tests.ps1,416,title,"END-TO-END: a file that vanishes between the walk and the copy is omitted, not faked (TC-140)"
+TC-140,tests/Unit/RestoreFidelity.Tests.ps1,491,title,"a deterministic failure is not retried at all, so the budget survives it (TC-140)"
+TC-140,tests/Unit/RestoreFidelity.Tests.ps1,501,title,a spent run budget stops the waiting and says so (TC-140)
+TC-141,tests/bash/exit_codes.bats,212,title,1: a row
+TC-141,tests/bash/restore_fidelity.bats,190,title,a LYING Compressed=Yes over raw bytes still restores byte-exact (SR-068 / TC-141)
+TC-141,tests/bash/restore_fidelity.bats,199,title,an already-compressed SOURCE file stored raw is never expanded (SR-068 / TC-141)
+TC-141,tests/Unit/RestoreFidelity.Tests.ps1,227,title,restores byte-exact with EVERY row
+TC-141,tests/Unit/RestoreFidelity.Tests.ps1,246,title,"an already-compressed SOURCE file is never expanded, column right or wrong (TC-141, <Mode>)"
+TC-141,tests/Unit/RestoreFidelity.Tests.ps1,294,title,"genuine damage is still reported, not silently reinterpreted (TC-141, <Mode>)"
+TC-142,tests/Unit/Common.Tests.ps1,31,title,"uses exactly 57 glyphs and excludes the ambiguous 0 O I l 1 (SR-069, TC-142)"
+TC-143,tests/Unit/Common.Tests.ps1,43,title,produces a 
+TC-144,tests/Unit/Common.Tests.ps1,53,title,"encodes a zero-length object as the zero digit (SR-069, TC-144)"
+TC-145,tests/Unit/Common.Tests.ps1,83,title,"THROWS rather than truncating a value too wide for the field (SR-069, TC-145)"
+TC-146,tests/Unit/Common.Tests.ps1,59,title,"treats the extension as OPAQUE and round-trips a hostile one (SR-070, TC-146)"
+TC-147,tests/Unit/Common.Tests.ps1,91,title,"refuses to parse a PRE-WP12 base-85 name (SR-061, SR-069, TC-147)"
+TC-148,tests/Suites/G1-InitialBackup.ps1,38,comment,
+TC-148,tests/Unit/Common.Tests.ps1,74,title,"accepts an EMPTY extension - an extensionless source file (SR-070, TC-148)"
+TC-149,tests/Suites/G4-Sanitization.ps1,86,comment,
+TC-150,tests/bash/name_grammar.bats,2,comment,
+TC-150,tests/bash/name_grammar.bats,51,title,"current and legacy are DIFFERENT questions, not complements (TC-150, SR-061/SR-049)"
+TC-150,tests/bash/name_grammar.bats,74,title,"a damaged DataPath is not treated as a retired grammar (TC-150, SR-061/SR-049)"
+TC-150,tests/bash/name_grammar.bats,87,title,a blank DataPath is never legacy - it means 
+TC-150,tests/Unit/Common.Tests.ps1,121,title,"does NOT classify a damaged or foreign DataPath as legacy (TC-150, SR-049)"
+TC-150,tests/Unit/Common.Tests.ps1,132,title,"DOES classify both retired grammars as legacy (TC-150, SR-061)"
+TC-150,tests/Unit/Common.Tests.ps1,141,title,never treats a blank DataPath as legacy - it means 
+TC-150,tests/Unit/Common.Tests.ps1,145,title,has a NON-EMPTY 
+TC-151,tests/bash/name_grammar.bats,2,comment,
+TC-151,tests/bash/name_grammar.bats,29,title,"is_legacy_stored_name matches the PowerShell oracle for every case (TC-151, SR-061)"
+TC-151,tests/bash/name_grammar.bats,92,title,"both retired grammars are caught: base-85 and path-addressed (TC-151, SR-061)"
+TC-151,tests/bash/name_grammar.bats,106,title,"no shipped fixture object reads as a retired grammar (TC-151, SR-069/SR-061)"
+TC-151,tests/Unit/Common.Tests.ps1,167,title,is committed and non-trivial (TC-151)
+TC-151,tests/Unit/Common.Tests.ps1,172,title,still describes what these functions actually answer (TC-151)
+TC-151,tests/Unit/Common.Tests.ps1,192,title,"covers all three classes, so the bash parity check is meaningful (TC-151)"
+TC-152,tests/bash/name_grammar.bats,2,comment,
+TC-152,tests/bash/name_grammar.bats,129,title,"the witness format version agrees across every file that declares it (TC-152, SR-061)"
+TC-153,tests/Unit/Common.Tests.ps1,205,title,folds to exactly 34 case-insensitive classes on NTFS (TC-153)
+TC-153,tests/Unit/Common.Tests.ps1,222,title,still holds a 128-bit hash in its 22-character field (TC-153)
+TC-154,tests/bash/name_grammar.bats,147,title,"the ONE gap the gate leaves open is benign: blank rows restore by content (TC-154, SR-061)"
+TC-162,tests/Unit/RestoreLaunchers.Tests.ps1,5,code,
+TC-162,tests/Unit/RestoreLaunchers.Tests.ps1,32,title,"Target-prompt decision core (SR-073, SR-016, TC-162)"
+TC-163,tests/Unit/RestoreLaunchers.Tests.ps1,5,code,
+TC-163,tests/Unit/RestoreLaunchers.Tests.ps1,65,title,"Folder picker fallbacks (SR-073, TC-163)"
+TC-168,tests/Unit/RestoreLaunchers.Tests.ps1,5,code,
+TC-168,tests/Unit/RestoreLaunchers.Tests.ps1,140,title,"generates a .cmd that is a PURE passthrough - no pause (SR-072, TC-168)"
+TC-171,tests/Unit/RestoreLaunchers.Tests.ps1,5,code,
+TC-171,tests/Unit/RestoreLaunchers.Tests.ps1,121,title,"deposits all seven kit artifacts (SR-007, TC-171)"
+TC-172,tests/Unit/RestoreLaunchers.Tests.ps1,5,code,
+TC-172,tests/Unit/RestoreLaunchers.Tests.ps1,166,title,"still treats a legacy RECONSTRUCT.bat as infrastructure (SR-022, TC-172)"
+TC-173,tests/Unit/RestoreLaunchers.Tests.ps1,5,code,
+TC-173,tests/Unit/RestoreLaunchers.Tests.ps1,84,title,"Kit revision marker (SR-049, TC-173)"
+TC-173,tests/Unit/RestoreLaunchers.Tests.ps1,85,title,"is 13 in BOTH restorers, and they agree (TC-173)"
+TC-174,tests/Unit/RestoreLaunchers.Tests.ps1,5,code,
+TC-174,tests/Unit/RestoreLaunchers.Tests.ps1,184,title,"A restored tree is ordinary writable files (SR-007, TC-174)"
+TC-175,tests/bash/portability.bats,254,title,"volume_root_skip matches only the ROOT level, never a nested folder (SR-074, TC-175)"
+TC-175,tests/Unit/VolumeRootFolders.Tests.ps1,5,code,
+TC-175,tests/Unit/VolumeRootFolders.Tests.ps1,49,title,"Volume-root pseudo-folder predicate (SR-074, TC-175)"
+TC-176,tests/Unit/VolumeRootFolders.Tests.ps1,5,code,
+TC-176,tests/Unit/VolumeRootFolders.Tests.ps1,90,title,"Source enumeration at an ORDINARY root keeps everything (SR-074, TC-176)"
+TC-176,tests/Unit/VolumeRootFolders.Tests.ps1,105,title,"Source enumeration at a REAL volume root (SR-074, TC-176/TC-177)"
+TC-177,tests/Unit/VolumeRootFolders.Tests.ps1,5,code,
+TC-177,tests/Unit/VolumeRootFolders.Tests.ps1,105,title,"Source enumeration at a REAL volume root (SR-074, TC-176/TC-177)"
+TC-178,tests/Unit/VolumeRootFolders.Tests.ps1,5,code,
+TC-178,tests/Unit/VolumeRootFolders.Tests.ps1,153,title,"The restorer filters both halves (SR-074, TC-178)"
+TC-179,tests/bash/bsd_userland.bats,4,comment,
+TC-179,tests/bash/bsd_userland.bats,132,title,"BSD + Compress + snapshot: a dated snapshot restores byte-exact (SR-071, TC-179)"
+TC-180,tests/Unit/VolumeRootFolders.Tests.ps1,5,code,
+TC-180,tests/Unit/VolumeRootFolders.Tests.ps1,163,title,"A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040, TC-180)"
+TC-181,tests/Unit/TargetContainment.Tests.ps1,3,code,
+TC-181,tests/Unit/TargetContainment.Tests.ps1,35,title,"Target containment is physical, not lexical (SR-009, TC-181)"
+TC-182,tests/bash/bsd_userland.bats,104,title,"BSD: a restored file keeps its OWN timestamp through the touch -t fallback (SR-066, TC-182)"
+TC-183,tests/Unit/RestoreLaunchers.Tests.ps1,277,title,"STA marshalling for the folder picker (SR-073, TC-183)"
+TC-184,tests/bash/portability.bats,292,title,"--pick-target works when the picker path CONTAINS SPACES (SR-073, TC-184)"
+TC-185,tests/Unit/StagingLock.Tests.ps1,5,code,
+TC-185,tests/Unit/StagingLock.Tests.ps1,58,comment,
+TC-185,tests/Unit/StagingLock.Tests.ps1,69,code,
+TC-185,tests/Unit/StagingLock.Tests.ps1,664,title,"survives a REAL Remove-Module / Import-Module -Force cycle in a child process (TC-185, SR-075, LLR-080)"
+TC-185,tests/Unit/StagingLock.Tests.ps1,768,title,"The beat survives a blocked pipeline (TC-185, SR-075, LLR-080)"
+TC-185,tests/Unit/StagingLock.Tests.ps1,770,title,"advances the marker mtime, observed from a SEPARATE process, while a long blocking operation occupies the pipeline (TC-185, SR-075, LLR-080)"
+TC-185,tests/Unit/StagingLock.Tests.ps1,798,title,"NEGATIVE CONTROL: a Register-ObjectEvent handler does NOT advance it under the same block (TC-185, SR-075, LLR-080)"
+TC-185,tests/Unit/StagingLock.Tests.ps1,836,title,"a throwing callback neither kills the run nor silently stops the beat (TC-185, SR-075, LLR-080)"
+TC-186,tests/Unit/StagingLock.Tests.ps1,121,comment,
+TC-186,tests/Unit/StagingLock.Tests.ps1,1039,title,"Reclaiming a provably abandoned staging lock (TC-186, SR-017, SR-075, LLR-017)"
+TC-186,tests/Unit/StagingLock.Tests.ps1,1044,title,"reclaims a stale marker-only Temp, completes the run, and the aside folder is GONE (TC-186, SR-017, SR-075, LLR-017)"
+TC-187,tests/Unit/StagingLock.Tests.ps1,193,comment,
+TC-187,tests/Unit/StagingLock.Tests.ps1,1074,title,"A LIVE owner is never stomped (TC-187, TC-203, SR-017, SR-075, LLR-017)"
+TC-187,tests/Unit/StagingLock.Tests.ps1,1079,title,"refuses a fresh marker-only Temp with [SR-075/owner-live], moves nothing, and leaves the tree byte-identical (TC-187, SR-017, SR-075, LLR-017)"
+TC-188,tests/Unit/StagingLock.Tests.ps1,193,comment,
+TC-188,tests/Unit/StagingLock.Tests.ps1,1158,title,"A Temp holding anything is refused, unchanged from before (TC-188, TC-190, SR-017, SR-046, SR-075, LLR-017)"
+TC-188,tests/Unit/StagingLock.Tests.ps1,1163,title,"refuses a STALE marker plus data files and leaves every byte hash-identical (TC-188, SR-017, SR-075, LLR-017)"
+TC-189,tests/Unit/StagingLock.Tests.ps1,1225,title,"Resurrection between the classification and the move (TC-189, SR-075, LLR-017, LLR-080)"
+TC-189,tests/Unit/StagingLock.Tests.ps1,1230,title,"keeps the aside folder, skips the deletes, prints the recovery, and CONTINUES the run (TC-189, SR-075, LLR-017, LLR-080)"
+TC-189,tests/Unit/StagingLock.Tests.ps1,1265,title,"NEGATIVE CONTROL: trusting the classification through the move DELETES the injected bytes (TC-189, SR-075, LLR-017)"
+TC-189,tests/Unit/StagingLock.Tests.ps1,1269,comment,"NEGATIVE CONTROL: trusting the classification through the move DELETES the injected bytes (TC-189, SR-075, LLR-017)"
+TC-190,tests/Unit/StagingLock.Tests.ps1,1158,title,"A Temp holding anything is refused, unchanged from before (TC-188, TC-190, SR-017, SR-046, SR-075, LLR-017)"
+TC-190,tests/Unit/StagingLock.Tests.ps1,1193,title,"refuses a PRUNE.inprogress of ANY age with [SR-075/prune-held] (TC-190, SR-017, SR-046, SR-075, LLR-017)"
+TC-190,tests/Unit/StagingLock.Tests.ps1,1208,title,"leaves prunes own staging-busy rail untouched (TC-190, SR-046, SR-075, LLR-017)"
+TC-191,tests/Suites/G8-RealVolume.ps1,215,code,
+TC-191,tests/Unit/StagingLock.Tests.ps1,1341,title,"Two reclaimers racing one stale lock (TC-191, SR-075, LLR-017)"
+TC-191,tests/Unit/StagingLock.Tests.ps1,1345,title,"lets exactly ONE proceed; the loser refuses without retrying (TC-191, SR-075, LLR-017)"
+TC-191,tests/Unit/StagingLock.Tests.ps1,1409,title,"moves a LIVE Temp straight back and refuses when the move did not take the classified directory (TC-191, SR-075, LLR-017)"
+TC-191,tests/Unit/StagingLock.Tests.ps1,1455,title,"NEGATIVE CONTROL: a delete-then-create acquisition lets the loser take the lock (TC-191, SR-075)"
+TC-192,tests/Unit/StagingLock.Tests.ps1,1482,title,"The empty-Temp branches and the create-to-marker gate (TC-192, SR-017, SR-075, LLR-017)"
+TC-192,tests/Unit/StagingLock.Tests.ps1,1487,title,"reclaims an EMPTY Temp whose own directory mtime is stale - the pre-WP14 upgrade path (TC-192, SR-017, SR-075, LLR-017)"
+TC-192,tests/Unit/StagingLock.Tests.ps1,1502,title,"REFUSES an empty Temp whose directory mtime is fresh - the create-to-marker theft gate (TC-192, SR-017, SR-075, LLR-017)"
+TC-192,tests/Unit/StagingLock.Tests.ps1,1550,comment,"fails As exclusive publish and aborts it touching NOTHING after B reclaims As directory (TC-197, SR-075, LLR-017, LLR-080)"
+TC-193,tests/Unit/StagingLock.Tests.ps1,121,comment,
+TC-193,tests/Unit/StagingLock.Tests.ps1,1520,title,"A future-dated marker is fresh, never proof of death (TC-193, SR-075, LLR-080)"
+TC-193,tests/Unit/StagingLock.Tests.ps1,1522,title,"classifies a marker dated <_> s INTO THE FUTURE as OwnerLive and refuses (TC-193, SR-075, LLR-080)"
+TC-194,tests/Suites/G8-RealVolume.ps1,5,code,
+TC-194,tests/Suites/G8-RealVolume.ps1,18,code,
+TC-194,tests/Suites/G8-RealVolume.ps1,134,comment,
+TC-194,tests/Suites/G8-RealVolume.ps1,154,code,
+TC-194,tests/Suites/G8-RealVolume.ps1,211,code,
+TC-196,tests/Unit/StagingLock.Tests.ps1,5,code,
+TC-196,tests/Unit/StagingLock.Tests.ps1,58,comment,
+TC-196,tests/Unit/StagingLock.Tests.ps1,80,comment,
+TC-196,tests/Unit/StagingLock.Tests.ps1,858,title,"Every exit stops the heartbeat (TC-196, SR-075, LLR-017, LLR-080)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,869,title,"stops and drains the beat when an early catch cleanup fires (TC-196, SR-075, LLR-017)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,886,title,"stops and drains the beat when <_> throws after staging gains content (TC-196, SR-075, LLR-017, LLR-080)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,1756,title,"An early ORDINARY throw never deletes a folder this run no longer owns (TC-196, SR-017, SR-075, LLR-017)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,1767,title,"keeps the SUCCESSORs staging folder byte-identical when a resurrected owner throws ordinarily (TC-196, SR-017, SR-075, LLR-017)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,1816,title,"NEGATIVE CONTROL: the old unconditional recursive cleanup destroys the successors only copy (TC-196, SR-075)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,1833,title,"still removes the folder on an early failure while the run DOES own it (TC-196, SR-075, LLR-017)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,1848,title,"releases its own lock on a LATE capacity refusal, after step 7 wrote the staging manifest (TC-196, SR-052, SR-017, SR-075)"
+TC-196,tests/Unit/StagingLock.Tests.ps1,1869,title,"KEEPS a staging folder that holds content, even when the owner record is ours (TC-196, SR-017, SR-075, LLR-017)"
+TC-197,tests/Unit/StagingLock.Tests.ps1,121,comment,
+TC-197,tests/Unit/StagingLock.Tests.ps1,1538,title,"The theft window, victim side (TC-197, SR-075, LLR-017, LLR-080)"
+TC-197,tests/Unit/StagingLock.Tests.ps1,1542,title,"fails As exclusive publish and aborts it touching NOTHING after B reclaims As directory (TC-197, SR-075, LLR-017, LLR-080)"
+TC-197,tests/Unit/StagingLock.Tests.ps1,1595,title,"NEGATIVE CONTROL: a non-exclusive publish lets A silently take over Bs staging folder (TC-197, SR-075, LLR-080)"
+TC-198,tests/Unit/StagingLock.Tests.ps1,121,comment,
+TC-198,tests/Unit/StagingLock.Tests.ps1,1291,title,"Resurrection between the re-enumeration and the delete (TC-198, SR-017, SR-075, LLR-017)"
+TC-198,tests/Unit/StagingLock.Tests.ps1,1296,title,"fails the NON-RECURSIVE delete, keeps the folder with its bytes, and continues (TC-198, SR-017, SR-075, LLR-017)"
+TC-198,tests/Unit/StagingLock.Tests.ps1,1322,title,"NEGATIVE CONTROL: a RECURSIVE delete in the same window destroys the arrival (TC-198, SR-017, SR-075)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,369,title,"Get-StagingLockState — marker liveness and the 1800 s floor (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,371,title,"calls a parsed, stale marker OwnerStale (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,378,title,"calls a parsed, fresh marker OwnerLive (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,386,title,"honours a record threshold that LENGTHENS beyond the floor (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,393,title,"refuses to let a record threshold SHORTEN below the 1800 s floor (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,400,title,"falls back to mtime with the floor for a ParseInvalid marker — stale (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,408,title,"falls back to mtime with the floor for a ParseInvalid marker — fresh (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,413,title,"is Indeterminate — and refuses — for an Unreadable marker (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,483,title,"Read-StagingOwnerRecord — the three states (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,485,title,"returns Parsed with mtime and age for a well-formed record (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,495,title,"returns ParseInvalid with mtime fields for a TRUNCATED record (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,512,title,"returns ParseInvalid for an UNKNOWN SchemaVersion, fresh mtime refusing (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,523,title,"returns ParseInvalid for a record with no RunId (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,530,title,"returns Unreadable for a marker held with a deny-read lock (TC-199, SR-075, LLR-080)"
+TC-199,tests/Unit/StagingLock.Tests.ps1,547,title,"returns Unreadable — never an exception — for a missing marker (TC-199, SR-075, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,296,title,"Get-StagingLockState — evidence completeness (TC-200, SR-017, SR-075, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,298,title,"classifies a hidden entry as content (TC-200, SR-075, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,305,title,"classifies system and dot-named entries as content (TC-200, SR-075, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,312,title,"treats a case-differing marker name as content, fail-closed (TC-200, SR-075, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,317,title,"classifies an enumeration failure as Indeterminate and refuses (TC-200, SR-075, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,325,title,"refuses a reparse-point Temp with the content refusal (TC-200, SR-017, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,335,title,"refuses a PRUNE.inprogress of any age (TC-200, SR-046, SR-075, LLR-080)"
+TC-200,tests/Unit/StagingLock.Tests.ps1,342,title,"prefers the prune verdict when both markers are present (TC-200, SR-046, LLR-080)"
+TC-201,tests/Unit/StagingLock.Tests.ps1,5,code,
+TC-201,tests/Unit/StagingLock.Tests.ps1,917,title,"A late callback cannot freshen a successor (TC-201, SR-075, LLR-080)"
+TC-201,tests/Unit/StagingLock.Tests.ps1,919,title,"holds a callback in flight across Stop while a successor publishes, and does NOT freshen it (TC-201, SR-075, LLR-080)"
+TC-201,tests/Unit/StagingLock.Tests.ps1,951,title,"NEGATIVE CONTROL: with the identity discriminator gone the same held callback DOES freshen it (TC-201, SR-075, LLR-080)"
+TC-201,tests/Unit/StagingLock.Tests.ps1,957,comment,"NEGATIVE CONTROL: with the identity discriminator gone the same held callback DOES freshen it (TC-201, SR-075, LLR-080)"
+TC-202,tests/Unit/StagingLock.Tests.ps1,5,code,
+TC-202,tests/Unit/StagingLock.Tests.ps1,58,comment,
+TC-202,tests/Unit/StagingLock.Tests.ps1,979,title,"No RUN.inprogress ever reaches a snapshot (TC-202, SR-075, SR-046, LLR-017)"
+TC-202,tests/Unit/StagingLock.Tests.ps1,981,title,"leaves no marker on the first-run, changed and no-op paths, and the snapshot prunes cleanly (TC-202, SR-075, SR-046, LLR-017)"
+TC-202,tests/Unit/StagingLock.Tests.ps1,1012,title,"NEGATIVE CONTROL: a marker left in a snapshot IS refused as unreferenced data (TC-202, SR-046, SR-075)"
+TC-203,tests/Unit/StagingLock.Tests.ps1,121,comment,
+TC-203,tests/Unit/StagingLock.Tests.ps1,1074,title,"A LIVE owner is never stomped (TC-187, TC-203, SR-017, SR-075, LLR-017)"
+TC-203,tests/Unit/StagingLock.Tests.ps1,1108,title,"refuses an owner whose clock is BEHIND the reader beyond the threshold, because the sample sees the mtime move (TC-203, SR-075, LLR-017)"
+TC-203,tests/Unit/StagingLock.Tests.ps1,1911,title,"The confirmation sample honours the records own cadence (TC-203, SR-075, LLR-017)"
+TC-203,tests/Unit/StagingLock.Tests.ps1,1917,title,"computes max(90, declared + 30) s, validated and capped (TC-203, SR-075, LLR-017)"
+TC-203,tests/Unit/StagingLock.Tests.ps1,1947,title,"reports the longer wait the record forces on the real reclaim path (TC-203, SR-075, LLR-017)"
+TC-204,tests/Unit/StagingLock.Tests.ps1,121,comment,
+TC-204,tests/Unit/StagingLock.Tests.ps1,228,comment,
+TC-204,tests/Unit/StagingLock.Tests.ps1,1614,title,"The RunId fence at the five phase boundaries (TC-204, SR-075, LLR-017)"
+TC-204,tests/Unit/StagingLock.Tests.ps1,1623,title,"aborts before <Phase> mutates anything, cleaning up NOTHING (TC-204, SR-075, LLR-017)"
+TC-204,tests/Unit/StagingLock.Tests.ps1,1717,title,"NEGATIVE CONTROL: with the fence at <_> gone the run mutates straight past it (TC-204, SR-075, LLR-017)"
+TC-204,tests/Unit/StagingLock.Tests.ps1,1961,title,"The fence absorbs a TRANSIENT unreadable marker (TC-204, SR-075, LLR-017)"
+TC-204,tests/Unit/StagingLock.Tests.ps1,1966,title,"retries an unreadable marker and continues when it comes back (TC-204, SR-075, LLR-017)"
+TC-204,tests/Unit/StagingLock.Tests.ps1,1991,title,"aborts a RunId MISMATCH on the first read, with no retry (TC-204, SR-075, LLR-017)"
+TC-204,tests/Unit/StagingLock.Tests.ps1,2011,title,"gives up after the configured attempts and calls the lock lost (TC-204, SR-075, LLR-017)"
+TC-222,tests/Unit/StorageForm.Tests.ps1,5,code,
+TC-222,tests/Unit/StorageForm.Tests.ps1,1211,comment,declines to compress <Ext> (SR-004)
+TC-222,tests/Unit/StorageForm.Tests.ps1,1240,title,"declines every extension WP17 Part A added, in any casing, and still compresses .iso (TC-222)"
+TC-222,tests/Unit/StorageForm.Tests.ps1,1241,comment,"declines every extension WP17 Part A added, in any casing, and still compresses .iso (TC-222)"
+TC-223,tests/Unit/CompressProbe.Tests.ps1,4,code,
+TC-223,tests/Unit/CompressProbe.Tests.ps1,64,title,"Measure-SampleCompressibility - the I/O shell (TC-223, SR-081, LLR-086)"
+TC-223,tests/Unit/CompressProbe.Tests.ps1,80,title,reports the two ruled constants at their Owner-ruled values (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,95,title,measures pure random bytes at >= 0.98 - the dispose hazard is pinned here (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,110,title,measures repeated text far below 1 and decides ProbeCompressible (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,119,title,keeps a random file with a 64 KiB text head RAW - the aggregate rule (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,132,title,compresses a file one third text - aggregate ~0.7 (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,142,title,"reads a 500 KiB file exactly ONCE, whole, as a single sample (TC-223)"
+TC-223,tests/Unit/CompressProbe.Tests.ps1,148,title,reads a 4 KiB file as one 4096-byte sample - the floor is the caller
+TC-223,tests/Unit/CompressProbe.Tests.ps1,154,title,takes three windows totalling 3 x SampleBytes for a file of 3 x SampleBytes + 1 (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,160,title,"returns $null for an empty file, and does not throw (TC-223)"
+TC-223,tests/Unit/CompressProbe.Tests.ps1,165,title,"returns $null for a vanished path, and does not throw (TC-223)"
+TC-223,tests/Unit/CompressProbe.Tests.ps1,171,title,"returns $null for a path held open with FileShare.None, and does not throw (TC-223)"
+TC-223,tests/Unit/CompressProbe.Tests.ps1,187,title,"Resolve-CompressionDecision - the pure core (TC-223, SR-081, LLR-086)"
+TC-223,tests/Unit/CompressProbe.Tests.ps1,189,title,decides <Enabled>/<Mode>/list=<List>/<Floor>/probe=<Probe> as <XCompress>/<XReason> (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,271,title,treats CompressedBytes exactly at (1 - Threshold) x SampledBytes as compressible (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,278,title,treats one byte more than the boundary as incompressible (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,285,title,rejects a mode outside the exact-lowercase vocabulary (TC-223)
+TC-223,tests/Unit/CompressProbe.Tests.ps1,292,title,"has no name-based override: no parameter and no Reason is named after a format (TC-223, Q7)"
+TC-224,tests/Unit/CompressProbeWiring.Tests.ps1,6,code,
+TC-224,tests/Unit/CompressProbeWiring.Tests.ps1,15,code,
+TC-224,tests/Unit/CompressProbeWiring.Tests.ps1,170,title,"Q7: the bytes decide, not the name (SR-004, SR-081, TC-224)"
+TC-224,tests/Unit/CompressProbeWiring.Tests.ps1,196,title,under <Mode> stores <Name> as <Ext> with Compressed=<Compressed> (TC-224)
+TC-224,tests/Unit/CompressProbeWiring.Tests.ps1,216,title,"names no Reason after a file format - the ruled list is gone (TC-224, Q7)"
+TC-224,tests/Unit/StorageForm.Tests.ps1,1232,comment,the LIST says compress for .docx .txt .xlsx .csv .log .bin (SR-004)
+TC-225,tests/Unit/CompressProbeWiring.Tests.ps1,6,code,
+TC-225,tests/Unit/CompressProbeWiring.Tests.ps1,261,title,"Mode always measures every name above the floor (SR-081, TC-225)"
+TC-225,tests/Unit/CompressProbeWiring.Tests.ps1,265,title,stores <Kind> under <Name> as <Ext> (<Compressed>) (TC-225)
+TC-225,tests/Unit/CompressProbeWiring.Tests.ps1,295,title,NEGATIVE CONTROL: with the probe bypassed the random .qqq compresses again (TC-225)
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,6,code,
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,308,title,"The probe is lazy and memoized at group scope (SR-081, LLR-058, TC-226)"
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,319,title,never probes for a prior-backup dedup hit (TC-226)
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,332,title,probes exactly once for a group of in-run twins (TC-226)
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,339,title,probes ONCE and warns at most once when the first member
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,371,title,The memo warns ONCE even when a member
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,377,title,"emits exactly one probe WARN and one ProbeUnavailable line across a failed member and its twin (TC-226, R-12)"
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,449,title,"A locked owner does not cost the group its measurement (SR-081, TC-226)"
+TC-226,tests/Unit/CompressProbeWiring.Tests.ps1,453,title,samples the readable twin and does not report ProbeUnavailable (TC-226)
+TC-227,tests/Common/ConfigFixtures.ps1,55,comment,
+TC-227,tests/Common/ConfigFixtures.ps1,134,comment,
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,6,code,
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,15,code,
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,408,title,throws for CompressProbe 
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,420,title,"refuses a hand-built set at step 10, before the group loop (TC-227, R-10)"
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,520,title,"The CompressProbe configuration key (SR-042, SR-063, SR-081, TC-227)"
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,521,title,mode off reproduces the pre-WP17 list decision for <Name>/<Kind> (TC-227)
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,531,title,mode excluded-extensions exempts the listed name but probes the unlisted one (<Name>/<Kind>) (TC-227)
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,544,title,resolves an ABSENT key to always in both formats - an unchanged v2 document still loads (TC-227)
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,554,title,carries a PRESENT <Value> through Resolve-BackupSetDefaults onto the resolved set (TC-227)
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,566,title,"refuses <Case> in JSON and CLIXML alike, naming the key (TC-227)"
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,583,title,"refuses a CLIXML CompressProbe that is an ARRAY rather than a scalar string (<Case>) (TC-227, R-3)"
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,599,title,"publishes ONE CompressProbe vocabulary: schema enum = validator = every ValidateSet (TC-227, TC-077, R-6)"
+TC-227,tests/Unit/CompressProbeWiring.Tests.ps1,626,title,"refuses a bad CompressProbe at the process boundary with status 2 and creates nothing (SR-043, TC-227)"
+TC-228,tests/Unit/CompressProbeWiring.Tests.ps1,6,code,
+TC-228,tests/Unit/CompressProbeWiring.Tests.ps1,471,title,"A group nothing can sample falls back to the list, never to a failure (SR-081, TC-228)"
+TC-228,tests/Unit/CompressProbeWiring.Tests.ps1,472,title,takes the LIST
+TC-228,tests/Unit/CompressProbeWiring.Tests.ps1,489,title,"holds a REAL FileShare.None handle on every member: one probe WARN, no probe exception (TC-228)"
+TC-228,tests/Unit/CompressProbeWiring.Tests.ps1,493,comment,"holds a REAL FileShare.None handle on every member: one probe WARN, no probe exception (TC-228)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,5,code,
+TC-229,tests/Unit/StorageForm.Tests.ps1,837,comment,"Verify does not re-hash raw-stored archives (SR-049, SR-081)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,898,title,"exempts a raw-stored .z7 without hashing it, and hashes it under -Deep (TC-229)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,922,title,"hashes an unlisted-extension archive-magic object at the row own length, and flags it (TC-229, R-1)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,950,title,"exempts a listed-extension archive object without hashing even when the payload differs - non-Deep is the form audit, -Deep catches it (TC-229, R-1)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,973,title,"does not exempt a length that disagrees with the row, and still hashes a name that does (TC-229)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,1009,title,"probe-mixed store: Verify clean, both restorers byte-exact (TC-229)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,1010,comment,"probe-mixed store: Verify clean, both restorers byte-exact (TC-229)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,1095,title,"probe-mixed store: the bash restorer reproduces it byte-exact (TC-229, bash-v1)"
+TC-229,tests/Unit/StorageForm.Tests.ps1,1096,comment,"probe-mixed store: the bash restorer reproduces it byte-exact (TC-229, bash-v1)"
+TC-231,tests/Unit/CompressProbeWiring.Tests.ps1,6,code,
+TC-231,tests/Unit/CompressProbeWiring.Tests.ps1,7,code,
+TC-231,tests/Unit/CompressProbeWiring.Tests.ps1,639,title,"CompressEnabled=false dominates every mode and every name (SR-004, SR-081, TC-231)"
+TC-231,tests/Unit/CompressProbeWiring.Tests.ps1,651,title,stores <Name> raw under mode <Mode> at <Size> bytes with no probe (TC-231)
+TC-231,tests/Unit/StorageForm.Tests.ps1,5,code,
+TC-231,tests/Unit/StorageForm.Tests.ps1,1144,title,"A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)"
+TC-231,tests/Unit/StorageForm.Tests.ps1,1145,comment,"A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)"
+TC-231,tests/Unit/StorageForm.Tests.ps1,1150,comment,"A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)"
+TC-231,tests/Unit/StorageForm.Tests.ps1,1151,title,stores <Name> as <Ext> with Compressed=<Compressed> and calls the compressor <Calls> time(s) (TC-231)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,4,code,
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,33,code,
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,157,title,"FILEBACKUP_7Z_LEVEL selects the -mx level (SR-004, LLR-004, TC-232)"
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,158,title,sends -mx=9 when the variable is not set - the default IS today (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,163,title,sends -mx=1 for FILEBACKUP_7Z_LEVEL=1 (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,169,title,accepts the boundary values 0 and 9 (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,176,title,still passes the rest of the argument list unchanged (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,182,title,"An invalid FILEBACKUP_7Z_LEVEL never breaks an IMPORT (SR-037, LLR-037, TC-232)"
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,183,title,imports FileBackup.Common with <Label> and resolves the level to 9 (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,218,title,resolves an ABSENT/EMPTY variable to 9 with nothing rejected (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,234,title,a RESTORE KIT layout still loads Common under <Label> (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,263,title,"A compression-enabled backup REFUSES an invalid level (SR-037, LLR-037, TC-232)"
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,264,title,"exits 2 naming the variable and the range, creating nothing, for <Label> (TC-232)"
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,293,title,leaves a PLAIN run (CompressEnabled=false) completely unaffected (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,306,title,"Restore never depends on the level (SR-037, TC-232)"
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,307,title,neither restorer makes a DIRECT reference to FILEBACKUP_7Z_LEVEL (TC-232)
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,322,title,"Every level round-trips through the REAL 7-Zip (SR-004, LLR-004, TC-232)"
+TC-232,tests/Unit/SevenZipLevel.Tests.ps1,323,title,compresses and expands byte-identically at level <_> (TC-232)
+TC-234,tests/Unit/ContentIndex.Tests.ps1,4,code,
+TC-234,tests/Unit/ContentIndex.Tests.ps1,186,title,Lean content index structure (TC-234)
+TC-234,tests/Unit/ContentIndex.Tests.ps1,233,title,"lean retained memory is under 25% of the -IncludeManifests figure and under two manifests (TC-234 memory, Smoke)"
+TC-234,tests/Unit/ContentIndex.Tests.ps1,244,code,"lean retained memory is under 25% of the -IncludeManifests figure and under two manifests (TC-234 memory, Smoke)"
+TC-235,tests/Unit/ContentIndex.Tests.ps1,4,code,
+TC-235,tests/Unit/ContentIndex.Tests.ps1,32,comment,
+TC-235,tests/Unit/ContentIndex.Tests.ps1,89,comment,
+TC-235,tests/Unit/ContentIndex.Tests.ps1,252,title,Optimize-ChangeFolders on the lean index (TC-235)
+TC-235,tests/Unit/ContentIndex.Tests.ps1,305,title,"Optimize-ChangeFolders probes each DataPath once (TC-235, LLR-026)"
+TC-235,tests/Unit/ContentIndex.Tests.ps1,329,title,"probes exactly once per DataPath when one has vanished (TC-235, LLR-026)"
+TC-235,tests/Unit/ContentIndex.Tests.ps1,345,title,"blanks exactly the vanished row from that one pass (TC-235, LLR-026)"
+TC-235,tests/Unit/ContentIndex.Tests.ps1,357,title,"does not re-read the manifest when the index already holds its rows (TC-235, LLR-026)"
+TC-236,tests/Unit/ContentIndex.Tests.ps1,5,code,
+TC-236,tests/Unit/ContentIndex.Tests.ps1,370,title,Lean content index at production shape (TC-236)
+TC-236,tests/Unit/ContentIndex.Tests.ps1,374,code,"indexes 30 snapshots x 180,000 rows with the lean default in at most 1 GB retained (LLR-047, performance budget)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,3,code,
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,103,title,"Write-Manifest publishes MANIFEST.csv atomically (TC-237, SR-082, LLR-087)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,107,title,"leaves the complete OLD or the complete NEW file when killed at <Name> (TC-237, SR-082)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,121,title,"has the NEW manifest in place once the rename has happened (TC-237, SR-082)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,127,title,"has the OLD manifest untouched while the temp file is being written (TC-237, SR-082)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,133,title,"fails loud, in the safe direction, between the manifest rename and the witness (TC-237, SR-038)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,141,title,"resolves a RELATIVE folder against the PowerShell location, not the process directory (TC-237, SR-082)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,154,title,"removes its own temp file when the rename itself fails, and leaves the destination alone (TC-237, SR-082)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,163,title,"leaves no temp file behind on a successful write (TC-237, SR-082)"
+TC-237,tests/Unit/ManifestAtomicWrite.Tests.ps1,169,title,"writes the same bytes as the pre-SR-082 in-place writer for an empty record set (TC-237, SR-025)"
+TC-238,tests/Unit/ManifestAtomicWrite.Tests.ps1,176,title,"A process killed at each Write-Manifest boundary never tears MANIFEST.csv (TC-238, SR-082, LLR-087)"
+TC-238,tests/Unit/ManifestAtomicWrite.Tests.ps1,212,title,"kills a writer parked at <Stage> (tear <Tear>) and finds the old or the new complete manifest (TC-238, SR-082)"
+TC-238,tests/Unit/StagingOsLock.Tests.ps1,12,code,
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,239,title,"A leftover MANIFEST.csv.tmp breaks nothing (TC-239, SR-083, LLR-088)"
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,243,title,"a kill after the temp write leaves a <Name> temp file behind (precondition for the next tests) (TC-239, SR-083)"
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,253,title,"publishes the complete new manifest over a leftover <Name> temp file, and consumes it (TC-239, SR-083)"
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,264,title,"leaves no temp file after that next write (TC-239, SR-083)"
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,271,title,"leaves a VERIFIED witness after that next write (TC-239, SR-083, SR-038)"
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,278,title,"is root-level infrastructure: never data, never an orphan, never a storage-form finding (TC-239, SR-083, SR-022)"
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,289,title,"does not make Test-BackupManifest warn about an orphan (TC-239, SR-083, SR-064)"
+TC-239,tests/Unit/ManifestAtomicWrite.Tests.ps1,298,title,"raises no storage-form finding in the backup root or a snapshot (TC-239, SR-083, SR-049)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2056,title,"The Write-Manifest staging file in Temp is not content (TC-239, SR-083, SR-017, SR-075, LLR-088)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2067,title,"classifies a stale marker plus the staging file as OwnerStale, reclaimable (TC-239, SR-083, LLR-088)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2073,title,"classifies a FRESH marker plus the staging file as OwnerLive, refusing (TC-239, SR-083, LLR-088)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2079,title,"still classifies the staging file beside a real MANIFEST.csv as content (TC-239, SR-017, LLR-088)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2085,title,"matches the staging file name case-sensitively, fail-closed (TC-239, SR-017, LLR-088)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2091,title,"reclaims a stale Temp holding only the marker and the staging file, and the aside folder is GONE (TC-239, SR-083, SR-075)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2104,title,"logs the reclaim of that Temp (TC-239, SR-083, SR-075)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2113,title,"still refuses a stale Temp holding the staging file AND data, byte-identical afterwards (TC-239, SR-017, SR-075)"
+TC-239,tests/Unit/StagingLock.Tests.ps1,2126,title,"removes its own Temp after an early failure that left the staging file in it (TC-239, SR-083, SR-075)"
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,3,code,
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,310,title,"A leftover MANIFEST.csv.tmp through whole backup runs (TC-240, SR-083, LLR-088)"
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,350,title,"completes every run despite a leftover in the backup root (TC-240, SR-083)"
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,354,title,"warns about no orphan and no missing row for the leftover (TC-240, SR-083, SR-022)"
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,358,title,"never records the root-level leftover as a backed-up file (TC-240, SR-083)"
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,362,title,"still backs up a NESTED user file of the same name as data (TC-240, SR-083, B6)"
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,366,title,"consumes the leftover: the next write replaced it (TC-240, SR-083)"
+TC-240,tests/Unit/ManifestAtomicWrite.Tests.ps1,370,title,"ends with a verified witness (TC-240, SR-083, SR-038)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,3,code,
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,242,title,"The staging OS lock primitive (TC-241, SR-085, SR-087, LLR-090)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,249,title,"lives at <ChangeRoot>/Temp.lock, outside Temp (TC-241, SR-085)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,253,title,"refuses a second holder with the lock-held token while the first holds it (TC-241, SR-085)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,262,title,"can be taken again once released (TC-241, SR-085)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,268,title,"releases idempotently and accepts $null (TC-241, SR-085)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,274,title,"leaves the lock file in place, zero-length, after release (TC-241, SR-087)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,280,title,"cannot be deleted while held (Windows share mode) (TC-241, SR-087)"
+TC-241,tests/Unit/StagingOsLock.Tests.ps1,287,title,"still takes the lock when the file carries a read-only attribute (TC-241, SR-087)"
+TC-242,tests/Unit/StagingOsLock.Tests.ps1,297,title,"The lock is released on every way a run ends in-process (TC-242, SR-085, LLR-091)"
+TC-242,tests/Unit/StagingOsLock.Tests.ps1,341,title,"is released after a run that completes normally (TC-242, SR-085)"
+TC-242,tests/Unit/StagingOsLock.Tests.ps1,345,title,"is released after an ordinary throw past step 7, by the finally (TC-242, SR-085)"
+TC-242,tests/Unit/StagingOsLock.Tests.ps1,349,title,"is released after a step-3 staging refusal (TC-242, SR-085)"
+TC-242,tests/Unit/StagingOsLock.Tests.ps1,353,title,"is released after a tripped RunId fence (TC-242, SR-085)"
+TC-243,tests/Unit/StagingOsLock.Tests.ps1,358,title,"A hard kill releases the lock (TC-243, SR-085, LLR-091)"
+TC-243,tests/Unit/StagingOsLock.Tests.ps1,372,title,"is held by the parked child (TC-243, SR-085)"
+TC-243,tests/Unit/StagingOsLock.Tests.ps1,376,title,"is free once the child is killed with Stop-Process -Force (TC-243, SR-085)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,381,title,"The lock is held across the whole no-marker window (TC-244, E3, SR-085, SR-086, LLR-091)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,416,title,"parks the run with no marker in Temp, and Temp present, at <_> (precondition) (TC-244)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,421,title,"holds the OS lock at <_> (TC-244, SR-085)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,426,title,"makes a concurrent BACKUP refuse on the OS lock at <_> (TC-244, SR-086)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,431,title,"fails the concurrent backup set at <_> (TC-244, SR-086)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,436,title,"leaves every byte under BkpPath and ChgPath unchanged by the refused backup at <_> (TC-244, SR-086)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,441,title,"makes a concurrent PRUNE refuse on the OS lock at <_> (TC-244, SR-086)"
+TC-244,tests/Unit/StagingOsLock.Tests.ps1,446,title,"leaves every byte unchanged by the refused prune at <_> (TC-244, SR-086)"
+TC-245,tests/Unit/StagingOsLock.Tests.ps1,452,title,"Prune against a live backup past its finalize rename (TC-245, SR-085, LLR-092)"
+TC-245,tests/Unit/StagingOsLock.Tests.ps1,473,title,parks the backup with Temp already renamed away (precondition) (TC-245)
+TC-245,tests/Unit/StagingOsLock.Tests.ps1,477,title,"leaves every byte under BkpPath and ChgPath unchanged (TC-245, SR-085)"
+TC-245,tests/Unit/StagingOsLock.Tests.ps1,481,title,"refuses the prune with code 2 (TC-245, SR-085, SR-040)"
+TC-245,tests/Unit/StagingOsLock.Tests.ps1,485,title,"names the OS lock in the refusal (TC-245, SR-086)"
+TC-246,tests/Unit/StagingOsLock.Tests.ps1,490,title,"Backup against a live prune (TC-246, SR-085, LLR-092)"
+TC-246,tests/Unit/StagingOsLock.Tests.ps1,508,title,"refuses the backup on the OS lock (TC-246, SR-086)"
+TC-246,tests/Unit/StagingOsLock.Tests.ps1,512,title,"fails the backup set (TC-246, SR-014)"
+TC-246,tests/Unit/StagingOsLock.Tests.ps1,516,title,"leaves every byte under BkpPath and ChgPath unchanged, the prune"
+TC-247,tests/Unit/StagingOsLock.Tests.ps1,521,title,"Reclaim against a live run whose marker looks dead (TC-247, SR-085, SR-086, LLR-091)"
+TC-247,tests/Unit/StagingOsLock.Tests.ps1,556,title,"refuses on the OS lock (TC-247, SR-086)"
+TC-247,tests/Unit/StagingOsLock.Tests.ps1,560,title,"leaves every byte unchanged, the dead-looking Temp included (TC-247, SR-086)"
+TC-247,tests/Unit/StagingOsLock.Tests.ps1,564,title,"moves nothing aside (TC-247, SR-086)"
+TC-247,tests/Unit/StagingOsLock.Tests.ps1,568,title,"control: reclaims that same folder once the holder is gone (TC-247, SR-075)"
+TC-248,tests/Unit/StagingOsLock.Tests.ps1,573,title,"A free lock is not proof of death (TC-248, SR-086, LLR-091)"
+TC-248,tests/Unit/StagingOsLock.Tests.ps1,613,title,starts with the lock free (precondition) (TC-248)
+TC-248,tests/Unit/StagingOsLock.Tests.ps1,617,title,"leaves every byte unchanged when the lock is free and the heartbeat is fresh (TC-248, SR-086)"
+TC-248,tests/Unit/StagingOsLock.Tests.ps1,621,title,"refuses as owner-live, by the SR-075 rules (TC-248, SR-086, SR-075)"
+TC-248,tests/Unit/StagingOsLock.Tests.ps1,625,title,"fails the set (TC-248, SR-014)"
+TC-248,tests/Unit/StagingOsLock.Tests.ps1,629,title,"leaves every byte unchanged when the lock is free and Temp holds content (TC-248, SR-086, SR-017)"
+TC-248,tests/Unit/StagingOsLock.Tests.ps1,633,title,"still refuses content with the content token (TC-248, SR-017)"
+TC-249,tests/Unit/StagingOsLock.Tests.ps1,638,title,"An open failure that is not a sharing violation is LIVE (TC-249, SR-086, LLR-090)"
+TC-249,tests/Unit/StagingOsLock.Tests.ps1,680,title,"refuses the backup on the OS lock for <_> (TC-249, SR-086)"
+TC-249,tests/Unit/StagingOsLock.Tests.ps1,684,title,"refuses the prune with code 2 for <_> (TC-249, SR-086)"
+TC-249,tests/Unit/StagingOsLock.Tests.ps1,688,title,"leaves every byte unchanged, the reclaimable Temp included, for <_> (TC-249, SR-086)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,3,code,
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,693,title,"The lock file is invisible to every consumer of the store (TC-250, SR-087, LLR-093)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,713,title,"leaves Temp.lock at the change root, zero-length, after three runs (TC-250, SR-087)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,717,title,"is not listed as a snapshot (TC-250, SR-087)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,722,title,"raises no storage-form finding (TC-250, SR-087, SR-049)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,726,title,"leaves the pool resolving (TC-250, SR-087, SR-046)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,730,title,"lets Optimize-ChangeFolders run without touching it (TC-250, SR-087, SR-026)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,734,title,"lets the latest state restore byte-exact while the lock is held (TC-250, SR-087, SR-008)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,745,title,"lets every snapshot restore while the lock is held (TC-250, SR-087, SR-010)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,756,title,"Where the lock is taken and released, statically (TC-250, SR-085, LLR-091, LLR-092)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,774,title,"calls Initialize-StagingFolder from Invoke-BackupSet only (TC-250, SR-085)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,781,title,"takes the OS lock in Invoke-BackupSet before Initialize-StagingFolder (TC-250, SR-085)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,787,title,"releases the OS lock in Invoke-BackupSet only in the step-2.95, logger and step-3 catches and after Complete-ChangeFolder (TC-250, SR-085)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,797,title,"reads no prior store state in Invoke-BackupSet before taking the OS lock (TC-250, SR-085)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,807,title,"takes the OS lock in Remove-BackupSnapshot before the residue completion (TC-250, SR-085)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,1049,title,"A run reads the prior store state only after it holds the lock (TC-250, SR-085, LLR-091)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,1097,title,let run A finish while run B was going for the lock (precondition) (TC-250)
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,1101,title,"keeps the bytes run A stored for a.txt (TC-250, SR-085)"
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,1105,title,makes run B see run A
+TC-250,tests/Unit/StagingOsLock.Tests.ps1,1109,title,"completes run B (TC-250, SR-014)"
+TC-251,tests/Unit/StagingOsLock.Tests.ps1,814,title,"Storage repair against a live backup (TC-251, SR-085, SR-086, LLR-094)"
+TC-251,tests/Unit/StagingOsLock.Tests.ps1,851,title,has a repairable finding to work on (precondition) (TC-251)
+TC-251,tests/Unit/StagingOsLock.Tests.ps1,855,title,"leaves every byte under BkpPath and ChgPath unchanged while the backup holds the lock (TC-251, SR-086)"
+TC-251,tests/Unit/StagingOsLock.Tests.ps1,859,title,"refuses by throwing the lock-held token (TC-251, SR-086)"
+TC-251,tests/Unit/StagingOsLock.Tests.ps1,863,title,logs the refusal through the caller
+TC-251,tests/Unit/StagingOsLock.Tests.ps1,867,title,"control: repairs the finding once the backup is gone (TC-251, SR-049)"
+TC-252,tests/Unit/StagingOsLock.Tests.ps1,872,title,"Kit refresh against a live backup (TC-252, SR-085, SR-086, LLR-094)"
+TC-252,tests/Unit/StagingOsLock.Tests.ps1,904,title,has a stale snapshot kit to refresh (precondition) (TC-252)
+TC-252,tests/Unit/StagingOsLock.Tests.ps1,908,title,"leaves every byte under BkpPath and ChgPath unchanged while the backup holds the lock (TC-252, SR-086)"
+TC-252,tests/Unit/StagingOsLock.Tests.ps1,912,title,"refuses by throwing the lock-held token (TC-252, SR-086)"
+TC-252,tests/Unit/StagingOsLock.Tests.ps1,916,title,logs the refusal through the caller
+TC-252,tests/Unit/StagingOsLock.Tests.ps1,920,title,"control: refreshes the stale kit once the backup is gone (TC-252, SR-049)"
+TC-253,tests/Unit/StagingOsLock.Tests.ps1,925,title,"-Action Verify through the entry point with the lock held (TC-253, SR-085, SR-086, SR-040, LLR-094)"
+TC-253,tests/Unit/StagingOsLock.Tests.ps1,959,title,"still runs a read-only Verify, which takes no lock (exit 0) (TC-253, SR-049)"
+TC-253,tests/Unit/StagingOsLock.Tests.ps1,963,title,"refuses -RepairStorage with exit 2 (TC-253, SR-086, SR-040)"
+TC-253,tests/Unit/StagingOsLock.Tests.ps1,967,title,"names the lock in the -RepairStorage refusal (TC-253, SR-086)"
+TC-253,tests/Unit/StagingOsLock.Tests.ps1,971,title,"refuses -RefreshKits with exit 2 (TC-253, SR-086, SR-040)"
+TC-253,tests/Unit/StagingOsLock.Tests.ps1,975,title,"names the lock in the -RefreshKits refusal (TC-253, SR-086)"
+TC-253,tests/Unit/StagingOsLock.Tests.ps1,979,title,"leaves every byte unchanged across all three invocations (TC-253, SR-086)"
+TC-254,tests/Unit/StagingOsLock.Tests.ps1,984,title,"The maintenance lock edge cases and placement (TC-254, SR-085, SR-086, LLR-094)"
+TC-254,tests/Unit/StagingOsLock.Tests.ps1,1026,title,"lets Repair-BackupStorageForm -WhatIf run while the lock is held (TC-254, SR-085)"
+TC-254,tests/Unit/StagingOsLock.Tests.ps1,1030,title,"lets Update-BackupSnapshotKit -WhatIf run while the lock is held (TC-254, SR-085)"
+TC-254,tests/Unit/StagingOsLock.Tests.ps1,1034,title,"refuses a repair given no change root, with the lock-held token (TC-254, SR-086)"
+TC-254,tests/Unit/StagingOsLock.Tests.ps1,1038,title,"creates a missing change root, takes the lock there and releases it (TC-254, SR-085)"
+TC-254,tests/Unit/StagingOsLock.Tests.ps1,1042,title,"takes the lock in <_> before any mutating command (TC-254, SR-085)"

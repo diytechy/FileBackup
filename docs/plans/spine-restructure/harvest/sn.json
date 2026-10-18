@@ -1,0 +1,458 @@
+[
+ {
+  "id": "SN-001",
+  "cells": {
+   "SN-ID": "SN-001",
+   "Need (plain language)": "Back up an entire source tree, periodically, capturing every file.",
+   "Why it matters": "The whole point — nothing in the source may be silently skipped.",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "Run against a known tree; every source file appears in the backup's `MANIFEST.csv`; re-running picks up new/changed files.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-002",
+  "cells": {
+   "SN-ID": "SN-002",
+   "Need (plain language)": "Don't waste space storing identical content twice.",
+   "Why it matters": "Large media trees have many duplicate files; storing each once saves real disk.",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "Two files with identical bytes produce one physical data file; the second is recorded as a duplicate pointing at the same data.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-003",
+  "cells": {
+   "SN-ID": "SN-003",
+   "Need (plain language)": "Optionally compress stored data to save more space.",
+   "Why it matters": "Compressible documents/text shrink a lot; already-compressed media shouldn't be re-packed.",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "With compression on, a `.docx`/`.txt` is stored as `.7z`; a `.jpg`/`.mp4` is stored as-is.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-004",
+  "cells": {
+   "SN-ID": "SN-004",
+   "Need (plain language)": "Keep point-in-time snapshots of earlier states, each fully restorable.",
+   "Why it matters": "Lets me recover an older copy after an accidental edit/delete — and trust that restoring \"as of date X\" reproduces exactly what existed then.",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "After several runs, each earlier backup has a snapshot named by that backup's date; restoring one reproduces that exact state (changed files at their old content), and the latest run needs no snapshot because the live backup already is the latest state.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-005",
+  "cells": {
+   "SN-ID": "SN-005",
+   "Need (plain language)": "Restore the original tree **bit-for-bit from the backup folder alone** — no repo, no installs.",
+   "Why it matters": "A backup I can't restore on a clean machine is worthless.",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "Copy a backup folder to a machine without this repo, run its restore kit, and byte-compare the result to the original — identical.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-006",
+  "cells": {
+   "SN-ID": "SN-006",
+   "Need (plain language)": "Restore a *historical* snapshot, not just the latest.",
+   "Why it matters": "I may want the state as of a specific earlier run, picked by date.",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "Running the restore kit inside a specific dated snapshot folder rebuilds exactly that earlier state, byte-for-byte; running it from the backup root rebuilds the latest state.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-007",
+  "cells": {
+   "SN-ID": "SN-007",
+   "Need (plain language)": "Control how often unchanged files get re-hashed, to trade speed vs. integrity.",
+   "Why it matters": "Re-hashing a huge tree every run is slow; I want daily/weekly/never options.",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "Setting `HashRecalcFreq` to `D`/`W`/`N` etc. changes whether an unchanged file is re-hashed on a given run, deterministically.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-008",
+  "cells": {
+   "SN-ID": "SN-008",
+   "Need (plain language)": "See what is in the backup and find a file by name, without running a restore. **(WP9/`ca-v1` rewrite, ruled 2026-08-24: browsing was the only reason to mirror the tree. Mirror was removed at WP9 step 5; the generated index that serves this need lands at step 7 — see [../plans/wp9-content-addressed-storage-workorder.md](../plans/wp9-content-addressed-storage-workorder.md) §3.6.)**",
+   "Why it matters": "Browsing was the only reason to mirror the tree; content addressing dedups, never overwrites a stored object, and a manifest-derived index is *more* faithful than Mirror ever was (Mirror omitted borrower paths entirely).",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "The generated index lists every logical path — including every duplicate sibling — and opening an entry opens that file's stored object.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "**(WP9/`ca-v1` rewrite, ruled 2026-08-24: browsing was the only reason to mirror the tree.",
+   "Mirror was removed at WP9 step 5;",
+   "/plans/wp9-content-addressed-storage-workorder.",
+   "/plans/wp9-content-addressed-storage-workorder."
+  ]
+ },
+ {
+  "id": "SN-009",
+  "cells": {
+   "SN-ID": "SN-009",
+   "Need (plain language)": "Back up several independent source/target sets from one config and one run.",
+   "Why it matters": "I have multiple data roots; one scheduled job should cover them.",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "A config with multiple `BackupSets` processes each independently in one invocation.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-010",
+  "cells": {
+   "SN-ID": "SN-010",
+   "Need (plain language)": "Optionally email me whether the backup succeeded or failed.",
+   "Why it matters": "For unattended/scheduled runs I want to know without checking logs.",
+   "Priority": "C",
+   "Acceptance intent (how we'd know it's met)": "With SMTP configured, a success/failure email arrives; with it omitted or `-NoMail`, none is sent.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-011",
+  "cells": {
+   "SN-ID": "SN-011",
+   "Need (plain language)": "Run unattended/scheduled without ever blocking, with a clear pass/fail signal.",
+   "Why it matters": "A scheduled task that hangs on a prompt or hides failures is dangerous.",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "A scheduled `pwsh` run completes without prompting and returns exit 0 on success, non-zero if any set failed.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-012",
+  "cells": {
+   "SN-ID": "SN-012",
+   "Need (plain language)": "Get set up on the first run with discoverable docs and a config builder.",
+   "Why it matters": "New users (and future me) shouldn't have to reverse-engineer the config.",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "README + `CredSetEx.ps1` let a new user build a config and run a first backup; required deps install on first use.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-022",
+  "cells": {
+   "SN-ID": "SN-022",
+   "Need (plain language)": "Restore a backup on a **Linux** machine from the backup folder alone, without PowerShell.",
+   "Why it matters": "The restore host is often not Windows (NAS, rescue live-USB, a borrowed laptop); the backup must not be hostage to one runtime. *(Added 2026-07-03, reversing the earlier non-Windows non-goal — bash-v1 phase.)*",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "Copy a backup folder to a stock Linux box (bash, coreutils, xxhsum, 7z), run `reconstruct.sh`, and byte-compare: identical tree, from the backup root (latest) or any dated snapshot (that point in time); failures exit non-zero.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "*(Added 2026-07-03, reversing the earlier non-Windows non-goal — bash-v1 phase."
+  ]
+ },
+ {
+  "id": "SN-023",
+  "cells": {
+   "SN-ID": "SN-023",
+   "Need (plain language)": "Produce backups **from a Linux host** interoperable with the Windows implementation.",
+   "Why it matters": "Lets Linux machines run the same scheduled backups against the same targets; either side can restore what the other wrote. *(bash-v2 phase — after SN-022 ships.)*",
+   "Priority": "C",
+   "Acceptance intent (how we'd know it's met)": "A backup made by the bash engine restores byte-exact via either restorer, and vice versa; dedup/snapshot semantics match the shared contract.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-024",
+  "cells": {
+   "SN-ID": "SN-024",
+   "Need (plain language)": "Run FileBackup as a locally buildable Linux container and move the exact image to another host or OCI registry.",
+   "Why it matters": "HomeHub should consume the proven FileBackup engine without installing PowerShell on its host, and an offline installation needs a portable image artifact.",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "One checked-in command builds the image and proves a compressed byte-exact roundtrip; the image can be exported/imported as a tar or pushed/pulled through a Docker-compatible registry.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-026",
+  "cells": {
+   "SN-ID": "SN-026",
+   "Need (plain language)": "When a restore fails, a script (and I) can tell *what kind* of failure it was without reading the log.",
+   "Why it matters": "A wrapper (HomeHub/NagLight, a scheduled task) has to decide between \"your bytes are gone\", \"fix this host and retry\", and \"you pointed me at the wrong folder\" — one generic failure forces a human into the log every time.",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "Both restorers return the same documented exit code per failure class; deliberately induced instances of each class (clean, content missing, host/dependency problem, bad invocation/precondition, damaged index) each return their own code, identical on Windows and Linux.",
+   "_section": "Core needs"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-028",
+  "cells": {
+   "SN-ID": "SN-028",
+   "Need (plain language)": "Prove the container's exported/published image is the same runnable artifact as the locally built one, and that a second incremental run through the container produces a restorable dated snapshot in place, not just a first-run backup.",
+   "Why it matters": "The container-v1 claim (\"distribution=set{local,tar,registry}\") and the dated-snapshot model (SR-005/SR-010) are both currently asserted only by unit/Pester coverage outside the container — CI's Docker job never exercises either path end-to-end.",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "CI builds, exports, `docker load`s, and re-smoke-tests the image; CI publishes/pulls through a throwaway registry and re-smoke-tests the pulled image; the container smoke test runs a second, source-mutating pass and restores both the latest state and the superseded snapshot in-container, byte-comparing each against the correct source generation.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "input_spaces": [
+   "distribution=set{local,tar,registry}"
+  ]
+ },
+ {
+  "id": "SN-029",
+  "cells": {
+   "SN-ID": "SN-029",
+   "Need (plain language)": "Remove old snapshots to bound backup growth, **without ever destroying content a surviving snapshot still needs** — and be told, before removing anything, what each removal would actually reclaim.",
+   "Why it matters": "Snapshot retention is unbounded today, so the backup volume eventually fills. But snapshots share bytes: a folder that looks like old history can hold the only physical copy of content other snapshots recover by hash, so deleting it from outside the tool is silent data loss. The wrapper that decides *what* to keep needs the tool to do the *removing* — and needs real reclaim numbers, which only the tool can compute because of dedup. *(HomeHub cross-check finding I, re-ruled 2026-08-21.)*",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "Asking the tool to remove a named snapshot leaves every remaining dated state — and the latest state — restorable byte-exact in all four storage modes, including when the removed folder held the only copy of shared content; a dry run first reports the same reclaim figure the real removal achieves; anything that would lose content is refused before a single byte is touched, with a distinct exit status; a run interrupted at any point loses nothing and can simply be run again.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "*(HomeHub cross-check finding I, re-ruled 2026-08-21."
+  ]
+ },
+ {
+  "id": "SN-030",
+  "cells": {
+   "SN-ID": "SN-030",
+   "Need (plain language)": "Trust that what is actually stored matches what the index says about it — and that turning compression on or off, or changing which file types get compressed, never quietly damages an older snapshot's restore.",
+   "Why it matters": "The index records how each file was stored (compressed or not); nothing ever checks that against the bytes on disk, so a wrong entry validates itself forever and a restore can write archive bytes under the original filename and report success. Changing the compression policy re-forms the live backup but not the snapshots, which is enough to trigger it during ordinary use. I also need to be told before a backup starts that the destination has room, the way a restore already tells me. *(HomeHub cross-check finding C + the WP4-surfaced latent defect + the backup-side half of the capacity guard.)*",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "An on-demand check reports every place the stored form and the index disagree, across the live backup and every snapshot, without changing anything, and a repair mode fixes the ones that are unambiguously wrong; restoring any state after a compression-policy change reproduces the original bytes exactly, or fails loudly, but never writes archive bytes under a real filename; a backup run that would not fit refuses before writing anything.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "*(HomeHub cross-check finding C + the WP4-surfaced latent defect + the backup-side half of the capacity guard."
+  ]
+ },
+ {
+  "id": "SN-031",
+  "cells": {
+   "SN-ID": "SN-031",
+   "Need (plain language)": "If something outside the tool damages the backup store — antivirus quarantine, a cloud-sync \"free up space\" sweep, someone tidying a folder that looks like an ordinary copy — the next backup run should put it right while the source still can, and the verification action should tell me about anything it cannot put right.",
+   "Why it matters": "The backup root looks like a plain copy but is a managed, deduplicated pool. Today a lost data file is blanked out of the index with one warning and then every later run reports success forever: the row is never re-copied even though the source still holds the bytes, a NEW file with the same content can silently inherit the broken row, and the verification action reports the store clean. The one check that knows (`Test-PoolResolves`) runs only inside prune. *(2026-08-23 investigation, reproduced end-to-end.)*",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "After a data file inside the backup root is externally deleted: the next backup run exits 0 having re-pointed or re-copied the row from the still-matching source, and the restored tree is byte-exact; a new source file with identical content never adopts a row whose DataPath is blank; `-Action Verify` reports every row whose bytes are gone from the pool entirely, with a distinct finding class and non-zero exit, instead of reporting the store clean.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "*(2026-08-23 investigation, reproduced end-to-end.",
+   "`-Action Verify` reports every row whose bytes are gone from the pool entirely, with a distinct finding class and non-zero exit, instead of reporting the store clean."
+  ]
+ },
+ {
+  "id": "SN-032",
+  "cells": {
+   "SN-ID": "SN-032",
+   "Need (plain language)": "A file whose name cannot exist on both Windows and Linux should be refused loudly at backup time — not half-handled.",
+   "Why it matters": "The two restorers must stay interchangeable over the same store (SN-022/SN-026). Names with quotes or newlines are legal on Linux but break the Windows-side tooling contract (7-Zip argument quoting, the bash manifest parser), and names with `\\` mean different things on each side. Handling every such case is complexity spent on names the user almost certainly wants fixed at the source anyway. *(Human ruling 2026-08-23.)*",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "A source file whose name is invalid on either platform is skipped with one ERROR naming the file and the offending character, the set fails (non-zero exit), everything else in the set is still backed up, and no manifest row is written for the skipped file.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "*(Human ruling 2026-08-23."
+  ]
+ },
+ {
+  "id": "SN-033",
+  "cells": {
+   "SN-ID": "SN-033",
+   "Need (plain language)": "A restore that reports success has **proved** the bytes it wrote against the index.",
+   "Why it matters": "The 2026-08-24 HomeHub bench defect review (D-2) found both restorers expand/copy a resolvable `DataPath` with no hash check: a wrong payload, a same-length bit-flip, even a truncated file all restore with exit 0. A backup whose restore can silently hand back damaged bytes and still say \"done\" is not a backup. *(Human ruling 2026-08-24, kit-bump rev6 plan §2.)*",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "A store whose data file has been altered (wrong payload, bit-flip, or truncation) restores byte-exact from a surviving pool copy, or fails non-zero naming the row — never exit 0 with wrong bytes.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "The 2026-08-24 HomeHub bench defect review (D-2) found both restorers expand/copy a resolvable `DataPath` with no hash check: a wrong payload, a same-length bit-flip, even a truncated file all restore with exit 0.",
+   "*(Human ruling 2026-08-24, kit-bump rev6 plan §2."
+  ]
+ },
+ {
+  "id": "SN-034",
+  "cells": {
+   "SN-ID": "SN-034",
+   "Need (plain language)": "Nothing already stored in the backup may be silently rewritten by a later run.",
+   "Why it matters": "The 2026-08-24 HomeHub bench defect review (D-1) found that an ordinary edit of one of two duplicate files overwrote the shared data file in place, orphaning every other row that still claimed those bytes — invisible to every default check, discoverable only post-mortem with `-Deep`. A store that quietly loses the last copy of content it reported as backed up is not a backup. *(Human ruling 2026-08-24, option 3; WP9.)*",
+   "Priority": "M",
+   "Acceptance intent (how we'd know it's met)": "After editing one of two identical files, restoring the previous snapshot still reproduces the old bytes for **both** paths, and the pool audit reports no blank row whose content is unaccounted for; no data file's bytes ever change while a live manifest row claims them.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "The 2026-08-24 HomeHub bench defect review (D-1) found that an ordinary edit of one of two duplicate files overwrote the shared data file in place, orphaning every other row that still claimed those bytes — invisible to every default check, discoverable only post-mortem with `-Deep`.",
+   "*(Human ruling 2026-08-24, option 3;",
+   "WP9."
+  ]
+ },
+ {
+  "id": "SN-035",
+  "cells": {
+   "SN-ID": "SN-035",
+   "Need (plain language)": "Start a restore without recalling a command, and restore on a **Mac**.",
+   "Why it matters": "The moment I need a restore is the worst possible moment to have to remember a parameter name; the kit already ships double-clickable launchers for everything else (`run.{cmd,sh,command}`), but the restore had none that actually worked - `RECONSTRUCT.bat` closed its window before the outcome could be read, and `reconstruct.sh` requires `--target-root` so a double-click could only print usage. And the restore host is often a borrowed laptop: SN-022 promised Linux, but `reconstruct.sh` gave a Mac that followed its own install advice a FALSE \"your index is damaged\" verdict on an intact backup. *(Raised 2026-08-28; WP13.)*",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "Double-clicking the launcher on Windows or macOS opens a normal folder dialog, restores, and leaves the result on screen; a scripted call is unaffected and still returns its exit code. A machine with BSD rather than GNU coreutils, meeting the documented tool floor, restores byte-exact - or fails loudly naming what to install - but never reports damage that is not there.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "*(Raised 2026-08-28;",
+   "WP13."
+  ]
+ },
+ {
+  "id": "SN-036",
+  "cells": {
+   "SN-ID": "SN-036",
+   "Need (plain language)": "A restored tree should come back the way it was, not merely with the right bytes: every file carrying its own modification time, my empty folders present, and a folder I made hidden still hidden.",
+   "Why it matters": "Dedup made every twin of a shared stored object restore with the OWNER's modification time (reproduced 2026-08-25: two identical files dated 2001 and 2002 both came back 2001), and because the index has one row per FILE an empty directory was never recreated and a Hidden or System FOLDER came back ordinary. The modification time was already recorded correctly per row and simply never applied. *(Raised 2026-08-25 alongside the WP9 review; ruled 2026-08-26.)*",
+   "Priority": "S",
+   "Acceptance intent (how we'd know it's met)": "Two identical files with different modification times restore with their OWN times, in every storage mode and through both restorers; an empty directory and a nested empty directory are recreated; a Hidden+System folder comes back Hidden+System on Windows, and on Linux the directory is created with the inapplicable attributes reported rather than silently dropped; a backup written without this record still restores exactly as it did before.",
+   "_section": "Core needs"
+  },
+  "refs": {},
+  "provenance": [
+   "Dedup made every twin of a shared stored object restore with the OWNER's modification time (reproduced 2026-08-25: two identical files dated 2001 and 2002 both came back 2001), and because the index has one row per FILE an empty directory was never recreated and a Hidden or System FOLDER came back ordinary.",
+   "*(Raised 2026-08-25 alongside the WP9 review;",
+   "ruled 2026-08-26."
+  ]
+ },
+ {
+  "id": "SN-013",
+  "cells": {
+   "SN-ID": "SN-013",
+   "Scenario": "Interruption / power loss / killed mid-operation",
+   "Expected behavior": "The next run detects the leftover `Temp` staging folder and aborts with a clear message rather than proceeding on a half-written state; a completed change folder is only ever produced atomically (rename after its manifest is written).",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-014",
+  "cells": {
+   "SN-ID": "SN-014",
+   "Scenario": "Invalid input — config file missing",
+   "Expected behavior": "Fail immediately with a clear \"config not found\" message and a non-zero exit; do nothing destructive.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-015",
+  "cells": {
+   "SN-ID": "SN-015",
+   "Scenario": "Missing **required** dependency / wrong runtime (PowerShell 5.1, no `System.IO.Hashing`)",
+   "Expected behavior": "Fail loudly with remediation guidance; never run hashing against a bogus/absent library.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-016",
+  "cells": {
+   "SN-ID": "SN-016",
+   "Scenario": "Missing external tool (7-Zip when compression is selected, ffprobe for media metrics)",
+   "Expected behavior": "Fail before backup mutation when a selected storage feature cannot be honored; degrade only optional media metrics, with a clear log message.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-017",
+  "cells": {
+   "SN-ID": "SN-017",
+   "Scenario": "Awkward file names (Unicode, `[brackets]`, `(parens)`, spaces)",
+   "Expected behavior": "Backed up and restored correctly; path handling never mis-parses bracketed/Unicode names.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-018",
+  "cells": {
+   "SN-ID": "SN-018",
+   "Scenario": "A *nested* user file happens to be named like infrastructure (e.g. `MANIFEST.csv`)",
+   "Expected behavior": "Treated as real user data and preserved — only true root-level infrastructure files are filtered (regression B6).",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {},
+  "provenance": [
+   "csv`) Treated as real user data and preserved — only true root-level infrastructure files are filtered (regression B6)."
+  ]
+ },
+ {
+  "id": "SN-019",
+  "cells": {
+   "SN-ID": "SN-019",
+   "Scenario": "Restore target too small / unwritable",
+   "Expected behavior": "The restore surfaces an insufficient-capacity/space problem (accounting for compressed data) rather than silently producing a partial tree.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-020",
+  "cells": {
+   "SN-ID": "SN-020",
+   "Scenario": "Email/SMTP failure during notification",
+   "Expected behavior": "Logged as a warning; the backup itself still reports its real success/failure — mail is never load-bearing.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-021",
+  "cells": {
+   "SN-ID": "SN-021",
+   "Scenario": "A run with nothing changed (idempotent re-run)",
+   "Expected behavior": "Produces identical manifest rows and no spurious \"changes\"; output is deterministic across identical re-runs.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-025",
+  "cells": {
+   "SN-ID": "SN-025",
+   "Scenario": "The backup's index itself is damaged — `MANIFEST.csv` truncated, partially written, or replaced by an unrelated/garbage file",
+   "Expected behavior": "The restore refuses to run rather than \"succeeding\" against a shrunken job: the backup carries a witness of its own index (row count + digest) written whenever the manifest is written and duplicated into every snapshot, and both restorers check it before restoring anything. A backup written by an older version (no witness) still restores, with a clearly logged \"unverified index\" warning.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ },
+ {
+  "id": "SN-027",
+  "cells": {
+   "SN-ID": "SN-027",
+   "Scenario": "The configuration file is wrong — a mistyped key, a quoted `\"false\"` where a boolean belongs, a missing required field, or a file written for a different version of FileBackup",
+   "Expected behavior": "The run refuses to start and says exactly which key is wrong and what was expected, before touching any backup data; it never guesses a default for a key it does not recognize, and a config written for a newer FileBackup is refused by name rather than half-understood. The JSON form is the documented, versioned contract and the shipped example is the same file the tests execute; the older CLIXML form keeps working as a native-Windows convenience.",
+   "_section": "Edge-case expectations"
+  },
+  "refs": {}
+ }
+]
