@@ -113,7 +113,7 @@ The full-round-1 dispositions (`../r3-dispositions.md`, review dispositions tabl
 
 Placement is derived from the owner of the interface a row constrains. The dispositions allow unplaced rows but not rows placed in the wrong component, and forbid minting interfaces only to place rows. So: IF-020 (the restore request) moved to the restore kit (CMP-017), which with IF-019 and IF-023 owns what its children produce together; every row whose constrained interface belonged to another component's responsibility lost its `constrains` cell (its dimensions stay) and shows as unplaced; LLR-111, LLR-113 and LLR-122 were re-pointed to an interface their own component owns or reads at (IF-028, IF-029, IF-032). The store-format records IF-017 and IF-018 are left with SR constrainers only (design-gaps section 2). A row placed at an enclosing component counts as placed. Responsibility is the row's section in `low-level-requirements.toml`, except where the table's first column says otherwise (writer rows filed under State publication, the container's mapping row, the whole-run rows).
 
-Counts: 64 placed, 11 placed at an ancestor, 63 unplaced; none misplaced.
+Counts: 65 placed, 11 placed at an ancestor, 63 unplaced; none misplaced (round 3d added LLR-161, placed at the guard).
 
 | Component | Owns | Rows placed here |
 |---|---|---|
@@ -128,7 +128,7 @@ Counts: 64 placed, 11 placed at an ancestor, 63 unplaced; none misplaced.
 | CMP-009 Change detection | IF-029 | 3 |
 | CMP-010 Content writer | none | 0 |
 | CMP-011 State publication | IF-030 | 2 |
-| CMP-012 Exclusive-use guard | IF-032, IF-033, IF-044 | 11 |
+| CMP-012 Exclusive-use guard | IF-032, IF-033, IF-044 | 12 |
 | CMP-013 Removal and saved-state report | IF-043 | 2 |
 | CMP-014 Check, repair and kit refresh | none | 0 |
 | CMP-015 Views | IF-041, IF-042 | 3 |
@@ -282,3 +282,8 @@ Counts: 64 placed, 11 placed at an ancestor, 63 unplaced; none misplaced.
 | LLR-158 | CMP-019 Entry restoration | IF-020 | CMP-017 | CMP-017 | placed at an ancestor |
 | LLR-159 | CMP-018 Restore admission | IF-019 | CMP-017 | CMP-017 | placed at an ancestor |
 | LLR-160 | CMP-001 FileBackup | - | - | unplaced | unplaced |
+| LLR-161 | CMP-012 Exclusive-use guard | IF-033 | CMP-012 | CMP-012 | placed |
+
+## Round 3d: full round 2
+
+The full-round-2 dispositions (`../r3-dispositions.md`, "Convergence check 1 and full round 2", R3C-001 to R3C-008) are applied by `_r3d_apply.py` (anchored replacements over the HEAD carriers) and `_r3d_docs.py` (design-gaps M83 to M88 and this section); the entry per finding is in `../r3d-change-log.md`. One LLR was added, LLR-161 (child of LLR-125, constrains IF-033, so placed at the exclusive-use guard). No other `constrains` cell changed, so no other placement moved. IF-032 gains the restore admission (CMP-018) as a consumer, since a restore meeting a kit mid-refresh tests whether the claim is held; ownership is unchanged.

@@ -80,7 +80,7 @@ Each location set:
 - BrowseView: optional, one of off, index (exact lower case); default off. The word link is reserved and refused.
 - ViewPath: optional path, the listing location; default the BackupPath followed by _View.
 - SpaceView: optional boolean; default false.
-- SourceStatePath: optional path, the change-detection record's location; default the source root.
+- SourceStatePath: optional path, a folder apart from the source for the change-detection record; default the source root, where only the record's own files are the system's.
 - AllowEmptySource: optional boolean; default false.
 Retired keys, refused by name: PreserveFolderTree."""
 rationale = """Two document forms with two key lists would drift, and an integrator writing one form could not trust what the other accepts. One catalogue carried by both forms lost nothing; a separate per-form catalogue lost because every new setting would have to be added twice and checked twice."""
@@ -263,19 +263,20 @@ bridged_by = ["DA-19", "DA-01", "DA-15"]
 data = """Two roots per configured location.
 Backup root (BackupPath), the latest state:
 - MANIFEST.csv: the record of contents (IF-014); MANIFEST.csv.meta: its completeness evidence (IF-015);
-- MANIFEST.csv.tmp, MANIFEST.csv.meta.tmp: publication temporaries;
+- MANIFEST.csv.tmp, MANIFEST.csv.meta.tmp: publication temporaries of a removal, a repair or an earlier release (a backup's lie in its run folder, IF-033);
 - DIRECTORIES.csv: the folder record (IF-017), present only when it has rows; LINKS.csv: the link record (IF-018), present only when it has rows;
 - FileBackupState.json and FileBackupState.json.tmp: the run-state record (IF-030);
 - the restore kit (IF-019);
 - the stored objects, flat at the root, named by IF-016;
-- a stored object's publication temporary: its stored name followed by .fbprune.tmp (a removal's or a repair's copy) or by .fb-<8 lowercase hex digits>.tmp (any other writer); a name of this form is a temporary only where no entry of the folder's record names it.
+- Temp: the backup root's staging area (IF-033), present only while a backup holds the backup; Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>: its reclaimed leftovers;
+- a stored object's publication temporary: its stored name followed by .fbprune.tmp (a removal's or a repair's copy) or by .fb-<8 lowercase hex digits>.tmp (an earlier release's; a backup's lie in its run folder, IF-033); a name of this form is a temporary only where no entry of the folder's record names it.
 Saved-state root (ChangePath):
 - one folder per saved state, named Snapshot_<yyyy>_<MM>_<dd>_<HH>_<mm>_<ss>[_<NNN>] and matching exactly ^Snapshot_\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2}_\\d{2}(_\\d{3})?$; the date and time are host-local, and the optional three-digit suffix separates two folders of the same second. Each holds its own MANIFEST.csv, MANIFEST.csv.meta, DIRECTORIES.csv and LINKS.csv where present, its own restore kit, the stored objects only it preserves and their publication temporaries;
-- Temp: the staging area (IF-033); Temp.lock: the claim file (IF-032); Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>: reclaimed leftovers; Pruning_<saved-state folder name>: a removal past its commit point;
+- Temp: the saved-state root's staging area (IF-033); Temp.lock: the claim file (IF-032); Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>: reclaimed leftovers; Pruning_<saved-state folder name>: a removal past its commit point;
 - backup.log: the location record (IF-009).
 Infrastructure names are names at a folder's own root; the same names deeper in a folder are data. RECONSTRUCT.bat, the retired launcher name, is an infrastructure name."""
 rationale = """A restorer years later, holding only the folder, must find the latest state, every saved state and the kit by name; without fixed names a restore depends on the tool that made the backup. Mirroring the source tree as stored files lost: deduplication and compression need content-addressed objects, and a mirror cannot hold one copy for many paths."""
-version = "2"
+version = "3"
 status = "Drafted"
 
 [interface.IF-014]
@@ -364,7 +365,7 @@ coincident = """The record is read as written."""
 data = """CSV per RFC 4180, UTF-8 without byte-order mark, every field quoted, rows in ordinal order of RelativePath. Columns:
 - RelativePath: the link's path under the source root, in the walk, backslash-separated;
 - LinkKind: one of symlink, junction;
-- TargetClass: one of inside-source (the target is a folder the walk captures: a folder of the same source, or an ancestor of the link, one reached through a followed outside folder included), own-location (the target lies in the backup, its saved states, the change-detection state location, the record location or the listing location);
+- TargetClass: one of inside-source (the target is a folder the walk captures: a folder of the same source, the source root included, or an ancestor of the link, one reached through a followed outside folder included), own-location (the target lies in the backup, its saved states, a change-detection state location configured apart from the source, the record location or the listing location);
 - Target: for inside-source, the path at which the walk captured the target, under the source root and through followed links, backslash-separated; for own-location, the target's absolute path as it was resolved at backup time.
 Present only when the state records at least one link."""
 rationale = """A link that is recorded rather than followed vanishes at restore unless something says where it led. Link rows inside the record of contents lost: an existing kit would take a link row for a file with no content and report it missing."""
@@ -431,7 +432,7 @@ consumers = ["external:EXT-02"]
 channel = "text file and console"
 interface_to_external = ["B-15"]
 coincident = """The report written is the outcome description."""
-data = """The report, in the restore target's root: RECONSTRUCT.log or, where the state records a file at that path (compared as the target compares names), the first of RECONSTRUCT-1.log, RECONSTRUCT-2.log and so on at which the state records no file. UTF-8 text, one entry per line in the run-record entry grammar (IF-009); the console carries the same entries. Entries:
+data = """The report, in the restore target's root: RECONSTRUCT.log or, where that name is taken (compared as the target compares names) by a file, a folder or a link the state records at the target's root, or by a folder a recorded entry needs as its parent, the first of RECONSTRUCT-1.log, RECONSTRUCT-2.log and so on that none of these takes. UTF-8 text, one entry per line in the run-record entry grammar (IF-009); the console carries the same entries. Entries:
 - Not restored: <path> - <cause> per entry, cause one of ContentMissing, ContentMismatch, PathTraversal, NameCollision, MissingDataFile, NoDataPathOrHash, DependencyMissing, StorageUnreadable, CandidateError, WriteMismatch, StateRemoved;
 - Not applied: <path> - <what> for folder metadata, a modification time or a link;
 - Recovered: <path> - from <folder>;
@@ -448,7 +449,7 @@ consumers = ["external:EXT-12"]
 channel = "filesystem"
 interface_to_external = ["B-16"]
 bridged_by = ["DA-07", "DA-08"]
-data = """Under the chosen target folder: each file of the state at its RelativePath (separators mapped to the target host's), with the recorded bytes and the recorded modification time; each recorded folder, empty ones included, with the recorded attributes the target can hold; each recorded link as a link at its RelativePath; and the restore report (IF-022), at a name no recorded file takes."""
+data = """Under the chosen target folder: each file of the state at its RelativePath (separators mapped to the target host's), with the recorded bytes and the recorded modification time; each recorded folder, empty ones included, with the recorded attributes the target can hold; each recorded link as a link at its RelativePath; and the restore report (IF-022), at a name no recorded file, folder or link takes, nor any folder a recorded entry needs."""
 rationale = """The restored tree is what the restorer came for; stating its parts fixes what a restore may and may not write. Restoring into a temporary folder and moving it in lost: a move across volumes doubles the space a restore needs."""
 version = "1"
 status = "Drafted"
@@ -537,7 +538,7 @@ title = "Run-state record"
 owner = "CMP-011"
 consumers = ["CMP-009"]
 channel = "file"
-data = """FileBackupState.json at the backup root: a UTF-8 JSON object with LastBackupRun (string, ISO-8601 round-trip, the completion time of the latest state) and LastHashRun (string, ISO-8601 round-trip, the time the last completed full re-read began); a later version may add keys. FileBackupState.json.tmp is its publication temporary."""
+data = """FileBackupState.json at the backup root: a UTF-8 JSON object with LastBackupRun (string, ISO-8601 round-trip, the completion time of the latest state) and LastHashRun (string, ISO-8601 round-trip, the time the last completed full re-read began); a later version may add keys. FileBackupState.json.tmp is its publication temporary, beside it, or in a backup's run folder (IF-033)."""
 rationale = """The next saved state is named by the latest state's completion time and the re-read schedule counts from the last completed full re-read; neither can be read back from the source. Keeping them in the change-detection record lost: that record lives in the source, which may be read-only or elsewhere."""
 version = "1"
 status = "Drafted"
@@ -557,7 +558,7 @@ status = "Drafted"
 [interface.IF-032]
 title = "Exclusive-use claim"
 owner = "CMP-012"
-consumers = ["CMP-011", "CMP-013", "CMP-014"]
+consumers = ["CMP-011", "CMP-013", "CMP-014", "CMP-018"]
 channel = "operating-system file lock"
 interface_to_external = ["B-04"]
 bridged_by = ["DA-02", "DA-03"]
@@ -567,26 +568,32 @@ version = "1"
 status = "Drafted"
 
 [interface.IF-033]
-title = "Staging area and owner record"
+title = "Staging areas, run folders and owner record"
 owner = "CMP-012"
 consumers = ["CMP-011", "CMP-013"]
 channel = "filesystem"
 interface_to_external = ["B-04"]
 bridged_by = ["DA-16"]
-data = """Temp at the saved-state root: the staging area of the one changing operation holding the backup.
-While a backup holds it, Temp contains RUN.inprogress, the owner record: a UTF-8 JSON object of schema version 1:
+data = """Temp at the saved-state root, and Temp at the backup root: the staging areas of the one changing operation holding the backup. The saved-state root's is the one a removal uses and the one holding the owner record; the backup root's is present only while a backup holds the backup.
+While a backup holds it, the saved-state root's Temp contains RUN.inprogress, the owner record: a UTF-8 JSON object of schema version 1:
 - SchemaVersion: integer, 1;
 - Kind: string, backup;
-- RunId: string, a fresh GUID per acquisition;
+- RunId: string, a fresh GUID per acquisition, in lowercase canonical form;
 - StartedUtc: ISO-8601 time;
 - HeartbeatIntervalSeconds: integer, 60;
 - StaleAfterSeconds: integer, at least 1800;
 - SetName, Host, ContainerId, BootId (strings) and Pid (integer): diagnostic, optional.
 SchemaVersion, Kind, RunId, StartedUtc, HeartbeatIntervalSeconds and StaleAfterSeconds are required; a record with another SchemaVersion or Kind, or without a required field, is of an unknown schema. The record's modification time is part of it.
-While a removal holds it, Temp contains PRUNE.inprogress, UTF-8 text holding the name of the saved-state folder being removed.
-Other entries a backup may place in Temp: the folder of the saved state being prepared, named as it will be published (IF-013), holding the copied prior record of contents, its completeness evidence, the folder record, the link record, the kit and their publication temporaries."""
-rationale = """A dead run's leftovers must be told from a live run's by any later FileBackup, on any host or container sharing the store, from the disk alone; a process-identity check lost because a container shares neither process namespace nor host with the reader."""
-version = "1"
+Each staging area of a backup contains that run's folder, Run-<RunId>, RunId as in the owner record.
+While a removal holds it, the saved-state root's Temp contains PRUNE.inprogress, UTF-8 text holding the name of the saved-state folder being removed.
+Entries of a run folder, a closed set:
+- in the saved-state root's run folder only: the folder of the saved state being prepared, named as it will be published (IF-013), holding copies of the backup root's record of contents, its completeness evidence, the folder record and the link record where present, the kit (IF-019) and their publication temporaries;
+- a publication temporary: <name>.tmp, for a record, its evidence, the run-state record or a kit file whose destination is <name> at the root of the folder holding the run folder's staging area; <saved-state folder name>.<name>.tmp for a destination in that saved state;
+- a stored-object temporary: <stored name>.fb-<8 lowercase hex digits>.tmp, prefixed <saved-state folder name>. where its destination lies in a saved state;
+- an entry being deleted: the name it had followed by .fb-deleted, prefixed <saved-state folder name>. where it came from a saved state.
+Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>, beside either Temp: that root's reclaimed leftovers."""
+rationale = """A dead run's leftovers must be told from a live run's by any later FileBackup, on any host or container sharing the store, from the disk alone, and a run that lost its claim must be unable to change anything its successor made; a process-identity check lost because a container shares neither process namespace nor host with the reader, and one fixed staging folder shared by every run lost because a reclaim could then not take a former owner's working folder away from it."""
+version = "2"
 status = "Drafted"
 
 # --- Tools and package source ------------------------------------------------
@@ -723,17 +730,18 @@ title = "Leftover classification verdict"
 owner = "CMP-012"
 consumers = ["CMP-011", "CMP-013"]
 channel = "in-process call"
-data = """Request: the staging area as read: whether it exists and whether it is a link; its listing (entry names), or unreadable; its own modification time and age, or unreadable; the owner record (IF-033) as read, one of absent, parsed, unparseable or of an unknown schema (its bytes readable), or unreadable after three reads, with its modification time and age where readable; and optionally a second sample of the owner record's modification time.
+data = """Request: each staging area as read, the saved-state root's and the backup root's: whether it exists and whether it is a link; its listing (entry names), with the listing of each run folder in it, or unreadable; its own modification time and age, or unreadable; the form of each entry of a run folder (IF-033), with, for an entry being deleted, whether a published folder holds an object of its stored name or no published record names it, and, for a prepared saved-state folder, whether it holds a stored object or any file outside its closed set and whether each record file in it is byte-identical to the backup root's file of the same name; the owner record (IF-033) as read, one of absent, parsed, unparseable or of an unknown schema (its bytes readable), or unreadable after three reads, with its modification time and age where readable; and optionally a second sample of the owner record's modification time.
 Answer: one verdict, with the evidence it rests on:
-- Empty: no entry but record publication temporaries, the area's own time stale;
-- EmptyFresh: the same, the area's own time fresh;
-- OwnerStale: the owner record readable, older than its stale time and unchanged at the second sample;
+- Empty: no entry but entries holding no content, no owner record, the areas' own times stale;
+- EmptyFresh: the same, an area's own time fresh;
+- OwnerStale: the owner record readable, older than its stale time and unchanged at the second sample, every other entry holding no content;
 - OwnerLive: the owner record readable and fresh, future-dated, or not yet confirmed stale;
 - PruneHeld: a removal's marker;
 - HoldsContent: any other entry;
-- Indeterminate: the area is a link, or its listing, its own time or the owner record could not be read."""
+- Indeterminate: an area is a link, or a listing, an area's own time or the owner record could not be read.
+Entries holding no content: the owner record; a run folder named for the owner record's run identity, or, with no owner record, an empty one; and in a run folder, a publication temporary, a stored-object temporary, an entry being deleted whose stored name a published folder holds or no published record names, and a prepared saved-state folder holding no stored object, nothing outside its closed set, and record files byte-identical to the backup root's."""
 rationale = """The decision whether an earlier run's leftovers may be reclaimed must be testable over every combination without a filesystem; a classifier that performs its own reads lost because its matrix could then only be exercised on real disks."""
-version = "1"
+version = "2"
 status = "Drafted"
 
 [interface.IF-045]

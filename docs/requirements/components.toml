@@ -86,7 +86,7 @@ name = "Exclusive-use guard"
 category = "software"
 part_of = "CMP-007"
 status = "Drafted"
-notes = """Gives one changing operation at a time the use of a backup: takes and holds the operating-system claim, writes and refreshes the owner record whose age is the liveness evidence, classifies an earlier run's leftovers from the disk alone, reclaims a provably dead run's empty leftovers by move-aside, and fences a run whose claim was lost so it changes nothing more. Backup, removal, repair and kit refresh all go through it; reads and restores never do. Today all of it is in the backup-only engine module, which is right: it has no restore-side meaning. The readers' rule of taking no claim is stated here, across the claim."""
+notes = """Gives one changing operation at a time the use of a backup: takes and holds the operating-system claim, writes and refreshes the owner record whose age is the liveness evidence, keeps a backup's run folders, one in each root, through which every change the backup makes to the store passes, classifies an earlier run's leftovers from the disk alone, and reclaims a provably dead run's leftovers that hold no content by moving its staging areas aside, which also fences a run whose claim was lost: its next change then fails by itself. Backup, removal, repair and kit refresh all go through it; reads and restores never take the claim, though a restore that meets a kit mid-refresh tests whether it is held. Today all of it is in the backup-only engine module, with one staging area at the saved-state root and no run folder; the restore's test of the claim is new. The readers' rule of taking no claim is stated here, across the claim."""
 
 [component.CMP-013]
 name = "Removal and saved-state report"

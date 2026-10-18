@@ -187,3 +187,25 @@ outlasting its bounded wait (4, naming the refresh).
 Applied by an Opus builder (`r3d-change-log.md`), then checked by a fresh
 convergence reviewer (Codex Sol, high, a new session), scoped to the rows
 round 2 changes.
+
+**Builder deviations accepted** (detail in `r3d-change-log.md`):
+- There is one run folder per root, not one per volume. It covers every
+  volume and keeps each rename inside one root.
+- A restore that cannot test the claim (stock macOS has no lock tool for the
+  shell route) treats a still-mixed kit as an interrupted refresh (3), not 4,
+  so a host never retries forever. The convergence check is asked to look at
+  this.
+- A restorer replaced during the bounded wait ends with 4, under P-10 as
+  widened.
+- Superseded content is copied into the saved state, then the original is
+  deleted through the run folder, even on one volume. This becomes P-13.
+
+| # | Question | Options | Default taken | Rows affected |
+|---|---|---|---|---|
+| P-13 | Moving superseded or removed content into a saved state by a direct rename would be a mutation outside the run folder, so a resumed former owner could still make it. Copying it and then deleting the original through the run folder keeps it fenced, at the cost of reading and writing that content once more. A large edited file then pays a full copy where it used to be a rename. | (a) copy, then delete through the run folder: fenced; (b) direct rename: today's cost, with one unfenced mutation kind | (a) | LLR-150, LLR-005, LLR-161, gap list |
+
+P-09 is widened: the fence covers the store (records, saved states, stored
+content). The store's own log, the change-detection state and the views are
+guarded only by the early exit. They are re-derivable, and no saved content
+depends on them. Default: SR-144's acceptance is scoped to the store. The
+other option is to give those artifacts per-run names.
