@@ -49,6 +49,42 @@ status banner says so.
 - **Builder and aligner:** Opus (medium).
 - **Final call on everything:** the coordinator. The Owner rules on behaviour.
 
+## Round 3 runs unattended (Owner, 2026-10-18)
+
+The Owner is not present for round 3. Rules for the run:
+
+- **Never block on the Owner.** Where a call is the Owner's (a behaviour
+  choice, or anything that would change a need's meaning), take the
+  recommended default, write the row that way, and record it in
+  `r3-dispositions.md` under **"Pending Owner rulings"**: the question, the
+  options, the default taken, and the rows affected. Also list it in the next
+  handoff. The Owner rules on these afterwards; flipping one is a row edit.
+- **No need is edited for meaning** in an unattended run. A clarity edit is
+  allowed and recorded. A meaning change goes in "Pending Owner rulings",
+  with the SR or LLR written to the default.
+- **No approvals, no pushes, no merges.** Commit at each step on
+  `DirectRebuild`. Every row stays Drafted.
+- **Stop conditions:**
+  - the design tier has converged (a convergence check with no BLOCKER or
+    MAJOR finding left unfixed);
+  - three full review rounds are spent, in which case the remaining findings
+    are adjudicated and recorded, then the run stops;
+  - context runs low.
+
+  In each case: commit, update the status banner, write the next handoff
+  (round 4, test cases, plus the pending rulings), and stop.
+- **If the session runs headless** (`claude -p`), background tasks are killed
+  when the turn ends, so every sub-agent and every `codex exec` call runs in
+  the foreground. Sub-agents use `run_in_background: false`. Codex runs use a
+  Bash timeout of 600000 ms, with the launcher's `BASH_MAX_TIMEOUT_MS` raised if
+  a run needs longer. In an interactive session left running, background
+  tasks and their notifications work as they did in rounds 1–2.
+- **If a model route fails** (Codex refuses, a rate limit, a 400): retry once.
+  If it still fails, run that role with the other family at the same
+  effort (Opus for Astra or Sol, or the reverse), and record the substitution
+  in the dispositions. Keep the two derivations, and the two reviews, on
+  different families where at all possible.
+
 ## Records (all under `docs/plans/spine-restructure/`)
 
 | What | Where |
