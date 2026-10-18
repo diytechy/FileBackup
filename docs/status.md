@@ -35,16 +35,17 @@ last) — it is the record, not required reading for every pass.
   HELD there and must not be picked up here. The tooling (`trace.py`,
   `check.ps1`) is expected to fail on the new spine shape until the tooling
   phase; do not "fix" the spine to satisfy the old checker.
-  **RESUME HERE:** [plans/spine-restructure/handoff-2026-10-18-design-tier.md](plans/spine-restructure/handoff-2026-10-18-design-tier.md).
-  **Next:** round 3, the design tier (components, interfaces with their form
-  only, and LLRs in contract voice), from
-  [plans/spine-restructure/derive-brief-r3-design.md](plans/spine-restructure/derive-brief-r3-design.md).
-  It is derived twice independently, then aligned, reviewed and converged as
-  in rounds 1–2. Its reviews start with the SR edits not yet reviewed (the
-  handoff's open item 1). The need tier (48) and the SR tier (123) are
-  Drafted, awaiting the Owner's approval, which only a reviewed Status-change
-  commit gives. The legacy `low-level-requirements.csv`, `interfaces.csv` and
-  `test/test-cases.csv` still point at old ids until they are rebuilt.
+  **RESUME HERE:** [plans/spine-restructure/handoff-2026-10-18-test-cases.md](plans/spine-restructure/handoff-2026-10-18-test-cases.md).
+  **Next:** close the design tier's last findings: one BLOCKER on the outcome
+  where a restore cannot test the claim (P-14), and the staging sequence's
+  kill points as one enumerated LLR. Then one scoped convergence check. Then
+  round 4, the test cases, regenerated from the new LLRs; it needs the
+  ai-template test-tagging ruling first. Fourteen Owner rulings (P-01..P-14)
+  are pending, each written to its default; the list is in the handoff. The
+  need tier (48), SR tier (123) and design tier (24 CMP, 45 IF, 139 LLR in
+  `requirements/*.toml`) are Drafted, awaiting the Owner's approval, which
+  only a reviewed Status-change commit gives. `test/test-cases.csv` still
+  points at old ids until round 4 rebuilds it.
 
 - **M-1 SINGLE PROBE PASS (2026-10-10, branch fix-m1-single-probe-pass off New_Fix_Batch;
   NOT merged, awaiting review).** Review finding (performance, the Owner's NTFS probing
