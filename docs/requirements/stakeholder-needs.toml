@@ -122,10 +122,10 @@ stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-046]
 status = "Drafted"
-need = """Before removing anything, the owner, or a host deciding retention on their behalf, is told what removing each saved state would actually reclaim."""
+need = """Before removing anything, the owner, or a host deciding retention on their behalf, is told what removing each saved state would actually reclaim and, for a removal they are about to make, whether it would be refused and why."""
 why = """Because content is shared, the size of a saved state's folder is not what removing it frees, and nobody outside the tool can work the true figure out. Retention decided on wrong numbers either removes history for nothing or keeps the volume full."""
 priority = "M"
-acceptance = """For every saved state the report gives the space its removal would free and the space that would have to be moved to keep shared content; the freed figure equals the drop in store size when that state is actually removed; producing the report changes nothing in the store; a host can read the report without parsing prose."""
+acceptance = """For every saved state the report gives the space its removal would free and the space that would have to be moved to keep shared content; the freed figure equals the drop in store size when that state is actually removed; producing the report changes nothing in the store; a host can read the report without parsing prose; a removal can first be previewed, the preview naming for each saved state whether the removal would proceed or be refused and why, and changing nothing."""
 tags = ["store-mutation"]
 stakeholder_refs = ["STK-01", "STK-03"]
 

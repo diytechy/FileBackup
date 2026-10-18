@@ -137,7 +137,7 @@ None. Every one of the 123 SRs is in the `sr_refs` of at least one top-level LLR
 
 No SR asks for these. None is stated by an LLR; where the request form still accepts a switch so that existing callers are not refused, the interface form says so.
 
-- **Removal dry run** (the removal's what-if switch, and the container's dry-run variable). P-02 default (c), K04: it stays accepted in the removal request form (IF-002) and the container form (IF-038) and keeps working, unspecified; no LLR states it, and it is never made a bad request until the Owner rules (add a need, or retire it with a release note).
+- **Removal dry run** (the removal's what-if switch, and the container's dry-run variable). P-02 default (c), K04: it stays accepted in the removal request form (IF-002) and the container form (IF-038) and keeps working, unspecified; no LLR states it, and it is never made a bad request until the Owner rules (add a need, or retire it with a release note). **P-02 ruled (a), 2026-10-18: now specified by SR-153 and LLR-163, so it is no longer code beyond the design.**
 - **Removal overrides at the module level** (discard unreferenced content, accept unverified records, skip verification). K06: not in the request form; SR-046 refuses those cases without exception. Retire them or keep them test-only.
 - **The deep-check switch.** K05 proposed folding it into the default check; P-03 (b), 2026-10-18, keeps it with today's meaning (LLR-049, IF-002), so this is no longer a downstream-visible change.
 - **The permission switch for obtaining the hashing component.** K07: accepted with no meaning; the component is fetched without a question (LLR-105).

@@ -1306,3 +1306,12 @@ detail = """Following only the quick-start guidance, a new user on a supported h
 dimensions = "host=set{windows,container}; notification=bool; @full"
 rationale = """A tool whose first configuration must be written by hand from the manual loses most new users before their first backup; a helper that writes a document the program refuses lost for the same reason."""
 status = "Drafted"
+
+[design.LLR-163]
+title = "A removal dry run makes the removal's own plan and checks and changes nothing"
+sr_refs = ["SR-153"]
+constrains = "IF-002"
+detail = """A dry run of a removal (IF-002, and the container's dry-run variable, IF-038) builds, for each named saved state, the same plan and collects the same refusals as the removal (LLR-127), and reports per state either that it would be removed, with the freed and moved figures of that plan (the figures LLR-047 reports), or that it would be refused, with each refusal's value and reason and the value the removal would return. It reads published records as a reader does (LLR-123), takes no claim, completes no outstanding removal, creates no staging area, marker or log in the store, and writes nothing under the backup root or the saved-state root. Its outcome value follows the refusals it found, with the precedence a removal uses (2 over 3 over 4 over 1), and is complete (0) where every named state would be removed. Because it takes no claim it cannot see a writer that holds one: a removal it reports as proceeding may still be refused as busy when it runs."""
+dimensions = "verdict=set{would-remove,refused-2,refused-3,refused-4}; states_named=range[1..3]; outstanding_removal=bool; writer_running=bool; route=set{direct,container}; @pairwise"
+rationale = """The dry run is only worth having if it predicts the real removal, so it reuses the removal's plan and refusal checks rather than a separate estimate. Taking the claim lost: a preview that waits for or blocks a running backup is worse than one that cannot predict a busy refusal, which the real removal reports anyway. Completing an outstanding removal lost because a dry run must change nothing."""
+status = "Drafted"

@@ -25,10 +25,10 @@ force" still apply. This one replaces its "Where it stands" and "Open items".*
 | Stakeholders + needs | `docs/requirements/stakeholder-needs.toml` | 3 STK, 48 SN | Drafted; **not edited in round 3** |
 | Frame | `external.toml`, `assumptions.toml` | as before | Drafted. B-01 and B-16 now carry links (a clarity edit) |
 | Hats | `hats.toml` | 9 | unchanged |
-| System requirements | `system-requirements.toml` | 123 SR | Drafted. 11 rows edited in round 3 (open item 1's set, plus SR-106, SR-144, SR-146) |
+| System requirements | `system-requirements.toml` | 124 SR | Drafted. SR-153 added 2026-10-18 (P-02). 11 rows edited in round 3 (open item 1's set, plus SR-106, SR-144, SR-146) |
 | **Components** | `components.toml` | 24 CMP | **Drafted, new** |
 | **Interfaces** | `interfaces.toml` | 45 IF (41 boundary, 4 internal) | **Drafted, new**; IF-001 retired |
-| **Low-level requirements** | `low-level-requirements.toml` | 140 LLR (110 top-level, 30 child; 73 legacy ids kept) | **Drafted, new**; LLR-162 (the staging table) added 2026-10-18 c |
+| **Low-level requirements** | `low-level-requirements.toml` | 141 LLR (111 top-level, 30 child; 73 legacy ids kept) | **Drafted, new**; LLR-162 (the staging table) added 2026-10-18 c; LLR-163 (the removal dry run, P-02) added 2026-10-18 |
 | Test cases | `docs/test/test-cases.csv` (legacy) | 234 | **next: round 4** |
 
 The legacy `low-level-requirements.csv` and `interfaces.csv` are removed. The
@@ -126,7 +126,7 @@ rows affected, are in `r3-dispositions.md`.
 | # | Question | Default written |
 |---|---|---|
 | P-01 | Does a version-2 configuration's D/W/M/Y schedule mean elapsed periods (SR-011) or calendar buckets (today's code)? | **Ruled (c)** by the Owner, 2026-10-18: calendar periods, as today's code; SR-011 and LLR-011 rewritten; still version 2 |
-| P-02 | Keep or retire the removal dry run (no need asks for it)? | Kept working, with no LLR, until ruled |
+| P-02 | Keep or retire the removal dry run (no need asks for it)? | **Ruled (a)** by the Owner, 2026-10-18: specified (SN-046 widened, SR-153, LLR-163) |
 | P-03 | The check reads every stored object by default (about 3 h at the reference host). Accept? | **Ruled (b)** by the Owner, 2026-10-18: keep today's quick check, -Deep proves content; SR-049 narrowed |
 | P-04 | A volume whose free space cannot be measured: refuse, or proceed and record? | **Ruled** by the Owner, 2026-10-18: measure UNC shares (gap M96); a backup volume still unmeasurable is refused (2); restore unchanged |
 | P-05 | Does "re-derive and report" also cover a missing run-state record? | **Ruled (a)** by the Owner, 2026-10-18: rebuild and report |

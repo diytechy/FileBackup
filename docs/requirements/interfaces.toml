@@ -26,7 +26,7 @@ data = """One process start of the backup program with named switches (case-inse
 - -BackupRootOnly: with -Action Verify, check the latest state only; -IncludeSnapshots given the value false is accepted as the same request.
 - -Deep: with -Action Verify, the deep check: also read every stored object and compare its digest and length with its entry; needs the archive tool where the backup holds archives.
 - -VerifyStorage: accepted as the same request as -Action Verify.
-- -WhatIf: with -Action Prune only, the removal dry run; with any other action a bad request.
+- -WhatIf: with -Action Prune only, the removal dry run (LLR-163); with any other action a bad request.
 General switches, accepted with every action:
 - -ConfigPath <path>: the configuration document (IF-005 or IF-006); default a documented location in the invoking account's home folder.
 - -GlobalLogPath <path>: the global run record (IF-009); default beside the configuration.
