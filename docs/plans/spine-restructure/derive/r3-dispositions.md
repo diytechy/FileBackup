@@ -226,3 +226,50 @@ the next session, not fixed in this run.
 | R3E-004 | LLR-159, LLR-130, LLR-040 | Confirmed; **reverses the round-2 deviation.** A claim that cannot be tested is indeterminate, so a still-mixed kit then ends with 4, naming the refresh and the remedy (re-run it if none is running). Only positive evidence that no refresh holds the claim gives 3. No tool is added to the shell floor. |
 | R3E-005 | LLR-123, LLR-118, LLR-039, SR-106 | Confirmed. A reader that finds a record and its evidence disagreeing re-reads until the pair is stable or a declared bound passes (60 s). A pair settling to a match is read normally. A mismatch that outlasts the bound while a writer holds the backup, or while the claim cannot be tested, ends with 4. A mismatch with positive evidence that no writer holds it is damage (3). P-10 is widened to cover this case. |
 | R3E-006 | LLR-157, LLR-073, SR-073 | Confirmed: LLR-157 meets SR-073. On a desktop, the shell route offers the folder choice through the dialog providers (IF-027). With no provider available, it asks by typed prompt in an interactive console, otherwise usage and 2, naming the missing provider. On a console with no desktop it uses the typed prompt. An unattended session is refused (2). |
+
+**Builder deviations accepted, full round 3** (detail in `r3f-change-log.md`):
+- Only the in-progress location record has a per-run name. The published
+  record keeps the fixed name, replaced at the end of each run, so there is
+  still one record per location. During a run, the fixed name shows the
+  previous run's record (gap M89).
+- A reclaim keeps the killed run's record, so it leaves one small
+  moved-aside folder.
+- The 60 s settle covers every evidence fault.
+- The check's 4 is a "not checked" entry.
+- The no-provider fallback to a typed prompt applies on both restore routes,
+  for parity.
+
+## Final convergence check (three full rounds spent)
+
+Input: `r3g-convergence-sol/` (Codex gpt-6.1-sol, high, a fresh session),
+scoped to the 28 rows changed at `aa42eb8`: 1 BLOCKER, 2 MAJOR, 1 MINOR. Three
+full rounds are spent, so by the run's rules these are **adjudicated and
+recorded here, not fixed**. They are the first work of the next session,
+before round 4.
+
+| Finding | Rows | Disposition (open) |
+|---|---|---|
+| R3G-003 (BLOCKER) | LLR-039, LLR-040, LLR-123, LLR-130, LLR-159, SR-039, SR-082, SR-106, SR-110 | Confirmed, as P-14. It is the same conflict the round-3 builder surfaced. Where the claim cannot be tested (the stock macOS shell route), an unsettled record pair or a mixed kit gets 4 under the LLRs, but 3 under SR-039, SR-082 and SR-110. LLR-039's strict-evidence clause also conflicts with its wait. The recommended fix is P-14 (c). |
+| R3G-001 (MAJOR) | LLR-150, LLR-088, IF-044, SR-075 | Confirmed. A kill while the prepared saved-state folder is still being filled leaves partial copies that the classifier counts as content, so recovery is refused for good. Fix: a prepared folder holding only entries of its closed set (record copy or its temporary, evidence or its temporary, kit files) and no stored object is reclaimable once its owner is proven dead, whatever its completeness. Unknown entries still refuse. |
+| R3G-002 (MAJOR) | LLR-125, LLR-161, LLR-088, IF-044, SR-075 | Confirmed. A kill between renaming the owner record into the run folder and purging it leaves an ownerless run folder that the classifier counts as content. Fix: the owner-record deletion entry is recognised as disposable in the ownerless case, or the owner record is deleted last, after the run folder is purged. |
+| R3G-004 (MINOR) | IF-009, IF-044 | Confirmed. Publication timing (IF-009) and verdict mapping (IF-044) move out of the forms into LLR-161, LLR-017, LLR-080 and LLR-088. |
+
+**Coordinator recommendation for the next session.** R3G-001 and R3G-002
+are the same kind of finding as R3C-005 and R3E-002: a kill point in the
+staging sequence whose leftovers have no recognised shape. Rather than fix
+them one at a time, write one child LLR under LLR-088 that enumerates every
+step of the backup's staging sequence (create the run folders, the owner
+record, preparation, each publication, each deletion, the purge, the final
+owner delete). For each step it gives the leftover shape a kill there leaves
+and the verdict, closed over the steps. Then run one bounded convergence
+check on it. Round 4 turns that table into test cases directly.
+
+| # | Question | Options | Written as | Recommended | Rows affected |
+|---|---|---|---|---|---|
+| P-14 | Where a restore cannot test the claim (stock macOS shell route, no lock tool), what does an unsettled record pair or a mixed kit report after the 60 s settle? | (a) 4, and SR-039, SR-082 and SR-110 admit 4 where the claim cannot be tested; (b) the macOS shell floor gains a lock-testing tool; (c) the owner record is the no-writer signal any reader can check without a lock: no owner record, or a stale one confirmed by the second sample, means no writer, so 3; a fresh one gives 4 | (a), in effect: the LLRs give 4, and the SRs are not yet qualified | (c): a design call that needs no Owner ruling unless (a) is wanted | LLR-039, LLR-040, LLR-123, LLR-130, LLR-159; SR-039, SR-082, SR-110 |
+
+Also open from the round-3 builder: SR-144's requirement text still says
+"change no file its successor wrote or published", which is wider than its
+store-only acceptance. Adding "in the store" matches P-09 (a). And at build
+time, confirm per filesystem that a reclaim can move aside a folder holding a
+file open on another host (it fails toward refusal).

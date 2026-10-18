@@ -1,0 +1,58 @@
+[
+  {
+    "id": "R3G-001",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-150",
+      "LLR-088",
+      "IF-044",
+      "SR-075"
+    ],
+    "finding": "A kill during preparation of the saved-state folder is not recoverable under the stated classifier. LLR-150 says a kill while the folder is still being prepared leaves byte-identical record copies and valid matching evidence. But a kill just after that folder is created, while its record is being copied, or before its evidence is published leaves a missing, partial or unevidenced staged record. LLR-088 and IF-044 recognise the prepared folder as holding no content only when those copies already match and its evidence is valid; otherwise they require HoldsContent. The next backup therefore refuses with 2 even after death is confirmed, although the authoritative latest record and all stored objects remain published and no content is in transit. This contradicts SR-075's recovery without intervention for that case.",
+    "suggested_fix": "Make the preparation and classification rules cover interruption before the prepared records are complete. Positively identified, incomplete preparation artifacts containing no unique stored content need a reclaimable representation; retain refusal for unknown entries and unique content. Remove the claim that every kill during preparation necessarily leaves completed matching copies."
+  },
+  {
+    "id": "R3G-002",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-125",
+      "LLR-161",
+      "LLR-088",
+      "IF-044",
+      "SR-075"
+    ],
+    "finding": "The prescribed final deletion of the owner record creates another permanently refused, content-free kill window. LLR-125 and LLR-161 delete it by renaming it into the run folder under the deletion form and then purging it. A kill after that rename and before the purge leaves no owner record at its normal location and a run folder containing the owner-record deletion entry. LLR-088 and IF-044 allow a run folder beside no owner only when it is empty or contains only its own location record; this folder therefore counts as content, regardless of the ordinary rule for disposable deletion entries. The next backup refuses with 2 forever instead of recovering under SR-075, even though the completed store needs nothing in that folder.",
+    "suggested_fix": "Close the owner-record deletion window: retain usable ownership evidence until disposable run-folder entries are gone, or explicitly recognise and validate the owner-record deletion entry as identity evidence or disposable metadata in the ownerless case. Keep fail-closed handling for unrelated contents."
+  },
+  {
+    "id": "R3G-003",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-039",
+      "LLR-040",
+      "LLR-123",
+      "LLR-130",
+      "LLR-159",
+      "SR-106",
+      "SR-039",
+      "SR-082",
+      "SR-110"
+    ],
+    "finding": "The new claim-test fallback gives the same damaged-state case two required outcomes. LLR-039/LLR-040 and LLR-130/LLR-159 require 4 after the wait when the claim cannot be tested, even when the writer has died and the record/evidence pair or mixed kit never settles. A supported shell restore with no lock tool is an explicit example in LLR-159, so this is possible on a quiet store without a compromised host. SR-039 requires 3 for the damaged or current-form unevidenced record; SR-082 and SR-110 permit an interrupted state to restore correctly or be refused with 3, not 4. SR-106 adds the concurrent-publication exception but does not reconcile those quiet, untestable-claim cases. LLR-039 also unconditionally requires 3 for any missing evidence under the strict-evidence request, while its preceding current-form missing-evidence rule requires 4 when the claim is held or untestable.",
+    "suggested_fix": "Choose one consistent outcome for an unsettled pair or mixed kit when writer status is unknown, and propagate it through the parent SRs and their LLRs. If the intended conservative outcome is 4, explicitly qualify the damage and interruption guarantees in SR-039, SR-082 and SR-110, including the quiet-store/no-lock-tool case, and state how strict evidence interacts with the wait and claim test."
+  },
+  {
+    "id": "R3G-004",
+    "severity": "MINOR",
+    "rows": [
+      "IF-009",
+      "IF-044",
+      "LLR-161",
+      "LLR-017",
+      "LLR-088",
+      "LLR-080"
+    ],
+    "finding": "The scoped interface rows still prescribe behaviour despite the supplied form-only rule. IF-009 directs a run to publish its record at its end by a replacing rename, an operational obligation already carried by LLR-161. IF-044 maps observed ages, ownership and entry contents to verdicts and defines which entries hold no content, decisions carried by LLR-017, LLR-080 and LLR-088. These clauses are decision rules, beyond the agreed paths, record syntax, request fields and answer variants that belong in an interface form.",
+    "suggested_fix": "Keep IF-009's paths, names and entry grammar, and IF-044's typed request, verdict variants and evidence payload. Keep publication timing and method in LLR-161 and the classification mappings in their LLRs, removing the duplicate operational rules from the interface data cells."
+  }
+]
