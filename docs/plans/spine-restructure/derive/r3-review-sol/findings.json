@@ -1,0 +1,382 @@
+[
+  {
+    "id": "R3S-001",
+    "severity": "BLOCKER",
+    "rows": [
+      "SR-137",
+      "SR-150",
+      "LLR-109"
+    ],
+    "rule": "Part B: SR consistency; spine questions §0 sideways and §2(a).",
+    "finding": "A link met inside a followed outside folder can lead back to an ancestor that is also outside the original source and all system locations. SR-137 requires following that link, while SR-150 explicitly requires recording it without following it. LLR-109 repeats both overlapping predicates without an exclusion or precedence. This is the ordinary cycle case the latter requirement is intended to terminate.",
+    "suggested_fix": "Exclude ancestors in the current walk from SR-137's follow predicate, and make the classification predicates mutually exclusive in LLR-109. Keep the followed-folder ancestor case explicit in acceptance."
+  },
+  {
+    "id": "R3S-002",
+    "severity": "BLOCKER",
+    "rows": [
+      "IF-018",
+      "LLR-110",
+      "LLR-144",
+      "SR-150",
+      "SR-152"
+    ],
+    "rule": "Pointer rules: an interface must state a complete connecting form; a child must meet its SR.",
+    "finding": "The required ancestor-in-a-followed-outside-folder link has no representable target. IF-018 puts any ancestor in inside-source, whose Target must be a path under the original source root. An ancestor such as /outside, reached through /source/link, has no such path. LLR-110 only encodes targets physically inside the source or in a system location, and LLR-144 restores only those two cases. Even after the routing overlap is fixed, this required recorded link is lost or re-pointed incorrectly.",
+    "suggested_fix": "Define the distinction between physical target classification and its captured logical path. Add a representation for a followed-tree ancestor, or explicitly map it to its already captured path under the restore target, and align the capture and restoration LLRs with the SR-152 rule."
+  },
+  {
+    "id": "R3S-003",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-141",
+      "LLR-144",
+      "SR-121",
+      "SR-152",
+      "IF-018"
+    ],
+    "rule": "Part A: LLR contradicts its SR and a sibling LLR.",
+    "finding": "LLR-141 refuses any recorded link whose re-pointed target lands outside the restore target. SR-121 limits that restriction to a recorded link that originally led inside its source. SR-152 and LLR-144 require an own-location link to be recreated pointing to its original, normally external, location. An ordinary recorded link into the backup therefore must both be rebuilt and be refused as damaged record.",
+    "suggested_fix": "Apply the link-target containment check only to links whose target is to be mapped inside the restored tree. Check the location at which every link itself is created, and preserve the explicit permission for an originally external target."
+  },
+  {
+    "id": "R3S-004",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-150",
+      "LLR-005",
+      "IF-013",
+      "SR-082",
+      "SR-059"
+    ],
+    "rule": "Part A: publication sequence contradicts the promised recoverability.",
+    "finding": "LLR-150 publishes the new latest record, moves old content into the saved state being kept, and publishes that saved state only once its content is in place. Between the move and the saved-state publication the object is only in unpublished staging, which readers never search. An already published older state can have a blank reference to that object. A kill in this window leaves that older state with matching evidence but missing content, producing outcome 1 rather than restoring correctly or refusing with 3. The row's final claim that every kill leaves the object in the root or a published saved state does not follow from its sequence.",
+    "suggested_fix": "Publish a fully indexed, kit-complete saved-state destination while its content is still resolvable from the root, then move content directly between published pool locations, or use another explicitly specified sequence that never makes staging the only copy a visible state needs. Include an older borrowing state in the crash cases."
+  },
+  {
+    "id": "R3S-005",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-052",
+      "LLR-091",
+      "SR-052",
+      "SR-085"
+    ],
+    "rule": "Part A: contradictory ordering obligations.",
+    "finding": "LLR-052 requires an exact initial demand plan before even the claim file is created: it distinguishes content already held, losses needing healing and earlier content requiring a cross-volume copy. Those decisions require reading store state. LLR-091 requires the claim before any store-state read on which decisions depend. The initial plan is also described as reading nothing. Both orders cannot be implemented together; a second check after acquisition does not make the first plan legal.",
+    "suggested_fix": "Specify a conservative pre-claim bound based only on inputs permitted before the claim, then an exact plan under the claim; or provide a non-mutating claim acquisition/admission design. State exactly which reads the preliminary estimate permits while preserving the SR's untouched-destination refusal."
+  },
+  {
+    "id": "R3S-006",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-125",
+      "SR-144"
+    ],
+    "rule": "Part A: the LLR weakens the parent's fencing obligation.",
+    "finding": "SR-144 requires a resumed, superseded run to change nothing further in the backup. LLR-125 expressly exempts fresh temporary writes and publication at an unoccupied object name from ownership checks. A run resumed after its successor completed can therefore create and publish new orphan objects before its next destructive step detects the lost identity. Preserving the successor's existing files is weaker than the parent's no-further-changes requirement.",
+    "suggested_fix": "Fence every store mutation after a run can have lost its claim, including fresh objects and temporaries, or provide a continuously valid ownership mechanism that prevents those writes. If harmless orphan writes are intended to be allowed, obtain an explicit SR amendment rather than weakening the guarantee in the LLR."
+  },
+  {
+    "id": "R3S-007",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-017",
+      "SR-017",
+      "IF-044"
+    ],
+    "rule": "Part A: refusal value contradicts the amended parent and is ambiguous within the LLR.",
+    "finding": "LLR-017 calls an unreadable owner record a live or unproven earlier run, whose sole-finding outcome is busy (4). The same row also calls evidence that cannot be read indeterminate, whose outcome is 2. SR-017 explicitly puts unreadable evidence in the person-required class (2). A staging area containing only an owner record that cannot be read can therefore produce either value under the design.",
+    "suggested_fix": "Distinguish readable-but-fresh, torn or unproven ownership from evidence that cannot be read. Map the unreadable-evidence case to the amended parent's 2, and expose separate classifier inputs/verdicts wherever necessary."
+  },
+  {
+    "id": "R3S-008",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-042",
+      "LLR-095",
+      "SR-018"
+    ],
+    "rule": "Part A: LLRs contradict their parent SR.",
+    "finding": "LLR-042 and LLR-095 append a refused configuration's message to an existing global record. SR-018 requires creating and changing nothing and explicitly says no log folder or listing is created or changed. Appending changes the existing log even though it avoids truncation. Thus the design violates the parent on the common invalid-configuration case.",
+    "suggested_fix": "Report a configuration refusal on the console without changing a log, or amend the parent through its authority if an append exception is desired. Apply the same policy in both LLRs."
+  },
+  {
+    "id": "R3S-009",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-026",
+      "LLR-003",
+      "SR-003"
+    ],
+    "rule": "Part A: contradictory conditions within a child LLR.",
+    "finding": "LLR-026 requires redundant copies to be collapsed and every losing entry's reference blanked before deletion, but prohibits reading or rewriting any folder whose references all exist. With two valid duplicate copies, all references exist in both folders. Neither losing record may be rewritten, while deletion is forbidden until that rewrite occurs. The normal duplicate-copy case therefore cannot be collapsed as required.",
+    "suggested_fix": "Separate record discovery, reuse of already read records, and the condition for a rewrite. Permit rewriting a folder that owns a redundant elected-away copy even while that copy exists; retain the rule that reference changes are published before the redundant bytes disappear."
+  },
+  {
+    "id": "R3S-010",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-022",
+      "IF-023",
+      "LLR-010",
+      "LLR-142",
+      "SR-001",
+      "SR-056"
+    ],
+    "rule": "Part A: a boundary form omits an ordinary collision case.",
+    "finding": "IF-022 fixes the fresh restore report at RECONSTRUCT.log in the target, and IF-023 requires both that report and every recorded file there. A source may legitimately contain a root file named RECONSTRUCT.log; it is not a declared exclusion. The two outputs then occupy one path. LLR-142 only compares names within the state, so it does not protect this collision. Report writes can replace or append to verified user content.",
+    "suggested_fix": "Specify a report location or collision policy that preserves every captured path, and include generated restore artifacts in destination planning. Never resolve this by silently excluding the source file."
+  },
+  {
+    "id": "R3S-011",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-123",
+      "SR-106",
+      "SR-045",
+      "SN-029"
+    ],
+    "rule": "Part A and Part B: concurrent-reader guarantee is not supported by the permitted removal.",
+    "finding": "LLR-123 promises the quiet-store outcome by searching again when a concurrent removal deletes a folder. The edited removal contract permits discarding content recorded only by the removed state. If a restore has admitted that state but not yet read its unique content, the repeated search has nowhere to find it. Repeating a record read also cannot recover a deleted record. The promised complete-state reader outcome has no lifetime/coherency mechanism.",
+    "suggested_fix": "Reconcile the guarantee for a state being removed while it is read. Specify reader lifetime protection or another retention mechanism, or explicitly define and approve the concurrent-removal refusal/restart exception at SR level, then decompose it. Include the last-copy case in dimensions."
+  },
+  {
+    "id": "R3S-012",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-133",
+      "SR-098",
+      "IF-042"
+    ],
+    "rule": "Part A: LLR narrows the parent obligation.",
+    "finding": "SR-098 requires a rate for each backed-up file for which the available tool gives a positive playing time. LLR-133 measures only files whose content happens to be read in the run. Turning the space view on after an initial backup, with no re-read due, leaves unchanged media without a rate even though the tool is available. No other row fills that gap.",
+    "suggested_fix": "Measure every relevant file lacking a valid cached rate when the view is requested, including unchanged files, or define a derived cache and its invalidation. Add first-enable, unchanged-file and prior-measurement cases to dimensions."
+  },
+  {
+    "id": "R3S-013",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-135",
+      "IF-031",
+      "SR-052"
+    ],
+    "rule": "Part A: volume identity does not cover a parent-required case.",
+    "finding": "The Windows rule in LLR-135 resolves a path by its drive or share root only. A volume mounted into a folder can differ from the drive-root volume, and the same mounted volume can be reached through more than one path. IF-031 provides no actual volume identity beyond roots/mount-table text. This can combine demands for different volumes or fail to combine demands for one volume, despite SR-052 explicitly requiring correct mount-point accounting on Windows.",
+    "suggested_fix": "Resolve the actual containing volume and return a stable identity for it, including Windows folder mounts and aliases, rather than using the access-path root as the identity. Declare that identity in IF-031 and cover these Windows cases in dimensions."
+  },
+  {
+    "id": "R3S-014",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-138",
+      "IF-015",
+      "SR-116",
+      "SR-146"
+    ],
+    "rule": "Part A: the proposed age evidence proves the wrong historical fact.",
+    "finding": "LLR-138 treats evidence without folder/link row counts as positive evidence that those record kinds did not exist. Evidence version 2 proves only that the count fields were not recorded. The current program already writes version-2 evidence alongside folder records. Deleting such a folder record can therefore be excused as age and return complete, although SR-116 requires positive evidence that folder metadata did not yet exist. Introducing row counts and introducing folder records are different events.",
+    "suggested_fix": "Use provenance that actually establishes the introduction of each record kind, or seek an explicit SR policy for states predating authoritative row counts. Do not describe absence of a count as proof that folder metadata had never existed."
+  },
+  {
+    "id": "R3S-015",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-130",
+      "IF-019",
+      "SR-110"
+    ],
+    "rule": "Part A: whole-file replacement does not establish whole-kit crash behavior.",
+    "finding": "LLR-130 replaces kit files separately and writes revision-carrying files last. A kill between replacements leaves a mixture of old scripts and new shared dependencies, with no required check rejecting that mixture as damaged record. A revision written last does not make the mixture executable or compatible. SR-110 permits a correct restore or refusal with 3, not an arbitrary error from a mixed kit.",
+    "suggested_fix": "Specify a recoverable kit-generation publication scheme, or require and verify compatibility of every intermediate old/new file combination. Define how an interrupted mixture is detected before use and reaches the permitted outcome. Include interruptions between individual kit artifacts in dimensions."
+  },
+  {
+    "id": "R3S-016",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-033",
+      "LLR-080",
+      "IF-044"
+    ],
+    "rule": "Pointer rules: interface form needs versioning and discriminating value sets.",
+    "finding": "IF-033 gives SchemaVersion only as an integer and Kind only as a string. It states no current schema number or recognized Kind values, while LLR-080 distinguishes parsed records from unknown-schema records and IF-044 consumes that distinction. Two independently built sides cannot agree which schema is recognized from this form.",
+    "suggested_fix": "State the schema discriminator value and the supported Kind vocabulary, and define which fields are required for that version. Keep the response to unknown versions in the behavior LLR."
+  },
+  {
+    "id": "R3S-017",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-044",
+      "LLR-017",
+      "LLR-088"
+    ],
+    "rule": "Pointer rules: interface input form is incomplete for the behavior it supports.",
+    "finding": "IF-044 supplies a staging listing and an owner record with that record's modification time and age. When no owner record exists, LLR-088 requires classifying an otherwise empty staging area by the staging folder's own modification time. That timestamp is not an input of IF-044. A pure classifier cannot distinguish Empty from EmptyFresh in the required ownerless case.",
+    "suggested_fix": "Add staging-area metadata, including its own modification time/age and read/resolve status, to the request form. Make ownerless-empty and temporary-only cases explicit in the constraining dimensions."
+  },
+  {
+    "id": "R3S-018",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-019",
+      "LLR-007"
+    ],
+    "rule": "Pointer rules: names required for two sides to connect belong in the form.",
+    "finding": "IF-019 names the two launchers and several sidecars, but leaves the restorer files, restore-safe library and hashing library at unspecified fixed names that the kit itself documents. The producer, launcher, loader and kit refresher need those names before a kit is built. Referring to future kit documentation leaves the artifact set incomplete and gives the form a second, unspecified home.",
+    "suggested_fix": "State the actual shipped artifact names as agreed on-disk form, or reference one explicit packaging interface that enumerates them. These names are allowed form under the review rules; they need not identify implementation functions."
+  },
+  {
+    "id": "R3S-019",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-004",
+      "IF-011",
+      "LLR-015",
+      "LLR-042"
+    ],
+    "rule": "Pointer rules: a settings form needs requiredness and defaults sufficient to connect.",
+    "finding": "The catalogue makes Secrets optional and lists SmtpPort as an integer, without saying it is required when notification is configured or giving a default. LLR-015 decides to send using only relay, sender and recipient, while IF-011 requires submitting to Secrets.SmtpPort. The form does not tell a caller or validator whether a document with those three fields and no port is valid or which port the send uses. LLR-042's promise of documented defaults does not supply the missing default.",
+    "suggested_fix": "Declare required notification fields and the port's default or conditional requiredness in the catalogue, and align validation and notification eligibility with that form. Specify the admitted port range as part of the value set."
+  },
+  {
+    "id": "R3S-020",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-002",
+      "IF-009",
+      "LLR-103",
+      "LLR-112",
+      "SR-093",
+      "SR-059"
+    ],
+    "rule": "Part A: source/store preservation has no design coverage for a writable log destination.",
+    "finding": "The launch request and environment can choose an arbitrary global log path, which is created or truncated after admission. LLR-103 checks backup, saved-state, listing and state locations but omits the global record path. An otherwise valid request can put that log over a source file or a live store object. The stated design then writes to content SR-093 or SR-059 protects.",
+    "suggested_fix": "Include every writable record destination in physical path admission. Refuse source overlap and collisions with store data/infrastructure before opening the log, and account for both command-line and environment selection."
+  },
+  {
+    "id": "R3S-021",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-027",
+      "LLR-073",
+      "SR-073"
+    ],
+    "rule": "Pointer rules: every interface needs an incoming behavioral constrains link.",
+    "finding": "IF-027 has no constraining LLR or boundary SR. LLR-073 describes choice cancellation/failure but constrains only the host-session interface IF-026. Thus the dialog request/answer boundary has no traced behavioral scope or dimensions of its own, despite being required for the restore target choice.",
+    "suggested_fix": "Add a behavior-bearing child for the dialog crossing, constraining IF-027 with request/answer and platform dimensions, or reallocate the existing behavior without duplicating it."
+  },
+  {
+    "id": "R3S-022",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-009",
+      "IF-011",
+      "IF-015",
+      "IF-038",
+      "IF-041"
+    ],
+    "rule": "Pointer rules: an IF states form only; behavior belongs in the constraining LLR or boundary SR.",
+    "finding": "Several data cells still impose runtime behavior: IF-009 echoes every entry; IF-011 sends one message per run and decides when to authenticate; IF-015 tells older readers to ignore unknown keys; IF-038 passes arguments through unchanged; IF-041 replaces the root page above a threshold. These are actions and conditions, not the syntax or shape the endpoints must agree on. They duplicate or add obligations outside the behavior tier.",
+    "suggested_fix": "Keep encodings, field names, value vocabularies, argument forms and document structures on the IFs. Move or reconcile these actions and conditions in the relevant LLRs, with their full dimensions, so each decision has one normative home."
+  },
+  {
+    "id": "R3S-023",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-043",
+      "LLR-040",
+      "LLR-017"
+    ],
+    "rule": "Pointer rules: dimensions are the full behavioral input space.",
+    "finding": "The outcome LLRs depend on combinations their dimensions cannot express. LLR-043 has one class enum although it specifies precedence among simultaneous causes; LLR-040 allows combinations only with content-missing or host-fault, omitting the decisive precondition-plus-damaged-record combination. LLR-017 similarly collapses owner evidence and content/removal leftovers into one enum even though its precedence depends on their coexistence. Pairwise generation cannot recover cases excluded by the input model.",
+    "suggested_fix": "Model independently coexisting causes as separate booleans or dimensions and explicitly include the precedence combinations, including 2 versus 3 versus 4. Keep per-location folding distinct from within-operation cause precedence."
+  },
+  {
+    "id": "R3S-024",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-086",
+      "LLR-068"
+    ],
+    "rule": "Pointer rules: dimensions must include the cases on which the decision branches.",
+    "finding": "LLR-086 branches at exactly 256 KiB and exactly 10 percent saving, but its dimensions have below/above-floor only and qualitative compressible/incompressible labels rather than the measured saving relation. LLR-068 branches on signature presence, stored versus recorded length, and hash equality, but dimensions collapse those independent observations into an item-kind label. The declared spaces omit the threshold boundaries and permit tests to miss the raw-source-archive disambiguation branches.",
+    "suggested_fix": "Declare below/at/above relations for both compression thresholds. For form detection, model signature, length relation and hash match explicitly, then cover the meaningful combinations and both recorded-flag values."
+  },
+  {
+    "id": "R3S-025",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-109",
+      "LLR-149",
+      "SR-113"
+    ],
+    "rule": "Part A: a bounded individual wait is not a bounded run.",
+    "finding": "LLR-109 permits up to 60 seconds for each link-resolution or target-enumeration request, without a shared limit. Many junctions into an unavailable location can consume more than the entire 30-minute run budget in waiting alone. SR-113 does not declare a fault/waiting exception, and the per-location unreadable-file retry budget does not limit these requests. LLR-149 supplies no rule reconciling this accumulated waiting with the run budget.",
+    "suggested_fix": "Define a shared allowance or deadline for link resolution/enumeration and make later unreachable links fail without further waiting after it is spent. Cover many unreachable links and combine this waiting with the location's other bounded waits."
+  },
+  {
+    "id": "R3S-026",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-109",
+      "LLR-149"
+    ],
+    "rule": "Spine questions §0 sideways and §3: one independent decision per row; earn the stopping boundary.",
+    "finding": "These rows bundle independently changeable design decisions. LLR-109 combines link routing, file-link capture, request timeouts, preservation of earlier content, and outcome classification. LLR-149 combines read-pass counts, index retention, a 1 GiB index limit, archive-job concurrency, the 4 GiB operation budget, and progress. Their children/tests cannot target one decision without implicitly claiming several different obligations.",
+    "suggested_fix": "Separate the independent mechanisms and limits into children with one parent link and no sr_refs. Keep each classifier's related cases together, but give timeout budgeting, memory/concurrency policy and progress their own homes or link to the existing rows that already own them."
+  },
+  {
+    "id": "R3S-027",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-100",
+      "LLR-102",
+      "LLR-104",
+      "LLR-020",
+      "LLR-097",
+      "LLR-110",
+      "LLR-114",
+      "LLR-035",
+      "LLR-028",
+      "LLR-007",
+      "LLR-119",
+      "LLR-076",
+      "LLR-093",
+      "LLR-126",
+      "LLR-128",
+      "LLR-133",
+      "LLR-134",
+      "LLR-024",
+      "LLR-077",
+      "LLR-146",
+      "LLR-147",
+      "LLR-148",
+      "LLR-027"
+    ],
+    "rule": "Review dimensions grammar: name=set{a,b}; name=range[min..max]; name=bool; @pairwise.",
+    "finding": "Twenty-three dimensions cells use @full, which is outside the grammar supplied for this review. The variables are otherwise expressed as dimensions, but the selection directive is not in the agreed vocabulary.",
+    "suggested_fix": "Remove @full and use the agreed full-space default, or use @pairwise where appropriate; do not silently extend the grammar in individual rows."
+  },
+  {
+    "id": "R3S-028",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-025",
+      "IF-014",
+      "LLR-066"
+    ],
+    "rule": "Part A: wording gives an unnecessarily contradictory scope.",
+    "finding": "LLR-025 says modification-time text is never reparsed, and IF-014 calls it opaque to readers. LLR-066 must interpret its offset and apply the instant on the target. Preserving the serialized text is compatible with interpreting a copy for restoration, but the current absolute wording also forbids that necessary interpretation.",
+    "suggested_fix": "Limit the opaque/no-reformat rule to record round trips and serialization. Explicitly permit interpreting the preserved value to compare or apply timestamps."
+  },
+  {
+    "id": "R3S-029",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-115"
+    ],
+    "rule": "Review rationale rule: state what breaks, without decision history.",
+    "finding": "The rationale argues against another location because the owner ruled the root as default. That is decision provenance rather than an engineering consequence of omitting the row. The surrounding explanation about findability is the relevant argument.",
+    "suggested_fix": "Remove the owner-ruling history and state the concrete findability and read-only-source consequences; keep decision provenance outside the rationale."
+  }
+]

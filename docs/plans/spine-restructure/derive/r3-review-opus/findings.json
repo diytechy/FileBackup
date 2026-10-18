@@ -1,0 +1,606 @@
+[
+  {
+    "id": "R3O-001",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-125",
+      "LLR-028",
+      "LLR-026",
+      "LLR-091",
+      "SR-144"
+    ],
+    "rule": "LLR contradicts another LLR; SR obligation not met",
+    "finding": "LLR-125 says that before every destructive step (publishing a record, the run state or a saved state, and moving or deleting objects) the run re-reads its owner record, and that a record still unreadable after three reads means the claim was lost. The same row says that immediately before the saved state is published the run deletes its own owner record. LLR-028 then publishes the run state after the saved state, and LLR-026's cross-state collapse (record rewrites, then deletes of redundant copies) runs after that, under the claim LLR-091 holds to the end. Read literally, every run fences itself out at saved-state publication: the check fails, the run reports part failed (1), and no run ever completes. If a builder drops the check after publication instead, the collapse's deletes and record rewrites are unfenced. A run on another host that was suspended there and later resumed then rewrites and deletes what its successor published. That is exactly what SR-144 forbids.",
+    "suggested_fix": "State the fence's evidence after publication: for example, keep a run-identity marker that survives publication (a fresh owner record in a new staging area held until the collapse ends, or the run identity carried in the run-state record), and say which check guards the run-state publication and the collapse. Alternatively, move the collapse and the run-state write before the owner record is deleted. Add the post-publication steps to LLR-125's dimensions (step=collapse-record-rewrite, collapse-delete)."
+  },
+  {
+    "id": "R3O-002",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-138",
+      "SR-116",
+      "SR-146",
+      "IF-015"
+    ],
+    "rule": "LLR contradicts its SR (age is excused only on positive evidence)",
+    "finding": "LLR-138 counts a state as recorded before folder and link records existed when its evidence 'is of a version that does not state their row counts', which is evidence version 2. Today's release writes DIRECTORIES.csv and evidence version 2 (Common.psm1:44 WitnessFormatVersion=2; Engine.psm1:684-731). Under LLR-138, therefore, every state written by the current and earlier releases counts as predating folder records. In any of them a deleted or lost folder record is excused as age: the state restores with outcome 0 and 'folder metadata was not recorded'. SR-116 requires positive evidence that the state predates that kind of record, and SR-146 requires part failed (1) for a missing folder record. Evidence version 2 proves only that the state predates the row counts, not the folder record. The rule is sound for link records, which no released version writes, and wrong for folder records.",
+    "suggested_fix": "Decide folder-record age the way completeness evidence is decided, from the original or own kit revision below the revision that first wrote folder records. Keep the evidence version as the age test for link records only. Add a dimensions case for a state written by a version-2-evidence release that already wrote folder records, with its folder record missing."
+  },
+  {
+    "id": "R3O-003",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-046",
+      "LLR-127",
+      "LLR-092",
+      "SR-101"
+    ],
+    "rule": "LLR contradicts another LLR",
+    "finding": "LLR-046 lists 'a staging area is present' among the causes that refuse a removal before it changes anything. LLR-127 says a removal killed before its commit point leaves its marker (PRUNE.inprogress, IF-033) in the staging area, and that re-running the same removal recognises its own marker and resumes rather than being refused by it. LLR-092 adds that completing an earlier removal is part of the removal under its claim. As written, a removal is refused by the leftovers that SR-101 requires it to complete. Either reading builds the opposite behaviour.",
+    "suggested_fix": "In LLR-046, refuse a staging area only when it holds anything other than this request's own removal marker, and say so. Add residue=own-marker to LLR-046's cause dimension."
+  },
+  {
+    "id": "R3O-004",
+    "severity": "MAJOR",
+    "rows": [
+      "SR-086"
+    ],
+    "rule": "Part B: contradiction within the row on the outcome value",
+    "finding": "The requirement says that when exclusive use cannot be established the system 'shall treat the backup as held by a live operation and refuse'. In the shared vocabulary a live holder is busy (4), and SR-085 says a busy refusal names the holding operation. The acceptance instead gives access denial and an unusable claim location a precondition not met (2), naming the claim location. A builder reading the requirement returns 4 for every claim failure, and one reading the acceptance returns 2 for two of the four causes. The title ('counts as a live holder') repeats the requirement's reading.",
+    "suggested_fix": "Reword the requirement so it states the response without implying the value. For example: 'shall refuse the changing operation without creating, moving or deleting anything, as busy where the cause can clear by itself and as a precondition not met where a person must act, naming the claim location'. Retitle the row to match."
+  },
+  {
+    "id": "R3O-005",
+    "severity": "MAJOR",
+    "rows": [
+      "SR-017",
+      "LLR-017",
+      "IF-044",
+      "LLR-080"
+    ],
+    "rule": "Part B: an outcome value that conflicts with another row for the same case",
+    "finding": "SR-017 gives busy (4) where the only finding is 'an earlier run alive or not proven dead', and 2 for 'evidence that cannot be read'. LLR-017 puts an 'owner record unreadable' in the live-or-unproven class (4), but 'evidence that cannot be read' in indeterminate (2). The owner record is the liveness evidence (LLR-080), so an unreadable owner record fits both classes and gets 4 by one clause and 2 by the other. IF-044's verdict set does not say which verdict an unreadable or torn owner record takes. A host retries on 4 and alerts on 2, so this decides whether a store with an owner record damaged by a disk fault is retried forever.",
+    "suggested_fix": "Pick one class for an unreadable owner record and say it in SR-017's acceptance, LLR-017's classification and IF-044, mapping each listing and record state to its verdict. Keep 'evidence that cannot be read' for a failed listing of the staging area, if that is the intent."
+  },
+  {
+    "id": "R3O-006",
+    "severity": "MAJOR",
+    "rows": [
+      "SR-017",
+      "LLR-124",
+      "LLR-080"
+    ],
+    "rule": "Part B: refusal outcome value unstated",
+    "finding": "Several refusals in the leftover and liveness rows name no outcome value: SR-017's 'safe clean-up of reclaimable unfinished work fails' (kept, with recovery guidance); LLR-124's move-aside failure, identity mismatch after the move, and failure to create the fresh staging area or owner record ('refusing'); LLR-080's owner record found already present ('the run aborts touching nothing') and first touch that did not land ('the run refusing'). SR-017 is the row edited to say which value a refusal reports. As written a test cannot assert these cases, and a builder will pick 1, 2 or 4 at will.",
+    "suggested_fix": "Give each case its value from the vocabulary. For example: a move-aside or create failure by an I/O fault is 4 and by access denial is 2; an owner record already present is claim lost; a failed final delete keeps the folder and the run completes (0) with guidance. Put the values in SR-017's acceptance and in LLR-124 and LLR-080."
+  },
+  {
+    "id": "R3O-007",
+    "severity": "MAJOR",
+    "rows": [
+      "SR-121"
+    ],
+    "rule": "Part B: acceptance lacks a pass/fail line for a requirement clause",
+    "finding": "The requirement covers 'a recorded link inside its source [that] would be re-pointed to outside the target', which is left unwritten, named and reported 3. The acceptance and the permutations test only file entries (parent-climb, absolute, drive-qualified, via-link). Nothing observes the re-pointed-link case, so the clause added for links goes unverified.",
+    "suggested_fix": "Add to the acceptance a link-record row whose inside-source target climbs out of the target, which is not created, is named and gives exit 3. Add entry=set{file,link} to the permutations."
+  },
+  {
+    "id": "R3O-008",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-109",
+      "SR-137",
+      "SR-090"
+    ],
+    "rule": "LLR differs from its SR; unbounded wait (UNATTENDED-OPS)",
+    "finding": "SR-137 speaks of 'the run's bounded wait' for an unreachable link target. LLR-109 bounds each request that resolves or enumerates a link to 60 seconds, with no total. A source holding many junctions to an offline share (a NAS asleep at 3am is plausible) then waits 60 s per link per run, without limit. That is the unbounded retry UNATTENDED-OPS listens for, unlike SR-090's per-location budget for unreadable files. SR-137's acceptance also gives the bound no unit or scope.",
+    "suggested_fix": "Bound the total link-resolution wait per location, sharing SR-090's budget or a declared one, and state that once it is spent further unreachable links are named without waiting. Add link_count=range[1..1000] to the dimensions. Make SR-137's acceptance give the bound's unit and its per-location scope."
+  },
+  {
+    "id": "R3O-009",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-027"
+    ],
+    "rule": "Every interface is pointed at by at least one LLR or SR",
+    "finding": "No LLR or SR constrains IF-027 (folder choice dialog). Its form names FILEBACKUP_PICKER (print the path, exit non-zero on cancel) and the zenity, kdialog and yad fallbacks, but no row states which provider is tried in which order, when the picker is used, or what a non-zero exit, an empty output or a non-folder answer yields. The interface therefore reaches no test.",
+    "suggested_fix": "Have LLR-073, or a child of it, constrain IF-027. State the provider order per system, that FILEBACKUP_PICKER takes precedence, and that a cancel, a failure and an empty or non-absolute answer each give no target (usage, 2). Add choice=set{chosen,cancelled,failed,empty,relative} and provider=set{native,picker-variable,zenity,kdialog,yad,none}."
+  },
+  {
+    "id": "R3O-010",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-002",
+      "IF-038",
+      "IF-020",
+      "IF-007"
+    ],
+    "rule": "Interface form elements whose behaviour no LLR or SR states",
+    "finding": "Several switches and variables in the forms have no behaviour row. IF-002 -WhatIf and IF-038 FILEBACKUP_DRY_RUN (the removal dry run): no SR or LLR says what a dry run outputs, that it changes nothing, or which value it returns. IF-020 -NoGui and IF-007 FILEBACKUP_NO_GUI: LLR-073's session decision does not take them as inputs. IF-020 --pick-target, the root overrides (-BackupRootOverride, -ChangeRootOverride, --backup-root, --change-root) and --from: LLR-010 mentions only the recorded roots and 'the one the request names'. Each is an agreed form that nothing tests and a builder may implement any way.",
+    "suggested_fix": "Either retire them from the forms, or add LLR rows (or children of LLR-047, LLR-073 and LLR-010) that state the behaviour and its dimensions. Examples: a dry run writes the removal plan as the saved-state report would and changes nothing; -NoGui and FILEBACKUP_NO_GUI=1 suppress the folder choice and fall back to the typed prompt or the usage; an override is used only where the recorded root is unusable."
+  },
+  {
+    "id": "R3O-011",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-007",
+      "CMP-004",
+      "CMP-022",
+      "CMP-001",
+      "LLR-037"
+    ],
+    "rule": "Interface owner and consumers do not match who produces and uses it; the restore kit must depend on nothing backup-only",
+    "finding": "IF-007 is owned by CMP-004 (Provisioning, backup-only) and lists no consumer, yet FILEBACKUP_NO_GUI is read only by the language-runtime restorer (Reconstruct.ps1:780), part of CMP-022. FILEBACKUP_LOG_PATH is read by the run record (CMP-006). LLR-037 says the archive variables are read by 'the restore-safe library ... loaded by the restore kit' (true today, Common.psm1:165-213). The derived placement therefore puts restore-side behaviour in a backup-only component, against CMP-001's one structural rule. FILEBACKUP_PICKER, also a restore-side variable, sits in IF-027 instead, so the restore environment is split across two interfaces.",
+    "suggested_fix": "Move the restore-side variables (FILEBACKUP_NO_GUI, FILEBACKUP_PICKER) into a restore-environment interface owned in CMP-017 or CMP-022, or fold them into IF-026. Keep IF-007 for the backup side and list its consumers (CMP-004, CMP-006, CMP-010)."
+  },
+  {
+    "id": "R3O-012",
+    "severity": "MAJOR",
+    "rows": [
+      "CMP-008",
+      "CMP-009",
+      "CMP-010",
+      "CMP-011",
+      "CMP-013",
+      "CMP-014",
+      "CMP-018",
+      "CMP-019",
+      "CMP-020",
+      "IF-028",
+      "IF-025",
+      "IF-024",
+      "IF-031",
+      "IF-014",
+      "IF-003"
+    ],
+    "rule": "Component tree vs responsibilities (placement is derived from the owner of the constrained interface)",
+    "finding": "Placement is derived from the owner of the interface an LLR constrains, and about 80 of the 128 rows do not land in the component their own section names. Source capture (CMP-008) receives none of its rows: LLR-001, 055, 067, 078, 109 and 112 constrain the externally owned IF-028, so they are unplaced; LLR-111 lands in CMP-006 and LLR-036 in CMP-003. Restore admission (CMP-018) receives none either: LLR-009, 079, 137 and 023 sit on external IF-025, LLR-008, 071 and 139 on external IF-024, LLR-136 lands in CMP-021 and LLR-039 in CMP-016. Content-writer, state-publication, check/repair and tree-finishing rows mostly land in CMP-016, the format owner. The removal refusals (LLR-046, LLR-126) and the claim-failure classification (LLR-122) land in CMP-002. CMP-008, CMP-010, CMP-014, CMP-018 and CMP-020 own no interface at all. The build brief's component context and the blast radius would point builders at the wrong components.",
+    "suggested_fix": "Give each responsibility component the interfaces it produces, or move owners to the producers. For example: IF-023 to CMP-019 or CMP-020; an internal capture-result interface owned by CMP-008; an admission-verdict interface owned by CMP-018. Or re-point constrains cells to an interface the row's own component owns. Then re-derive placement and check that every component has its rows."
+  },
+  {
+    "id": "R3O-013",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-049",
+      "IF-010",
+      "SR-049",
+      "SR-043"
+    ],
+    "rule": "SR obligation no LLR meets; interface value set incomplete",
+    "finding": "No row says what a check does when a state's record fails its completeness evidence, the one damage a health check most needs to see. LLR-049 lists the content disagreements and the precondition refusals (2) only. IF-010's Class set has no class for it. LLR-043 and IF-003 allow the check a value of 3, but no LLR assigns one. Today Verify never tests the evidence (it never calls Test-ManifestWitness), so a damaged record passes as clean, and the target design keeps that gap.",
+    "suggested_fix": "Add to LLR-049, or a child of it, that a record failing its evidence is a finding of its own class (for example RecordEvidenceMismatch) and that the check continues with the other states. Choose its value deliberately against the vocabulary (3, or 1 as a finding). Add the class to IF-010 and a damage=record-evidence-fails case to the dimensions."
+  },
+  {
+    "id": "R3O-014",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-138",
+      "LLR-143",
+      "LLR-144",
+      "SR-146",
+      "SR-152",
+      "IF-018"
+    ],
+    "rule": "SR obligation no LLR meets: the outcome for a damaged link record",
+    "finding": "LLR-138 says a state whose evidence states LinkRows above zero must have its link record with that many rows, and that 'a current-form state missing what it should carry is damage'. No row gives the outcome. SR-146 and LLR-143 give part failed (1) only for a missing or malformed folder record. LLR-144 and SR-152 cover links that cannot be created (outcome 0), but not a link record that is missing, malformed or short of its stated rows. LLR-040's classification is silent too, so each route will pick its own value, against SR-040's one value per failure on every route.",
+    "suggested_fix": "Extend SR-146 and LLR-143, or add a sibling to LLR-144: a current-form state whose link record is missing, malformed or disagrees with LinkRows still restores every file, names the links not rebuilt and ends with 1. Add the case to LLR-040."
+  },
+  {
+    "id": "R3O-015",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-052",
+      "LLR-091"
+    ],
+    "rule": "LLR contradicts another LLR (order of store reads and the claim)",
+    "finding": "LLR-091 says a backup takes the claim before it reads any store state its decisions depend on (the run-state record, the latest record and its evidence). LLR-052 plans the space demand 'before any location's root, claim, record, staging area or log is created', summing 'new content not already held'. That cannot be known without reading the latest record before the claim. LLR-052 also calls this 'a plan that reads and writes nothing', which contradicts itself. The pre-claim plan can refuse a location (2) on store state read without the claim, which LLR-091 forbids.",
+    "suggested_fix": "Say that the pre-claim plan reads only published records, as a reader does (LLR-123), and is advisory, and that the binding refusal is the post-claim re-check. Or take the claim before the plan and narrow LLR-052's 'before ... created' to the root, staging and record. Replace 'reads and writes nothing' with 'changes nothing'."
+  },
+  {
+    "id": "R3O-016",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-135",
+      "IF-031",
+      "SR-052"
+    ],
+    "rule": "LLR contradicts its SR",
+    "finding": "SR-052's acceptance requires that 'a mount point and the folders beneath it count as one volume on Windows and on Linux'. LLR-135 and IF-031 resolve a Windows path's volume from 'its drive or share root' only. An NTFS folder mount point (for example C:\\Mounts\\Disk2) is a different volume from C:, so its demand and free space would be measured against C:, and the check would pass or refuse on the wrong volume.",
+    "suggested_fix": "On Windows, resolve the volume by the longest volume mount point that prefixes the resolved path (drive roots and folder mount points alike), and say so in IF-031's form. Add path=windows-folder-mount to LLR-135's dimensions."
+  },
+  {
+    "id": "R3O-017",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-103",
+      "SR-063",
+      "SR-062",
+      "IF-004"
+    ],
+    "rule": "LLR adds an obligation its SRs do not ask for (an undeclared derived refusal)",
+    "finding": "LLR-103 refuses a listing location 'not on the backup's volume', a configuration refusal (2) that none of its parents asks for. SR-063 refuses overlap and foreign content, and SR-138 and SR-149 cover the other locations. The rationale derives the rule from the browse view's relative links (SR-062), which LLR-103 does not trace to. An owner whose listing sits on another volume is refused by a rule that neither the SR tier nor IF-004's ViewPath states.",
+    "suggested_fix": "Either state the same-volume requirement at SR level (a SR-062 or SR-063 clause, with its rationale) and in IF-004's ViewPath, or drop the refusal and make the view's links work across volumes. At least trace the clause to SR-062."
+  },
+  {
+    "id": "R3O-018",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-133",
+      "SR-098"
+    ],
+    "rule": "LLR narrower than its SR",
+    "finding": "SR-098 requires a rate for each backed-up file the tool gives a playing time. LLR-133 hands to the tool only 'each file whose content is read in the run'. A file backed up before the space view was turned on, or one never re-read (schedule N), is never measured, so its rate stays blank indefinitely. An owner who turns the view on for an existing library, the common case, sees no rates.",
+    "suggested_fix": "Measure every file of the latest state that has no rate on record (bounded per run if the budget demands it), and say how a rate is kept for unchanged files. Add file_state=set{read-this-run,unchanged-unmeasured,unchanged-measured} to the dimensions."
+  },
+  {
+    "id": "R3O-019",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-027",
+      "IF-008",
+      "SR-027"
+    ],
+    "rule": "LLR contradicts an interface's form",
+    "finding": "LLR-027's dimensions include host=container, and the row has the new user 'use the configuration helper to produce a configuration that the launch checks accept ... with the notification login protected by the host'. IF-008's helper writes only the native-Windows form (IF-006). The container reads a JSON document at /config/FileBackup.json (IF-038), and a host-protected credential cannot exist outside Windows. As stated, the container case of SR-027 cannot be met.",
+    "suggested_fix": "Either have the helper also write the JSON form (without a login) and say so in IF-008, or limit LLR-027's helper clause to the Windows host and give the container case its own route to a valid document (the example configuration plus the published description)."
+  },
+  {
+    "id": "R3O-020",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-074",
+      "LLR-073",
+      "SR-072",
+      "IF-020"
+    ],
+    "rule": "LLR contradicts another LLR",
+    "finding": "LLR-074 says 'the macOS launcher asks for the target by folder choice when given no arguments' and also that neither launcher carries restore logic. It also says the restore keeps the outcome on screen 'only when the target came from a folder choice or a prompt'. If the launcher makes the choice and passes the target as an argument, the restore sees a given target and does not hold the window, so SR-072 fails on macOS. LLR-073 places the folder choice in the restore. IF-020's --pick-target suggests the intended design (the launcher asks the restore to choose), but no row says so.",
+    "suggested_fix": "State that the macOS launcher passes the request for a folder choice (--pick-target) and the restore makes the choice, so that LLR-073's decision and LLR-074's hold rule both apply. Remove 'asks for the target' from the launcher clause."
+  },
+  {
+    "id": "R3O-021",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-026",
+      "LLR-149"
+    ],
+    "rule": "Contradiction within the row",
+    "finding": "LLR-026 keeps each content once and blanks 'every other entry referencing it', which rewrites the records of folders whose references all exist. It then says 'a folder whose references all exist is neither read nor rewritten', and that only folders naming a vanished copy are read and rewritten. Both cannot hold. LLR-149 also has every saved state's record read once per run through the index, so 'neither read' is false as well. A builder either never collapses anything or rewrites folders the row says to leave alone.",
+    "suggested_fix": "Say which folders the collapse rewrites (those whose entries it blanks because their copy is redundant, and those whose references vanished) and which it leaves alone. Replace 'neither read' with 'not rewritten'."
+  },
+  {
+    "id": "R3O-022",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-117",
+      "LLR-003",
+      "SR-003",
+      "SR-082"
+    ],
+    "rule": "LLR tracing to an SR that does not ask for it",
+    "finding": "LLR-117 (publish a stored object from a verified temporary, never write into debris at its name) is a child of LLR-003 and so traces to SR-003 (identical content stored once). Its obligation is interruption safety and integrity: no torn object at a valid name after a kill, and no archive of two members. SR-082 and SR-059 ask for that; SR-003 does not. The derived trace hides the row from SR-082's scoped tests and blast radius.",
+    "suggested_fix": "Make LLR-117 a top-level row with sr_refs SR-082 (and SR-059), or a child of an SR-082 row such as LLR-087. Keep its constrains cell."
+  },
+  {
+    "id": "R3O-023",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-029",
+      "LLR-001",
+      "LLR-114",
+      "SR-074",
+      "SR-093"
+    ],
+    "rule": "Interface form hazard: the change-detection record reuses the store's record names at the source root",
+    "finding": "IF-029 names the change-detection record MANIFEST.csv and MANIFEST.csv.meta at the source root, the same names as a backup's own record (IF-013); today's code does the same. A source whose root holds a file of that name loses it: the run takes the file for its own state, rebuilds over it as foreign (LLR-114), overwrites it, and never backs it up (LLR-001, SR-074). This is plausible when an owner keeps a second copy of a FileBackup store, or backs up any folder with a MANIFEST.csv at its root. Overwriting another store's latest record in place destroys that backup's latest state and alters the source, against SR-093.",
+    "suggested_fix": "Give the change-detection record a name no other artifact uses (moving IF-029 to a new version and reading the old name once for migration). Or refuse a source whose root holds a MANIFEST.csv that is not this location's change-detection record, checked by its evidence and identity. Either way, add the case to LLR-114's dimensions."
+  },
+  {
+    "id": "R3O-024",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-009",
+      "LLR-097",
+      "SR-126"
+    ],
+    "rule": "Interface form incomplete (value set)",
+    "finding": "IF-009 states the refusal grammar 'Refused <token>: ... Remedy: ...', but its token set lists only the seven exclusive-use tokens. LLR-097 requires a recorded refusal for configuration, record damage, capacity, tool, unsupported form, empty source, location overlap and read-only source, and none of these has a token, although the rationale says hosts search by refusal class. Today's [2/staging-busy] token, used by the removal, is missing from the list, though the rationale keeps tokens 'exactly as hosts already search for them'. Several entries that other rows require have no message kind: run state rebuilt (LLR-035), retry limit reached (LLR-067), space check not made (LLR-052), work reclaimed (LLR-125) and retry visible (SR-067).",
+    "suggested_fix": "Close the token set with one token per LLR-097 cause, naming no requirement, plus [2/staging-busy]. Add message kinds for the entries the LLRs require, or state that the message list is open and which entries hosts may rely on."
+  },
+  {
+    "id": "R3O-025",
+    "severity": "MINOR",
+    "rows": [
+      "SR-150",
+      "SR-151"
+    ],
+    "rule": "Hat attribution: the hat does not reach these rows, and the obligation is not derived",
+    "finding": "SR-150 and SR-151 name PERFORMANCE and argue it as the deriving lens. PERFORMANCE applies only where a need carries the 'scale' tag; SN-001 is tagged filesystem and SN-036 filesystem and restore-host, so the hat never reaches these rows. Both obligations are also stated in SN-001's own acceptance (links that lead inside, to an ancestor or into the backup's locations are recorded, not followed), so neither row is derived. A walk that never ends on a cycle is a termination failure, not unbudgeted growth.",
+    "suggested_fix": "Empty hat_refs, or name FILESYSTEM-SEMANTICS if its listens_for is argued. Drop 'Derived through PERFORMANCE' and trace the obligation to SN-001's acceptance text."
+  },
+  {
+    "id": "R3O-026",
+    "severity": "MINOR",
+    "rows": [
+      "SR-151"
+    ],
+    "rule": "Part B: EARS pattern and acceptance coverage",
+    "finding": "SR-151 opens 'If a source holds a link ... then', the fault pattern, for an ordinary condition, while its sibling SR-150 uses 'When' for the same kind of trigger. The acceptance tests links to the backup root, a saved state and the log location, but not the change-detection state location that the requirement and the permutations name.",
+    "suggested_fix": "Use 'When'. Add a link to the state location to the acceptance."
+  },
+  {
+    "id": "R3O-027",
+    "severity": "MINOR",
+    "rows": [
+      "SR-152",
+      "SR-121"
+    ],
+    "rule": "Part B: trace and wording",
+    "finding": "SR-152 rebuilds a link into the system's own locations at its original path. That obligation comes from SN-001's acceptance ('recorded and rebuilt at restore'), but sn_refs names only SN-036, which speaks of links within the tree. SR-121's rationale speaks of 'a recorded link that led outside its source', but under SR-137 a link outside the source is followed. The only recorded links that lead outside the source are those into the system's own locations.",
+    "suggested_fix": "Add SN-001 to SR-152's sn_refs. In SR-121's rationale, say 'a recorded link into the system's own locations'."
+  },
+  {
+    "id": "R3O-028",
+    "severity": "MINOR",
+    "rows": [
+      "SR-109"
+    ],
+    "rule": "Part B: buried condition in the rationale",
+    "finding": "SR-109's rationale reports the finding 'where no such copy exists, or more than one candidate answer remains'. The second condition appears in neither the requirement nor the acceptance, and with the copy's identity verified by hash it is unclear what a second candidate answer would be.",
+    "suggested_fix": "Drop the clause, or state the case in the acceptance with its expected handling (for example two verified copies in different forms)."
+  },
+  {
+    "id": "R3O-029",
+    "severity": "MINOR",
+    "rows": [
+      "SR-151",
+      "SR-137",
+      "LLR-109",
+      "IF-018",
+      "SR-063"
+    ],
+    "rule": "System-location list inconsistent across rows",
+    "finding": "The list of the system's own locations that a link may not be followed into (backup, saved states, change-detection state, logs) leaves out the listing location, where the browse and space views live, though SR-063 and LLR-103 treat it as a system location. A source link into it is followed, and the view's generated files are captured as source content.",
+    "suggested_fix": "Add the listing location to SR-151, to LLR-109's system locations and to IF-018's own-location class, or state why it is excluded."
+  },
+  {
+    "id": "R3O-030",
+    "severity": "MINOR",
+    "rows": [
+      "IF-018",
+      "LLR-110",
+      "LLR-144"
+    ],
+    "rule": "Interface form incomplete for one case",
+    "finding": "SR-150 and LLR-109 record a link inside a followed outside folder that leads to one of its ancestors. That target lies outside the source on disk, yet IF-018 classifies it inside-source with 'the target's path under the source root', and LLR-110 knows only inside-source and system-location targets. The form does not say that the path is the walk path (through the followed link), which is what LLR-144 needs to re-point it under the target.",
+    "suggested_fix": "In IF-018, define Target for inside-source as the target's path in the walk (under the source root, through followed links). Add target_class=ancestor-in-followed-folder to LLR-110's dimensions."
+  },
+  {
+    "id": "R3O-031",
+    "severity": "MINOR",
+    "rows": [
+      "IF-010"
+    ],
+    "rule": "Interface form: value meanings",
+    "finding": "IF-010 lists ten Class values without their meanings. A host cannot tell DanglingDataPath from PoolDataPathMissing, or PoolUnresolvable from content missing everywhere (LLR-054), and LegacyStoredForm, which LLR-060 makes a finding, is not tied to any LLR-049 kind. Today the two Pool* findings also carry fewer fields than the rest (FileBackup.ps1:532-537).",
+    "suggested_fix": "Give each Class a one-line meaning tied to LLR-049's and LLR-054's kinds, and state which fields every finding carries."
+  },
+  {
+    "id": "R3O-032",
+    "severity": "MINOR",
+    "rows": [
+      "IF-020",
+      "LLR-010"
+    ],
+    "rule": "Interface states behaviour and contradicts its own switch",
+    "finding": "IF-020's data opens with behaviour ('The state restored is the one whose folder the restore is started from') and then lists --from <state folder>, which names the state by argument. LLR-010 allows 'or the one the request names'.",
+    "suggested_fix": "Keep the state-selection rule in LLR-010 only, and leave IF-020 with the switch list and the double-click form."
+  },
+  {
+    "id": "R3O-033",
+    "severity": "MINOR",
+    "rows": [
+      "IF-014",
+      "LLR-025",
+      "LLR-066",
+      "LLR-071"
+    ],
+    "rule": "Interface form imprecise for readers",
+    "finding": "IF-014 calls LastWriteTimeStr 'ISO-8601 round-trip text with offset, opaque to readers', yet LLR-066 and LLR-071 have every restore route parse it and honour its offset. Its exact grammar (fraction digits, Z or +00:00) is not fixed, and the shell route's parser needs it. IF-014 also states 'LF line endings' with no reader tolerance, while today's Windows writer emits CRLF (Export-Csv uses the platform newline) and LLR-025 tolerates either.",
+    "suggested_fix": "State the time text grammar exactly, say it is opaque to the backup side only, and add 'read with LF or CRLF' to the form."
+  },
+  {
+    "id": "R3O-034",
+    "severity": "MINOR",
+    "rows": [
+      "IF-013"
+    ],
+    "rule": "Interface form imprecise",
+    "finding": "The saved-state folder pattern ^Snapshot_\\d{4}_..._\\d{2} has no end anchor and no optional suffix, so 'Snapshot_2024_01_01_00_00_00_x' matches; today's pattern (Common.psm1:86) is the same. A user folder named that way in the saved-state root would be taken for a saved state.",
+    "suggested_fix": "Give the full anchored pattern, with the optional _\\d{3} suffix."
+  },
+  {
+    "id": "R3O-035",
+    "severity": "MINOR",
+    "rows": [
+      "IF-004",
+      "LLR-011"
+    ],
+    "rule": "Interface form: value meaning missing",
+    "finding": "HashRecalcFreq lists 'A, E (every run), D, ...' without saying what A means. The code treats A and E alike (Engine.psm1:436-437), while LLR-011's dimensions carry A as a separate value.",
+    "suggested_fix": "Write 'A or E (every run)', and drop A from LLR-011's dimensions or mark it an accepted synonym."
+  },
+  {
+    "id": "R3O-036",
+    "severity": "MINOR",
+    "rows": [
+      "IF-002",
+      "LLR-048"
+    ],
+    "rule": "Interface form incomplete: which switches apply to which actions",
+    "finding": "IF-002 makes 'a switch that does not apply to the chosen action' a bad request, but gives the applicable actions for only some switches. -NoMail, -NonInteractive, -ConfigPath, -GlobalLogPath, -AutoInstallDeps and -ExitCode have no stated scope, yet the container passes -NoMail and -NonInteractive with every action (LLR-048; entrypoint.sh:54-60). Today's -BackupTime test seam is not in the form, so it would be refused.",
+    "suggested_fix": "State that the general switches apply to every action, and either list -BackupTime or retire it."
+  },
+  {
+    "id": "R3O-037",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-048",
+      "IF-038"
+    ],
+    "rule": "LLR contradicts an interface's form",
+    "finding": "IF-038 counts a flag variable as set only when it holds one of the listed truthy words, which implies any other value leaves it unset. LLR-048 says 'an unknown action word or variable value is a bad request (2)'. FILEBACKUP_REPAIR=no is unset under one row and a bad request under the other.",
+    "suggested_fix": "Pick one rule (for example, a non-empty value outside the truthy and falsy sets is a bad request) and state it in both rows."
+  },
+  {
+    "id": "R3O-038",
+    "severity": "MINOR",
+    "rows": [
+      "IF-011",
+      "IF-041",
+      "IF-019"
+    ],
+    "rule": "Interface forms with an unstated parameter",
+    "finding": "IF-011 says 'with TLS' but not whether implicit TLS or STARTTLS; today it is UseSsl, which is STARTTLS. IF-041 relies on 'a documented row count' without giving it. IF-019 defers the restorer and library file names to 'the fixed name the kit itself documents', yet LLR-022's infrastructure-name test needs the whole name set.",
+    "suggested_fix": "State the TLS mode and the row threshold. For IF-019, say where the closed set of kit names is fixed (for example the shipped-file inventory), so that LLR-022 has one list."
+  },
+  {
+    "id": "R3O-039",
+    "severity": "MINOR",
+    "rows": [
+      "IF-032",
+      "IF-044",
+      "IF-030",
+      "IF-025",
+      "IF-014",
+      "IF-017",
+      "IF-035"
+    ],
+    "rule": "Interface consumers or requestors do not match who uses the interface",
+    "finding": "IF-032 lists CMP-013 and CMP-014 but not whichever component takes the claim for a backup. IF-044 lists only CMP-011, though the guard's own reclaim (CMP-012) uses the verdict. IF-030 lists its own owner, CMP-011, as a consumer. IF-025 lists only CMP-018, though collision probing (LLR-142), per-entry containment (LLR-141), link creation (LLR-144) and folder attributes (LLR-143) read it. IF-014 omits the views (CMP-015). IF-017 omits its producer, CMP-008, while IF-018 lists CMP-008. IF-035 omits the admission self-test (CMP-018).",
+    "suggested_fix": "Recompute consumers and requestors from the LLRs that cross each interface."
+  },
+  {
+    "id": "R3O-040",
+    "severity": "MINOR",
+    "rows": [
+      "IF-045"
+    ],
+    "rule": "Interface inside one component",
+    "finding": "IF-045's owner and its only requestor are both CMP-019. An interface inside one component is optional under the pointer rules, and this one is justified only as the parity contract between the two restore routes, which both sit inside CMP-019.",
+    "suggested_fix": "Keep it and say in its rationale that it is the parity form between the routes, or fold its answer set into LLR-050's dimensions and retire it."
+  },
+  {
+    "id": "R3O-041",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-037",
+      "CMP-004",
+      "CMP-016"
+    ],
+    "rule": "LLR names its carrier by today's placement",
+    "finding": "LLR-037 says reading the effort 'never raises an error, because the restore-safe library that reads it is loaded by the restore kit'. That describes today's code layout (Common.psm1:213), not an obligation, and it conflicts with the tree, in which CMP-004 (backup-only) owns the variable and the restore kit depends on nothing backup-only.",
+    "suggested_fix": "State the obligation ('reading the effort never affects any restore') and leave where the effort is read to the component tree."
+  },
+  {
+    "id": "R3O-042",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-116"
+    ],
+    "rule": "Implementation detail that does not survive a refactor",
+    "finding": "'Compressed by Brotli at its fastest quality level into a counting sink whose count is read only after the encoder is closed' fixes one codec and a coding guard. The obligation is the estimate's accuracy, a size taken after a full flush; a different estimator that made the same decisions would break the row.",
+    "suggested_fix": "Keep the window rule and the 0.90 threshold, and state the estimator as 'a fast general-purpose compressor's fully flushed output size'. Move the Brotli and sink detail to the code's contract body."
+  },
+  {
+    "id": "R3O-043",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-022",
+      "LLR-001",
+      "LLR-078"
+    ],
+    "rule": "Wording contradicts a sibling",
+    "finding": "LLR-022 says 'At a source root only the change-detection record and its publication temporaries are left out'. LLR-001 and LLR-078 also leave out a volume's system folders at a volume-root source, the targets of recorded links, and non-portable names.",
+    "suggested_fix": "Write 'of the infrastructure names, only the change-detection record and its publication temporaries are left out at a source root'."
+  },
+  {
+    "id": "R3O-044",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-042",
+      "LLR-098",
+      "LLR-099",
+      "LLR-103"
+    ],
+    "rule": "More than one decision per row; siblings overlap",
+    "finding": "Version handling is decided three times. LLR-042's faults include a version that is absent, too old, too new or fractional; LLR-098 decides older and newer versions, and LLR-099 decides absent and fractional ones. LLR-099 also carries a release-guidance obligation ('the configuration helper writes the current version') that belongs to CMP-024, not to the configuration checks. LLR-103 bundles three location decisions: backup or saved-state overlap, listing overlap, and state-location placement.",
+    "suggested_fix": "Keep the version faults in LLR-098 and LLR-099 only, and drop them from LLR-042's dimensions. Move the helper clause to LLR-027. Split LLR-103 into one row per location kind."
+  },
+  {
+    "id": "R3O-045",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-045"
+    ],
+    "rule": "Outcome label inconsistent with the vocabulary",
+    "finding": "A re-homed copy whose name would be an infrastructure name at the destination, or would overwrite a different file there, is called 'a bad request'. That is store damage or an unmet precondition, not the owner's request. The value is 2 either way, but the class label reaches the message and the refusal token.",
+    "suggested_fix": "Call it a precondition not met, naming the colliding file, or a damaged record if that is what is meant."
+  },
+  {
+    "id": "R3O-046",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-016",
+      "LLR-097"
+    ],
+    "rule": "Outcome value unstated; wrong interface",
+    "finding": "LLR-016 says a step that would have needed an answer 'fails the operation with an outcome naming what was needed', with no value; 2 is implied. LLR-097 lists restore refusals but constrains IF-009, which a restore never writes. A refused restore writes no report (LLR-039, LLR-136), so its entry can only reach the console.",
+    "suggested_fix": "Give LLR-016's value (2). Scope LLR-097 to the backup-side operations, or have it constrain IF-022 as well and say where a refusal before admission is shown."
+  },
+  {
+    "id": "R3O-047",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-080"
+    ],
+    "rule": "Dimensions missing a case the behaviour depends on",
+    "finding": "The death judgement depends on the second sample, taken after the capped interval: unchanged means dead, changed means alive. The dimensions carry the record, the age, the refresh and the host, but not the second sample's result or the cap boundaries (a declared interval above 600 s, or below the 90 s floor).",
+    "suggested_fix": "Add second_sample=set{unchanged,changed}; declared_interval=range[1..3600]."
+  },
+  {
+    "id": "R3O-048",
+    "severity": "MINOR",
+    "rows": [
+      "LLR-043",
+      "LLR-091",
+      "LLR-095",
+      "IF-039"
+    ],
+    "rule": "Rationale carries history or requirement ids",
+    "finding": "LLR-043 ('that is how a busy backup and a refused configuration came to share a value'), LLR-091 ('acting on it once made a run take itself for a first backup') and LLR-095 ('a configuration typo used to destroy the previous run's record') argue from past defects instead of saying what breaks without the row. IF-039's rationale cites 'SR-130's least-access requirement', although an interface lists no requirement it carries.",
+    "suggested_fix": "Restate each as what breaks without the row. In IF-039, say 'the least-access requirement' without the id."
+  },
+  {
+    "id": "R3O-049",
+    "severity": "MINOR",
+    "rows": [
+      "CMP-004",
+      "CMP-008",
+      "CMP-002"
+    ],
+    "rule": "Component notes: claims about today's form that are not true",
+    "finding": "CMP-004 says tool discovery sits in the backup-only engine module. In fact the 7-Zip and ffprobe lookups run when the restore-safe library loads (Common.psm1:165-185). CMP-008 says directory links 'are never descended and are not recorded'. In fact the folder walk lists them and writes them to the folder record as empty folders (Engine.psm1:659, 684-686), so today a link comes back as an empty folder. CMP-002 says each operation classifies its own refusals, but Verify's and View's values are decided in the entry script (FileBackup.ps1:543-593). The 'Today ...' prose in every CMP row describes code by role and will go stale with the first build.",
+    "suggested_fix": "Correct the three claims. Consider moving the 'Today' sentences out of the component rows into the migration notes, so the rows state responsibilities only."
+  },
+  {
+    "id": "R3O-050",
+    "severity": "MINOR",
+    "rows": [
+      "IF-023"
+    ],
+    "rule": "Frame vs interface",
+    "finding": "IF-023's form includes recorded links, which SR-152 rebuilds, but its crossing B-16 carries files, names, times, empty folders and attributes and no links. Likewise B-01 does not mention links in the source.",
+    "suggested_fix": "Add links to the carries of B-16 and B-01 in the frame."
+  }
+]
