@@ -1,0 +1,4050 @@
+[
+  {
+    "id": "LLR-001",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Walks SourcePath recursively and produces one manifest row per file (SR-001). Comparing source and backup manifests produces the NewOrChanged and RemovedFromSource sets without side effects."
+    },
+    "removed": [
+      {
+        "text": "Compare-SourceToBackup",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-002",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Streams each file to compute xxHash128 and returns its big-endian digest as 32 uppercase hexadecimal characters (SR-002). Hashing support is available before hashing begins."
+    },
+    "removed": [
+      {
+        "text": "Initialize-XxHashLibrary",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "System.IO.Hashing.XxHash128",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-003",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Groups source rows by (xxH2Hash,Length), stores physical data once per key, derives its content-addressed name using SR-069's base-57 grammar, and flags subsequent logical names Duplicate (SR-003)."
+    },
+    "removed": [
+      {
+        "text": "Get-HashSizeFileName",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-004",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Compression exemption list and fresh archive storage",
+      "Detail": "The already-compressed extension list has one definition, shared by compression decisions and audit exemptions, and its published documentation agrees with it. It includes .jar .tgz .zst .gif .webm .ogg .sav .pack; archives .z7 and .esd; video .mpg .mpeg .m2ts .m4v .wmv .flv alongside .mp4/.mkv; images .heic .heif; and audio .opus .m4a alongside .aac/.ogg. Office/text formats are not exempt. Neither .iso, a filesystem container rather than proof of compression, nor the unconfirmed .mca, .bin, .dng and .pdf formats are exempt; sampling determines their compressibility. The list is a known-format fast path, not an exhaustive classification. Its answer is an input to the measured decision in LLR-086 and decides alone in mode off and below 256 KiB. Compressed output is a fresh .7z archive with .7z appended to the stored name and Compressed agreeing with that form. An existing unreferenced destination is removed before archive creation, so interrupted archives or orphaned content cannot be merged into the new archive. Compression effort defaults to 9 and follows FILEBACKUP_7Z_LEVEL (LLR-037); the resolved level and any rejected raw value are available to configuration validation without making restore depend on backup-only code."
+    },
+    "removed": [
+      {
+        "text": "Test-ShouldCompress decides by extension only (SR-004)",
+        "kind": "contradiction",
+        "destination": "drop",
+        "replaced_by": "The extension list feeds the measured compression decision in LLR-086."
+      },
+      {
+        "text": "Extension-gated 7-Zip storage",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Compression exemption list and fresh archive storage"
+      },
+      {
+        "text": "Compress-FileWithSevenZip",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileBackupDefaults",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ShouldCompress",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:NonCompressibleExtensions",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:SevenZipCompressionLevel",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$true",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$env:FILEBACKUP_7Z_LEVEL",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Common.psm1:110-114",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "WP5 merged the eight extensions the HomeHub deployer's list carried (.jar .tgz .zst .gif .webm .ogg .sav .pack) into $script:NonCompressibleExtensions, which remains the ONE definition site; Office/text formats stay OFF the list, but AMENDED 2026-09-01 (WP17 Part A) their justification changes: the list is for formats KNOWN to be already compressed and office containers are not on it - SN-003's acceptance line is an EXAMPLE of the need, not a ruling on those formats (Owner ruling Q7), and under WP17 the bytes decide.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "WP17 Part A also APPENDS the extensions the 2026-08-31 defect review proved, in the existing groups, each with its evidence class named in the comment: archives .z7 (file(1): '7-zip archive data, version 0.4' - the finding itself, 649 files and 880 GB, 43% of the production library) and .esd (a Windows image, LZMA-compressed by definition); video .mpg .mpeg .m2ts .m4v .wmv .flv (codec containers of the same class as the .mp4/.mkv already listed - .mpg is the file that prompted the review, and .mp4 was already present); images .heic .heif (HEVC-coded stills, what current phones produce); audio .opus .m4a (the same class as the .aac/.ogg already listed).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Explicitly NOT added, with the review's reasons: .iso (a filesystem CONTAINER - adding it is the false-'already compressed' error), .mca (unconfirmed, 4.5 GB), and .bin, .dng and .pdf (plausible but unproven - and exactly what the SR-081 probe is for).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "AMENDED the same day: Test-ShouldCompress is now the FIRST of two gates, not the whole decision - SR-081's measured probe is composed after it in the Engine (LLR-086), so this function's answer is an INPUT (ListSaysCompress, computed with -CompressEnabled $true so it carries only the list's opinion) rather than the verdict, and it remains the sole authority only in mode off and below the 256 KiB floor.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The one definition site is unchanged and Engine still holds no NonCompressibleExtensions reference (TC-096).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "README's 'Already-compressed extensions' table is checked against the live list by TC-096 so the documentation cannot drift.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Compress-FileWithSevenZip removes an existing destination BEFORE the '7z a', because 'a' ADDS to an archive rather than replacing it: the write path is index-authoritative, so an UNREFERENCED object at the content-addressed name (a run killed before its manifest was written, a row evicted while its object awaits prune, interrupted-7-Zip debris) would otherwise be merged into (WP9 review nit-4, taken 2026-08-26).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "AMENDED 2026-09-01 (Owner ruling): Compress-FileWithSevenZip's argument list carries \"-mx=$script:SevenZipCompressionLevel\" instead of the hard-coded '-mx=9'.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "This is a kit-bundled file, so the KitRevision marker moves 11 -> 12 (LLR-076).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [
+      "LLR-086",
+      "SR-081"
+    ],
+    "notes": "The opening extension-only decision conflicts with LLR-086/SR-081; the current composed decision implements measured compression, retaining the list for the specified modes, floor and fallback."
+  },
+  {
+    "id": "LLR-005",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Builds a snapshot in staging and publishes it by renaming to Snapshot_<prior-backup-date> after writing its manifest (SR-005). Publication requires a prior backup date and a non-empty manifest diff, including dedup-served additions and shared-content removals even when no physical copy occurs. A manifest-identical run and the latest/live state create no snapshot. Same-second names receive a collision disambiguator."
+    },
+    "removed": [
+      {
+        "text": "An optional -BackupTime seam (cf. Test-HashRecalcDue -Now) dates the snapshot deterministically for tests.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Compare-SourceToBackup",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-HashRecalcDue",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-006",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Evicts a removed file's data to staging only when no surviving manifest row references its (hash,size) (SR-006); shared data is retained."
+    },
+    "removed": [
+      {
+        "text": "Evicts a removed file's data to staging only when no surviving manifest row references its (hash,size) (SR-006); shared data is retained (B9).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-007",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Deposits the seven-artifact restore kit into the live backup and each dated snapshot: PowerShell and bash restorers, restore-safe shared primitives, the hashing dependency, RECONSTRUCT.paths.json, RECONSTRUCT.cmd and reconstruct.command (SR-007). Restore-safe primitives have no dependency on backup-only logic. The Windows launcher passes arguments through without pausing. RECONSTRUCT.bat is never written, but remains recognized as root-level infrastructure so an older kit is not reported as orphaned data (SR-022)."
+    },
+    "removed": [
+      {
+        "text": "System.IO.Hashing.dll",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.Common.psm1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-08-28 (WP13): the generated Windows launcher is RECONSTRUCT.cmd and is a PURE PASSTHROUGH - no pause - and reconstruct.command is copied beside reconstruct.sh.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "RECONSTRUCT.bat is no longer written; Get-IsInfrastructureFile still recognises the name so a pre-rev-10 store's leftover copy is not reported as an orphan (SR-022).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-008",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Rebuilds the tree from its manifest using bundled restore-safe functionality (SR-008), expands stored archives according to the located bytes' form, and recovers blank-DataPath rows by scanning the pool for a matching (hash,length)."
+    },
+    "removed": [
+      {
+        "text": "decompresses .7z rows via Expand-FileWithSevenZip",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Expands according to the located bytes' form."
+      },
+      {
+        "text": "Expand-FileWithSevenZip",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": [
+      "LLR-068",
+      "SR-068"
+    ],
+    "notes": "The .7z-row shorthand is stale if read as filename-driven expansion; current restorers implement LLR-068/SR-068 byte-derived form and (hash,length) recovery."
+  },
+  {
+    "id": "LLR-009",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-010",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "A restore launched from a Snapshot_<date> folder uses that snapshot's own manifest as sole authority, with no newer-manifest overlay, and resolves bytes by (xxH2Hash,Length) from the backup root and all snapshot folders (SR-010). Infrastructure names are skipped only at each pool folder's root (SR-022); nested files with those names remain legitimate recovery candidates. Content identity, rather than the name skip, decides a match."
+    },
+    "removed": [
+      {
+        "text": "Find-DataFileByHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "The scan's infrastructure-name skip is root-level only per SR-022 (a nested infra-named file is data and a legitimate recovery source, B6); matching is by (hash,length) — the skip is an optimization, not a correctness gate.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-011",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Given A/E/D/W/M/Y/N, the last hash-run time and the current time, returns whether rehashing is due (SR-011). Persists the last hash-run timestamp in the run state."
+    },
+    "removed": [
+      {
+        "text": "Test-HashRecalcDue",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Set-LastHashRun",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-014",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Processes each configured backup set independently (SR-014). Logs a set's failure, continues with subsequent sets, and returns exit 1 when any set fails."
+    },
+    "removed": [
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-015",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Sends mail only when SMTP fields are present and -NoMail is unset (SR-015). A mail failure is caught and logged WARN without changing exit status."
+    },
+    "removed": [
+      {
+        "text": "Send-MailMessage",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Sends mail only when SMTP fields are present and -NoMail is unset (SR-015); Send-MailMessage failure is caught and logged WARN, never changing exit status (B15).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-016",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "An unattended run never waits for a prompt (SR-016). Under -NonInteractive, missing optional tools become absent; the required hashing dependency is installed under -AutoInstall or refused with guidance. With no -TargetRoot, non-interactive mode or redirected input prints usage and exits 2; interactive use retains a target prompt. Prompt selection returns None, Text or Gui from explicit session signals; a session with neither interactive console nor desktop returns None. Both restore interfaces provide matching usage information, and RECONSTRUCT.cmd forwards all arguments."
+    },
+    "removed": [
+      {
+        "text": "Test-ShouldPromptGraphically",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Initialize-XxHashLibrary",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Initialize-Dependencies",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Show-ReconstructUsage",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-OptionalTool",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$NonInteractive",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "System.Console",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-Host",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-08-24 (kit-bump rev6): Reconstruct.ps1 gains a [switch]$NonInteractive, documented in the param() block comments alongside -ExitCode and -RequireWitness.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "AMENDED 2026-08-28 (WP13): Test-ShouldPromptGraphically is the pure decision core and returns None/Text/Gui; 'None' now also covers a session with no interactive console and no desktop (Environment.UserInteractive false), which previously fell through to Read-Host and blocked forever.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-017",
+    "verdict": "flag",
+    "cells": {
+      "Title": "Staging classification, reclaim and ownership fences",
+      "Detail": "On failure to create staging, logs the original error and classifies only an existing directory; otherwise rethrows the original error. Enumeration includes hidden entries, treats paths literally and refuses on errors. Empty and OwnerStale require a confirmation sample after at least 90 s, extended to the declared heartbeat cadence plus 30 s and capped at 600 s. Reclaim renames staging to Temp.stale-<utc>-<8 hex>, then rechecks the moved folder against the sampled identity; a live identity is moved back and refused. A failed move refuses without a retry loop. New staging receives its owner record immediately after creation. The aside folder is re-enumerated and only disposable exact-name leaves are deleted, followed by a non-recursive directory delete; unexpected content or any deletion failure preserves the folder and prints recovery guidance. OwnerLive, HoldsContent and PruneHeld refuse with [SR-075/owner-live], [SR-075/content-refused] and [SR-075/prune-held]; Indeterminate and a reparse-point staging directory use the content refusal. Successful acquisition returns the staging location and a retained heartbeat handle. All post-acquisition exits stop and drain the heartbeat without deleting data merely because work threw. Early cleanup proves the marker belongs to this run and that entries contain only its marker and disposable prior manifest, witness and directory-sidecar copies; it deletes those leaves with the marker last, then deletes the directory non-recursively. Doubt preserves staging and logs [SR-075/lock-lost], while retaining the original failure. Ownership is rechecked before staging-manifest publication, eviction, superseded-data preservation, backup-manifest/sidecar publication and finalization. Unreadable markers are retried three times about 300 ms apart; identity mismatches are not retried and abort without cleanup. The heartbeat is stopped and drained and its marker removed immediately before staging deletion or snapshot publication, so snapshots contain no live-run marker. Acquisition, classification, confirmation and reclaim occur under the staging OS lock; failure to obtain it refuses before touching staging. Holding that lock does not change owner-record classifications because older writers may not take it. Release occurs on early failure or after finalization, never before the publish rename completes."
+    },
+    "removed": [
+      {
+        "text": "Detects a pre-existing Temp staging folder under ChangePath and aborts with a message naming it (SR-017) rather than overwriting a half-written prior run.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Existing staging is classified and safely reclaimable cases are confirmed; other cases refuse without overwriting content."
+      },
+      {
+        "text": "Get-StagingConfirmationWait",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Move-RemovedFilesToStaging",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-StagingLockReclaim",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-StagingOwnerRecord",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Initialize-StagingFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-StagingOwnerRecord",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-OwnStagingFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-StagingLockState",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Enter-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Save-SupersededData",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Directory.Move",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Directory.Delete",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-OsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-08-31 (WP14): the existence check alone turned every externally killed run into a permanent wedge, so Initialize-StagingFolder gains classification and reclaim.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "AMENDED 2026-10-09 (SR-085, SR-086, LLR-091): Invoke-BackupSet takes the staging OS lock (Enter-StagingOsLock, LLR-090) at step 2.9, BEFORE Initialize-StagingFolder, so the create, the classification, the confirmation sample and any reclaim described here all run under it; a lock it cannot take refuses the set before Temp is touched.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The 600 s wait bound is retained, not stripped: current code caps the declared cadence at 600 s and then adds a 30 s margin, allowing a 630 s confirmation wait. This visibly differs from the row's bound and needs adjudication."
+  },
+  {
+    "id": "LLR-018",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Requires ConfigPath to name an existing file; otherwise raises \"Config file not found\" before any work (SR-018)."
+    },
+    "removed": [
+      {
+        "text": "-PathType",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-020",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Resolves configured external tools. Missing 7-Zip fails before processing any compression-enabled set; missing ffprobe leaves MediaMBPerSec blank (SR-020)."
+    },
+    "removed": [
+      {
+        "text": "Initialize-Dependencies",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-OptionalTool",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-021",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "File operations and path decomposition preserve literal Unicode and bracketed names (SR-021). Generated object names contain no wildcard metacharacters under SR-069; source-derived paths retain literal-path handling."
+    },
+    "removed": [
+      {
+        "text": "System.IO.Path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Split-Path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-LiteralPath",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Since WP12 a GENERATED object name can no longer contain a wildcard metacharacter at all (SR-069), so only source-derived paths still depend on this.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-022",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Classifies kit and manifest names as infrastructure only at the backup root (SR-022); nested user files with the same names remain data. The allowlist covers every deployed restore-kit artifact, including RECONSTRUCT.paths.json."
+    },
+    "removed": [
+      {
+        "text": "New-ReconstructScript",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Classifies kit/manifest names as infrastructure only at the backup root (SR-022); nested same-named user files are data (B6).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The allowlist covers every artifact New-ReconstructScript deploys, including the RECONSTRUCT.paths.json sidecar (2026-07-02 review).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-023",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Before restoring, sums required bytes using decompressed sizes for rows recorded as compressed and compares the estimate with free space on the target volume (SR-023). Volume measurement supports rooted POSIX paths as well as Windows paths. An unmeasurable volume skips the check rather than refusing."
+    },
+    "removed": [
+      {
+        "text": "using decompressed sizes for .7z rows",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Uses decompressed sizes for rows recorded as compressed in the capacity estimate."
+      },
+      {
+        "text": "Get-FreeSpaceBytes",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-PSDrive",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Split-Path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Sums required bytes using decompressed sizes for .7z rows and compares against target free space before restoring (SR-023, B10/B11).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-024",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-025",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Manifest input and output use one shared nine-column contract, preserving typed Length and LastWriteTime, tolerating null/empty input, and returning an empty collection for a missing file (SR-025). Publication writes a sibling temporary file and atomically renames it over the destination (SR-082, LLR-087)."
+    },
+    "removed": [
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-10-09: Write-Manifest publishes the file by writing MANIFEST.csv.tmp and renaming it over the destination, so the write is atomic (SR-082, LLR-087).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-026",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "After a run, collapses identical data shared across snapshot folders to a single stored copy still resolvable from each (SR-026). Probes each distinct DataPath in a folder exactly once in one complete pass and collects vanished paths in an ordinal set; row blanking uses membership without further probes. A folder whose paths still exist is neither re-read nor rewritten. A folder with vanished paths is rewritten, and its manifest is read only if its rows are not already retained in the content index."
+    },
+    "removed": [
+      {
+        "text": "-IncludeManifests",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "The blanking pass (M-1) re-reads and rewrites only a change folder whose DataPaths name a vanished file; a folder whose DataPaths all still exist is neither re-read nor rewritten (TC-235).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "AMENDED 2026-10-10 (Owner's NTFS probing rule): each DISTINCT DataPath of a change folder is probed exactly ONCE, in one complete pass that collects the vanished ones into an ordinal set; rows are then blanked by membership in that set with no second probe, and the manifest is read only when something vanished and only when the index does not already hold its rows (-IncludeManifests).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The M-1 merge had probed up to the first vanished path and then re-read the manifest and probed every row again -- up to a folder's worth of extra stats per run.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-028",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Dated-snapshot storage and run-state ordering",
+      "Detail": "Persists each set's last backup-completion time to date the next snapshot (SR-028). Each snapshot holds the full pre-run manifest and only superseded bytes, deduplicated across snapshots. Snapshot discovery uses the shared dated Snapshot_ grammar and does not recognize Pre_*_Changes folders. Run-state timestamps are persisted after snapshot publication and before cross-snapshot deduplication, so termination during deduplication cannot leave them stale."
+    },
+    "removed": [
+      {
+        "text": "Set-LastBackupRun accepts an injectable -When for deterministic test timelines.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Move-RemovedFilesToStaging",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Optimize-ChangeFolders",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileBackupDefaults",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Set-LastBackupRun",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Set-LastHashRun",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "docs/defect-review-2026-10-05-content-index-memory.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Run state (Set-LastHashRun, Set-LastBackupRun) is persisted after the snapshot is published and BEFORE the cross-change dedupe, so a kill inside Optimize-ChangeFolders cannot leave it stale (defect review M-4, docs/defect-review-2026-10-05-content-index-memory.md).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-027",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The configuration builder and quick-start guidance let a new user produce a valid CLIXML configuration and run a first backup (SR-027). The required hashing dependency installs automatically on first use."
+    },
+    "removed": [
+      {
+        "text": "System.IO.Hashing",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "CredSetEx.ps1",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-029",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Unrestored-row accounting",
+      "Detail": "Records every skipped restore row, including failed blank-DataPath recovery, missing data and extraction failures. A non-empty unrestored list produces an INCOMPLETE summary and a terminating failure so a scripted caller exits non-zero (SR-029); a clean run exits 0."
+    },
+    "removed": [
+      {
+        "text": "pwsh -File",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "scripted PowerShell invocation"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-030",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Bash hash conformance",
+      "Detail": "The bash restorer computes xxHash128 using the host hash utility and normalizes its output to the same 32-character uppercase big-endian hexadecimal digest as the PowerShell restorer (SR-030). The restorer is self-contained and sources no runtime libraries."
+    },
+    "removed": [
+      {
+        "text": "the bottom-of-file main guard lets bats source the script to unit-test the function. Conformance pinned by golden fixtures under tests/fixtures/hash-conformance/.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Get-FileXxHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "hash_file",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Lives inside the single self-contained reconstruct.sh (no sourced runtime libs, per plan pinned decision); the bottom-of-file main guard lets bats source the script to unit-test the function.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Conformance pinned by golden fixtures under tests/fixtures/hash-conformance/.",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-031",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The self-contained bash restorer accepts the live backup root or a Snapshot_<date> folder and implements SR-031: authority selected by its own folder's dated snapshot name, RFC-4180 manifest parsing, backslash-to-slash RelativePath mapping, (hash,length) recovery from the backup root and snapshots for blank/missing DataPath, expansion according to the located object's form, target-inside-backup refusal, capacity preflight and unrestored-row accounting with a non-zero exit naming the count. Missing tools fail loudly with remediation."
+    },
+    "removed": [
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-032",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Manifest parsing handles RFC-4180 quoted fields, including commas and embedded quotes, and tolerates a UTF-8 BOM. RelativePath backslashes map to '/'. The ISO-8601 round-trip LastWriteTimeStr text is preserved while parsing the manifest (SR-032); applying the restored timestamp is governed by LLR-066."
+    },
+    "removed": [
+      {
+        "text": "LastWriteTimeStr is treated as opaque ISO-8601 'O' text (never reparsed/reformatted).",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "Preserves timestamp text during manifest parsing; timestamp application remains governed by LLR-066."
+      },
+      {
+        "text": "parse_manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "to_posix_path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Both are functions inside the self-contained reconstruct.sh, unit-tested by sourcing it under bats (SR-032).",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": [],
+    "notes": "Kept preservation of timestamp text as a parsing contract; it does not prohibit the later timestamp conversion required by LLR-066."
+  },
+  {
+    "id": "LLR-033",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Produces backups interoperable with the PowerShell engine: the manifest schema, deduplication, short names using the shared alphabet, compression selection, dated snapshots and reference-counted eviction conform to the shared contracts (SR-033)."
+    },
+    "removed": [
+      {
+        "text": "Phase bash-v2 — decompose further before implementation.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The obligation remains despite the planned implementation; the phase cell is untouched and the instruction to decompose later is removed as workflow history."
+  },
+  {
+    "id": "LLR-034",
+    "verdict": "retire",
+    "cells": {
+      "Detail": ""
+    },
+    "removed": [
+      {
+        "text": "Builds a digest-pinned non-root image, checksum-verifies the baked System.IO.Hashing package, runs a compressed backup from a read-only source using a separate writable source-state mount and byte-exact restore smoke test, exports docker-loadable tar archives, and tags/pushes/pulls fully-qualified OCI image references without accepting registry secrets as arguments.",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "runs a compressed backup from a read-only source using a separate writable source-state mount and byte-exact restore smoke test",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": [],
+    "notes": "Container build/export/registry lifecycle is delivery outside the product spine; the backup/restore smoke proof belongs at TC under the brief's scope ruling."
+  },
+  {
+    "id": "LLR-035",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Before any store mutation, reads the prior backup-completion date and refuses when it is absent while the backup manifest contains rows. An unparseable run-state document is a failure, never an empty first-run state. Thus a non-initial run cannot discard staged history through first-backup handling (SR-035)."
+    },
+    "removed": [
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-036",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "When the source scan returns zero rows but the backup manifest still has rows, releases this run's staging area and fails unless AllowEmptySource is true. The error names the surviving row count and the override key (SR-036)."
+    },
+    "removed": [
+      {
+        "text": "Update-SourceManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-037",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Resolves the default 7-Zip path from FILEBACKUP_7ZIP_PATH without constructing a platform-specific default path; Tools.SevenZipPath takes precedence, and missing-tool guidance names both settings (SR-037). FILEBACKUP_7Z_LEVEL accepts exactly the single-digit strings '0' through '9', without trimming. Absent or empty means 9; padded and whitespace-only values are invalid. Resolution retains the rejected raw value and defaults to 9 without throwing, so an invalid variable cannot prevent restore. After configuration validation and before creating global log artifacts, Backup with any CompressEnabled set refuses an invalid level as a configuration failure, status 2 under -ExitCode. Verify, View, Prune, Snapshots, runs without compression, and both restorers are unaffected."
+    },
+    "removed": [
+      {
+        "text": "Import-BackupConfiguration",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Initialize-Dependencies",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileBackupDefaults",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-ConfigFailure",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:SevenZipCompressionLevel",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:SevenZipCompressionLevelInvalid",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$env:FILEBACKUP_7ZIP_PATH",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-09-01: the same block resolves FILEBACKUP_7Z_LEVEL into $script:SevenZipCompressionLevel, accepting only the ten single-digit strings '0'..'9' by list membership (no regex, no trimming: a padded or whitespace-only value is invalid, an absent or empty variable is simply the default).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-038",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Manifest publication atomically replaces MANIFEST.csv from its sibling temporary file, then computes the published file's xxHash128 witness. MANIFEST.csv.meta contains Version, Rows, Bytes, XxH128 and Written as UTF-8 without BOM, LF-separated key=value lines, staged beside the destination and published by atomic rename. The publication capability remains restore-safe without backup-only dependencies. MANIFEST.csv.meta, MANIFEST.csv.meta.tmp, MANIFEST.csv.tmp and RECONSTRUCT.paths.json are root-level infrastructure, so interrupted writes are neither user data nor orphans. Row count is supplied from the records just written; standalone re-stamping counts the manifest instead. Each snapshot receives a witness for its own manifest before publication; witnesses are never copied with the kit because a root witness would overwrite the snapshot's point-in-time witness (SR-038)."
+    },
+    "removed": [
+      {
+        "text": "Test-IsInfrastructureFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileBackupDefaults",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileXxHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Export-Csv",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Move-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Import-Csv",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "3, guarded by TC-048).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Write-Manifest writes MANIFEST.csv (AMENDED 2026-10-09: via MANIFEST.csv.tmp and an atomic overwriting rename, SR-082 / LLR-087 -- it used to be an in-place Export-Csv, and the atomicity here covered the witness only) then calls Write-ManifestWitness, which computes Get-FileXxHash over the written file, emits Version/Rows/Bytes/XxH128/Written as UTF-8 (no BOM) LF key=value lines to MANIFEST.csv.meta.tmp in the same folder and publishes it with Move-Item -Force (atomic rename over any prior sidecar).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Both helpers live in Common because Reconstruct.ps1 may call only Common (AGENTS.md sec.3, guarded by TC-048).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "WitnessFilename is added to Get-FileBackupDefaults and to Test-IsInfrastructureFile's root-level allowlist beside RECONSTRUCT.paths.json, together with MANIFEST.csv.meta.tmp and (AMENDED 2026-10-09, SR-083 / LLR-088) MANIFEST.csv.tmp — a crash between the WriteAllText and the Move-Item leaves that staging file behind, and a leftover must not be backed up as user data nor warned about as an orphan.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-039",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Witness verification returns Verified, Absent, Mismatch or Malformed, the failing field and an optional non-fatal warning. It compares Bytes, Rows and XxH128 in that order. A Rows-only disagreement with matching byte count and digest verifies with a counting-semantics warning; without a digest the row-count disagreement still fails. Both restorers check manifest existence, CSV header shape and witness before creating the target, log or capacity-preflight artifacts; refusals with exit 2 or 3 write nothing into the target, and buffered log messages flush only after log creation. An absent sidecar warns and continues unless -RequireWitness/--require-witness is set (SR-039)."
+    },
+    "removed": [
+      {
+        "text": "verify_manifest_witness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-RawManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "parse_manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "main",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "bash/reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-040",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Pool recovery returns the located path, detail and one cause from Found, ContentMissing, DependencyMissing or StorageUnreadable. Search folders are checked for existence and readability; an unlistable snapshot tree is StorageUnreadable. A candidate that cannot be expanded with a usable 7-Zip is content damage, included in ContentMissing detail with the count and first failed candidate. Tool self-testing establishes usability before classifying expansion failures as damage. An unreadable candidate records StorageUnreadable once; only successfully read, non-matching bytes can lead to DependencyMissing. The restore loop records RelativePath, Cause and Detail for every unrestored row. Its own copy/expand failures remain CandidateError in the host class; WriteMismatch is also host-class. Outcomes follow SR-040: 0 complete, 1 incomplete/content, 2 usage/precondition, 3 witness failure, 4 incomplete/host, with precedence 2 > 3 > 4 > 1. Under -ExitCode the PowerShell restorer logs and exits with that code; otherwise it throws while retaining diagnostic wording for in-process callers. Unexpected terminating errors and target/log creation failures are preconditions, never reported as data loss. Both restore interfaces document the same table."
+    },
+    "removed": [
+      {
+        "text": "bash/reconstruct.sh currently has no read-error arm distinguishing StorageUnreadable from a failed expand - left as a known asymmetry pending the Windows-host implementation.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Both restorers classify candidate read errors as StorageUnreadable."
+      },
+      {
+        "text": "Found|ContentMissing|DependencyMissing|StorageUnreadable|CandidateError",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Found|ContentMissing|DependencyMissing|StorageUnreadable"
+      },
+      {
+        "text": "Test-SevenZipUsable",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Find-DataFileByHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-Reconstruct",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "sevenzip_usable",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "find_by_hash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "hash_file",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "die_code",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "die",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "bash/reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-08-24 (kit-bump rev6, SR-040/SR-056): the locator's return set is reduced to Found|DependencyMissing|StorageUnreadable|ContentMissing - CandidateError is never returned by Find-DataFileByHash/find_by_hash, because it would be dead code once ContentMissing is the fallback; a candidate that fails to expand is data damage (folded into the ContentMissing detail, ' ; N candidate(s) could not be expanded: <first>'), while a candidate that cannot be read at all is the host condition StorageUnreadable.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Amended 2026-08-24 (review): Test-SevenZipUsable / sevenzip_usable self-test gates the damage classification of expand failures; WriteMismatch added to the host-cause set.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Amended 2026-08-25 (Terra review): bash gained the candidate read-error arm (hash_file failure => StorageUnreadable, single record - PS parity), and BOTH restorers surface an unlistable snapshot tree as StorageUnreadable/exit 4 instead of silently shrinking the recovery pool.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [
+      "LLR-050"
+    ],
+    "notes": "Current pool recovery returns no CandidateError: unusable dependencies and unreadable storage are host failures, while failed candidate expansion with a usable tool is content damage. LLR-050's older candidate-error claim is stale."
+  },
+  {
+    "id": "LLR-041",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Eviction and superseded-data preservation catch failures of destination-directory creation or the move, log 'Failed to <evict|preserve> ...: <message>' at ERROR, record the failed entry, mark the set unsuccessful and continue. Each reports a failure count so partial staging is explicit. The set still finalizes its staging folder rather than orphaning it (SR-041)."
+    },
+    "removed": [
+      {
+        "text": "Invoke-BackupFileGroup",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$OverallSuccess",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Move-Item",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-042",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Configuration loading is backup-only and dispatches on the document extension (SR-042). JSON requires an integral ConfigVersion within the supported range and rejects unknown keys at the top level, Tools, Secrets and each set, explicitly including Secrets.Credential. JSON values are checked by their actual string, boolean, integer, object or array type; a quoted 'false' is not a boolean, and any integral-valued JSON number is an integer regardless of culture or magnitude. Version range is checked before narrowing numeric representation. CLIXML receives the shared shape and vocabulary validation while preserving its diagnostics. Errors terminate once, in document order, naming the JSON path and the real set array index. Defaults are SourceStatePath=SourcePath, AllowEmptySource=false and uppercase HashRecalcFreq. The published draft-07 configuration schema rejects additional properties and agrees with the runtime validator, including BackupSets alternatives and ConfigVersion; it documents the contract rather than being a runtime dependency or image payload. CompressProbe is optional, defaults to always, and accepts exactly lowercase off, excluded-extensions or always in JSON and CLIXML. Validation, default materialization, published schema, example configuration, entry-point help, field documentation and interface declaration all retain that key and vocabulary. Adding an optional defaulted key does not change ConfigVersion=2. Validation and schema conformance remain usable at the PowerShell 7+ floor."
+    },
+    "removed": [
+      {
+        "text": "Test-BackupConfigurationShape",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Import-BackupConfiguration",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Assert-NoUnknownConfigKey",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-BackupSetDefaults",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ConfigValueJsonType",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:ConfigSchemaVersion",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$false",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "ConvertFrom-Json",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-Json",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-StrictTypes",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1:100-125",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "tests/Common/ConfigFixtures.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Errors are terminating, single, first-in-document-order, and name the JSON path. container/FileBackup.schema.json is the published draft-07 mirror (additionalProperties:false) used for documentation and TC-077, not at runtime — keeping it out of the image and off the Dockerfile COPY list (SR-042).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "AMENDED 2026-09-01 (WP17, SR-081): the optional per-set key CompressProbe (off|excluded-extensions|always, default always) is placed across the NINE surfaces the plan enumerates, because the drafted three were not enough. (1) The closed key set in Assert-NoUnknownConfigKey (JSON only) gains the name. (2) The VALUE check sits in Test-BackupConfigurationShape beside the BrowseView block and uses -cnotin, so the vocabulary is EXACT-LOWERCASE and a mixed-case 'Always' is refused; that function runs for JSON and CLIXML alike and is therefore the only place a CLIXML 'maybe' is caught. (3) Resolve-BackupSetDefaults materializes the default always and must list the key in its FIXED field list, without which a validated key is silently dropped before the engine ever sees it. (4) container/FileBackup.schema.json gains the matching enum, whose equality with the validator is what TC-077's schema-versus-validator parity asserts. (5) container/FileBackup.example.json carries the key. (6) tests/Common/ConfigFixtures.ps1 gains TC-227's accept/reject fixtures. (7) FileBackup.ps1's help and example config, (8) the README field table and (9) IF-001's closed-schema sentence name it too.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "ConfigVersion stays 2: an optional key with a default is additive (SR-063 ratifies the policy). tests/Common/ConfigFixtures.ps1 is the single fixture corpus consumed by TC-074, TC-075 and TC-077, so the published schema (whose BackupSets anyOf and ConfigVersion const now match the validator) cannot drift from it; TC-077 calls Test-Json with -Json/-Schema strings because the -Path/-SchemaFile forms need pwsh 7.4, above this repo's PowerShell 7+ floor.",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-043",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The backup entry point uses 0 complete, 1 incomplete and 2 usage/precondition (SR-043). With -ExitCode, configuration failures, including missing or unreadable documents, write the error to stderr and exit 2; without it they throw for in-process callers. A failed set exits 1 in either mode. The container launcher requests explicit exit codes. Log creation is deferred until configuration succeeds so a typo cannot truncate the previous run's log. Configuration-time messages are buffered and flushed once logging exists; a configuration failure appends only to an already-existing global log and creates nothing."
+    },
+    "removed": [
+      {
+        "text": "Import-BackupConfiguration",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-ConfigFailure",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Logger",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$ExitCode",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$entry",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$overallSuccess",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-Path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "tests/Unit/Engine.Tests.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "container/entrypoint.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1 gains [switch]$ExitCode and wraps the Import-BackupConfiguration call: on failure it writes the message to stderr and, when the switch is set, to the global log path before 'exit 2'; without the switch it rethrows so & $entry keeps throwing for tests/Unit/Engine.Tests.ps1 and the harness.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "The trailing 'if (-not $overallSuccess) { exit 1 }' is unchanged, so Coverage.Tests' exit-1 expectation (TC-034) holds in both modes. container/entrypoint.sh adds -ExitCode to the exec argument list ahead of \"$@\".",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "The code meanings match WP1's restore table (0 complete / 1 incomplete / 2 usage-precondition) so one vocabulary covers both halves of IF-001 (SR-043).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-044",
+    "verdict": "retire",
+    "cells": {
+      "Detail": ""
+    },
+    "removed": [
+      {
+        "text": "Adds an Action=Load verb (docker load wrapper, mirrors Export) to Invoke-Container.ps1; CI's container job chains BuildAndTest -> Export/Load roundtrip -> Publish/Pull roundtrip against a throwaway registry:2 service, re-running -Action Test after each reload. Invoke-ContainerSmokeTest gains the RECONSTRUCT.paths.json artifact check and a second incremental run (source mutated between two docker run invocations) that asserts a Snapshot_<date> folder appears, then restores both the latest state and the snapshot alone in separate restore containers, byte-comparing each against the correct source generation.",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": [],
+    "notes": "Distribution roundtrip and incremental restore proof belong at TC; the Load/build/export/publish tooling is delivery outside the product spine."
+  },
+  {
+    "id": "LLR-045",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Planning identifies one re-home item per endangered (hash,length) key demanded by a surviving row with blank DataPath or an absent named file. Each item identifies the source path and row, destination folder/path/row, stored form and byte count. Destination is the backup root if it demands the key, otherwise the newest demanding snapshot. The content-addressed destination name equals the source DataPath. An infrastructure name or collision with a different existing file produces a code-2 problem; an identical existing file is a completed interrupted copy and permits resume. Re-home copies use literal paths and stage at '<destination>.fbprune.tmp'. Before publication, stored bytes match source length and hash; unless -SkipContentVerify, payload matches the row's xxH2Hash and Length, expanding archive content when required. The staged copy is then renamed into place. Only DataPath, Compressed and StoredAsHashSize in planned destination rows are changed. Each destination manifest is published through the shared manifest writer so its witness is regenerated; witnesses are never copied between folders."
+    },
+    "removed": [
+      {
+        "text": "Get-BackupContentIndex",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Optimize-ChangeFolders",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-SnapshotPrunePlan",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Publish-PruneManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Copy-ReHomedDataFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-BackupManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Find-DataFileByHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileXxHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Move-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Export-Csv",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-LiteralPath",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "The destination name IS the source row's DataPath: under content addressing a data file's name derives from its content and stored form, so a re-homed object's destination name is always identical to its source name (the S3 collapse, measured at WP9 step 8 and taken 2026-08-26 when legacy path-addressed support was withdrawn; the 30-line Get-ReHomedDataPathName synthesizer and its legacy arm are deleted).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-046",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Prune preflight returns all refusals with code, kind and message, allowing -WhatIf to report them together and the batch to apply precedence 2 > 3 > 4 > 1. Code 2 covers a target that is not an existing direct-child dated Snapshot_ folder, wildcard names, malformed run state or populated backup without LastBackupRun, existing staging, plan name/collision problems, unreferenced target data unless -DiscardUnreferencedData, a broken pool or applicable storage-form disagreement, insufficient destination-volume capacity, and absent 7-Zip when compressed content needs verification. Capacity aggregates planned bytes by actual volume and skips unmeasurable volumes. Every pool manifest is witnessed: Mismatch/Malformed refuse with 3; Absent also refuses with 3 unless -AllowUnverifiedIndex. Pool proof with the target excluded reports every unresolved row and applicable form disagreement. Named-row form agreement expects .7z for Compressed=Yes and a non-.7z file for Compressed=No, exempting a source RelativePath ending .7z; blank-row comparison is gated as in LLR-054. Commit renames the target to Pruning_<name>, removing it atomically from all snapshot consumers, then deletes it. Before planning a name, committed residue cleanup deletes only Pruning_<that same name>, converts host failures to code 4, and never runs under -WhatIf. Uncommitted *.fbprune.tmp cleanup runs only inside the transaction after rails pass and staging is held; it scans pool folders and deletes a file only if that folder's own manifest does not reference it. A suffix alone never authorizes deleting user data. Sweep failures are code 4. Staging acquisition exclusively creates the directory and refuses an existing one with code 2, closing the gap after preflight; cleanup never deletes staging this invocation did not create. PRUNE.inprogress is published within the transaction."
+    },
+    "removed": [
+      {
+        "text": "Remove-CommittedPruneResidue",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-PruneCapacityRefusal",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Assert-PrunePrecondition",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-PruneEntrySweep",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-PruneDeletion",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-BackupSnapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FreeSpaceBytes",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-VolumeIdentity",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-PoolResolves",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-BackupState",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-DataFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Def",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Split-Path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Group-Object",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "It checks: the target is an existing ^Snapshot_ folder that is a direct child of the resolved change root and carries no wildcard (2); the SR-035 run-state gate via Read-BackupState -- a malformed state file, or a populated backup manifest with no LastBackupRun (2); no Temp staging folder in the change root (2, SR-017 mutual exclusion); the plan's own Code=2 problems (unknown target, infrastructure name, destination collision); unreferenced data files in the target, from Get-DataFile against the target's own manifest, unless -DiscardUnreferencedData (2); Test-PoolResolves over the WHOLE pool, so an already-broken pool or a pre-existing form disagreement refuses rather than being pruned into (2); free space on each destination volume for the planned bytes via Get-PruneCapacityRefusal, which groups items by Get-VolumeIdentity and probes Get-FreeSpaceBytes (Common, SR-052) and SKIPS an unmeasurable volume rather than refusing (2) -- WP4 grouped by Split-Path -Qualifier inside a Group-Object key, which cannot parse a UNC or rooted POSIX path and left the rail non-existent on a UNC store; 7-Zip present when the plan carries a compressed row and content verification is on (2); and Test-ManifestWitness on EVERY pool manifest -- Mismatch/Malformed (3), Absent (3) unless -AllowUnverifiedIndex.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Residue handling is split in two (WP4 review, H1/H2/M1).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-047",
+    "verdict": "flag",
+    "cells": {
+      "Detail": "The content index maps (xxH2Hash,Length) to existing locations recording location type, folder, DataPath, full path, backup-root status and folder order. Backup root has order -1; snapshots have orders 1..n in supplied oldest-first name order. Blank paths, blank hashes and absent files provide no supply. Each folder record holds folder, name, order, backup-root status and non-blank DataPaths in manifest order. By default each manifest is read once and discarded after indexing; whole row arrays are retained only when explicitly requested, keeping default retained memory O(stored objects), rather than O(rows of every snapshot). Prune, pool proof and form audit request whole rows; snapshot deduplication uses the lean index and re-reads only as specified in LLR-026. Snapshot discovery uses one shared dated-name grammar, sorts by name and parses dates while accepting _NNN collision suffixes. Inventory reports PhysicalBytes, BytesReclaimed and BytesReHomed using the same prune plan as actual deletion, so reported reclaim agrees with achievable reclaim. Location collections remain consumable on supported PowerShell versions."
+    },
+    "removed": [
+      {
+        "text": "Get-BackupContentIndex",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Optimize-ChangeFolders",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-PoolSnapshotFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-BackupStorageForm",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-SnapshotPrunePlan",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-BackupSnapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-PoolResolves",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-SnapshotDate",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Def",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-IncludeManifests",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "LEAN DEFAULT (M-1, defect review 2026-10-05): without -IncludeManifests each record is {Folder, Name, Order, IsBackup, DataPaths}, where DataPaths is the array of non-blank DataPath values in that folder's manifest in manifest order, and NO whole manifest is retained, so the index's memory is O(stored objects) rather than O(rows of every snapshot).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "With -IncludeManifests each record also carries Manifest (the behaviour before M-1).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Callers that read whole rows pass -IncludeManifests: Get-SnapshotPrunePlan (prune still holds whole manifests, so prune is not yet memory-safe on a large pool; fix 2 prune half is outstanding), Test-PoolResolves, Test-BackupStorageForm, and the G9-Rollback suite helper.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Optimize-ChangeFolders uses the lean default: duplicate election is unchanged, and it re-reads and rewrites only a change folder whose DataPaths name a vanished file (LLR-026, TC-235).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Optimize-ChangeFolders otherwise consumes the index and derives its change-manifest list from the same pass (TC-089 pins the post-conditions and was run green before the lift).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "TC-234 pins the lean shape and the retained-memory ratio; TC-236 is the production-shape memory run (Full).",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": [],
+    "notes": "Retained the O(stored objects) claim, but the code keeps a DataPath entry per non-blank manifest row, including duplicate references, so that bound is not established by dropping full rows. Prune still explicitly retains full manifests; neither issue is repaired by stripping."
+  },
+  {
+    "id": "LLR-048",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The backup entry point defaults -Action to Backup. Prune and Snapshots resolve one configured set; Prune accepts explicit -Snapshot names and forwards -WhatIf and the resolved 7-Zip tool, while Snapshots emits JSON inventory. Under -ExitCode the batch's SR-040 code becomes the process status; otherwise a non-zero outcome throws for in-process callers. The container boundary accepts FILEBACKUP_ACTION or a leading backup, prune or snapshots word; a leading option is forwarded unchanged. FILEBACKUP_SNAPSHOT supplies -Snapshot and truthy FILEBACKUP_DRY_RUN supplies -WhatIf. The standalone bash restorer has no removal path."
+    },
+    "removed": [
+      {
+        "text": "[ValidateSet('Backup','Prune','Snapshots')]",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Backup remains the default; Prune and Snapshots retain their dispatch contract without claiming this is the entire action vocabulary."
+      },
+      {
+        "text": "Import-BackupConfiguration",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-BackupSetPaths",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-BackupSnapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-BackupSnapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Action",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Snapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "ConvertTo-Json",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "container/entrypoint.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "bash/reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "The Backup path is untouched, so every existing invocation behaves exactly as before. container/entrypoint.sh reads FILEBACKUP_ACTION or shifts a leading positional word in {backup,prune,snapshots}; anything starting with '-' is left in \"$@\" and flows through unchanged (TC-060/TC-076 unaffected), FILEBACKUP_SNAPSHOT becomes -Snapshot and a truthy FILEBACKUP_DRY_RUN becomes -WhatIf. bash/reconstruct.sh is NOT modified and a source guard pins that it carries no removal path.",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-049",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The form audit classifies stored bytes as Archive or Raw using the six-byte 7-Zip signature 37 7A BC AF 27 1C and compares that form with the filename and row flag. It scans the backup root followed by snapshots in name order and returns Folder, RelativePath, DataPath, Class, Observed, Expected and Repairable for NameLies, FlagOverRaw, FlagOverArchive, DanglingDataPath, BlankRowFormDisagreement and Unreferenced findings. A Compressed=No archive-shaped object's own bytes matching the row's (xxH2Hash,Length) are legitimate raw storage, regardless of source name. A .7z source extension is a cheap exemption. Non-Deep additionally exempts without hashing an archive-shaped, list-exempt source only when its stored extension equals its source extension and on-disk length equals the row's Length. This is a form check, not payload proof: equal-length substitutions can pass it. Other archive-shaped raw claims retain the confirming hash. Deep verifies payload identity and requires 7-Zip: raw bytes are checked by length and hash; archive-shaped content is first checked as the user's own raw archive and otherwise expanded and checked. Payload disagreement is reported. Repairs require evidence in the row's own folder, never re-pack, and change only stored name and Compressed while preserving six logical columns. Repairs group by folder and DataPath so each physical rename occurs once and all referencing rows follow it; payload-exempt rows retain their own Compressed value, with identity checked before renaming. Each changed manifest receives its own regenerated witness. Blank-row findings are report-only. Enumeration excludes infrastructure only at each folder root. Outcomes use SR-040; routine backup does not invoke the audit. Verify resolves paths read-only, creates no directories, needs no SourcePath and reports a missing backup root as code 2. After compression-policy changes, both forms of one key may exist; deduplication can leave a blank row whose recorded form disagrees with the surviving copy. That report-only finding is benign for restore because restore derives form from the located bytes."
+    },
+    "removed": [
+      {
+        "text": "Test-IsInfrastructureFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Repair-BackupStorageForm",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-BackupContentIndex",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Optimize-ChangeFolders",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-BackupStorageForm",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-BackupSetPaths",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ShouldCompress",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-StoredFileForm",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileXxHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-DataFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Export-Csv",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-BackupStorageForm walks the pool through WP4's Get-BackupContentIndex (LLR-047) - backup root at FolderOrder -1 then Snapshot_* in name order - and emits one finding record {Folder, RelativePath, DataPath, Class, Observed, Expected, Repairable} per disagreement; classes NameLies, FlagOverRaw, FlagOverArchive, DanglingDataPath, BlankRowFormDisagreement, Unreferenced.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The already-compressed-SOURCE exemption is keyed on the PAYLOAD, not on the file name (WP5 re-review residual HIGH): when the observed form is Archive while the row says Compressed=No, the file's OWN bytes are hashed against the row's (xxH2Hash,Length) - a match is correct raw storage of archive-shaped content and yields NO finding, only a mismatch is a genuine FlagOverArchive - because an already-compressed source can be named anything (archive.7z.bak, a .pack file, an installer payload).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "AMENDED 2026-09-01 (WP17 Part A, NARROWED by the dual implementation review, R-1): that fast path is widened for the NON-Deep scan only and only for the shape Part A exists to fix, because Part A's list additions turn the shape the code's own comment calls 'rare' into 43% of the production library - after .z7 joins the list, every one of the 649 .z7 objects is a Compressed=No row over archive-magic bytes, so a non-Deep Verify would re-hash 880 GB on every pass.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "An archive-magic object under a name the list does NOT exempt keeps the confirming hash exactly as before WP17.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "This is the one WP17 edit inside a data-integrity audit and is covered by the plan's dual implementation review; TC-229 asserts the exemption is taken with a mocked Get-FileXxHash call count of zero on the non-Deep scan and greater than zero under -Deep, that an UNLISTED-extension archive-magic object at the row's own length IS hashed non-Deep and still raises FlagOverArchive when the hash disagrees, and that a listed-extension object whose payload was substituted at the same length is exempt non-Deep and caught under -Deep.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Enumeration uses Get-DataFile/Test-IsInfrastructureFile at each folder's own root (root-level only, B6/SN-018).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "DOCUMENTED CONSEQUENCE (WP17 Part C, dual review R-15): after a list or mode change the pool can legitimately hold BOTH forms of one (hash,length) - content archived as .7z before the change and re-added raw afterwards - so Optimize-ChangeFolders keeps one copy and blanks the other snapshot row, whose recorded Compressed can then disagree with the surviving object and yields a BlankRowFormDisagreement on the blanked snapshot row; the finding is EXPECTED and BENIGN on such a store (it is reported only, never repaired) and restore is unaffected, because both restorers decide the form from the file they locate.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [
+      "LLR-059"
+    ],
+    "notes": "The code permits policy changes to leave both stored forms of a content key; LLR-059's older-stores-only qualification is stale."
+  },
+  {
+    "id": "LLR-050",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Successful hash recovery returns the located path and its proven form: Archive if expansion proved the payload, Raw if the file's own bytes proved it. Recovery restores according to that form. Every .7z candidate whose expansion fails or yields different content is also tested as raw bytes by length and hash before rejection, because the user's own archive can be the payload. A raw-byte read failure records StorageUnreadable exactly once and continues; absent 7-Zip produces DependencyMissing only when raw bytes were successfully read and did not match. No additional manifest column or persisted state is required."
+    },
+    "removed": [
+      {
+        "text": "the non-blank DataPath branch keeps using the row's Compressed.",
+        "kind": "contradiction",
+        "destination": "drop",
+        "replaced_by": "Resolved paths use byte-derived form under LLR-068."
+      },
+      {
+        "text": "a CandidateError is recorded afterwards only for the failed-expand case.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Failed candidate expansion is content damage when the tool is usable; the locator does not emit CandidateError."
+      },
+      {
+        "text": "Find-DataFileByHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "find_by_hash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1:225-238",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1:522-533",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh:550-575",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1:548",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh:583",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-08-24 (kit-bump rev6, SR-040/SR-056): the no-7-Zip double-record nit is fixed at the same raw-bytes-test site - when the raw-bytes test throws, the read failure is recorded once as StorageUnreadable and the candidate loop continues; 7-Zip could not have helped read a file that cannot be read.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [
+      "LLR-068",
+      "SR-068",
+      "LLR-040"
+    ],
+    "notes": "The named-DataPath branch's Compressed-driven rule is stale; current restorers implement LLR-068/SR-068 for that branch too. The locator also no longer reports CandidateError, as LLR-040's retained contract specifies."
+  },
+  {
+    "id": "LLR-051",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Before eviction or superseded-data preservation removes an object from the live pool, it checks whether any row of the final manifest still claims that DataPath. A surviving claim retains the bytes, including claims from frozen rows or failed replacement copies that a source-only approximation cannot see."
+    },
+    "removed": [
+      {
+        "text": "Move-RemovedFilesToStaging",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Save-SupersededData",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Move-RemovedFilesToStaging has always counted references this way (B9); Save-SupersededData was retargeted at WP9 step 4 from a SOURCE-based approximation - which could not see a frozen row (SR-055/SR-057) or a row whose replacement copy failed, and moved out bytes those rows still claimed (D-1's family) - to the same final-manifest claim test.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The migration site this LLR originally guarded (Sync-BackupStorageLayout) was deleted whole at WP9 step 3 (SR-061), so the invariant now lives entirely at these two sites.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-052",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Free-space measurement resolves the path's containing volume on Windows and POSIX, returning unknown without throwing when measurement is unavailable. Volume identity comes from the actual mount table, choosing the longest enclosing mount point on a separator boundary with a containing-volume fallback; subdirectories on one volume share its identity. Restore uses the same measurement. Backup demand counts each new (hash,length) group not held by a non-blank backup row once at uncompressed Length, plus deduplicated staging bytes only when ChangePath is on a different volume from BackupPath. Demands sharing a volume are summed before comparison, since individually fitting demands can exceed capacity together. Preflight runs after diffing but before content writes and refuses insufficient capacity as a classified precondition failure. Refusal fails the set with entry-point status 1, writes none of this run's content and leaves no orphaned staging folder. Existing stored objects are not re-formed, so no migration demand exists. No configuration key is added."
+    },
+    "removed": [
+      {
+        "text": "plus Sync's pending transformation bytes, ",
+        "kind": "contradiction",
+        "destination": "drop"
+      },
+      {
+        "text": "Assert-BackupCapacity",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Save-SupersededData",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FreeSpaceBytes",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-VolumeIdentity",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "System.IO.DriveInfo",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-PSDrive",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Split-Path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1:441-455",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": [
+      "LLR-060",
+      "SR-061"
+    ],
+    "notes": "Current capacity estimation contains no pending storage transformation demand; code supports LLR-060/SR-061's removal of layout migration."
+  },
+  {
+    "id": "LLR-053",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Blank-row healing and valid dedup adoption",
+      "Detail": "A metadata-equal backup row with blank or whitespace DataPath re-enters NewOrChanged. Dedup adoption requires a non-blank DataPath; a group containing only blank rows therefore copies content and points every logical name, including the healed row, at the new object. Same-content healing does not stage superseded data."
+    },
+    "removed": [
+      {
+        "text": "Compare-SourceToBackup",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupFileGroup",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Save-SupersededData",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$b",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$existingBackupWithHash",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-054",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Pool audit findings and kit-compatible form checks",
+      "Detail": "Verify includes pool-resolution findings alongside form findings; path failures remain code 2 and findings drive code 1. Pool problems identify Folder, RelativePath and DataPath. For a blank DataPath, a cached kit revision of at least 2 skips located-copy form comparison because that kit uses the located file's form; older kits retain the refusal and name their revision plus -Action Verify -RefreshKits as the remedy. Named-path form checks remain in force. A missing named path whose bytes survive elsewhere on disk is PoolDataPathMissing; only a row with no surviving bytes is PoolUnresolvable. Blank-path rows do not count as already-held content for capacity estimation, so healing copies are budgeted."
+    },
+    "removed": [
+      {
+        "text": "Get-BackupCapacityDemand",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-BackupKitRevision",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-VerifyAction",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-PoolResolves",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Broken-pool problem objects carry BytesSurvive (checked on DISK against the content index, excluding the missing path itself); Invoke-VerifyAction maps BytesSurvive=true onto the honest Class=PoolDataPathMissing and only a genuinely byte-less row onto PoolUnresolvable (WP7 review R2), and Get-BackupCapacityDemand excludes blank-DataPath rows from its already-held set so heal copies are budgeted (WP7 review R1).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-055",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Portable-name validation examines every component, using both slashes as separators on Windows and '/' elsewhere, and returns either success or a reason. Reserved device stems CON, PRN, AUX, NUL, COM1-9 and LPT1-9 are refused in any case, with or without an extension. An invalid name is skipped before opening or hashing and reported with RelativePath and Reason. Each is logged at ERROR and fails the set, but is excluded from removed-source processing so an existing backup row remains frozen."
+    },
+    "removed": [
+      {
+        "text": "Test-PortableRelativePath",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Update-SourceManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-UnportableOut",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-TreatAsPosix",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-PortableRelativePath classifies one relative path per component (separators: both slashes on Windows, / only elsewhere; the separator array is TYPED - an if-expression unrolls [char[]] to object[] and String.Split then never splits, a latent bug found and fixed at WP9 step 8b) and returns $null or a reason string, including the reserved-device-name stem predicate (CON/PRN/AUX/NUL/COM1-9/LPT1-9, any case, with or without extension).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-056",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "After copying or expanding a row, verifies destination Length and xxH2Hash. A mismatch deletes the destination and permits exactly one (hash,length) pool-recovery attempt, whose write is verified again. Recovery candidates are themselves verified, so a wrong-bytes candidate cannot qualify. A row that still cannot be recovered is ContentMismatch, a content-class failure (SR-040/SR-056). If content already proven by the locator mismatches after writing, it is WriteMismatch in the host class with no further search. A read-back failure is host-class and keeps the file. Each row is restored and verified at most twice."
+    },
+    "removed": [
+      {
+        "text": "Find-DataFileByHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Restore-OneRow",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "find_by_hash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "restore_one",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Amended 2026-08-24 (review): locator-proven mismatch => WriteMismatch host-class, no second search; read-back failure => host-class, file kept (bash restore_one rc=22).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-057",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Hidden and dot-file enumeration",
+      "Detail": "Source and pool walks include hidden files, dot-files and hidden directories, including external source-cache walks. Hidden snapshot folders participate in sanitization, pool discovery and restore recovery; hidden files participate in prune physical-byte accounting and residue cleanup; hidden extracted payloads are selectable for restore. Existing reparse-point/symlink traversal semantics are preserved; the bash restorer does not follow directory links. These rules apply across backup, audit, prune and both restorers (SR-057)."
+    },
+    "removed": [
+      {
+        "text": "Expand-FileWithSevenZip",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Optimize-ChangeFolders",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-PoolSnapshotFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-PruneEntrySweep",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Update-SourceManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-SnapshotPrunePlan",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Find-DataFileByHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-DataFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-ChildItem",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Engine.psm1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Common.psm1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "bash/reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh:298",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Modules/*.psm1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "tests/Unit/Coverage.Tests.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "All nine Get-ChildItem call sites gain -Force, each with a one-line why comment: (1) Engine.psm1 Get-DataFile - the source/pool recursive walk, the D-4 headline, also fixes -Recurse skipping hidden directories entirely; (2) Engine.psm1 Update-SourceManifest external-cache branch - same, bypasses Get-DataFile; (3) Engine.psm1 Optimize-ChangeFolders -Directory scan - a hidden Snapshot_* folder was invisible to sanitization; (4) Engine.psm1 Get-PoolSnapshotFolder -Directory scan - the pool silently omitted a hidden snapshot; (5) Engine.psm1 Get-SnapshotPrunePlan PhysicalBytes accounting - hidden files were deleted but not counted, so the reclaim figure lied; (6) Engine.psm1 Invoke-PruneEntrySweep *.fbprune.tmp scan - hidden residue was never swept; (7) Common.psm1 Expand-FileWithSevenZip temp-dir pick - a hidden extracted payload returned $null and threw; (8) Reconstruct.ps1 Find-DataFileByHash pool scan - hash-addressed short names can begin with a dot, making a hidden pool file unrecoverable by hash; (9) Reconstruct.ps1 snapshot-folder enumeration for the search pool - a hidden snapshot folder dropped out of the pool. reparse-point/symlink traversal semantics are unchanged (D-4 non-goal, pinned by comment + test). bash/reconstruct.sh is a zero-line change (find never skipped dot-files); a comment at reconstruct.sh:298 pins that as intent, alongside find running without -L (link-immunity) as intent.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "A static Pester guard greps Modules/*.psm1, Reconstruct.ps1 and FileBackup.ps1 for Get-ChildItem occurrences lacking -Force and fails naming the file/line, modeled on tests/Unit/Coverage.Tests.ps1 (SR-057).",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-058",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Every stored object is content-addressed. Each (hash,length) group elects the shortest RelativePath as owner, breaking ties ordinally; the owner's extension and the composed SR-081 decision define one physical form. The first successful write is reused by every subsequent member in the run. Storage-form selection is lazy, occurring only on first entry to the write path, and is memoized for the group even if a member's copy fails. Thus existing dedup hits and in-run twins never probe, and failed candidates cannot trigger repeated probes or warnings. No folder-tree storage mode or mirror-name refusal remains."
+    },
+    "removed": [
+      {
+        "text": "Resolve-CompressionDecision",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ShouldCompress",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$decision",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$entry",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Group",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Always hash-names the stored object; the (hash,length) group elects its owner (shortest RelativePath, ordinal tie-break) whose extension and SR-081 decision define the single physical form (AMENDED 2026-09-01, WP17: it was 'the owner's Test-ShouldCompress answer'; the list is now only the first of two gates and the composed Resolve-CompressionDecision verdict is what defines the form - LLR-086); the first member writes it and an in-process memo makes every later member adopt it.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-059",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Superseded-data preservation follows copy and eviction, since content-addressed writes do not overwrite prior objects. It preserves an old object in staging only when no row in the final manifest still claims that DataPath. Frozen rows and failed replacement rows retain their claims and bytes. If one content key has multiple physical names, an unclaimed twin may move to the newest snapshot but remains in the recovery pool; a final-manifest claim always retains its object."
+    },
+    "removed": [
+      {
+        "text": "possible only in a pre-WP9 store because the owner's extension is folded into the name",
+        "kind": "contradiction",
+        "destination": "drop",
+        "replaced_by": "Multiple physical forms can also arise after compression-policy changes."
+      },
+      {
+        "text": "Runs after the copy and evict steps (nothing is overwritten under content addressing, so it no longer has to run first) and asks whether any row in the FINAL manifest still claims the old row's DataPath - eviction's own B9 claim semantics.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Testing by DataPath is conservative in the direction that matters: a claim always keeps its bytes in the pool, and the one asymmetry - a single content stored under TWO hash names, possible only in a pre-WP9 store because the owner's extension is folded into the name - at worst parks the unclaimed twin in the newest snapshot, still inside the restore pool (review 2026-08-25, MIN-5).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The exact test replaces the source-based approximation that authorized D-1's in-place overwrite; frozen rows (SR-055/SR-057) and rows whose copy failed keep their claim in the final map, so their objects now correctly stay in the pool.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The Mirror-only legacy source-based arm this clause used to describe was deleted with the mode at WP9 step 5; there is now one code path.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [
+      "LLR-049"
+    ],
+    "notes": "The claim that two hash names for one content key occur only in older stores is stale; current policy changes can produce both forms as LLR-049 describes, while the final-manifest claim rule still holds."
+  },
+  {
+    "id": "LLR-060",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Sanitization without migration and legacy-store refusal",
+      "Detail": "Sanitization runs directly, with one linear orphan scan and no storage-layout migration or migration-capacity preflight. StoredAsHashSize='Original' refuses the backup set before mutation and names a fresh BackupPath as the remedy. Both restorers scan the authority manifest before creating a target and refuse with exit 2 if any row carries StoredAsHashSize='Original' or a DataPath containing a path separator; they write nothing."
+    },
+    "removed": [
+      {
+        "text": "Test-BackupManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Kit revision 7 (human ruling 2026-08-26) withdraws READ support too: both restorers scan the authority manifest before the target exists and refuse with the precondition code (2) when any row carries StoredAsHashSize='Original' (the authoritative marker, matching the engine) or a DataPath containing a path separator (the structural marker, which still catches a store whose column was lost).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "The withdrawn claim is the one WP9 review MIN-2 flagged as untested on the bash half.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [
+      "LLR-052"
+    ],
+    "notes": "Current code implements no migration and no migration-capacity demand; LLR-052's transformation term is stale."
+  },
+  {
+    "id": "LLR-061",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Generates INDEX.tsv, per-folder INDEX.html pages and a root search page under the resolved view root, default <BackupPath>_View. Entry naming uses each row's Compressed value. The .viewstamp is a SHA-256 of canonical manifest rows rather than the witness, so serialization-only differences do not invalidate identical content. Refuses a view root off the backup volume or overlapping any owned path in either direction. Independently refuses to wipe a view root containing anything other than generated view data. View generation remains backup-only and adds no restore-kit dependency."
+    },
+    "removed": [
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Writes INDEX.tsv plus per-folder INDEX.html pages and a root search page under the resolved view root (default <BackupPath>_View), names entries from the ROW's Compressed column, stamps a SHA-256 of the canonical manifest ROWS into .viewstamp (deliberately not the manifest witness: a manifest-identical run can rewrite the CSV with different quoting), and refuses a view root that is off-volume or overlaps any owned path in either direction, and - the independent second guard - refuses to WIPE a view root holding anything that is not a generated view (WP9 review MAJ-1).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-062",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Unreferenced-data auditing builds one referenced-DataPath lookup and tests each on-disk file against it, keeping work linear in rows plus files. Keys follow platform path-case semantics so case-distinct Linux paths are not conflated."
+    },
+    "removed": [
+      {
+        "text": "New-RelativePathMap",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Engine.psm1:761",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-063",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "ConfigVersion=2 uses a closed key set. PreserveFolderTree is refused by name, rather than as a generic unknown key, in both JSON and CLIXML. BrowseView and ViewPath are accepted with their declared vocabulary, defaults and placement checks. CompressProbe accepts exactly lowercase off, excluded-extensions or always, defaults to always, survives default materialization and agrees across runtime validation, published schema, examples, help, field documentation and interface declaration. An optional defaulted key is additive and keeps version 2; an older build may reject that unfamiliar key by name."
+    },
+    "removed": [
+      {
+        "text": "Test-BackupConfigurationShape",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-BackupSetDefaults",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "ConfigFixtures.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-09-01 (WP17, SR-081): CompressProbe joins the same key set by the SAME nine-surface pattern LLR-042 now enumerates - closed key set (JSON), -cnotin value check beside the BrowseView block (JSON and CLIXML), fixed field list in Resolve-BackupSetDefaults, schema enum, example config, ConfigFixtures.ps1, FileBackup.ps1 help, README field table and IF-001's sentence - with the exact-lowercase vocabulary off|excluded-extensions|always and the default always.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-064",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Forced browse-view action",
+      "Detail": "-Action View forces a browse-view rebuild and reports through the SR-040 status table, alongside the backup pipeline's own refresh."
+    },
+    "removed": [
+      {
+        "text": "ValidateSet",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "The declared -Action View interface."
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-065",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Source directory enumeration includes hidden directories and emits RelativePath and Attributes for directories with no files beneath them or with a recorded attribute bit. Emptiness uses ancestors of already-enumerated file rows, avoiding repeated directory walks and keeping work linear in directories plus file rows. Unreadable directories are not claimed empty; non-portable directory names warn and are skipped without failing the set a second time. Recorded attributes are Hidden, System, ReadOnly and NotContentIndexed; unsupported or meaningless directory bits are excluded. Rows sort ordinally for byte-identical output on identical state. DIRECTORIES.csv is written beside the manifest after manifest publication, or removed when there are no rows. Staging retains the prior sidecar, never overwriting it from the current kit, so snapshots preserve their own directory state. Restore applies the advisory, unwitnessed sidecar last, after files are verified: creates directories parents-first, applies attributes deepest-first and refuses path traversal. POSIX restore creates directories and reports Windows attributes as inapplicable. Absent, unreadable or malformed sidecars never fail restore and leave ordinary file restoration unchanged."
+    },
+    "removed": [
+      {
+        "text": "Get-DirectoryAttributeToken",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-SourceDirectoryRecord",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Restore-DirectorySidecar",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-DirectorySidecar",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "apply_dir_sidecar",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-066",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Both restorers apply each row's own LastWriteTimeStr only after successful (hash,length) verification, including after recovery retries, so dedup twins do not inherit the stored owner's timestamp. Parsing accepts the round-trip timestamp; POSIX timestamp application retries without fractional seconds where necessary. Timestamp failure, including a blank or unparseable value, warns but leaves the verified row counted as restored. A read-only attribute does not prevent applying modification time."
+    },
+    "removed": [
+      {
+        "text": "ConvertFrom-ManifestDateString",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Set-RestoredLastWriteTime",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "stamp_mtime",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-067",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Copy retries run in rounds, each trying every member of the content group, with delays of 250 ms then 1000 ms: at most three attempts and 1.25 s waiting per group. A destination that is a directory is non-transient and is not retried; other failures may be transient because a mistaken refusal loses a file whereas a mistaken retry costs time. Partial destination debris is cleared between rounds so retries do not merge into it. One retry budget is shared by all groups in a set, bounding delay on an unreadable tree; a standalone group call receives a fresh local budget. Exhaustion names the attempt count, states that the file is not in the backup, adds no new manifest row and marks the set failed. A prior-run row survives unchanged, preserving its already-stored bytes."
+    },
+    "removed": [
+      {
+        "text": "Test-CopyFailureIsTransient",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupFileGroup",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-CopyRetryDelayMs",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "The destination is cleared between rounds by the same Remove-Item the MIN-1 fallback uses, so a retry never lands on partial debris (and never merges into it, SR-004).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Covered at BOTH levels: the group-level cases build the group by hand and delete or lock the source, and an end-to-end case deletes a source file inside the real walk-to-copy window using a separate sniper process keyed on the step-5 source hash cache (the parent runspace is blocked on the backup child and cannot pump a FileSystemWatcher, which is why an in-process watcher never enters the window).",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-068",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Stored-form detection is restore-safe and derives form from bytes. No 7-Zip signature in the first six bytes means Raw. A signature with length unequal to the row's Length means Archive; with equal length, matching xxH2Hash means Raw because the user's archive itself is the payload, otherwise Archive. An unreadable object returns Raw so the copy attempt surfaces the actual I/O failure. Both restorers use this rule for resolved DataPath rows; recovered rows use the locator's proven form. Compressed remains in the nine-column schema only for the approximate capacity estimate, which warns when compressed rows exist."
+    },
+    "removed": [
+      {
+        "text": "Get-StorageFormFinding",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-StoredObjectForm",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "stored_object_form",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "hash_file",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$row",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": [
+      "LLR-050",
+      "SR-050"
+    ],
+    "notes": "Current restorers support this byte-derived contract; LLR-050 and SR-050's named-path reliance on Compressed is stale."
+  },
+  {
+    "id": "LLR-069",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Base-57 encoding rejects values wider than the requested width rather than truncating. Decoding returns exactly the requested hexadecimal width, removes representation sign padding, restores leading zeros and rejects over-width fields. Stored names use '<hash22>_<len><ext>'. One canonical parser reads the first 22 characters, requires the separator at index 22, decodes base-57 length digits up to the first dot and preserves the remaining extension opaquely while rejecting path separators; malformed input returns no result without throwing. Current-grammar recognition is distinct from positive retired-grammar recognition: failure to match the current grammar does not by itself mark a damaged path as legacy. The bash restorer needs only the structural legacy predicate, matching the PowerShell legacy decisions, because recovery proves content rather than decoding names."
+    },
+    "removed": [
+      {
+        "text": "ConvertFrom-HashSizeFileName",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-LegacyStoredObjectName",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Convert-HexToShortName",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Convert-ShortNameToHex",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-HashSizeFileName",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "is_legacy_stored_name",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-HashSizeFileName",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "bash/reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "TC-151 holds the two legacy predicates to a shared committed corpus.",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-070",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The stored extension defaults to empty and accepts an empty string, so extensionless source files can be stored raw. The owner's extension is preserved verbatim and is not restricted to the base-57 alphabet; parsing preserves it byte-for-byte."
+    },
+    "removed": [
+      {
+        "text": "ConvertFrom-HashSizeFileName",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupFileGroup",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-HashSizeFileName",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-071",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Portable size, temporary-directory and time operations",
+      "Detail": "POSIX file-size measurement selects a supported style once using a known regular file and requires numeric output, avoiding false success from an incompatible stat option; byte counting is the fallback. Temporary-directory creation uses an explicit template, and every caller checks success so an empty path cannot redirect writes to the filesystem root. Current-time formatting uses an explicit POSIX format. Modification-time fallback converts every ISO-8601 offset exactly using POSIX timezone semantics, whose sign is inverse: -06:00 becomes UTC+6:00. Failure warns rather than applying an incorrect time."
+    },
+    "removed": [
+      {
+        "text": "stamp_mtime_posix converts to 'touch -t' only where it can be exact (UTC, or an offset equal to this host's), keeping the warning otherwise rather than writing a wrong time.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "POSIX timestamp fallback handles every ISO-8601 timezone offset exactly."
+      },
+      {
+        "text": "stamp_mtime_posix",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "make_tempdir",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "stat_size",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "iso_now",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-08-28 (review T5): stamp_mtime_posix converts EVERY offset exactly by carrying it in POSIX TZ - whose sign is the inverse of ISO-8601, so '-06:00' becomes 'UTC+6:00' - instead of refusing any offset that was neither UTC nor the host's.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-072",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Path canonicalization uses physical resolution where available; otherwise it refuses any '..' component instead of returning or lexically reducing an unresolved path. Lexical reduction is unsafe across links because kernel traversal can enter the protected backup even when a reduced string appears outside. Containment has three results: inside, outside and indeterminate. The target guard accepts only provably outside; destination traversal guards accept only provably inside. Every canonicalization failure, including advisory-directory containment, is handled without broadening access through an empty path."
+    },
+    "removed": [
+      {
+        "text": "is_inside",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-073",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Target prompt selection and dialogs",
+      "Detail": "Prompt selection is a side-effect-free decision from explicit session signals and returns None, Text or Gui. Interactive folder selection does not throw, supports Windows, macOS and Linux native folder dialogs, and safely marshals a Windows dialog to a single-threaded UI context when needed, without an unhandled background scripting failure. Bash folder selection is reached only through --pick-target and honors FILEBACKUP_PICKER as one quoted executable path, including spaces. Cancel or unavailable dialog leaves the target empty and produces usage with exit 2."
+    },
+    "removed": [
+      {
+        "text": "Test-ShouldPromptGraphically",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Select-FolderInteractively",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "pick_target_dir",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "System.Threading.Thread.",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-Picker",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Select-FolderInteractively is the I/O shell, takes an injectable -Picker scriptblock as a test seam, never throws, and marshals ShowDialog onto a dedicated STA thread when the apartment is not STA (pwsh 7.0-7.2 defaulted to MTA).",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "The bash twin pick_target_dir is reached ONLY via --pick-target and honours FILEBACKUP_PICKER so bats can drive it headlessly; cancel or no dialog leaves the target empty and the existing required-argument check produces usage + exit 2.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "AMENDED 2026-08-28 (review T3): the MTA path uses a runspace created with ApartmentState=STA, not a raw System.Threading.Thread.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "FILEBACKUP_PICKER is invoked quoted, so a picker path containing spaces is not word-split (T6).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-074",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "RECONSTRUCT.cmd is ASCII with CRLF, invokes the PowerShell restorer with -ExitCode, forwards all arguments and never pauses. A window hold occurs only when target selection actually came from an interactive picker or prompt, so automated calls cannot hang. reconstruct.command changes to its own folder, adds --pick-target when given no arguments and invokes bash with an option terminator, so the restorer needs no executable bit."
+    },
+    "removed": [
+      {
+        "text": "New-ReconstructScript",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Wait-BeforeClosing",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$HOME",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-075",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Consistent kit artifacts and legacy launcher recognition",
+      "Detail": "Initial kit deposition, snapshot staging and -RefreshKits use the same seven-artifact kit. RECONSTRUCT.bat is never generated but remains root-level infrastructure indefinitely because snapshots retain their bundled kit and an old launcher is not orphaned user data. -RefreshKits copies without deleting, so a refreshed store can legitimately retain both launcher names."
+    },
+    "removed": [
+      {
+        "text": "New-ReconstructScript",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "ReconstructLegacyBatName is never written but stays in the root-level infrastructure set forever: a snapshot keeps the kit it was written with, so every pre-rev-10 store still holds a RECONSTRUCT.bat, and dropping the name would make every run report it as an orphan/not-in-DB row (the SR-022 regression). -RefreshKits copies and never deletes, so a refreshed old store legitimately holds both names.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-076",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Consistent forward-only kit revision",
+      "Detail": "Both restorers expose the same kit revision marker. Inventory obtains the bundled kit's revision through one reader. The revision changes whenever a bundled file changes behavior, including a bundled primitive whose changed behavior is not used by restore. Revision corrections move forward; already-deployed kits are not retrospectively relabeled."
+    },
+    "removed": [
+      {
+        "text": "Get-BackupKitRevision",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ShouldCompress",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Common.psm1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "RECONSTRUCT.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Both restorers carry '# KitRevision: 13' (AMENDED 2026-10-09: bumped 12 -> 13 because Write-Manifest in the kit-bundled Common.psm1 now publishes by temp-file rename, SR-082 / LLR-089; restorer logic unchanged; AMENDED 2026-09-01, WP17 Part A: bumped 10 -> 11 because Part A edits the kit-bundled Common.psm1 - the already-compressed extension list and the :110-114 comment - and AGENTS.md section 3 bumps the revision whenever a kit-bundled file changes behaviour; Owner ruling Q1 took the bump rather than argue the narrower reading that restore never calls Test-ShouldCompress).",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Revisions 7, 8 and 9 changed behaviour without the markers moving - they read 8 and 6 while the project documented 9 - so every WP12 store reports its kit as 8.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "A test pins the two markers equal.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "AMENDED 2026-09-01 (same day): bumped 11 -> 12 because the operator-configurable 7-Zip level (FILEBACKUP_7Z_LEVEL, SR-004/SR-037) again edits the kit-bundled Common.psm1; the restorers' own logic is unchanged and restore never reads the variable, but AGENTS.md section 3 moves the marker whenever a kit-bundled file changes.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "WP16 (PROPOSED), which had reserved 13, now takes the next free number and merges its TC-216 into TC-173 in its own commit.",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The literal current revision and bump history are provenance; equality, forward-only correction and behavior-triggered revision changes remain durable."
+  },
+  {
+    "id": "LLR-077",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Both restorers clear read-only protection on every file they write, including expanded payloads, before verification and timestamp application. Store protection and a source file's former read-only attribute do not become protection on the restored tree. This behavior is delivered before any writer starts protecting stored objects, because snapshots retain their deployed kits."
+    },
+    "removed": [
+      {
+        "text": "Copy-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "It also stops a source file that was read-only at backup time restoring read-only, which WP10 ruled out of contract.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-078",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Volume pseudo-folder exclusion requires a confirmed filesystem volume root and applies to the first relative segment and all its descendants. It removes both files and enumeration-error records for excluded system folders such as $RECYCLE.BIN and System Volume Information, avoiding false backup and recovery failures. A user's same-named folder below an ordinary directory remains data. Bash applies the same boundary on mounted volumes; failed mount-root detection defaults to scanning rather than excluding."
+    },
+    "removed": [
+      {
+        "text": "Test-IsVolumeRootPseudoPath",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Find-DataFileByHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "volume_root_skip",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "is_volume_root",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-DataFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:VolumeRootSkipNames",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Root",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AMENDED 2026-08-28 (review T2): the predicate now ALSO requires the root to be a filesystem volume root - GetFullPath($Root) equal to GetPathRoot($Root) - without which it excluded a user's own folder of the same name and silently lost their files.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-079",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Target containment resolves both paths physically, following links in the deepest existing ancestor and reattaching the non-existent tail, which cannot yet contain a link. A junction or symlink into the backup therefore cannot make an inside target appear outside through lexical normalization. Both restorers enforce this physical containment."
+    },
+    "removed": [
+      {
+        "text": "Resolve-PathPhysically",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-PathIsInside",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "canon",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Mirrors canon() in reconstruct.sh, closing the twin divergence recorded as D-7/F-3.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-080",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Staging ownership is backup-only and creates no restore dependency. After successful staging creation, an exclusive create publishes a once-only JSON owner record with SchemaVersion, Kind, fresh GUID RunId, set name, host, container id, boot id, pid, StartedUtc, HeartbeatIntervalSeconds and StaleAfterSeconds=1800. A collision aborts as lock-lost without touching another owner's state. Direct exclusive creation avoids check-then-rename races and leftover temporary markers. Marker reading tolerates concurrent heartbeat access and returns Parsed, ParseInvalid or Unreadable with record, last-write time and age where available. A fresh malformed record is OwnerLive and refuses, keeping a torn write safe. The classifier takes enumeration and marker evidence without performing I/O and returns Empty, EmptyFresh, OwnerStale, OwnerLive, PruneHeld, HoldsContent or Indeterminate; confirmation sampling belongs to the reclaim caller. The heartbeat runs independently of a blocked backup pipeline, performs one synchronous successful beat before starting periodic work, and remains retained for the entire ownership lifetime. A failed first beat throws because an unchanged timestamp could falsely classify a live owner as stale. Every beat verifies RunId and touches the same open file object, preventing a replacement between identity check and touch from refreshing a successor's marker. Stop is idempotent and non-throwing, cancels periodic work, drains in-flight callbacks and reports accumulated error count and last error; no touch lands after it returns. Reclaim classifies and confirms, renames staging aside without retry on failure, rechecks moved identity as in LLR-017, creates fresh staging and immediately publishes its owner record. Failure preserves the aside folder. Its re-enumeration includes hidden entries and refuses on errors; deletion removes only disposable exact-name leaves and the directory non-recursively, preserving unexpected content even if a resumed owner wrote between classification and rename. Ownership fences precede staging-manifest publication, eviction, superseded-data preservation, backup-manifest publication and finalization. A RunId mismatch aborts without cleanup; unreadable markers receive three retries about 300 ms apart. Holding the separate OS lock never changes a classification into reclaimable because an older writer may not participate."
+    },
+    "removed": [
+      {
+        "text": "Move-RemovedFilesToStaging",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-StagingOwnerRecord",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-StagingOwnerRecord",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-StagingMarkerText",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Start-StagingHeartbeat",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Stop-StagingHeartbeat",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-StagingLockState",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Save-SupersededData",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "StagingHeartbeat",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "System.Timers.Timer",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Add-Type",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "File.Move",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "File.SetLastWriteTimeUtc",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Directory.Move",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Directory.Delete",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md section 3 forbids a dependency DIRECTION (Common must not depend on Engine); it does not demand that engine concepts migrate down, and the first draft of WP14 misread it.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "AMENDED 2026-08-31 (WP14 §11 R-4): the previous temp-write plus non-overwriting File.Move publish is check-then-rename on Unix and so not exclusive there at all, its atomic variant needs hard links exFAT lacks, and a crash mid-publish stranded a '.tmp' inside a folder the run may no longer have owned -- which every later classification reads as HoldsContent, a new permanent wedge.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "AMENDED 2026-10-09 (SR-086): the staging OS lock (LLR-090) is a separate primitive and changes nothing in these helpers: Get-StagingLockState stays pure and is never told whether a lock is held, so a lock this run acquired can never turn a verdict into Reclaimable.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-086",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Compressibility sampling is backup-only and introduces no restore-kit dependency. Given a source path, default sample size 262144 bytes and three samples, it opens read-only; Windows sharing prevents sampling while a writer holds the file, whereas POSIX sharing is advisory. Length and modification time are checked before and after sampling; changes, inability to open, or any sampling I/O failure return unavailable without failing the run. Empty files also return unavailable. Below sample count × sample size, reads the whole file once as one sample; otherwise reads exact windows at offsets 0, floor((length-sample size)/2) and length-sample size, completing short reads until full or EOF. Each sample is compressed into a byte-counting sink and its count is taken only after encoder completion, avoiding underestimated incompressible output. The probe returns sampled and compressed totals and per-window ratios; random input does not measure below 0.98. The selected sample codec is Brotli at fastest effort: its history can detect 64 KiB-period repetition within a 256 KiB sample where a 32 KiB history cannot. Repetition beyond a window, such as a 1 MiB period, may be missed, costing space savings without compromising content. The pure decision accepts CompressEnabled, mode off|excluded-extensions|always, the extension-list opinion independent of the enable switch, length, minimum probe size, sample totals and savings threshold. It returns a compression boolean and one reason: CompressDisabled, ModeOff, BelowFloor, ListExempt, ProbeUnavailable, ProbeCompressible or ProbeIncompressible. Ordered decisions are: disabled means raw; off uses the list; below 262144 bytes uses the list; excluded-extensions exempts listed formats; unavailable measurement uses the list with one warning; otherwise compress only when aggregate compressed bytes are at most 90% of sampled bytes. No format-name override outranks measurement. The 0.10 savings threshold and 262144-byte floor are fixed defaults, not configuration keys. CompressProbe defaults to always. Decision and warning are memoized per group only when a write is needed, so dedup hits, in-run twins and existing objects never re-probe or change form. Sampling tries the owner then group candidates and uses the first available sample; only total unavailability falls back to the list. One DEBUG line per written group reports 'compress-decision: <rel> <Reason> ratio=<aggregate> windows=<r1,r2,r3>'. After successful writes, per-set physical-object counters report 'Probe stored raw: <n> objects, <bytes>', 'Probe compressed: <n>' and 'Probe reads: <bytes>'."
+    },
+    "removed": [
+      {
+        "text": "Today $ownerCompress is computed unconditionally before the group knows whether it will write; it becomes a $decision record initialized $null before the member loop and resolved on FIRST entry to the write branch.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "The implemented storage decision is already lazy and memoized at group scope."
+      },
+      {
+        "text": "Codec: BrotliStream at CompressionLevel.Fastest, CHOSEN by the Part B1 calibration (plan section 2.2); the full table is docs/plans/wp17-codec-calibration.md and is summarised here. Eleven corpus files were probed with the shipped geometry under both candidates and each decision at threshold 0.10 was compared against the REAL whole-file 7z a -mx=9 outcome (ratio = compressed/original; lower is more compressible; compress when ratio <= 0.90). genuine-7z.7z 924905 B: Deflate 1.05 / Brotli 1.00 / 7z 1.00 - all raw. store-mode.zip 8388766 B: 0.28 / 0.19 / 0.11 - all compress. jpeg-concat.jpg 35742491 B (30 real JPEGs from C:\\Windows\\Web): 0.97 / 0.94 / 0.93 - all raw. video.mkv 1813418 B (real SDRSample.mkv): 1.05 / 1.00 / 1.00 - all raw. video.mp4 2372244 B (4 real oobe-intro.mp4 concatenated): 0.48 / 0.46 / 0.89 - all compress. text.txt 8388608 B: 0.28 / 0.19 / 0.11 - all compress. longrange-1MiB-x16.bin 16777216 B: 1.05 / 1.00 / 0.06 - BOTH codecs wrong (raw where 7z compresses). longrange-64KiB-x256.bin 16777216 B: 1.05 / 0.25 / 0.00 - Deflate wrong, Brotli right. mixed-head.bin 4259840 B (64 KiB text + 4 MiB random): 0.99 / 0.93 / 0.99 - all raw. mixed-third.bin 6291456 B: 0.80 / 0.73 / 0.71 - all compress. random.bin 4194304 B: 1.05 / 1.00 / 1.00 - all raw. SCORE: Deflate 2 wrong decisions, Brotli 1; probe wall time over the whole set Deflate 136.8 ms versus Brotli 27.6 ms (about one fifth the CPU per sample), against 7.00 s of 7z -mx=9 on the same files. Brotli therefore wins the stated rule (fewest wrong decisions) and would also have won the CPU tie-break. The decision Deflate loses is the 64 KiB-period repetition: its 32 KiB history cannot see a 64 KiB period even INSIDE one 256 KiB sample, so it reads pure random and stores raw a file 7z shrinks to nothing - Codex #7's objection, reproduced and measured. The one row BOTH get wrong (a 1 MiB block repeated 16 times) is not a codec property: a 1 MiB period cannot be seen from inside a 256 KiB window by any codec, so it is a limit of sample SIZE/COUNT, already named in plan section 2.2 and deferred in section 7; its cost is one file stored raw that could have shrunk, which is a correct storage form either way (I-1), never a data risk. Deflate's ~1.05 floor on incompressible input (its stored-block overhead) is also why the plan's fixture expectations - mixed-head about 0.93 and mixed-third about 0.7 - land on Brotli's numbers rather than Deflate's. ",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Measure-SampleCompressibility",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-CompressionDecision",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupFileGroup",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ShouldCompress",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileXxHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:CompressProbeThreshold",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:CompressProbeMinBytes",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$true",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Set",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$ownerCompress",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$decision",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$entry",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Group",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$existingBackupWithHash",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$writtenThisRun",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "InModuleScope",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Export-ModuleMember",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-RetryBudgetMs",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Common.psm1:352",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Common.psm1:847",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "docs/plans/wp17-codec-calibration.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "Engine.psm1:6590",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "docs/architecture.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "It opens the source read-only with FileShare.Read - the same share Get-FileXxHash (Common.psm1:352) and the stored-form sniffer (Common.psm1:847) use, so probe success predicts copy success - and returns $null for any path it cannot open (AMENDED 2026-09-01, review R-4: what that share mode buys is PLATFORM-QUALIFIED.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Each window is compressed into a COUNTING NULL SINK and its compressed length is read AFTER Dispose(): a count taken before the encoder is closed reads short and would call random bytes compressible, which TC-223 pins by asserting random never measures below 0.98.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "It returns { Compress; Reason } with Reason in {CompressDisabled, ModeOff, BelowFloor, ListExempt, ProbeUnavailable, ProbeCompressible, ProbeIncompressible} and evaluates SR-081's ordered rule 0,2,3,4,5,6,7 - rule 1, a name-based override, was removed by Owner ruling Q7, so no input named after a format exists and no Reason is named after one either.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Tests read them through InModuleScope.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Invoke-BackupFileGroup gains -CompressProbe, defaulted for the direct unit-test path exactly as -RetryBudgetMs already is, and the step-10 call site passes $Set.CompressProbe.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "When it does resolve, the probe walks the group's CANDIDATES - the owner then every member, the same list the copy path already builds because a locked owner must not fail a group a readable twin can serve (WP9 MIN-1) - and samples the first that opens; only if none opens is the decision ProbeUnavailable, which takes the LIST'S answer with one WARN and never fails the run.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "This is a new proportional DEBUG site, so it is reconciled with WP16's DEBUG-site enumeration (SR-079 / LLR-082 / TC-212) by whichever package lands second.",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Codec: BrotliStream at CompressionLevel.Fastest, CHOSEN by the Part B1 calibration (plan section 2.2); the full table is docs/plans/wp17-codec-calibration.md and is summarised here.",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [
+      "LLR-004"
+    ],
+    "notes": "Current composed compression code supports this measured decision; LLR-004's opening extension-only claim is stale."
+  },
+  {
+    "id": "LLR-087",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Atomic manifest publication",
+      "Detail": "Canonical manifest rows are written to MANIFEST.csv.tmp beside the destination after removing any stale temporary copy. An ordinary write or publication failure removes the partial temporary file and rethrows. A single atomic overwrite rename publishes the complete new manifest, then its witness is computed from the published bytes. A process kill therefore leaves a complete old or new manifest; a kill after rename but before witness publication leaves a stale witness that fails loudly (SR-038). Path resolution uses the caller's filesystem location consistently, including relative paths. Publication does not promise durable flush before rename: power loss can lose the newest write on a filesystem that reorders data and rename."
+    },
+    "removed": [
+      {
+        "text": "ManifestWriteTestHook",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Write-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$true",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "System.IO.File",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Export-Csv",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Move-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "File.Delete",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-088",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Temporary manifest exclusion and staging tolerance",
+      "Detail": "MANIFEST.csv.tmp and MANIFEST.csv.meta.tmp are root-level infrastructure in backup and snapshot folders, excluded from orphan scans, form audits, prune sweeps and recovery candidates. Staging classification ignores the exact case-sensitive MANIFEST.csv.tmp leaf before checking for unknown content: with an owner marker it follows that marker's OwnerStale/OwnerLive result, and alone it is Empty subject to directory age. Other unknown entries still mean HoldsContent. Reclaim and own-staging cleanup allow this temporary manifest as a disposable leaf and remove it by exact name before the marker. It is never the only copy of content; the authoritative manifest still exists beside the incomplete copy."
+    },
+    "removed": [
+      {
+        "text": "Clear-ReclaimedStagingFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-IsInfrastructureFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-OwnStagingFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-FileBackupDefaults",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-StagingLockState",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-BackupManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-DataFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "bash/reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-089",
+    "verdict": "strip",
+    "cells": {
+      "Title": "Atomic-publication kit compatibility",
+      "Detail": "Atomic manifest publication does not change restore semantics. Older kits restore the same stores without a kit refresh, because the changed manifest-writing capability is bundled but not used by restore. Both bundled restorers retain equal revision markers, and a bundled behavior change advances the revision even when restore logic itself is unchanged."
+    },
+    "removed": [
+      {
+        "text": "Update-BackupSnapshotKit",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Write-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "AGENTS.md",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "WP16 (PROPOSED) had reserved 13 and takes the next free number when it ships.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "TC-173 pins the two markers equal.",
+        "kind": "instrument",
+        "destination": "TC"
+      }
+    ],
+    "contradicts": [],
+    "notes": "Kept compatibility with older restore kits rather than retiring a row that also contains release history."
+  },
+  {
+    "id": "LLR-090",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The staging OS lock is located at <ChangeRoot>/Temp.lock. Acquisition opens or creates it read-only with exclusive sharing, so read-only file attributes do not prevent locking, and returns its path and a held lock handle. Any open exception receives at most three attempts 250 ms apart, then refuses with a message beginning [SR-075/lock-held]. Windows sharing errors 0x80070020/0x80070021 and would-block errors 11 on Linux or 35 on macOS select 'held by another process' wording; other errors say 'could not be opened', but all refuse identically. A lock-held refusal is distinct from a lost owner-marker lock. Release accepts an absent handle, is idempotent and non-throwing, clears the retained handle and never deletes the lock file. This capability is backup-only."
+    },
+    "removed": [
+      {
+        "text": "StagingOsLockTestHook_BeforeOpen",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Test-StagingLockLostError",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-StagingOsLockPath",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Enter-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:StagingOsLockFileName",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:StagingOsLockOpenAttempts",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$script:StagingOsLockRetryDelayMs",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$null",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "System.IO.FileStream",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-091",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Backup resolves paths and creates missing roots, then acquires the staging OS lock before reading any store state. Failure appends one refusal line to backup.log without truncation, fails the set and returns because the live holder owns that log. Under the lock it reads the previous completion date, checks the populated-manifest-without-date guard and verifies the manifest witness, in that order, before initializing the log. Any such failure releases the lock and preserves the original error, including witness exit 3, and leaves the previous log intact. Logger-creation failure also releases and rethrows. Staging creation, classification, confirmation and reclaim all receive the held lock, but their owner-record decisions remain unchanged because older writers may not lock. An early staging failure releases it. Otherwise release occurs on every exit after stopping and draining the heartbeat, and on success only after staging finalization, run-state persistence, deduplication and browse-view work. The lock remains held throughout marker deletion and snapshot publish rename."
+    },
+    "removed": [
+      {
+        "text": "StagingTestHook_AfterMarkerDelete",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "StagingTestHook_BeforeFinalizeRename",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "StagingTestHook_AfterFinalizeRename",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Invoke-StagingLockReclaim",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Initialize-StagingFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Resolve-BackupSetPaths",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Stop-StagingHeartbeat",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-ManifestWitness",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Enter-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-LastBackupRun",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Read-Manifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Logger",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Add-Content",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-Path",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Rename-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "-OsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet's opening order is: step 1 Resolve-BackupSetPaths (path resolution, creating missing roots); step 2.9 Enter-StagingOsLock, whose throw APPENDS one refusal line to backup.log with Add-Content (never New-Logger, which truncates a log that belongs to the live holder), marks the set failed and returns; step 2.95 the prior-state reads that used to precede the lock -- Get-LastBackupRun, the Test-Path plus Read-Manifest no-LastBackupRun guard, and the Test-Path plus Test-ManifestWitness gate -- unchanged and in the same order, inside a try whose catch calls Exit-StagingOsLock and rethrows the ORIGINAL error record (so the witness ErrorId still maps to exit 3, and backup.log is left as the last run wrote it); step 2 New-Logger, also guarded by a release-and-rethrow catch; then step 3 (AMENDED 2026-10-10: no read of store state now precedes the lock; the move adds no I/O).",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-092",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Prune acquires the same staging OS lock once after root resolution and before the per-name loop, committed-residue cleanup, preflight, staging creation or re-homing. -WhatIf does not acquire it. Failure returns for every requested name Status=Refused, Code=2 and one staging-busy refusal with the [SR-075/lock-held] message. The entire batch holds the lock and releases it on all exits. Existing staging still refuses independently; staging is created exclusively and carries PRUNE.inprogress."
+    },
+    "removed": [
+      {
+        "text": "PruneTestHook_InTransaction",
+        "kind": "instrument",
+        "destination": "TC"
+      },
+      {
+        "text": "Remove-CommittedPruneResidue",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-BackupSnapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Enter-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$WhatIfPreference",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Item",
+        "kind": "code",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-093",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "The staging OS lock file is never written, truncated or deleted. Snapshot, prune, audit, kit-refresh and restore discovery consider dated snapshot directories, while residue and staging operations address their exact directory names, so the persistent lock file is invisible to those consumers."
+    },
+    "removed": [
+      {
+        "text": "Reconstruct.ps1 builds its pool with Get-ChildItem -Directory over the change root;",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "Restore pool discovery considers snapshot directories, excluding the lock file."
+      },
+      {
+        "text": "Remove-CommittedPruneResidue",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Optimize-ChangeFolders",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-PoolSnapshotFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "$Def",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-ChildItem",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Reconstruct.ps1",
+        "kind": "file",
+        "destination": "drop"
+      },
+      {
+        "text": "bash/reconstruct.sh",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "LLR-094",
+    "verdict": "strip",
+    "cells": {
+      "Detail": "Store repair and kit refresh acquire the same staging OS lock within the mutation operation itself, covering direct callers. A blank change root refuses; a missing one is created. Any lock failure logs one ERROR and throws with [SR-075/lock-held]. Repair locks before auditing so evidence and repair share one state; kit refresh locks before snapshot enumeration. Both skip locking under -WhatIf and release on every exit. The entry point maps lock failure to exit 2. Read-only Verify, Snapshots, View, Deep audit and both restorers do not acquire this lock: their writes are confined to the separate view root, scratch space or restore target. Other store-writing steps rely on invocation beneath the backup or prune lock; direct invocation of an exported step does not itself acquire a lock."
+    },
+    "removed": [
+      {
+        "text": "Move-RemovedFilesToStaging",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Repair-BackupStorageForm",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Update-BackupSnapshotKit",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Enter-StoreMutationLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Optimize-ChangeFolders",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-BackupStorageForm",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Publish-PruneManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Remove-BackupSnapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Complete-ChangeFolder",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Copy-ReHomedDataFile",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-BackupManifest",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Enter-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Save-SupersededData",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-BrowseViewIndex",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-VerifyAction",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Get-BackupSnapshot",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Exit-StagingOsLock",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Test-PoolResolves",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "Invoke-BackupSet",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "New-Item",
+        "kind": "code",
+        "destination": "drop"
+      },
+      {
+        "text": "FileBackup.ps1",
+        "kind": "file",
+        "destination": "drop"
+      }
+    ],
+    "contradicts": [],
+    "notes": "Kept the explicit direct-call limitation: exported mutation steps do not acquire their own lock, whereas repair and refresh do. This is a caller precondition, not evidence that every exported writer independently enforces exclusion."
+  }
+]

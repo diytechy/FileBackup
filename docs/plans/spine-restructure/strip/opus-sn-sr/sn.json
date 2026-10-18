@@ -1,0 +1,699 @@
+[
+  {
+    "id": "SN-001",
+    "verdict": "strip",
+    "cells": {
+      "Acceptance intent (how we'd know it's met)": "Run against a known tree; every source file appears in the backup's index; re-running picks up new and changed files."
+    },
+    "removed": [
+      {
+        "text": "`MANIFEST.csv`",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "the backup's index"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-002",
+    "verdict": "strip",
+    "cells": {
+      "Acceptance intent (how we'd know it's met)": "Two files with identical bytes occupy the space of one stored copy, and both restore byte-exact."
+    },
+    "removed": [
+      {
+        "text": "Two files with identical bytes produce one physical data file; the second is recorded as a duplicate pointing at the same data.",
+        "kind": "mechanism",
+        "destination": "LLR"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The duplicate-row-pointing-at-shared-data design is how the store achieves the outcome; the need keeps only the observable saving and the restore guarantee."
+  },
+  {
+    "id": "SN-003",
+    "verdict": "strip",
+    "cells": {
+      "Acceptance intent (how we'd know it's met)": "With compression on, content that measurably shrinks is stored compressed and content that does not is stored as-is, whatever the file's name; with compression off nothing is compressed; every file restores byte-exact either way."
+    },
+    "removed": [
+      {
+        "text": "With compression on, a `.docx`/`.txt` is stored as `.7z`; a `.jpg`/`.mp4` is stored as-is.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "content that measurably shrinks is stored compressed, whatever the file's name"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The extension-based acceptance describes the old default; under the current default the decision is measured from the bytes (owner vision: compress only where measurement shows a saving). The extension list survives only as a non-default mode and below the probe floor, which is SR/LLR detail."
+  },
+  {
+    "id": "SN-004",
+    "verdict": "strip",
+    "cells": {
+      "Acceptance intent (how we'd know it's met)": "After several runs, each earlier backed-up state can be picked by its date, and restoring it reproduces that exact state (changed files at their old content); the latest state is always restorable."
+    },
+    "removed": [
+      {
+        "text": "each earlier backup has a snapshot named by that backup's date",
+        "kind": "mechanism",
+        "destination": "LLR",
+        "replaced_by": "each earlier backed-up state can be picked by its date"
+      },
+      {
+        "text": "and the latest run needs no snapshot because the live backup already is the latest state",
+        "kind": "mechanism",
+        "destination": "LLR",
+        "replaced_by": "the latest state is always restorable"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-005",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "SN-006",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "SN-007",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": [],
+    "notes": "`HashRecalcFreq` and its codes are declared configuration vocabulary, kept."
+  },
+  {
+    "id": "SN-008",
+    "verdict": "strip",
+    "cells": {
+      "Need (plain language)": "See what is in the backup and find a file by name, without running a restore.",
+      "Why it matters": "The store is organised by content rather than by the original folder tree, so it cannot be browsed directly; a listing generated from the index is the one way to see and find files without restoring, and it can be more faithful than a mirrored copy because it lists every path, duplicates included."
+    },
+    "removed": [
+      {
+        "text": "**(WP9/`ca-v1` rewrite, ruled 2026-08-24: browsing was the only reason to mirror the tree. Mirror was removed at WP9 step 5; the generated index that serves this need lands at step 7 — see [../plans/wp9-content-addressed-storage-workorder.md](../plans/wp9-content-addressed-storage-workorder.md) §3.6.)**",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "Browsing was the only reason to mirror the tree; content addressing dedups, never overwrites a stored object, and a manifest-derived index is *more* faithful than Mirror ever was (Mirror omitted borrower paths entirely).",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "the store is organised by content, so a listing generated from the index is the one way to browse it"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-009",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": [],
+    "notes": "`BackupSets` is declared configuration vocabulary, kept."
+  },
+  {
+    "id": "SN-010",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": [],
+    "notes": "`-NoMail` is a declared command-line flag, kept."
+  },
+  {
+    "id": "SN-011",
+    "verdict": "strip",
+    "cells": {
+      "Acceptance intent (how we'd know it's met)": "A scheduled run completes without prompting and returns exit 0 on success, non-zero if any set failed."
+    },
+    "removed": [
+      {
+        "text": "A scheduled `pwsh` run",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "A scheduled run"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-012",
+    "verdict": "strip",
+    "cells": {
+      "Acceptance intent (how we'd know it's met)": "The shipped quick-start documentation and the configuration builder let a new user build a config and run a first backup; required dependencies install on first use."
+    },
+    "removed": [
+      {
+        "text": "README + `CredSetEx.ps1`",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "the shipped quick-start documentation and the configuration builder"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-022",
+    "verdict": "strip",
+    "cells": {
+      "Need (plain language)": "Restore a backup on a **Linux** machine from the backup folder alone, without the runtime the backup tool itself needs.",
+      "Why it matters": "The restore host is often not Windows (NAS, rescue live-USB, a borrowed laptop); the backup must not be hostage to one runtime.",
+      "Acceptance intent (how we'd know it's met)": "Copy a backup folder to a stock Linux machine carrying only the documented, commonly available tools, run the backup's own POSIX restorer, and byte-compare: identical tree, from the backup root (latest) or any dated snapshot (that point in time); failures exit non-zero."
+    },
+    "removed": [
+      {
+        "text": "without PowerShell",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "without the runtime the backup tool itself needs"
+      },
+      {
+        "text": "*(Added 2026-07-03, reversing the earlier non-Windows non-goal — bash-v1 phase.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "(bash, coreutils, xxhsum, 7z)",
+        "kind": "code",
+        "destination": "IF",
+        "replaced_by": "carrying only the documented, commonly available tools"
+      },
+      {
+        "text": "run `reconstruct.sh`",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "run the backup's own POSIX restorer"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The concrete tool floor is a restore-host interface fact; SR-071 states it at the requirement level."
+  },
+  {
+    "id": "SN-023",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "Lets Linux machines run the same scheduled backups against the same targets; either side can restore what the other wrote.",
+      "Acceptance intent (how we'd know it's met)": "A backup made by the Linux backup engine restores byte-exact via either restorer, and vice versa; dedup/snapshot semantics match the shared contract."
+    },
+    "removed": [
+      {
+        "text": "*(bash-v2 phase — after SN-022 ships.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "the bash engine",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "the Linux backup engine"
+      }
+    ],
+    "contradicts": [],
+    "notes": "No Linux backup engine exists in the code; the need is a deliberate future (priority C), not stale."
+  },
+  {
+    "id": "SN-024",
+    "verdict": "retire",
+    "cells": {},
+    "removed": [],
+    "contradicts": [],
+    "notes": "Container build and image export/publish tooling is delivery, outside the product spine (owner ruling D3). Its only product residue - a backup host (named here as HomeHub) runs the tool unattended without installing its runtime, reading a read-only source with separate writable state - is already carried by SR-042 (SourceStatePath), SR-043 and SR-048; the restructure may want a generic backup-host need for it."
+  },
+  {
+    "id": "SN-026",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "A wrapper (a backup host's supervisor, a scheduled task) has to decide between \"your bytes are gone\", \"fix this host and retry\", and \"you pointed me at the wrong folder\" — one generic failure forces a human into the log every time."
+    },
+    "removed": [
+      {
+        "text": "HomeHub/NagLight",
+        "kind": "provenance",
+        "destination": "drop",
+        "replaced_by": "a backup host's supervisor"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-028",
+    "verdict": "retire",
+    "cells": {},
+    "removed": [],
+    "contradicts": [],
+    "notes": "Owner ruling D3: the CI proof of the container is a TC-tier matter (destination TC). The container's distribution forms are delivery; the dated-snapshot model it re-proves is already owned by SN-004/SN-006."
+  },
+  {
+    "id": "SN-029",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "Without a way to remove snapshots, retention is unbounded and the backup volume eventually fills. But snapshots share bytes: a folder that looks like old history can hold the only physical copy of content other snapshots recover by hash, so deleting it from outside the tool is silent data loss. Whoever decides *what* to keep needs the tool to do the *removing* — and needs real reclaim numbers, which only the tool can compute because of dedup.",
+      "Acceptance intent (how we'd know it's met)": "Asking the tool to remove a named snapshot leaves every remaining dated state — and the latest state — restorable byte-exact with compression on or off, including when the removed folder held the only copy of shared content; a dry run first reports the same reclaim figure the real removal achieves; anything that would lose content is refused before a single byte is touched, with a distinct exit status; a run interrupted at any point loses nothing and can simply be run again."
+    },
+    "removed": [
+      {
+        "text": "Snapshot retention is unbounded today, so the backup volume eventually fills.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Without a way to remove snapshots, retention is unbounded and the backup volume eventually fills."
+      },
+      {
+        "text": "The wrapper that decides",
+        "kind": "provenance",
+        "destination": "drop",
+        "replaced_by": "Whoever decides"
+      },
+      {
+        "text": "*(HomeHub cross-check finding I, re-ruled 2026-08-21.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "in all four storage modes",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "with compression on or off"
+      }
+    ],
+    "contradicts": [],
+    "notes": "'Unbounded today' describes the pre-prune code; the argument is kept as a conditional. The four storage modes no longer exist (content addressing is the only layout)."
+  },
+  {
+    "id": "SN-030",
+    "verdict": "strip",
+    "cells": {
+      "Need (plain language)": "Trust that what is actually stored matches what the index says about it — and that turning compression on or off, or changing the compression policy, never quietly damages an older snapshot's restore.",
+      "Why it matters": "The index records how each file was stored (compressed or not) apart from the bytes themselves; unless something checks that record against the bytes on disk, a wrong entry validates itself forever and a restore can write archive bytes under the original filename and report success. Changing the compression policy leaves a store holding both forms, which is ordinary use, so the hazard is reachable without any tampering. I also need to be told before a backup starts that the destination has room, the way a restore already tells me."
+    },
+    "removed": [
+      {
+        "text": "or changing which file types get compressed",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "or changing the compression policy"
+      },
+      {
+        "text": "nothing ever checks that against the bytes on disk, so a wrong entry validates itself forever",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "unless something checks that record against the bytes on disk, a wrong entry validates itself forever"
+      },
+      {
+        "text": "Changing the compression policy re-forms the live backup but not the snapshots, which is enough to trigger it during ordinary use.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "Changing the compression policy leaves a store holding both forms, which is ordinary use"
+      },
+      {
+        "text": "*(HomeHub cross-check finding C + the WP4-surfaced latent defect + the backup-side half of the capacity guard.)*",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": [],
+    "notes": "Nothing stored is re-formed any more (SR-061) and the compression decision is measured, not type-based; the argument is restated for the current mixed-form store."
+  },
+  {
+    "id": "SN-031",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "The backup root looks like a plain copy but is a managed, deduplicated pool. If a lost data file were only blanked out of the index, every later run would report success forever: the entry would never be re-copied although the source still holds the bytes, a new file with the same content could silently inherit the broken entry, and the verification action would report the store clean.",
+      "Acceptance intent (how we'd know it's met)": "After a data file inside the backup root is externally deleted: the next backup run exits 0 having re-established that file's bytes from the still-matching source, and the restored tree is byte-exact; a new source file with identical content never adopts an index entry that no longer points at stored bytes; the verification action reports every entry whose bytes are gone from the backup entirely, with a distinct finding class and non-zero exit, instead of reporting the store clean."
+    },
+    "removed": [
+      {
+        "text": "Today a lost data file is blanked out of the index with one warning and then every later run reports success forever: the row is never re-copied even though the source still holds the bytes, a NEW file with the same content can silently inherit the broken row, and the verification action reports the store clean.",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "If a lost data file were only blanked out of the index, every later run would report success forever"
+      },
+      {
+        "text": "The one check that knows (`Test-PoolResolves`) runs only inside prune.",
+        "kind": "stale",
+        "destination": "drop"
+      },
+      {
+        "text": "*(2026-08-23 investigation, reproduced end-to-end.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "having re-pointed or re-copied the row",
+        "kind": "mechanism",
+        "destination": "LLR",
+        "replaced_by": "having re-established that file's bytes"
+      },
+      {
+        "text": "a row whose DataPath is blank",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "an index entry that no longer points at stored bytes"
+      },
+      {
+        "text": "`-Action Verify` reports every row whose bytes are gone from the pool entirely",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "the verification action reports every entry whose bytes are gone from the backup entirely"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The 'today' clauses describe behaviour fixed by SR-053/SR-054; their argument is kept as a conditional. The harvest's provenance hint on the Verify clause is an obligation, kept reworded."
+  },
+  {
+    "id": "SN-032",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "The two restorers must stay interchangeable over the same store (SN-022/SN-026). Names with quotes or newlines are legal on Linux but break the cross-platform tooling contract (the archive tool's argument quoting, the POSIX restorer's index parsing), and names with `\\` mean different things on each side. Handling every such case is complexity spent on names the user almost certainly wants fixed at the source anyway.",
+      "Acceptance intent (how we'd know it's met)": "A source file whose name is invalid on either platform is skipped with one ERROR naming the file and the offending character, the set fails (non-zero exit), everything else in the set is still backed up, and no index entry is written for the skipped file."
+    },
+    "removed": [
+      {
+        "text": "Windows-side tooling contract (7-Zip argument quoting, the bash manifest parser)",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "cross-platform tooling contract (the archive tool's argument quoting, the POSIX restorer's index parsing)"
+      },
+      {
+        "text": "*(Human ruling 2026-08-23.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "no manifest row is written",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "no index entry is written"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-033",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "Without a check of the written bytes, a wrong payload, a same-length bit-flip or even a truncated stored file would all restore with a success status. A backup whose restore can silently hand back damaged bytes and still say \"done\" is not a backup.",
+      "Acceptance intent (how we'd know it's met)": "A store whose data file has been altered (wrong payload, bit-flip, or truncation) restores byte-exact from another surviving copy in the backup, or fails non-zero naming the file — never exit 0 with wrong bytes."
+    },
+    "removed": [
+      {
+        "text": "The 2026-08-24 HomeHub bench defect review (D-2) found both restorers expand/copy a resolvable `DataPath` with no hash check: a wrong payload, a same-length bit-flip, even a truncated file all restore with exit 0.",
+        "kind": "provenance",
+        "destination": "log",
+        "replaced_by": "Without a check of the written bytes, a wrong payload, a same-length bit-flip or even a truncated stored file would all restore with a success status."
+      },
+      {
+        "text": "*(Human ruling 2026-08-24, kit-bump rev6 plan §2.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "from a surviving pool copy",
+        "kind": "mechanism",
+        "destination": "drop",
+        "replaced_by": "from another surviving copy in the backup"
+      },
+      {
+        "text": "naming the row",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "naming the file"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-034",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "When files share stored content, an ordinary edit of one of them must not overwrite the shared stored copy in place: that would orphan every other file still claiming those bytes, invisibly to every default check and discoverable only after the fact. A store that quietly loses the last copy of content it reported as backed up is not a backup.",
+      "Acceptance intent (how we'd know it's met)": "After editing one of two identical files, restoring the previous snapshot still reproduces the old bytes for **both** paths, and the store's audit reports no index entry whose content is unaccounted for; no stored bytes ever change while the current index still claims them."
+    },
+    "removed": [
+      {
+        "text": "The 2026-08-24 HomeHub bench defect review (D-1) found that an ordinary edit of one of two duplicate files overwrote the shared data file in place, orphaning every other row that still claimed those bytes — invisible to every default check, discoverable only post-mortem with `-Deep`.",
+        "kind": "provenance",
+        "destination": "log",
+        "replaced_by": "an ordinary edit of one of them must not overwrite the shared stored copy in place: that would orphan every other file still claiming those bytes, invisibly to every default check"
+      },
+      {
+        "text": "*(Human ruling 2026-08-24, option 3; WP9.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "the pool audit reports no blank row whose content is unaccounted for",
+        "kind": "code",
+        "destination": "drop",
+        "replaced_by": "the store's audit reports no index entry whose content is unaccounted for"
+      },
+      {
+        "text": "no data file's bytes ever change while a live manifest row claims them",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "no stored bytes ever change while the current index still claims them"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-035",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "The moment I need a restore is the worst possible moment to have to remember a parameter name, so a restore must start from a double-click and keep its outcome on screen long enough to read. And the restore host is often a borrowed laptop, which may be a Mac: a restorer that misreads a non-GNU userland and reports damage on an intact backup is worse than one that refuses to run."
+    },
+    "removed": [
+      {
+        "text": "the kit already ships double-clickable launchers for everything else (`run.{cmd,sh,command}`), but the restore had none that actually worked - `RECONSTRUCT.bat` closed its window before the outcome could be read, and `reconstruct.sh` requires `--target-root` so a double-click could only print usage.",
+        "kind": "provenance",
+        "destination": "log",
+        "replaced_by": "so a restore must start from a double-click and keep its outcome on screen long enough to read"
+      },
+      {
+        "text": "And the restore host is often a borrowed laptop: SN-022 promised Linux, but `reconstruct.sh` gave a Mac that followed its own install advice a FALSE \"your index is damaged\" verdict on an intact backup.",
+        "kind": "provenance",
+        "destination": "log",
+        "replaced_by": "a restorer that misreads a non-GNU userland and reports damage on an intact backup is worse than one that refuses to run"
+      },
+      {
+        "text": "*(Raised 2026-08-28; WP13.)*",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-036",
+    "verdict": "strip",
+    "cells": {
+      "Why it matters": "Dedup stores identical files once, so unless each file's own modification time is applied, every twin comes back with the time of whichever file was stored first; and an index with one entry per file cannot by itself recreate an empty directory or bring back a Hidden or System folder as it was.",
+      "Acceptance intent (how we'd know it's met)": "Two identical files with different modification times restore with their OWN times, with compression on or off and through both restorers; an empty directory and a nested empty directory are recreated; a Hidden+System folder comes back Hidden+System on Windows, and on Linux the directory is created with the inapplicable attributes reported rather than silently dropped; a backup written without this record still restores exactly as it did before."
+    },
+    "removed": [
+      {
+        "text": "Dedup made every twin of a shared stored object restore with the OWNER's modification time (reproduced 2026-08-25: two identical files dated 2001 and 2002 both came back 2001), and because the index has one row per FILE an empty directory was never recreated and a Hidden or System FOLDER came back ordinary.",
+        "kind": "provenance",
+        "destination": "log",
+        "replaced_by": "Dedup stores identical files once, so unless each file's own modification time is applied, every twin comes back with the time of whichever file was stored first; and an index with one entry per file cannot by itself recreate an empty directory or a folder's attributes"
+      },
+      {
+        "text": "The modification time was already recorded correctly per row and simply never applied.",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "*(Raised 2026-08-25 alongside the WP9 review; ruled 2026-08-26.)*",
+        "kind": "provenance",
+        "destination": "log"
+      },
+      {
+        "text": "in every storage mode",
+        "kind": "stale",
+        "destination": "drop",
+        "replaced_by": "with compression on or off"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-013",
+    "verdict": "strip",
+    "cells": {
+      "Expected behavior": "An interrupted run never leaves a half-written state that a later run proceeds on: the next run either recovers the interrupted run's staging by itself, when it can prove from the disk alone that the interrupted run is dead and that nothing would be lost, or refuses with a clear message naming what it found; a dated snapshot only ever appears complete."
+    },
+    "removed": [
+      {
+        "text": "The next run detects the leftover `Temp` staging folder and aborts with a clear message rather than proceeding on a half-written state",
+        "kind": "contradiction",
+        "destination": "drop",
+        "replaced_by": "the next run either recovers the interrupted run's staging by itself, when it can prove the interrupted run is dead and nothing would be lost, or refuses with a clear message"
+      },
+      {
+        "text": "a completed change folder is only ever produced atomically (rename after its manifest is written)",
+        "kind": "mechanism",
+        "destination": "LLR",
+        "replaced_by": "a dated snapshot only ever appears complete"
+      }
+    ],
+    "contradicts": [
+      "SR-017",
+      "SR-075"
+    ],
+    "notes": "The always-abort side contradicts SR-017/SR-075, which reclaim a staging area proved abandoned; the code implements the reclaim (move-aside to an aside folder, refuse on any doubt), so the stale always-abort wording is stripped."
+  },
+  {
+    "id": "SN-014",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "SN-015",
+    "verdict": "strip",
+    "cells": {
+      "Scenario": "Missing **required** dependency / wrong runtime (an unsupported runtime version, or the hashing library absent)"
+    },
+    "removed": [
+      {
+        "text": "(PowerShell 5.1, no `System.IO.Hashing`)",
+        "kind": "code",
+        "destination": "IF",
+        "replaced_by": "(an unsupported runtime version, or the hashing library absent)"
+      }
+    ],
+    "contradicts": [],
+    "notes": "The supported runtime floor is a host-interface fact; the concrete library name is a carrier."
+  },
+  {
+    "id": "SN-016",
+    "verdict": "strip",
+    "cells": {
+      "Scenario": "Missing external tool (the archive tool when compression is selected, the media-probe tool for media metrics)"
+    },
+    "removed": [
+      {
+        "text": "(7-Zip when compression is selected, ffprobe for media metrics)",
+        "kind": "code",
+        "destination": "IF",
+        "replaced_by": "(the archive tool when compression is selected, the media-probe tool for media metrics)"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-017",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "SN-018",
+    "verdict": "strip",
+    "cells": {
+      "Scenario": "A *nested* user file happens to be named like infrastructure (e.g. the same name as the backup's index)",
+      "Expected behavior": "Treated as real user data and preserved — only true root-level infrastructure files are filtered."
+    },
+    "removed": [
+      {
+        "text": "(e.g. `MANIFEST.csv`)",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "(e.g. the same name as the backup's index)"
+      },
+      {
+        "text": " (regression B6)",
+        "kind": "provenance",
+        "destination": "log"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-019",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "SN-020",
+    "verdict": "keep",
+    "cells": {},
+    "removed": [],
+    "contradicts": []
+  },
+  {
+    "id": "SN-021",
+    "verdict": "strip",
+    "cells": {
+      "Expected behavior": "Produces an identical index and no spurious \"changes\"; output is deterministic across identical re-runs."
+    },
+    "removed": [
+      {
+        "text": "identical manifest rows",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "an identical index"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-025",
+    "verdict": "strip",
+    "cells": {
+      "Scenario": "The backup's index itself is damaged — truncated, partially written, or replaced by an unrelated/garbage file",
+      "Expected behavior": "The restore refuses to run rather than \"succeeding\" against a shrunken job, and refuses before restoring anything; this holds for the latest state and for every dated snapshot, through both restorers. A backup written before its index could be proved still restores, with a clearly logged \"unverified index\" warning."
+    },
+    "removed": [
+      {
+        "text": "`MANIFEST.csv` truncated",
+        "kind": "file",
+        "destination": "drop",
+        "replaced_by": "truncated"
+      },
+      {
+        "text": "the backup carries a witness of its own index (row count + digest) written whenever the manifest is written and duplicated into every snapshot, and both restorers check it before restoring anything",
+        "kind": "mechanism",
+        "destination": "LLR",
+        "replaced_by": "and refuses before restoring anything; this holds for the latest state and for every dated snapshot, through both restorers"
+      },
+      {
+        "text": "A backup written by an older version (no witness)",
+        "kind": "mechanism",
+        "destination": "drop",
+        "replaced_by": "A backup written before its index could be proved"
+      }
+    ],
+    "contradicts": []
+  },
+  {
+    "id": "SN-027",
+    "verdict": "strip",
+    "cells": {
+      "Expected behavior": "The run refuses to start and says exactly which key is wrong and what was expected, before touching any backup data; it never guesses a default for a key it does not recognize, and a config written for a newer FileBackup is refused by name rather than half-understood. The JSON form is the documented, versioned contract and the shipped example configuration is itself valid; the older CLIXML form keeps working as a native-Windows convenience."
+    },
+    "removed": [
+      {
+        "text": "the shipped example is the same file the tests execute",
+        "kind": "instrument",
+        "destination": "TC",
+        "replaced_by": "the shipped example configuration is itself valid"
+      }
+    ],
+    "contradicts": [],
+    "notes": "JSON and CLIXML are the declared configuration formats (interface vocabulary), kept."
+  }
+]

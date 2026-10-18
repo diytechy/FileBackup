@@ -1,0 +1,1 @@
+[llr.json](C:/Projects/FileBackup/docs/plans/spine-restructure/strip/astra-llr/llr.json): 86 rows — keep 2, strip 80, retire 2, flag 2. Removals: provenance 80, code 418, file 69, instrument 42, mechanism 0, stale 10, contradiction 4.
