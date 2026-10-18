@@ -1,0 +1,212 @@
+[
+  {
+    "id": "R2-001",
+    "severity": "BLOCKER",
+    "rule": "§0 sideways consistency; §2(b) closed acceptance",
+    "finding": "SR-082 requires every visible saved state to restore and the latest state to restore as the pre-run or post-run tree, but its acceptance also permits a restore to refuse a record whose completeness evidence was cut off. A visible state refused by its restorer is not restorable. DA-01 and DA-15 cover individual rename and durability, not publication of a record and its evidence as one unit. This also conflicts with the full restorability promised by SR-110 for interrupted repairs. The current writer publishes the record before its witness (Common module, lines 1284 and 1293), confirming this is a real exposed interval, not merely wording.",
+    "suggested_fix": "Choose a consistent externally visible crash contract with the need owner: retain a restorable committed state throughout publication, or explicitly permit a detected, unavailable state and amend SN-013 accordingly. Make SR-082 and SR-110 acceptance use the same contract."
+  },
+  {
+    "id": "R2-002",
+    "severity": "BLOCKER",
+    "rule": "§0 upward and sideways consistency",
+    "finding": "SR-041 explicitly completes and publishes a saved state even when earlier content cannot be kept, and accepts restoring only everything it kept. SR-005 requires a complete previous state; SR-059 and SN-034 prohibit losing content any saved state depends on. A partial state labelled completed cannot satisfy those obligations. The derived rationale describes the conflict but supplies no authorised exception.",
+    "suggested_fix": "Preserve the prior committed state on a preservation failure, or obtain an explicit need-level partial-state policy with unmistakable incomplete status and define which state remains authoritative. Do not accept a partial saved state as complete."
+  },
+  {
+    "id": "R2-003",
+    "severity": "MAJOR",
+    "rule": "§0 observable closed obligation; §2(d2) bounded domain",
+    "finding": "SR-038 and SR-039 promise detection of a substituted record without bounding what is substituted. A different valid record together with its matching evidence, or substitution of byte-identical record bytes, cannot be distinguished from an authentic pair by the backup alone. Neither row cites an assumption restricting replacement to the record while trusted evidence remains unchanged. DA-11 is not cited and does not establish independent trust in record evidence.",
+    "suggested_fix": "Define the detectable fault model explicitly: mismatches against independently retained matching evidence, with a stated assumption about that evidence. Feed the same limit back to SN-025; if adversarial substitution must be detected, specify the external trust boundary rather than promise detection from the substituted folder alone."
+  },
+  {
+    "id": "R2-004",
+    "severity": "MAJOR",
+    "rule": "§0 observable obligation; §2(b2) trigger",
+    "finding": "SR-016 uses no person present and SR-073 uses no person able to answer as runtime triggers. FileBackup can observe launch mode, redirected input and session capabilities, not whether someone is actually present at an open console. Their acceptance enumerates detectable proxies without making those proxies the normative trigger.",
+    "suggested_fix": "Define unattended invocation using the declared launch contract and observable input/session state. Retain human absence as the need motivation, not as a condition the program must detect."
+  },
+  {
+    "id": "R2-005",
+    "severity": "MAJOR",
+    "rule": "§2(b3) assumptions must align; §0 sideways consistency",
+    "finding": "SR-092 cites DA-08 as its assumption even though DA-08 holds only when names remain distinct and the target does not rewrite Unicode normalisation. SR-092 is specifically supposed to handle the opposite case. Its safety obligation is therefore conditioned away precisely where needed. Independently, SR-031 promises an identical tree on every supported host while citing only DA-10 and DA-18, neither of which limits name collisions; sibling SR-021 cannot lend it DA-08.",
+    "suggested_fix": "Remove DA-08 as a prerequisite of collision refusal. Separate successful fidelity under representable distinct names from the required failure behaviour on incompatible targets, and give SR-031 its own explicit scope/assumptions. Cover Unicode collisions in acceptance as well as case collisions."
+  },
+  {
+    "id": "R2-006",
+    "severity": "BLOCKER",
+    "rule": "§0 sideways consistency",
+    "finding": "SR-019 mandates refusal when a required component is absent, while SR-132 permits obtaining an absent required component at launch and completing the same run. Both acceptance criteria specifically use an absent hashing component, so the same starting condition has incompatible mandatory outcomes.",
+    "suggested_fix": "State the phase boundary: obtain permitted prerequisites first, then refuse if a required component remains unavailable or incompatible. Align both acceptance criteria and the interpretation of SN-015."
+  },
+  {
+    "id": "R2-007",
+    "severity": "BLOCKER",
+    "rule": "§0 sideways consistency; §2(b) acceptance",
+    "finding": "SR-059 acceptance requires that after every operation no recorded content is missing. SR-109 explicitly leaves missing-everywhere findings unrepaired and reports them; SR-103 requires checks to leave a damaged store unchanged. A check or repair on a pre-damaged store is required both to leave the damage and to leave no damage. SN-034 prohibits the tool causing loss, not the existence of prior loss.",
+    "suggested_fix": "Make SR-059 a preservation property: no operation introduces new missing or altered content among previously resolvable claims. Leave recovery of pre-existing damage to the healing/repair requirements."
+  },
+  {
+    "id": "R2-008",
+    "severity": "MAJOR",
+    "rule": "§0 sideways consistency; §2(b) closed threshold",
+    "finding": "SR-067 requires trying each transiently unreadable file again and capturing it once readable, and says a lock shorter than the retry window is captured. SR-090 permits no more waiting after the location budget is spent. A later briefly locked file may receive no retry, or become readable after the final allowed attempt but before the unspecified window ends. The universal capture promise and the budget cannot both hold as written.",
+    "suggested_fix": "Define the retry window and eligibility in observable terms, including exhaustion of the shared budget, and qualify the capture promise to a successful allowed attempt. Keep the per-file attempt policy in one home."
+  },
+  {
+    "id": "R2-009",
+    "severity": "MAJOR",
+    "rule": "§2(a), §2(b3) design mechanism; §2(d2) environmental bound",
+    "finding": "SR-075 combines automatic recovery, a particular heartbeat/death algorithm (1800 seconds, max(90 seconds, interval plus 30 seconds)), live-heartbeat production, racing reclamation and successor protection. These are independent decisions, and heartbeat timing is a design for establishing safe recovery, not the recovery capability itself. The claim that a live run updates at least every 60 seconds and is never judged dead also has no scheduling-pause or observation-delay premise: DA-02 covers lock release and DA-16 clock agreement, not suspension or delayed visibility.",
+    "suggested_fix": "Keep safe automatic recovery as the SR outcome; move the liveness protocol to design and split independent exclusion obligations to their existing homes. Record the required scheduling/visibility assumptions or refuse when liveness is uncertain; bound slow-clock cases by a declared skew."
+  },
+  {
+    "id": "R2-010",
+    "severity": "MAJOR",
+    "rule": "§0 upward trace; §2(c) derived record",
+    "finding": "SR-048 traces only to SN-024, which asks for backups in a container, not retention actions there. It adds container removal, reports, default-action behaviour and exclusion of removal from the standalone kit without a hat_refs derivation record. merge-notes acknowledges this needs defect, but it is not one of the Pending Owner rulings exempted from review.",
+    "suggested_fix": "Widen SN-024 or add an owner-approved container-retention need, then split/trace the added obligations. If retained as derived, record an actual applicable lens and its argument rather than silently treating it as direct decomposition."
+  },
+  {
+    "id": "R2-011",
+    "severity": "MAJOR",
+    "rule": "§2(c3) perspective record",
+    "finding": "The merged package contains only system-requirements.toml and merge-notes.md. No perspective record accompanies the 107-row decomposition, so there is no per-applicable-hat produced/no_finding record to review or check for staleness as §2(c3) requires. Row hat_refs cannot record perspectives considered with no finding.",
+    "suggested_fix": "Create the merged decomposition perspective record, covering all 107 rows and applicable hats, with reasoned no_finding entries and a successful record --check result."
+  },
+  {
+    "id": "R2-012",
+    "severity": "MAJOR",
+    "rule": "§2(b3) boundary attribution",
+    "finding": "Several rows do not name the boundary carrying their principal delivered result: SR-027 quick-start guidance/helper cites only B-05 (owner input); SR-042/SR-123/SR-134 publish descriptions or examples but cite only B-05/B-07 (inputs); SR-035 cites only B-20 although it promises captured backup content and an owner report; SR-106 cites only the exclusion claim B-04 although its acceptance requires complete checks, reports and restored trees. These are not the crossings where the claimed output is observed.",
+    "suggested_fix": "Add the actual output crossings, including B-02/B-13, B-06/B-08 and B-16 as applicable. Extend the frame explicitly for shipped guidance and configuration-contract delivery rather than treating an input crossing as publication."
+  },
+  {
+    "id": "R2-013",
+    "severity": "MAJOR",
+    "rule": "§2(b3) frame scope",
+    "finding": "SR-131 includes licensing/notices shipped inside the container but cites B-12, which carries runtime mounts, identity and exit status. external.toml explicitly excludes building/exporting the container from the operational frame. No declared crossing carries the container image or its bundled notices to a recipient.",
+    "suggested_fix": "Add an explicit delivery boundary/frame for container distribution and attach that part of SR-131 to it, retaining B-13 for the backup deliverable."
+  },
+  {
+    "id": "R2-014",
+    "severity": "MAJOR",
+    "rule": "§2(a), §2(c) mechanism and unsupported derivation",
+    "finding": "SR-011 acceptance fixes two synonymous every-run values and exact daily/weekly/monthly/yearly calendar semantics, including host-local time and month-end clamping. SN-007 asks for an owner-controlled deterministic frequency, not this particular vocabulary or calendar policy. The row has no hat_refs or deriving argument for the additional policy, and the coordinator explicitly notes that this is a proposal outside the pending-ruling list.",
+    "suggested_fix": "Keep the configurable deterministic schedule as the SR capability; specify vocabulary/calendar interpretation in the configuration interface, or record an explicit justified derived policy for owner review."
+  },
+  {
+    "id": "R2-015",
+    "severity": "MAJOR",
+    "rule": "§0 sideways consistency; §2(b2) missing scope",
+    "finding": "SR-011 forbids reading unchanged-size/time content on any run not due for a scheduled re-read. SR-053 and SR-108 require storing missing content again from an unchanged source when needed, which necessarily reads those bytes even when the frequency is never. SR-011 does not limit its prohibition to change-detection reads.",
+    "suggested_fix": "Limit the schedule decision to re-reading for change detection and expressly leave reads required for capture, healing or compression outside that prohibition."
+  },
+  {
+    "id": "R2-016",
+    "severity": "MAJOR",
+    "rule": "§2(a) one home per decision; §2(b) fit criterion",
+    "finding": "SR-064 adds an internal audit linearity requirement to two whole-operation time budgets. Measuring at one size (10,000 entries and items) cannot establish linear growth, and no timing/count threshold or comparison sizes define its pass/fail line. This is independent of the pending owner choice of the eight-hour budget.",
+    "suggested_fix": "Retain the externally measured operation budgets here. Move the algorithmic scaling constraint to design with a justified measurable work bound, or author a separate derived performance requirement with a multi-size fit criterion."
+  },
+  {
+    "id": "R2-017",
+    "severity": "MAJOR",
+    "rule": "§2(b) acceptance matches obligation; §2(d2) bound",
+    "finding": "SR-113 requires run time independent of how much history exists, but its acceptance allows any increase below 2x when history doubles. A square-root dependence passes that test while violating independence. The history baseline and maximum are also undeclared, so the proposed 30-minute bound ranges over unbounded history. This is a predicate/envelope defect, not a challenge to the pending numerical budget.",
+    "suggested_fix": "Use the need's actual sub-doubling scaling obligation, declare baseline/history envelope and allowed variation, and give the time-budget check the same scope."
+  },
+  {
+    "id": "R2-018",
+    "severity": "MAJOR",
+    "rule": "§0 upward trace; §2(a), §2(c) independent design obligations",
+    "finding": "SR-071 adds refusal of an unresolved real target and unconditional rejection of any parent-folder component, alongside platform-independent intact restore. SN-022 asks for cross-platform restoration and missing-tool diagnosis, not rejection of an otherwise safe target containing a parent component. The latter is a security/path policy without a corresponding derivation argument or SECURITY reference.",
+    "suggested_fix": "Keep platform/tool compatibility in SR-071. Derive and justify any additional target-path restriction separately under the relevant safety need and lens; otherwise leave safe path handling to design."
+  },
+  {
+    "id": "R2-019",
+    "severity": "MAJOR",
+    "rule": "§0 observable boundary; §2(b) acceptance",
+    "finding": "SR-118 requires the restore kit itself to name a missing shell and return exit code 2 when each floor tool is removed. If the interpreter needed to execute that restore route is absent, the kit cannot run its own check or control the host launcher's error/exit status. B-18 does not supply a guaranteed independent launcher.",
+    "suggested_fix": "Scope the self-diagnostic to tools observable after a supported entry route starts, and specify a separate available launcher/host contract if missing-interpreter diagnosis is required. Distinguish absent interpreter from an executable interpreter below the supported version."
+  },
+  {
+    "id": "R2-020",
+    "severity": "MAJOR",
+    "rule": "§0 upward coverage",
+    "finding": "SN-031 says external damage is put right while the source still holds the bytes. Its only children SR-053 and SR-108 cover absent content; neither covers present but corrupt bytes. DA-11 explicitly includes corruption. SR-049 reports corruption and SR-109 leaves uncertain repairs unresolved, so they do not supply automatic healing from the source.",
+    "suggested_fix": "Add the missing present-but-corrupt healing obligation, including the applicable detection event, or obtain a need amendment narrowing automatic healing to deletion/missing content."
+  },
+  {
+    "id": "R2-021",
+    "severity": "MAJOR",
+    "rule": "§0 closed obligation and coverage; §2(d2) domain",
+    "finding": "SR-001 promises every source-tree file but explicitly leaves traversal of links/junctions undecided. SR-074 permits only own/system exclusions and SR-089 only reports failures to capture; no row declares whether content behind a traversable link belongs to the source, how cycles are bounded, or how an intentionally unfollowed link is reported. DA-04 concerns stable file bytes, not source-tree membership.",
+    "suggested_fix": "Define source membership at link/reparse boundaries and the observable treatment of unsupported/cyclic traversal, including a named failure for any in-scope content not captured. Leave traversal implementation to design."
+  },
+  {
+    "id": "R2-022",
+    "severity": "MAJOR",
+    "rule": "§2(b) objective fit criterion",
+    "finding": "SR-109 uses right answer is certain and findings of a certain kind without a closed certainty predicate. Its permutations list form errors, missing-here and unreferenced objects but never specify which are repairable under which evidence. Two builders can disagree about safe correction while both claiming the row passes.",
+    "suggested_fix": "Declare the evidence conditions and allowed classes of certain repair at the system boundary, plus ambiguous cases that must remain report-only. Put the repair algorithm below this tier."
+  },
+  {
+    "id": "R2-023",
+    "severity": "MAJOR",
+    "rule": "§0 sideways consistency; §2(a) duplicate decisions",
+    "finding": "The same independent decisions appear in multiple acceptance cells: SR-005 repeats SR-100's no-change/no-snapshot rule; SR-042 repeats SR-135's explicit configuration version and SR-129's credential rule; SR-038 repeats SR-074's infrastructure exclusion and nested-data treatment; SR-067 and SR-090 both fix three attempts; SR-099 and SR-133 both decide missing-media-tool degradation. These are second normative homes, not merely delivered_with links, and changing one can change what is built/tested independently of its sibling.",
+    "suggested_fix": "Give each policy one authoritative SR and use delivered_with or explicit references for the joint outcome. Keep an end-to-end scenario where useful, without re-declaring another row's policy."
+  },
+  {
+    "id": "R2-024",
+    "severity": "MAJOR",
+    "rule": "§0 upward trace; §2(c) derived argument",
+    "finding": "SR-045 acceptance adds zero copying when no shared content is endangered. SN-029 demands safe removal and preservation, not an internal copy count; the SHARED-CONTENT lens justifies preserving shared bytes, not forbidding harmless extra copying. This adds a mechanism/performance constraint to the removal outcome without an appropriate derivation.",
+    "suggested_fix": "Remove the copy-count constraint from the SR or justify a separate observable resource budget through PERFORMANCE. Express preservation of stored form through its appropriate requirement rather than a hidden implementation rule."
+  },
+  {
+    "id": "R2-025",
+    "severity": "MAJOR",
+    "rule": "§2(b) capacity fit criterion; §0 closed obligation",
+    "finding": "SR-052 defines demand as uncompressed content lengths plus healed content and cross-volume history, and mandates proceeding whenever that demand is at or below free space. This does not account for allocation granularity, record/kit/evidence/log growth or compression overhead and temporary space. DA-06 only says reported space is usable; it does not make those other writes free. A small-file tree can pass the defined comparison and run out of space under SN-019.",
+    "suggested_fix": "Define a conservative peak-write demand including metadata, allocated storage and temporary/representation overhead, or explicitly bound the capacity guarantee and its estimation assumptions. Do not mandate proceeding solely on payload lengths."
+  },
+  {
+    "id": "R2-026",
+    "severity": "MAJOR",
+    "rule": "§0 sideways consistency; §2(b) acceptance",
+    "finding": "SR-124 says after a run with no change every count is zero. An unchanged source with an unreadable file or folder has no additions/changes/removals but must have a nonzero failure count under SR-089 and SR-091. The row's own requirement includes failure summary counts.",
+    "suggested_fix": "Require zero change counts for an unchanged source, and require zero failure counts only for a run without failures. Add the unchanged-but-unreadable acceptance case."
+  },
+  {
+    "id": "R2-027",
+    "severity": "MAJOR",
+    "rule": "§0 observable property; §2(d2) environmental assumption",
+    "finding": "SR-093 acceptance requires the entire source to be byte-identical after any run, without assuming that outside applications leave it unchanged. DA-04 is not cited and, even if cited, only covers each file while read. The system controls its own writes, not all source changes across a run; the requirement also forbids changing any times while normal reads can cause filesystem-managed access-time updates. This defect is independent of the pending working-state-location choice.",
+    "suggested_fix": "Measure absence of FileBackup-originated modification and distinguish modification time from filesystem-maintained access time. State a quiescent-source assumption for before/after equality tests rather than making external changes a product failure."
+  },
+  {
+    "id": "R2-028",
+    "severity": "MAJOR",
+    "rule": "§0 closed obligation; §2(d2) domain",
+    "finding": "SR-128 acceptance forbids readable credentials anywhere in the backup even when those bytes already occur in an ordinary source file. SN-001 requires capturing that file, and DA-20 governs protected-credential access, not source contents. The row does not distinguish credential handling by the system from backing up owner-supplied data.",
+    "suggested_fix": "Scope non-disclosure to credentials introduced through notification setup and system-generated output, and obtain a need-level decision if scanning/rejecting source content containing secrets is intended. Do not silently require both exact backup and redaction of the same bytes."
+  },
+  {
+    "id": "R2-029",
+    "severity": "MINOR",
+    "rule": "§2(b2) EARS fronted conditions",
+    "finding": "SR-064 and SR-112 open with For a library rather than an EARS Where condition. SR-122 buries target-support conditions after shall, and SR-010 appends its second independent invocation condition after the main response. The application conditions are readable but not expressed in the required pattern.",
+    "suggested_fix": "Front the declared-scale condition with Where; use explicit conditional cases for supported/unsupported attributes and state-selection defaults, keeping response qualifiers after shall."
+  },
+  {
+    "id": "R2-030",
+    "severity": "MAJOR",
+    "rule": "§2(b) observable criterion; §2(d2) bounded domain",
+    "finding": "SR-098 requires an encoding-rate figure for each media file when the tool is present, without defining the media classes or a rate/units convention; malformed media, still images and streams without duration have no necessarily meaningful rate. DA-18 covers hashing/archive implementations, not media probing. SR-099 permits measurement failure, but SR-098 does not defer its unconditional per-file acceptance to that case.",
+    "suggested_fix": "Declare the measurable media domain and the meaning/unit of the reported figure; qualify SR-098 by a successful supported measurement and use SR-099 for unsupported or failed measurements."
+  }
+]

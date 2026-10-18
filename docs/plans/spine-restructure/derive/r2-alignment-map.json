@@ -1,0 +1,2721 @@
+[
+  {
+    "cluster": "C-001",
+    "obligation": "A run captures every file of each source tree, hidden, system, dot-named and nested files named like the backup's own included.",
+    "needs": [
+      "SN-001"
+    ],
+    "A": [
+      "SR-101"
+    ],
+    "O": [
+      "SR-101"
+    ],
+    "L": [
+      "SR-001",
+      "SR-057"
+    ],
+    "agreement": "all3",
+    "differences": "A limits capture to 'each readable source file' and folds the exclusion set and new/changed pickup into the same row (two decisions); O states capture only and defers exclusions to a declared set (SR-102). L SR-001 is stated against the index ('appears exactly once in the backup's index' - an instrument), and L SR-057 widens hidden-file inclusion to recovery, pruning and byte accounting, forbids a per-set hidden-file exclusion setting, and explicitly leaves symbolic-link traversal unruled (O notes flag junctions as an open need).",
+    "also_covers": [
+      "A:SR-101 -> C-002 (exclusions)",
+      "A:SR-101 -> C-003 (pickup)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-101",
+      "L:SR-057"
+    ],
+    "why": "O states the boundary outcome with a restore-observable acceptance; L SR-057 adds the 'no hidden-file exclusion setting' scope rule and the link-traversal carve-out the coordinator must rule on.",
+    "keep_legacy_id": "SR-001"
+  },
+  {
+    "cluster": "C-002",
+    "obligation": "The only things left out of a backup are the system's own working files and, at a genuine volume root only, the volume's system folders; same-named folders and files elsewhere are data.",
+    "needs": [
+      "SN-001"
+    ],
+    "A": [],
+    "O": [
+      "SR-102"
+    ],
+    "L": [
+      "SR-022",
+      "SR-074"
+    ],
+    "agreement": "O+L",
+    "differences": "A carries this only as a clause inside SR-101. L SR-074 adds case-insensitive matching, 'genuine drive or UNC-share root', and that an unreadable pseudo-folder must neither fail the set nor turn a content-missing restore finding into a host finding; L SR-022 states the same root-only rule for the backup's own infrastructure names. O states it as an assumption-form row with no case rule.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-102",
+      "L:SR-074"
+    ],
+    "why": "O has the cleaner single-decision requirement; L SR-074 supplies the case-insensitivity and the 'presence never fails the run' acceptance conditions.",
+    "keep_legacy_id": "SR-074"
+  },
+  {
+    "cluster": "C-003",
+    "obligation": "A later run records new files and files whose size or modification time changed at their current content.",
+    "needs": [
+      "SN-001"
+    ],
+    "A": [],
+    "O": [
+      "SR-103"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A carries change pickup only through SR-101's permutations (change=new,changed,unchanged); L has no row (pickup was implicit in the index mechanism).",
+    "fresh_orphan_note": "Real obligation, not scope creep: SN-001's second clause. A folds it into SR-101's permutations; legacy never stated it outside the index mechanism.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-103"
+    ],
+    "why": "SN-001 names pickup of new and changed files explicitly and only O gives it its own testable row.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-004",
+    "obligation": "A file or folder the run cannot capture is named with its cause in the run's record and the run reports failure.",
+    "needs": [
+      "SN-001",
+      "SN-044",
+      "SN-052"
+    ],
+    "A": [
+      "SR-102"
+    ],
+    "O": [
+      "SR-104"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Substantively equal. A adds 'not silently counted as captured or deliberately deleted' (the deletion half overlaps the keep-earlier-copy cluster); O adds that every readable file is still captured. L states it only for files inside the retry row SR-067 (logged error naming the attempt count, set failed), not for unreadable folders.",
+    "also_covers": [
+      "A:SR-102 -> C-007 (keep-earlier-copy)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-104"
+    ],
+    "why": "O's acceptance exercises both a file and a folder and checks the readable remainder is still captured.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-005",
+    "obligation": "A source file that is briefly unreadable is retried later in the same run and captured once readable.",
+    "needs": [
+      "SN-052"
+    ],
+    "A": [],
+    "O": [
+      "SR-105"
+    ],
+    "L": [
+      "SR-067"
+    ],
+    "agreement": "O+L",
+    "differences": "L fixes the mechanism: up to three attempts per file after a short delay, only for failures 'that could change' (a non-transient failure such as a directory at the destination fails immediately without consuming budget), and no index entry for unstored content. O leaves the retry window documented-but-unvalued. A carries retry only implicitly inside its budget row SR-103.",
+    "also_covers": [
+      "L:SR-067 -> C-006 (retry-bound)",
+      "L:SR-067 -> C-007 (keep-earlier-copy)",
+      "L:SR-067 -> C-004 (capture-gap)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-105",
+      "L:SR-067"
+    ],
+    "why": "O states the boundary outcome; L SR-067's acceptance supplies the transient-versus-permanent distinction and the 'visible retry' condition that make it testable.",
+    "keep_legacy_id": "SR-067"
+  },
+  {
+    "cluster": "C-006",
+    "obligation": "The total extra time a run spends waiting on unreadable files is bounded, however many files are unreadable.",
+    "needs": [
+      "SN-052"
+    ],
+    "A": [
+      "SR-103"
+    ],
+    "O": [
+      "SR-106"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Threshold and scope differ: A proposes five seconds total per configured source (derived, owner confirmation needed); O a documented limit per run with no value; L SR-067 a per-run budget shared across the whole set plus three attempts per file. O's acceptance also requires the part-failed outcome when the budget is spent.",
+    "also_covers": [
+      "A:SR-103 -> C-005 (retry)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-106",
+      "A:SR-103"
+    ],
+    "why": "O's requirement and acceptance are the testable shape; A supplies the only concrete number, which the owner must confirm or replace with the legacy budget.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-007",
+    "obligation": "A previously captured file or folder that stays unreadable keeps its earlier saved content in the latest state rather than being recorded as removed.",
+    "needs": [
+      "SN-052"
+    ],
+    "A": [
+      "SR-104"
+    ],
+    "O": [
+      "SR-107"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "O includes folders and requires the run to report the cause and fail; A covers files only but adds the case where the prior bytes are shared with another source file. L carries it only as SR-067's last sentence ('keeps that row') and SR-055's frozen entry for an invalid name.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-107",
+      "A:SR-104"
+    ],
+    "why": "O has the broader scope; A's shared-bytes acceptance case is the one most likely to break.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-008",
+    "obligation": "Every file name restores exactly as it was, Unicode, brackets, parentheses and spaces included, through every restorer.",
+    "needs": [
+      "SN-032",
+      "SN-022"
+    ],
+    "A": [
+      "SR-105"
+    ],
+    "O": [
+      "SR-108"
+    ],
+    "L": [
+      "SR-021",
+      "SR-032"
+    ],
+    "agreement": "all3",
+    "differences": "A adds that all recorded distinct paths remain distinct. L SR-021 is phrased as 'file operations without wildcard expansion' (mechanism); L SR-032 is the cross-platform index-parsing mechanism (separator mapping, ISO 8601 times, RFC 4180 quoting, BOM) by which the Linux restorer reproduces names and times.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-108",
+      "A:SR-105"
+    ],
+    "why": "O names the character classes and every restorer; A's 'distinct paths remain distinct' acceptance closes the collapse case.",
+    "keep_legacy_id": "SR-021"
+  },
+  {
+    "cluster": "C-009",
+    "obligation": "A source name that cannot exist on Windows or on Linux is not backed up, is named with its offending character, fails the run, and every other file is still backed up.",
+    "needs": [
+      "SN-032"
+    ],
+    "A": [
+      "SR-106"
+    ],
+    "O": [
+      "SR-109"
+    ],
+    "L": [
+      "SR-055"
+    ],
+    "agreement": "all3",
+    "differences": "L enumerates the forbidden classes (Windows-forbidden characters and controls, trailing dot or space, reserved device stems regardless of case or extension, a literal backslash on non-Windows hosts) and keeps an existing entry at a still-present invalid name frozen with its stored bytes; A and O leave the rule set to 'invalid on Windows or Linux'.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-109",
+      "L:SR-055"
+    ],
+    "why": "O states the decision cleanly; L SR-055's enumerated classes and frozen-prior-entry case make the acceptance testable.",
+    "keep_legacy_id": "SR-055"
+  },
+  {
+    "cluster": "C-010",
+    "obligation": "Two recorded names that would land on the same name on a case-insensitive or normalising restore target are both named and neither overwrites the other.",
+    "needs": [
+      "SN-032",
+      "SN-053"
+    ],
+    "A": [],
+    "O": [
+      "SR-177"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A explicitly declined to invent a collision policy (notes: open question under DA-08); L has no row.",
+    "fresh_orphan_note": "Real derived obligation (CROSS-PLATFORM) both other sides missed; A recognised the gap in its notes but left it unwritten.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-177"
+    ],
+    "why": "It is the only row that closes DA-08's obstacle against SN-032's exact-name promise, and its rationale argues the hat.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-011",
+    "obligation": "Backing up never writes, moves, deletes or changes the times or attributes of anything in a source, and a run succeeds with read-only access to the source.",
+    "needs": [
+      "SN-037",
+      "SN-024"
+    ],
+    "A": [
+      "SR-107"
+    ],
+    "O": [
+      "SR-110",
+      "SR-111"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A bundles never-alter and no-write-permission in one row; O splits them. L has no row; worse, L SR-042 defaults the change-detection state location to the source root (SourceStatePath default SourcePath), which both derivations flag as contradicting SN-037.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-110",
+      "O:SR-111"
+    ],
+    "why": "Two single-decision rows with byte/time/attribute acceptance; the legacy default must be ruled against them.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-012",
+    "obligation": "A source that held files on the previous run and now shows none is refused before its backup changes, unless the owner opted in for that source.",
+    "needs": [
+      "SN-038"
+    ],
+    "A": [
+      "SR-108"
+    ],
+    "O": [
+      "SR-112"
+    ],
+    "L": [
+      "SR-036"
+    ],
+    "agreement": "all3",
+    "differences": "Equal in substance. L adds that an opted-in delete-all snapshots the prior state; O's acceptance checks that with the opt-in the removals are recorded. L traced it to legacy SN-009/SN-013.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-112"
+    ],
+    "why": "O's acceptance covers the refused, opted-in and first-run-empty cases.",
+    "keep_legacy_id": "SR-036"
+  },
+  {
+    "cluster": "C-013",
+    "obligation": "One configuration naming several source and backup locations backs up each of them in one run.",
+    "needs": [
+      "SN-009"
+    ],
+    "A": [],
+    "O": [
+      "SR-113"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A folds this into SR-109's condition. L has no positive row and its configuration row SR-042 accepts several sets only with a warning pointing at a one-set convention, which pulls against SN-009.",
+    "fresh_orphan_note": "Real obligation, not over-decomposition: SN-009 asks for it and the failure-isolation row only exercises it.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-113"
+    ],
+    "why": "SN-009's first clause; only O states the positive case, and the legacy one-set warning needs a ruling against it.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-014",
+    "obligation": "One configured location's failure does not stop the others, and the run as a whole reports failure.",
+    "needs": [
+      "SN-009"
+    ],
+    "A": [
+      "SR-109"
+    ],
+    "O": [
+      "SR-114"
+    ],
+    "L": [
+      "SR-014"
+    ],
+    "agreement": "all3",
+    "differences": "Equal in substance. L requires a non-zero process exit (legacy SN-011 link); O requires the part-failed outcome.",
+    "also_covers": [
+      "A:SR-109 -> C-013 (multi-location)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-114"
+    ],
+    "why": "Same obligation; O's acceptance is the most concrete.",
+    "keep_legacy_id": "SR-014"
+  },
+  {
+    "cluster": "C-015",
+    "obligation": "Content with identical bytes is stored once, however many files, folders, runs or saved states contain it.",
+    "needs": [
+      "SN-002"
+    ],
+    "A": [
+      "SR-110"
+    ],
+    "O": [
+      "SR-115"
+    ],
+    "L": [
+      "SR-003",
+      "SR-026",
+      "SR-060"
+    ],
+    "agreement": "all3",
+    "differences": "A qualifies the guarantee to 'at completed operation boundaries' (permits transient duplicates); O and L are unconditional. L states it as 'one physical object per hash and length' (mechanism), marks extra entries Duplicate, and splits within-run (SR-060) and across-snapshot (SR-026) cases into separate rows.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-115",
+      "L:SR-060"
+    ],
+    "why": "O's 'adds the space of one stored copy' acceptance is mechanism-free; L SR-060's within-one-run case is the edge the others leave implicit.",
+    "keep_legacy_id": "SR-003"
+  },
+  {
+    "cluster": "C-016",
+    "obligation": "With compression on, new content is stored compressed only when measuring it shows compression saves space, whatever the file's name.",
+    "needs": [
+      "SN-003"
+    ],
+    "A": [
+      "SR-111"
+    ],
+    "O": [
+      "SR-116"
+    ],
+    "L": [
+      "SR-004",
+      "SR-081"
+    ],
+    "agreement": "all3",
+    "differences": "Largest need/legacy conflict. Threshold: A any byte reduction; O 'the documented minimum'; L a measured aggregate saving of at least 0.10 from sampling (3 x 256 KiB). Scope: L lets the file name decide in CompressProbe 'off' and 'excluded-extensions' modes, below a 256 KiB floor in every mode, and when the probe is unavailable (fallback with a warning); A and O follow SN-003 and forbid name-based choice. L SR-004 also bundles a compression-effort environment knob no need asks for, and stored-form/metadata agreement.",
+    "also_covers": [
+      "L:SR-081 -> C-017 (compress-off)",
+      "L:SR-004 -> C-017 (compress-off)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-116",
+      "L:SR-081"
+    ],
+    "why": "O states the need's rule; L SR-081 supplies the only measured threshold, but its name-based modes must be ruled against SN-003 before any of it is kept.",
+    "keep_legacy_id": "SR-081"
+  },
+  {
+    "cluster": "C-017",
+    "obligation": "With compression off, no newly stored content is compressed.",
+    "needs": [
+      "SN-003"
+    ],
+    "A": [
+      "SR-112"
+    ],
+    "O": [
+      "SR-117"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L states it inside SR-004/SR-081 ('disabled compression stores raw without probing or resolving compression tooling').",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-117"
+    ],
+    "why": "Equal rows; O's acceptance adds byte-exact restore.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-018",
+    "obligation": "Where the owner turns it on, the owner can list backed-up files by the space each takes and see a media encoding-rate measure per media file.",
+    "needs": [
+      "SN-051"
+    ],
+    "A": [
+      "SR-113"
+    ],
+    "O": [
+      "SR-118",
+      "SR-119"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A bundles ordering and media rates in one row; O splits them. L has no setting for this view: its media measure is an always-present index column filled when the optional tool exists, and no largest-files listing.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-118",
+      "O:SR-119"
+    ],
+    "why": "One decision per row with concrete acceptance (largest first, every file; non-media files carry no figure).",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-019",
+    "obligation": "A disabled or unmeasurable space view changes nothing else about the backup and the record says the measure was not taken.",
+    "needs": [
+      "SN-051",
+      "SN-015"
+    ],
+    "A": [
+      "SR-114"
+    ],
+    "O": [
+      "SR-120"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L leaves the media column blank rather than recording that it was not taken (SR-020). O's row overlaps its own generic optional-extra row SR-200.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-120"
+    ],
+    "why": "O's acceptance compares against a feature-off run, which is the testable form.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-020",
+    "obligation": "A run that changes the backed-up state keeps the previous state as a saved state identified by its date, alongside the latest state.",
+    "needs": [
+      "SN-004"
+    ],
+    "A": [
+      "SR-115"
+    ],
+    "O": [
+      "SR-121"
+    ],
+    "L": [
+      "SR-005",
+      "SR-028"
+    ],
+    "agreement": "all3",
+    "differences": "L defines what counts as a change (added, removed, content- or metadata-changed entries, duplicate-only additions, shared-content removals), dates the snapshot by the prior backup's completion date, disambiguates same-second dates, and (SR-028) pins the storage layout and refuses the retired historical format. A and O leave 'change' undefined.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-121",
+      "L:SR-005"
+    ],
+    "why": "O's requirement is clean; L SR-005's change definition and same-second disambiguation are acceptance conditions the others lack.",
+    "keep_legacy_id": "SR-005"
+  },
+  {
+    "cluster": "C-021",
+    "obligation": "A run over an unchanged source reports no added, changed or removed files, adds no saved state and leaves the latest state's record identical.",
+    "needs": [
+      "SN-021",
+      "SN-004"
+    ],
+    "A": [
+      "SR-116"
+    ],
+    "O": [
+      "SR-122",
+      "SR-130"
+    ],
+    "L": [
+      "SR-024"
+    ],
+    "agreement": "all3",
+    "differences": "Equal in substance. O splits it into two rows (no saved state; no reported change and identical record); A and L state one. L's acceptance is index-bytes equality (instrument).",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-130",
+      "O:SR-122"
+    ],
+    "why": "Two single decisions with record-identity acceptance; A bundles both.",
+    "keep_legacy_id": "SR-024"
+  },
+  {
+    "cluster": "C-022",
+    "obligation": "No operation alters or removes stored content that the latest state or any saved state still depends on.",
+    "needs": [
+      "SN-034"
+    ],
+    "A": [
+      "SR-117"
+    ],
+    "O": [
+      "SR-123"
+    ],
+    "L": [
+      "SR-006",
+      "SR-051",
+      "SR-059"
+    ],
+    "agreement": "all3",
+    "differences": "Equal in principle. L adds cases: content still claimed by a frozen entry or by an entry whose replacement copy failed is retained (SR-051), dedup groups are one unit, and a newly stored object's identity must agree with its bytes (SR-059). A and O state it once as a cross-operation invariant.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-123",
+      "L:SR-051"
+    ],
+    "why": "O's acceptance is concrete; L SR-051 contributes the frozen-entry and failed-replacement cases that a source-walk test would miss.",
+    "keep_legacy_id": "SR-059"
+  },
+  {
+    "cluster": "C-023",
+    "obligation": "A missing, unreadable or stale change-detection (or other auxiliary) state never costs a change or stored content.",
+    "needs": [
+      "SN-001",
+      "SN-034"
+    ],
+    "A": [
+      "SR-173"
+    ],
+    "O": [
+      "SR-133"
+    ],
+    "L": [
+      "SR-035"
+    ],
+    "agreement": "all3",
+    "differences": "Behaviour differs: L refuses the backup (non-zero, nothing changed) when a populated backup's run state is missing or unparseable; O works out the changes without the state and reports that it did; A allows either safe completion or refusal and extends scope to browse artifacts. Both A and O are derived (INTEGRITY-RECOVERABILITY).",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-133"
+    ],
+    "why": "O's rule is the one that keeps unattended backups running without loss, with a testable acceptance; the owner must rule on it versus the legacy refusal.",
+    "keep_legacy_id": "SR-035"
+  },
+  {
+    "cluster": "C-024",
+    "obligation": "Removing a named saved state leaves every remaining saved state and the latest state restorable byte-exact, including when the removed state held the only copy of shared content.",
+    "needs": [
+      "SN-029"
+    ],
+    "A": [
+      "SR-118"
+    ],
+    "O": [
+      "SR-124"
+    ],
+    "L": [
+      "SR-045"
+    ],
+    "agreement": "all3",
+    "differences": "A bundles the refusal of an unsafe removal into the same row. L adds that preserved content is not repacked, only storage-location and form fields of the record change, and a safe removal copies zero bytes.",
+    "also_covers": [
+      "A:SR-118 -> C-025 (prune-refuse)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-124",
+      "L:SR-045"
+    ],
+    "why": "O states the outcome; L SR-045's oldest/middle/newest/sole cases and zero-copy condition strengthen the acceptance.",
+    "keep_legacy_id": "SR-045"
+  },
+  {
+    "cluster": "C-025",
+    "obligation": "A removal that would lose content a remaining state needs is refused before anything changes, with its own outcome.",
+    "needs": [
+      "SN-029"
+    ],
+    "A": [],
+    "O": [
+      "SR-125"
+    ],
+    "L": [
+      "SR-046"
+    ],
+    "agreement": "O+L",
+    "differences": "L defines many refusal classes with the restore precedence (integrity evidence 3; run state, busy staging, bad name, unreferenced content, older-kit form, capacity and missing compression tool 2; host I/O 4), owner overrides (-AllowUnverifiedIndex, -DiscardUnreferencedData), a per-volume capacity check and a dry run. O has one refusal with a distinct outcome; A states refusal inside SR-118.",
+    "also_covers": [
+      "L:SR-046 -> C-026 (prune-interrupt)",
+      "L:SR-046 -> C-027 (prune-contain)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-125",
+      "L:SR-046"
+    ],
+    "why": "O's single decision is right for the SR tier; L SR-046's refusal classes and overrides need a ruling on which survive as SR acceptance and which move down.",
+    "keep_legacy_id": "SR-046"
+  },
+  {
+    "cluster": "C-026",
+    "obligation": "An interrupted removal loses nothing any state needs, and repeating the same request completes it.",
+    "needs": [
+      "SN-029"
+    ],
+    "A": [
+      "SR-119"
+    ],
+    "O": [
+      "SR-126"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A allows the repeat to 'complete or report that the requested state is already absent'; O requires the repeat to finish with the complete outcome. L states it inside SR-046 ('resumable by repeating the request without a separate recovery journal').",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-126"
+    ],
+    "why": "O kills the removal at each step and checks both survival and completion.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-027",
+    "obligation": "A removal request or stored path that would reach outside the chosen backup through traversal or a link is refused before mutation.",
+    "needs": [
+      "SN-029"
+    ],
+    "A": [
+      "SR-172"
+    ],
+    "O": [],
+    "L": [],
+    "agreement": "A-only",
+    "differences": "O has no row; L enforces it only as name validation inside SR-046 (targets must be existing dated snapshots directly under the change root; wildcard names refused).",
+    "fresh_orphan_note": "Real derived obligation, not scope creep: destructive authority must be confined; O missed it and L carries only the name-validation mechanism.",
+    "recommend": "A",
+    "recommend_ids": [
+      "A:SR-172"
+    ],
+    "why": "A real SECURITY-derived containment rule with an argued rationale; legacy implies it but never states it.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-028",
+    "obligation": "On request, the saved-state report gives for every saved state the space its removal would free and the space that would have to move to keep shared content.",
+    "needs": [
+      "SN-046"
+    ],
+    "A": [
+      "SR-120"
+    ],
+    "O": [
+      "SR-127"
+    ],
+    "L": [
+      "SR-047"
+    ],
+    "agreement": "all3",
+    "differences": "Equal in substance; all three tie the reclaim figure to the measured store-size drop. L fixes the field set (Name, Date, Rows, PhysicalBytes, BytesReclaimed, BytesReHomed) and one JSON document at the process boundary; A states it 'in an otherwise unchanged store'.",
+    "also_covers": [
+      "L:SR-047 -> C-029 (read-only-actions)",
+      "L:SR-047 -> C-030 (machine-findings)",
+      "A:SR-120 -> C-029 (read-only-actions)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-127"
+    ],
+    "why": "O's acceptance checks both the freed and the moved figure against an actual removal.",
+    "keep_legacy_id": "SR-047"
+  },
+  {
+    "cluster": "C-029",
+    "obligation": "The saved-state report and a check without a repair or refresh option leave the backup byte-identical.",
+    "needs": [
+      "SN-030",
+      "SN-046"
+    ],
+    "A": [],
+    "O": [
+      "SR-128"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A and L carry no-mutation inside their report and check rows (A SR-120, SR-128; L SR-047, SR-049); O factors it into one row and leaves its check row without it.",
+    "fresh_orphan_note": "Not an orphan obligation: A and L state it inside their report/check rows. A factoring choice; keep only if O's check row is taken.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-128"
+    ],
+    "why": "In O's set this row is the only home of the check's no-change promise, and it tests damaged as well as intact stores.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-030",
+    "obligation": "The saved-state report and a check return their findings in a documented machine-readable form.",
+    "needs": [
+      "SN-045",
+      "SN-046",
+      "SN-030"
+    ],
+    "A": [
+      "SR-158"
+    ],
+    "O": [
+      "SR-129"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L states it inside SR-047 (one JSON document) and SR-054 (JSON findings with exit 1). O's acceptance requires every figure in the human output to be present in the structured form.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-129"
+    ],
+    "why": "O's acceptance is the testable equality condition.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-031",
+    "obligation": "Unchanged-looking files are re-read exactly on the runs the owner's re-read frequency setting makes due.",
+    "needs": [
+      "SN-007"
+    ],
+    "A": [
+      "SR-121"
+    ],
+    "O": [
+      "SR-131"
+    ],
+    "L": [
+      "SR-011"
+    ],
+    "agreement": "all3",
+    "differences": "A pins scheduling semantics (elapsed calendar periods from the last completed full re-read, host local time, month-end clamping) as a proposal; O and L defer to 'the documented rule' or 'documented boundary crossings'. L names the persisted last-run time (mechanism).",
+    "also_covers": [
+      "A:SR-121 -> C-032 (recheck-captures)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-131",
+      "A:SR-121"
+    ],
+    "why": "O's 'exactly on due runs and no others' requirement is the strongest; A supplies the only concrete schedule rule, pending owner confirmation.",
+    "keep_legacy_id": "SR-011"
+  },
+  {
+    "cluster": "C-032",
+    "obligation": "A re-read that finds new content under an unchanged size and time records the new content.",
+    "needs": [
+      "SN-007"
+    ],
+    "A": [],
+    "O": [
+      "SR-132"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A states it only as an acceptance clause of SR-121; L has no row.",
+    "fresh_orphan_note": "Real obligation (the point of re-reading); A carries it in SR-121's acceptance, so it is a factoring choice rather than a gap.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-132"
+    ],
+    "why": "It is SN-007's acceptance ('a hidden change is eventually captured') stated as a testable row.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-033",
+    "obligation": "An interrupted, killed or powered-off run leaves every visible saved state complete and the latest state either as before or as after the run.",
+    "needs": [
+      "SN-013"
+    ],
+    "A": [
+      "SR-122"
+    ],
+    "O": [
+      "SR-134"
+    ],
+    "L": [
+      "SR-082"
+    ],
+    "agreement": "all3",
+    "differences": "Equal at the boundary. L states it at the index-publication mechanism (atomic publish, leftover data replaced) and adds that interruption between publishing the index and its integrity evidence must fail verification loudly.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-134"
+    ],
+    "why": "O's acceptance kills at each step and removes power, observable through restore.",
+    "keep_legacy_id": "SR-082"
+  },
+  {
+    "cluster": "C-034",
+    "obligation": "A run that can tell from the backup alone that an earlier interrupted run is dead and nothing would be lost recovers and proceeds without intervention.",
+    "needs": [
+      "SN-013"
+    ],
+    "A": [
+      "SR-123"
+    ],
+    "O": [
+      "SR-135"
+    ],
+    "L": [
+      "SR-075"
+    ],
+    "agreement": "all3",
+    "differences": "L quantifies when an owner is 'dead': a stale floor of 1800 s, a confirmation interval of max(90 s, heartbeat + 30 s), liveness updates every 60 s, and process identity insufficient across hosts or containers; A and O give no bound, although SN-013 caps the block at 'as long as it takes to tell nothing would be lost'. A bundles recover and refuse in one row.",
+    "also_covers": [
+      "A:SR-123 -> C-035 (interrupt-refuse)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-135",
+      "L:SR-075"
+    ],
+    "why": "O's requirement is the boundary form; the L stale floor is the only quantified answer to SN-013's 'no longer than it takes to tell' and should become the acceptance bound.",
+    "keep_legacy_id": "SR-075"
+  },
+  {
+    "cluster": "C-035",
+    "obligation": "A run that cannot tell an earlier run is dead and loss-free refuses before changing anything and names what it found.",
+    "needs": [
+      "SN-013"
+    ],
+    "A": [],
+    "O": [
+      "SR-136"
+    ],
+    "L": [
+      "SR-017"
+    ],
+    "agreement": "O+L",
+    "differences": "L enumerates the refusal triggers (content-bearing, prune-held, live or unproven owner, link or reparse point, unreadable evidence) and keeps abandoned staging when cleanup fails; O reports a not-ready outcome naming what it found. A carries refusal inside SR-123.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-136",
+      "L:SR-017"
+    ],
+    "why": "O's single decision with L SR-017's trigger list as acceptance cases.",
+    "keep_legacy_id": "SR-017"
+  },
+  {
+    "cluster": "C-036",
+    "obligation": "Only one changing operation (backup, removal, repair, kit refresh) proceeds on a backup at a time; the second is refused, changes nothing and names the holder.",
+    "needs": [
+      "SN-039"
+    ],
+    "A": [
+      "SR-124"
+    ],
+    "O": [
+      "SR-137"
+    ],
+    "L": [
+      "SR-085"
+    ],
+    "agreement": "all3",
+    "differences": "L limits the guarantee by platform: on Linux and macOS exclusion holds only among cooperating processes on one kernel (containers sharing storage included) and is not guaranteed across hosts over SMB or NFS; A and O are unconditional. L appends a line to the holder's log; A requires a distinct refused outcome.",
+    "also_covers": [
+      "L:SR-085 -> C-037 (readers-work)",
+      "L:SR-085 -> C-038 (holder-release)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-137"
+    ],
+    "why": "O tests every ordered pair; the L platform scope limit must be ruled before the unconditional form is approved.",
+    "keep_legacy_id": "SR-085"
+  },
+  {
+    "cluster": "C-037",
+    "obligation": "While a changing operation holds a backup, a check, a listing and a restore still run.",
+    "needs": [
+      "SN-039"
+    ],
+    "A": [
+      "SR-126"
+    ],
+    "O": [
+      "SR-138"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. A adds that the reader sees a coherent available state; L states it inside SR-085 (read-only Verify, Snapshots, View and restores take no exclusion).",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-138"
+    ],
+    "why": "Concrete acceptance per reading operation.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-038",
+    "obligation": "When the holding operation ends or its process dies, the next changing operation may proceed.",
+    "needs": [
+      "SN-039"
+    ],
+    "A": [
+      "SR-125"
+    ],
+    "O": [
+      "SR-139"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. A subordinates release to the interrupted-work checks; O rejects expiry by age. L states release on process death inside SR-085.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-139"
+    ],
+    "why": "Same obligation; O's acceptance includes the killed-holder case without manual clean-up.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-039",
+    "obligation": "Any inability to establish exclusive use (contention, access denial, invalid location, I/O error) is treated as a live holder and refuses.",
+    "needs": [
+      "SN-039",
+      "SN-013"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-086"
+    ],
+    "agreement": "L-only",
+    "differences": "No fresh row. L also fixes retry counts (three attempts about 250 ms apart) and the per-action refusal codes, and forbids lock acquisition from proving an older owner dead.",
+    "legacy_orphan_class": "i",
+    "recommend": "L",
+    "recommend_ids": [
+      "L:SR-086"
+    ],
+    "why": "Its rationale argues a real asymmetry (a false 'free' destroys content, a false 'busy' costs a run); re-author as a derived row without mechanism.",
+    "keep_legacy_id": "SR-086"
+  },
+  {
+    "cluster": "C-040",
+    "obligation": "When stored content the latest state relies on is missing from the backup and the source still holds those bytes, the next run stores it again.",
+    "needs": [
+      "SN-031"
+    ],
+    "A": [
+      "SR-127"
+    ],
+    "O": [
+      "SR-140"
+    ],
+    "L": [
+      "SR-053"
+    ],
+    "agreement": "all3",
+    "differences": "A covers 'externally damaged' content broadly (its notes ask whether corruption and relocation are meant as well as deletion); O and L cover missing content. L heals even when source metadata is unchanged, may reuse a surviving copy, and preserves the superseded state when healing changes the record.",
+    "also_covers": [
+      "A:SR-127 -> C-041 (dedup-only-present)",
+      "L:SR-053 -> C-041 (dedup-only-present)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-140",
+      "L:SR-053"
+    ],
+    "why": "O's requirement is precise; L SR-053 adds the unchanged-metadata and history-preserving acceptance cases.",
+    "keep_legacy_id": "SR-053"
+  },
+  {
+    "cluster": "C-041",
+    "obligation": "A new file whose content the backup records as held is stored for real if that content is not actually present.",
+    "needs": [
+      "SN-031"
+    ],
+    "A": [],
+    "O": [
+      "SR-141"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A carries it as an acceptance clause of SR-127; L as a sentence of SR-053.",
+    "fresh_orphan_note": "Real obligation that A and L both state inside their heal rows; O's split is a defensible single-decision factoring.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-141"
+    ],
+    "why": "A distinct decision with its own failure mode (loss spreading to new files).",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-042",
+    "obligation": "On request, a check reports for the latest and every saved state each file whose stored content is missing, altered or in a form other than recorded, and fails when there is any.",
+    "needs": [
+      "SN-030"
+    ],
+    "A": [
+      "SR-128"
+    ],
+    "O": [
+      "SR-142"
+    ],
+    "L": [
+      "SR-049",
+      "SR-054"
+    ],
+    "agreement": "all3",
+    "differences": "L's check is form- and location-oriented (location exists, extension/flag/physical form agree) and distinguishes content absent everywhere from a missing location recoverable elsewhere; detecting altered bytes needs a deep option (O's notes, question 13). L lets a root-only scope option narrow the form check but never the pool check. A and O require every disagreement, altered content included, across every state.",
+    "also_covers": [
+      "L:SR-049 -> C-043 (repair)",
+      "A:SR-128 -> C-029 (read-only-actions)",
+      "L:SR-054 -> C-043 (repair)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-142"
+    ],
+    "why": "O names the problem kinds and exercises latest and saved states; whether a check without the deep option is compliant needs a ruling.",
+    "keep_legacy_id": "SR-049"
+  },
+  {
+    "cluster": "C-043",
+    "obligation": "On request, a repair corrects every check finding whose right answer is certain and leaves and reports every other finding.",
+    "needs": [
+      "SN-047"
+    ],
+    "A": [
+      "SR-129"
+    ],
+    "O": [
+      "SR-143"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "L limits repair to form findings grounded in bytes in the entry's own folder and keeps lost-content findings report-only (SR-049, SR-054); A and O say 'certain from available evidence'.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-143"
+    ],
+    "why": "Equal rows; O's acceptance also re-checks that previously restorable states still restore.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-044",
+    "obligation": "An interrupted repair or kit refresh leaves every previously restorable state restorable.",
+    "needs": [
+      "SN-047",
+      "SN-041"
+    ],
+    "A": [],
+    "O": [
+      "SR-144"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "No A or L row; L's interruption rules cover backup and removal only.",
+    "fresh_orphan_note": "Real derived obligation the other two missed.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-144"
+    ],
+    "why": "A derived INTEGRITY-RECOVERABILITY row with an argued rationale: both operations write inside saved states.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-045",
+    "obligation": "A change of compression setting leaves already stored content in its form and applies only to content stored afterwards.",
+    "needs": [
+      "SN-048"
+    ],
+    "A": [
+      "SR-130"
+    ],
+    "O": [
+      "SR-145"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L states it as the first sentence of SR-061 (a format-refusal row).",
+    "also_covers": [
+      "A:SR-130 -> C-046 (mixed-form-restore)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-145"
+    ],
+    "why": "O covers both settings that can change.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-046",
+    "obligation": "Every state of a store holding content in both forms restores byte-exact whatever form each record says.",
+    "needs": [
+      "SN-048",
+      "SN-030"
+    ],
+    "A": [],
+    "O": [
+      "SR-146"
+    ],
+    "L": [
+      "SR-050",
+      "SR-068"
+    ],
+    "agreement": "O+L",
+    "differences": "L adds that an original archive stored raw is never expanded and that an object matching neither form fails as content damage; L states it at the mechanism (decide by the located bytes, not the Compressed flag). A carries it only as SR-130's acceptance.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-146",
+      "L:SR-068"
+    ],
+    "why": "O's requirement is mechanism-free; L SR-068's flipped-flag and original-archive cases are the decisive acceptance conditions.",
+    "keep_legacy_id": "SR-068"
+  },
+  {
+    "cluster": "C-047",
+    "obligation": "A backup whose new content will not fit refuses before writing, combining demand across locations on one volume, and names the volume with needed and free space.",
+    "needs": [
+      "SN-019"
+    ],
+    "A": [
+      "SR-131"
+    ],
+    "O": [
+      "SR-147"
+    ],
+    "L": [
+      "SR-052"
+    ],
+    "agreement": "all3",
+    "differences": "L's demand also includes superseded or removed content that must be copied across volumes and content being healed, and treats a mount and paths beneath it as one volume on Windows and Linux; A and O count new content only.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-147",
+      "L:SR-052"
+    ],
+    "why": "O's requirement; L SR-052's demand components and volume-identity cases complete the acceptance.",
+    "keep_legacy_id": "SR-052"
+  },
+  {
+    "cluster": "C-048",
+    "obligation": "A restore whose expanded content will not fit its target refuses before writing and names the volume with needed and free space.",
+    "needs": [
+      "SN-019"
+    ],
+    "A": [
+      "SR-132"
+    ],
+    "O": [
+      "SR-148"
+    ],
+    "L": [
+      "SR-023"
+    ],
+    "agreement": "all3",
+    "differences": "A combines demand on several target volumes; O and L treat the target as one volume. O pins exit code 2; L requires the check on Linux too (SR-052).",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-148"
+    ],
+    "why": "Concrete acceptance with the precondition outcome.",
+    "keep_legacy_id": "SR-023"
+  },
+  {
+    "cluster": "C-049",
+    "obligation": "At the documented library scale on the documented host class, a check and a full restore (and a small-change run) complete within their time budgets.",
+    "needs": [
+      "SN-043"
+    ],
+    "A": [
+      "SR-133"
+    ],
+    "O": [
+      "SR-149"
+    ],
+    "L": [
+      "SR-064"
+    ],
+    "agreement": "all3",
+    "differences": "A proposes figures (2 TiB, one million files, four-core host, 8 GiB, 200 MiB/s, eight hours, 4 GiB peak) for owner confirmation; O leaves every figure 'documented'; L has only a complexity row: the unreferenced-file audit is linear and passes at 10,000 entries, far below SN-043's scale.",
+    "also_covers": [
+      "A:SR-133 -> C-050 (perf-memory)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-149",
+      "A:SR-133"
+    ],
+    "why": "O's whole-operation shape with A's proposed envelope as the owner's starting point; neither is approvable until the figures are ruled.",
+    "keep_legacy_id": "SR-064"
+  },
+  {
+    "cluster": "C-050",
+    "obligation": "At the documented scale, a run, a check and a full restore stay within their memory bounds.",
+    "needs": [
+      "SN-043"
+    ],
+    "A": [],
+    "O": [
+      "SR-150"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A carries a 4 GiB peak bound inside SR-133 and SR-134; L has no memory row.",
+    "fresh_orphan_note": "Real obligation (SN-043 'fits in the host's memory'); A bundles it into its time rows.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-150"
+    ],
+    "why": "A separate decision from time; A's 4 GiB figure is the candidate value.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-051",
+    "obligation": "A run's time follows what changed, not how much history is stored.",
+    "needs": [
+      "SN-043"
+    ],
+    "A": [
+      "SR-134"
+    ],
+    "O": [
+      "SR-151"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A states a 30-minute bound for at most 1 GiB changed plus 'doubling history increases time by less than 2x'; O states only the history-independence condition with a documented margin.",
+    "also_covers": [
+      "A:SR-134 -> C-050 (perf-memory)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-151",
+      "A:SR-134"
+    ],
+    "why": "O isolates the scaling property; A's small-change budget is the concrete threshold.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-052",
+    "obligation": "The current version continues a backup written by the previous release without a fresh start, every earlier state still restorable.",
+    "needs": [
+      "SN-040"
+    ],
+    "A": [
+      "SR-135"
+    ],
+    "O": [
+      "SR-152"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L has no row; A's notes flag that the previous release may itself write a retired form.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-152"
+    ],
+    "why": "Equal rows; O's acceptance restores every earlier state and the new latest state.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-053",
+    "obligation": "A backup in a retired or unrecognised form is refused by name, with what to do, before any change.",
+    "needs": [
+      "SN-040"
+    ],
+    "A": [
+      "SR-136"
+    ],
+    "O": [
+      "SR-153"
+    ],
+    "L": [
+      "SR-061"
+    ],
+    "agreement": "all3",
+    "differences": "L positively identifies retired forms (record evidence, storage-layout marker, separator-bearing locations, a retired name shape) so a merely damaged location still audits, heals and restores; L also makes both restorers refuse retired forms with exit 2, which sits against SN-041 ('every saved state stays restorable whatever version wrote it'), while restoring a retired store by content when no evidence is present.",
+    "also_covers": [
+      "L:SR-061 -> C-045 (compress-change)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-153",
+      "L:SR-061"
+    ],
+    "why": "O's requirement; L SR-061's damaged-versus-retired distinction is a necessary acceptance case, and its restore-side refusal needs a ruling against SN-041.",
+    "keep_legacy_id": "SR-061"
+  },
+  {
+    "cluster": "C-054",
+    "obligation": "Nothing the current version writes into an existing backup leaves a saved state unrestorable by the restore kit it carries.",
+    "needs": [
+      "SN-041"
+    ],
+    "A": [
+      "SR-137"
+    ],
+    "O": [
+      "SR-154"
+    ],
+    "L": [
+      "SR-084"
+    ],
+    "agreement": "all3",
+    "differences": "A bundles old-kit and current-kit compatibility in one row; L states only one instance (changing index publication needs no kit refresh).",
+    "also_covers": [
+      "A:SR-137 -> C-055 (new-kit-reads)",
+      "A:SR-137 -> C-056 (pre-record-states)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-154"
+    ],
+    "why": "General, testable per earlier version and including compression changes; L SR-084 is a change-specific instance.",
+    "keep_legacy_id": "SR-084"
+  },
+  {
+    "cluster": "C-055",
+    "obligation": "The current restore kit restores byte-exact a saved state written by any earlier supported version.",
+    "needs": [
+      "SN-041"
+    ],
+    "A": [],
+    "O": [
+      "SR-155"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A carries it inside SR-137; L inside SR-007's acceptance ('compatible older stores remain restorable').",
+    "fresh_orphan_note": "Not a gap: A and L state it inside broader rows; O's split is a valid factoring.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-155"
+    ],
+    "why": "Single decision; the 'supported version' set still needs a definition.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-056",
+    "obligation": "A state recorded before a newer kind of record existed restores as before and reports each check that could not be made.",
+    "needs": [
+      "SN-041",
+      "SN-025"
+    ],
+    "A": [],
+    "O": [
+      "SR-156"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A states it as SR-137's acceptance; L SR-039 warns that a missing integrity record leaves the state unverified and continues, but offers an opt-in strict mode (-RequireWitness) that makes absence fatal, which no need asks for (O's notes).",
+    "fresh_orphan_note": "Real obligation at the SN-025/SN-041 seam; A and L hold it inside other rows.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-156"
+    ],
+    "why": "The only row that reconciles SN-041's old-state promise with SN-025's refusal.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-057",
+    "obligation": "On the owner's request, the current restore kit is placed in the latest and every saved state and nothing else changes.",
+    "needs": [
+      "SN-041"
+    ],
+    "A": [
+      "SR-138"
+    ],
+    "O": [
+      "SR-157"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "O adds that the state records stay byte-identical and that a normal backup leaves saved states' kits untouched. L states refresh as a clause of SR-007.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-157"
+    ],
+    "why": "O's acceptance is the stricter, testable form.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-058",
+    "obligation": "The latest and every saved state carry a restore kit that restores them on a machine that never had FileBackup.",
+    "needs": [
+      "SN-005"
+    ],
+    "A": [
+      "SR-140"
+    ],
+    "O": [
+      "SR-160"
+    ],
+    "L": [
+      "SR-007"
+    ],
+    "agreement": "all3",
+    "differences": "Equal. L bundles kit refresh, older-launcher recognition, Windows/macOS launchers, POSIX portability and 'writable restored files'.",
+    "also_covers": [
+      "A:SR-140 -> C-059 (tool-floor)",
+      "L:SR-007 -> C-057 (kit-refresh)",
+      "L:SR-007 -> C-055 (new-kit-reads)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-160"
+    ],
+    "why": "A single decision with a whole-folder-copied acceptance.",
+    "keep_legacy_id": "SR-007"
+  },
+  {
+    "cluster": "C-059",
+    "obligation": "A restore needs only the documented restore-tool floor and downloads nothing.",
+    "needs": [
+      "SN-005",
+      "SN-022"
+    ],
+    "A": [],
+    "O": [
+      "SR-161"
+    ],
+    "L": [
+      "SR-008"
+    ],
+    "agreement": "O+L",
+    "differences": "A states it as SR-140's acceptance. L SR-008 bundles byte-exact rebuild, expansion and recovery from other copies, without the repository or a restore-time install.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-161"
+    ],
+    "why": "O's acceptance removes the network and installs only the floor.",
+    "keep_legacy_id": "SR-008"
+  },
+  {
+    "cluster": "C-060",
+    "obligation": "A restore rebuilds exactly the chosen saved state, nothing newer mixed in, or the latest state when none is chosen.",
+    "needs": [
+      "SN-006"
+    ],
+    "A": [
+      "SR-141"
+    ],
+    "O": [
+      "SR-162"
+    ],
+    "L": [
+      "SR-010"
+    ],
+    "agreement": "all3",
+    "differences": "Equal.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-162"
+    ],
+    "why": "Equal rows; O's acceptance compares with the source at that state's run.",
+    "keep_legacy_id": "SR-010"
+  },
+  {
+    "cluster": "C-061",
+    "obligation": "A restore yields the same tree on a stock Windows, Linux or macOS machine meeting the tool floor, without the backup tool's runtime.",
+    "needs": [
+      "SN-022"
+    ],
+    "A": [
+      "SR-142"
+    ],
+    "O": [
+      "SR-163"
+    ],
+    "L": [
+      "SR-031"
+    ],
+    "agreement": "all3",
+    "differences": "Equal at the boundary. L SR-031 is the Linux restorer's full behaviour list (latest and snapshots, pool recovery, expansion, containment, capacity, failure count).",
+    "also_covers": [
+      "A:SR-142 -> C-063 (no-false-damage)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-163"
+    ],
+    "why": "Single decision with a three-system acceptance.",
+    "keep_legacy_id": "SR-031"
+  },
+  {
+    "cluster": "C-062",
+    "obligation": "A restore missing a tool it needs refuses before writing anything, naming the tool and how to obtain it.",
+    "needs": [
+      "SN-022",
+      "SN-005"
+    ],
+    "A": [
+      "SR-143"
+    ],
+    "O": [
+      "SR-164"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A pins the precondition outcome; O leaves the value open because SN-026 lists 'host or tool problem' as one class. L classes a missing required tool as precondition (2) in SR-040 and an unusable archive tool for an archive-shaped item as host (4).",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-164",
+      "A:SR-143"
+    ],
+    "why": "O's per-tool acceptance with A's precondition outcome, once the owner rules the class.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-063",
+    "obligation": "An intact backup restores as complete on every supported restore host, whatever flavour of system tools it has.",
+    "needs": [
+      "SN-022"
+    ],
+    "A": [],
+    "O": [
+      "SR-165"
+    ],
+    "L": [
+      "SR-071"
+    ],
+    "agreement": "O+L",
+    "differences": "L names the GNU/BSD floor and requires an unmet floor or uncanonicalisable path to fail with precondition 2, never as content, record or host damage, and refuses a '..' target component. A carries it in SR-142's acceptance.",
+    "also_covers": [
+      "L:SR-071 -> C-062 (restore-tool-missing)",
+      "L:SR-071 -> C-073 (target-confine)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-165",
+      "L:SR-071"
+    ],
+    "why": "O's requirement; L SR-071's unmet-floor-is-precondition condition belongs in the acceptance.",
+    "keep_legacy_id": "SR-071"
+  },
+  {
+    "cluster": "C-064",
+    "obligation": "A restore opened by double-click on Windows or macOS asks for the target, restores and keeps its outcome on screen until dismissed.",
+    "needs": [
+      "SN-035"
+    ],
+    "A": [
+      "SR-144"
+    ],
+    "O": [
+      "SR-166"
+    ],
+    "L": [
+      "SR-072"
+    ],
+    "agreement": "all3",
+    "differences": "L restricts double-click on macOS to volumes that keep or synthesise executability and documents an explicit shell invocation elsewhere; L bundles 'scripted launches return the status unchanged'.",
+    "also_covers": [
+      "L:SR-072 -> C-065 (scripted-restore)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-166"
+    ],
+    "why": "Equal; O's acceptance names both systems.",
+    "keep_legacy_id": "SR-072"
+  },
+  {
+    "cluster": "C-065",
+    "obligation": "A restore started with its arguments, or with no person able to answer, asks nothing and returns its outcome.",
+    "needs": [
+      "SN-035",
+      "SN-011"
+    ],
+    "A": [],
+    "O": [
+      "SR-167"
+    ],
+    "L": [
+      "SR-073"
+    ],
+    "agreement": "O+L",
+    "differences": "L defines the fallback ladder (desktop picker, typed prompt with a console, usage plus exit 2 with neither) and that a cancelled picker never falls back to a default target. A covers it within SR-156.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-167",
+      "L:SR-073"
+    ],
+    "why": "O's requirement; L SR-073's no-console/no-desktop and cancelled-picker cases are the acceptance.",
+    "keep_legacy_id": "SR-073"
+  },
+  {
+    "cluster": "C-066",
+    "obligation": "An operation started with nobody present never waits for an answer; one that needed an answer fails with the reason.",
+    "needs": [
+      "SN-011"
+    ],
+    "A": [
+      "SR-156"
+    ],
+    "O": [
+      "SR-181"
+    ],
+    "L": [
+      "SR-016"
+    ],
+    "agreement": "all3",
+    "differences": "Equal. L adds that non-interactive dependency resolution never prompts (see first-use component, where O notes the manual's first run prompts).",
+    "also_covers": [
+      "A:SR-156 -> C-065 (scripted-restore)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-181"
+    ],
+    "why": "O's acceptance covers redirected input and no console/desktop.",
+    "keep_legacy_id": "SR-016"
+  },
+  {
+    "cluster": "C-067",
+    "obligation": "A restore reports complete only when every file it wrote has been checked to have its recorded content.",
+    "needs": [
+      "SN-033"
+    ],
+    "A": [
+      "SR-145"
+    ],
+    "O": [
+      "SR-168"
+    ],
+    "L": [
+      "SR-056"
+    ],
+    "agreement": "all3",
+    "differences": "L distinguishes a mismatch from a source already proven correct as a host failure (4) and limits recovery to one attempt from another copy.",
+    "also_covers": [
+      "A:SR-145 -> C-068 (restore-alt-copy)",
+      "L:SR-056 -> C-068 (restore-alt-copy)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-168"
+    ],
+    "why": "Equal; O's acceptance includes the same-length bit-flip case.",
+    "keep_legacy_id": "SR-056"
+  },
+  {
+    "cluster": "C-068",
+    "obligation": "A file whose stored content does not match its record is produced from another intact copy where one exists, otherwise named and failed.",
+    "needs": [
+      "SN-033",
+      "SN-053"
+    ],
+    "A": [],
+    "O": [
+      "SR-169"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A states it in SR-145's acceptance; L in SR-056 (at most one recovery attempt) and SR-008.",
+    "fresh_orphan_note": "Not a gap: A and L state it inside their verification rows; O's split is a valid factoring.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-169"
+    ],
+    "why": "A separate decision (fallback) from proof-before-success.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-069",
+    "obligation": "When part of a state cannot be restored, every other file still is, and each unrestored file is named with its cause and counted, with a failure outcome.",
+    "needs": [
+      "SN-053"
+    ],
+    "A": [
+      "SR-146",
+      "SR-147"
+    ],
+    "O": [
+      "SR-170"
+    ],
+    "L": [
+      "SR-029"
+    ],
+    "agreement": "all3",
+    "differences": "Equal in substance. O bundles salvage and report (several shalls); A splits them. L lists the failure kinds that count (missing content, failed recovery, failed extraction, unhealed mismatch) and traced the row to legacy SN-013.",
+    "recommend": "A",
+    "recommend_ids": [
+      "A:SR-146",
+      "A:SR-147"
+    ],
+    "why": "One decision per row, and SR-147's 'list equals the unrecovered set' acceptance is exact.",
+    "keep_legacy_id": "SR-029"
+  },
+  {
+    "cluster": "C-070",
+    "obligation": "A restore whose selected state record is truncated, partly written or substituted refuses before creating or writing the target.",
+    "needs": [
+      "SN-025"
+    ],
+    "A": [
+      "SR-148"
+    ],
+    "O": [
+      "SR-171"
+    ],
+    "L": [
+      "SR-039"
+    ],
+    "agreement": "all3",
+    "differences": "L lets a count-only disagreement with matching length and digest warn and proceed, gives unrecognisable record text precedence as code 2, and verifies understood fields of an unknown evidence version with a warning; O pins exit 3; A names the damaged-record outcome.",
+    "also_covers": [
+      "L:SR-039 -> C-056 (pre-record-states)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-171"
+    ],
+    "why": "O's acceptance covers latest and saved state and every restorer.",
+    "keep_legacy_id": "SR-039"
+  },
+  {
+    "cluster": "C-071",
+    "obligation": "Every state record the backup writes carries matching evidence of its own completeness, so truncation or substitution is detectable.",
+    "needs": [
+      "SN-025"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-038"
+    ],
+    "agreement": "L-only",
+    "differences": "No fresh row: both derivations state only the restore-side refusal. L requires evidence for the live record, staging, every saved state, the source cache and every rewrite.",
+    "legacy_orphan_class": "i",
+    "recommend": "L",
+    "recommend_ids": [
+      "L:SR-038"
+    ],
+    "why": "The restore-side refusal is not satisfiable without a producer-side obligation; re-author as a derived row naming no format.",
+    "keep_legacy_id": "SR-038"
+  },
+  {
+    "cluster": "C-072",
+    "obligation": "A restore target inside the backup, directly or through a link, is refused before writing.",
+    "needs": [
+      "SN-042"
+    ],
+    "A": [
+      "SR-149"
+    ],
+    "O": [
+      "SR-172"
+    ],
+    "L": [
+      "SR-009"
+    ],
+    "agreement": "all3",
+    "differences": "Equal. L adds that a prefix-sharing sibling and a genuinely external target keep their outcomes; O pins exit 2.",
+    "also_covers": [
+      "L:SR-009 -> C-073 (target-confine)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-172"
+    ],
+    "why": "Equal; O's acceptance includes the equal-to-backup case.",
+    "keep_legacy_id": "SR-009"
+  },
+  {
+    "cluster": "C-073",
+    "obligation": "A recorded path or link that would land outside the restore target is not written, is named, and fails the restore.",
+    "needs": [
+      "SN-042"
+    ],
+    "A": [
+      "SR-150"
+    ],
+    "O": [
+      "SR-173"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A includes link redirection; O covers parent-climbing and absolute paths only. L states it inside SR-009 and SR-071 ('..' refused rather than reduced).",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-173",
+      "A:SR-150"
+    ],
+    "why": "O's requirement and salvage-other-entries acceptance plus A's link-redirection case.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-074",
+    "obligation": "Each restored file gets its own recorded modification time, including files sharing one stored copy.",
+    "needs": [
+      "SN-036"
+    ],
+    "A": [
+      "SR-151"
+    ],
+    "O": [
+      "SR-174"
+    ],
+    "L": [
+      "SR-066"
+    ],
+    "agreement": "all3",
+    "differences": "L applies the time after verification and makes a blank or unparseable time warn without failing the restore.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-174",
+      "L:SR-066"
+    ],
+    "why": "O's requirement; L's 'a timestamp never fails a restore' is a needed acceptance condition.",
+    "keep_legacy_id": "SR-066"
+  },
+  {
+    "cluster": "C-075",
+    "obligation": "Empty folders, nested chains included, are recreated.",
+    "needs": [
+      "SN-036"
+    ],
+    "A": [
+      "SR-152"
+    ],
+    "O": [
+      "SR-175"
+    ],
+    "L": [
+      "SR-065"
+    ],
+    "agreement": "all3",
+    "differences": "L adds that absent or malformed folder metadata never fails a restore or changes the file-only behaviour, and is outside the record's integrity check.",
+    "also_covers": [
+      "L:SR-065 -> C-076 (restore-attrs)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-175"
+    ],
+    "why": "Equal; the missing-metadata rule belongs to the old-state cluster.",
+    "keep_legacy_id": "SR-065"
+  },
+  {
+    "cluster": "C-076",
+    "obligation": "A folder's recorded hidden and system attributes are applied where the target supports them, otherwise the folder is created and the unapplied attributes reported.",
+    "needs": [
+      "SN-036"
+    ],
+    "A": [
+      "SR-153"
+    ],
+    "O": [
+      "SR-176"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "L also records ReadOnly and NotContentIndexed. O pins the per-system expectation.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-176"
+    ],
+    "why": "Equal; O's acceptance names Windows versus Linux/macOS.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-077",
+    "obligation": "Every restorer ends with one documented outcome per class (complete, content missing, bad request or precondition, damaged record, host or tool problem) with a documented precedence.",
+    "needs": [
+      "SN-026"
+    ],
+    "A": [
+      "SR-154"
+    ],
+    "O": [
+      "SR-178"
+    ],
+    "L": [
+      "SR-040"
+    ],
+    "agreement": "all3",
+    "differences": "All three agree on 0-4 and A and L pin precedence 2>3>4>1. L adds detailed archive classification (an unopenable archive-shaped object is host 4; a non-archive non-matching object is content 1) and per-class summary counts; the class of a missing tool differs (L 2, SN-026 wording suggests 4).",
+    "also_covers": [
+      "L:SR-040 -> C-062 (restore-tool-missing)"
+    ],
+    "recommend": "A",
+    "recommend_ids": [
+      "A:SR-154"
+    ],
+    "why": "A pins values and precedence and requires counts across classes; O defers precedence to 'documented'.",
+    "keep_legacy_id": "SR-040"
+  },
+  {
+    "cluster": "C-078",
+    "obligation": "Where the browse view is on, each run produces a listing of every latest-state path, duplicates included, searchable by name, opening each file's stored content.",
+    "needs": [
+      "SN-008"
+    ],
+    "A": [
+      "SR-155"
+    ],
+    "O": [
+      "SR-179"
+    ],
+    "L": [
+      "SR-062"
+    ],
+    "agreement": "all3",
+    "differences": "L adds that backup, check, removal and restore never depend on the view and regenerates on change and on demand; O adds that with the view off nothing is produced.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-179"
+    ],
+    "why": "Equal; the view-independence clause has no need (O's notes) and should be ruled.",
+    "keep_legacy_id": "SR-062"
+  },
+  {
+    "cluster": "C-079",
+    "obligation": "A listing location that overlaps a source or a backup is refused before the run starts.",
+    "needs": [
+      "SN-037",
+      "SN-034",
+      "SN-027"
+    ],
+    "A": [],
+    "O": [
+      "SR-180"
+    ],
+    "L": [
+      "SR-063"
+    ],
+    "agreement": "O+L",
+    "differences": "L also requires the view on the backup volume, refuses to erase a view root holding non-generated content, and bundles configuration-version rules (PreserveFolderTree refusal, option vocabulary, when a version change is required).",
+    "also_covers": [
+      "L:SR-063 -> C-098 (config-version-stated)"
+    ],
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-180",
+      "L:SR-063"
+    ],
+    "why": "O's overlap rule; L SR-063's 'never erase user content in the view root' is a real case, and its version-evolution rule should move to the configuration-version cluster.",
+    "keep_legacy_id": "SR-063"
+  },
+  {
+    "cluster": "C-080",
+    "obligation": "Every backup, removal and check ends with a distinct documented outcome for complete, part failed, configuration refused, and busy or not ready.",
+    "needs": [
+      "SN-045"
+    ],
+    "A": [
+      "SR-157"
+    ],
+    "O": [
+      "SR-182"
+    ],
+    "L": [
+      "SR-043"
+    ],
+    "agreement": "all3",
+    "differences": "L gives distinct codes only when the caller opts in (-ExitCode: 0/1/2); without it configuration errors are terminating and a failed set exits 1, and a busy backup fails its set (1) rather than taking a fourth value. A keeps 0/1/2 plus an unvalued busy class; O requires four distinct values including through the container.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-182"
+    ],
+    "why": "O's acceptance induces all four classes for all three operations; the legacy opt-in must be ruled out or in.",
+    "keep_legacy_id": "SR-043"
+  },
+  {
+    "cluster": "C-081",
+    "obligation": "Each run's record names every file added, changed, removed or failed, each failure's cause, and summary counts.",
+    "needs": [
+      "SN-044"
+    ],
+    "A": [
+      "SR-159"
+    ],
+    "O": [
+      "SR-183"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L records failures per row (SR-041, SR-067) but has no row for the added/changed/removed account.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-183"
+    ],
+    "why": "Equal; O's acceptance is concrete.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-082",
+    "obligation": "A long run shows progress at intervals no longer than a set bound.",
+    "needs": [
+      "SN-044"
+    ],
+    "A": [
+      "SR-160"
+    ],
+    "O": [
+      "SR-184"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A pins two minutes (derived, owner to confirm); O says 'the documented interval of a few minutes'. L has only the 60 s staging liveness of SR-075, which is not user-visible progress.",
+    "recommend": "merge",
+    "recommend_ids": [
+      "O:SR-184",
+      "A:SR-160"
+    ],
+    "why": "O's shape with A's proposed value.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-083",
+    "obligation": "Every refusal states the condition found and an action that resolves it.",
+    "needs": [
+      "SN-044",
+      "SN-027",
+      "SN-015",
+      "SN-040"
+    ],
+    "A": [
+      "SR-161"
+    ],
+    "O": [
+      "SR-185"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L states remedies per refusal row, not as one rule.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-185"
+    ],
+    "why": "Equal; O traces all four needs that ask it.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-084",
+    "obligation": "Where notification is set up and not disabled for the run, a message stating success or failure is sent after each run.",
+    "needs": [
+      "SN-010"
+    ],
+    "A": [
+      "SR-162"
+    ],
+    "O": [
+      "SR-186"
+    ],
+    "L": [
+      "SR-015"
+    ],
+    "agreement": "all3",
+    "differences": "A says 'submits to the relay' and its notes flag that receipt is a missing premise; O says 'reaches the relay'. L bundles the non-fatal failure rule.",
+    "also_covers": [
+      "L:SR-015 -> C-085 (notify-fail)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-186"
+    ],
+    "why": "Equal; O's acceptance includes the off and NoMail cases.",
+    "keep_legacy_id": "SR-015"
+  },
+  {
+    "cluster": "C-085",
+    "obligation": "A failed notification records a warning and never changes the run's outcome.",
+    "needs": [
+      "SN-010"
+    ],
+    "A": [
+      "SR-163"
+    ],
+    "O": [
+      "SR-187"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-187"
+    ],
+    "why": "Equal; O's acceptance covers both directions.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-086",
+    "obligation": "Notification credentials never appear in readable form in the configuration, the backup or a run's record.",
+    "needs": [
+      "SN-049"
+    ],
+    "A": [
+      "SR-164"
+    ],
+    "O": [
+      "SR-188"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "A bundles refusal of a readable credential in configuration. L forbids a credential key in the portable configuration (SR-042) but exempts the native-Windows form, which holds a protected credential.",
+    "also_covers": [
+      "A:SR-164 -> C-087 (creds-refuse)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-188"
+    ],
+    "why": "Single decision with an every-artifact acceptance.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-087",
+    "obligation": "A configuration carrying readable notification credentials is refused before any backup data is touched.",
+    "needs": [
+      "SN-049"
+    ],
+    "A": [],
+    "O": [
+      "SR-189"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A carries it inside SR-164; L inside SR-042 (credential key refused in the portable form only).",
+    "fresh_orphan_note": "Not a gap: A and L state it inside other rows; the protected native-form credential needs a ruling (O's question 11).",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-189"
+    ],
+    "why": "A distinct refusal decision with a configuration-refused outcome.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-088",
+    "obligation": "Backups run inside a container that carries the runtime and every required component, so the host needs none installed.",
+    "needs": [
+      "SN-024"
+    ],
+    "A": [],
+    "O": [
+      "SR-190"
+    ],
+    "L": [
+      "SR-034"
+    ],
+    "agreement": "O+L",
+    "differences": "L requires a writable change-detection location distinct from the read-only source; A states it inside SR-165.",
+    "also_covers": [
+      "L:SR-034 -> C-089 (container-privilege)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-190"
+    ],
+    "why": "Single decision with a compressed-backup acceptance.",
+    "keep_legacy_id": "SR-034"
+  },
+  {
+    "cluster": "C-089",
+    "obligation": "A containerised run needs no more than an unprivileged user, read-only source access and write access to its own locations.",
+    "needs": [
+      "SN-024"
+    ],
+    "A": [
+      "SR-165"
+    ],
+    "O": [
+      "SR-191"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "O adds no added capabilities and no network; A bundles the no-host-runtime clause. L states non-root inside SR-034.",
+    "also_covers": [
+      "A:SR-165 -> C-088 (container-runtime)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-191"
+    ],
+    "why": "O's acceptance is the stricter, testable envelope.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-090",
+    "obligation": "Removal and the saved-state report are invocable through the container with the same outcome vocabulary as backup and restore.",
+    "needs": [
+      "SN-024",
+      "SN-045",
+      "SN-029"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-048"
+    ],
+    "agreement": "L-only",
+    "differences": "No fresh row. L specifies actions, snapshot selection, dry run, JSON on stdout and 0-4 removal codes with precedence 2>3>4>1, and that the standalone restore offers no removal.",
+    "legacy_orphan_class": "ii",
+    "recommend": "L",
+    "recommend_ids": [
+      "L:SR-048"
+    ],
+    "why": "Its rationale (a host needs one-shot retention with the same outcome vocabulary) is real; SN-024 reads as backups only, so the need understates it.",
+    "keep_legacy_id": "SR-048"
+  },
+  {
+    "cluster": "C-091",
+    "obligation": "Every third-party component shipped in a backup or the container is licensed for that redistribution and carries its notices.",
+    "needs": [
+      "SN-054"
+    ],
+    "A": [
+      "SR-166"
+    ],
+    "O": [
+      "SR-192"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. A notes the container-delivery part sits outside the operational frame.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-192"
+    ],
+    "why": "Equal; O's acceptance inspects both carriers.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-092",
+    "obligation": "Shipped quick-start guidance and a configuration helper take a new user to a first successful backup.",
+    "needs": [
+      "SN-012"
+    ],
+    "A": [
+      "SR-167"
+    ],
+    "O": [
+      "SR-193"
+    ],
+    "L": [
+      "SR-027"
+    ],
+    "agreement": "all3",
+    "differences": "L bundles 'required dependencies installed on first use'.",
+    "also_covers": [
+      "L:SR-027 -> C-093 (first-use-component)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-193"
+    ],
+    "why": "Equal; O's acceptance follows only the shipped guidance.",
+    "keep_legacy_id": "SR-027"
+  },
+  {
+    "cluster": "C-093",
+    "obligation": "A required component absent at launch is obtained from the package source or the run refuses, naming it and how to obtain it.",
+    "needs": [
+      "SN-012",
+      "SN-015"
+    ],
+    "A": [],
+    "O": [
+      "SR-194"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A has only the refuse branch (SR-170). L implements obtain-on-first-use (SR-019, SR-027); O's notes record that the manual's first run prompts, which SN-011 forbids.",
+    "fresh_orphan_note": "Real obligation: legacy implements it, A missed the obtain branch.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-194"
+    ],
+    "why": "The only row reconciling SN-012's 'no hunting' with SN-015's 'refuse first' and SN-011's no-prompt.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-094",
+    "obligation": "When the runtime is unsupported or a required component or a tool a chosen setting needs is missing, the run refuses before changing the backup, naming what to install.",
+    "needs": [
+      "SN-015"
+    ],
+    "A": [
+      "SR-170"
+    ],
+    "O": [
+      "SR-199"
+    ],
+    "L": [
+      "SR-019",
+      "SR-020"
+    ],
+    "agreement": "all3",
+    "differences": "Equal. L pins a minimum runtime version (PowerShell 7) and splits hashing (SR-019) and compression tool (SR-020) into separate rows.",
+    "also_covers": [
+      "L:SR-020 -> C-095 (optional-extra)",
+      "L:SR-019 -> C-093 (first-use-component)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-199"
+    ],
+    "why": "O's acceptance covers runtime, hashing component and compression tool.",
+    "keep_legacy_id": "SR-019"
+  },
+  {
+    "cluster": "C-095",
+    "obligation": "When only an optional extra is missing, the run completes and records that the extra was skipped.",
+    "needs": [
+      "SN-015"
+    ],
+    "A": [
+      "SR-171"
+    ],
+    "O": [
+      "SR-200"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. L leaves the media column blank rather than recording the skip; O's row duplicates its own space-view row SR-120 for the only optional extra.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-200"
+    ],
+    "why": "Equal; keep only one of O SR-120 and SR-200 if the media measure is the sole optional extra.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-096",
+    "obligation": "A documented, versioned description of the configuration accepts and refuses exactly what the launch checks accept and refuse.",
+    "needs": [
+      "SN-050"
+    ],
+    "A": [
+      "SR-168"
+    ],
+    "O": [
+      "SR-195"
+    ],
+    "L": [
+      "SR-042"
+    ],
+    "agreement": "all3",
+    "differences": "L keeps an unversioned native-Windows configuration form exempt from the version, closed-key and credential rules, accepts several sets with a one-set-convention warning, and fixes every key and default; A bundles version-stated and shipped-example clauses.",
+    "also_covers": [
+      "A:SR-168 -> C-097 (config-example)",
+      "A:SR-168 -> C-098 (config-version-stated)",
+      "L:SR-042 -> C-099 (config-refused)",
+      "L:SR-042 -> C-087 (creds-refuse)",
+      "L:SR-042 -> C-097 (config-example)",
+      "L:SR-042 -> C-098 (config-version-stated)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-195"
+    ],
+    "why": "O's corpus-equality acceptance is the testable form; the unversioned legacy form needs a ruling against SN-050.",
+    "keep_legacy_id": "SR-042"
+  },
+  {
+    "cluster": "C-097",
+    "obligation": "The shipped example configuration passes the launch checks unchanged apart from its locations.",
+    "needs": [
+      "SN-050"
+    ],
+    "A": [],
+    "O": [
+      "SR-196"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A and L state it in their contract rows' acceptance.",
+    "fresh_orphan_note": "Not a gap: A SR-168 and L SR-042 carry it in their acceptance.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-196"
+    ],
+    "why": "SN-050's second clause as its own decision.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-098",
+    "obligation": "Each configuration states which version of the configuration description it follows; one without it is refused.",
+    "needs": [
+      "SN-050"
+    ],
+    "A": [],
+    "O": [
+      "SR-197"
+    ],
+    "L": [],
+    "agreement": "O-only",
+    "differences": "A states it in SR-168's acceptance; L requires ConfigVersion only in the portable form and exempts the native-Windows form.",
+    "fresh_orphan_note": "Real obligation; A carries it in acceptance, L contradicts it for one form.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-197"
+    ],
+    "why": "SN-050 says 'each configuration'; only O states it unconditionally.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-099",
+    "obligation": "A missing or wrong configuration (unknown key, wrong kind, missing setting, unsupported version) is refused before anything is created or changed, naming the setting and what was expected.",
+    "needs": [
+      "SN-027"
+    ],
+    "A": [
+      "SR-169"
+    ],
+    "O": [
+      "SR-198"
+    ],
+    "L": [
+      "SR-018"
+    ],
+    "agreement": "all3",
+    "differences": "L SR-018 covers only a missing file; L's other cases live in SR-042/SR-043, which also require that refusal neither creates a log directory nor truncates the prior log. O pins exit 2.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-198"
+    ],
+    "why": "O enumerates every fault and checks nothing is created, logs included.",
+    "keep_legacy_id": "SR-018"
+  },
+  {
+    "cluster": "C-100",
+    "obligation": "A backup is written in the same form from a Linux or a Windows host, so either restores through every restorer.",
+    "needs": [
+      "SN-023"
+    ],
+    "A": [],
+    "O": [
+      "SR-158"
+    ],
+    "L": [
+      "SR-033"
+    ],
+    "agreement": "O+L",
+    "differences": "L SR-033 is Draft (no Linux producer exists) and states the shared format elements by mechanism; A carries it in SR-139's acceptance.",
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-158"
+    ],
+    "why": "Boundary-observable and mechanism-free.",
+    "keep_legacy_id": "SR-033"
+  },
+  {
+    "cluster": "C-101",
+    "obligation": "A backup written from one host type is continued from the other with the same shared content, compression and saved states as a same-host run.",
+    "needs": [
+      "SN-023"
+    ],
+    "A": [
+      "SR-139"
+    ],
+    "O": [
+      "SR-159"
+    ],
+    "L": [],
+    "agreement": "A+O",
+    "differences": "Equal. O's acceptance compares with a same-host run (no duplicate content, same compression decisions, same saved states).",
+    "also_covers": [
+      "A:SR-139 -> C-100 (host-same-form)"
+    ],
+    "recommend": "O",
+    "recommend_ids": [
+      "O:SR-159"
+    ],
+    "why": "O's comparison acceptance is the testable form.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-102",
+    "obligation": "Content identity is a deterministic digest computed identically by every producer and restorer.",
+    "needs": [
+      "SN-001",
+      "SN-022"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-002",
+      "SR-030"
+    ],
+    "agreement": "L-only",
+    "differences": "Fresh sides state only the observable outcomes (dedup, change pickup, verified restore, interchange); L names the algorithm and its text representation.",
+    "legacy_orphan_class": "i",
+    "recommend": "drop",
+    "recommend_ids": [],
+    "why": "Algorithm and representation are design or interface facts; the observable obligations are carried by dedup, restore-verifies and host-same-form.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-103",
+    "obligation": "Every written record entry carries a constant storage-layout marker.",
+    "needs": [
+      "SN-008"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-013"
+    ],
+    "agreement": "L-only",
+    "differences": "Its own rationale says the column exists only to keep an external format contract after the alternative layout was retired.",
+    "legacy_orphan_class": "iii",
+    "recommend": "drop",
+    "recommend_ids": [],
+    "why": "Accretion of a retired option; the retired-form refusal cluster carries what matters.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-104",
+    "obligation": "The state record preserves lengths and times on round trip, accepts empty record sets and is published atomically.",
+    "needs": [
+      "SN-005",
+      "SN-001"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-025"
+    ],
+    "agreement": "L-only",
+    "differences": "A record-format contract; its observable effects are restore fidelity, empty-source handling and interruption safety.",
+    "legacy_orphan_class": "i",
+    "recommend": "drop",
+    "recommend_ids": [],
+    "why": "Format mechanism for the IF/LLR tier; the outcomes live in restore-mtime, empty-source and interrupt-complete.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-105",
+    "obligation": "Tool discovery works on non-Windows hosts, tool paths are overridable, and a malformed backup-only setting blocks only the compressing backup.",
+    "needs": [
+      "SN-015",
+      "SN-024"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-037"
+    ],
+    "agreement": "L-only",
+    "differences": "Also carries the compression-effort knob no need asks for (O's notes).",
+    "legacy_orphan_class": "i",
+    "recommend": "drop",
+    "recommend_ids": [],
+    "why": "Discovery and overrides are design; 'a backup-only fault never blocks restore' could be a derived row if the owner wants it, otherwise covered by required-deps and container-runtime.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-106",
+    "obligation": "A failure to preserve one superseded or removed file is named with its cause, other entries continue, the saved state is still finalised and the run fails.",
+    "needs": [
+      "SN-044",
+      "SN-034",
+      "SN-004"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-041"
+    ],
+    "agreement": "L-only",
+    "differences": "No fresh row covers store-side failures during a run; capture-gap covers source-side failures only.",
+    "legacy_orphan_class": "i",
+    "recommend": "L",
+    "recommend_ids": [
+      "L:SR-041"
+    ],
+    "why": "Its rationale states a real obligation (one failed preservation must not hide others or block history); re-author as a derived row without the move mechanism.",
+    "keep_legacy_id": "SR-041"
+  },
+  {
+    "cluster": "C-107",
+    "obligation": "Stored objects use one content-addressed layout and naming rule, carrying the source extension opaquely.",
+    "needs": [
+      "SN-002",
+      "SN-032"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-058",
+      "SR-069",
+      "SR-070"
+    ],
+    "agreement": "L-only",
+    "differences": "Pure storage design (alphabet, field widths, extension handling); SR-070's observable part (extensionless and odd-extension files restore) is a permutation of capture and names-exact.",
+    "legacy_orphan_class": "i",
+    "recommend": "drop",
+    "recommend_ids": [],
+    "why": "Design-tier facts; move SR-070's extension cases into names-exact permutations.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-108",
+    "obligation": "Incomplete record-publication leftovers are treated as the system's own files and never block recovery of a dead run.",
+    "needs": [
+      "SN-013",
+      "SN-001"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-083"
+    ],
+    "agreement": "L-only",
+    "differences": "Its obligation is an instance of exclusions (own working files are not data) and interrupt-recover.",
+    "legacy_orphan_class": "i",
+    "recommend": "drop",
+    "recommend_ids": [],
+    "why": "Mechanism-level; the boundary outcomes live in exclusions and interrupt-recover.",
+    "keep_legacy_id": null
+  },
+  {
+    "cluster": "C-109",
+    "obligation": "The exclusion artifact persists, survives a read-only mark, and is invisible to every content consumer without a kit refresh.",
+    "needs": [
+      "SN-039",
+      "SN-041"
+    ],
+    "A": [],
+    "O": [],
+    "L": [
+      "SR-087"
+    ],
+    "agreement": "L-only",
+    "differences": "Its rationale is a lock-identity race: an implementation property of the exclusion mechanism.",
+    "legacy_orphan_class": "i",
+    "recommend": "drop",
+    "recommend_ids": [],
+    "why": "Design-tier; the outcomes live in single-writer, exclusions and old-kit-reads.",
+    "keep_legacy_id": null
+  },
+  {
+    "summary": {
+      "clusters": 109,
+      "rows_per_side": {
+        "A": 73,
+        "O": 100,
+        "L": 80
+      },
+      "per_agreement": {
+        "all3": 43,
+        "O+L": 11,
+        "O-only": 15,
+        "A+O": 28,
+        "A-only": 1,
+        "L-only": 11
+      },
+      "per_recommend": {
+        "merge": 29,
+        "O": 66,
+        "A": 3,
+        "L": 4,
+        "drop": 7
+      },
+      "legacy_orphan_classes": {
+        "i": 9,
+        "ii": 1,
+        "iii": 1
+      },
+      "rows_recommended": {
+        "O": 98,
+        "L": 24,
+        "A": 13
+      },
+      "legacy_ids_kept": 58,
+      "rows_unclustered": {
+        "A": 0,
+        "O": 0,
+        "L": 0
+      },
+      "top_10_substantive_differences": [
+        "C-016 compress-measured (SN-003): legacy lets the file name decide (CompressProbe off and excluded-extensions modes, a 256 KiB floor in every mode, extension fallback when the probe is unavailable) and uses a sampled 10% saving; A says any byte reduction, O 'a documented minimum', both 'whatever the name'. Needs an owner ruling: weaken SN-003 or retire the modes.",
+        "C-011 source-untouched (SN-037): legacy defaults the change-detection state location to the source root; A and O make the source unconditionally untouched and readable-only, so the legacy default fails them.",
+        "C-080 op-outcomes (SN-045): legacy gives distinct backup codes only when the caller opts in (-ExitCode) and folds a busy backup into set failure (1); A and O require four distinct classes always, O through the container too.",
+        "C-023 aux-state-loss: legacy refuses a backup whose change-detection state is missing or unparseable; O re-derives changes without it and reports; A allows either. Refuse-versus-proceed needs a ruling.",
+        "C-034 interrupt-recover / C-036 single-writer (SN-013, SN-039): legacy quantifies death (1800 s stale floor, max(90 s, heartbeat+30 s) confirmation, 60 s liveness) and scopes exclusion on Linux/macOS to cooperating processes on one kernel, not across SMB/NFS hosts; A and O are unbounded and unconditional.",
+        "C-053 refuse-form vs SN-041: legacy restorers refuse retired forms with exit 2, which contradicts 'every saved state stays restorable whatever version wrote it'; A and O refuse only continuation. Legacy's damaged-versus-retired distinction must be kept either way.",
+        "C-056 pre-record-states / C-070 record-refused: legacy restores a state lacking integrity evidence with a warning but offers an opt-in strict mode no need asks for, and lets count-only disagreement proceed; O restores and reports unverified, pins exit 3 for damage.",
+        "Unpinned thresholds: retry budget (C-006: A 5 s per source, O documented per run, L 3 attempts/file + shared per-set budget), progress interval (C-082: A 2 min, O documented, L none), performance (C-049/C-050/C-051: A 2 TiB/1M files/8 h/30 min/4 GiB, O documented, L only a 10,000-entry linear audit).",
+        "C-096 config-contract / C-098 config-version-stated (SN-050, SN-049): legacy keeps an unversioned native-Windows configuration form exempt from the version, closed-key and credential rules, and warns on several sets (one-set convention) against SN-009; O requires every configuration to state its version.",
+        "Coverage holes by side: only A states removal containment (C-027); only O states case-insensitive name collisions (C-010) and interrupted repair/kit-refresh safety (C-044); only L states producer-side state-record evidence (C-071), fail-closed lock acquisition (C-039), store-side preservation failures (C-106) and container-invocable retention (C-090)."
+      ]
+    }
+  }
+]

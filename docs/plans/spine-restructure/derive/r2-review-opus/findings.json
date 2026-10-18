@@ -1,0 +1,268 @@
+[
+  {
+    "id": "F-01",
+    "severity": "BLOCKER",
+    "rule": "contradiction between rows (SR-019 vs SR-132)",
+    "finding": "SR-019's acceptance says that with the hashing component absent, each run refuses. SR-132 says that a required component absent at launch is obtained from the package source and the run completes, and refuses only where it cannot obtain it. A test of SR-019 on a host with the package source reachable expects a refusal, and SR-132 expects completion. The two rows give opposite obligations for the same input.",
+    "suggested_fix": "Make SR-019's trigger 'a required component is missing and cannot be obtained' (or point at SR-132's obtain step), and run its hashing-component case with the package source unreachable. Keep 'obtain first' in SR-132 alone."
+  },
+  {
+    "id": "F-02",
+    "severity": "BLOCKER",
+    "rule": "contradiction between rows (SR-107 vs SR-017); SN-039 / SN-013 obligation broken",
+    "finding": "SR-017 refuses every later run while leftovers are 'held by a removal', and that refusal has no age limit (the legacy engine treats a removal marker of any age as removal-held). SR-107 promises that after the holding operation's process is killed, 'a new backup on the same store proceeds without manual clean-up'. So once a removal is killed (by a reboot or a stopped container), backups are refused until a person re-runs the removal. That breaks SN-039 ('once the first operation ends or its process dies, the next one proceeds') and SN-013 ('does not block later runs for longer than it takes to tell that nothing would be lost'). SR-107's 'subject to SR-017' clause hides the conflict instead of settling it.",
+    "suggested_fix": "Decide what a run does with a dead removal's leftovers: either it finishes or rolls back the dead removal itself (the SR-101 re-run, done by the run), or the refusal stands and SN-039 / SN-013 are amended to make 'a person re-runs the removal' the documented recovery. Write that decision in one row, and either drop SR-107's 'without manual clean-up' or have it name that row."
+  },
+  {
+    "id": "F-03",
+    "severity": "MAJOR",
+    "rule": "needs whose obligations are left uncovered (SN-001)",
+    "finding": "SR-001 says outright that it does not decide how a link or junction inside a source is followed, and no other row decides it. SN-001 requires that 'a file the run could not capture is never skipped silently'. Content behind a link or junction that is not followed is neither captured nor named, so nothing in the tier guarantees the outcome SN-001 asks for. The merge notes list this only as an 'other open item'.",
+    "suggested_fix": "Add a row that states the boundary outcome whichever traversal choice is made: a link or junction in a source is either followed (and its content captured), or recorded and named in the run's record, never left out without a trace. Raise the follow-or-not choice as an Owner ruling."
+  },
+  {
+    "id": "F-04",
+    "severity": "MAJOR",
+    "rule": "needs whose obligations are left uncovered (SN-037, SN-027); contradiction risk with SR-093",
+    "finding": "No row refuses a configuration whose backup or saved-state location lies inside a source, or contains one. SR-063 does this for the listing location, and SR-094 does it for the change-detection state, but nothing does it for the backup itself. A drive-root source, which SR-074 exercises explicitly, with its backup in a folder on the same drive is a plausible setup. That run writes into the source, which SR-093 forbids, and then walks its own store as source data. The legacy configuration checks reject only a state location inside the source.",
+    "suggested_fix": "Add a configuration-refusal row (under SN-037 and SN-027), shaped like SR-063: a backup or saved-state location that lies inside, equals or contains a source is refused with the configuration-refused outcome before anything is written."
+  },
+  {
+    "id": "F-05",
+    "severity": "MAJOR",
+    "rule": "contradiction between rows (SR-043 vs SR-106 / SN-039)",
+    "finding": "SR-043's acceptance requires a deliberately induced 'busy or not ready' instance for a check, and its permutations pair 'check' with 'busy-or-not-ready'. SR-106 says a check started while a changing operation holds the backup still runs, and SR-061 says a check reports a retired form as a finding rather than refusing it. So no test can make a check produce the busy value, and as written SR-043 cannot pass.",
+    "suggested_fix": "Limit the busy/not-ready class to the changing operations (backup and removal) in SR-043's acceptance and permutations, or name a not-ready condition that genuinely applies to a check."
+  },
+  {
+    "id": "F-06",
+    "severity": "MAJOR",
+    "rule": "acceptance has no pass/fail line; outcome class unassigned (SR-019, SR-036, SR-052, SR-061, SR-085, SR-086)",
+    "finding": "SR-043 fixes four outcome values, but several backup-side refusals never say which one they return. SR-019 gives no outcome at all. SR-036 and SR-052 'report failure': part-failed, or not-ready? SR-061 names no outcome. SR-085 and SR-086 refuse a repair or a kit refresh 'with the busy outcome', but SR-043's vocabulary covers only backup, removal and check. Two builds that pick different values would both pass these rows, which defeats SN-045.",
+    "suggested_fix": "In each refusing row's acceptance, name the SR-043 class it returns (for example: empty source refused gives not-ready; space refused gives not-ready; missing component gives not-ready or configuration-refused), and widen SR-043's operation set to repair and kit refresh, or say that their outcomes follow SR-043."
+  },
+  {
+    "id": "F-07",
+    "severity": "MAJOR",
+    "rule": "acceptance has no pass/fail line; outcome class unassigned (SR-092, SR-121, SR-116)",
+    "finding": "SR-040 needs every restorer to return the same value for the same failure. But SR-092 (colliding names) and SR-121 (an entry escaping the target) report only 'a non-complete outcome', and SR-116's 'reports that record as unverified' does not say whether the exit is 0. One restorer could return 1 for a collision and another 3, and both would pass. SR-040 itself does not place these failures in a class.",
+    "suggested_fix": "Assign the class in each row, for example a collision as content missing (1) and an escaping entry as a damaged record (3), or whatever the Owner rules. State in SR-116 whether an unverified older record still ends with 0, and add these cases to SR-040's permutations."
+  },
+  {
+    "id": "F-08",
+    "severity": "MAJOR",
+    "rule": "contradiction between rows (SR-122 vs SR-071 / SR-040)",
+    "finding": "On Linux and macOS, SR-122 requires the restore to report the hidden and system attributes it could not apply. It does not say whether that leaves the outcome complete. SR-071 requires an intact backup to restore with exit code 0 on GNU and BSD hosts. A Windows-made backup with a hidden folder is intact, so if the unapplied attribute counts as a failure, SR-071 fails on every Linux and macOS restore of it. SR-066 settles the same question for times ('still counts as restored'), but SR-122 does not.",
+    "suggested_fix": "Add to SR-122: 'an attribute the target cannot hold is reported and does not change the outcome from complete' (or the Owner's opposite ruling), and line SR-071 up with it."
+  },
+  {
+    "id": "F-09",
+    "severity": "MAJOR",
+    "rule": "contradiction between rows / trigger not observable at a boundary (SR-041 vs SR-059, SR-005)",
+    "finding": "SR-041's trigger is 'cannot keep the earlier content of a superseded or removed file for the saved state'. Its acceptance then completes a saved state that 'restores everything it kept', which is a saved state missing that file. SR-059 forbids losing stored content any state depends on, and SR-005 requires the previous state to be kept complete. The legacy behaviour shows what actually happens: the move fails and the content stays in the store, which the restorer recovers by digest. With the move mechanism dropped (C-106), the row's trigger no longer describes anything observable at a boundary, and its outcome reads as permitted loss.",
+    "suggested_fix": "Restate SR-041 at the boundary: when the run cannot place a superseded or removed file's earlier content in the saved state, the content stays in the store, the saved state still restores that file (or, if it cannot, its record and the restore name it), the run names the file and reports part-failed. Then show in a cross-reference to SR-059 that nothing is lost."
+  },
+  {
+    "id": "F-10",
+    "severity": "MAJOR",
+    "rule": "contradiction with SN-025 / SR-039; no discriminator (SR-116)",
+    "finding": "SR-116 restores 'as before', with the record reported unverified, any state recorded 'before the completeness evidence existed'. Nothing in the tier says how a restorer tells such a state apart from a current-format state whose evidence file is simply missing, for example one removed by an out-of-band actor (EXT-13, REL-01). If missing evidence is read as 'older', SN-025's truncated or substituted record goes through to a restore that reports a result, and the evidence written under SR-038 can be bypassed by deleting it. SR-082 says cut-off evidence is refused, but evidence that is absent goes the other way.",
+    "suggested_fix": "Have SR-116 depend on positive evidence of the older version (a recorded format or version), not on the evidence being absent. Add a case to SR-039: a current-format record whose completeness evidence is missing is refused with the damaged-record outcome."
+  },
+  {
+    "id": "F-11",
+    "severity": "MAJOR",
+    "rule": "row traces to a need whose text does not demand it; derived row missing hat_refs (SR-048)",
+    "finding": "SR-048 (removal and the saved-state report through the container) traces only to SN-024, which asks only that backups run inside a container. It has no hat_refs and no 'derived through' argument. The merge notes admit that SN-024 understates it. Under §2(c), that is a silent trace to a parent that does not demand the row. Its acceptance also adds a separate decision: 'a container start that names no action runs a backup'.",
+    "suggested_fix": "Either amend SN-024 (backups, removals and the saved-state report) before approving SR-048, or label SR-048 as derived with an arguable hat and a rationale. Move the no-action default into its own row or into SR-034."
+  },
+  {
+    "id": "F-12",
+    "severity": "MAJOR",
+    "rule": "obligation not observable at an operation boundary; more than one decision per row (SR-123)",
+    "finding": "SR-123's trigger is a change made to the description by the maintainers between releases, and its acceptance inspects 'the published versions of the description'. That is a delivery and maintenance discipline, outside the frame (which covers FileBackup in operation), and verification 'Test' cannot check it on one build. The row also carries a second decision: 'a retired setting ... is refused by name', which overlaps SR-018's unknown-key refusal.",
+    "suggested_fix": "Turn the versioning discipline into an observable property of one build (for example: a configuration stating an older supported version is read with that version's meaning), or move it to a process or design artifact. Fold the retired-setting refusal into SR-018."
+  },
+  {
+    "id": "F-13",
+    "severity": "MAJOR",
+    "rule": "acceptance has no pass/fail line; mechanism belongs at the design tier (SR-064)",
+    "finding": "SR-064's acceptance says the audit takes 'time linear in the number of record entries plus stored items, measured at 10,000 entries and 10,000 stored items'. One sample point cannot show linearity, and no threshold is given. The clause also names an internal algorithm (an audit comparing stored items with record entries), not a whole-operation budget. The 8-hour budget in the same row already bounds the observable.",
+    "suggested_fix": "Remove the linearity clause from the SR, or restate it as a measurable scaling bound (for example: the check time at 2N is no more than about 2.2 times the time at N, measured at two sizes). Put the algorithmic statement at LLR."
+  },
+  {
+    "id": "F-14",
+    "severity": "MAJOR",
+    "rule": "mechanism belongs at the design tier (SR-061)",
+    "finding": "SR-061's acceptance fixes how a retired form is recognised: 'from its record's evidence, its storage-layout marker or its stored-name shape'. The merge notes move the storage-layout marker (C-103) and the stored-name grammar (C-107) to the IF tier, yet this row still binds tests to them. This does not depend on pending ruling (e).",
+    "suggested_fix": "Keep only the observable: a retired form is refused by name, including when no completeness evidence is present, and a store whose only fault is one damaged entry is not refused as a whole. Move the recognition cues to the IF row for the record format."
+  },
+  {
+    "id": "F-15",
+    "severity": "MAJOR",
+    "rule": "over-absolute claim over an open domain without its assumption's bound (SR-075)",
+    "finding": "SR-075 says a live run 'is never judged dead, also when it runs on another host or in another container or its clock runs slow'. Clock skew is unbounded in that sentence, but DA-16 holds only while hosts agree 'within minutes', and a live run whose clock is slow by more than the 1800-second floor would be judged dead. As written, the acceptance can be sampled but not passed for every skew.",
+    "suggested_fix": "Bound the clause to DA-16 (for example: 'with clock skew up to the bound DA-16 holds for'), or state the skew the thresholds tolerate."
+  },
+  {
+    "id": "F-16",
+    "severity": "MINOR",
+    "rule": "mechanism belongs at the design tier (SR-075)",
+    "finding": "'A live run updates its liveness at least every 60 seconds, including during long blocking work' is an internal heartbeat mechanism, not something observed at a boundary. The observable obligations are how soon a dead run is recovered and that a live one is never reclaimed.",
+    "suggested_fix": "Keep the recovery-delay bound (dead run reclaimed within X) and the never-reclaim-a-live-run property at SR, and move the heartbeat interval to LLR."
+  },
+  {
+    "id": "F-17",
+    "severity": "MINOR",
+    "rule": "mechanism belongs at the design tier (SR-017)",
+    "finding": "SR-017's acceptance enumerates internal staging states ('content in transit', 'an incomplete record-publication remnant', 'the leftover area'). The merge notes moved the handling of publication leftovers (C-108) to LLR, but the acceptance still carries it.",
+    "suggested_fix": "State the leftover cases as boundary conditions (an earlier run's unfinished work that may hold content, or that holds none) and move the remnant handling to the LLR under C-108."
+  },
+  {
+    "id": "F-18",
+    "severity": "MINOR",
+    "rule": "over-absolute claim (SR-093, SR-103)",
+    "finding": "SR-093's requirement forbids changing 'the times' of any source file, and SR-103 requires 'unchanged times' for the store after a check. Reading a file updates its access time on many filesystems, and the system does not control that. Both acceptances test only modification times, so the requirements claim more than the tests check.",
+    "suggested_fix": "Say 'modification times' in both requirements, or add an assumption row about access-time behaviour."
+  },
+  {
+    "id": "F-19",
+    "severity": "MINOR",
+    "rule": "non-EARS opening (SR-064, SR-112)",
+    "finding": "Both requirements open with 'For a library at the declared scale on the declared reference host ...'. §2(b2) names a 'For ...' opening as a near-miss keyword, so the merge notes' claim that every requirement opens on an EARS keyword is wrong for these two rows.",
+    "suggested_fix": "Reword as 'Where the library is at the declared scale on the declared reference host, the system shall ...' or make the row ubiquitous with the scale in the acceptance."
+  },
+  {
+    "id": "F-20",
+    "severity": "MINOR",
+    "rule": "hat attributed outside its applies_when (SR-091)",
+    "finding": "SR-091 lists SHARED-CONTENT, whose applies_when is 'tags contains \"store-mutation\"'. SR-091's only need, SN-052, is tagged filesystem and unattended, so the hat does not reach this decomposition under the roster.",
+    "suggested_fix": "Drop the hat_ref, or tag SN-052 store-mutation if the Owner agrees its subject changes what the store holds."
+  },
+  {
+    "id": "F-21",
+    "severity": "MINOR",
+    "rule": "boundary_refs do not match where the observable happens (SR-131)",
+    "finding": "SR-131 cites B-12, the container's mounts and exit status. What the container image carries is delivery, which the frame puts outside its scope. No B-12 crossing carries third-party components or notices.",
+    "suggested_fix": "Keep B-13 for the backup folder, and either add a delivery crossing for the container image or drop B-12 and state the container part as a delivery constraint."
+  },
+  {
+    "id": "F-22",
+    "severity": "MINOR",
+    "rule": "duplicate or overlapping rows (SR-067 / SR-090)",
+    "finding": "Both rows state 'each file is tried at most three times', so the attempt count has two homes.",
+    "suggested_fix": "Keep the per-file attempt count in SR-067 only, and leave SR-090 to the per-location time budget."
+  },
+  {
+    "id": "F-23",
+    "severity": "MINOR",
+    "rule": "more than one decision per row (SR-067)",
+    "finding": "SR-067 is about reading a source file that is briefly unreadable, but its acceptance adds a store-side case: 'a folder standing where the stored copy must be written fails at once'. That is a different failure (the destination side) and refers to the store layout.",
+    "suggested_fix": "Move the destination-side immediate failure to a store-side row (beside SR-041) or to LLR, and keep SR-067 on source-read faults that could or could not change."
+  },
+  {
+    "id": "F-24",
+    "severity": "MINOR",
+    "rule": "duplicate or overlapping rows (SR-099 / SR-133)",
+    "finding": "Both rows test the same case: with the media-measurement tool absent, the run completes and its record says the extra was skipped.",
+    "suggested_fix": "Let SR-133 be the generic home, and narrow SR-099 to what is specific to the space view (the view says the measure was not taken), or merge the two."
+  },
+  {
+    "id": "F-25",
+    "severity": "MINOR",
+    "rule": "duplicate or overlapping rows (SR-096 / SR-019)",
+    "finding": "'With compression off, a missing archive tool refuses nothing' (SR-019) and 'the compression tool is not required' (SR-096) state one decision twice.",
+    "suggested_fix": "Keep the decision in one row and cite it from the other."
+  },
+  {
+    "id": "F-26",
+    "severity": "MINOR",
+    "rule": "duplicate or overlapping rows (SR-085 / SR-106)",
+    "finding": "SR-085's acceptance says 'read-only operations take no part in the exclusion', which is SR-106's whole obligation.",
+    "suggested_fix": "Remove the clause from SR-085."
+  },
+  {
+    "id": "F-27",
+    "severity": "MINOR",
+    "rule": "duplicate or overlapping rows (SR-016 / SR-073 / SR-132)",
+    "finding": "Unattended restores that ask nothing appear in both SR-016 (whose permutations include restore) and SR-073. 'Obtaining a component never asks' appears in both SR-016's acceptance and SR-132's rationale. The decision is the same, with two or three homes.",
+    "suggested_fix": "Make SR-016 the one cross-cutting home, and have SR-073 keep only the restore-specific usage-and-exit-2 behaviour and the console-only prompt."
+  },
+  {
+    "id": "F-28",
+    "severity": "MINOR",
+    "rule": "duplicate or overlapping rows (SR-034 / SR-130)",
+    "finding": "Both acceptances run a container with a read-only source and compression on, and expect a backup that restores byte-exact. The distinct obligations (the runtime is carried, and least privilege) are blurred.",
+    "suggested_fix": "Narrow SR-034 to 'no runtime installed on the host' and SR-130 to the privilege limits, each with its own discriminating case."
+  },
+  {
+    "id": "F-29",
+    "severity": "MINOR",
+    "rule": "more than one decision per row (SR-038)",
+    "finding": "SR-038's acceptance adds that the evidence 'is one of the system's own working files, and a nested source file of the same name is backed up and restored as data'. That is an exclusion-matching decision belonging to SR-074, and it describes an artifact class at SR.",
+    "suggested_fix": "Remove the clause; SR-074 and SR-001 already cover nested same-named files."
+  },
+  {
+    "id": "F-30",
+    "severity": "MINOR",
+    "rule": "more than one decision per row (SR-071)",
+    "finding": "SR-071 is about tool-flavour parity, but its acceptance adds target validation: a target that cannot be resolved is refused with exit 2, and a target path with a parent-folder component is refused rather than reduced. That overlaps SR-009 and adds a decision.",
+    "suggested_fix": "Move the target-validation cases to SR-009, or to a separate target-validation row."
+  },
+  {
+    "id": "F-31",
+    "severity": "MINOR",
+    "rule": "acceptance adds an obligation absent from the requirement (SR-001)",
+    "finding": "'No configuration setting excludes files by their hidden, system or dot-named status' is a decision about the configuration's contents, carried only in acceptance.",
+    "suggested_fix": "Either state it in the requirement or let SR-074's 'only ... and no other' carry it, and drop it from SR-001's acceptance."
+  },
+  {
+    "id": "F-32",
+    "severity": "MINOR",
+    "rule": "ambiguous exclusion scope (SR-074)",
+    "finding": "Under SR-094 the system's working state never lives in a source, so it is unclear which 'own working files' a source can contain. The rows also do not say whether an owner's own root-level file that shares a name with a working file is dropped. SN-001 allows leaving out only the backup's own files.",
+    "suggested_fix": "Say what makes a file 'the system's own' (positive ownership, not name alone), and add a case for a root-level user file sharing a working file's name."
+  },
+  {
+    "id": "F-33",
+    "severity": "MINOR",
+    "rule": "undefined or inconsistent terms (SR-049, SR-106)",
+    "finding": "SR-049's acceptance uses 'the findings outcome', which SR-043's vocabulary does not define. SR-106's requirement says 'a listing' while its acceptance tests 'the saved-state report'.",
+    "suggested_fix": "Use SR-043's class names (for example part-failed) in SR-049, and one term in SR-106."
+  },
+  {
+    "id": "F-34",
+    "severity": "MINOR",
+    "rule": "more than one decision per row (SR-094)",
+    "finding": "Besides 'a run succeeds with read-only source access', SR-094's acceptance decides where the change-detection state goes by default and refuses an inside-source location. That is a second decision, whichever way pending ruling (b) goes.",
+    "suggested_fix": "Split the state-location rule into its own row (SR-093's sibling), so that ruling (b) changes one row."
+  },
+  {
+    "id": "F-35",
+    "severity": "MINOR",
+    "rule": "permutation domain narrower than the requirement (SR-039, SR-056, SR-116, SR-121)",
+    "finding": "These rows promise 'every restorer', but their permutations list restorer = {windows, linux} and leave out macOS, while sibling rows include it.",
+    "suggested_fix": "Use one restorer domain across the restore rows, or say why macOS is covered by the linux route."
+  },
+  {
+    "id": "F-36",
+    "severity": "MINOR",
+    "rule": "ambiguous measure (SR-097)",
+    "finding": "'Ordered by stored size' does not say how a file whose content is shared with others is counted: as the full copy, as a share, or as zero. SN-051 asks where the space goes.",
+    "suggested_fix": "Define the figure for shared content (for example: the size of the stored copy, with the sharing shown)."
+  },
+  {
+    "id": "F-37",
+    "severity": "MINOR",
+    "rule": "possible contradiction (SR-059 vs SR-109)",
+    "finding": "SR-059 forbids altering any stored content a state depends on, 'in any operation'. SR-109's repair corrects 'form-recorded-wrong' and 'name-claims-wrong-form' findings, which may rename or re-form stored items that states depend on.",
+    "suggested_fix": "Have SR-059 allow an alteration that preserves restorability (a repair whose result restores the same bytes), or state that a repair changes records only."
+  },
+  {
+    "id": "F-38",
+    "severity": "MINOR",
+    "rule": "wording (SR-092)",
+    "finding": "'Write neither over the other' leaves open whether one of the two colliding files is restored. The acceptance names both but does not say whether either exists in the target.",
+    "suggested_fix": "State the result: for example, neither colliding entry is written, both are named as not restored."
+  }
+]
