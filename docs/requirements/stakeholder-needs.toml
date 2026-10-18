@@ -113,10 +113,10 @@ stakeholder_refs = ["STK-01", "STK-02"]
 
 [need.SN-029]
 status = "Drafted"
-need = """The owner can remove saved states they no longer want, to bound the space the backup takes, without losing anything a remaining state needs."""
+need = """The owner can remove saved states they no longer want, to bound the space the backup takes, without losing anything a remaining state needs, older or newer than the removed one; what the removal gives up is only what no remaining state records, the files that existed only at the removed point in time."""
 why = """Without a way to remove saved states, history grows until the backup volume fills. Saved states share content, so a folder that looks like old history can hold the only stored copy of content other states need; removing it from outside the tool is silent data loss, which is why the removing has to be the tool's."""
 priority = "M"
-acceptance = """Removing a named saved state leaves every remaining saved state and the latest state restorable byte-exact, with compression on or off, including when the removed state held the only stored copy of shared content; a removal that would lose content is refused before anything changes, with its own outcome; a removal interrupted at any point loses nothing and can simply be run again."""
+acceptance = """Removing a named saved state leaves every remaining saved state, older and newer alike, and the latest state restorable byte-exact, with compression on or off, including when the removed state held the only stored copy of shared content; a removal that would lose content is refused before anything changes, with its own outcome; a removal interrupted at any point loses nothing and can simply be run again."""
 tags = ["store-mutation"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
