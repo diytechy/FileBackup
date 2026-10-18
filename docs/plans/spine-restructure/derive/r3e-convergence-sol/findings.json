@@ -1,0 +1,76 @@
+[
+  {
+    "id": "R3E-001",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-125",
+      "LLR-161",
+      "SR-144",
+      "IF-009",
+      "IF-013"
+    ],
+    "finding": "LLR-125 excludes the location record from run-folder fencing and relies on an owner-record check for it, calling it a write outside the store. IF-009 and IF-013 put that record at ChangePath/backup.log, inside the store; LLR-095 and LLR-091 also explicitly treat it as belonging to the current holder. In SR-144's declared lost-claim scenario, suspend the old run after its identity check but before a location-record write, let the successor reclaim and write its own backup.log, then resume the old write. The old run can change the successor's record because reclaim moved neither that destination nor its open handle aside. This contradicts both the all-store-changes-through-run-folders obligation and SR-144's protection of successor-written files. The same check/write gap also remains for the explicitly excluded change-detection state and views under SR-144's broader acceptance condition.",
+    "suggested_fix": "Fence the location record along with the other store writes, including already-open handles, so reclaim redirects or disables the former owner's writes. Reconcile the excluded change-detection and view writes with SR-144's stated scope; a separate identity check cannot establish its no-late-write guarantee."
+  },
+  {
+    "id": "R3E-002",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-080",
+      "LLR-088",
+      "LLR-161",
+      "IF-044",
+      "SR-075"
+    ],
+    "finding": "A kill between exclusive creation of RUN.inprogress and writing its RunId leaves a torn or zero-length owner record beside the empty run folders LLR-161 creates first. LLR-080 explicitly judges a torn owner's death from its modification time and the confirming sample. But LLR-088 and IF-044 recognise an empty run folder without a matching owner identity only when there is no owner record. Here one exists but supplies no usable identity, so the empty folders become content and force the precondition refusal indefinitely. SR-075 requires automatic completion after a dead run that left no content in transit; this ordinary creation interruption contains no content to preserve.",
+    "suggested_fix": "Define the harmless-empty-run-folder case when the owner record is present but supplies no usable RunId, retaining the stale-age and second-sample proof and refusing any nonempty or otherwise unrecognised folder. Keep IF-044 and LLR-088 consistent with that decision."
+  },
+  {
+    "id": "R3E-003",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-033",
+      "LLR-088",
+      "LLR-150",
+      "LLR-038"
+    ],
+    "finding": "IF-033 defines the prepared saved state as holding copies of the backup root's record and its completeness evidence, and LLR-088 requires its record files to be byte-identical to the root's. LLR-038 instead requires a saved state's evidence to be written for its own record by the writer and expressly says evidence is never copied from another folder. These give the builder opposite instructions for the saved state's evidence. Generating fresh evidence can also change its Written field, causing the positive byte-identity test to reject the very preparation the writer is required to produce.",
+    "suggested_fix": "Choose one evidence-publication rule and align the preparation and reclaim test with it. To retain LLR-038, generate evidence from the staged record and recognise a prepared state by identical authoritative record bytes plus valid matching evidence, rather than requiring the source folder's evidence bytes."
+  },
+  {
+    "id": "R3E-004",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-159",
+      "LLR-130",
+      "LLR-040",
+      "SR-106",
+      "IF-024"
+    ],
+    "finding": "For a mixed kit still being refreshed after the 60-second wait, LLR-130, LLR-040 and SR-106 require retry later (4). LLR-159 instead requires damaged record (3) when the claim cannot be tested, explicitly including a shell route with no lock tool. IF-024's supported shell floor includes no lock-testing tool, so a supported host can encounter exactly this case during a live refresh and must return both 3 and 4 under the tier. Inability to observe the claim is not proof that the refresh has stopped.",
+    "suggested_fix": "Give an indeterminate claim test an outcome consistent with a potentially live refresh, reserving the interrupted-refresh damage classification for positive evidence that no refresh holds the claim. Align the parent and shared outcome rules with the chosen policy without silently adding a tool to the documented floor."
+  },
+  {
+    "id": "R3E-005",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-123",
+      "LLR-118",
+      "LLR-039",
+      "SR-106"
+    ],
+    "finding": "LLR-123 promises the quiet-store outcome for every state the concurrent writer does not remove, but permits reporting damaged record after only three rereads. LLR-118 deliberately exposes a new record beside old evidence between its two publication renames. A reader can consume all three rereads in that ordinary publication interval while the writer is descheduled; if the evidence has not yet changed, the stated change-triggered retry need not even apply. LLR-039 then requires 3 for the mismatched pair, although the intact retained state has quiet-store outcome 0. No bound on the writer's publication interval makes the three rereads sufficient for the unconditional completion promise.",
+    "suggested_fix": "Specify a reader protocol that distinguishes an in-progress two-file publication from established damage, including a mismatch with unchanged evidence. Reconcile any bounded wait or transient refusal with SR-106 and LLR-123 instead of claiming that three rereads alone guarantee the quiet-store result."
+  },
+  {
+    "id": "R3E-006",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-157",
+      "LLR-073",
+      "SR-073"
+    ],
+    "finding": "On an attended desktop with an interactive console, no target and no folder-choice switch, LLR-157 requires the shell route to ask by typed prompt. SR-073's acceptance requires a folder choice on a desktop, without a shell-route exception. On a desktop without an interactive console the same LLR requires usage and 2, while the SR still requires a folder choice. LLR-073 delegates to the switches but cannot authorise behavior contrary to its SR. The prompt method and whether the restore proceeds therefore have two specified answers for the same session.",
+    "suggested_fix": "Align SR-073's desktop acceptance with the intended per-route switch policy, or change LLR-157 to meet the existing desktop obligation. State the console-plus-desktop and desktop-only cases consistently while retaining the unattended refusal."
+  }
+]

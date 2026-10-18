@@ -204,8 +204,25 @@ round 2 changes.
 |---|---|---|---|---|
 | P-13 | Moving superseded or removed content into a saved state by a direct rename would be a mutation outside the run folder, so a resumed former owner could still make it. Copying it and then deleting the original through the run folder keeps it fenced, at the cost of reading and writing that content once more. A large edited file then pays a full copy where it used to be a rename. | (a) copy, then delete through the run folder: fenced; (b) direct rename: today's cost, with one unfenced mutation kind | (a) | LLR-150, LLR-005, LLR-161, gap list |
 
-P-09 is widened: the fence covers the store (records, saved states, stored
+P-09 is widened (and amended again in full round 3): the fence covers the store (records, saved states, stored
 content). The store's own log, the change-detection state and the views are
 guarded only by the early exit. They are re-derivable, and no saved content
 depends on them. Default: SR-144's acceptance is scoped to the store. The
 other option is to give those artifacts per-run names.
+
+## Convergence check 2 and full round 3 (the last)
+
+Input: `r3e-convergence-sol/` (Codex gpt-6.1-sol, high, a fresh session),
+scoped to the 44 rows changed at `be982ca`: 1 BLOCKER, 5 MAJOR, 0 MINOR. All
+six are **confirmed**. This is full round 3 of 3. After its fixes, one final
+convergence check runs, and whatever it finds is adjudicated and recorded for
+the next session, not fixed in this run.
+
+| Finding | Rows | Disposition and fix |
+|---|---|---|
+| R3E-001 | LLR-125, LLR-161, SR-144, IF-009, IF-013 | Confirmed. The store's own location record is inside the store, so it comes inside the fence: each run writes its entries to a per-run record inside its run folder, published by rename at the end of the run (IF-009 and IF-013 state the per-run name pattern; a killed run's record stays readable among its moved-aside leftovers). The change-detection state and the views are outside the store. They are derived, and the next run reconciles them from the backup's own record, so SR-144's acceptance names them as outside its guarantee. This is P-09 (a) as widened; the other option, per-run names for them too, stays open to the Owner. |
+| R3E-002 | LLR-080, LLR-088, LLR-161, IF-044 | Confirmed. An owner record that is present but carries no usable run identity (torn at creation), beside empty run folders, is the harmless case once its death is proven by stale age and the confirming sample. A non-empty or unrecognised folder still refuses. |
+| R3E-003 | IF-033, LLR-088, LLR-150, LLR-038 | Confirmed. LLR-038 stands: the writer generates the prepared saved state's evidence for its own staged record. A prepared folder is recognised by record bytes identical to the published latest record, plus evidence that is valid and matches that record. Evidence bytes are not compared. |
+| R3E-004 | LLR-159, LLR-130, LLR-040 | Confirmed; **reverses the round-2 deviation.** A claim that cannot be tested is indeterminate, so a still-mixed kit then ends with 4, naming the refresh and the remedy (re-run it if none is running). Only positive evidence that no refresh holds the claim gives 3. No tool is added to the shell floor. |
+| R3E-005 | LLR-123, LLR-118, LLR-039, SR-106 | Confirmed. A reader that finds a record and its evidence disagreeing re-reads until the pair is stable or a declared bound passes (60 s). A pair settling to a match is read normally. A mismatch that outlasts the bound while a writer holds the backup, or while the claim cannot be tested, ends with 4. A mismatch with positive evidence that no writer holds it is damage (3). P-10 is widened to cover this case. |
+| R3E-006 | LLR-157, LLR-073, SR-073 | Confirmed: LLR-157 meets SR-073. On a desktop, the shell route offers the folder choice through the dialog providers (IF-027). With no provider available, it asks by typed prompt in an interactive console, otherwise usage and 2, naming the missing provider. On a console with no desktop it uses the typed prompt. An unattended session is refused (2). |
