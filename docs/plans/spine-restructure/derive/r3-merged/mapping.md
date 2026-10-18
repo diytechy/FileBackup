@@ -14,7 +14,7 @@ One line per legacy id from LLR-001 to LLR-094, saying what became of it in the 
 | LLR-008 | Kept, merged LLR-031 | LLR-008 (flat, K29) | Standalone restore on the kit and the floor; the shell restorer's copy of it is the same obligation on another route. Astra's eight-SR parent shape was not adopted. |
 | LLR-009 | Kept, split | LLR-009 (target guard); LLR-137 (unresolvable or parent component); LLR-141 (per-entry containment) | The guards have different outcomes (2 against 3) and different parents (SR-009, SR-141, SR-121). |
 | LLR-010 | Kept, merged part of LLR-057 | LLR-010 | Point-in-time authority (its legacy meaning, not Astra's reuse for the pool lookup, which went to LLR-050); the pool includes hidden folders, and nothing but the state's entries and the report is written under the target. |
-| LLR-011 | Kept | LLR-011; schedule letters to IF-004 | The decision survives with elapsed periods since the last completed re-read (K01, P-01); the letters are configuration form. |
+| LLR-011 | Kept | LLR-011; schedule letters to IF-004 | The decision survives with calendar periods judged against the last completed re-read (K01 as narrowed by P-01 (c), 2026-10-18); the letters are configuration form. |
 | LLR-012 | Not in the registry | none | No row when the registry was stripped; not reused. |
 | LLR-013 | Not in the registry | none | No row when the registry was stripped; not reused. |
 | LLR-014 | Kept | LLR-014 | Per-location isolation with the fold rule, every set resolved and validated for every action. |

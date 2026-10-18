@@ -122,7 +122,7 @@ rows affected, are in `r3-dispositions.md`.
 
 | # | Question | Default written |
 |---|---|---|
-| P-01 | Does a version-2 configuration's D/W/M/Y schedule mean elapsed periods (SR-011) or calendar buckets (today's code)? | Elapsed periods, still version 2 |
+| P-01 | Does a version-2 configuration's D/W/M/Y schedule mean elapsed periods (SR-011) or calendar buckets (today's code)? | **Ruled (c)** by the Owner, 2026-10-18: calendar periods, as today's code; SR-011 and LLR-011 rewritten; still version 2 |
 | P-02 | Keep or retire the removal dry run (no need asks for it)? | Kept working, with no LLR, until ruled |
 | P-03 | The check reads every stored object by default (about 3 h at the reference host). Accept? | Accept |
 | P-04 | A volume whose free space cannot be measured: refuse, or proceed and record? | Proceed and record |

@@ -13,7 +13,7 @@ unless the call says otherwise.
 
 | K | Call |
 |---|---|
-| K01 | Astra: elapsed periods since the last completed full re-read (SR-011). |
+| K01 | Astra: elapsed periods since the last completed full re-read (SR-011). **Superseded by the Owner's P-01 ruling (2026-10-18): calendar periods, as today's code.** The rest of K01 stands: judged against the last *completed* full re-read. |
 | K02 | **Owner-level, default taken:** the configuration stays at version 2 (P-01). |
 | K03 | SpaceView is a boolean, default false. |
 | K04 | **Owner-level, default taken:** the removal dry run stays accepted in the removal request form and keeps working; no LLR states it, since no SR asks for it; it is listed under "code beyond the design" (P-02). It is never made a bad request until the Owner rules. |
@@ -61,7 +61,7 @@ Each is written to the default. Flipping one is a row edit.
 
 | # | Question | Options | Default taken | Rows affected |
 |---|---|---|---|---|
-| P-01 | Does a version-2 configuration's D/W/M/Y re-read schedule mean calendar buckets (today's code) or elapsed periods (SR-011)? | (a) elapsed periods, still version 2; (b) calendar buckets are v2's meaning, so SR-011 forces version 3 and both meanings are kept | (a) | the configuration interface, the re-read LLRs (filled in by the builder) |
+| P-01 | Does a version-2 configuration's D/W/M/Y re-read schedule mean calendar buckets (today's code) or elapsed periods (SR-011)? | (a) elapsed periods, still version 2; (b) calendar buckets are v2's meaning, so SR-011 forces version 3 and both meanings are kept; (c), added 2026-10-18: calendar buckets, SR-011 rewritten to match, no code or config change | **Ruled (c)** by the Owner, 2026-10-18: calendar periods as today's code; SR-011 and LLR-011 rewritten; the configuration stays at version 2 | SR-011, LLR-011, gap M07 |
 | P-02 | The removal dry run (`-WhatIf`, and the container's dry-run flag) has no need behind it. Keep it or retire it? | (a) add a need, then a dry-run LLR; (b) retire it with a release note; (c) keep it working, unspecified, until ruled | (c) | the removal request interface; code beyond the design |
 | P-03 | The check reads every stored object by default (SR-049), about 3 h at the reference host. Accept the heavier routine check? | (a) accept; (b) narrow SR-049 to report altered content only on a deep check | (a) | the check LLRs |
 | P-04 | A volume whose free space cannot be measured: refuse (2) or proceed and record that the check was not made? | (a) proceed and record; (b) refuse with 2 | (a) | SR-052 / SR-023 LLRs |
