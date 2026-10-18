@@ -42,9 +42,10 @@ last) — it is the record, not required reading for every pass.
   convergence checks found 3 findings each, all fixed; the last fixes are not
   re-checked. The Owner is comparing this branch with a different design
   branch. **Next, if this branch resumes:** one scoped check of LLR-162,
-  LLR-118, LLR-124 and LLR-017; then the Owner's remaining rulings (P-02..P-13,
-  each written to its default; **P-01 ruled 2026-10-18: calendar periods, as
-  today's code**, SR-011 and LLR-011 rewritten, no code change), then the Owner's approval of the need,
+  LLR-118, LLR-124 and LLR-017; then the Owner's remaining rulings (P-02 and
+  P-04..P-13, each written to its default; ruled 2026-10-18, both keeping
+  today's code: **P-01 calendar re-read periods** (SR-011, LLR-011) and **P-03
+  quick check plus -Deep** (SR-049, LLR-049)), then the Owner's approval of the need,
   SR and design tiers. Then round 4, the test cases, regenerated from the new
   LLRs; it needs the ai-template test-tagging ruling first. The need tier
   (48), SR tier (123) and design tier (24 CMP, 45 IF, 140 LLR in

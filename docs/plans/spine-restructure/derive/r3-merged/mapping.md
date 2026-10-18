@@ -52,7 +52,7 @@ One line per legacy id from LLR-001 to LLR-094, saying what became of it in the 
 | LLR-046 | Kept, split | LLR-046 (refusals); LLR-126 (confinement, SR-102); LLR-127 (commit and re-run recovery, SR-101) | Three decisions serving three SRs; no override and no dry run is stated (K04, K06). |
 | LLR-047 | Kept, split | LLR-047 (report figures); index form to IF-043; index memory to LLR-062 | The report survives; the index is an internal interface shared with the check and the collapse. |
 | LLR-048 | Kept | LLR-048; action words and variables to IF-038 and IF-002 | Container action mapping survives; mounts and identity went to LLR-147. |
-| LLR-049 | Kept, split | LLR-049 (check, full payload by default, K05); repair to LLR-129; finding classes to IF-010 | The check and the repair serve SR-049 and SR-109; repair now copies back, so it is its own row. |
+| LLR-049 | Kept, split | LLR-049 (check: plain form test, full payload with -Deep, P-03 (b)); repair to LLR-129; finding classes to IF-010 | The check and the repair serve SR-049 and SR-109; repair now copies back, so it is its own row. |
 | LLR-050 | Kept as child | LLR-050 (child of LLR-056, constrains IF-045) | Search-by-key causes and the proven form serve the verify-and-recover rule; its answer set is now the typed IF-045. |
 | LLR-051 | Kept, merged LLR-006 | LLR-051 | The final-record claim test at both removal sites. |
 | LLR-052 | Kept, split | LLR-052 (backup space plan); LLR-135 (volume identity, free space and allocation unit) | The measurement serves backup and restore; the plan runs read-only before anything is created and is re-checked under the claim (K10), with declared allowance values (K09). |

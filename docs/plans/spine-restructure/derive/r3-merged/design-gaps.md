@@ -35,7 +35,7 @@ Where an SR obligation is not met by today's code: the SR, the merged LLR that n
 | M27 | SR-124 | LLR-107 | Opus | The record gives one new-or-changed count and a removed count; added files are not told from changed ones and most are not named. |  |
 | M28 | SR-125 | LLR-108 | both | No progress entries at all; the only periodic activity is the owner-record refresh. |  |
 | M29 | SR-089, SR-091, SR-067 | LLR-111, LLR-067 | both | A file that cannot be read for its digest aborts the whole location; retries cover only the copy. |  |
-| M30 | SR-049 | LLR-049 | both | The default check reads only an object's opening bytes; altered content is found only with -Deep. | K05 and P-03 default (a): the full payload check is the default (about 3 h of reading at the reference host, inside SR-064's 8 h); the deep switch stays accepted with no meaning. |
+| M30 | SR-049 | LLR-049 | both | **Closed, no gap (2026-10-18):** P-03 ruled (b), so today's plain check (opening bytes) and -Deep (full payload) are the design. | K05 superseded by P-03 (b). |
 | M31 | SR-109 | LLR-129 | both | Repair renames and rewrites forms but never copies content back from a verified copy elsewhere. |  |
 | M32 | SR-117, SR-110 | LLR-131, LLR-130 | Astra | The refresh copies the backup root's existing kit into each saved state (it does not regenerate it from the installed program), file by file with no temporary name, so a kill can leave a mixed kit. | Confirmed in code. K23: the source becomes the installed program's kit, each file through a temporary and a rename, never deleting, the files carrying the kit revision last. K14: the first refresh of a state records its original kit revision (new form, IF-019). Whether each repair rename publishes by temporary and rename is still unconfirmed. Round 3b: see M64 (every kit file carries the revision; the restorers are replaced first; a mixed kit is refused with 3). |
 | M33 | SR-097 | LLR-132 | both | No space view and no setting for it. |  |
@@ -138,7 +138,7 @@ No SR asks for these. None is stated by an LLR; where the request form still acc
 
 - **Removal dry run** (the removal's what-if switch, and the container's dry-run variable). P-02 default (c), K04: it stays accepted in the removal request form (IF-002) and the container form (IF-038) and keeps working, unspecified; no LLR states it, and it is never made a bad request until the Owner rules (add a need, or retire it with a release note).
 - **Removal overrides at the module level** (discard unreferenced content, accept unverified records, skip verification). K06: not in the request form; SR-046 refuses those cases without exception. Retire them or keep them test-only.
-- **The deep-check switch.** K05: its meaning becomes the default check (LLR-049); it stays accepted with no meaning, like the former outcome switch.
+- **The deep-check switch.** K05 proposed folding it into the default check; P-03 (b), 2026-10-18, keeps it with today's meaning (LLR-049, IF-002), so this is no longer a downstream-visible change.
 - **The permission switch for obtaining the hashing component.** K07: accepted with no meaning; the component is fetched without a question (LLR-105).
 - **The strict-evidence restore switch** (both routes). Kept in the restore request form (IF-020) and honoured in LLR-039, though no SR asks for it; treat like the dry run: the Owner adds a need or it stays outside the design.
 - **The multi-set warning.** Goes (SR-095, LLR-014).

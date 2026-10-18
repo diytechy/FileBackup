@@ -100,7 +100,7 @@ name = "Check, repair and kit refresh"
 category = "software"
 part_of = "CMP-007"
 status = "Drafted"
-notes = """Checks every state against what is stored and reports each disagreement by kind; repairs only the finding classes declared certain, copying content back only from a copy it has hashed; and refreshes the restore kit in every state from the installed program without changing anything else, recording once each state's original kit revision. Today the default check reads only a stored object's opening bytes, so altered content is found only by an opt-in deep pass, and repair renames objects but never copies content back. It owns no interface, so its rows show as unplaced: placement is derived only through an interface's owner, and no interface was minted just to place them."""
+notes = """Checks every state against what is stored and reports each disagreement by kind; repairs only the finding classes declared certain, copying content back only from a copy it has hashed; and refreshes the restore kit in every state from the installed program without changing anything else, recording once each state's original kit revision. The default check reads only a stored object's opening bytes, so altered content is found only by the opt-in deep check (Owner ruling P-03); today repair renames objects but never copies content back. It owns no interface, so its rows show as unplaced: placement is derived only through an interface's owner, and no interface was minted just to place them."""
 
 [component.CMP-015]
 name = "Views"

@@ -24,7 +24,7 @@ data = """One process start of the backup program with named switches (case-inse
 - -Snapshot <name>[,<name>...]: the saved states a Prune acts on, each a saved-state folder name of the store layout (IF-013).
 - -RepairStorage, -RefreshKits: with -Action Verify, run the repair or the kit refresh.
 - -BackupRootOnly: with -Action Verify, check the latest state only; -IncludeSnapshots given the value false is accepted as the same request.
-- -Deep: with -Action Verify, the former request for a payload check; accepted, carries no meaning.
+- -Deep: with -Action Verify, the deep check: also read every stored object and compare its digest and length with its entry; needs the archive tool where the backup holds archives.
 - -VerifyStorage: accepted as the same request as -Action Verify.
 - -WhatIf: with -Action Prune only, the removal dry run; with any other action a bad request.
 General switches, accepted with every action:
@@ -218,7 +218,7 @@ Class, one of:
 - FlagOverRaw: the entry records the archive form over raw bytes at its place;
 - FlagOverArchive: the entry records the raw form over bytes that are an archive and not the entry's own content;
 - NameLies: the stored name claims a form its bytes do not have, the recorded form agreeing with the bytes;
-- PayloadMismatch: the stored bytes, expanded where they are an archive, do not have the entry's digest and length (content altered);
+- PayloadMismatch: the stored bytes, expanded where they are an archive, do not have the entry's digest and length (content altered); reported by a deep check only;
 - BlankRowFormDisagreement: a blank entry whose recorded form disagrees with the form of the copy the search by content key locates, in a state whose own kit cannot decide form from the bytes;
 - Unreferenced: a stored object that no entry of any record references;
 - LegacyStoredForm: a state in a retired form;

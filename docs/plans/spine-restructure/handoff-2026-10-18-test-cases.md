@@ -124,7 +124,7 @@ rows affected, are in `r3-dispositions.md`.
 |---|---|---|
 | P-01 | Does a version-2 configuration's D/W/M/Y schedule mean elapsed periods (SR-011) or calendar buckets (today's code)? | **Ruled (c)** by the Owner, 2026-10-18: calendar periods, as today's code; SR-011 and LLR-011 rewritten; still version 2 |
 | P-02 | Keep or retire the removal dry run (no need asks for it)? | Kept working, with no LLR, until ruled |
-| P-03 | The check reads every stored object by default (about 3 h at the reference host). Accept? | Accept |
+| P-03 | The check reads every stored object by default (about 3 h at the reference host). Accept? | **Ruled (b)** by the Owner, 2026-10-18: keep today's quick check, -Deep proves content; SR-049 narrowed |
 | P-04 | A volume whose free space cannot be measured: refuse, or proceed and record? | Proceed and record |
 | P-05 | Does "re-derive and report" also cover a missing run-state record? | Yes, rebuild and report |
 | P-06 | The record's path separator becomes the backslash on every host (Linux stores change form at their next real change, with no spurious saved state). Accept? | Accept |
