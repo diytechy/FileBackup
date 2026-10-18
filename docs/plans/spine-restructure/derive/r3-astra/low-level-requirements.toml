@@ -1,0 +1,769 @@
+# Independently derived design tier. All rows await review.
+
+[design.LLR-001]
+title = "Complete source observation"
+sr_refs = ["SR-001","SR-088","SR-089"]
+constrains = "IF-021"
+detail = "Enumerate every reachable source entry, including hidden, system and dot entries at every depth, retaining literal relative names and an explicit failure record for each unreadable file or directory. Keep successful file observations separate from failed prefixes; an unreadable prefix never becomes evidence of removal. A file new by path or changed in length or modification time is read for its current content identity."
+dimensions = "kind=set{ordinary,hidden,system,dot,nested-reserved}; readable=bool; depth=range[0..32]; @pairwise"
+rationale = "Treating an enumeration error as an empty directory loses prior files; explicit failed prefixes preserve the distinction."
+status = "Drafted"
+
+[design.LLR-002]
+title = "Bounded full-content identity"
+sr_refs = ["SR-003","SR-056","SR-033"]
+constrains = "IF-009"
+detail = "Compute content identity from the entire byte stream, including an empty stream, without loading the whole file into memory. All runtime routes produce the same digest text and length. A read failure yields no identity, never the identity of the readable prefix."
+dimensions = "content=set{empty,one-byte,text,binary,leading-zero-digest,high-bit-digest}; size=range[0..4GiB]; route=set{runtime,shell}; @pairwise"
+rationale = "Partial hashing can authorize the wrong object; streaming preserves full identity without file-sized memory."
+status = "Drafted"
+
+[design.LLR-003]
+title = "One object per content key"
+sr_refs = ["SR-003","SR-108"]
+constrains = "IF-018"
+detail = "Group file observations by digest and length. Reuse a key only when its supply resolves to an existing object; a record with a blank or missing location is demand, not supply. Every logical path retains its own row, timestamp and duplicate indicator. Later members in one run reuse the successful group result."
+dimensions = "placement=set{same-run,later-run,history}; supply=set{present,blank,missing}; names=set{same-extension,mixed-extension}; @pairwise"
+rationale = "A row alone is not proof bytes exist; trusting it leaves an apparently complete but unrestorable backup."
+status = "Drafted"
+
+[design.LLR-004]
+title = "Fallback extension policy"
+sr_refs = ["SR-081","SR-096"]
+constrains = "IF-010"
+detail = "With probing disabled, unavailable, or content length at or below 262144 bytes, use one case-insensitive extension exemption set: zip,7z,rar,z7,esd,gz,bz2,xz,tgz,zst,mp4,mkv,mov,avi,webm,mpg,mpeg,m2ts,m4v,wmv,flv,mp3,aac,flac,ogg,opus,m4a,jpg,jpeg,png,webp,gif,heic,heif,jar,pack,sav. Exempt content stays raw; other content is eligible for compression. The list is neither a completeness claim nor an override of an available measurement."
+dimensions = "extension=set{listed,unlisted,none,mixed-case}; measurement=set{disabled,unavailable,below-floor,at-floor}; @pairwise"
+rationale = "The small-file and unavailable-measurement cases still need a deterministic policy; inferring compressibility from all extensions is unreliable."
+status = "Drafted"
+
+[design.LLR-005]
+title = "Publish the prior logical state"
+sr_refs = ["SR-005","SR-100"]
+constrains = "IF-011"
+detail = "Stage the complete prior content record, folder/link metadata and matching witness. A difference in any recorded state, including duplicate-only additions, shared removals or timestamp-only changes, publishes that prior state by a same-volume rename only after its kit is complete. Name it from the prior completed-state date and choose a distinct numeric suffix on collision. An identical state adds no snapshot; the live state is not a snapshot."
+dimensions = "change=set{add,edit,remove,rename,duplicate-add,shared-remove,time-only,folder-only,link-only,none}; prior=set{absent,present}; same_second=bool; @pairwise"
+rationale = "Physical-copy counts miss logical changes; publishing from state differences keeps every superseded tree."
+status = "Drafted"
+
+[design.LLR-007]
+title = "Deposit a self-contained recovery bundle"
+sr_refs = ["SR-007","SR-008","SR-131"]
+constrains = "IF-033"
+detail = "Place the complete runtime and shell recovery routes, their required local support, relative pool-location descriptor, launchers and redistribution notices with each state before making it visible. Recovery dependencies have no dependency on backup configuration, capture, retention or reporting policy. A state keeps its deposited kit until an explicit refresh."
+dimensions = "state=set{latest,saved}; origin_host=set{windows,linux}; copied_to_fresh_host=bool; @pairwise"
+rationale = "A kit coupled to the original installation cannot survive its loss; a closed dependency set can."
+status = "Drafted"
+
+[design.LLR-008]
+title = "Restore from the admitted authority"
+sr_refs = ["SR-008","SR-010","SR-029","SR-031","SR-056","SR-068","SR-119","SR-120"]
+constrains = "IF-005"
+detail = "Use only the selected origin’s record to enumerate output files. Resolve content through the shared pool, never by overlaying another state’s record. After admission, process all independent entries despite per-entry failure; produce only the chosen state’s recorded files and report every unsuccessful entry. Restore performs no download and needs no backup installation."
+dimensions = "state=set{latest,oldest,middle}; later_change=set{edit,remove,add}; route=set{runtime,shell}; host=set{windows,linux,macos}; @pairwise"
+rationale = "Overlay restoration mixes time periods; authority plus content-key lookup separates history from physical storage."
+status = "Drafted"
+
+[design.LLR-009]
+title = "Admit only physically safe targets"
+sr_refs = ["SR-009","SR-141"]
+constrains = "IF-020"
+detail = "Reject a target containing a parent-folder component or whose physical location is indeterminate. Resolve existing ancestors and link targets for both backup and destination, then append absent tails. Refuse equality or physical containment in the backup with value 2 before target creation; a prefix-sharing sibling is outside."
+dimensions = "target=set{equal,inside,via-link,prefix-sibling,outside,unresolvable,parent-component}; exists=bool; host=set{windows,linux,macos}; @pairwise"
+rationale = "Lexical normalization misses junction destinations; physical containment makes the protected location decisive."
+status = "Drafted"
+
+[design.LLR-010]
+title = "Pool lookup independent of authority"
+parent = "LLR-008"
+constrains = "IF-018"
+detail = "Resolve a blank, absent or damaged local object by the requested digest and length over the live root and every retained saved state. A candidate is usable only after its raw or expanded bytes match both values. Return the proven form with the location. Continue past bad candidates; preserve storage-unreadable and dependency causes if no valid candidate is found."
+dimensions = "location=set{blank,missing,damaged}; candidate=set{raw,archive,own-archive,unreadable,unexpandable}; intact_copy=set{none,live,saved}; @pairwise"
+rationale = "A filename claim is not verified supply; selecting it without hashing can restore the wrong bytes."
+status = "Drafted"
+
+[design.LLR-011]
+title = "Elapsed reread schedule"
+sr_refs = ["SR-011","SR-105"]
+constrains = "IF-017"
+detail = "For unchanged size and time, A and E reread on every run, N never rereads for change detection, and D/W/M/Y become due at the corresponding elapsed period in IF-002 after the last completed full reread. With no completed reread, periodic schedules are due. A completed reread that finds a changed identity enters the changed set. Advance the reread timestamp only when the whole reread completed, not when it was interrupted or only partly readable."
+dimensions = "schedule=set{A,E,D,W,M,Y,N}; elapsed=set{before,at,after}; prior=set{none,complete,interrupted,part-failed}; @pairwise"
+rationale = "Calendar-boundary comparison can reread minutes after the prior run; elapsed periods match the promised interval."
+status = "Drafted"
+
+[design.LLR-014]
+title = "Run all configured locations"
+sr_refs = ["SR-014","SR-095"]
+constrains = "IF-003"
+detail = "Resolve and validate the invocation’s full location set before admission, then attempt every admitted location independently. Keep each location’s completion and refusal result for final aggregation; a failure in an earlier location never skips a later one. An accepted multi-location configuration emits no warning merely for having several locations."
+dimensions = "count=range[1..8]; failure_position=set{first,middle,last,none}; @pairwise"
+rationale = "An early abort strands unrelated sources; retaining per-location results also prevents the last success hiding failure."
+status = "Drafted"
+
+[design.LLR-015]
+title = "Notification follows the backup outcome"
+sr_refs = ["SR-015","SR-127"]
+constrains = "IF-031"
+detail = "When notification is configured and not suppressed, send the already-determined run outcome and log locations once after the run. Missing setup or suppression sends nothing. A delivery or authentication failure adds a sanitized warning without replacing that outcome."
+dimensions = "configured=bool; suppressed=bool; outcome=set{complete,failed}; relay=set{accepted,unreachable,auth-refused}; @pairwise"
+rationale = "Delivery is not backup correctness; folding relay failure into backup status misreports stored content."
+status = "Drafted"
+
+[design.LLR-016]
+title = "No unattended interaction"
+sr_refs = ["SR-016"]
+constrains = "IF-003"
+detail = "Treat explicit noninteractive launch, redirected or closed input, or absence of both console and desktop as no-prompt mode throughout dependency discovery and all actions. If an answer is indispensable, return a refusal with the missing input and remedy instead of waiting."
+dimensions = "action=set{backup,prune,verify,repair,refresh}; session=set{interactive,noninteractive,redirected,closed,no-console-no-desktop}; dependency=set{present,missing}; @pairwise"
+rationale = "A prompt can hold a scheduled operation forever; a classified refusal lets its host act."
+status = "Drafted"
+
+[design.LLR-017]
+title = "Conservative abandoned-work classification"
+sr_refs = ["SR-017","SR-075"]
+constrains = "IF-016"
+detail = "Under mutation exclusion, inspect staging literally including hidden entries. Links, unreadable evidence, unexpected content or removal ownership refuse without modifying staging. Fresh, changing or unproven backup ownership is busy. Only empty stale staging or backup-marker-only stale staging is reclaimable after an unchanged second sample. A damaged authoritative record gives value 3; other unsafe leftovers give 2; owner-only uncertainty gives 4. Apply 2 before 3 before 4 when combined."
+dimensions = "contents=set{empty,marker-only,hidden-content,subdirectory,removal-marker,linked,unreadable}; owner=set{fresh,stale,changing,unknown}; record=set{valid,damaged}; @pairwise"
+rationale = "Existence alone unnecessarily wedges safe leftovers, but absence of a live lock cannot prove old content disposable."
+status = "Drafted"
+
+[design.LLR-020]
+title = "Dependency admission and optional degradation"
+sr_refs = ["SR-019","SR-132","SR-133"]
+constrains = "IF-025"
+detail = "Before changing a store, confirm the supported runtime and full-content digest capability and, when requested, archive capability. Prefer bundled required capability; if absent, attempt the permitted package fetch without prompting in unattended mode. Failure refuses with value 2 naming the dependency and installation route. Missing optional media measurement is logged and leaves capture and outcome unchanged."
+dimensions = "runtime=set{supported,unsupported}; required=set{bundled,fetchable,unobtainable}; archive_needed=bool; optional=set{present,absent,failing}; attended=bool; @pairwise"
+rationale = "Late discovery leaves partial stores; optional tools cannot be promoted into accidental required dependencies."
+status = "Drafted"
+
+[design.LLR-021]
+title = "Literal user-path preservation"
+sr_refs = ["SR-021","SR-033","SR-136"]
+constrains = "IF-007"
+detail = "Preserve recorded Unicode, spaces, brackets, parentheses and extension text exactly through capture and restore. Interpret separators according to the record contract and never expand wildcard-looking names. Cross-host continuation uses the same content keys and object grammar."
+dimensions = "name=set{unicode,brackets,parentheses,spaces,mixed}; extension=set{none,ordinary,space,non-ascii}; direction=set{windows-linux,linux-windows}; @pairwise"
+rationale = "Host wildcard or case coercion can select another file; literal names preserve the path-level promise."
+status = "Drafted"
+
+[design.LLR-022]
+title = "Infrastructure is scoped to its role"
+sr_refs = ["SR-074","SR-001"]
+constrains = "IF-011"
+detail = "At a source root exclude only the active change-detection record and its publication leaves; backup-only artifact names there are user content. At store-state roots recognize exactly the record, witness, metadata, kit, run-state and publication roles. A nested same-named file remains content. A persistent lock leaf is not a state folder or content."
+dimensions = "root=set{source,live,saved,history}; position=set{root,nested}; name=set{active-cache,backup-artifact,ordinary,lock}; @pairwise"
+rationale = "A global basename filter silently omits user files; the root’s role supplies the necessary context."
+status = "Drafted"
+
+[design.LLR-023]
+title = "Restore demand includes expansion and allocation"
+sr_refs = ["SR-023"]
+constrains = "IF-020"
+detail = "Before target writes, sum every output file’s expanded length rounded up to the target allocation unit, plus 4096 bytes per output directory, 4096 bytes per record entry for log/metadata overhead, 16 MiB fixed working allowance, and twice the largest expanded object for serial extraction and verification scratch. Charge scratch to its actual volume. Use an observed allocation unit, or a conservative 64 KiB unit when unavailable. Compare aggregate demand per physical volume with free bytes: equality passes, excess or unknown capacity refuses with value 2 and needed/free/volume detail."
+dimensions = "fit=set{below,equal,above,unknown}; files=set{few-large,many-small,empty}; form=set{raw,compressed,mixed}; scratch_volume=set{same,other}; @pairwise"
+rationale = "Stored or raw-only lengths underestimate restoration; explicit allocation and scratch reservations cover the expanded tree."
+status = "Drafted"
+
+[design.LLR-024]
+title = "Stable serialization for unchanged state"
+sr_refs = ["SR-024","SR-033","SR-136"]
+constrains = "IF-007"
+detail = "Materialize text cells, sort rows ordinally by relative path and serialize using the canonical encoding and line endings for every record publication, including repairs and retained-state rewrites. An unchanged logical record produces identical bytes across runs and supported writer hosts; volatile witness time is not part of those bytes."
+dimensions = "rows=set{empty,one,many}; text=set{null,empty,quoted,unicode}; writer=set{windows,linux}; @pairwise"
+rationale = "Incidental ordering and null serialization make no-op state drift; canonical bytes make equality meaningful."
+status = "Drafted"
+
+[design.LLR-025]
+title = "Portable record decoding"
+sr_refs = ["SR-033","SR-010"]
+constrains = "IF-007"
+detail = "Decode quoted commas, doubled quotes, UTF-8 with or without BOM and either common line ending without changing names or timestamps. Preserve exact signed-64-bit nonnegative lengths, including zero. A header-only record is an empty state; an absent authoritative record is not an empty state and refuses admission. The shipped content record is MANIFEST.csv; its sibling publication leaf is MANIFEST.csv.tmp."
+dimensions = "record=set{header-only,rows,missing,bad-header}; field=set{plain,comma,quote,unicode,empty}; length=set{zero,large,max}; @pairwise"
+rationale = "Missing and empty have different authority; treating both as empty can report a false complete restore."
+status = "Drafted"
+
+[design.LLR-026]
+title = "Collapse redundant historical objects"
+sr_refs = ["SR-003","SR-059","SR-113"]
+constrains = "IF-018"
+detail = "Prefer live supply for a demanded key, otherwise the newest retained state that demands it. Remove a redundant physical copy only after the retained supply is verified and every dependent state still resolves. Rewrite only records whose local locations disappear, blanking those locations without changing their logical identities."
+dimensions = "keeper=set{live,newest-saved}; copies=range[1..3]; supply=set{verified,missing,unreadable}; @pairwise"
+rationale = "Deleting duplicate-looking objects without a surviving proof loses the only usable copy; demand-aware election preserves resolution."
+status = "Drafted"
+
+[design.LLR-027]
+title = "Usable setup package"
+sr_refs = ["SR-027","SR-134","SR-042"]
+constrains = "IF-035"
+detail = "The helper emits a configuration accepted by the same versioned validation as launch. The shipped example needs only location substitutions. Quick-start guidance covers required tools, a first backup and a restore, with the optional notification path explicit."
+dimensions = "form=set{json,native}; mail=bool; host=set{windows,container}; @pairwise"
+rationale = "Examples that differ from launch rules obstruct first use; generating from the shared vocabulary avoids a separate setup dialect."
+status = "Drafted"
+
+[design.LLR-028]
+title = "Persist completed-state provenance"
+sr_refs = ["SR-005","SR-011","SR-082"]
+constrains = "IF-017"
+detail = "Publish the completed-state date after the corresponding state is durable and before optional historical deduplication. Keep the last complete reread separately. Persist run state by complete replacement; a missing or damaged working record never turns a populated store into a first run. Recover the prior state date from durable state evidence or refuse rather than discard prior history. Completed dates are carried by FileBackupState.json."
+dimensions = "state=set{initial,changed,unchanged}; interruption=set{before-publication,after-publication,during-dedup}; run_record=set{valid,missing,damaged}; @pairwise"
+rationale = "A stale completion date mislabels history; destructive first-run fallback is worse than a recoverable refusal."
+status = "Drafted"
+
+[design.LLR-029]
+title = "Account for every restore entry"
+parent = "LLR-008"
+constrains = "IF-006"
+detail = "Track each authority entry until verified success or a named final failure. Continue with independent entries after a failure. Report the total unrestored count and individual causes, distinguishing content loss from host inability. Metadata warnings do not silently erase an unrestored file."
+dimensions = "failure=set{missing,recovery-failed,expand-failed,content-mismatch,host-write}; position=set{first,middle,last}; count=set{one,many,all}; @pairwise"
+rationale = "Skipping a row without accounting makes partial recovery look complete; terminal accounting exposes the actual missing set."
+status = "Drafted"
+
+[design.LLR-036]
+title = "Empty-source admission"
+sr_refs = ["SR-036"]
+constrains = "IF-021"
+detail = "If the prior live record is populated and the current readable capture domain has no files, refuse the location with value 2 before changing the backup unless AllowEmptySource is true. Distinguish an unreadable source from an intentionally empty one. First-use emptiness is valid."
+dimensions = "prior=set{empty,populated}; allow_empty=bool; observation=set{empty,unreadable,populated}; @pairwise"
+rationale = "A disconnected mount can resemble delete-all; explicit permission prevents that observation silently superseding history."
+status = "Drafted"
+
+[design.LLR-037]
+title = "Tool overrides do not leak into recovery"
+sr_refs = ["SR-019","SR-081","SR-008"]
+constrains = "IF-024"
+detail = "Resolve explicit tool paths before environment overrides, standard installed locations and executable search. Resolve archive effort once: absent or empty means 9; any other value outside exact single digits 0..9 refuses a compression-enabled backup before artifacts are created. Non-backup actions, compression-disabled backups and restores ignore an invalid effort setting."
+dimensions = "path=set{explicit,environment,standard,search,absent}; level=set{absent,empty,digit,padded,invalid}; action=set{compressing-backup,raw-backup,restore,maintenance}; @pairwise"
+rationale = "A backup-only setting cannot become a restore prerequisite; unconditional rejection would strand intact archives."
+status = "Drafted"
+
+[design.LLR-038]
+title = "Witness belongs to each published record"
+sr_refs = ["SR-038"]
+constrains = "IF-008"
+detail = "After publishing a content record, compute its byte length and full digest and publish its own witness by same-directory replacement. Include the actual logical row count. Every record rewrite produces matching evidence for that folder; copying a kit never copies another state’s witness. The shipped witness is MANIFEST.csv.meta and its publication leaf is MANIFEST.csv.meta.tmp."
+dimensions = "operation=set{initial,snapshot,repair,removal,empty}; interruption=set{before-record,after-record,after-witness}; @pairwise"
+rationale = "A borrowed witness authenticates the wrong state; coupling evidence to the publishing record prevents cross-state substitution."
+status = "Drafted"
+
+[design.LLR-039]
+title = "Witness admission"
+sr_refs = ["SR-039","SR-116"]
+constrains = "IF-008"
+detail = "Before target creation, validate the authority record and evidence. Mismatching byte length or digest, malformed current evidence or a missing required witness refuses with value 3. A row-count-only difference with matching bytes and digest warns but accepts the identical record. Missing evidence is tolerated only with positive record-age evidence proving it predates witnesses, with an unverified warning; strict witness mode refuses even that case. Text with no recognizable content-record header is a value-2 precondition refusal and takes precedence over witness findings."
+dimensions = "evidence=set{matching,bytes-mismatch,digest-mismatch,count-only,malformed,absent}; age=set{current,proven-old,unknown}; strict=bool; @pairwise"
+rationale = "Absence alone cannot prove age; otherwise deleting the witness disables integrity checking."
+status = "Drafted"
+
+[design.LLR-040]
+title = "Restore outcome classification"
+sr_refs = ["SR-040"]
+constrains = "IF-006"
+detail = "Return 0 only for complete admitted recovery; 1 for unavailable or corrupt content, name collisions or damaged current folder or file-time metadata; 2 for request or whole-restore precondition refusal; 3 for damaged authority or escaping recorded paths; 4 for host failures while working. When combined use 2 before 3 before 4 before 1. Distinguish a damaged archive from a failed archive capability using a known-good capability probe. Every process route returns these values without opt-in; the legacy exit-code flag remains accepted."
+dimensions = "class=set{complete,content,request,precondition,record,host}; combined=set{none,content,host,record}; route=set{runtime,shell,launcher}; @pairwise"
+rationale = "A transient host failure and corrupt content need different action; extension-based classification alone sends corruption into retry loops."
+status = "Drafted"
+
+[design.LLR-041]
+title = "Preservation failures retain recoverable bytes"
+sr_refs = ["SR-041","SR-059"]
+constrains = "IF-011"
+detail = "When parking superseded or removed content fails, retain its original pool copy, log the logical path and cause, mark the location part failed, and continue preserving independent objects. Publish the prior logical state only with a pool that still resolves its claimed keys; never delete the original merely because a destination was attempted. If no placement can keep the earlier content restorable, publish no incomplete saved state, retain the pre-run live authority and its bytes, and report part failed."
+dimensions = "change=set{superseded,removed}; failure=set{destination-create,copy,rename}; sharing=bool; @pairwise"
+rationale = "Moving history is not permission to lose it; keeping the source copy lets the prior authority resolve despite failed placement."
+status = "Drafted"
+
+[design.LLR-042]
+title = "Versioned closed configuration admission"
+sr_refs = ["SR-018","SR-042","SR-123","SR-135","SR-129"]
+constrains = "IF-002"
+detail = "Validate both configuration forms before creating or changing any location or log. Require a supported integral version, exact key set, required nonempty values, actual booleans and declared enums. Refuse retired keys by name and unknown keys with their path and expected kind; preserve document-order diagnostics. Resolve defaults and forward every accepted setting. Protected native credentials alone are accepted; readable credentials in either form are refused without echoing secrets. Maintain a version-specific meaning table so supported older documents retain their interpretation."
+dimensions = "form=set{json,native}; fault=set{none,missing,retired,unknown,wrong-type,quoted-boolean,bad-enum,bad-version,plain-credential}; version=set{current,older-supported,retired,future,integral-decimal}; @pairwise"
+rationale = "Coercion and silently ignored settings alter safety policy; strict validation before side effects preserves the prior run."
+status = "Drafted"
+
+[design.LLR-043]
+title = "Aggregate invocation results"
+sr_refs = ["SR-043","SR-014"]
+constrains = "IF-004"
+detail = "Return the shared numeric outcome for process launches without requiring an option. Accept the legacy option with identical effect. For multiple locations return 0 only if all complete; if all were refused before change, combine refusals with 2 before 3 before 4; otherwise return 1 if any location failed or was refused. For one maintenance operation retain its classified result, with 2 before 3 before 4 before 1 when simultaneous causes apply."
+dimensions = "action=set{backup,prune,verify,repair,refresh}; results=set{all-complete,all-refused,mixed}; legacy_flag=bool; host=set{direct,container}; @pairwise"
+rationale = "One failed-set boolean loses actionable refusal distinctions; classified aggregation preserves them without masking partial runs."
+status = "Drafted"
+
+[design.LLR-045]
+title = "Rehome endangered content before removal"
+sr_refs = ["SR-045","SR-059"]
+constrains = "IF-018"
+detail = "Plan one preservation copy for each key whose only surviving supply would be removed. Elect live demand first, otherwise the newest demanding retained state. Stage a copy at the same content-derived name, verify stored and expanded identity, then publish it. Reuse an already identical destination from an interrupted attempt; refuse a conflicting destination. Update only physical-location/form fields through witnessed publication."
+dimensions = "demand=set{live,saved,both,none}; form=set{raw,archive}; destination=set{absent,identical,conflicting}; @pairwise"
+rationale = "Deleting first would lose shared content; verified rehoming makes the surviving pool independent of the target."
+status = "Drafted"
+
+[design.LLR-046]
+title = "Removal admission and surviving-pool proof"
+sr_refs = ["SR-046","SR-102"]
+constrains = "IF-018"
+detail = "Before mutation collect all refusal causes: target not an explicit direct saved-state child, wildcard or escaping path, redirected pool entry, untrusted record, unresolved retained demand, ambiguous unreferenced target content, unknown or insufficient preservation capacity, or unavailable required tool. Refuse with the shared precedence. After verified copies and destination-record publication, prove every retained demand still resolves with the target excluded before commit. Dry run reports the plan and refusals without writes."
+dimensions = "fault=set{bad-target,link,record,missing-content,unreferenced,capacity,tool,none}; dry_run=bool; sharing=bool; @pairwise"
+rationale = "A valid plan is insufficient if the pool is already broken; admission and an excluded-target proof protect retained states."
+status = "Drafted"
+
+[design.LLR-047]
+title = "Inventory derives reclaim from removal"
+sr_refs = ["SR-047","SR-104","SR-103"]
+constrains = "IF-028"
+detail = "For each saved state in date/name order return its row count, all physical bytes including hidden leaves, bytes required for preservation, and net reclaim from the same demand calculation as removal. Reports create no lock or store artifact and need no source availability."
+dimensions = "states=range[0..365]; sharing=set{none,live,saved}; hidden=bool; source_online=bool; @pairwise"
+rationale = "Directory size overstates reclaim when shared bytes must move; using the removal calculation prevents divergent predictions."
+status = "Drafted"
+
+[design.LLR-048]
+title = "Container action adaptation"
+sr_refs = ["SR-048","SR-142","SR-034","SR-130"]
+constrains = "IF-023"
+detail = "A recognized leading action word overrides the action environment value; absent both selects backup. Forward dash-led arguments literally. Adapt explicit snapshot, dry-run and repair environment settings to the corresponding operation. Unknown action refuses with 2. Run as the supplied unprivileged identity using only read-only source/config and writable owned mounts; return the underlying operation’s outcome and machine findings unchanged."
+dimensions = "action=set{absent,backup,prune,snapshots,verify,unknown}; source=set{readonly,writable}; flags=set{none,dry-run,repair}; @pairwise"
+rationale = "An adapter must preserve operation semantics; separate container result conventions would break host policy."
+status = "Drafted"
+
+[design.LLR-049]
+title = "Check every state against physical content"
+sr_refs = ["SR-049","SR-103","SR-104"]
+constrains = "IF-029"
+detail = "A normal check visits the live and every saved state, verifies record integrity, local locations and pool recoverability, and checks each distinct object’s actual payload against demanded identity, including same-length substitution. Report every missing, altered or form-disagreeing entry with class and repairability; findings produce failure. Never create directories, lock artifacts, rewritten records or other store changes for read-only checks."
+dimensions = "damage=set{none,missing-here,missing-everywhere,altered,wrong-form,unreferenced,witness}; state=set{live,saved}; shared=bool; @pairwise"
+rationale = "A signature-only check misses altered raw content; full payload identity is needed for the promised whole-store audit."
+status = "Drafted"
+
+[design.LLR-050]
+title = "Located form travels with verified supply"
+parent = "LLR-008"
+constrains = "IF-018"
+detail = "A found object carries Raw when its own bytes matched, and Archive when expanded bytes matched. A failed expansion does not discard a candidate whose raw bytes are the requested content. When a valid candidate exists, unrelated unreadable or corrupt candidates do not downgrade the restored file."
+dimensions = "candidate=set{raw,tool-archive,source-archive,unexpandable,unreadable}; tool=set{available,absent,failing}; good_copy=bool; @pairwise"
+rationale = "The recorded compression flag describes a historical location; using it for a different found object can expand a user archive incorrectly."
+status = "Drafted"
+
+[design.LLR-051]
+title = "Final claims govern eviction"
+sr_refs = ["SR-059"]
+constrains = "IF-011"
+detail = "After replacement attempts and frozen-row decisions, determine object survival from the final live record. Keep any object still claimed by any final row; otherwise retain it in the historical pool when any retained state demands the key. Apply the same claim rule to removed and superseded paths."
+dimensions = "change=set{remove,edit,rename}; survivor=set{ordinary,frozen,failed-replacement,none}; twins=range[1..3]; @pairwise"
+rationale = "Source observations omit frozen rows and failed replacements; using them as deletion authority loses still-recorded bytes."
+status = "Drafted"
+
+[design.LLR-052]
+title = "Invocation-wide backup capacity admission"
+sr_refs = ["SR-052"]
+constrains = "IF-019"
+detail = "Before creating roots, locks, logs, cache or staging, construct read-only demand plans for all configured locations and group by physical volume. Count each new or healed key at uncompressed length with allocation rounding, cross-volume prior content at physical copy size, serialized old/new records and witnesses, actual kit sizes, 4096 bytes per directory and record entry, and a 16 MiB fixed allowance per location plus the maximum concurrent temporary object sizes. Use observed allocation units or 64 KiB. Refuse every location on an overcommitted or unmeasurable volume with 2 and volume/needed/free detail. After exclusion, revalidate the plan against the current state before content writes."
+dimensions = "locations=range[1..8]; fit=set{below,equal,above,unknown}; volumes=set{same,different,mount-and-child}; demand=set{new,heal,cross-volume-history,many-small}; @pairwise"
+rationale = "Per-set checks and content-only accounting can pass a collectively impossible run; planning before artifacts preserves the no-write refusal."
+status = "Drafted"
+
+[design.LLR-053]
+title = "Missing supply re-enters capture"
+sr_refs = ["SR-053","SR-108"]
+constrains = "IF-018"
+detail = "Sanitize an absent local object into unresolved demand rather than accepting the stale location. A matching source key with unresolved supply re-enters the write set even when metadata is unchanged; copy once and bind every same-key logical row to the stored result. Never mark a heal successful from a blank record location."
+dimensions = "location=set{present,blank,missing}; source_metadata=set{same,changed}; group=set{unique,shared}; @pairwise"
+rationale = "Metadata-only diff misses quarantined objects; unresolved demand makes loss repairable from the next source run."
+status = "Drafted"
+
+[design.LLR-055]
+title = "Portable names freeze rather than evict"
+sr_refs = ["SR-055","SR-091"]
+constrains = "IF-021"
+detail = "Reject each relative-path component containing a Windows-forbidden character, control character, trailing dot or space, reserved device stem CON,PRN,AUX,NUL,COM1..9,LPT1..9 with any case or extension, or a literal backslash on a POSIX source. Report path and offending feature before reading content. Exclude it from new capture and from removal decisions, retaining any earlier row and marking part failed while other files continue."
+dimensions = "feature=set{forbidden,control,trailing-dot,trailing-space,reserved,backslash,portable}; prior=bool; host=set{windows,posix}; @pairwise"
+rationale = "A file captured under an unrepresentable path cannot meet portable restore; freezing avoids deleting its previously captured version."
+status = "Drafted"
+
+[design.LLR-056]
+title = "Verify every written file"
+parent = "LLR-008"
+constrains = "IF-022"
+detail = "After copy or expansion, compare the destination’s full digest and length to its authority row. On content mismatch remove the bad output and perform one verified pool-recovery attempt, then verify again. A source proved intact whose output still mismatches is a host failure, not lost backup content; an unreadable output is also host failure. Only verified bytes count as restored."
+dimensions = "damage=set{none,wrong-payload,same-length-flip,truncated}; source=set{direct,verified-pool}; recovery=set{available,none}; form=set{raw,archive}; @pairwise"
+rationale = "Successful copying does not prove identity; read-back verification catches wrong bytes at either source or destination."
+status = "Drafted"
+
+[design.LLR-058]
+title = "Elect storage form once per new group"
+sr_refs = ["SR-003","SR-081","SR-111","SR-059"]
+constrains = "IF-010"
+detail = "For a key with no verified existing supply, elect the member with the shortest relative path and ordinal tie-break. Its extension and the single group compression decision define the object form. Try the owner then other readable members for measurement and copying, memoizing the decision and the successful object. Existing supply is never re-formed. Create through a private temporary object, verify the content key, then publish without replacing an object still claimed by any retained state."
+dimensions = "group=set{uniform,mixed-extension,mixed-compressibility}; supply=bool; owner=set{readable,locked}; retry=bool; @pairwise"
+rationale = "Independent member decisions create duplicate forms; owner election plus one result preserves one physical identity without overwriting live bytes."
+status = "Drafted"
+
+[design.LLR-060]
+title = "Recognize supported and retired forms"
+sr_refs = ["SR-061","SR-114","SR-115","SR-084"]
+constrains = "IF-014"
+detail = "Admit only declared supported state profiles and the previous released writer’s supported profile. A positive retired layout marker, path-addressed object location or retired name grammar refuses with 2 and a fresh-location remedy before mutation or target creation. Unknown/newer whole-state versions refuse by name; a malformed individual object leaf remains a damaged entry, not proof of a retired store. Preserve old saved-state forms and their kits when continuing a store. A read-only check reports unsupported form as a finding without mutating the store."
+dimensions = "profile=set{current,previous,supported-old,retired,unknown,newer}; entry=set{valid,damaged}; action=set{backup,prune,repair,check,restore}; @pairwise"
+rationale = "Treating every malformed name as a legacy layout misclassifies repairable damage; explicit supported profiles prevent accidental migrations."
+status = "Drafted"
+
+[design.LLR-061]
+title = "Generate a complete cosmetic view"
+sr_refs = ["SR-062"]
+constrains = "IF-030"
+detail = "When enabled, generate a searchable entry for every live logical path, including duplicate borrowers. Resolve each link to its actual stored content or identify unavailable content. Rebuild when canonical logical rows or referenced physical locations change and when explicitly requested. Keep generation outside source/store roots; no capture, retention or restore decision depends on the view. A generation failure warns without changing captured state."
+dimensions = "enabled=bool; change=set{add,edit,remove,none,location-change}; duplicates=bool; form=set{raw,archive,mixed}; @pairwise"
+rationale = "Listing pool leaves omits duplicate paths; a derived logical view provides browsing without changing storage."
+status = "Drafted"
+
+[design.LLR-062]
+title = "Linear referenced-object audit"
+sr_refs = ["SR-064","SR-112"]
+constrains = "IF-018"
+detail = "Build a set of referenced local object names once and compare each physical leaf against it once. Use the state filesystem’s case semantics and include hidden leaves. Do not rescan all record rows for every candidate, and do not conflate a case-distinct POSIX leaf with another."
+dimensions = "rows=range[1000..1000000]; physical=set{referenced,orphan,hidden,case-pair}; host=set{windows,linux}; @pairwise"
+rationale = "A nested row-by-file scan grows quadratically; one reference set preserves complete orphan detection with linear work."
+status = "Drafted"
+
+[design.LLR-065]
+title = "Capture and apply directory metadata"
+sr_refs = ["SR-065","SR-122","SR-146","SR-116"]
+constrains = "IF-012"
+detail = "Record every empty directory and every directory with a supported recorded attribute in ordinal path order. Do not infer emptiness from an enumeration failure. Each current state includes a header-only metadata record when there are no rows. Preserve its own prior metadata in history. After file recovery create directories parent-first and apply attributes deepest-first; unsupported attributes warn without failing content. Missing or malformed current metadata names what could not be applied and contributes value 1; positively older absence warns and remains complete. The shipped directory record is DIRECTORIES.csv."
+dimensions = "directory=set{empty,nested-empty,hidden,system,readonly,populated,unreadable}; metadata=set{valid,missing,malformed,proven-old}; host=set{windows,linux,macos}; @pairwise"
+rationale = "Advisory absence cannot distinguish an old state from lost empty folders; an explicit current empty record closes that ambiguity."
+status = "Drafted"
+
+[design.LLR-066]
+title = "Stamp each restored logical file"
+sr_refs = ["SR-066"]
+constrains = "IF-022"
+detail = "After successful content verification, apply that row’s own recorded modification time, including recovered and deduplicated files. Interpret the full ISO-8601 offset independently of host timezone; use supported fractional precision and explicitly report any precision loss. A blank or unreadable timestamp in a current-form record names the file and contributes value 1 while the verified file still counts as restored. Positively older absent time metadata is reported according to that supported profile."
+dimensions = "row=set{unique,owner,twin,recovered,blank-time,bad-time}; offset=set{UTC,positive,negative}; host=set{windows,linux,macos}; @pairwise"
+rationale = "Pool timestamps belong to physical supply, not every logical twin; applying per-row time restores recorded identity."
+status = "Drafted"
+
+[design.LLR-067]
+title = "Bound capture retry and preserve prior rows"
+sr_refs = ["SR-067","SR-090","SR-091","SR-089"]
+constrains = "IF-021"
+detail = "Try each content-group candidate in at most three attempt rounds, waiting 250 ms then 1000 ms only for possibly transient failures. Charge all waits to a shared 60000 ms per-location budget and skip a wait that would exceed it. A permanently occupied destination is not retried. Clear only this attempt’s private debris between tries. On exhaustion name paths and attempts; retain earlier rows unchanged and give never-captured files no successful row. Apply bounded retry to an initial identity read as well as storage copying, so a locked file cannot abort the source walk before group processing."
+dimensions = "failure=set{transient,permanent,destination-directory,budget-spent}; release=set{second,third,never}; candidates=set{one,many}; prior=bool; @pairwise"
+rationale = "Unbounded retries hang a scheduled run; removing a prior row on failed replacement loses already protected content."
+status = "Drafted"
+
+[design.LLR-068]
+title = "Infer stored form from payload"
+parent = "LLR-008"
+constrains = "IF-010"
+detail = "No archive signature means raw. With a signature, equal physical and recorded lengths plus an exact raw digest match means the source itself is an archive stored raw; otherwise use archive expansion. The recorded compression flag never determines restore correctness. An unreadable object reports an I/O cause rather than a guessed form."
+dimensions = "signature=bool; length_match=bool; digest_match=bool; flag=set{correct,flipped}; readable=bool; @pairwise"
+rationale = "Archive signatures alone cannot distinguish an archive made by backup from a user archive; identity resolves that ambiguity."
+status = "Drafted"
+
+[design.LLR-069]
+title = "Lossless object-name codec"
+sr_refs = ["SR-003","SR-021","SR-061"]
+constrains = "IF-010"
+detail = "Encode the entire unsigned digest and length without truncation. Decode to the full 128-bit digest including leading zeroes; reject excess width, out-of-range values, malformed separators and missing length. Preserve the opaque extension, including an empty extension. A parse failure returns no identity; retired-layout recognition is a separate positive test."
+dimensions = "digest=set{zero,leading-zero,high-bit,max,overflow}; length=set{zero,one,max,overflow}; name=set{valid,bad-separator,bad-digit,missing-length}; extension=set{none,space,underscore,bracket,unicode}; @pairwise"
+rationale = "A truncated field aliases different identities; a total rejecting decoder keeps damaged names distinct from retired formats."
+status = "Drafted"
+
+[design.LLR-071]
+title = "Portable host observations"
+sr_refs = ["SR-071","SR-031"]
+constrains = "IF-026"
+detail = "Choose size and timestamp capabilities by probing a known regular object and accepting numeric or valid timestamp output only. Use a POSIX byte-count fallback if neither native size style works. Allocate scratch with an explicit template and stop that operation if allocation fails; an empty scratch path is never a root path. Preserve timestamp offsets through native or portable conversion."
+dimensions = "flavour=set{gnu,bsd,windows}; size_probe=set{valid,nonnumeric,unsupported}; scratch=set{ok,failed}; offset=set{UTC,positive,negative}; @pairwise"
+rationale = "A command succeeding is not proof it honored its format argument; validated observations prevent intact backups being called damaged."
+status = "Drafted"
+
+[design.LLR-073]
+title = "Target interaction follows session capability"
+sr_refs = ["SR-073","SR-016"]
+constrains = "IF-005"
+detail = "With a supplied target, ask nothing. Without one, explicit noninteractive, redirected/closed input or absence of console and desktop prints usage and returns 2. Otherwise offer a desktop folder picker when available, or an interactive console prompt. Cancellation, unavailable choice or empty response returns usage and 2; no hidden fallback waits for unattended input."
+dimensions = "target=set{given,missing}; session=set{desktop,console,redirected,closed,none,noninteractive}; picker=set{available,missing,cancelled}; @pairwise"
+rationale = "A GUI-only assumption blocks headless recovery; explicit session gating preserves both interaction and automation."
+status = "Drafted"
+
+[design.LLR-074]
+title = "Interactive launcher outcome remains visible"
+sr_refs = ["SR-072"]
+constrains = "IF-033"
+detail = "Launch from the kit’s own state location regardless of the caller’s working directory. Pass supplied arguments and the result through unchanged. For a double-click start that obtained its target interactively, keep the outcome visible until dismissal; automated or argument-supplied starts never pause. Ship the macOS launcher with launchable permissions on supported delivery paths."
+dimensions = "host=set{windows,macos}; start=set{double-click,console,automation}; outcome=set{complete,failed}; @pairwise"
+rationale = "An unconditional launcher pause hangs automation; holding only an interactive outcome serves both callers."
+status = "Drafted"
+
+[design.LLR-076]
+title = "Kit identity and compatibility"
+sr_refs = ["SR-084","SR-115","SR-117"]
+constrains = "IF-033"
+detail = "Use one monotonically increasing kit revision for all bundled recovery routes. Change it when bundled behavior changes, without backdating deployed revisions. Before writing a state, ensure its deposited kit understands that state’s representation; preserve older saved-state objects and records readable by their own kits. Refresh replaces only recovery artifacts and preserves state-age evidence, records, witnesses and content. Stage a complete coherent kit revision before publishing its activation; an interrupted refresh retains a usable old or new bundle and never exposes a mixture as complete."
+dimensions = "kit=set{current,older,inconsistent}; state=set{latest,saved}; operation=set{backup,refresh}; @pairwise"
+rationale = "Kit age and state age are different facts; conflating them invalidates old-state compatibility after refresh."
+status = "Drafted"
+
+[design.LLR-078]
+title = "Exclude volume metadata only at a volume root"
+sr_refs = ["SR-074"]
+constrains = "IF-021"
+detail = "Exclude the first relative segment System Volume Information or $RECYCLE.BIN, case-insensitively, only when the source is a proven volume root. Apply the same rule to enumeration errors beneath that segment. A nested or ordinary-folder same-named entry stays in the capture domain; unknown volume-root status defaults to capture."
+dimensions = "root=set{volume,share,ordinary,unknown}; segment=set{top,nested}; case=set{exact,varied}; error=bool; @pairwise"
+rationale = "Bare-name exclusion can hide ordinary folders; volume context justifies the narrow exception."
+status = "Drafted"
+
+[design.LLR-080]
+title = "Liveness evidence and confirmation"
+parent = "LLR-017"
+constrains = "IF-016"
+detail = "Create a fresh ownership record exclusively as soon as staging is acquired. Maintain its 60-second heartbeat independently of long file reads; startup requires one successful beat. A beat verifies run identity and touches the same opened record, never a successor’s. Staleness is at least 1800 seconds. Confirm an apparently stale record or empty staging with an unchanged second sample after max(90 seconds, declared cadence plus 30 seconds), with declared cadence capped at 600 seconds before adding the 30-second margin; a fresh malformed record is live and an unreadable record indeterminate. Stop drains pending beats and reports heartbeat errors. Ownership is carried by RUN.inprogress; PRUNE.inprogress identifies removal work."
+dimensions = "record=set{valid,torn,unreadable}; age=set{fresh,stale}; second_sample=set{same,changed}; heartbeat=set{ok,start-fails,later-fails}; @pairwise"
+rationale = "Pipeline-bound heartbeats falsely age during long hashes; same-handle identity checks avoid freshening a successor’s claim."
+status = "Drafted"
+
+[design.LLR-086]
+title = "Measured storage decision"
+sr_refs = ["SR-081","SR-096","SR-111"]
+constrains = "IF-010"
+detail = "Compression off stores raw without probing. Probe-off uses the extension policy; at or below 262144 bytes all modes use that policy. Excluded-extensions exempts listed types; otherwise use measured aggregate compressed/sample ratio <=0.90 to choose compression, regardless of extension. Missing measurement warns once and falls back to the list. Make this choice once only when writing a previously absent key, never when adopting stored supply."
+dimensions = "enabled=bool; mode=set{off,excluded-extensions,always}; size=set{below-floor,at-floor,above-floor}; listed=bool; ratio=set{below-threshold,at-threshold,above-threshold,unavailable}; @pairwise"
+rationale = "Name overrides undermine measured saving; one ordered decision gives both the stored bytes and record the same answer."
+status = "Drafted"
+
+[design.LLR-087]
+title = "Atomic record publication"
+sr_refs = ["SR-082","SR-038","SR-110"]
+constrains = "IF-007"
+detail = "Write complete canonical content to a sibling temporary record, flush completed content before atomic replacement, then publish the matching witness. Never append to or read an abandoned temporary record as authority. Ordinary write or replacement failure preserves the prior authority and removes only owned temporary debris. An interruption between record and witness publication leaves a detectable mismatch, not an accepted torn state. Publish current metadata and its descriptor as a consistent generation before admitting a completed state."
+dimensions = "point=set{before-temp,during-temp,after-temp,after-record,after-witness}; event=set{kill,power-loss,io-error}; rows=set{empty,many}; @pairwise"
+rationale = "In-place rewriting exposes torn authority; staged replacement plus evidence yields complete old/new records or loud refusal."
+status = "Drafted"
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+
+[design.LLR-088]
+title = "Reclaim only proven disposable leaves"
+parent = "LLR-017"
+constrains = "IF-016"
+detail = "Move confirmed reclaimable staging to a unique aside name, recheck its sampled identity, then acquire fresh staging and immediately establish new ownership. Re-list aside content literally and delete only the exact disposable marker and incomplete record-publication leaves, followed by nonrecursive directory removal. Any unexpected entry, changed identity or cleanup failure keeps the aside folder and names recovery guidance. Complete staged records and removal markers are not disposable."
+dimensions = "aside=set{empty,marker,temp-record,complete-record,unexpected-content,identity-changed}; cleanup=set{ok,failed}; @pairwise"
+rationale = "A recursive cleanup can consume bytes a resumed writer just added; nonrecursive removal fails safely when proof changes."
+status = "Drafted"
+
+[design.LLR-090]
+title = "Persistent exclusive-use lifetime"
+sr_refs = ["SR-085","SR-086","SR-107","SR-106"]
+constrains = "IF-015"
+detail = "Acquire the same persistent lock identity for every store-mutating operation before decision-bearing store reads. Use nonblocking exclusive access, at most three attempts 250 ms apart; any acquisition failure counts as a live holder and refuses without touching staging or content: contention or I/O failure yields 4, access denial or unusable lock location yields 2. Name the known holding operation, or the acquisition cause and location when no holder can be identified. Hold it through publication, run-state persistence and final cleanup, releasing on normal and abnormal exit. Never write, truncate or unlink the lock leaf, including when read-only. The exclusion leaf is Temp.lock in the history root, outside Temp."
+dimensions = "operation=set{backup,prune,repair,refresh}; acquisition=set{free,held,denied,directory,io-error}; exit=set{normal,error,killed}; @pairwise"
+rationale = "Releasing during the marker-free publication window admits a second writer; unlinking permits different locked identities at one path."
+status = "Drafted"
+
+[design.LLR-091]
+title = "All mutation paths share exclusion"
+parent = "LLR-090"
+constrains = "IF-015"
+detail = "Backup retains exclusion across staging-marker removal and snapshot rename. Removal retains it across the whole named batch, including committed-residue completion. Repair acquires before its audit and refresh before inventory. Read-only check, inventory, view, restore and dry-run operations take no mutation lock. Acquiring exclusion never overrides stale-owner evidence for an older participant. Read-only operations remain runnable beside a writer and report a real observed integrity or I/O failure rather than refusing merely because exclusion is held."
+dimensions = "writer=set{backup,prune,repair,refresh}; phase=set{read,write,marker-free,final}; reader=set{none,check,inventory,restore,dry-run}; @pairwise"
+rationale = "Locking only at a launch adapter leaves direct mutation paths unprotected; ownership at the operation boundary closes them."
+status = "Drafted"
+
+[design.LLR-095]
+title = "Separate all writable locations before launch"
+sr_refs = ["SR-063","SR-138","SR-149","SR-140"]
+constrains = "IF-002"
+detail = "Resolve every configured source, backup, history, view and explicit cache location physically before creating any of them. Refuse backup/history or view locations that equal, contain or lie inside any source; refuse a view overlapping any store root or containing foreign content. Refuse an explicit cache inside a source or equal to or inside any store root. Check across all configured sets, not just each pair. A read-only source with no external cache location refuses with value 2 before any write and names SourceStatePath."
+dimensions = "relation=set{inside,equal,containing,separate,via-link}; location=set{backup,history,view,cache}; cross_set=bool; source_writable=bool; @pairwise"
+rationale = "Checking only one set or checking after directory creation admits overlap and violates a no-write refusal."
+status = "Drafted"
+hat_refs = ["SECURITY"]
+
+[design.LLR-096]
+title = "Source writes are confined to the chosen cache"
+sr_refs = ["SR-093","SR-094","SR-139","SR-148"]
+constrains = "IF-021"
+detail = "Open source content and directories for observation only. With no configured state location keep the plain change-detection record at the source root; only that record’s publication and the incidental root timestamp change are permitted source writes. With an explicit external location read and write the cache there and change no source metadata, including the root time. Restore and maintenance never modify the source."
+dimensions = "state_location=set{default,external}; source=set{readonly,writable}; operation=set{backup,check,prune,view,restore}; @pairwise"
+rationale = "Using the source as temporary workspace violates read-only operation; the explicit cache exception bounds the only permitted write."
+status = "Drafted"
+
+[design.LLR-097]
+title = "Space view and optional media observation"
+sr_refs = ["SR-097","SR-098","SR-099","SR-147"]
+constrains = "IF-030"
+detail = "When SpaceView is on, list every file largest-first by its stored copy’s full physical size, marking shared copies, and record size divided by positive playing duration in MiB per second rounded to three decimal places for every file for which the media capability supplies a duration. Absent, failed, zero or invalid duration produces not-measured in the view and a run warning, without changing capture or outcome. SpaceView off performs no media reads and logs that the measure was not taken."
+dimensions = "enabled=bool; tool=set{available,absent,failing}; file=set{video,audio,image,malformed,other}; duration=set{positive,zero,invalid}; @pairwise"
+rationale = "A blank metric looks like zero or silent failure; explicit availability preserves both usability and backup independence."
+status = "Drafted"
+
+[design.LLR-098]
+title = "Crash-resumable removal commit"
+sr_refs = ["SR-101","SR-045"]
+constrains = "IF-011"
+detail = "Only after surviving-pool proof, commit removal by atomically renaming the target to a non-snapshot committed-residue name, then delete it. Rerunning the same explicit removal resumes its own precommit work or completes its committed residue under exclusion. Sweep only unreferenced staged copies proven absent from each folder’s record; never identify user data by a temporary suffix alone. Other removal residue refuses a backup with guidance to rerun that removal."
+dimensions = "point=set{before-copy,after-copy,after-record,after-rename,during-delete}; event=set{kill,power-loss,io-error}; residue=set{owned,other,referenced-suffix}; @pairwise"
+rationale = "Deleting before a durable commit makes retry ambiguous; a renamed residue gives an idempotent completion point."
+status = "Drafted"
+
+[design.LLR-099]
+title = "Repair only byte-proven corrections"
+sr_refs = ["SR-109","SR-110","SR-059"]
+constrains = "IF-029"
+detail = "For form/name disagreement, establish the stored payload identity and correct physical-form fields for every row sharing that object, without changing logical columns or repacking. For a missing local object, read and hash a candidate elsewhere at repair time, copy verified bytes back to the unchanged local location and verify before publication; leave the supplying folder unchanged. Missing-everywhere, altered payload, unverified candidates and unreferenced data remain findings. Stage corrections so interruption leaves an intact prior/new state or a witness refusal."
+dimensions = "finding=set{wrong-flag,wrong-name,missing-local,missing-all,altered,unreferenced}; candidate=set{verified,wrong,none}; sharing=bool; interrupt=bool; @pairwise"
+rationale = "Pointing at another folder hides an unmanaged dependency; verified local repair keeps later retention safe."
+status = "Drafted"
+
+[design.LLR-100]
+title = "Detect target name collisions before entry writes"
+sr_refs = ["SR-092"]
+constrains = "IF-022"
+detail = "After whole-restore admission, project all recorded file paths through the target’s case and normalization semantics before writing them. Mark every member of a collision group unrestorable with value 1, naming all original paths, and write none of those members. Restore all independent entries. Do not choose a winner by record order."
+dimensions = "collision=set{none,case,normalization}; target_case_sensitive=bool; count=range[2..4]; @pairwise"
+rationale = "Last-writer-wins silently merges distinct recorded files; rejecting the whole collision group makes the loss explicit."
+status = "Drafted"
+
+[design.LLR-101]
+title = "Constrain each restored entry to the target"
+sr_refs = ["SR-121"]
+constrains = "IF-022"
+detail = "For every file and metadata entry, reject absolute, drive-qualified, parent-climbing or physically escaping paths, including existing links in any parent. Recheck resolved containment immediately before a write and do not write through newly encountered links. Mark the entry damaged-record with value 3 and continue independent entries. An internal recorded link is recreated only if its rebased destination stays under the target."
+dimensions = "entry=set{file,directory,internal-link}; escape=set{none,absolute,drive,parent,existing-link}; target_exists=bool; @pairwise"
+rationale = "A safe target does not make every recorded child safe; per-entry containment blocks traversal through hostile paths."
+status = "Drafted"
+
+[design.LLR-102]
+title = "All restore admission precedes output"
+sr_refs = ["SR-145","SR-118"]
+constrains = "IF-005"
+detail = "Collect whole-restore checks for request, physical target, authority integrity and supported form, required tool availability/version and capacity before any target folder, file or restore log is created. Determine archive capability need from actual content forms rather than only recorded flags. Buffer diagnostics until admission. Return the highest-precedence whole-restore refusal before considering per-entry collisions or traversal; only after all whole checks pass begin entry processing."
+dimensions = "whole_fault=set{none,target,record,form,tool,capacity}; entry_fault=set{none,escape,collision,missing}; route=set{runtime,shell}; @pairwise"
+rationale = "Discovering a whole-restore fault after writing creates a misleading partial refusal; one admission barrier preserves the distinction."
+status = "Drafted"
+
+[design.LLR-103]
+title = "Progress and complete run accounting"
+sr_refs = ["SR-124","SR-125","SR-126","SR-089"]
+constrains = "IF-027"
+detail = "Record every added, changed, removed and failed logical path with failure cause and final counts. Emit progress from a mechanism independent of long content reads, at most 120 seconds of active execution after launch, between updates and before completion, covering reading, storage and finalization. Every refusal includes observed condition, affected path or setting and a concrete remedy; sanitize secrets from both normal and error output."
+dimensions = "phase=set{reading,storing,finalizing}; duration=set{short,long}; change=set{none,add,edit,remove,failed,mixed}; cause=set{config,busy,integrity,space,tool,form}; @pairwise"
+rationale = "Per-file logging can be silent during one very large file; periodic active-time progress keeps unattended work observable."
+status = "Drafted"
+
+[design.LLR-104]
+title = "Protected notification credentials"
+sr_refs = ["SR-128","SR-129"]
+constrains = "IF-032"
+detail = "Accept notification setup secrets only through the account-protection facility. Persist only its opaque protected result; do not write readable secrets to configuration, backup artifacts, logs or errors. Recover for sending within the owner account and sanitize provider failures. Reject readable credential fields before backup admission without echoing their value. This restriction applies to handled credentials, not coincidentally identical bytes in ordinary source content."
+dimensions = "surface=set{configuration,backup,log,error}; protection=set{available,unavailable}; send=set{ok,failed}; @pairwise"
+rationale = "Encrypting only the happy-path configuration leaves error output exposed; every persisted surface needs the same boundary."
+status = "Drafted"
+
+[design.LLR-105]
+title = "Follow external links with bounded observation"
+sr_refs = ["SR-137","SR-089","SR-091"]
+constrains = "IF-021"
+detail = "Resolve each link physically against the source, owned locations and the current ancestor stack. Follow a directory link to external non-owned content under its logical link path, and capture a file link as its target file bytes. Follow two independent aliases separately while deduplicating their content. Bound each remote link-resolution or enumeration request to 60 seconds; timeout or unreachable target is a named capture failure, freezes prior rows under that logical prefix and makes the location part failed."
+dimensions = "kind=set{directory-link,junction,file-link}; target=set{other-volume,network,unreachable,timeout}; aliases=set{one,two}; prior=bool; @pairwise"
+rationale = "A link can be the only route to wanted content; skipping all links loses it, while an unbounded remote request stalls the run."
+status = "Drafted"
+
+[design.LLR-106]
+title = "Record internal and owned-location links"
+sr_refs = ["SR-150","SR-151"]
+constrains = "IF-013"
+detail = "For a link resolving inside its source, to an ancestor of the current traversal, or into backup, history, cache or log locations, record its logical path, kind and target without following it. Store a source-relative target when it belongs to the source’s logical tree; otherwise keep the original external target. Link recording alone is successful capture and does not make the run part failed. The new shipped link record is LINKS.csv."
+dimensions = "kind=set{directory-link,junction}; target=set{inside-source,ancestor,backup,history,cache,logs}; nested=bool; @pairwise"
+rationale = "Following cycles never terminates and following owned storage backs up the backup; recording preserves the user’s link without either growth hazard."
+status = "Drafted"
+
+[design.LLR-107]
+title = "Recreate links only after files"
+sr_refs = ["SR-152","SR-121"]
+constrains = "IF-013"
+detail = "After every file write and verification, recreate recorded links at their safe relative places. Rebase source-relative targets into the restored tree; external targets retain their original meaning. No file is written through these recreated links. An unsupported link kind or missing privilege names each skipped link without changing complete to failure; an escaping source-relative target is record damage under entry containment."
+dimensions = "kind=set{directory-link,junction}; scope=set{source-relative,external}; privilege=bool; supported=bool; @pairwise"
+rationale = "Creating links before files can redirect writes; last-phase creation preserves both link fidelity and containment."
+status = "Drafted"
+
+[design.LLR-108]
+title = "Fence a resumed former owner"
+sr_refs = ["SR-144"]
+constrains = "IF-015"
+detail = "Bind each mutation to the current run identity and held exclusion generation. Revalidate ownership before every object publication, move, delete, record replacement and state publication, including after a long blocking read or copy. If another owner reclaimed the work, stop further store writes and cleanup, record reclaimed ownership and return part failed. A same-kernel suspended owner retaining exclusion remains busy to successors regardless of heartbeat age. An unreadable ownership record allows at most three retries 300 ms apart; a mismatching identity aborts immediately."
+dimensions = "claim=set{held,not-shared,lost}; resume=set{read,copy,move,publish}; successor=set{running,complete}; @pairwise"
+rationale = "Phase-only checks leave writes between the fences unprotected; every irreversible mutation needs current ownership evidence."
+status = "Drafted"
+
+[design.LLR-109]
+title = "Bound sampled compression work"
+parent = "LLR-086"
+constrains = "IF-010"
+detail = "For content above the floor, sample at most three 262144-byte windows at offsets 0, floor((length-262144)/2), and length-262144. Below three windows read the file once as one sample. Fill short reads to the window limit or end of stream. Measure finalized Brotli fastest-level output with a counting sink; sum compressed and sample bytes for the aggregate. Open read-only; changed size/time or failed reads yield unavailable measurement. Try alternate group candidates only until one is readable, retaining the total sampling bound."
+dimensions = "size=set{floor-plus-one,under-three-windows,three-windows,large}; short_read=bool; changed_during_read=bool; candidate=set{owner,twin,none}; @pairwise"
+rationale = "One prefix sample misses mixed content; bounded spread samples improve decisions without whole-file trial compression."
+status = "Drafted"
+hat_refs = ["PERFORMANCE"]
+
+[design.LLR-110]
+title = "Noncontent publication leftovers"
+parent = "LLR-022"
+constrains = "IF-011"
+detail = "Recognize the incomplete record-publication leaf only at the record-owning root and by exact case-sensitive identity. It is never pool supply, a storage finding or a reason alone to classify staging as content-bearing. An identically named nested user leaf remains ordinary content. Retain complete staged authority and unexpected leaves on abandoned-work inspection."
+dimensions = "location=set{live,saved,staging,nested}; leaf=set{exact-temp,case-variant,complete-record,ordinary}; @pairwise"
+rationale = "Ignoring all similarly named files can hide unique content; exact role-scoped identity keeps cleanup conservative."
+status = "Drafted"
+
+[design.LLR-111]
+title = "Version evidence independent of mutable kits"
+sr_refs = ["SR-116","SR-146","SR-039","SR-084"]
+constrains = "IF-014"
+detail = "Persist the writer-format profile with the state’s record generation; kit refresh never changes it. Current states explicitly require a witness and a directory metadata record, including empty metadata. Accept a pre-feature exception only when the record’s own immutable version evidence proves that feature did not exist; an absent descriptor, absent witness or current kit is not evidence of old age. Unsupported or ambiguous profiles refuse by name, never receive invented historical evidence. The new shipped profile is STATE-FORMAT.json, with its digest bound into publication evidence."
+dimensions = "profile=set{current,proven-pre-witness,proven-pre-metadata,missing,ambiguous,future}; kit_refreshed=bool; missing=set{none,witness,directories}; @pairwise"
+rationale = "Current kit revision cannot identify when data was written; independent state evidence closes the deletion-as-compatibility loophole."
+status = "Drafted"
+
+[design.LLR-112]
+title = "Licensed self-contained container payload"
+sr_refs = ["SR-034","SR-130","SR-143"]
+constrains = "IF-034"
+detail = "Deliver an image containing the runtime and required digest/archive capabilities, with an unprivileged default identity. For every redistributed dependency include its required notices and a licence permitting the shipped form; a dependency without that permission or notices is excluded from delivery. The image runs with no host runtime installation. All runtime scratch and caches reside in writable working-state mounts; ordinary runs need no network or added capabilities and write nowhere else."
+dimensions = "dependency=set{runtime,digest,archive,media}; notices=bool; licence=set{permitted,not-permitted}; host_runtime=bool; @pairwise"
+rationale = "A working image can still be undistributable; checking the shipped dependency set avoids relying on assumed licence permission."
+status = "Drafted"
+
+[design.LLR-113]
+title = "Rebuild untrusted change-detection state"
+sr_refs = ["SR-035"]
+constrains = "IF-017"
+detail = "Bind cached observations to the canonical source, backup identity and completed generation. Missing, unreadable, truncated, foreign or inconsistent cache data triggers a fresh source observation compared with the backup’s own authoritative record; log that the cache was rebuilt. Never use a cache fault as evidence a stored file was removed or that the backup is empty."
+dimensions = "fault=set{missing,truncated,stale,foreign,unreadable}; backup=set{empty,populated}; @pairwise"
+rationale = "The cache is a speed aid, not authority; refusing every cache fault sacrifices automatic recovery, while trusting it sacrifices data."
+status = "Drafted"
+
+[design.LLR-114]
+title = "Bound pool work at declared scale"
+sr_refs = ["SR-064","SR-112","SR-113"]
+constrains = "IF-018"
+detail = "Build content-key supply once per operation, hash each distinct candidate at most once per verified pass, and stream state records instead of retaining every row of all history. Keep pool indexes and aggregate counters bounded to 1 GiB resident memory; use partitioned temporary indexes outside the store above that bound. Limit concurrently active archive work to one job and reserve the remaining operation budget within 4 GiB total resident memory. A no-reread backup inspects changed demand and cached unchanged history rather than rereading every historical row."
+dimensions = "operation=set{backup,check,restore}; files=range[1..1000000]; history=range[1..365]; changed_bytes=range[0..1GiB]; @pairwise"
+rationale = "Repeated pool scans and all-history row retention grow with history; bounded shared indexes target the time and memory envelope."
+status = "Drafted"
+
+[design.LLR-115]
+title = "Recover a positively identified publication"
+sr_refs = ["SR-082","SR-110","SR-059"]
+constrains = "IF-041"
+detail = "Before changing authoritative state, persist a generation intent containing old/new record and metadata identities, the operation identity and required content keys, using complete durable replacement. Keep prior-state objects resolvable outside unpublished staging until old and new authorities are safely published. After interruption and only after successful admission and exclusion, finish an intent whose recorded identities and surviving bytes prove the exact publication; restore matching witnesses from that proof. Unknown or conflicting evidence refuses unchanged. Interrupted repair and kit refresh use the same identification rule. Never bless an arbitrary mismatching record by simply re-stamping it."
+dimensions = "operation=set{backup,repair,refresh}; point=set{intent,objects,record,witness,kit}; evidence=set{complete,missing,conflicting}; admission=set{passed,refused,busy}; @pairwise"
+rationale = "Atomic record replacement alone does not preserve moved content or prove an unwitnessed generation; a durable intent supplies bounded recovery authority."
+status = "Drafted"
+
+[design.LLR-116]
+title = "Readers consume a complete retained generation"
+sr_refs = ["SR-106","SR-103","SR-059"]
+constrains = "IF-040"
+detail = "A check, inventory or restore selects a complete published generation without taking mutation exclusion or changing store bytes or modification times. Retry an observation whose generation changed while admission was reading it. Keep the selected authority and resolved input objects stable through open read handles or retained immutable supply until the read session finishes; writers defer disposal of supply still pinned by a reader. Publication never exposes an accepted mixed generation."
+dimensions = "reader=set{check,inventory,restore}; writer=set{backup,prune,repair,refresh}; phase=set{admission,content-read,finalization}; generation_changed=bool; @pairwise"
+rationale = "Merely avoiding the writer lock admits torn observations; a pinned complete generation preserves concurrent-read semantics."
+status = "Drafted"

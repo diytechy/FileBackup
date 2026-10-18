@@ -1,0 +1,1197 @@
+# low-level-requirements.toml: FileBackup's design requirements, round-3
+# derivation (Opus).
+#
+# Contract voice: each row states the observable obligation (inputs, outcome,
+# refusals) that survives a behaviour-preserving refactor. No row names a code
+# file, function or symbol; names that are an interface's form (store-layout
+# names, settings, switches, variables) stay on the interface and rows refer to
+# them by role. A top-level row points up with sr_refs; a child row names its
+# one parent. Placement is derived from the owner of the interface a row
+# constrains. Legacy ids are kept where the meaning survives; new rows start at
+# LLR-095. All rows are Drafted.
+
+# === Operation launch and outcome (CMP-002) =================================
+
+[design.LLR-043]
+title = "Every operation ends with one value of the shared vocabulary"
+sr_refs = ["SR-043"]
+constrains = "IF-003"
+detail = """Every backup, removal, saved-state report, check, repair, kit refresh and view rebuild ends with exactly one outcome value: 0 when it completed; 1 when some part failed or content is missing; 2 for a bad request, a refused configuration or a precondition not met (a missing or unsupported runtime, component or tool, a destination lacking space, a source that suddenly looks empty, an unfinished removal's leftovers, a retired or unrecognised store form, a read-only source with no state location, a claim location that cannot be used); 3 when it refused over a damaged record of a state; 4 when it stopped for a later retry because the backup was busy or a host fault occurred while it worked. Where one operation finds causes of several classes, 2 takes precedence over 3, 3 over 4 and 4 over 1. The values are distinct whether or not the launch request carries the former request for distinct values, which is accepted and changes nothing, and a non-backup action returns its value as the exit status rather than raising an error. An error no step classified never ends the operation with 0: it ends with 2 when it arose before the operation changed anything and with 4 otherwise."""
+dimensions = "operation=set{backup,removal,report,check,repair,kit-refresh,view}; class=set{complete,part-failed,bad-request,configuration-refused,precondition-not-met,damaged-record,busy,host-fault,unclassified}; legacy_switch=bool; host=set{direct,container}; @pairwise"
+rationale = """Without one mapping each operation classifies its own refusals, and a host cannot read the value without knowing which operation it ran; that is how a busy backup and a refused configuration came to share a value. Leaving the mapping to each operation lost; the operations still decide which cause they found, and this row decides the value."""
+status = "Drafted"
+
+[design.LLR-014]
+title = "Configured locations run independently and fold into one value"
+sr_refs = ["SR-014", "SR-095"]
+constrains = "IF-003"
+detail = """A run processes every configured location in turn in the one launch. A location that fails or is refused is recorded and the next location still runs. The run's value folds the locations' values: 0 when every location completed; the refusal's value when every location was refused before anything changed, 2 over 3 over 4 where the refusals differ; otherwise 1 when any location failed or was refused. The number of locations draws no warning."""
+dimensions = "locations=range[1..8]; failing_position=set{none,first,middle,last}; per_location=set{complete,part-failed,refused-2,refused-3,refused-4}; shared_volume=bool; @pairwise"
+rationale = """Without it the first failing location aborts the rest, and one unreadable source costs every other backup that night. Stopping at the first failure lost; so did reporting the best location's value, which hides the failed one."""
+status = "Drafted"
+
+[design.LLR-016]
+title = "An operation started without an interactive session never asks"
+sr_refs = ["SR-016"]
+constrains = "IF-002"
+detail = """An operation is unattended when the launch request declares it, when its input is redirected or closed, or when there is neither an interactive console nor a desktop session. An unattended operation asks nothing at any step: an absent optional tool is treated as absent, the required component is obtained without a question or refused as a precondition not met, and a step that would have needed an answer fails the operation with an outcome naming what was needed. The same holds for a backup, a removal, the report, a check, a repair and a kit refresh."""
+dimensions = "operation=set{backup,removal,report,check,repair,kit-refresh}; start=set{declared,redirected-input,closed-input,no-console-no-desktop,interactive}; component_missing=bool; optional_tool_missing=bool; @pairwise"
+rationale = """A scheduled run that waits on a prompt nobody sees never ends and never reports; it is the worst failure an unattended tool can have. Detecting only the declared switch lost: a host that forgets the switch, or closes input, must still never hang."""
+status = "Drafted"
+
+[design.LLR-096]
+title = "The report and the check write one machine-readable findings document"
+sr_refs = ["SR-104"]
+constrains = "IF-010"
+detail = """When the saved-state report or a check completes, standard output carries exactly one findings document and nothing else: one item per saved state for the report, one item per finding for the check (a repair adds whether each finding was repaired). Every figure and finding the human-readable record states is present in it. A clean check gives an empty set."""
+dimensions = "operation=set{report,check,check-repair}; findings=set{none,one,many}; @pairwise"
+rationale = """A host that must parse the human record breaks on every rewording; mixing log lines into standard output lost because one stray line makes the document unparseable."""
+status = "Drafted"
+
+[design.LLR-048]
+title = "The container's actions map onto the same request and outcome"
+sr_refs = ["SR-048", "SR-142"]
+constrains = "IF-038"
+detail = """A container start takes its action from a leading action word, else from the action variable, else backup. The removal action passes the saved-state names; the report and the check pass through; a check with the repair variable set runs the repair. Every argument beginning with a dash reaches the launch request unchanged, notification is always switched off and the start is always declared unattended. An unknown action word or variable value is a bad request (2). The container's exit status is the operation's outcome value, equal to that of the same request started directly."""
+dimensions = "action=set{none,backup,prune,snapshots,verify,verify-repair,unknown}; source=set{word,variable,both}; passthrough=bool; request=set{valid,unknown-state}; @pairwise"
+rationale = """A host that keeps retention in step with backups must run the removal and the report where it runs the backup; a container that can only back up forces a second, unmanaged install. Mapping each action to its own image lost: three images to keep at one version."""
+status = "Drafted"
+
+# === Configuration (CMP-003) ================================================
+
+[design.LLR-042]
+title = "The configuration is validated against the one catalogue before anything is touched"
+sr_refs = ["SR-018"]
+constrains = "IF-004"
+detail = """Before any component is loaded, any record is created or any backup is read, the configuration is checked in either form against the one settings catalogue: the key set is closed at every level; every value is checked against the kind it was parsed as, so a quoted boolean, a list given for a string or a number given for a path is refused rather than converted; an integer is any integral number, range-checked before conversion; every required setting is present and non-empty; every enumerated value is in its exact set. The first fault in document order is reported, naming the setting by its path (a location set by its position in the list) and the kind or values expected, and the launch ends with the configuration-refused value (2), creating and changing nothing. On success every omitted optional setting takes its documented default for every location set, and no validated setting is lost on the way to the operation."""
+dimensions = "fault=set{none,unknown-key,retired-key,wrong-type,quoted-boolean,list-for-string,missing-required,empty-string,bad-enum,version-absent,version-too-old,version-too-new,version-fractional}; form=set{json,native-windows}; level=set{top,tools,secrets,location-set}; @pairwise"
+rationale = """A coerced value silently changes the document's meaning: a quoted false becomes true and disarms a refusal the owner set. Validating JSON strictly while giving the native-Windows form a shape check only lost, because an owner of that form then gets the silent coercions the check exists to stop."""
+status = "Drafted"
+
+[design.LLR-018]
+title = "A configuration location that names no document is refused"
+parent = "LLR-042"
+detail = """A configuration location that names nothing, or names a folder, is refused before any work, with the configuration-refused value (2) and a message naming the location; nothing is created, the global record included."""
+rationale = """A path typo would otherwise surface as a parser error that names neither the path nor the remedy. Treating a folder as a missing file lost nothing; reading it lost because the error then names a parse failure."""
+status = "Drafted"
+
+[design.LLR-063]
+title = "A retired setting is refused by name, as retired"
+parent = "LLR-042"
+detail = """A document carrying a setting the catalogue lists as retired is refused in either form with a message naming that setting as retired and saying what replaced it, not with the generic unknown-setting message; a reserved value is refused naming it as reserved. An optional setting added with a default leaves the description version unchanged, and an older build refusing such a setting by name is the closed catalogue working as designed."""
+rationale = """An owner whose document predates a removal must learn that the setting was removed, not that he mistyped it; a generic unknown-key message lost because it sends him looking for a typo."""
+status = "Drafted"
+
+[design.LLR-098]
+title = "A document stating an older supported version keeps that version's meaning"
+sr_refs = ["SR-123"]
+constrains = "IF-004"
+detail = """Each supported description version has a fixed key set and fixed meanings. A setting added with a default that preserves the earlier meaning does not raise the version; a change of meaning does, and a document stating the earlier version is then read with the earlier meaning, settings added since taking the defaults that keep it. A document stating a version no longer supported is refused with the configuration-refused value naming the supported range; one stating a newer version is refused naming the upgrade."""
+dimensions = "version=set{current,older-supported,no-longer-supported,newer}; form=set{json,native-windows}; @pairwise"
+rationale = """An owner's unchanged document must keep doing what it did after an upgrade; reading every document with the newest meanings lost because a meaning change would then silently alter old documents."""
+status = "Drafted"
+
+[design.LLR-099]
+title = "Every configuration document states its description version"
+sr_refs = ["SR-135"]
+constrains = "IF-006"
+detail = """A document in either form without the version setting is refused with the configuration-refused value; an integral version written with a decimal point is read as that integer; a version that is not an integer is refused. The configuration helper writes the current version into every document it produces."""
+dimensions = "form=set{json,native-windows}; version=set{absent,current,older,newer,integral-decimal,non-integer}; @pairwise"
+rationale = """An unversioned document cannot be read with the meaning it was written for once a meaning changes; exempting the native-Windows form lost because its owners would be the ones whose documents silently change meaning."""
+status = "Drafted"
+
+[design.LLR-100]
+title = "A configuration carrying a readable credential is refused"
+sr_refs = ["SR-129"]
+constrains = "IF-006"
+detail = """A JSON document carrying any login or password setting is refused, because the form has no protected representation. A native-Windows document whose credential is not a host-protected credential object (a password in plain text, or a credential setting of another kind) is refused. Each is refused with the configuration-refused value before any backup data is touched; a native-Windows document carrying a host-protected credential is accepted."""
+dimensions = "form=set{json,native-windows}; credential=set{absent,plain-password,login-key,protected}; @full"
+rationale = """A readable password in a configuration document is a leaked mailbox for anyone who can read the folder; warning and continuing lost because the leak is already on disk."""
+status = "Drafted"
+
+[design.LLR-101]
+title = "The published description and the launch checks give the same verdict"
+sr_refs = ["SR-042"]
+constrains = "IF-005"
+detail = """The published description states exactly the catalogue's keys, value kinds, value sets, required settings and current version. Over one shared corpus of valid and invalid documents, the description and the launch checks accept and refuse the same documents; a native-Windows document is checked against the same catalogue, so the description's verdict on the equivalent JSON document is the launch checks' verdict on it. A change to the catalogue changes the description in the same release."""
+dimensions = "case=set{valid,unknown-key,wrong-type,missing-required,bad-version,bad-enum}; form=set{json,native-windows}; @pairwise"
+rationale = """An integrator who validates against the description and is then refused at launch has been given a false contract; a description written by hand and never compared lost because it drifts with the first new setting."""
+status = "Drafted"
+
+[design.LLR-102]
+title = "The shipped example configuration is accepted"
+sr_refs = ["SR-134"]
+constrains = "IF-008"
+detail = """The example configuration, with only its locations changed to existing folders, is accepted by the launch checks and by the published description, and a run with it produces a backup that restores byte-exact."""
+dimensions = "locations=set{changed-to-existing,as-shipped}; @full"
+rationale = """An example that the program refuses teaches the wrong document to every new integrator; an example kept only in prose lost because it cannot be checked."""
+status = "Drafted"
+
+[design.LLR-103]
+title = "Configured locations may not overlap a source or the store"
+sr_refs = ["SR-138", "SR-063", "SR-149"]
+constrains = "IF-004"
+detail = """Before the run starts and before anything is written, every configured location is resolved to its physical place, links included, and compared with every source, backup, saved-state, state and listing location of every location set. Refused, with the configuration-refused value (2), a message naming both locations or the setting, and nothing created or changed: a backup or saved-state location inside, equal to or containing a source, a drive-root source included; a listing location inside, equal to or containing a source, a backup, a saved-state or a state location, or not on the backup's volume, or already holding entries the system did not generate (which are left in place); a configured state location inside any source, or equal to or inside a backup or saved-state location. Locations that do not overlap run normally."""
+dimensions = "location=set{backup,saved-states,listing,state}; relation=set{inside,equal,containing,separate}; other=set{source,backup,saved-states,state}; resolution=set{as-written,through-link}; source_root=set{ordinary-folder,drive-root}; foreign_content=bool; @pairwise"
+rationale = """A backup inside its own source backs itself up on every run, and a listing written over a source deletes the owner's files when it is regenerated. Checking only at the moment the listing is written lost: by then a backup has already been taken into a refused location."""
+status = "Drafted"
+
+[design.LLR-037]
+title = "Tool locations and compression effort come from the environment without ever breaking a restore"
+sr_refs = ["SR-019"]
+constrains = "IF-007"
+detail = """The archive tool is located from the configuration's tool setting, else the environment variable, else the platform's standard install location, else the command search path; locating it never fails on a host that lacks a Windows-only environment. The compression effort is read once: only one of the ten single-digit strings is accepted, by exact membership with no trimming; an absent or empty value means 9. Reading the effort never raises an error, because the restore-safe library that reads it is loaded by the restore kit; an invalid value is recorded as rejected and the effort stays 9. A backup that will compress (some location set has compression on) refuses an invalid value before any record is created, with the configuration-refused value naming the variable and the allowed range; every other action, a backup with compression off on every set, and every restore are unaffected."""
+dimensions = "archive_location=set{configured,variable,standard-install,search-path,absent}; effort=set{absent,empty,0,9,10,negative,word,padded,non-ascii-digit}; action=set{backup-compressing,backup-not-compressing,other-action,restore}; @pairwise"
+rationale = """A malformed variable that breaks a restore turns a setting restore never reads into data loss at the worst moment; failing the import lost for that reason, and silently using 9 for a compressing backup lost because the owner's chosen effort would be ignored unseen."""
+status = "Drafted"
+
+# === Provisioning (CMP-004) =================================================
+
+[design.LLR-020]
+title = "The runtime and every needed tool are checked before any location is touched"
+sr_refs = ["SR-019", "SR-133"]
+constrains = "IF-035"
+detail = """Before any location is processed: a runtime below the supported floor is refused with the precondition-not-met value naming the floor and how to obtain it; where any location set compresses, an absent archive tool is refused the same way, naming the tool and the settings that locate it; where no set compresses the archive tool is not required. An absent media-measurement tool is an optional extra: the run completes and records that the extra was skipped. Nothing is changed by a refusal."""
+dimensions = "missing=set{none,runtime-below-floor,archive-tool-with-compression,archive-tool-without-compression,media-tool}; @full"
+rationale = """A run that discovers a missing tool halfway has already changed the backup; checking up front lost nothing, and checking per file lost because the failure then repeats per file and the store is left half-written."""
+status = "Drafted"
+
+[design.LLR-105]
+title = "The hashing component is obtained on first use, or the launch is refused"
+sr_refs = ["SR-132", "SR-019"]
+constrains = "IF-037"
+detail = """The hashing component is taken from a copy carried beside the program, else from an installed package of the pinned version, else it is fetched from the package source at the pinned version, identified by the package's published digest, and installed for the current account, without a question, attended or not. Where the package source is unreachable or the fetched package does not match, the launch is refused with the precondition-not-met value, naming the component, its version and the command that installs it, and nothing is changed. The component is loaded before the first digest is taken. The restore kit never fetches: it carries its own copy."""
+dimensions = "bundled=bool; installed=bool; package_source=set{reachable,unreachable,mismatched}; attended=bool; @pairwise"
+rationale = """A first launch that stops to ask, or that needs a person to install a library by hand, never completes on a scheduled host. Asking before fetching lost: an unattended run cannot answer, and the fetch is pinned and verified, so there is nothing for a person to judge."""
+status = "Drafted"
+
+# === Notification (CMP-005) =================================================
+
+[design.LLR-015]
+title = "A run's outcome is sent where notification is set up, and a send failure changes nothing"
+sr_refs = ["SR-015", "SR-127"]
+constrains = "IF-011"
+detail = """After each backup run, where the configuration names a relay, a sender and a recipient and notification is not switched off for the run, one message stating success or failure is sent; it logs in with the stored login only where the configuration carries one. Where any of the three is missing, or notification is switched off, none is sent and the run proceeds. A send that fails, whether the relay is unreachable or refuses, is recorded as a warning, and the run's value is the one it had without notification."""
+dimensions = "configured=bool; switched_off=bool; outcome=set{success,failure}; relay=set{ok,unreachable,auth-refused}; login=bool; @pairwise"
+rationale = """A mail outage that turns a good backup into a failed one teaches the owner to ignore failures; making notification failure fatal lost for that reason, and always logging in lost because an open relay on the owner's network needs no login."""
+status = "Drafted"
+
+[design.LLR-106]
+title = "Notification credentials are never written in readable form"
+sr_refs = ["SR-128"]
+constrains = "IF-012"
+detail = """The login is read only from its host-protected form and held unprotected only in memory for the send. It is never written into the configuration, the run record, error output, anything written to the backup, or a relay's error text as recorded. The configuration helper writes it only in host-protected form. A source file holding the same bytes is backed up and restored as data like any other."""
+dimensions = "surface=set{configuration,backup,run-record,error-output}; send=set{ok,failed}; @pairwise"
+rationale = """A credential echoed into a log or an error message is as leaked as one in the configuration; protecting only the stored copy lost because error paths are where secrets escape."""
+status = "Drafted"
+
+# === Run record and progress (CMP-006) ======================================
+
+[design.LLR-095]
+title = "No record is created or truncated before the configuration is admitted"
+sr_refs = ["SR-018"]
+constrains = "IF-009"
+detail = """The global record is created or truncated only once the configuration has been admitted; entries produced before that are held and written once it exists. A refused configuration appends its refusal to an existing global record only, and creates no record. A location's record is truncated only once that location holds the backup and has passed its admission checks; a refusal before that point appends one entry to the existing location record, which belongs to the live holder."""
+dimensions = "configuration=set{valid,refused,missing}; prior_record=set{absent,present}; claim=set{held,refused}; @pairwise"
+rationale = """Opening a record truncates it, so a configuration typo used to destroy the previous run's record, the one the owner needed. Creating the record first and deleting it on refusal lost: the previous content is already gone."""
+status = "Drafted"
+
+[design.LLR-107]
+title = "Each run's record names every change and failure, with counts"
+sr_refs = ["SR-124"]
+constrains = "IF-009"
+detail = """When a run ends, each location's record names each file added, changed and removed in its own category, each file or folder that failed or was not captured with its cause, and a summary with the counts of each category. Over an unchanged source the added, changed and removed counts are zero, and the failure count is zero only when nothing failed."""
+dimensions = "change=set{added,changed,removed,failed,mixed,none,none-with-unreadable}; @pairwise"
+rationale = """An owner told only how many files changed cannot find the one he needs or the one that failed; a separate change listing outside the record lost because the record is where he looks after a failure."""
+status = "Drafted"
+
+[design.LLR-108]
+title = "Progress is recorded at least every two minutes of active time"
+sr_refs = ["SR-125"]
+constrains = "IF-009"
+detail = """While a run is in progress, a progress entry stating the phase (reading, storing, finalising) and the entries and bytes done is written at intervals of no more than 120 seconds of active execution time: the first within 120 seconds of the start, each next within 120 seconds of the last, and the completion within 120 seconds of the last. The entries come from a timer independent of the work, so one long file cannot delay them."""
+dimensions = "phase=set{reading,storing,finalising}; duration=set{short,long}; gap=set{start-to-first,between-entries,last-to-completion}; long_single_file=bool; @pairwise"
+rationale = """A host cannot tell a long run from a hung one without a heartbeat it can read; per-file progress lines lost because a single large file can take longer than the interval."""
+status = "Drafted"
+
+[design.LLR-097]
+title = "Every refusal states what was found and what to do"
+sr_refs = ["SR-126"]
+constrains = "IF-009"
+detail = """Each refusal, of a launch, a location, a removal, a check, a repair, a kit refresh or a restore, is recorded as one entry naming the condition found (the setting, location, volume, tool, form, holder or leftover concerned, with the figures that decided it) and an action that resolves it."""
+dimensions = "cause=set{configuration,busy,record-damage,capacity,tool,unsupported-form,leftovers,empty-source,location-overlap,read-only-source}; @full"
+rationale = """A refusal that names no remedy is a support call; one generic refusal message lost because the owner cannot tell a full disk from a live run."""
+status = "Drafted"
+
+# === Source capture (CMP-008) ===============================================
+
+[design.LLR-001]
+title = "Every entry of a source is walked, and only the declared exclusions are left out"
+sr_refs = ["SR-001", "SR-074"]
+constrains = "IF-028"
+detail = """The walk visits every entry of the source tree at every depth, hidden, system and dot-named entries and folders included, and files sharing a name with the backup's own files included. It leaves out only: the change-detection record at the source root when it is kept there (and same-named files elsewhere in the tree are captured); a volume's system folders at a volume-root source; what lies behind a link it records rather than follows; and a file whose name it refuses as non-portable. Every other walked file is either captured or named in the run's record as not captured."""
+dimensions = "file_kind=set{ordinary,hidden,system,dot-named,nested-dot-folder,nested-own-file-name}; depth=range[0..32]; state_location=set{source-root,elsewhere}; compress=bool; @pairwise"
+rationale = """For a backup, capturing too much is recoverable and capturing too little is found only when the file is needed; skipping hidden or system files as noise lost for that reason."""
+status = "Drafted"
+
+[design.LLR-078]
+title = "A volume's system folders are left out only at a volume-root source"
+parent = "LLR-001"
+constrains = "IF-028"
+detail = """An entry is a volume system folder when its first path segment is one of the volume's system folder names, compared without regard to letter case, and the root it is relative to is itself a volume root (a drive root or a share root). Such a folder and everything under it is left out of the walk, and an error enumerating it neither fails the run nor adds an entry. The same names nested deeper, or directly under an ordinary folder that is a source, are captured in full. Every enumeration of the store applies the same test, so such a folder at a store's volume root is neither data nor a read failure."""
+dimensions = "source_root=set{drive-root,share-root,ordinary-folder}; folder_position=set{top-level,nested}; folder_name=set{volume-metadata,recycle,ordinary}; name_case=set{as-created,different-case}; readable=bool; @pairwise"
+rationale = """Without the volume-root condition a user's own folder of that name is silently excluded; without the exclusion every drive-root backup fails on a folder it may not read and the owner wants nothing from."""
+status = "Drafted"
+
+[design.LLR-055]
+title = "A name that cannot exist on Windows or Linux is refused and named"
+sr_refs = ["SR-055"]
+constrains = "IF-028"
+detail = """A relative path is checked per component: a control character, one of the characters less-than, greater-than, colon, double quote, vertical bar, question mark or asterisk, a trailing dot or space, or a reserved device name (CON, PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9) in any case with or without an extension, is non-portable on every host; on a host other than Windows a backslash inside a name is too. Such a file is left out before it is opened or read, named in the run's record with the offending character or rule, and the location reports part failed; every other file is still captured. An earlier entry stored under that name stays in the latest state with its content, rather than being recorded as removed. A non-portable folder name is left out of the folder record with a warning."""
+dimensions = "invalid_feature=set{none,forbidden-character,control-character,trailing-dot,trailing-space,reserved-name,backslash-on-non-windows}; prior_entry=set{none,stored-earlier}; host=set{windows,linux}; @pairwise"
+rationale = """A name the restore side cannot create is a file that is backed up but cannot be restored, discovered only at restore; refusing only on the restoring host lost because by then the source may be gone."""
+status = "Drafted"
+
+[design.LLR-109]
+title = "A folder link is followed when it leads outside, and recorded when it leads back in"
+sr_refs = ["SR-137", "SR-150", "SR-151"]
+constrains = "IF-028"
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+detail = """Each folder link or junction met in the walk is resolved and classified. One leading to a folder outside the source and outside every system location (the backup, its saved states, the change-detection state location, the record location) is followed: what it leads to is captured as part of the source under the link's path, and two links to the same outside folder are each followed, the content behind them stored once. One leading to a folder of the same source, or to a folder that is one of the link's own ancestors in the walk (inside a followed outside folder too), is recorded with where it leads and not followed; its target is captured at its real place. One leading into a system location is recorded and not followed. A file link is captured as the file it leads to. A link whose target cannot be reached within the run's bounded wait is named in the run's record as not captured, its earlier captured content is kept rather than recorded as removed, and the location reports part failed. Recording a link does not change the outcome from complete."""
+dimensions = "link=set{folder-link,junction,file-link}; leads_to=set{outside-source,inside-source,ancestor,backup,saved-states,state-location,log-location,unreachable}; repeated=bool; @pairwise"
+rationale = """Following every link can loop forever and can back up the backup into itself; following none silently omits whatever the owner keeps behind a link to another drive. Following by resolved target class lost neither, and is the only rule that keeps both the outside content and the store's own folders right."""
+status = "Drafted"
+
+[design.LLR-110]
+title = "A recorded link carries its kind and where it led"
+parent = "LLR-109"
+constrains = "IF-018"
+detail = """Each link recorded rather than followed is written to the state's link record with its path under the source root, its kind, its target class, and its target: for a target inside the source, the target's path under the source root; for a target in a system location, the absolute path it resolved to at backup time. A state with no recorded link has no link record."""
+dimensions = "target_class=set{inside-source,own-location}; link=set{folder-link,junction}; @full"
+rationale = """A restore can rebuild only what was written down; storing the raw target text lost because a target written relative to the link cannot be re-pointed under a new restore target."""
+status = "Drafted"
+
+[design.LLR-067]
+title = "A briefly unreadable file is retried within a bounded per-location limit"
+sr_refs = ["SR-067", "SR-090"]
+constrains = "IF-028"
+detail = """Reading or copying a file's content is tried up to three times in all, every member of its content group being tried on each attempt, with waits of 250 ms and then 1000 ms; the partly written destination is cleared between attempts. Only a folder occupying the destination counts as permanent and is not retried. The total waiting for retries is bounded to 60 seconds for each configured location, shared by every file of that location; once it is spent, further unreadable files are reported failed without waiting and the record says the limit was reached. A file still unreadable at its last allowed attempt is named with the number of attempts made, no entry is recorded for content the backup does not hold, the location reports part failed, and the file's earlier entry, if any, is kept."""
+dimensions = "failure=set{transient-lock,folder-at-destination,budget-spent}; released=set{before-second-attempt,before-third-attempt,never}; group=set{unique,shared-content}; unreadable_count=range[1..10000]; @pairwise"
+rationale = """Treating every read failure as final loses a file held open for a moment; retrying without a bound lets one locked tree sleep the night away. Guessing failures transient lost only time, while guessing them permanent lost files, so every cause but the one that waiting cannot change is retried."""
+status = "Drafted"
+
+[design.LLR-111]
+title = "A file or folder that cannot be captured is named and keeps its earlier content"
+sr_refs = ["SR-089", "SR-091"]
+constrains = "IF-009"
+detail = """A file or folder the run cannot read, or a folder it cannot enumerate, is named in the run's record with its cause, is counted neither as captured nor as removed, and the location reports part failed while every readable file is still captured. Where an earlier run captured it, the latest state keeps the earlier entry and its content, including when another file shared those bytes and has since changed or been removed."""
+dimensions = "unreadable=set{file,folder,both}; prior_capture=bool; shared=bool; @pairwise"
+rationale = """A file that is unreadable for one night is not a file the owner deleted; recording it as removed would drop it from the latest state and, at the next removal, from the backup. Failing the whole location on one unreadable file lost because every other file then goes unprotected."""
+status = "Drafted"
+
+[design.LLR-065]
+title = "Empty and attributed folders are recorded"
+sr_refs = ["SR-065", "SR-122"]
+constrains = "IF-017"
+detail = """The walk, hidden entries included, records each folder that holds no file anywhere beneath it, or that carries one of the folder attributes hidden, system, read-only or not-content-indexed, with its relative path and those attributes. Emptiness is decided from the files the walk already found, never by enumerating each folder again. A folder the walk could not enumerate is not recorded as empty. Two runs over the same tree write identical folder records, and a tree with no such folder has no folder record."""
+dimensions = "folder=set{empty,nested-empty,hidden,system,read-only,not-indexed,populated-plain,unreadable,non-portable-name}; @pairwise"
+rationale = """A restore from file entries alone loses every empty folder and every hidden one; claiming an unreadable folder empty is a lie in the dangerous direction, which is why it is left out rather than guessed."""
+status = "Drafted"
+
+[design.LLR-112]
+title = "A run never changes the source"
+sr_refs = ["SR-093"]
+constrains = "IF-028"
+detail = """Every read of a source opens its files read-only, sharing reading only, and changes no file's or folder's content, name, modification time or attributes; access times are not part of the obligation. The one write is the change-detection record at the source root where it is kept there, with the change to the source-root folder's own modification time that writing it causes; with the record kept elsewhere nothing in the source is written. The same holds for every action and every outcome, refusals included."""
+dimensions = "action=set{backup,report,removal,check,listing}; outcome=set{success,failure,refusal}; state_location=set{source-root,elsewhere}; @pairwise"
+rationale = """A backup that alters what it backs up destroys the evidence it exists to keep; preserving times by setting them back lost because a reset is still a write and races the owner's own programs."""
+status = "Drafted"
+
+[design.LLR-036]
+title = "A source that suddenly looks empty is refused unless declared"
+sr_refs = ["SR-036"]
+constrains = "IF-004"
+detail = """When a location's walk captures no file while its latest state holds entries, the location is refused as a precondition not met (2) before its backup changes, with a message naming the entry count and the setting that declares the source may become empty; nothing in its backup changes. With that setting on, the run records the removals and keeps the previous state as a saved state. A source empty from its first run is backed up normally. A source whose only files were left out as unreadable or non-portable counts as showing files."""
+dimensions = "previous=set{populated,empty-from-first-run}; allow_empty=bool; only_left_out_files=bool; @full"
+rationale = """An unmounted drive looks like an empty source, and treating it as one records every file as removed; refusing every empty source lost because an owner may genuinely empty one."""
+status = "Drafted"
+
+[design.LLR-021]
+title = "Source-derived paths are taken literally"
+sr_refs = ["SR-021"]
+detail = """Every operation on a path derived from the source treats it literally: wildcard characters such as brackets, asterisks and question marks are never interpreted, and splitting a path into folder and name never fails on Unicode, bracketed, parenthesised or spaced names. Stored-object names hold no wildcard character by their grammar, so only source-derived paths depend on this rule."""
+rationale = """A file named with brackets that is matched as a pattern is skipped or, worse, matched to another file; escaping names case by case lost because one missed call site loses a file."""
+status = "Drafted"
+
+# === Change detection (CMP-009) =============================================
+
+[design.LLR-113]
+title = "The change set comes from size, time and, when re-read, content"
+sr_refs = ["SR-088", "SR-105", "SR-024"]
+constrains = "IF-014"
+detail = """Each walked file is compared with the latest state's entry of the same path: no entry means new; a different size or modification time means changed, and the content is read and its digest taken; equal size and time with a re-read due means the content is read, and a digest different from the recorded one means changed; otherwise the entry stands unchanged. An entry with no walked file is removed, except an entry kept because its file was unreadable, its name refused or its folder unenumerable. An entry whose stored copy is blank counts as changed while the source still holds its file. The comparison changes nothing; the run acts on its two results, the new-or-changed set and the removed set."""
+dimensions = "case=set{new,removed,unchanged,size-changed,time-changed,content-changed-on-reread,blank-stored-copy,kept-unreadable}; reread_due=bool; @pairwise"
+rationale = """Reading every file every run overruns the window, and trusting size and time alone misses a same-size edit; reading on schedule and comparing digests then lost neither. Diffing by digest alone lost because every file would have to be read to get one."""
+status = "Drafted"
+
+[design.LLR-011]
+title = "The re-read schedule decides the same way every time"
+sr_refs = ["SR-011"]
+constrains = "IF-004"
+detail = """Whether a run re-reads unchanged-looking files is a function of the schedule setting, the time the last completed full re-read began, and the current host-local time only: every-run always; never never; a periodic schedule on the first run whose calendar day, week, month or year (as the schedule names) differs from that of the last completed full re-read. A run with no completed full re-read on record re-reads. The time is recorded only when a full re-read completes, so a re-read interrupted before completion does not count. Reads made to capture new content or to store lost content again happen whatever the schedule."""
+dimensions = "schedule=set{A,E,D,W,M,Y,N}; elapsed=range[0..400d]; last_reread=set{none,completed,interrupted}; boundary=set{same-day,day,week,month,year}; @pairwise"
+rationale = """A schedule that decides differently for the same inputs gives the owner no real choice on the speed-against-certainty trade-off; counting from the last run instead of the last completed re-read lost because an interrupted re-read would reset the clock and the re-read might never finish."""
+status = "Drafted"
+
+[design.LLR-114]
+title = "An unusable change-detection record is rebuilt from the backup's own record"
+sr_refs = ["SR-035"]
+constrains = "IF-029"
+detail = """The change-detection record is checked against its completeness evidence when read. Where it is missing, unreadable, fails its evidence, or disagrees with the backup's latest record for a path (a different size, time or digest for the same path, as a stale copy or another source's record would), the latest record supplies that path's size, time and digest instead, so a file is unchanged only where it matches what the backup holds and every file edited since is captured. No unchanged file is recorded as removed, a superseded state is kept as for any changing run, the run completes, and its record says the change-detection state was rebuilt and why."""
+dimensions = "state_fault=set{none,missing,truncated,unparseable,evidence-mismatch,stale,foreign}; @full"
+rationale = """The record is a cache; losing it must cost time, never a change or stored content. Refusing the run lost, because the owner gets no backup until a person intervenes, and silently re-reading everything lost because a stale record would still be trusted where it disagrees with the backup."""
+status = "Drafted"
+
+[design.LLR-115]
+title = "The change-detection record lives at the source root unless configured elsewhere"
+sr_refs = ["SR-139", "SR-148", "SR-094"]
+constrains = "IF-029"
+detail = """With no state location configured, the record and its completeness evidence are kept at the source root as plain text the owner can open, and nothing else is added to the source. With a state location configured (and accepted by the location checks), they are kept there, the next run reads them from there, and nothing is written to the source, its root folder's modification time included; a run against a source it may only read then completes."""
+dimensions = "location=set{unset,configured-outside}; first_use=bool; source_writable=bool; host=set{windows,container}; @pairwise"
+rationale = """The source root is the one place every owner can find the record; keeping it only beside the backup lost because the owner ruled the root as default. A source the run may only read, such as a container's read-only mount, then needs the configured location."""
+status = "Drafted"
+
+[design.LLR-104]
+title = "A source the run cannot write, with no state location elsewhere, is refused up front"
+sr_refs = ["SR-140"]
+constrains = "IF-004"
+detail = """Before the run starts, for each location whose change-detection record would be kept at the source root, the run asks the host whether its account may write the source root, by an access query that creates and changes nothing. Where it may not, the run is refused with the precondition-not-met value (2), naming the state-location setting that would let it proceed, and nothing is created or changed; with that setting pointing outside the source the same run completes."""
+dimensions = "source_writable=bool; state_location=set{unset,outside}; host=set{windows,container}; @full"
+rationale = """Discovering the read-only source when the record is written leaves a run that did all its work and then failed; testing by writing a probe file lost because that would itself alter the source."""
+status = "Drafted"
+
+[design.LLR-035]
+title = "A missing or unreadable run-state record never makes a populated backup a first backup"
+sr_refs = ["SR-035", "SR-005"]
+constrains = "IF-030"
+detail = """When the run-state record is missing, unreadable or lacks the latest state's completion time while the latest record holds entries, the run does not take itself for a first backup: the latest state's completion time is taken from the written time of its completeness evidence, the last full re-read is treated as never completed (so a re-read is due), the record is rewritten, and the run's record says the run state was rebuilt. With an empty latest record the run is a first backup."""
+dimensions = "state=set{present,missing,unparseable,missing-completion-time}; latest_record=set{empty,populated}; @full"
+rationale = """A populated backup taken for a first backup publishes its staging as if nothing came before and loses the superseded content it had just moved; refusing until a person repairs the record lost because the completion time can be recovered from evidence the backup already holds."""
+status = "Drafted"
+
+# === Content writer (CMP-010) ===============================================
+
+[design.LLR-003]
+title = "Identical content is stored once"
+sr_refs = ["SR-003"]
+constrains = "IF-016"
+detail = """New and changed files are grouped by content key, the pair of content digest and length. A key already held by the backup is adopted: the new entry references the existing stored copy and no bytes are written. A key not yet held is stored once, however many files of the run share it, and every entry of the group references that one copy, whatever folder or name each has; every entry after the first is marked as a duplicate."""
+dimensions = "placement=set{same-folder,different-folder,same-run,different-run,different-saved-state}; size=range[0..4GiB]; compress=bool; @pairwise"
+rationale = """Storing each copy again multiplies the cost of the backup for nothing; deduplicating by name or path lost because it misses renames and copies, and deduplicating only against earlier runs lost because files first seen together in one run are among the commonest duplicates."""
+status = "Drafted"
+
+[design.LLR-058]
+title = "Each content group has one owner and one stored form, decided once"
+parent = "LLR-003"
+constrains = "IF-016"
+detail = """Each group elects one owner, the entry with the shortest relative path, ties broken ordinally; the owner's extension and the storage-form decision define the group's single stored object, which the first successful member writes and every later member adopts. The storage-form decision is taken only on first entry to the write path and remembered for the group, so an adopted key and an in-run twin never measure, and a group whose first member fails to copy does not measure again. Content already stored is never decided again, so a change of compression setting leaves it in the form it has."""
+dimensions = "group=set{mixed-extension,mixed-compressibility,uniform}; duplicates=set{same-run,prior-run}; first_copy_fails=bool; @pairwise"
+rationale = """Two members deciding differently would store two objects for one content; deciding eagerly for every file lost because deduplication hits would then pay for a measurement whose answer is discarded."""
+status = "Drafted"
+
+[design.LLR-117]
+title = "A stored object is never merged into leftovers at its name"
+parent = "LLR-003"
+constrains = "IF-035"
+detail = """A stored object is written at its content-derived name only after any file already there that no entry references (left by a killed run, an interrupted archive tool, or an entry evicted while its object awaits removal) has been cleared, because the archive tool adds to an existing archive rather than replacing it. A compressed object is written at the effort level resolved from the environment."""
+dimensions = "destination=set{absent,unreferenced-valid,truncated-debris}; form=set{raw,archive}; effort=range[0..9]; @pairwise"
+rationale = """An archive appended to debris holds two members and restores the wrong bytes or none; trusting the name alone lost because the writer trusts only the record, and the record does not know about leftovers."""
+status = "Drafted"
+
+[design.LLR-053]
+title = "Lost content is stored again, and adoption needs content actually present"
+sr_refs = ["SR-053", "SR-108"]
+constrains = "IF-014"
+detail = """Before the change set is computed, each latest-state entry whose stored copy is no longer present (removed or quarantined from outside) has its stored-copy reference blanked; a blanked entry whose file the source still holds counts as changed and is stored again from the source or pointed at another surviving copy. Adopting an existing stored copy for a new file requires an entry whose stored copy is present; a group whose existing entries are all blank is stored afresh, and every entry of it, the healed one included, references the new copy. A heal changes the record, so the state before it is kept as a saved state as for any change."""
+dimensions = "removed=set{one-object,many-objects,shared-object}; source_metadata=set{unchanged,changed}; adoption=set{new-same-content-file,none}; compress=bool; @pairwise"
+rationale = """Adopting a key the record claims but the folder no longer holds gives a new file an entry that points at nothing, and its bytes are never written; trusting the record's claim lost for that reason."""
+status = "Drafted"
+
+[design.LLR-086]
+title = "Compression is decided by measured saving, and by file type where nothing is measured"
+sr_refs = ["SR-081", "SR-096", "SR-111"]
+constrains = "IF-016"
+detail = """For each newly written object the decision is a function of: compression on or off; the measuring choice (off, skip known-incompressible types, measure every file); the file-type rule's answer; the length; and the measured sample and compressed sizes. In order: compression off stores as it is and nothing is measured or required of the archive tool; measuring off takes the file-type rule; content at or below the 256 KiB floor takes the file-type rule; with known-incompressible types skipped, a listed type is stored as it is without measuring; a measurement that cannot be taken takes the file-type rule, with one warning, and never fails the run; a measured saving of at least 10% in aggregate (compressed at most 0.90 of sampled) compresses; otherwise the object is stored as it is. No setting overrides a measurement by name. The decision names its reason, one of compression-disabled, measuring-off, below-floor, listed-type-skipped, measurement-unavailable, compressible, incompressible. The stored name's extension and the entry's recorded form follow from this one decision."""
+dimensions = "compress=bool; measuring=set{off,excluded-extensions,always}; name_class=set{listed-already-compressed,unlisted,none}; content=set{compressible,incompressible,partly-compressible}; size=set{empty,below-floor,above-floor}; measurement=set{taken,unavailable}; @pairwise"
+rationale = """Compressing by name alone wastes effort on incompressible files under compressible names and misses compressible ones under media names; measuring everything lost where the owner turns measuring off or a file is too small to sample, where the file type is the only cheap evidence."""
+status = "Drafted"
+
+[design.LLR-004]
+title = "One list of already-compressed file types is the file-type rule"
+parent = "LLR-086"
+detail = """One list, defined once, names the file extensions known to be already compressed (archives, disk images, video, audio, still images and packed containers), matched without regard to case. Office and text formats are not on it, and filesystem containers such as disk-image files of a plain filesystem are excluded, since their contents are not known to be compressed. The file-type rule says compress for any type not on the list. The user-facing table of already-compressed types equals the live list."""
+rationale = """Two copies of the list drift, and the user manual then tells the owner something the program does not do; an open-ended guess at every compressed format lost because the list is a fast path for known formats, not a claim of completeness."""
+status = "Drafted"
+
+[design.LLR-116]
+title = "The measurement samples three windows and can never fail a run"
+parent = "LLR-086"
+detail = """A file of at least three 256 KiB windows is sampled at offsets 0, the midpoint (length less one window, halved and rounded down) and length less one window, each window filled unless the end of file comes first; a shorter file above the floor is read once, whole. Each window is compressed by a fast general-purpose codec with a long history window into a counting sink whose count is read only after the encoder is closed. The file is opened read-only sharing reading only; its length and modification time are read before and after sampling, and a change in either, or a file that cannot be opened, gives no measurement rather than an error. The group's candidates are tried owner first, then every member, and the first that opens is sampled; at most three windows are read per written group and nothing is read per failed attempt. The sampled and compressed totals and per-window ratios are recorded for the run's summary."""
+rationale = """A whole-file trial compression of every large file costs the run-time budget; a single head sample lost because a random file with a text head would be called compressible. A count read before the encoder closes reads short and calls random bytes compressible."""
+status = "Drafted"
+
+[design.LLR-052]
+title = "A backup refuses before writing when a volume lacks the space it needs"
+sr_refs = ["SR-052"]
+constrains = "IF-031"
+detail = """After the change set is known and before anything is written, the demand on each volume is summed over every configured location on that volume: new content not already held, at its uncompressed length; content being stored again to heal a loss; earlier content that must be copied rather than moved because the saved-state location is on another volume; and a declared allowance for the records, restore kits, logs and temporary space the run writes. Where a volume's demand exceeds its free space, every location with demand on it is refused as a precondition not met (2), naming the volume, the space needed and the space free, with nothing created or changed on it; other locations proceed. A volume whose free space cannot be measured is not refused; the record says the check was not made."""
+dimensions = "locations_on_volume=range[1..3]; need_vs_free=set{below,equal,above}; demand=set{new-content,healed-content,cross-volume-history,many-small-files}; platform=set{windows,linux}; measurable=bool; @pairwise"
+rationale = """A backup that runs out of space halfway leaves a half-staged state and an owner who learns only from a cryptic write error; checking each location against the volume separately lost because two locations that each fit can together not fit."""
+status = "Drafted"
+
+[design.LLR-135]
+title = "Volume identity and free space are measured the same way on every host"
+sr_refs = ["SR-052", "SR-023"]
+constrains = "IF-031"
+detail = """A path's volume is resolved from its full path: on Linux and macOS the longest real mount point that prefixes the resolved path on a separator boundary, so a mount and the folders beneath it are one volume; on Windows the volume of its drive or share root. Its free space is measured for drive-qualified, share and rooted POSIX paths alike and is reported as unknown, never as an error, when neither works. The same measurement serves the backup's and the restore's space checks."""
+dimensions = "path=set{drive-qualified,share,rooted-posix,nested-mount,unmeasurable}; host=set{windows,linux,macos}; @pairwise"
+rationale = """A measurement that only understands drive letters makes the check silently inert on Linux and in a container, which is where volumes are shared most; using the path itself as the volume lost because two folders on one mount then compete unseen."""
+status = "Drafted"
+
+# === State publication (CMP-011) ============================================
+
+[design.LLR-005]
+title = "A changing run keeps the previous state as a dated saved state; an unchanged run adds none"
+sr_refs = ["SR-005", "SR-100"]
+constrains = "IF-013"
+detail = """When the change set is not empty (an addition served by deduplication, a removal of shared content, a time-only change and a heal all count), the previous latest state's record, its evidence, folder and link records and kit are staged, its superseded and removed content is placed with it, and it is published as a saved state named by that previous state's completion time, to the second, with a numeric suffix keeping apart states completed in the same second. A saved state becomes visible only after its own record and evidence are written. When the change set is empty and no stored content needs storing again, no saved state is created; the latest state is never itself a saved state."""
+dimensions = "runs=range[2..20]; change_kind=set{add,edit,remove,rename,duplicate-only-add,shared-content-remove,time-only,heal,none}; same_second=bool; compress=bool; @pairwise"
+rationale = """Deciding change from how many bytes were copied misses additions served by deduplication and removals of shared content, and those runs then lose the previous state; deciding from the change set lost nothing. A saved state per run lost because unchanged runs would fill the store with identical states."""
+status = "Drafted"
+
+[design.LLR-028]
+title = "A saved state is named by the completion time of the state it holds"
+parent = "LLR-005"
+constrains = "IF-030"
+detail = """The completion time of each latest state is written to the run-state record after the state is published and before the cross-state collapse runs, together with the time of the last completed full re-read, so a kill during the collapse cannot leave them stale. The next changing run names the saved state it keeps by that completion time."""
+dimensions = "kill_point=set{before-publication,after-publication,during-collapse}; @full"
+rationale = """A saved state named by when its run started sorts wrongly against one that finished later, and the owner looks for the state of the evening by the time he remembers it ended; naming by the superseding run's time lost because that is when the state stopped being current, not when it was made."""
+status = "Drafted"
+
+[design.LLR-051]
+title = "Content leaves the latest state only when no entry of the final record claims it"
+sr_refs = ["SR-059"]
+constrains = "IF-014"
+detail = """Both places a backup removes stored content from the latest state (moving a removed file's content to the saved state, and moving superseded content there) ask the same question first: does any entry of the latest state's final record still reference this stored copy? Only content no entry claims is moved; an entry kept because its file was unreadable or its name refused, and an entry whose replacement copy failed, keep their claim and their content. These are the only removal sites in a backup run."""
+dimensions = "copies=set{1,2,3}; removal=set{none,owner-removed,borrower-removed,evict-and-supersede-same-run}; kept_entry=bool; failed_replacement=bool; compress=bool; @pairwise"
+rationale = """A test based on the source's files cannot see a kept entry or a failed replacement and moves out content those entries still claim; asking the final record lost nothing, so the rule sits at the two sites and nowhere else."""
+status = "Drafted"
+
+[design.LLR-059]
+title = "Superseded content is kept with the saved state"
+sr_refs = ["SR-059", "SR-005"]
+constrains = "IF-014"
+detail = """After the new content is stored and removed content is moved, the content each superseded entry referenced, if no entry of the final record still claims it, is placed in the saved state being kept; nothing is overwritten, because every object is named from its content. Where one content is stored under two names, the unclaimed one is at worst placed in the newest saved state, still inside the restore pool. Every earlier saved state restores the old bytes for every path that held them."""
+dimensions = "runs=set{3,5}; edit=set{owner,borrower}; removal=set{none,owner-removed}; compress=bool; @pairwise"
+rationale = """Without it the saved state's record names content that is no longer anywhere and restores missing files; copying every superseded file lost because shared content would be stored twice."""
+status = "Drafted"
+
+[design.LLR-041]
+title = "Earlier content that cannot be placed stays restorable, and the run fails"
+sr_refs = ["SR-041"]
+constrains = "IF-009"
+detail = """Each failure to move a removed or superseded file's earlier content into the saved state is caught per file, recorded naming the file and the cause, counted, and the loop continues; the content is left in the store, so the saved state still finds it by content key, and the run reports part failed. The saved state is still published, so the staging is never stranded. Where earlier content cannot be kept restorable at all, no saved state missing it is published and the latest state is left as before the run."""
+dimensions = "kind=set{superseded,removed}; failures=range[1..2]; placeable=set{left-in-store,neither}; @pairwise"
+rationale = """Aborting on the first failed move strands a half-built saved state; silently continuing lost because the owner must know which files' history is at risk."""
+status = "Drafted"
+
+[design.LLR-087]
+title = "A record is published whole or not at all"
+sr_refs = ["SR-082", "SR-038"]
+constrains = "IF-014"
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+detail = """Every record of contents is written through one writer: any publication temporary left beside the destination by a killed run is removed and never read, the new content is written to the temporary, and it replaces the destination by one overwriting rename on the same volume; an ordinary failure of either step removes the temporary and leaves the destination as it was. A reader therefore sees the complete previous record or the complete new one, never a torn one. The writer does not force the temporary to stable storage before the rename; on a filesystem that reorders the rename ahead of the data a power loss may lose the newest record, which the evidence then reports as damage."""
+dimensions = "kill_point=set{before-temporary,after-temporary-complete,after-temporary-torn,after-rename}; failure=set{kill,rename-error}; folder=set{latest,saved-state,change-detection}; @pairwise"
+rationale = """A record written in place and cut short by a kill is a smaller valid-looking state; a journal lost because the rename already gives the needed atomicity on the supported journaled filesystems."""
+status = "Drafted"
+
+[design.LLR-118]
+title = "Evidence is prepared before the record is published, so an interrupted publication can be completed"
+parent = "LLR-087"
+constrains = "IF-015"
+detail = """The writer writes the new record's temporary, then the evidence of that temporary's exact bytes to the evidence temporary, then renames the record, then renames the evidence. The next run that holds the backup and has passed its admission checks, finding a record whose evidence does not match but whose evidence temporary does, publishes that temporary and continues; leftover temporaries that match nothing are replaced. A mismatch it cannot positively identify this way is refused as a damaged record, as leftovers require, with nothing changed."""
+dimensions = "kill_point=set{after-evidence-temporary,after-record-rename,after-evidence-rename}; leftover=set{complete,torn,zero-length,none}; @pairwise"
+rationale = """With evidence written only after the record, a kill between the two leaves a complete record beside stale evidence that nothing can tell from damage, and the store is refused until a person intervenes; writing evidence first lost nothing and turns that case into one the next run completes by itself."""
+status = "Drafted"
+
+[design.LLR-038]
+title = "Every record carries its own completeness evidence"
+sr_refs = ["SR-038"]
+constrains = "IF-015"
+detail = """Whenever a record of contents is written or rewritten, by a backup, a removal or a repair, in the latest state, a saved state or the change-detection location, the same writer writes beside it the evidence of that record's exact bytes: their digest, their length and the number of entries, the count taken from what was written. A saved state's evidence is its own, written when its record is written, and evidence is never copied from another folder. The evidence also states, for the folder and link records, whether the state has one and how many rows it holds."""
+dimensions = "state=set{latest,saved,rewritten-by-removal,rewritten-by-repair,change-detection}; records=set{rows,empty}; compress=bool; @pairwise"
+rationale = """Evidence copied from another folder vouches for the wrong record; computing it on read lost because a damaged record would then vouch for itself."""
+status = "Drafted"
+
+[design.LLR-007]
+title = "Every state carries a restore kit"
+sr_refs = ["SR-007"]
+constrains = "IF-019"
+detail = """Each run places the current restore kit in the latest state, and each saved state is published with the kit it was written with, the one the latest state carried before the run. The retired launcher name is never written but stays recognised, so an older state's leftover copy is not mistaken for data. The kit depends on nothing backup-only. The backup folder copied whole to a machine that never had FileBackup restores every state from the kits it carries."""
+dimensions = "state=set{latest,new-saved}; run=set{initial,incremental}; @full"
+rationale = """A backup that only the tool that made it can restore is hostage to that tool; one kit at the backup root lost because a saved state copied out, or a store whose root kit changed, must still restore with the kit that matches it."""
+status = "Drafted"
+
+[design.LLR-119]
+title = "Third-party components travel with their licences and notices"
+sr_refs = ["SR-131"]
+constrains = "IF-019"
+detail = """Only third-party components whose licences permit redistribution inside a backup are placed in a state's kit, and the notices file beside them names each, with its version, licence and required notice text. The archive tool is not placed in a backup; the hashing library is, with its notice."""
+dimensions = "component=set{hashing,archive,runtime-module}; @full"
+rationale = """A backup handed to a restorer redistributes what it carries; shipping a library without its notice breaks its licence in every backup ever made. Leaving notices to the program's install lost because the backup travels without it."""
+status = "Drafted"
+
+[design.LLR-120]
+title = "No write leaves an existing kit unable to read its state"
+sr_refs = ["SR-084"]
+constrains = "IF-014"
+detail = """Within one store form version every write keeps the record's columns, encodings, naming grammar and layout names; a new kind of information is added only as a separate optional record that an older kit does not read, or as evidence keys an older kit ignores; content already stored is never re-formed. A saved state written by any earlier supported version therefore restores byte-exact with its own kit after the current version has run against the store, without the kits being refreshed."""
+dimensions = "writer_version=set{oldest-supported,previous,current}; compression_changed=bool; @pairwise"
+rationale = """A saved state keeps the kit it was written with, so a write its kit cannot read makes it unrestorable with no warning; requiring a kit refresh after each upgrade lost because an owner who skips it loses his history."""
+status = "Drafted"
+
+[design.LLR-076]
+title = "One kit revision, moved whenever a kit file changes behaviour"
+parent = "LLR-120"
+constrains = "IF-019"
+detail = """Both restore routes carry the same kit revision. It moves whenever a file the kit bundles changes behaviour, the restore-safe library included even where the change does not touch restore. A deployed kit cannot be rewritten, so a revision found wrong is corrected forward to the next number, never back. The revision is what tells a later reader which record kinds a state's own kit wrote."""
+dimensions = "change=set{kit-file-behaviour,non-kit-file}; @full"
+rationale = """Without a reliable revision neither the check nor a restore can tell what an older state's kit supports; one revision per route lost because the two routes ship together and must be read as one."""
+status = "Drafted"
+
+[design.LLR-026]
+title = "Content duplicated across saved states is collapsed to one copy"
+parent = "LLR-003"
+constrains = "IF-043"
+detail = """After the run state is written, content stored in more than one folder of the backup is kept once: in the backup root where the latest state references it, otherwise in the newest saved state that references it; every other entry referencing it has its stored-copy reference blanked, to be found by content key. Only a folder whose references name a vanished copy is read and rewritten, each distinct reference being probed once; a folder whose references all exist is neither read nor rewritten."""
+dimensions = "sharing=set{root-and-saved,between-saved,none}; vanished=bool; @pairwise"
+rationale = """Without the collapse the same bytes superseded in several runs are stored once per run; rewriting every folder each run lost on the run-time budget, which the history must not dominate."""
+status = "Drafted"
+
+[design.LLR-121]
+title = "Every host writes and continues one store form"
+sr_refs = ["SR-033", "SR-136", "SR-114"]
+constrains = "IF-014"
+hat_refs = ["CROSS-PLATFORM"]
+detail = """A backup written from Windows or from Linux has the same form: relative paths are recorded with the backslash as separator whatever the host, rows in ordinal order, digests and names as their interfaces define, times as opaque round-trip text. The compression decision depends only on content, type and settings. A run on either host type continues a backup written from the other, or by the previous released version, without a fresh start: it adds no duplicate of content already stored, makes the same decisions and saved states a same-host run would, and leaves every earlier state restorable."""
+dimensions = "direction=set{windows-to-linux,linux-to-windows,same-host}; writer=set{previous-release,current}; compress=bool; history=set{none,multiple}; @pairwise"
+rationale = """With the host's own separator in the record, a run from the other host sees every file as removed and added again, and writes a full saved state for a tree that did not change. Translating at read time lost because every reader, the shell route's included, would have to agree on the translation."""
+status = "Drafted"
+
+# === Exclusive-use guard (CMP-012) ==========================================
+
+[design.LLR-090]
+title = "One changing operation at a time holds the backup through the operating-system claim"
+sr_refs = ["SR-085", "SR-086", "SR-107"]
+constrains = "IF-032"
+detail = """Taking the claim opens the claim file, creating it when absent, with read access and no sharing, retrying up to three times 250 ms apart. Holding the open handle is the claim. Releasing closes it; a second release does nothing, a release of a claim never taken is accepted, and a release never raises an error. The operating system releases the claim when the holder's process dies however it ends, so the next changing operation proceeds."""
+dimensions = "holder=set{none,same-process,other-process,dead-process}; file=set{absent,present,read-only}; @pairwise"
+rationale = """Without an exclusion two runs each overwrite what the other wrote; a claim whose existence is the lock lost because a killed holder leaves it behind and wedges the store until a person deletes it."""
+status = "Drafted"
+
+[design.LLR-122]
+title = "A claim that cannot be taken is classified, and refuses touching nothing"
+parent = "LLR-090"
+constrains = "IF-003"
+detail = """Where the claim cannot be taken, the operation creates, moves and deletes nothing in the staging area, the stored content or any record. Contention or an I/O error is reported as busy (4), naming the holding operation where its owner record can be read; access denied, or a claim location that cannot be used (a folder at the claim file's path, an unusable saved-state root), is reported as a precondition not met (2), naming the claim location. After the cause clears the same operation proceeds. Taking the claim is never evidence that an earlier run is dead: an older FileBackup takes no claim, so leftovers are still classified as before."""
+dimensions = "claim_failure=set{contention,access-denied,unusable-location,io-error}; operation=set{backup,removal,repair,kit-refresh}; @pairwise"
+rationale = """A host that retries on busy and alerts on a precondition must be told which one it has; reporting every claim failure the same way lost because a permissions fault would then be retried forever."""
+status = "Drafted"
+
+[design.LLR-091]
+title = "A backup holds the claim from its first read of the store to its last write"
+parent = "LLR-090"
+constrains = "IF-032"
+detail = """A backup takes the claim after resolving its locations and before it reads any store state its decisions depend on (the run-state record, the latest record and its evidence), and so before it classifies or creates the staging area; it holds it until the saved state is published, the run state written, the cross-state collapse and the views done, and releases it in a final step that runs on every path, after any liveness refresh has stopped. A refusal on the claim appends one entry to the location's record."""
+dimensions = "end=set{normal,refused,failed,claim-lost,killed}; window=set{before-state-read,staging,publication,after-collapse}; @pairwise"
+rationale = """Store state read before the claim may be state another run has not finished writing, and acting on it once made a run take itself for a first backup; taking the claim only around the publication lost for that reason."""
+status = "Drafted"
+
+[design.LLR-092]
+title = "A removal holds the claim for its whole batch"
+parent = "LLR-090"
+constrains = "IF-032"
+detail = """A removal takes the claim once, after resolving its locations and before anything it does, completing an earlier removal past its commit point included, and holds it until every named saved state is handled. Where it cannot be taken, every named saved state is reported refused with the claim's classification."""
+dimensions = "contender=set{none,backup,removal}; phase=set{before-residue,in-transaction,after-commit}; @pairwise"
+rationale = """A removal moving content while a backup moves it too can lose the only copy; claiming per saved state lost because a backup could slip in between two removals of one batch."""
+status = "Drafted"
+
+[design.LLR-094]
+title = "A repair and a kit refresh hold the claim"
+parent = "LLR-090"
+constrains = "IF-032"
+detail = """A repair takes the claim as its first act, before the check it repairs from, so findings and repair see one state; a kit refresh takes it before listing the saved states. A missing saved-state root is created first; none given at all is refused. Both release it in a final step around their whole work. The claim is taken by the operation itself, so every caller is covered."""
+dimensions = "operation=set{repair,kit-refresh}; holder=set{none,backup}; saved_state_root=set{present,missing,none}; @pairwise"
+rationale = """A repair renaming objects while a backup adopts them leaves entries pointing at names that no longer exist; taking the claim only at the command line lost because any other caller would then bypass it."""
+status = "Drafted"
+
+[design.LLR-093]
+title = "The claim file is never deleted and is invisible to every reader of the store"
+parent = "LLR-090"
+constrains = "IF-032"
+detail = """Nothing writes, truncates or deletes the claim file. Every enumeration of the saved-state root lists folders only, so the claim file is never taken for data, a saved state or a leftover; staging and committed removal leftovers are addressed by exact name."""
+dimensions = "consumer=set{collapse,inventory,check,refresh,report,restore-latest,restore-saved}; @full"
+rationale = """Deleting an advisory lock file lets one process hold the old file while another creates and claims a new one at the same path, two holders at once; leaving one empty file costs nothing."""
+status = "Drafted"
+
+[design.LLR-123]
+title = "Checks, the report and restores take no claim and read only published states"
+sr_refs = ["SR-106"]
+constrains = "IF-032"
+detail = """A check without repair or refresh, the saved-state report and a restore take no claim and read only published records and folders, never the staging area, so each completes with its normal outcome against a complete state while a backup, a removal, a repair or a kit refresh holds the backup."""
+dimensions = "reader=set{check,report,restore}; writer=set{backup,removal,repair,kit-refresh}; @pairwise"
+rationale = """A restore that waits for a nightly backup to finish is no use in a disaster; letting readers take the claim lost for that reason, and published states never change in place, so reading them needs no exclusion."""
+status = "Drafted"
+
+[design.LLR-017]
+title = "An earlier run's leftovers are classified from the disk alone, and refused unless provably safe"
+sr_refs = ["SR-017", "SR-107"]
+constrains = "IF-044"
+detail = """A run that finds the staging area present never overwrites it. It lists the staging area forced, literally and fail-closed (hidden, system and dot-named entries are content; an enumeration, read or access failure is never evidence of emptiness) and reads the owner record, and classifies: empty and stale, or owner stale and confirmed, may be reclaimed; empty but fresh, owner live, or owner record unreadable is a live or unproven earlier run; a removal's marker is an unfinished removal; any other entry is content; a staging area that is a link, or evidence that cannot be read, is indeterminate. Refused, with nothing moved or deleted and no saved state published, by the precedence of the shared vocabulary: precondition not met (2) where content, an unfinished removal (whose message names the remedy, re-running that removal), a link or indeterminate evidence is present; damaged record (3) where a state's record fails its evidence and is not an interrupted publication; busy (4) where the only finding is a live or unproven earlier run. Leftovers holding no content do not by themselves refuse."""
+dimensions = "leftover=set{none,empty-stale,empty-fresh,owner-stale,owner-live,owner-unreadable,owner-torn,removal-unfinished,holds-content,linked,unreadable-evidence,publication-temporary-only}; record_damage=bool; @pairwise"
+rationale = """Overwriting a leftover can destroy the only copy of superseded content a killed run had moved there; refusing every leftover lost because each killed run would then wedge the store until a person cleans up."""
+status = "Drafted"
+
+[design.LLR-088]
+title = "Record publication temporaries are not content"
+parent = "LLR-017"
+detail = """A record's publication temporary, matched by its exact name with letter case, is neither content nor an unrecognised entry: a staging area holding the owner record plus that temporary classifies by the owner record alone, and one holding only the temporary classifies as empty by the folder's own modification time; any other entry still counts. A reclaim and a run's own cleanup delete it by exact name. In the backup root and every saved state it is an infrastructure name, never backed up, reported or found by the check."""
+rationale = """A killed record write leaves a temporary that is an incomplete copy of a file still present beside it; counting it as content turns every such kill into a permanent refusal."""
+status = "Drafted"
+
+[design.LLR-080]
+title = "A backup's owner record and its age are the liveness evidence"
+sr_refs = ["SR-075"]
+constrains = "IF-033"
+detail = """Right after creating the staging area a backup writes its owner record once, by an exclusive create that both creates the file and proves it was not already there; finding one already there means the claim was lost and the run aborts touching nothing. A refresh on its own timer, independent of the work, touches the record's modification time every 60 seconds for the claim's whole life, re-reading the record first and touching it through the same open handle only when the run identity is its own; the first touch happens before the timer starts and its landing is verified, the run refusing when it did not land. Stopping the refresh is idempotent, never raises, waits out a touch in flight, and reports any failed touches. An earlier run is judged dead only when its record's modification time is older than the stale time the record states, never less than 1800 seconds, and a second sample taken at least the record's refresh interval plus 30 seconds later (at least 90, at most 600 seconds) shows it unchanged; a future-dated time is fresh; a torn or unknown record falls back to its modification time with the 1800-second floor; an unreadable record is never judged dead."""
+dimensions = "record=set{parsed,torn,unknown-schema,unreadable,short-stale-time}; age=set{fresh,stale,future}; refresh=set{running,stalled,first-touch-fails}; host=set{same,other-container}; @pairwise"
+rationale = """A process id means nothing across containers and hosts sharing one store; a modification time any reader can see lost nothing. An age check without the second sample lost because a live run with a skewed clock would be reclaimed alive."""
+status = "Drafted"
+
+[design.LLR-124]
+title = "A provably dead run's leftovers are reclaimed by moving them aside"
+sr_refs = ["SR-075", "SR-082"]
+constrains = "IF-033"
+detail = """Only leftovers classified reclaimable, and confirmed by the second sample, are reclaimed, in this order: move the staging area aside to a reclaimed-leftover name, refusing on failure without retrying in a loop; check the moved folder against the identity the sample classified and, on any mismatch, move it straight back and refuse; create a fresh staging area and immediately write this run's owner record, refusing on either failure and leaving the moved folder; then list the moved folder again, forced and fail-closed, delete the exact owner record by name and the folder non-recursively, and keep the folder, with the recovery guidance in the record, on any other entry, any error or either delete failing. Nothing in this path deletes recursively. A run's own cleanup on an early failure first proves the staging area is still its own (its owner record carries its identity, and nothing is inside beyond its own disposable entries), deletes those by exact name with the owner record last, and otherwise keeps the folder. The run then completes without intervention."""
+dimensions = "verdict=set{empty-stale,owner-stale}; race=set{none,owner-resumes-before-move,owner-writes-after-move,two-reclaimers}; delete=set{ok,fails}; @pairwise"
+rationale = """A reclaim that deletes in place can delete content a frozen owner wrote after the classification; a second exclusive claim artifact lost because it brings its own staleness and wedge modes, while move-aside then verify fails only toward refusal."""
+status = "Drafted"
+
+[design.LLR-125]
+title = "A run whose claim was lost changes nothing more and does not report complete"
+sr_refs = ["SR-144"]
+constrains = "IF-033"
+detail = """At five boundaries (before writing the staging copy of the record, before moving removed content, before keeping superseded content, before publishing the latest record and its evidence, and before publishing the saved state) the run re-reads its owner record and compares the run identity. A mismatch, or a record that stays unreadable after three reads about 300 ms apart, means the claim was lost: the run stops at once, cleans up nothing, ends the location with part failed (1), and its record says its work was reclaimed. Immediately before the saved state is published the run stops its refresh and deletes its own owner record, so none reaches a saved state."""
+dimensions = "fence=set{before-staging-record,before-removal-move,before-superseded-move,before-latest-publication,before-saved-state-publication}; record=set{same,different,unreadable-transient,unreadable-persistent}; @pairwise"
+rationale = """A plain filesystem gives no true lease; a run frozen past the stale time and resumed would otherwise overwrite its successor's published record. Fencing only at the end lost because the latest record is published before the end."""
+status = "Drafted"
+
+# === Removal and saved-state report (CMP-013) ===============================
+
+[design.LLR-045]
+title = "Content only the removed state holds is re-homed before the state disappears"
+sr_refs = ["SR-045"]
+constrains = "IF-043"
+detail = """The removal builds the content-location index and the demand set: every entry outside the named state whose stored-copy reference is blank, or names a copy that is absent. For each demanded key whose only copy lies inside the named state, it plans one copy to the folder the cross-state collapse would elect (the backup root where the latest state demands it, else the newest demanding saved state), under the source's stored name, which already derives from content and form. Each copy is written to a temporary name, checked for the source's length and digest and for the entry's content identity (expanding an archive to a temporary file first), then published by rename. Only the stored-copy reference, the recorded form and the layout marker of the destination entry change, through the one record writer, so its evidence is rewritten; no entry is added, removed or reordered, and the named state's own logical rows are not moved anywhere. A name that would be an infrastructure name at the destination, or would overwrite a different file there, is a bad request; an identical file already there is an interrupted removal's completed copy."""
+dimensions = "position=set{oldest,middle,newest,only}; holds_only_copy=bool; destination=set{backup-root,saved-state}; compress=bool; cycle=set{delete,reintroduce,delete-again}; @pairwise"
+rationale = """Deleting a saved state's folder outright deletes the only copy of content other states still resolve by key; re-packing or recompressing on the way lost because the form travels with the bytes and must not change."""
+status = "Drafted"
+
+[design.LLR-046]
+title = "A removal that could lose content is refused before anything changes"
+sr_refs = ["SR-046"]
+constrains = "IF-003"
+detail = """Before changing anything, the removal collects every refusal that applies, not just the first: the target is not a saved state directly in the chosen backup; the run-state record is damaged; a staging area is present; content it must move is already missing from the store, or a remaining state fails to resolve; the named state holds content no record refers to; a destination volume lacks the space the move needs (measured per volume, skipped where unmeasurable); compression is needed for the move and its tool is missing; a remaining state's record fails its completeness evidence, or a current-form record lacks it. The removal is refused with the store byte-identical and a message naming each cause; the value is 3 where the only causes are failing evidence, otherwise 2."""
+dimensions = "cause=set{none,not-a-saved-state,run-state-damaged,staging-present,content-already-missing,unreferenced-content,no-space,compression-tool-missing,record-evidence-fails,record-evidence-absent}; compress=bool; @pairwise"
+rationale = """A removal that proceeds over a store already missing content, or past a record it cannot trust, deletes what the remaining states needed; refusing at the first problem lost because the owner then fixes one cause per attempt."""
+status = "Drafted"
+
+[design.LLR-126]
+title = "A removal is confined to the chosen backup"
+sr_refs = ["SR-102"]
+constrains = "IF-002"
+detail = """A removal names a saved state only by a folder name of the layout that is a direct child of the chosen backup's saved-state root once resolved physically; an absolute location, a parent-climbing name, a wildcard, a name that is not a saved state there, and a saved state reached through a link leading outside are each refused as a bad request (2). A recorded stored-copy reference that would reach outside its folder is refused the same way. The backup and every outside location are byte-identical afterwards."""
+dimensions = "escape=set{absolute,parent-climb,wildcard,not-a-saved-state,link-outside,recorded-reference-outside}; @full"
+rationale = """A removal is a recursive delete; one mistyped or crafted name must not reach anything outside the chosen backup. Checking the name as typed lost because a link makes an inside-looking name land outside."""
+status = "Drafted"
+
+[design.LLR-127]
+title = "An interrupted removal loses nothing and completes when re-run"
+sr_refs = ["SR-101"]
+constrains = "IF-013"
+detail = """The removal is ordered so the pool becomes redundant before the state disappears, never deficient: plan and check; materialise each re-homed copy; publish each touched destination record; prove that, with the named state excluded, every remaining entry resolves; commit by renaming the named state's folder out of the saved-state naming, which removes it from every reader's view in one step; only then delete it. Re-running the same request recomputes the plan from disk: a committed folder of that same name is deleted first, and staged copies no record references are swept by checking the destination record, never by their temporary suffix alone, so a user's file whose name ends that way is content. No journal is kept."""
+dimensions = "interrupt=set{kill,power-loss}; point=set{after-copy,after-record,after-commit-rename,during-delete}; residue=set{staged-copy,committed-folder,user-file-named-like-residue}; @pairwise"
+rationale = """A removal killed halfway must not leave a state that resolves to missing content; a journal of intended steps lost because recomputing the plan from what is on disk is always correct and needs nothing to keep in step."""
+status = "Drafted"
+
+[design.LLR-047]
+title = "The saved-state report gives what each removal would free and move, from the removal's own plan"
+sr_refs = ["SR-047"]
+constrains = "IF-010"
+detail = """For every saved state, oldest first, the report gives its name, date, entry count, the bytes its folder physically holds, the bytes removing it now would free across the whole store, and the bytes that removal would first have to move to keep shared content; the freed and moved figures come from the same plan the removal executes, so the reported reclaim is the reclaim achieved. Hidden files the removal would delete are counted. The date is read from the folder name, the same-second suffix tolerated."""
+dimensions = "sharing=set{none,with-latest,between-saved-states}; states=range[1..3]; compress=bool; @pairwise"
+rationale = """With deduplication only FileBackup can tell what removing a state frees; a host that guesses from folder sizes removes the wrong state or frees nothing. Computing the figures separately from the removal lost because the two would disagree."""
+status = "Drafted"
+
+[design.LLR-128]
+title = "The report and a check without repair change nothing"
+sr_refs = ["SR-103"]
+constrains = "IF-013"
+detail = """The saved-state report and a check without repair or refresh open the store for reading only: they create no folder, write no record or evidence, take no claim, keep any scratch files under the system's temporary folder, and do not need the source location to exist. The store is byte-identical, with unchanged modification times, afterwards, whether it was intact or damaged."""
+dimensions = "action=set{report,check,check-latest-only}; store=set{intact,damaged}; @full"
+rationale = """An owner checking a damaged store must not make it worse by looking; a check that repairs in passing lost because a wrong repair then happens without being asked for."""
+status = "Drafted"
+
+[design.LLR-062]
+title = "Whole-backup passes grow with the entries, and the index with the stored objects"
+sr_refs = ["SR-064", "SR-112"]
+constrains = "IF-043"
+detail = """The search for stored content no record refers to builds one lookup of referenced copies and checks each stored file against it once, comparing paths the way the filesystem does so two names differing by case on Linux are not merged. The content-location index reads each record once and keeps, by default, only each folder's identity, order and references, so its memory grows with the number of stored objects, not with the entries of every saved state; only the removal plan, the pool-resolution check and the stored-form check ask for whole records."""
+dimensions = "entries=range[1..1000000]; saved_states=range[1..365]; retain_records=bool; @pairwise"
+rationale = """A check that re-scans the record per stored file is quadratic and at a million files never finishes; keeping every saved state's whole record in memory lost on the total memory bound."""
+status = "Drafted"
+
+# === Check, repair and kit refresh (CMP-014) ================================
+
+[design.LLR-049]
+title = "A check reports every disagreement between the records and what is stored"
+sr_refs = ["SR-049"]
+constrains = "IF-010"
+detail = """A check walks the latest state and then every saved state in name order through the content-location index, and reports one finding per disagreement, naming the folder, the entry's path and stored-copy reference, the kind of problem, the form observed and expected, and whether it is repairable: a recorded form the stored bytes do not have; a stored name claiming a form its bytes do not have; a reference to a copy that is absent; content no record refers to; a blank entry whose located copy disagrees in form where that state's own kit cannot decide form from the bytes; and content altered from its record. Every distinct stored object is read and its digest compared once, so an altered copy, a same-length one included, is always found; the form test reads the opening bytes first and an archive is expanded only where its own bytes are not the entry's content. Infrastructure names count only at each folder's root. The check reports part failed (1) when there is any finding and complete (0) on a clean store; a missing backup root or a needed tool absent is a precondition not met (2)."""
+dimensions = "damage=set{none,deleted-everywhere,deleted-here-present-elsewhere,altered,same-length-altered,wrong-form,name-lies,unreferenced}; location=set{latest,saved-state}; scope=set{whole,latest-only}; @pairwise"
+rationale = """A check that reads only an object's opening bytes calls an altered store clean, which is the one answer a health check must never give wrongly; reading every entry's copy separately lost because shared content would be read once per entry rather than once."""
+status = "Drafted"
+
+[design.LLR-054]
+title = "Missing content is told apart from content missing only from its place"
+parent = "LLR-049"
+detail = """Each entry whose stored copy is absent from its place is reported as missing from its place where the same bytes still survive elsewhere in the backup (checked on disk against the content-location index, the missing place itself excluded), and as missing from the whole backup only where no copy remains. Both are findings; neither is repaired by a check."""
+rationale = """An owner told that content is lost when a copy survives may delete a saved state to make room, the very copy that would have healed it; one class for both lost for that reason."""
+status = "Drafted"
+
+[design.LLR-129]
+title = "A repair corrects only what is certain"
+sr_refs = ["SR-109"]
+constrains = "IF-014"
+detail = """A repair takes the check's findings and corrects only three classes, each for every entry sharing the stored item: a recorded form that disagrees with the stored bytes at the entry's own place (the record is rewritten to the observed form); a stored name that claims a form its bytes do not have (the item is renamed once and every entry referencing it adopts the new name); and content missing from its place while a copy elsewhere, read and hashed by the repair, has the digest and length the record names (that copy is written to a temporary name at the entry's own place, hashed again, and published by rename, the entry's location and every other folder unchanged). Content missing from the whole backup, stored bytes that differ from their record, a copy elsewhere whose bytes do not hash to the recorded identity, whatever its name claims, and content no record refers to are reported and left as they are. Nothing is ever re-packed, no entry's path, length, time, digest or duplicate mark changes, and every touched record is rewritten through the one writer. A repair of an intact store changes nothing."""
+dimensions = "finding=set{form-recorded-wrong,name-claims-wrong-form,missing-here-verified-copy-elsewhere,missing-here-unverified-copy,missing-everywhere,altered,unreferenced,blank-entry-form}; sharing=bool; @pairwise"
+rationale = """A repair that guesses turns a recoverable store into a wrong one; re-pointing an entry at a copy in another folder lost because removing that folder would then break the repaired entry, which a copy-back cannot suffer."""
+status = "Drafted"
+
+[design.LLR-130]
+title = "An interrupted repair or kit refresh leaves every state restorable"
+sr_refs = ["SR-110"]
+constrains = "IF-013"
+detail = """A repair renames or copies back one stored item at a time, each by publish-on-rename, and rewrites each touched record through the one writer, so at every point each entry's reference names an item that exists in its recorded form or one the restore finds by content key, and each record is whole. A kit refresh copies each kit file to a temporary name and publishes it by rename, never deleting. Re-running the interrupted operation, or the next run once it holds the backup and has passed admission, leaves every state restorable where it positively identifies the interruption from what is on disk, and otherwise refuses as leftovers require with nothing changed."""
+dimensions = "operation=set{repair,kit-refresh}; point=set{before-item,after-item,after-record,after-evidence}; @pairwise"
+rationale = """A repair killed between renaming an item and rewriting its record leaves an entry naming a vanished file; ordering the steps so the old name stays resolvable until the record changes lost nothing, and a backup-and-restore of the whole folder lost on space."""
+status = "Drafted"
+
+[design.LLR-131]
+title = "A kit refresh places the current kit in every state and changes nothing else"
+sr_refs = ["SR-117"]
+constrains = "IF-019"
+detail = """A kit refresh, holding the claim, copies the current kit's artifacts into the latest state and every saved state; it never deletes, so a refreshed older state may hold both launcher names, and it never copies a state's evidence. Every state's record stays byte-identical. A normal backup run leaves saved states' kits as they were."""
+dimensions = "states=set{latest,saved,both}; previous_kit=set{current,older}; @pairwise"
+rationale = """A saved state's kit fixes what it can restore; without an owner-requested refresh a fix in the restore kit never reaches existing history. Refreshing on every run lost because a saved state must keep the kit it was written with unless the owner asks."""
+status = "Drafted"
+
+[design.LLR-060]
+title = "A store or state in a retired or unrecognised form is refused by name"
+sr_refs = ["SR-061"]
+constrains = "IF-014"
+detail = """A store or state is in a retired form when an entry's layout marker is the retired value, an entry's stored-copy reference matches a retired naming grammar, or its evidence is of a retired version; it is unrecognised when the layout marker or the record's header is one this version does not know. A backup, a removal and a repair refuse such a store before changing anything, as a precondition not met (2), with a message naming the form and what to do (start a fresh backup location); a check reports it as a finding and changes nothing; every restore route refuses such a state before creating the target, naming the form, with 2. A retired form is refused by name even when no evidence is present. A store whose only fault is one damaged entry is not refused as a whole: that entry is still checked, healed and restored. The retired-grammar test is a positive test, never the negation of the current-grammar test, so a damaged reference stays repairable."""
+dimensions = "form=set{retired-layout-marker,retired-name-grammar,retired-evidence-version,unrecognised-marker,unrecognised-header,damaged-entry-only}; action=set{backup,removal,repair,check,restore}; evidence=bool; @pairwise"
+rationale = """Misreading a retired layout as the current one restores wrong trees or deletes content during a removal; migrating every old store in place lost because no backup run should rewrite history it cannot verify."""
+status = "Drafted"
+
+[design.LLR-069]
+title = "Stored names are encoded, decoded and parsed one way"
+sr_refs = ["SR-003", "SR-061"]
+constrains = "IF-016"
+detail = """Encoding a value wider than its field is refused rather than truncated, because a truncated name cannot be checked against the record it addresses; decoding normalises to the exact digest width, restoring leading zeros, and refuses a value of 2^128 or more. Exactly one parser reads a name: the first 22 characters are the digest field, the separator is at index 22, base-57 digits run to the first dot, and the remainder is an opaque extension that must hold no path separator; a malformed name gives no parse, never an error. The current-grammar and retired-grammar tests answer different questions, and both restore routes agree on the retired-grammar test for every name. The extension is carried verbatim and may be empty."""
+dimensions = "value=set{zero,max-128-bit,too-wide,length-zero,length-large}; name=set{current,retired,malformed,extension-empty,extension-with-space,extension-non-ascii}; @pairwise"
+rationale = """Two parsers of one grammar drift and one of them misreads a name; a truncating encoder lost because a name that no longer encodes its content defeats every check of content against name."""
+status = "Drafted"
+
+# === Views (CMP-015) ========================================================
+
+[design.LLR-061]
+title = "Where turned on, the browse view lists every path of the latest state"
+sr_refs = ["SR-062"]
+constrains = "IF-041"
+detail = """With the browse view on, after each run, and on the view-rebuild action, the view is written at the listing location: an index of every path of the latest state, duplicates included; one page per folder; and a root page searchable by name. Each entry opens its stored content, its name taken from the entry's path plus the archive extension exactly when the entry is recorded compressed. The view carries a stamp of the record's rows (not of its evidence), so a run that changed the latest state rebuilds it and one that did not may skip it; the rebuild wipes only a folder that already holds a generated view. Nothing else reads the view, and a view failure never changes the backup's outcome. With the view off, no listing is produced."""
+dimensions = "browse_view=set{off,on}; duplicates=bool; change=set{add,edit,remove,none}; compress=bool; rows=set{under-threshold,over-threshold}; @pairwise"
+rationale = """An owner after one file should not need a restore to find it; generating the view inside the backup folder lost because the view would then be taken for data, and stamping it from the evidence lost because an identical record can be written with different quoting."""
+status = "Drafted"
+
+[design.LLR-132]
+title = "Where turned on, the space view lists files by the space their stored copy takes"
+sr_refs = ["SR-097"]
+constrains = "IF-042"
+detail = """With the space view on, after each run, the space view lists every file of the latest state ordered by the size of its stored copy, largest first; a file whose stored copy serves other files is listed at the full size of that copy and marked shared. It is written at the listing location and nothing else reads it."""
+dimensions = "space_view=bool; shared=bool; compress=bool; @pairwise"
+rationale = """An owner deciding where backup space goes needs the costliest files first; the browse view's folder order cannot answer that question."""
+status = "Drafted"
+
+[design.LLR-133]
+title = "The space view gives a media encoding rate where a playing time is measured"
+sr_refs = ["SR-098"]
+constrains = "IF-036"
+detail = """With the space view on and the media-measurement tool available, each file whose content is read in the run is given to the tool; where it reports a positive playing time, the file's encoding rate, its size in mebibytes divided by the playing time in seconds, to three decimal places, is recorded with its entry and shown in the space view; a file with no playing time, still images and malformed media included, carries none."""
+dimensions = "file=set{video,audio,still-image,malformed-media,non-media}; @full"
+rationale = """Media that could be re-encoded at a lower rate is where large savings hide, and only a playing time reveals the rate; estimating from file type lost because one type spans every rate."""
+status = "Drafted"
+
+[design.LLR-134]
+title = "A media measure not taken changes nothing else, and says so"
+sr_refs = ["SR-099", "SR-133", "SR-147"]
+constrains = "IF-042"
+detail = """With the space view off, no media measurement is made and each run's record says the media measure was not taken. With it on and the tool absent or failing, the run stores exactly what and returns exactly the value it would with the view off, its record says the extra was skipped, and the space view marks each file's measure as not taken with the reason."""
+dimensions = "space_view=bool; tool=set{present,absent,failing}; @full"
+rationale = """An optional measurement that can fail a backup makes the backup depend on a media tool; leaving the gap unstated lost because the owner would read a blank rate as a measured zero."""
+status = "Drafted"
+
+# === Store format (CMP-016) =================================================
+
+[design.LLR-002]
+title = "The content digest is computed and written one way everywhere"
+sr_refs = ["SR-003", "SR-056", "SR-033"]
+constrains = "IF-034"
+detail = """A file's digest is taken over its full content as a stream, never loaded whole, and written as 32 uppercase hexadecimal digits, most significant byte first. The hashing library is loaded before the first digest is taken. The shell restore route takes the digest through the host's digest command, whichever of the two documented names is present, and normalises its output to the same text."""
+dimensions = "content=set{empty,one-byte,text,binary-1MiB,large}; route=set{library,host-command}; @pairwise"
+rationale = """Two text forms of one digest make every comparison between a record and a found copy fail; loading whole files lost on the memory bound."""
+status = "Drafted"
+
+[design.LLR-022]
+title = "Infrastructure names count only at a folder's own root"
+sr_refs = ["SR-001", "SR-074"]
+constrains = "IF-013"
+detail = """A name is infrastructure only at the root of the backup root or of a saved-state folder; the same name deeper in the tree is data, backed up, restored and searched like any other file. The infrastructure names cover every artifact the kit places, the records, their evidence and their publication temporaries, the run-state record and the retired launcher name."""
+dimensions = "path=set{root-infrastructure,nested-same-name,ordinary,retired-launcher,publication-temporary}; folder=set{backup-root,saved-state}; @pairwise"
+rationale = """A user file nested under a name the kit uses would otherwise be skipped silently; matching infrastructure names at any depth lost for that reason."""
+status = "Drafted"
+
+[design.LLR-025]
+title = "Records are read and written one way, on every route"
+sr_refs = ["SR-024", "SR-033"]
+constrains = "IF-014"
+detail = """One reader and one writer are the only access to a record on the backup side, and each restore route reads it to the same rows: quoted fields with commas and embedded quotes per the CSV rules, an optional byte-order mark tolerated, lengths read as integers, the modification-time text carried opaquely and never reparsed or reformatted, backslash separators mapped to the host's. An empty or null cell is read as empty. A missing record reads as an empty state only where the run-state record shows no earlier backup."""
+dimensions = "records=set{rows,empty,missing}; field=set{plain,comma,quote,unicode,bracket,space}; byte_order_mark=bool; route=set{backup,language-runtime-restore,shell-restore}; @pairwise"
+rationale = """A record read differently by two routes restores two different trees from one backup; letting each caller parse its own copy lost for that reason."""
+status = "Drafted"
+
+[design.LLR-024]
+title = "An unchanged re-run writes an identical record"
+sr_refs = ["SR-024"]
+constrains = "IF-014"
+detail = """Rows are ordered ordinally by path and every field is serialised from its typed value, so two runs over an unchanged source, with no stored content lost between them, write byte-identical records of the latest state, whether or not a full re-read was due and with compression on and off, and the second reports zero added, changed and removed files."""
+dimensions = "reread_due=bool; compress=bool; @full"
+rationale = """A record that differs between identical runs looks like a change, defeats the no-change rule, and adds saved states for nothing; ordering by walk order lost because the filesystem does not promise it."""
+status = "Drafted"
+
+[design.LLR-068]
+title = "A stored item's form is decided from its bytes, not from its record"
+sr_refs = ["SR-068"]
+constrains = "IF-016"
+detail = """The form of a stored item found through its own reference is decided cheapest test first: no archive signature in the first six bytes means raw, since the writer never stores a compressed item without one; a signature with a length different from the entry's means archive; equal lengths are hashed, and bytes matching the entry's digest mean raw, the entry's own content being an archive stored as it is. An unreadable item is taken as raw, so the copy attempt reports the real read error. The recorded form is never used for a correctness decision; it feeds only the restore's space estimate. An item found by content key keeps the form the search proved."""
+dimensions = "item=set{tool-archive,raw,source-archive-stored-raw,damaged,unreadable}; recorded_form=set{correct,flipped}; @pairwise"
+rationale = """A record whose form column disagrees with the stored item, or a source file that is itself an archive, would otherwise restore expanded or unexpanded wrongly; trusting the column lost for that reason."""
+status = "Drafted"
+
+# === Restore admission (CMP-018) ============================================
+
+[design.LLR-136]
+title = "Every whole-restore check is made before anything is written"
+sr_refs = ["SR-145", "SR-029"]
+constrains = "IF-021"
+detail = """A restore makes, in this order and before creating the target, its report or any file: the request (switches and their values); the target (inside the backup, unresolvable, a parent-folder component); the record's integrity and form (evidence, header, retired forms); the tools its route needs; and the target's space. Only when every one has passed does it continue entry by entry. Where several whole-restore faults are present the value is the one the shared precedence gives; with only per-entry faults every other file restores and the per-entry outcome is reported."""
+dimensions = "whole_fault=set{none,target-in-backup,unresolvable-target,record-evidence-mismatch,retired-form,missing-tool,no-space}; entry_fault=set{none,escaping-entry,missing-content,name-collision}; route=set{language-runtime,shell}; @pairwise"
+rationale = """A restore that refuses after creating the target and its report leaves debris beside a refusal and can look half-done; checking each condition at the point it is first needed lost for that reason."""
+status = "Drafted"
+
+[design.LLR-009]
+title = "A restore target inside the backup is refused"
+sr_refs = ["SR-009"]
+constrains = "IF-025"
+detail = """A target equal to the backup root or the saved-state root, inside either, or reaching either through a link or junction anywhere along its path, is refused before anything is written, with the precondition-not-met value (2); the backup stays byte-identical. Containment is decided on physical locations with a separator boundary, so a sibling whose name begins with the backup folder's name is outside and restores normally."""
+dimensions = "target=set{equal,inside,inside-saved-states,via-link-at-leaf,via-intermediate-junction,prefix-sibling,outside}; route=set{language-runtime,shell}; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """A restore written into the backup can overwrite the very content it restores; comparing the path as typed lost because a junction makes an outside-looking path land inside."""
+status = "Drafted"
+
+[design.LLR-079]
+title = "Containment compares physical locations and refuses rather than guesses"
+parent = "LLR-009"
+constrains = "IF-025"
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+detail = """A path is resolved physically before any comparison: every existing component is resolved through links and junctions, and the non-existent tail is appended unchanged, which is sound because a path that does not exist cannot hold a link. Parent-folder components are never reduced lexically before resolution. Where resolution cannot be done, the answer is indeterminate, not the raw input. The containment test answers inside, outside or indeterminate: the target guard proceeds only when the target is provably outside the backup, and an entry guard writes only when the entry is provably inside the target."""
+dimensions = "path=set{plain,link-at-leaf,link-intermediate,parent-component,not-yet-existing,unresolvable}; caller=set{target-guard,entry-guard}; @pairwise"
+rationale = """Lexical reduction is not resolution: through a link outside to the backup, a path climbing back with a parent component lands inside the backup by the kernel's rules and outside by the text's. A two-answer test lost because each caller's safe default differs."""
+status = "Drafted"
+
+[design.LLR-137]
+title = "A target that cannot be resolved, or holds a parent-folder component, is refused"
+sr_refs = ["SR-141"]
+constrains = "IF-025"
+detail = """A target whose real location cannot be resolved, and a target path holding a parent-folder component, are each refused before anything is written, with the precondition-not-met value (2) and the reason; the refusal is never reported as content, record or host damage. The same target written without the parent-folder component restores normally."""
+dimensions = "target=set{unresolvable,parent-component,plain}; route=set{language-runtime,shell}; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """A target the restore cannot locate might be inside the backup; guessing from the text lost because that is the case the target guard exists for."""
+status = "Drafted"
+
+[design.LLR-039]
+title = "The record is verified against its evidence before the target exists"
+sr_refs = ["SR-039"]
+constrains = "IF-015"
+detail = """After confirming the record exists and its header has the record's key columns, and before creating the target or the report or measuring space, each route reads the evidence and compares the record's length, then its entry count, then its digest. A length or digest mismatch, unparseable evidence, or a current-form record with no evidence, is refused with the damaged-record value (3), the target absent or unchanged and no report written. Where only the count differs and length and digest match, the record is the evidenced one and the restore proceeds with a warning. Evidence of a newer version is checked on the fields this kit knows, with a warning. Text that is not a record at all is refused with 2, which takes precedence. A request for strict evidence refuses any record without evidence with 3."""
+dimensions = "fault=set{none,truncated,partly-written,replaced,current-form-evidence-missing,evidence-malformed,count-only-differs,not-a-record,newer-evidence}; state=set{latest,saved}; route=set{language-runtime,shell}; @pairwise"
+rationale = """A truncated or swapped record restores a smaller tree and calls it complete; trusting a record whose evidence fails lost for that reason, and refusing on a count-only difference lost because the digest already proves the record."""
+status = "Drafted"
+
+[design.LLR-138]
+title = "Only positive evidence excuses a check an older state cannot support"
+sr_refs = ["SR-116"]
+constrains = "IF-019"
+detail = """A state counts as recorded before a kind of record existed (completeness evidence, a folder record, a link record) only on positive evidence: for evidence, the state's own kit revision is below the revision that introduced it; for folder and link records, the state's evidence is of a version that does not state them. Such a state restores as before and its report says each check it could not make, ending complete where nothing else failed. Absence alone is never such evidence: a current-form state missing what it should carry is damage."""
+dimensions = "missing_kind=set{completeness-evidence,folder-record,link-record}; age=set{older,current}; route=set{language-runtime,shell}; @pairwise"
+rationale = """Taking every missing record as a sign of age lets damage pass as history, and deleting the evidence then switches the check off; refusing every older state lost because states written by supported versions must still restore."""
+status = "Drafted"
+
+[design.LLR-139]
+title = "The tools a route needs are checked, by name and version, before writing"
+sr_refs = ["SR-118"]
+constrains = "IF-024"
+detail = """Before writing anything, a route checks the tools it will use: on the shell route the shell's version, the text-processing tool, the content-digest command and, where the state holds compressed content, the archive extractor; on the language-runtime route the runtime's version, the hashing library carried in the kit and, where compressed content exists, the archive tool. A tool missing or below its documented version refuses the restore with the precondition-not-met value (2), naming the tool or the version needed and how to obtain it on that system. A present tool that fails its self-test is a host fault, not a missing tool."""
+dimensions = "missing=set{none,digest-command,archive-extractor,text-processor,shell-below-version,runtime-below-version,hashing-library}; compressed_content=bool; route=set{shell,language-runtime}; @pairwise"
+rationale = """A tool found missing halfway leaves a half-restored tree and a misleading outcome; a launcher that dies with the shell's own not-found error lost because it tells the restorer nothing."""
+status = "Drafted"
+
+[design.LLR-023]
+title = "The target's space is checked, with allowances, before writing"
+sr_refs = ["SR-023"]
+constrains = "IF-025"
+detail = """Before writing, the restore's demand is the recorded length of every entry, compressed ones included, plus a declared allowance for allocation (each file rounded up to the target's allocation unit), folder metadata and temporary working space (the largest compressed item's expanded size). Where the demand exceeds the target volume's free space, the restore is refused before writing with the precondition-not-met value (2), naming the volume, the space needed and the space free. A volume that cannot be measured is not refused; the report says the check was not made. The volume is measured the same way on drive-qualified, share and rooted POSIX paths."""
+dimensions = "need_vs_free=set{below,equal,above}; demand=set{few-large-files,many-small-files,compressed-content}; measurable=bool; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """A restore that fills the disk halfway leaves a partial tree and a host fault where a precondition was knowable; leaving compressed entries out of the sum lost because the recorded length is already the expanded size."""
+status = "Drafted"
+
+[design.LLR-008]
+title = "A restore needs only the kit and the documented floor, and downloads nothing"
+sr_refs = ["SR-008", "SR-031"]
+constrains = "IF-024"
+detail = """A restore uses only what the backup folder carries and the tools of one route of the documented floor; it fetches nothing at restore time, the hashing library included, which the language-runtime route loads from the kit and never installs. Expanding compressed content and finding a file's content elsewhere in the backup work on every route. With network access removed, a restore of any state on stock Windows, Linux or macOS, with or without the backup runtime, produces a tree byte-identical to the source at that state's run."""
+dimensions = "restore_system=set{windows,linux,macos}; route=set{shell-tools,language-runtime}; compressed_content=bool; network=bool; @pairwise"
+rationale = """A restore that fetches anything depends on a network and a package source that may be gone in the disaster it serves; one route only lost because no single route is present on every stock system."""
+status = "Drafted"
+
+[design.LLR-071]
+title = "The shell route behaves the same whatever the flavour of the host's tools"
+sr_refs = ["SR-071"]
+constrains = "IF-024"
+detail = """The shell route measures file sizes by a style chosen once by probing a known file and accepted only when its output is numeric; creates every temporary folder from an explicit template and checks the result; stamps times in an explicit portable format and sets a restored file's time for every ISO-8601 offset, by an offset-carrying time zone where the native form is missing; measures free space with a portable option; and canonicalises paths as the containment rule requires. An intact backup restores with complete (0) on GNU and BSD userlands alike, and a host below the floor is refused with 2, never given a false content, record or host verdict."""
+dimensions = "tool_flavour=set{gnu,bsd,windows}; measure=set{size,temporary-folder,time-stamp,free-space,canonical-path}; offset=set{utc,local,foreign}; @pairwise"
+rationale = """A GNU-only assumption silently drops times or fails measurements on macOS, and the restore then reports damage that is not there; requiring GNU tools on every host lost because a stock macOS does not have them."""
+status = "Drafted"
+
+[design.LLR-010]
+title = "The chosen state's own record is the sole authority"
+sr_refs = ["SR-010"]
+constrains = "IF-020"
+detail = """The state restored is the one whose folder the restore is started from, or the one the request names: a saved-state folder restores that state, the backup root the latest state. That state's record is the only list of what to restore, with nothing from a newer record mixed in. Content is found by content key over the whole pool: the backup root and every saved-state folder, hidden ones included. The location sidecar's recorded roots are used only while the restore's own folder physically lies inside one of them."""
+dimensions = "state=set{latest,oldest,middle}; later_change=set{edit,remove,add}; compress=bool; started_from=set{own-folder,named}; @pairwise"
+rationale = """A restore that overlays a newer record brings back the mistake history exists to undo; searching only the chosen state's folder lost because a saved state holds only the content it superseded."""
+status = "Drafted"
+
+[design.LLR-140]
+title = "States written by earlier supported versions restore with the current kit"
+sr_refs = ["SR-115"]
+constrains = "IF-014"
+detail = """The current kit reads every record form written by any earlier supported version: the same columns and grammar, optional records absent where age evidence shows they did not exist, older evidence versions read on their known fields. Such states restore byte-exact on every restore system. A retired form is refused by name, not misread."""
+dimensions = "writer_version=set{oldest-supported,previous}; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """An owner who refreshes the kits must not lose the ability to restore his oldest states; dropping support for a form a supported version wrote lost for that reason."""
+status = "Drafted"
+
+# === Entry restoration (CMP-019) ============================================
+
+[design.LLR-141]
+title = "An entry that would land outside the target is not written"
+sr_refs = ["SR-121"]
+constrains = "IF-023"
+detail = """Before writing an entry, its destination under the target is resolved physically. An entry whose path climbs out, is absolute or drive-qualified, or reaches outside the target through a link, and a recorded link whose re-pointed target would land outside the target, is left unwritten, named with the cause, counted as not restored, and the restore reports the damaged-record value (3) after restoring every other entry. A folder-record row that would land outside is not applied and is reported the same way."""
+dimensions = "path_form=set{parent-climb,absolute,drive-qualified,via-link}; entry=set{file,link,folder-row}; target_exists=bool; route=set{language-runtime,shell}; @pairwise"
+rationale = """An entry written outside the target is a write anywhere the restorer can write, from a record nobody checked; counting it as missing content lost because an escaping path is evidence the record is damaged, not that content is lost."""
+status = "Drafted"
+
+[design.LLR-056]
+title = "Every written file is verified, with one recovery from another copy"
+sr_refs = ["SR-056", "SR-119"]
+constrains = "IF-023"
+detail = """After an entry's content is expanded or copied, the written file's length and digest are compared with the entry's. On a mismatch the file is deleted and the content is searched for by content key across the backup once, as if the entry had no reference, and the result is verified again; a recovery is reported. An entry still failing is not left in place and is recorded as content mismatch (content class). Where the search had already proved its source and the written file still mismatches, the cause is a write mismatch (host class) and there is no second search; a file that cannot be read back for verification is a host fault and is kept. The restore reports complete only when every file it wrote has been verified."""
+dimensions = "damage=set{none,altered,same-length-bit-flip,truncated}; recoverable=set{other-copy-latest,other-copy-saved,none}; resolution=set{own-reference,found-by-key}; form=set{raw,archive}; @pairwise"
+rationale = """A copy that is never checked can restore wrong bytes under a complete outcome, the one lie a restore must not tell; retrying the search without limit lost because a damaged pool would loop."""
+status = "Drafted"
+
+[design.LLR-050]
+title = "Searching by content key gives one cause per lookup and proves the form"
+parent = "LLR-056"
+constrains = "IF-016"
+detail = """A search by content key over the pool answers exactly one of: found, with the form proven (archive when an expanded candidate yielded the content, raw when the candidate's own bytes did); content missing, with a detail naming any candidates that failed to expand; dependency missing, when an archive candidate met no usable archive tool; storage unreadable, when a candidate or a saved-state folder could not be read. Every archive candidate that does not yield the content is retested as raw bytes before it is dropped. An expansion failure counts as damage only after the archive tool passes a self-test; a tool that cannot run is dependency missing. A missing referenced item whose search ends in a host cause is recorded with that host cause."""
+dimensions = "candidate=set{raw,archive,archive-name-over-raw,source-archive-stored-raw,unreadable}; archive_tool=set{present,absent,broken}; folder=set{listable,unlistable}; @pairwise"
+rationale = """A search that reports every failure as missing content makes a host fault look like loss, and one that reports damage as a host fault makes a retrying wrapper loop forever; one cause per lookup lost neither."""
+status = "Drafted"
+
+[design.LLR-142]
+title = "Two names that would collide on the target are both reported, never merged"
+sr_refs = ["SR-092"]
+constrains = "IF-023"
+hat_refs = ["FILESYSTEM-SEMANTICS"]
+detail = """Before writing, the state's paths are compared as the target will compare them (letter case on a case-insensitive target, Unicode normalisation on a normalising target, the target being probed for both). Where two recorded names would land on one name, neither is written, both are named as not restored with the cause name collision, and the restore reports content missing (1) after restoring every other file. On a target that keeps both distinct, both restore."""
+dimensions = "collision=set{none,case,unicode-normalisation}; target_case_sensitive=bool; target_normalises=bool; @pairwise"
+rationale = """Writing both lets the second silently overwrite the first and reports both restored; writing the first and skipping the second lost because which one survives would then depend on record order."""
+status = "Drafted"
+
+[design.LLR-029]
+title = "Every entry not restored is recorded with its cause, and counted"
+sr_refs = ["SR-029", "SR-120"]
+constrains = "IF-022"
+detail = """The restore never skips an entry silently: each entry it cannot restore (no content found, a failed recovery, a failed expansion, an unrecoverable mismatch, an escaping path, a collision) is recorded with its cause and every other entry is still restored. When any entry was not restored the restore reports failure with the value the precedence gives, naming each entry not restored with its cause and giving their total, and the counts of content and host failures even when one class takes precedence. An intact restore reports complete with 0."""
+dimensions = "cause=set{missing,recovery-failed,expand-failed,content-mismatch,mixed}; unrestored=set{none,one,several,all}; position=set{first,middle,last}; @pairwise"
+rationale = """A restorer who sees only a failure cannot tell one lost photo from a lost tree; stopping at the first failed entry lost because every other file would then be withheld."""
+status = "Drafted"
+
+# === Tree finishing (CMP-020) ===============================================
+
+[design.LLR-066]
+title = "Each restored file gets its own recorded modification time"
+sr_refs = ["SR-066"]
+constrains = "IF-023"
+detail = """Each file is given the modification time its own entry records, after its content has been verified (and after a recovery, so a deleted and rewritten file never keeps a time from the failed attempt), including files that share one stored copy. A read-only file does not block it. Where an entry of a current-form record has a blank or unreadable time, the file is restored with its content, the time problem is reported naming the file, the file still counts as restored, and the restore ends part failed (1)."""
+dimensions = "entry=set{unique,shared-first,shared-twin,blank-time,unreadable-time}; route=set{language-runtime,shell}; offset=set{utc,local,foreign}; @pairwise"
+rationale = """Copying the time with the stored copy gives every twin the owner's time; failing the file on a bad time lost because its content is correct and verified."""
+status = "Drafted"
+
+[design.LLR-077]
+title = "Restored files never inherit the store's protection"
+sr_refs = ["SR-010"]
+constrains = "IF-023"
+detail = """Every file a restore writes is made writable at the single write point, before verification and before its time is set, so a store whose items are read-only does not hand that protection to the restored tree; a source file's read-only state is not part of what a restore reproduces."""
+dimensions = "stored_read_only=bool; route=set{language-runtime,shell}; @full"
+rationale = """A read-only file blocks its own verification and time stamp on some hosts and surprises the restorer afterwards; reproducing read-only state lost because it is not recorded and a store's protection is not the source's."""
+status = "Drafted"
+
+[design.LLR-143]
+title = "Folders and their attributes are applied last, and gaps are reported"
+sr_refs = ["SR-065", "SR-122", "SR-146"]
+constrains = "IF-017"
+detail = """After every file is written and verified, the folder record is applied: folders are created parents first, so nested empty folders appear, and their recorded attributes are added deepest first to whatever bits the folder already has. An attribute the target cannot hold is reported per folder and does not change the outcome. Where the state's evidence says it has a folder record and that record is missing or malformed, every file is still restored, the folder metadata not applied (empty folders not recreated, attributes not applied) is named, and the restore ends part failed (1); a state whose evidence predates folder records ends complete with the report saying folder metadata was not recorded."""
+dimensions = "folder=set{empty,nested-empty,hidden,system,read-only}; record=set{present,absent-current,absent-older,malformed}; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """Applying attributes before files are written makes a read-only folder refuse its own contents; treating a missing folder record as always harmless lost because then damage and an older state look the same."""
+status = "Drafted"
+
+[design.LLR-144]
+title = "Recorded links are rebuilt at their places"
+sr_refs = ["SR-152"]
+constrains = "IF-018"
+detail = """After every file is written, each recorded link is recreated at its path under the target: one that led inside its source leads to the matching path under the target and opens the restored content there; one that led into a system location leads to its original path. No file is written through any link. Where the target cannot hold a link of that kind, or the restore lacks the right to create one, the link is named as not recreated and the outcome stays complete."""
+dimensions = "link=set{inside-source,junction-inside-source,own-location}; target_os=set{windows,linux,macos}; can_create_links=bool; @pairwise"
+rationale = """A link recorded but never rebuilt leaves the restored tree missing paths the owner used; rebuilding links before writing files lost because a file would then be written through the link to wherever it points."""
+status = "Drafted"
+
+# === Restore outcome and report (CMP-021) ===================================
+
+[design.LLR-040]
+title = "A restore returns one value, the same for the same failure on every route and system"
+sr_refs = ["SR-040"]
+constrains = "IF-021"
+detail = """Each route classifies: content that cannot be produced although the host's tools work, and two names colliding, as content missing (1); an entry escaping the target as damaged record (3); a current-form state's folder record or a file's time missing or malformed as some part failed (1); a bad request or a precondition not met (a tool absent or below version, a target lacking space) as 2; a damaged record as 3; an I/O failure or a tool failing mid-restore as host fault (4); and a state recorded before a check existed, restored with the check reported not made, as complete (0). When several apply, 2 over 3, 3 over 4, 4 over 1. An error the route did not classify ends with 2 when it arose before anything was written and with 4 after. A switch given without its value is a bad request (2). The same induced failure gives the same value through every route on Windows, Linux and macOS."""
+dimensions = "class=set{complete,content-missing,bad-request,precondition-not-met,damaged-record,host-fault,unclassified}; combined_with=set{none,content-missing,host-fault}; route=set{language-runtime,shell}; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """A wrapper that retries on 4 loops forever over damage reported as a host fault, and one that alarms on 1 ignores a real loss reported as 2; one classification shared by both routes lost nothing, and letting each route keep its own lost because the restorer cannot know which route he ran."""
+status = "Drafted"
+
+# === Restore launch and target choice (CMP-022) =============================
+
+[design.LLR-073]
+title = "A restore asks for a target only where someone can answer"
+sr_refs = ["SR-073", "SR-016"]
+constrains = "IF-026"
+hat_refs = ["CROSS-PLATFORM"]
+detail = """When no target is given, the restore decides from the session alone, with every signal an input: no question when declared unattended, when input is redirected or closed, or with neither a console nor a desktop, in which case it prints its usage and returns 2 without asking anything; a typed prompt with an interactive console and no desktop; a folder choice on a desktop. A cancelled or unavailable folder choice never restores into a default target."""
+dimensions = "start=set{declared-unattended,redirected-input,closed-input,no-console-no-desktop,console-only,desktop,cancelled-choice}; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """A restore that prompts inside a script hangs it; one that never asks leaves a double-clicking restorer with nothing. Deciding inside the dialog code lost because the decision could then only be tested by showing dialogs."""
+status = "Drafted"
+
+[design.LLR-145]
+title = "The folder choice never fails the restore"
+parent = "LLR-073"
+constrains = "IF-027"
+detail = """The folder choice is shown on whichever dialog the host offers; on Windows it is shown on a single-threaded context created for it when the current one is not, never on a bare thread. It never raises an error: a dialog that is absent, fails or is cancelled gives no target. On the shell route the choice is offered only on the explicit request for it, and a chooser program given by the environment is invoked quoted, so a path holding spaces is not split."""
+dimensions = "dialog=set{returns-path,trailing-separator,cancel,absent,fails}; restore_system=set{windows,linux,macos}; @pairwise"
+rationale = """A dialog that crashes the process loses the outcome along with the restore; on some runtime versions a bare thread is exactly that crash, which is why the context rule is part of the contract."""
+status = "Drafted"
+
+[design.LLR-074]
+title = "The launchers start a restore and leave the outcome on screen only when started by hand"
+sr_refs = ["SR-072"]
+constrains = "IF-020"
+detail = """The Windows launcher is one line passing every argument to the restore and returning its value, with no pause; the macOS launcher changes to its own folder, asks for the target by folder choice when given no arguments, and runs the shell route without needing an executable bit on the restorer. Neither carries restore logic. The restore, not the launcher, keeps the outcome and its value on screen until dismissed, and only when the target came from a folder choice or a prompt, so a scripted caller with arguments is never held and gets the value."""
+dimensions = "restore_system=set{windows,macos}; start=set{double-click,console-no-arguments,scripted-with-arguments}; outcome=set{complete,failed}; @pairwise"
+rationale = """A pause in the launcher also fires for an automated caller that passes no arguments and hangs it without its value; holding in the restore only when a person chose the target lost nothing."""
+status = "Drafted"
+
+# === Container (CMP-023) ====================================================
+
+[design.LLR-146]
+title = "The container carries everything a backup needs"
+sr_refs = ["SR-034"]
+constrains = "IF-040"
+detail = """The image carries the runtime, the backup program, the restore kit, the hashing library at its pinned version (identified by its published digest when the image is built) and the archive tool, so a containerised run on a host with none of them installed produces a backup with its restore kit that restores byte-exact, with compression on and off, using only what the container carries."""
+dimensions = "compress=bool; host_runtime=set{absent,present}; @full"
+rationale = """A container that fetches its components at run time needs a network the hardened container does not have; installing them on the host lost because the container exists so the host needs nothing."""
+status = "Drafted"
+
+[design.LLR-147]
+title = "A containerised run needs no more access than its own locations"
+sr_refs = ["SR-130"]
+constrains = "IF-039"
+detail = """A containerised run completes as the unprivileged user, with no added capabilities and no network, reading the source and the configuration through read-only mounts and writing only to the backup, saved-state, state and record mounts and its scratch folder; it writes nowhere else."""
+dimensions = "write_target=set{source,configuration,backup,saved-states,state,records,scratch,elsewhere}; @full"
+rationale = """A backup container with write access to its source can destroy what it protects; running as root with one writable volume lost on that risk."""
+status = "Drafted"
+
+[design.LLR-148]
+title = "Third-party components in the image carry their licences and notices"
+sr_refs = ["SR-143"]
+constrains = "IF-040"
+detail = """Only third-party components whose licences permit redistribution in the image are included, and the image's notices file names each (the runtime, the hashing library, the archive tool, any media tool) with its version, licence and required notice text."""
+dimensions = "component=set{hashing,archive,media-probe,runtime}; @full"
+rationale = """An image distributed without its components' notices breaks their licences on every pull; leaving notices to the base image lost because the components added on top are not covered by it."""
+status = "Drafted"
+
+# === Release guidance (CMP-024) =============================================
+
+[design.LLR-027]
+title = "The quick start and the configuration helper take a new user to a first backup"
+sr_refs = ["SR-027"]
+constrains = "IF-008"
+detail = """Following only the quick-start guidance, a new user on a supported host uses the configuration helper to produce a configuration that the launch checks accept (in the current description version, with the notification login protected by the host) and completes a first backup with the complete outcome; the hashing component is obtained on first use without a separate install step."""
+dimensions = "host=set{windows,container}; notification=bool; @full"
+rationale = """A tool whose first configuration must be written by hand from the manual loses most new users before their first backup; a helper that writes a document the program refuses lost for the same reason."""
+status = "Drafted"
+
+# === Performance (cross-cutting) ============================================
+
+[design.LLR-149]
+title = "A run's work follows what changed, not the size of the history"
+sr_refs = ["SR-113", "SR-064", "SR-112"]
+detail = """Unchanged-looking files are decided from size and time without reading their content unless a re-read is due; changed content is read once to take its digest and once to store it; each saved state's record is read at most once per run, through the content-location index, and only folders whose references vanished are rewritten; no whole record of every saved state is held in memory; tools run one at a time. A check reads each distinct stored object once and a full restore streams each file once. Progress is recorded throughout."""
+rationale = """A run that rereads every file or every saved state's content each night grows with the history and overruns its window; caching more in memory lost on the total memory bound, which the reference host must meet with the tools it runs."""
+status = "Drafted"

@@ -1,0 +1,112 @@
+# Independently derived design tier. All rows await review.
+
+[component.CMP-001]
+name = "FileBackup"
+category = "software"
+status = "Drafted"
+notes = "Captures, maintains and restores one owner’s file history. The root has no enclosing component."
+
+[component.CMP-002]
+name = "Backup production"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Coordinates source capture, object storage and publication. These responsibilities currently share one large backup implementation rather than separate carriers."
+
+[component.CMP-003]
+name = "Source capture and change detection"
+category = "software"
+part_of = "CMP-002"
+status = "Drafted"
+notes = "Owns traversal, portability, cached identities and recorded folder/link metadata; currently mixed with storage and retention."
+
+[component.CMP-004]
+name = "Content object storage"
+category = "software"
+part_of = "CMP-002"
+status = "Drafted"
+notes = "Owns content grouping, compression selection and bounded copy attempts; currently mixed with source capture."
+
+[component.CMP-005]
+name = "State publication"
+category = "software"
+part_of = "CMP-002"
+status = "Drafted"
+notes = "Owns prior-state preservation and dated publication; currently shares a carrier with concurrency and retention."
+
+[component.CMP-006]
+name = "Store coordination"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns exclusion, liveness, reclamation and mutation fencing for every writer; currently embedded in backup production."
+
+[component.CMP-007]
+name = "Store representation"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns portable records, identity and publication semantics. Restore-safe responsibility; independent of backup policy. Current shared primitives also contain unrelated tool and logging responsibilities."
+
+[component.CMP-008]
+name = "Content resolution"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns pool supply and demand and verified lookup. Present implementations duplicate this responsibility between maintenance and restore routes."
+
+[component.CMP-009]
+name = "Retention"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns removal planning, preservation proof, commit and inventory; retention selection remains outside the system. Currently shares the backup carrier."
+
+[component.CMP-010]
+name = "Audit and repair"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns findings, certain corrections and kit refresh; currently shares the backup carrier."
+
+[component.CMP-011]
+name = "Restore"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns admission, file recovery and metadata application. Two runtime routes implement the same responsibility; runtime choice alone does not create a component."
+
+[component.CMP-012]
+name = "Configuration and launch"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns input validation, defaults, action dispatch and cross-location outcomes. Current entry and backup implementations divide this responsibility."
+
+[component.CMP-013]
+name = "Host capabilities"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns dependency discovery, digest/archive adapters, physical paths and volume measurements. Currently spread between shared primitives and runtime routes."
+
+[component.CMP-014]
+name = "Operator reporting"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns progress, run records, notification and generated views. Current backup entry and production implementation intermingle these responsibilities."
+
+[component.CMP-015]
+name = "Delivery and setup"
+category = "software"
+part_of = "CMP-001"
+status = "Drafted"
+notes = "Owns self-contained kits, licensed image contents, launchers and configuration guidance. Current kit deposition and setup are separate carriers but share this delivery responsibility."
+
+[component.CMP-016]
+name = "Container adapter"
+category = "software"
+part_of = "CMP-012"
+status = "Drafted"
+notes = "Owns container action, environment and mount adaptation, not scheduling or retention policy."

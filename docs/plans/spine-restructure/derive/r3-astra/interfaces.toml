@@ -1,0 +1,424 @@
+# Independently derived design tier. All rows await review.
+
+[interface.IF-002]
+owner = "CMP-012"
+consumers = ["external:EXT-01","external:EXT-03"]
+channel = "configuration document"
+data = "JSON object or native protected-object document. Required top-level ConfigVersion: integral numeric supported version; current design version 3, supported predecessor JSON version 2; BackupSets: nonempty array of set objects or one set object. Optional Tools and Secrets: objects. Set required fields: Name, SourcePath, BackupPath, ChangePath (nonempty strings), HashRecalcFreq (one letter A,E,D,W,M,Y,N, either case), CompressEnabled (boolean). Optional SourceStatePath and ViewPath: strings; AllowEmptySource: boolean, default false; BrowseView: off|index, default off; CompressProbe: off|excluded-extensions|always, default always. SourceStatePath default: source root; ViewPath default: backup path plus _View. Tools: SevenZipPath and FfprobePath strings. Secrets: ToEmail, FromEmail, SmtpServer strings, SmtpPort integer; native form additionally admits an account-protected credential object. JSON has no credential field. No other keys. Version 3 addition SpaceView: off|on, default off. Schedule periods: A/E every run, N never, D 24 hours, W 7 days, M one calendar month, Y one calendar year from the last completed reread, clamping an absent day to the end of the month."
+rationale = "Closed typed input makes mistakes observable; permissive coercion loses the requested policy."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-05"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-003]
+owner = "CMP-012"
+consumers = ["external:EXT-03"]
+channel = "process arguments"
+data = "ConfigPath: path; Action: Backup|Prune|Snapshots|Verify|View, default Backup; Snapshot: explicit name list; GlobalLogPath: path; NonInteractive, NoMail, AutoInstallHashing, ExitCode, WhatIf, Deep, RepairStorage, RefreshKits, BackupRootOnly, DiscardUnreferencedData, AllowUnverifiedIndex: switches."
+rationale = "A stable request vocabulary separates host policy from execution; embedding a scheduler duplicates the host."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-07"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-004]
+owner = "CMP-012"
+consumers = ["external:EXT-03"]
+channel = "process result"
+data = "Integer result alphabet: 0 complete; 1 part failed/content missing; 2 request/configuration/precondition refused; 3 damaged record; 4 busy/host fault."
+rationale = "A shared result alphabet supports unattended callers; opaque exceptions give them no retry class."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-08"
+bridged_by = ["DA-09"]
+
+[interface.IF-005]
+owner = "CMP-011"
+consumers = ["external:EXT-02"]
+channel = "restore request"
+data = "Origin: state folder; target: directory path. Optional backup-root and change-root overrides, archive-tool path, strict witness flag, noninteractive flag, no-GUI flag, picker flag and legacy exit-code flag. Target may be absent at launch."
+rationale = "Explicit origin and target prevent a newer state becoming implicit authority; restoring the current state unconditionally loses history."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-14"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-006]
+owner = "CMP-011"
+consumers = ["external:EXT-02"]
+channel = "restore result"
+data = "Integer alphabet identical to IF-004. Summary fields: expected files, restored files, unrestored files; each unrestored entry: relative path, cause, detail. Warning entries: metadata kind, relative path, explanation."
+rationale = "Per-entry results distinguish partial recovery from an empty success; a single message cannot identify the missing files."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-15"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-007]
+owner = "CMP-007"
+consumers = ["CMP-005","CMP-008","CMP-009","CMP-010","CMP-011"]
+channel = "persistent record"
+data = "Ordered columns: DataPath, RelativePath, Length, LastWriteTimeStr, xxH2Hash, Compressed, StoredAsHashSize, Duplicate, MediaMBPerSec. RFC-4180 CSV; UTF-8; optional input BOM; canonical output no BOM, LF, all fields quoted; rows in ordinal RelativePath order. Length: nonnegative decimal signed-64-bit integer. Time: ISO-8601 round-trip text or empty. xxH2Hash: IF-009 digest. Compressed: Yes|No. StoredAsHashSize: Hash. Duplicate: 0|1 or empty. MediaMBPerSec: invariant decimal or empty. DataPath: local object leaf or empty for pool resolution. RelativePath: relative Unicode path with backslash separators. Empty set: header only."
+rationale = "One portable record avoids runtime-specific interpretations; implicit serializers cannot define a shared contract."
+version = "1"
+status = "Drafted"
+carried_by = "IF-011"
+
+[interface.IF-008]
+owner = "CMP-007"
+consumers = ["CMP-005","CMP-008","CMP-009","CMP-010","CMP-011"]
+channel = "persistent witness"
+data = "UTF-8 without BOM, LF-terminated Key=Value records: Version=2, Rows=nonnegative integer, Bytes=nonnegative integer, XxH128=IF-009 digest, Written=ISO-8601 timestamp. One field of each name. The witness belongs to one adjacent content record."
+rationale = "An independent byte identity exposes incomplete publication; a row count alone misses same-length substitutions."
+version = "1"
+status = "Drafted"
+carried_by = "IF-011"
+
+[interface.IF-009]
+owner = "CMP-007"
+consumers = ["CMP-003","CMP-004","CMP-008","CMP-010","CMP-011","CMP-013"]
+channel = "content identity"
+data = "Content key: pair of XXH128 digest and unsigned content length representable in signed 64 bits. Digest text: 32 uppercase hexadecimal characters in big-endian byte order, including leading zeroes."
+rationale = "Cross-runtime identity must have one byte order; native integer rendering can disagree."
+version = "1"
+status = "Drafted"
+
+[interface.IF-010]
+owner = "CMP-007"
+consumers = ["CMP-004","CMP-008","CMP-009","CMP-010","CMP-011"]
+channel = "object representation"
+data = "Object leaf grammar: <hash22>_<length><extension>. Alphabet in order: 23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz. Hash: unsigned 128-bit value in base 57, exactly 22 digits padded with 2. Length: base 57, minimum one digit, no leading zero except zero itself, range 0..9223372036854775807. Extension: empty or the original owner’s extension suffix beginning with a dot, opaque Unicode without separators; an outer .7z suffix denotes tool compression. Stored payload: raw source bytes or a single-file 7z archive; archive signature bytes 37 7A BC AF 27 1C."
+rationale = "A full content-derived name avoids overwrite hazards; truncating identity and using path-addressed storage lose that property."
+version = "1"
+status = "Drafted"
+carried_by = "IF-011"
+
+[interface.IF-011]
+owner = "CMP-005"
+consumers = ["external:EXT-14"]
+channel = "backup layout"
+data = "A live state root plus a history root; history entries named Snapshot_YYYY_MM_DD_HH_mm_ss with optional _NNN disambiguator. Each state has a content-record slot, witness slot, metadata slots and restore-kit slot. Content objects are flat leaves of state folders. Working staging and committed-removal residue are outside the Snapshot_ namespace. A relative pool-location descriptor joins live and history roots."
+rationale = "Complete states need identifiable authority and pool topology; overlaying successive change folders obscures the chosen state."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-13"
+bridged_by = ["DA-19"]
+
+[interface.IF-012]
+owner = "CMP-007"
+consumers = ["CMP-003","CMP-005","CMP-011"]
+channel = "folder metadata"
+data = "CSV UTF-8 with columns RelativePath, Attributes. RelativePath is a portable relative directory path. Attributes is a semicolon-separated subset of Hidden,System,ReadOnly,NotContentIndexed, or empty. Header-only form is an explicit empty directory-metadata set."
+rationale = "Empty folders have no content rows; inferring them from files cannot reproduce them."
+version = "1"
+status = "Drafted"
+carried_by = "IF-011"
+
+[interface.IF-013]
+owner = "CMP-007"
+consumers = ["CMP-003","CMP-005","CMP-011"]
+channel = "link metadata"
+data = "CSV UTF-8 with columns RelativePath, Kind, TargetScope, Target. Kind: directory-symlink|junction. TargetScope: source-relative|external-absolute. Target: relative path for source-relative scope, otherwise original absolute target. Header-only form is an empty link set."
+rationale = "Link identity is distinct from captured files; copying a link target cannot express a cycle."
+version = "1"
+status = "Drafted"
+carried_by = "IF-011"
+
+[interface.IF-014]
+owner = "CMP-007"
+consumers = ["CMP-005","CMP-010","CMP-011"]
+channel = "state format descriptor"
+data = "JSON object: FormatVersion positive integer; WriterVersion string; RecordSchema integer; WitnessRequired boolean; DirectoryMetadata enum absent-by-design|present; LinkMetadata enum absent-by-design|present. Current design profile: FormatVersion=3, RecordSchema=1, WitnessRequired=true, DirectoryMetadata=present, LinkMetadata=present. Publication intent: operation identity, old and new generation identities, digest/length identities for all authority and metadata records, required content-key set and kit activation identity."
+rationale = "Age evidence must survive kit refresh; using the current kit revision as the writer age misclassifies damage."
+version = "1"
+status = "Drafted"
+carried_by = "IF-011"
+
+[interface.IF-015]
+owner = "CMP-006"
+consumers = ["CMP-002","CMP-009","CMP-010","external:EXT-05"]
+channel = "exclusive-use channel"
+data = "Persistent zero-byte lock leaf beside the staging directory; acquired-handle token scoped to one operation; acquisition result held|unavailable with diagnostic. Ownership description: operation kind and run identity."
+rationale = "Persistent lock identity excludes participating processes across finalization; unlinking and recreating the identity admits two holders."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-04"
+bridged_by = ["DA-02","DA-03"]
+
+[interface.IF-016]
+owner = "CMP-006"
+consumers = ["CMP-002","CMP-009","CMP-010"]
+channel = "staging owner record"
+data = "JSON: SchemaVersion integer 1; Kind string Backup|Prune; RunId UUID; SetName, Host, ContainerId, BootId strings; Pid integer; StartedUtc UTC timestamp; HeartbeatIntervalSeconds positive integer; StaleAfterSeconds integer at least 1800. Modification time is a heartbeat. Staging verdict: Empty|EmptyFresh|OwnerStale|OwnerLive|PruneHeld|HoldsContent|Indeterminate."
+rationale = "Owner age supplements exclusion for old participants; lock acquisition alone does not prove the earlier owner dead."
+version = "1"
+status = "Drafted"
+
+[interface.IF-017]
+owner = "CMP-007"
+consumers = ["CMP-003","CMP-005"]
+channel = "run-state record"
+data = "JSON fields LastHashRun and LastBackupRun as ISO-8601 timestamps; durable state-generation identity and canonical source/store identity binding. Missing fields are distinct from empty recorded states."
+rationale = "Completed rereads and state dates differ; one timestamp cannot represent both."
+version = "1"
+status = "Drafted"
+
+[interface.IF-018]
+owner = "CMP-008"
+consumers = ["CMP-002","CMP-009","CMP-010","CMP-011"]
+channel = "pool query"
+data = "Request: content key, pool roots, optional excluded state. Answer: locations (state identity, local object leaf, physical stored bytes, stored form) and status found|content-missing|dependency-missing|storage-unreadable with detail."
+rationale = "Typed supply and demand prevent an absent recorded object becoming evidence of storage; indexing rows alone invents supply."
+version = "1"
+status = "Drafted"
+
+[interface.IF-019]
+owner = "external:EXT-05"
+consumers = ["CMP-013","CMP-002","CMP-009"]
+channel = "volume observation"
+data = "Resolved physical volume identity, free bytes and allocation unit bytes, or unknown with cause; input is an absolute candidate directory, including an absent tail."
+rationale = "Grouping by volume prevents separately passing demands from exhausting one destination; grouping by path does not."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-03"
+bridged_by = ["DA-06"]
+
+[interface.IF-020]
+owner = "external:EXT-12"
+consumers = ["CMP-013","CMP-011"]
+channel = "restore volume observation"
+data = "Resolved physical target, physical volume identity, free bytes, allocation unit bytes and supported name/attribute/link semantics, or unknown with cause."
+rationale = "Physical destination semantics determine safety and capacity; lexical strings cannot establish either."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-17"
+bridged_by = ["DA-06"]
+
+[interface.IF-021]
+owner = "external:EXT-04"
+consumers = ["CMP-003"]
+channel = "source observation"
+data = "Entries: literal relative name, kind file|directory|directory-link|junction|file-link, bytes for a file, length, modification time, attributes, resolved link target. Enumeration and read errors include path and cause."
+rationale = "Errors must be representable alongside entries; an empty listing cannot distinguish empty from unreadable."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-01"
+bridged_by = ["DA-04","DA-14","DA-12"]
+
+[interface.IF-022]
+owner = "CMP-011"
+consumers = ["external:EXT-12"]
+channel = "restored tree"
+data = "Relative files with bytes and modification times; directories with supported attributes; links with target and kind. Unicode names retain their recorded text."
+rationale = "Logical names and metadata belong to the restored tree; pool names are not user paths."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-16"
+bridged_by = ["DA-07","DA-08"]
+
+[interface.IF-023]
+owner = "CMP-016"
+consumers = ["external:EXT-09"]
+channel = "container launch"
+data = "Action word backup|prune|snapshots|verify. Environment: FILEBACKUP_ACTION, FILEBACKUP_CONFIG_PATH, FILEBACKUP_LOG_PATH, FILEBACKUP_SNAPSHOT, FILEBACKUP_DRY_RUN, FILEBACKUP_REPAIR. Read-only source/config mounts; writable backup, changes, source-state and logs mounts; unprivileged uid/gid. Truthy flags: 1,true,TRUE,True,yes,YES,Yes. Remaining dash-led arguments: direct launch vocabulary. Process result: IF-004 integer."
+rationale = "A small adapter preserves the same operation contracts; a separate container engine would diverge."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-12"
+bridged_by = ["DA-13"]
+
+[interface.IF-024]
+owner = "CMP-013"
+consumers = ["CMP-012","CMP-016"]
+channel = "tool settings"
+data = "Optional environment FILEBACKUP_7ZIP_PATH and FILEBACKUP_FFPROBE_PATH: executable paths; FILEBACKUP_7Z_LEVEL: one exact digit 0..9 or empty, default 9. Explicit configuration paths, environment paths, standard Windows installation paths and executable search path are distinct discovery sources."
+rationale = "Explicit tool locations permit nonstandard hosts; fixed Windows paths exclude container use."
+version = "1"
+status = "Drafted"
+
+[interface.IF-025]
+owner = "external:EXT-06"
+consumers = ["CMP-013","CMP-003","CMP-004","CMP-014"]
+channel = "backup tool services"
+data = "Runtime floor PowerShell 7+. Digest service XXH128; archive service 7-Zip creation and extraction, effort digits 0..9; media duration service ffprobe with duration seconds or unavailable. Tool result includes availability, version, output and failure detail."
+rationale = "Capability and failure are separate from data content; pretending a missing tool supplied an empty result corrupts decisions."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-10"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-026]
+owner = "external:EXT-11"
+consumers = ["CMP-013","CMP-011"]
+channel = "restore tool services"
+data = "Runtime route: PowerShell 7+, bundled XXH128 capability, optional 7-Zip extraction. Shell route: bash 4+, gawk, xxhsum version 0.8 or later with XXH128 or xxh128sum, 7z|7zz|7za for archives, GNU or BSD size/time/space utilities and POSIX byte-count fallback. Results include bytes, digest, size, timestamps and typed failure."
+rationale = "A declared floor enables offline recovery; requiring the backup installation defeats the kit."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-18"
+bridged_by = ["DA-10"]
+
+[interface.IF-027]
+owner = "CMP-014"
+consumers = ["external:EXT-01"]
+channel = "operator report"
+data = "Timestamped severity INFO|WARN|ERROR|DEBUG and message. Change entries: relative path and added|changed|removed|failed with failure cause. Summary: per-kind counts, elapsed duration, final outcome. Progress: phase, completed count or bytes and timestamp. Refusal: cause, affected location and remedy."
+rationale = "A record must expose partial work and remedies; a success/failure banner alone cannot explain missing files."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-06"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-028]
+owner = "CMP-009"
+consumers = ["external:EXT-03"]
+channel = "inventory JSON"
+data = "Array of objects: Name string, Date ISO-8601 timestamp, Rows nonnegative integer, PhysicalBytes, BytesReclaimed, BytesReHomed integers measured in bytes. BytesReclaimed can be negative when preservation costs more space than deletion releases. Empty inventory is []."
+rationale = "A typed inventory supports host retention policy; directory sizes alone ignore shared content."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-08"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-029]
+owner = "CMP-010"
+consumers = ["external:EXT-03"]
+channel = "audit JSON"
+data = "Array of findings: Folder, RelativePath, DataPath strings; Kind enum NameLies|FlagOverRaw|FlagOverArchive|DanglingDataPath|BlankRowFormDisagreement|Unreferenced|PayloadMismatch|PoolDataPathMissing|PoolUnresolvable|WitnessMismatch|UnsupportedForm; Expected and Observed strings; Repairable boolean. Empty findings is []."
+rationale = "Stable finding classes support review and automation; prose-only diagnostics force fragile parsing."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-08"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-030]
+owner = "CMP-014"
+consumers = ["external:EXT-01"]
+channel = "browse and space view"
+data = "Tabular entries: relative path, content link, logical bytes, physical bytes, stored form and optional media MiB-per-second value or not-measured marker. Hierarchical HTML pages and a root name-search surface; space ordering control. Generation stamp: SHA-256 of canonical logical records."
+rationale = "Every logical path needs a view even when it shares bytes; browsing only physical objects loses duplicate names."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-06"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-031]
+owner = "CMP-014"
+consumers = ["external:EXT-08"]
+channel = "notification"
+data = "SMTP envelope: sender, recipients, server, port, protected account reference; subject success|failure; body run outcome and log locations. Delivery result accepted|failed with sanitized detail."
+rationale = "Notification is an independent observation channel; using its delivery result as backup success hides the real outcome."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-09"
+bridged_by = ["DA-09"]
+
+[interface.IF-032]
+owner = "external:EXT-16"
+consumers = ["CMP-012","CMP-014","CMP-015"]
+channel = "credential protection"
+data = "Account-bound opaque protected credential object; protection input username and secret; recovery result usable credential|unavailable, never a serialized readable secret."
+rationale = "Account protection limits disclosed credentials; storing a plain password with configuration defeats it."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-21"
+bridged_by = ["DA-20"]
+
+[interface.IF-033]
+owner = "CMP-015"
+consumers = ["external:EXT-14"]
+channel = "restore kit"
+data = "Runtime recovery route, shell recovery route, shared restore primitives, bundled digest capability, relative pool-location descriptor, Windows launcher and macOS launcher. One positive integer kit revision across both routes; dependency licence notices associated with each shipped dependency."
+rationale = "A complete recovery bundle survives loss of the installation; loose launchers without their dependencies do not."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-13"
+bridged_by = ["DA-19"]
+carried_by = "IF-011"
+
+[interface.IF-034]
+owner = "CMP-015"
+consumers = ["external:EXT-17"]
+channel = "container image"
+data = "OCI image with unprivileged default user, runtime and required tools, backup payload, dependency inventory, licences and required redistribution notices."
+rationale = "A self-contained licensed image permits redistribution; relying on host installations or omitted notices does not."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-22"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-035]
+owner = "CMP-015"
+consumers = ["external:EXT-18"]
+channel = "setup delivery"
+data = "Quick-start instructions, configuration helper, example configuration and versioned configuration description, in the IF-002 vocabulary."
+rationale = "A matching setup package enables a first run; divergent examples produce invalid configuration."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-23"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-036]
+owner = "CMP-003"
+consumers = ["external:EXT-15"]
+channel = "external working-state location"
+data = "Plain cached content records in IF-007 form, witness in IF-008 form, canonical source/store binding and completed-generation identity. Separate run-report and generated-view roles."
+rationale = "A readable cache needs a stable location and identity; a global opaque cache can be misapplied to another source."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-20"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-037]
+owner = "CMP-003"
+consumers = ["external:EXT-04"]
+channel = "source-root cache"
+data = "Plain content-record and matching completeness-evidence slots at the source root; shape IF-007 and IF-008, with source/store identity binding."
+rationale = "The source-root exception needs a finite artifact set; treating the source as general working storage permits unwanted writes."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-24"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-038]
+owner = "external:EXT-07"
+consumers = ["CMP-013"]
+channel = "required-package delivery"
+data = "Requested package identity and supported version; response package bytes plus dependency inventory or unavailable with cause. Digest capability identity: XXH128 package, version 8.0.0 or a declared compatible supported release."
+rationale = "Explicit package identity prevents installing an unrelated capability; unversioned discovery cannot establish the supported floor."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-11"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-039]
+owner = "external:EXT-10"
+consumers = ["CMP-011","CMP-013"]
+channel = "host session observation"
+data = "Operating system windows|linux|macos; tool flavour gnu|bsd|windows; input open|redirected|closed; console present boolean; desktop present boolean; interactive-start boolean; folder choice path|cancelled|unavailable."
+rationale = "Session signals determine available interaction; assuming a terminal from the operating system alone is unreliable."
+version = "1"
+status = "Drafted"
+interface_from_external = "B-19"
+coincident = "The exchanged form is directly observable at this crossing."
+
+[interface.IF-040]
+owner = "CMP-006"
+consumers = ["CMP-002","CMP-009","CMP-010","CMP-011"]
+channel = "read-generation session"
+data = "Request: store identity and desired state. Result: immutable generation identity, authority bytes and stable object handles or references, or generation-changed retry. Release token: read-session identity. No persistent store artifact is part of the read request."
+rationale = "Readers need a coherent view during publication; lock-free access to independently replaced records is not a snapshot."
+version = "1"
+status = "Drafted"
+
+[interface.IF-041]
+owner = "CMP-005"
+consumers = ["external:EXT-05","CMP-002","CMP-009","CMP-010"]
+channel = "persistent state exchange"
+data = "Store identity and state identity; generation identity; content-record bytes in IF-007 form; witness in IF-008 form; object leaves and payloads in IF-010 form; directory and link metadata in IF-012/IF-013 form; publication evidence in IF-014 form. Physical organization is IF-011."
+rationale = "A live storage exchange has a different peer from the delivered recovery bundle; one combined delivery boundary hides the volume contract."
+version = "1"
+status = "Drafted"
+interface_to_external = "B-02"
+bridged_by = ["DA-01","DA-15","DA-11"]
