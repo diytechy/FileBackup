@@ -104,3 +104,181 @@ WARNINGS 10
 Opus's own stricter validator (dimension grammar, hats already carried by the parent SRs, history tokens, legacy symbol tokens) was also run against this folder from a temporary copy. Beyond the IF-027 pair (it reads only its own gap-file layout) and $RECYCLE.BIN in IF-028's form, its one finding was that mapping.md names LLR-145, which is deliberate: the line records that Opus's row was folded.
 
 Counts: 24 components; 45 interfaces (41 boundary, 4 internal); 128 LLRs (106 top-level, 22 child); 73 legacy ids kept; 60 design gaps (M01 to M60); 14 SR-constrains pairs; 9 items of code beyond the design.
+
+## Round 3b: the review dispositions
+
+The full-round-1 dispositions (`../r3-dispositions.md`, review dispositions table) are applied by `_r3b_apply.py` (every edit as an anchored replacement over the HEAD carriers, so a re-run reproduces the tier) and `_r3b_docs.py` (this section and the design-gaps changes); `_r3b_lint.py` adds the dimension-grammar, history-token, dangling-reference and SR-naming checks and lists every row changed. The entry per finding is in `../r3b-change-log.md`. Ten LLRs were added (LLR-151 to LLR-160, after the highest id in use, LLR-150; LLR-145 stays retired).
+
+### Placement (R3O-012)
+
+Placement is derived from the owner of the interface a row constrains. The dispositions allow unplaced rows but not rows placed in the wrong component, and forbid minting interfaces only to place rows. So: IF-020 (the restore request) moved to the restore kit (CMP-017), which with IF-019 and IF-023 owns what its children produce together; every row whose constrained interface belonged to another component's responsibility lost its `constrains` cell (its dimensions stay) and shows as unplaced; LLR-111, LLR-113 and LLR-122 were re-pointed to an interface their own component owns or reads at (IF-028, IF-029, IF-032). The store-format records IF-017 and IF-018 are left with SR constrainers only (design-gaps section 2). A row placed at an enclosing component counts as placed. Responsibility is the row's section in `low-level-requirements.toml`, except where the table's first column says otherwise (writer rows filed under State publication, the container's mapping row, the whole-run rows).
+
+Counts: 64 placed, 11 placed at an ancestor, 63 unplaced; none misplaced.
+
+| Component | Owns | Rows placed here |
+|---|---|---|
+| CMP-001 FileBackup | none | 0 |
+| CMP-002 Operation launch and outcome | IF-002, IF-003, IF-010 | 4 |
+| CMP-003 Configuration | IF-004, IF-005, IF-006 | 9 |
+| CMP-004 Provisioning | IF-007 | 1 |
+| CMP-005 Notification | IF-011 | 1 |
+| CMP-006 Run record and progress | IF-009 | 4 |
+| CMP-007 Backup engine | none | 0 |
+| CMP-008 Source capture | none | 0 |
+| CMP-009 Change detection | IF-029 | 3 |
+| CMP-010 Content writer | none | 0 |
+| CMP-011 State publication | IF-030 | 2 |
+| CMP-012 Exclusive-use guard | IF-032, IF-033, IF-044 | 11 |
+| CMP-013 Removal and saved-state report | IF-043 | 2 |
+| CMP-014 Check, repair and kit refresh | none | 0 |
+| CMP-015 Views | IF-041, IF-042 | 3 |
+| CMP-016 Store format | IF-013, IF-014, IF-015, IF-016, IF-017, IF-018, IF-034 | 13 |
+| CMP-017 Restore kit | IF-019, IF-020, IF-023 | 13 |
+| CMP-018 Restore admission | none | 0 |
+| CMP-019 Entry restoration | IF-045 | 1 |
+| CMP-020 Tree finishing | none | 0 |
+| CMP-021 Restore outcome and report | IF-021, IF-022 | 2 |
+| CMP-022 Restore launch and target choice | none | 0 |
+| CMP-023 Container | IF-038, IF-039, IF-040 | 4 |
+| CMP-024 Release guidance | IF-008 | 2 |
+
+| LLR | Responsibility | Constrains | Interface owner | Derived placement | Verdict |
+|---|---|---|---|---|---|
+| LLR-001 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-002 | CMP-016 Store format | IF-034 | CMP-016 | CMP-016 | placed |
+| LLR-003 | CMP-010 Content writer | - | - | unplaced | unplaced |
+| LLR-004 | CMP-010 Content writer | - | - | unplaced | unplaced |
+| LLR-005 | CMP-011 State publication | - | - | unplaced | unplaced |
+| LLR-007 | CMP-011 State publication | - | - | unplaced | unplaced |
+| LLR-008 | CMP-018 Restore admission | IF-024 | external:EXT-11 | unplaced | unplaced |
+| LLR-009 | CMP-018 Restore admission | IF-025 | external:EXT-12 | unplaced | unplaced |
+| LLR-010 | CMP-019 Entry restoration | IF-020 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-011 | CMP-009 Change detection | - | - | unplaced | unplaced |
+| LLR-014 | CMP-002 Operation launch and outcome | IF-003 | CMP-002 | CMP-002 | placed |
+| LLR-015 | CMP-005 Notification | IF-011 | CMP-005 | CMP-005 | placed |
+| LLR-016 | CMP-002 Operation launch and outcome | IF-002 | CMP-002 | CMP-002 | placed |
+| LLR-017 | CMP-012 Exclusive-use guard | IF-044 | CMP-012 | CMP-012 | placed |
+| LLR-018 | CMP-003 Configuration | - | - | unplaced | unplaced |
+| LLR-020 | CMP-004 Provisioning | IF-046 | external:EXT-06 | unplaced | unplaced |
+| LLR-021 | CMP-008 Source capture | - | - | unplaced | unplaced |
+| LLR-022 | CMP-016 Store format | IF-013 | CMP-016 | CMP-016 | placed |
+| LLR-023 | CMP-018 Restore admission | IF-025 | external:EXT-12 | unplaced | unplaced |
+| LLR-024 | CMP-016 Store format | IF-014 | CMP-016 | CMP-016 | placed |
+| LLR-025 | CMP-016 Store format | IF-014 | CMP-016 | CMP-016 | placed |
+| LLR-026 | CMP-011 State publication | - | - | unplaced | unplaced |
+| LLR-027 | CMP-024 Release guidance | IF-008 | CMP-024 | CMP-024 | placed |
+| LLR-028 | CMP-011 State publication | IF-030 | CMP-011 | CMP-011 | placed |
+| LLR-029 | CMP-021 Restore outcome and report | IF-022 | CMP-021 | CMP-021 | placed |
+| LLR-035 | CMP-011 State publication | IF-030 | CMP-011 | CMP-011 | placed |
+| LLR-036 | CMP-008 Source capture | - | - | unplaced | unplaced |
+| LLR-037 | CMP-004 Provisioning | IF-007 | CMP-004 | CMP-004 | placed |
+| LLR-038 | CMP-016 Store format | IF-015 | CMP-016 | CMP-016 | placed |
+| LLR-039 | CMP-018 Restore admission | - | - | unplaced | unplaced |
+| LLR-040 | CMP-021 Restore outcome and report | IF-021 | CMP-021 | CMP-021 | placed |
+| LLR-041 | CMP-011 State publication | - | - | unplaced | unplaced |
+| LLR-042 | CMP-003 Configuration | IF-004 | CMP-003 | CMP-003 | placed |
+| LLR-043 | CMP-002 Operation launch and outcome | IF-003 | CMP-002 | CMP-002 | placed |
+| LLR-045 | CMP-013 Removal and saved-state report | IF-043 | CMP-013 | CMP-013 | placed |
+| LLR-046 | CMP-013 Removal and saved-state report | - | - | unplaced | unplaced |
+| LLR-047 | CMP-013 Removal and saved-state report | - | - | unplaced | unplaced |
+| LLR-048 | CMP-023 Container | IF-038 | CMP-023 | CMP-023 | placed |
+| LLR-049 | CMP-014 Check, repair and kit refresh | - | - | unplaced | unplaced |
+| LLR-050 | CMP-019 Entry restoration | IF-045 | CMP-019 | CMP-019 | placed |
+| LLR-051 | CMP-011 State publication | - | - | unplaced | unplaced |
+| LLR-052 | CMP-010 Content writer | IF-031 | external:EXT-05 | unplaced | unplaced |
+| LLR-053 | CMP-010 Content writer | - | - | unplaced | unplaced |
+| LLR-054 | CMP-014 Check, repair and kit refresh | - | - | unplaced | unplaced |
+| LLR-055 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-056 | CMP-019 Entry restoration | IF-023 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-058 | CMP-010 Content writer | - | - | unplaced | unplaced |
+| LLR-059 | CMP-011 State publication | - | - | unplaced | unplaced |
+| LLR-060 | CMP-016 Store format | IF-014 | CMP-016 | CMP-016 | placed |
+| LLR-061 | CMP-015 Views | IF-041 | CMP-015 | CMP-015 | placed |
+| LLR-062 | CMP-013 Removal and saved-state report | IF-043 | CMP-013 | CMP-013 | placed |
+| LLR-063 | CMP-003 Configuration | - | - | unplaced | unplaced |
+| LLR-065 | CMP-008 Source capture | - | - | unplaced | unplaced |
+| LLR-066 | CMP-020 Tree finishing | IF-023 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-067 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-068 | CMP-016 Store format | IF-016 | CMP-016 | CMP-016 | placed |
+| LLR-069 | CMP-016 Store format | IF-016 | CMP-016 | CMP-016 | placed |
+| LLR-071 | CMP-018 Restore admission | IF-024 | external:EXT-11 | unplaced | unplaced |
+| LLR-073 | CMP-022 Restore launch and target choice | IF-026 | external:EXT-10 | unplaced | unplaced |
+| LLR-074 | CMP-022 Restore launch and target choice | IF-020 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-076 | CMP-017 Restore kit | IF-019 | CMP-017 | CMP-017 | placed |
+| LLR-077 | CMP-020 Tree finishing | IF-023 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-078 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-079 | CMP-018 Restore admission | IF-025 | external:EXT-12 | unplaced | unplaced |
+| LLR-080 | CMP-012 Exclusive-use guard | IF-033 | CMP-012 | CMP-012 | placed |
+| LLR-086 | CMP-010 Content writer | - | - | unplaced | unplaced |
+| LLR-087 | CMP-016 Store format | IF-014 | CMP-016 | CMP-016 | placed |
+| LLR-088 | CMP-012 Exclusive-use guard | - | - | unplaced | unplaced |
+| LLR-090 | CMP-012 Exclusive-use guard | IF-032 | CMP-012 | CMP-012 | placed |
+| LLR-091 | CMP-012 Exclusive-use guard | IF-032 | CMP-012 | CMP-012 | placed |
+| LLR-092 | CMP-012 Exclusive-use guard | IF-032 | CMP-012 | CMP-012 | placed |
+| LLR-093 | CMP-012 Exclusive-use guard | IF-032 | CMP-012 | CMP-012 | placed |
+| LLR-094 | CMP-012 Exclusive-use guard | IF-032 | CMP-012 | CMP-012 | placed |
+| LLR-095 | CMP-006 Run record and progress | IF-009 | CMP-006 | CMP-006 | placed |
+| LLR-096 | CMP-002 Operation launch and outcome | IF-010 | CMP-002 | CMP-002 | placed |
+| LLR-097 | CMP-006 Run record and progress | IF-009 | CMP-006 | CMP-006 | placed |
+| LLR-098 | CMP-003 Configuration | IF-004 | CMP-003 | CMP-003 | placed |
+| LLR-099 | CMP-003 Configuration | IF-006 | CMP-003 | CMP-003 | placed |
+| LLR-100 | CMP-003 Configuration | IF-006 | CMP-003 | CMP-003 | placed |
+| LLR-101 | CMP-003 Configuration | IF-005 | CMP-003 | CMP-003 | placed |
+| LLR-102 | CMP-024 Release guidance | IF-008 | CMP-024 | CMP-024 | placed |
+| LLR-103 | CMP-003 Configuration | IF-004 | CMP-003 | CMP-003 | placed |
+| LLR-104 | CMP-003 Configuration | IF-004 | CMP-003 | CMP-003 | placed |
+| LLR-105 | CMP-004 Provisioning | IF-037 | external:EXT-07 | unplaced | unplaced |
+| LLR-106 | CMP-005 Notification | IF-012 | external:EXT-16 | unplaced | unplaced |
+| LLR-107 | CMP-006 Run record and progress | IF-009 | CMP-006 | CMP-006 | placed |
+| LLR-108 | CMP-006 Run record and progress | IF-009 | CMP-006 | CMP-006 | placed |
+| LLR-109 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-110 | CMP-008 Source capture | - | - | unplaced | unplaced |
+| LLR-111 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-112 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-113 | CMP-009 Change detection | IF-029 | CMP-009 | CMP-009 | placed |
+| LLR-114 | CMP-009 Change detection | IF-029 | CMP-009 | CMP-009 | placed |
+| LLR-115 | CMP-009 Change detection | IF-029 | CMP-009 | CMP-009 | placed |
+| LLR-116 | CMP-010 Content writer | - | - | unplaced | unplaced |
+| LLR-117 | CMP-010 Content writer | IF-035 | external:EXT-06 | unplaced | unplaced |
+| LLR-118 | CMP-016 Store format | IF-015 | CMP-016 | CMP-016 | placed |
+| LLR-119 | CMP-017 Restore kit | IF-019 | CMP-017 | CMP-017 | placed |
+| LLR-120 | CMP-016 Store format | IF-014 | CMP-016 | CMP-016 | placed |
+| LLR-121 | CMP-016 Store format | IF-014 | CMP-016 | CMP-016 | placed |
+| LLR-122 | CMP-012 Exclusive-use guard | IF-032 | CMP-012 | CMP-012 | placed |
+| LLR-123 | CMP-012 Exclusive-use guard | IF-032 | CMP-012 | CMP-012 | placed |
+| LLR-124 | CMP-012 Exclusive-use guard | IF-033 | CMP-012 | CMP-012 | placed |
+| LLR-125 | CMP-012 Exclusive-use guard | IF-033 | CMP-012 | CMP-012 | placed |
+| LLR-126 | CMP-013 Removal and saved-state report | - | - | unplaced | unplaced |
+| LLR-127 | CMP-013 Removal and saved-state report | - | - | unplaced | unplaced |
+| LLR-128 | CMP-013 Removal and saved-state report | - | - | unplaced | unplaced |
+| LLR-129 | CMP-014 Check, repair and kit refresh | - | - | unplaced | unplaced |
+| LLR-130 | CMP-014 Check, repair and kit refresh | - | - | unplaced | unplaced |
+| LLR-131 | CMP-014 Check, repair and kit refresh | - | - | unplaced | unplaced |
+| LLR-132 | CMP-015 Views | IF-042 | CMP-015 | CMP-015 | placed |
+| LLR-133 | CMP-015 Views | IF-036 | external:EXT-06 | unplaced | unplaced |
+| LLR-134 | CMP-015 Views | IF-042 | CMP-015 | CMP-015 | placed |
+| LLR-135 | CMP-010 Content writer | IF-031 | external:EXT-05 | unplaced | unplaced |
+| LLR-136 | CMP-018 Restore admission | - | - | unplaced | unplaced |
+| LLR-137 | CMP-018 Restore admission | IF-025 | external:EXT-12 | unplaced | unplaced |
+| LLR-138 | CMP-018 Restore admission | IF-019 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-139 | CMP-018 Restore admission | IF-024 | external:EXT-11 | unplaced | unplaced |
+| LLR-140 | CMP-016 Store format | IF-014 | CMP-016 | CMP-016 | placed |
+| LLR-141 | CMP-019 Entry restoration | IF-023 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-142 | CMP-019 Entry restoration | IF-023 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-143 | CMP-020 Tree finishing | - | - | unplaced | unplaced |
+| LLR-144 | CMP-020 Tree finishing | - | - | unplaced | unplaced |
+| LLR-146 | CMP-023 Container | IF-040 | CMP-023 | CMP-023 | placed |
+| LLR-147 | CMP-023 Container | IF-039 | CMP-023 | CMP-023 | placed |
+| LLR-148 | CMP-023 Container | IF-040 | CMP-023 | CMP-023 | placed |
+| LLR-149 | CMP-001 FileBackup | - | - | unplaced | unplaced |
+| LLR-150 | CMP-011 State publication | - | - | unplaced | unplaced |
+| LLR-151 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-152 | CMP-008 Source capture | IF-028 | external:EXT-04 | unplaced | unplaced |
+| LLR-153 | CMP-003 Configuration | IF-004 | CMP-003 | CMP-003 | placed |
+| LLR-154 | CMP-003 Configuration | IF-004 | CMP-003 | CMP-003 | placed |
+| LLR-155 | CMP-003 Configuration | - | - | unplaced | unplaced |
+| LLR-156 | CMP-022 Restore launch and target choice | IF-027 | external:EXT-10 | unplaced | unplaced |
+| LLR-157 | CMP-022 Restore launch and target choice | IF-020 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-158 | CMP-019 Entry restoration | IF-020 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-159 | CMP-018 Restore admission | IF-019 | CMP-017 | CMP-017 | placed at an ancestor |
+| LLR-160 | CMP-001 FileBackup | - | - | unplaced | unplaced |

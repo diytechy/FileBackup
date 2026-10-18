@@ -146,6 +146,19 @@ together.
 | P-10 | A restore of the very state a concurrent removal deletes cannot complete. | (a) SR-106 holds for every state the concurrent operation does not remove; that one restore ends 4, naming the removal, never wrong; (b) a removal waits for readers (needs reader-visible state, which the shell route cannot keep) | (a) | SR-106, LLR-123 |
 | P-11 | The Owner's link ruling lists the backup, saved states, change-detection state and logs as the system's own locations. Add the listing location (the views)? | (a) add it; (b) leave it out, so a link into the views is followed | (a) | SR-151, LLR-109, IF-018 |
 
+| P-12 | A state with version-2 evidence (no row counts), written after folder records existed, has no folder record. Today's writer omits the folder record when it has no rows, so its absence cannot be told from a tree with no empty or attributed folder. | (a) restore complete (0), the folder record reported unverified; a present but malformed folder record is still 1; (b) 1, accepting that today's states without empty or attributed folders restore part failed; (c) as (a), and the writer always writes the folder record from now on, so evidence v3's DirRows settles it for new states | (a) | LLR-138, LLR-143, gap M81 |
+
+**Builder deviations accepted** (detail in `r3b-change-log.md`). R3S-014's
+one dimensions case is written to P-12 (a), not to 1, for the reason above.
+R3O-001's mechanism: the saved state is prepared in its own folder inside the
+staging area and published by moving it out, so the one owner record stays in
+place until the collapse ends. That meets the disposition's obligation without
+a moment with no owner record. Under R3O-012, 28 LLRs lost a `constrains`
+cell that placed them wrongly, so they show as unplaced (allowed). New names
+the builder chose, for the reviewers to check: the change-detection record
+`FILEBACKUP-CHANGES.csv` (P-08), kit revision 14 with a revision line in every
+kit file (R3S-015), and IF-010 version 2.
+
 The fixes are applied by an Opus builder (`r3b-change-log.md`). Then a fresh
 convergence check (Codex Sol, high, a new session) reviews only the changed
 rows. This is full round 1 of at most 3.

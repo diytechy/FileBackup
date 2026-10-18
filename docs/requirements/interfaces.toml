@@ -5,7 +5,8 @@
 # constrains it. No row names a code file or a symbol; names that ARE the form
 # (store-layout names, configuration keys, command-line switches, environment
 # variable names, record columns) appear in `data` because both sides must
-# spell them identically. The kit's own code files are named by role only.
+# spell them identically. The kit's artifact names are form too: IF-019 holds
+# the one closed set, which the writers, the launchers and the kit refresh share.
 # IF-001 (the legacy HomeHub contract) is retired; see mapping.md.
 # All rows are Drafted.
 
@@ -26,13 +27,15 @@ data = """One process start of the backup program with named switches (case-inse
 - -Deep: with -Action Verify, the former request for a payload check; accepted, carries no meaning.
 - -VerifyStorage: accepted as the same request as -Action Verify.
 - -WhatIf: with -Action Prune only, the removal dry run; with any other action a bad request.
+General switches, accepted with every action:
 - -ConfigPath <path>: the configuration document (IF-005 or IF-006); default a documented location in the invoking account's home folder.
 - -GlobalLogPath <path>: the global run record (IF-009); default beside the configuration.
 - -NoMail: switch notification off for this run.
 - -NonInteractive: declare that no person is present.
 - -AutoInstallDeps: the former permission to obtain the required component; accepted, carries no meaning.
 - -ExitCode: the former request for distinct outcome values; accepted, carries no meaning.
-- Any other switch, an unknown action word, or a switch that does not apply to the chosen action is a bad request."""
+- -BackupTime <ISO-8601 time>: a test seam that sets the run's clock in place of the host's.
+Any other switch, an unknown action word, or a switch that does not apply to the chosen action is a bad request."""
 rationale = """Without one stated form a host scheduler and a person at a console could not start the same operations the same way, and a host could not tell a bad request from a failed run. A configuration-only form (every choice in the document) lost: the action and the saved states to remove change per invocation while the configuration does not."""
 version = "1"
 status = "Drafted"
@@ -48,7 +51,7 @@ data = """An integer exit status, one of:
 - 0 complete;
 - 1 some part failed, or content missing;
 - 2 needs a person: a bad request, a refused configuration, or a precondition not met;
-- 3 refused over a damaged record of a state;
+- 3 a damaged record of a state: the operation refused over it, or a check found it;
 - 4 retry later: the backup was busy, or a host fault occurred while the operation worked.
 No other value is returned by a backup, a removal, the saved-state report, a check, a repair, a kit refresh or a view rebuild."""
 rationale = """A host that alerts on 2 and retries on 4 needs one fixed value set across every operation; with a per-operation table a host must know which operation it ran to read the value, and a busy backup that shares a value with a refused configuration is either retried forever or alarmed needlessly. A two-value success-or-failure status lost for that reason."""
@@ -67,15 +70,15 @@ data = """The one catalogue of settings, whatever the document form. Top level:
 - ConfigVersion: integer, required; the description version the document follows. Supported: 2.
 - BackupSets: one or more location sets, required.
 - Tools: optional; SevenZipPath (string, a path), FfprobePath (string, a path).
-- Secrets: optional; ToEmail, FromEmail, SmtpServer (strings), SmtpPort (integer), and in the native-Windows form only, Credential (a host-protected credential, IF-012).
+- Secrets: optional; ToEmail, FromEmail, SmtpServer (strings, non-empty where present), SmtpPort (integer, 1 to 65535, default 25), and in the native-Windows form only, Credential (a host-protected credential, IF-012). The notification fields are ToEmail, FromEmail and SmtpServer: notification is set up only when all three are present.
 Each location set:
 - Name: string, non-empty, required.
 - SourcePath, BackupPath, ChangePath: strings, non-empty paths, required; the source, the backup (latest state) and the saved-state locations.
-- HashRecalcFreq: required, one of A, E (every run), D (daily), W (weekly), M (monthly), Y (yearly), N (never); case-insensitive.
+- HashRecalcFreq: required, one of A or E (every run; A is an accepted synonym of E), D (daily), W (weekly), M (monthly), Y (yearly), N (never); case-insensitive.
 - CompressEnabled: boolean, required.
 - CompressProbe: optional, one of off, excluded-extensions, always (exact lower case); default always.
 - BrowseView: optional, one of off, index (exact lower case); default off. The word link is reserved and refused.
-- ViewPath: optional path; default the BackupPath followed by _View.
+- ViewPath: optional path, the listing location; default the BackupPath followed by _View.
 - SpaceView: optional boolean; default false.
 - SourceStatePath: optional path, the change-detection record's location; default the source root.
 - AllowEmptySource: optional boolean; default false.
@@ -116,16 +119,16 @@ status = "Drafted"
 [interface.IF-007]
 title = "Environment settings"
 owner = "CMP-004"
-requestors = ["external:EXT-03", "external:EXT-09"]
+consumers = ["CMP-006", "CMP-010"]
 channel = "process environment"
 interface_from_external = ["B-07"]
 coincident = """The variables as set are read as given."""
-data = """Process environment variables, each optional:
+data = """Process environment variables of the backup side, each optional, set by the host or the container:
 - FILEBACKUP_7ZIP_PATH: path of the archive tool.
 - FILEBACKUP_FFPROBE_PATH: path of the media-measurement tool.
 - FILEBACKUP_7Z_LEVEL: the archive tool's effort level, exactly one of the ten strings 0 to 9 with no padding; absent or empty means 9.
 - FILEBACKUP_LOG_PATH: location of the global run record.
-- FILEBACKUP_NO_GUI: when 1, the language-runtime restore route never offers a folder choice."""
+The restore side's variables are part of the restore host session (IF-026)."""
 rationale = """A container image and a host scheduler set tool locations and effort without editing the configuration document; making them configuration keys lost because each would walk every configuration surface and bump the description version for a setting that never changes what is restored."""
 version = "1"
 status = "Drafted"
@@ -154,20 +157,47 @@ consumers = ["external:EXT-01", "external:EXT-03"]
 channel = "text files and console"
 interface_to_external = ["B-06", "B-20"]
 coincident = """The record the owner reads is the record the system writes."""
-data = """Two kinds of record, each UTF-8 text, one entry per line, every entry also echoed to the console:
+data = """Two kinds of record, each UTF-8 text, one entry per line:
 - the global record, one per launch, at the location the launch request or FILEBACKUP_LOG_PATH gives, by default Backup_Global.log beside the configuration document;
 - one location record per configured location, named backup.log in that location's saved-state root (IF-013).
-Entry grammar: <yyyy-MM-dd HH:mm:ss.fff host-local> [<LEVEL>] <message>, LEVEL one of DEBUG, INFO, WARN, ERROR.
-Message prefixes:
+Entry grammar: <yyyy-MM-dd HH:mm:ss.fff host-local> [<LEVEL>] <message>, LEVEL one of DEBUG, INFO, WARN, ERROR. The console carries the same entries in the same grammar.
+Message kinds:
 - Added: <path> | Changed: <path> | Removed: <path>
 - Failed: <path> - <cause> | Not captured: <path> - <cause>
+- Retried: <path> - attempt <n> of 3 | Retry limit reached: <seconds> s spent in this location
 - Progress: <phase> <entries done>/<entries known> entries, <bytes> bytes, phase one of reading, storing, finalising
 - Summary: added=<n> changed=<n> removed=<n> failed=<n>
 - Refused <token>: <what was found>. Remedy: <what to do>
-- Rebuilt change-detection state: <reason>
+- Rebuilt change-detection state: <reason> | Rebuilt run state: <reason>
+- Space check not made: <volume> - <reason>
+- Work reclaimed: run <run identity> lost its claim and changed nothing more
+- Leftovers kept: <folder> - <recovery guidance>
+- Notification skipped: <reason> | Notification failed: <cause>
 - Media measure not taken: <reason> | Extra skipped: <name>
-Refusal tokens: [SR-075/owner-live], [SR-075/content-refused], [SR-075/prune-held], [SR-075/lock-held], [SR-075/lock-lost], [SR-075/reclaimed], [SR-075/heartbeat]."""
-rationale = """An owner reading why a run failed, and a host searching for a refusal class, need stable entry kinds; free prose cannot be searched and a count without the names cannot be acted on. A structured log in a machine format lost for the owner-facing record: the machine-readable form is IF-010, and a person reads this one. The refusal tokens are kept exactly as hosts already search for them; a new refusal class takes a token that names no requirement, because requirement numbering is not a host-visible form."""
+Refusal tokens, a closed set, each with the outcome value it reports:
+- [SR-075/owner-live]: an earlier run alive or not proven dead (4);
+- [SR-075/content-refused]: unfinished work holding content, reached through a link, or whose evidence cannot be read (2);
+- [SR-075/prune-held]: a removal's unfinished work (2);
+- [SR-075/lock-held]: the claim is held by another operation (4);
+- [SR-075/lock-lost]: this run's claim was lost (1);
+- [SR-075/reclaimed]: a dead run's leftovers were reclaimed (an entry, not a refusal);
+- [SR-075/heartbeat]: a liveness refresh failed (an entry, not a refusal);
+- [2/staging-busy]: a removal refused by a staging area holding more than its own marker;
+- [2/configuration]: a refused configuration;
+- [2/record-location]: a refused global record location;
+- [2/bad-request]: a bad request;
+- [2/claim-location]: access to the claim denied, or its location unusable;
+- [4/claim-io]: an I/O error while taking the claim;
+- [2/capacity]: a volume lacking the space a run or a removal needs;
+- [2/tool]: a runtime, component or tool missing or below its version;
+- [2/unsupported-form]: a store or state in a retired or unrecognised form;
+- [2/empty-source]: a source that suddenly looks empty;
+- [2/location-overlap]: configured locations that overlap;
+- [2/read-only-source]: a source the run cannot write, with no state location;
+- [2/removal-refused]: a removal that could lose content;
+- [3/record-damage]: a state's record failing its completeness evidence;
+- [4/host-fault]: a host fault while the operation worked."""
+rationale = """An owner reading why a run failed, and a host searching for a refusal class, need stable entry kinds; free prose cannot be searched and a count without the names cannot be acted on. A structured log in a machine format lost for the owner-facing record: the machine-readable form is IF-010, and a person reads this one. The tokens already in use are kept exactly as hosts already search for them; every other token names the value and the cause and no requirement, because requirement numbering is not a host-visible form, and the set is closed so a host can match every refusal."""
 version = "1"
 status = "Drafted"
 
@@ -180,9 +210,21 @@ interface_to_external = ["B-08"]
 coincident = """The document written is the findings."""
 data = """One UTF-8 JSON document on standard output.
 Saved-state report: an array, one object per saved state, oldest first: Name (string, the saved-state folder name), Date (string, ISO-8601), Rows (integer), PhysicalBytes, BytesReclaimed, BytesReHomed (integers, bytes).
-Check, and check with repair: an array, one object per finding, empty when clean: Folder (string), FolderName (string), RelativePath (string), DataPath (string), Class (one of DanglingDataPath, FlagOverRaw, FlagOverArchive, NameLies, PayloadMismatch, BlankRowFormDisagreement, Unreferenced, LegacyStoredForm, PoolDataPathMissing, PoolUnresolvable), Observed (string), Expected (string), Repairable (boolean), Repaired (boolean, repair only), KitRevision (integer or null)."""
+Check, and check with repair: an array, one object per finding, empty when clean. Every finding carries Folder (string), FolderName (string), RelativePath (string, empty for a finding about a folder or a stored object rather than an entry), DataPath (string, possibly empty), Class, Observed (string), Expected (string), Repairable (boolean) and KitRevision (integer or null); with repair, also Repaired (boolean).
+Class, one of:
+- PoolDataPathMissing: an entry's stored-copy reference names a copy absent from its folder while the same content survives elsewhere in the backup (missing from its place);
+- PoolUnresolvable: an entry whose content is found nowhere in the backup (missing from the whole backup);
+- FlagOverRaw: the entry records the archive form over raw bytes at its place;
+- FlagOverArchive: the entry records the raw form over bytes that are an archive and not the entry's own content;
+- NameLies: the stored name claims a form its bytes do not have, the recorded form agreeing with the bytes;
+- PayloadMismatch: the stored bytes, expanded where they are an archive, do not have the entry's digest and length (content altered);
+- BlankRowFormDisagreement: a blank entry whose recorded form disagrees with the form of the copy the search by content key locates, in a state whose own kit cannot decide form from the bytes;
+- Unreferenced: a stored object that no entry of any record references;
+- LegacyStoredForm: a state in a retired form;
+- RecordEvidenceMismatch: a state's record that fails its completeness evidence.
+DanglingDataPath, the earlier name of a missing-from-its-place finding, is retired."""
 rationale = """A host deciding whether to remove a saved state, or whether a store is healthy, must parse the answer; scraping the human-readable record lost because its wording is free to change."""
-version = "1"
+version = "2"
 status = "Drafted"
 
 [interface.IF-011]
@@ -192,7 +234,7 @@ consumers = ["external:EXT-08"]
 channel = "SMTP over TLS"
 interface_to_external = ["B-09"]
 bridged_by = ["DA-09"]
-data = """One mail message per run, submitted to Secrets.SmtpServer on Secrets.SmtpPort with TLS: From Secrets.FromEmail, To Secrets.ToEmail, subject Automatic Backup Successful or Automatic Backup Failed, plain-text body holding the run's summary entries. Authentication with the stored login only where the configuration carries one."""
+data = """One mail message: submitted by SMTP to Secrets.SmtpServer on Secrets.SmtpPort (default 25), the session upgraded to TLS by STARTTLS before the message is sent; From Secrets.FromEmail, To Secrets.ToEmail; subject Automatic Backup Successful or Automatic Backup Failed; a plain-text body holding the run's summary entries. Authentication: SMTP AUTH with the stored login (IF-012), or none."""
 rationale = """An owner who does not read the record needs the outcome to reach him; a host-side alert alone lost because a native-Windows owner may have no host that acts on exit status."""
 version = "1"
 status = "Drafted"
@@ -225,9 +267,10 @@ Backup root (BackupPath), the latest state:
 - DIRECTORIES.csv: the folder record (IF-017), present only when it has rows; LINKS.csv: the link record (IF-018), present only when it has rows;
 - FileBackupState.json and FileBackupState.json.tmp: the run-state record (IF-030);
 - the restore kit (IF-019);
-- the stored objects, flat at the root, named by IF-016.
+- the stored objects, flat at the root, named by IF-016;
+- a stored object's publication temporary: its stored name followed by .fbprune.tmp (a removal's or a repair's copy) or by .fb-<8 lowercase hex digits>.tmp (any other writer); a name of this form is a temporary only where no entry of the folder's record names it.
 Saved-state root (ChangePath):
-- Snapshot_<yyyy>_<MM>_<dd>_<HH>_<mm>_<ss>[_<NNN>]: one folder per saved state, matching ^Snapshot_\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2}_\\d{2}; the date and time are host-local, and the optional three-digit suffix separates two folders of the same second. Each holds its own MANIFEST.csv, MANIFEST.csv.meta, DIRECTORIES.csv and LINKS.csv where present, its own restore kit, and the stored objects only it preserves;
+- one folder per saved state, named Snapshot_<yyyy>_<MM>_<dd>_<HH>_<mm>_<ss>[_<NNN>] and matching exactly ^Snapshot_\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2}_\\d{2}(_\\d{3})?$; the date and time are host-local, and the optional three-digit suffix separates two folders of the same second. Each holds its own MANIFEST.csv, MANIFEST.csv.meta, DIRECTORIES.csv and LINKS.csv where present, its own restore kit, the stored objects only it preserves and their publication temporaries;
 - Temp: the staging area (IF-033); Temp.lock: the claim file (IF-032); Temp.stale-<yyyyMMddTHHmmssZ>-<8 hex digits>: reclaimed leftovers; Pruning_<saved-state folder name>: a removal past its commit point;
 - backup.log: the location record (IF-009).
 Infrastructure names are names at a folder's own root; the same names deeper in a folder are data. RECONSTRUCT.bat, the retired launcher name, is an infrastructure name."""
@@ -238,21 +281,21 @@ status = "Drafted"
 [interface.IF-014]
 title = "Record of contents"
 owner = "CMP-016"
-consumers = ["CMP-009", "CMP-011", "CMP-013", "CMP-014", "CMP-017"]
+consumers = ["CMP-009", "CMP-011", "CMP-013", "CMP-014", "CMP-015", "CMP-017"]
 channel = "file"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
 bridged_by = ["DA-19"]
-data = """CSV per RFC 4180, UTF-8, LF line endings, every field quoted, a header row then one row per file of the state, rows in ordinal order of RelativePath; written without a byte-order mark, read with or without one. A record of a state with no file is the header alone. Columns, in order:
+data = """CSV per RFC 4180, UTF-8, every field quoted, a header row then one row per file of the state, rows in ordinal order of RelativePath; written without a byte-order mark and with LF line endings, read with or without a byte-order mark and with LF or CRLF line endings. A record of a state with no file is the header alone. Columns, in order:
 - DataPath: the stored object's name in the state's own folder (IF-016), or blank meaning locate the content by its content key anywhere in the backup;
 - RelativePath: the file's path under the source root, components separated by a backslash whatever the host; records written from Linux by earlier versions use the forward slash;
 - Length: non-negative 64-bit integer bytes;
-- LastWriteTimeStr: the file's modification time, ISO-8601 round-trip text with offset, opaque to readers;
+- LastWriteTimeStr: the file's modification time as <yyyy>-<MM>-<dd>T<HH>:<mm>:<ss>.<seven fraction digits><offset>, the offset either Z or a sign, two hour digits, a colon and two minute digits; opaque to the backup side, interpreted by a restore;
 - xxH2Hash: the content digest (IF-034 text form);
 - Compressed: Yes or No, the form the writer recorded;
 - StoredAsHashSize: the storage-layout marker, Hash for the current form; Original marks a retired form;
 - Duplicate: 0, 1 or empty;
-- MediaMBPerSec: blank, or a decimal with three places.
+- MediaMBPerSec: blank, or a decimal with three places in a record written by an earlier version; the measures live in the space view (IF-042).
 The content key of a row is the pair (xxH2Hash, Length)."""
 rationale = """Every restorer on every system must read the same rows identically; a spreadsheet-safe CSV with fixed columns is readable by the shell route's text tools and by the language-runtime route alike. A binary or JSON record lost: the shell route's floor tools cannot parse JSON safely."""
 version = "2"
@@ -272,8 +315,7 @@ data = """A sidecar beside each record of contents, UTF-8 without byte-order mar
 - Bytes=<integer>: the record's length in bytes;
 - XxH128=<32 hex digits>: the content digest of the record's bytes exactly as written;
 - Written=<ISO-8601 time>: when the record was written;
-- DirRows=<integer>, LinkRows=<integer>: the rows of the state's folder record and link record, 0 when the state has none (from evidence version 3; evidence of version 2 does not state them).
-Unknown keys are ignored by a reader of an older version."""
+- DirRows=<integer>, LinkRows=<integer>: the rows of the state's folder record and link record, 0 when the state has none; present from evidence version 3. Evidence of version 2 states neither, and was written both before and after folder records existed."""
 rationale = """A record cut short or swapped for another state's record looks like a valid smaller state; without evidence a restorer would restore it silently and call the result complete. A digest column inside the record lost: a truncated record loses its own evidence with it."""
 version = "3"
 status = "Drafted"
@@ -301,7 +343,7 @@ status = "Drafted"
 [interface.IF-017]
 title = "Folder record"
 owner = "CMP-016"
-consumers = ["CMP-011", "CMP-020"]
+consumers = ["CMP-008", "CMP-011", "CMP-020"]
 channel = "file"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
@@ -320,10 +362,10 @@ carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
 coincident = """The record is read as written."""
 data = """CSV per RFC 4180, UTF-8 without byte-order mark, every field quoted, rows in ordinal order of RelativePath. Columns:
-- RelativePath: the link's path under the source root, backslash-separated;
+- RelativePath: the link's path under the source root, in the walk, backslash-separated;
 - LinkKind: one of symlink, junction;
-- TargetClass: one of inside-source (the target is a folder of the same source, or an ancestor of the link), own-location (the target lies in the backup, its saved states, the change-detection state location or the record location);
-- Target: for inside-source, the target's path under the source root, backslash-separated; for own-location, the target's absolute path as it was resolved at backup time.
+- TargetClass: one of inside-source (the target is a folder the walk captures: a folder of the same source, or an ancestor of the link, one reached through a followed outside folder included), own-location (the target lies in the backup, its saved states, the change-detection state location, the record location or the listing location);
+- Target: for inside-source, the path at which the walk captured the target, under the source root and through followed links, backslash-separated; for own-location, the target's absolute path as it was resolved at backup time.
 Present only when the state records at least one link."""
 rationale = """A link that is recorded rather than followed vanishes at restore unless something says where it led. Link rows inside the record of contents lost: an existing kit would take a link row for a file with no content and report it missing."""
 version = "1"
@@ -337,34 +379,36 @@ channel = "files in each state's folder"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
 bridged_by = ["DA-19"]
-data = """The artifacts every state's folder carries, each at the folder's root:
-- RECONSTRUCT.cmd: the Windows launcher, ASCII with CRLF line endings;
+data = """The kit's closed name set; every state's folder carries these artifacts, each at the folder's root:
+- RECONSTRUCT.cmd: the Windows launcher, ASCII with CRLF line endings: a remark line REM KitRevision: <integer>, then one command line;
 - RECONSTRUCT.command: the macOS launcher;
-- the language-runtime restorer, the shell restorer and the restore-safe shared library, each under the fixed name the kit itself documents;
-- the hashing library the language-runtime route loads;
-- RECONSTRUCT.paths.json: a JSON object {BackupRoot: string, ChangeRoot: string} of absolute paths at backup time;
-- THIRD-PARTY-NOTICES.txt: for each third-party component in the folder, its name, version, licence and required notice text;
+- RECONSTRUCT.ps1: the language-runtime restorer;
+- reconstruct.sh: the shell restorer;
+- FileBackup.Common.psm1: the restore-safe shared library;
+- System.IO.Hashing.dll: the hashing library the language-runtime route loads, at the version of IF-037;
+- RECONSTRUCT.paths.json: a JSON object {BackupRoot: string, ChangeRoot: string, KitRevision: integer}, BackupRoot and ChangeRoot absolute paths at backup time;
+- THIRD-PARTY-NOTICES.txt: a first line KitRevision: <integer>, then, for each third-party component in the folder, its name, version, licence and required notice text;
 - KIT-ORIGIN.txt: present only in a state whose kit a kit refresh has replaced; UTF-8, one line OriginalKitRevision=<integer>, the kit revision the state carried before its first refresh.
-Each restorer carries a line # KitRevision: <integer>, equal in both; the revision records which record kinds that kit writes and reads."""
-rationale = """A state whose kit is incomplete restores only where FileBackup is installed, which is the case the kit exists for. Putting one kit at the backup root only lost: a saved state copied out on its own, or a store whose root kit was refreshed, must still restore with the kit it was written with."""
-version = "13"
+Recognised, never written: RECONSTRUCT.bat, the retired Windows launcher.
+Kit revision: every text artifact above but KIT-ORIGIN.txt carries one, equal in all of them; the restorers, the library and the macOS launcher as a line # KitRevision: <integer>. The hashing library is identified by its version, which the kit revision fixes. A text artifact without a revision belongs to a kit older than revision 14, in which only the two restorers carried one. The revision records which record kinds that kit writes and reads."""
+rationale = """A state whose kit is incomplete restores only where FileBackup is installed, which is the case the kit exists for, and a kit mixing two revisions can run code against a library it was not written for. Putting one kit at the backup root only lost: a saved state copied out on its own, or a store whose root kit was refreshed, must still restore with the kit it was written with. Leaving the file names to the kit's own documentation lost because the writer, the launchers, the loader, the kit refresh and the infrastructure-name test all need the one closed set."""
+version = "14"
 status = "Drafted"
 
 # --- Restore ---------------------------------------------------------------
 
 [interface.IF-020]
 title = "Restore request"
-owner = "CMP-022"
+owner = "CMP-017"
 requestors = ["external:EXT-02"]
 channel = "process command line or double-click"
 interface_from_external = ["B-14"]
 coincident = """The request as given is what the restore acts on."""
-data = """The state restored is the one whose folder the restore is started from: a saved-state folder (IF-013 naming) restores that state, the backup root restores the latest state.
-Language-runtime route switches: -TargetRoot <path>, -BackupRootOverride <path>, -ChangeRootOverride <path>, -SevenZipPath <path>, -RequireWitness, -NonInteractive, -NoGui, -ExitCode (accepted, no meaning).
+data = """Language-runtime route switches: -TargetRoot <path>, -BackupRootOverride <path>, -ChangeRootOverride <path>, -SevenZipPath <path>, -RequireWitness, -NonInteractive, -NoGui, -ExitCode (accepted, no meaning).
 Shell route switches: --target-root <path>, --from <state folder>, --backup-root <path>, --change-root <path>, --seven-zip <path>, --require-witness, --pick-target, -h or --help.
 Double-click: RECONSTRUCT.cmd on Windows, RECONSTRUCT.command on macOS, each with no arguments.
 An unknown switch, a switch without its value, or a missing target where none can be asked for is a bad request."""
-rationale = """A restorer under stress must be able to start a restore by double-click, and a script must be able to start one with no prompt; one form serving both, with the state given by where it is started, lost nothing. Naming the state by argument lost: the folder a person opens already says which point in time it is."""
+rationale = """A restorer under stress must be able to start a restore by double-click, and a script must be able to start one with no prompt; one form serving both lost nothing. A form with a required state argument lost: the folder a person opens already says which point in time it is, so the state switch is optional."""
 version = "1"
 status = "Drafted"
 
@@ -387,8 +431,8 @@ consumers = ["external:EXT-02"]
 channel = "text file and console"
 interface_to_external = ["B-15"]
 coincident = """The report written is the outcome description."""
-data = """RECONSTRUCT.log in the restore target, UTF-8 text, written fresh each restore, one entry per line in the run-record entry grammar (IF-009), every entry also echoed to the console. Entries:
-- Not restored: <path> - <cause> per entry, cause one of ContentMissing, ContentMismatch, PathTraversal, NameCollision, MissingDataFile, NoDataPathOrHash, DependencyMissing, StorageUnreadable, CandidateError, WriteMismatch;
+data = """The report, in the restore target's root: RECONSTRUCT.log or, where the state records a file at that path (compared as the target compares names), the first of RECONSTRUCT-1.log, RECONSTRUCT-2.log and so on at which the state records no file. UTF-8 text, one entry per line in the run-record entry grammar (IF-009); the console carries the same entries. Entries:
+- Not restored: <path> - <cause> per entry, cause one of ContentMissing, ContentMismatch, PathTraversal, NameCollision, MissingDataFile, NoDataPathOrHash, DependencyMissing, StorageUnreadable, CandidateError, WriteMismatch, StateRemoved;
 - Not applied: <path> - <what> for folder metadata, a modification time or a link;
 - Recovered: <path> - from <folder>;
 - Unverified: <check> - <reason> for a check an older state cannot support;
@@ -404,7 +448,7 @@ consumers = ["external:EXT-12"]
 channel = "filesystem"
 interface_to_external = ["B-16"]
 bridged_by = ["DA-07", "DA-08"]
-data = """Under the chosen target folder: each file of the state at its RelativePath (separators mapped to the target host's), with the recorded bytes and the recorded modification time; each recorded folder, empty ones included, with the recorded attributes the target can hold; each recorded link as a link at its RelativePath; and the restore report (IF-022)."""
+data = """Under the chosen target folder: each file of the state at its RelativePath (separators mapped to the target host's), with the recorded bytes and the recorded modification time; each recorded folder, empty ones included, with the recorded attributes the target can hold; each recorded link as a link at its RelativePath; and the restore report (IF-022), at a name no recorded file takes."""
 rationale = """The restored tree is what the restorer came for; stating its parts fixes what a restore may and may not write. Restoring into a temporary folder and moving it in lost: a move across volumes doubles the space a restore needs."""
 version = "1"
 status = "Drafted"
@@ -427,7 +471,7 @@ status = "Drafted"
 [interface.IF-025]
 title = "Restore target probe"
 owner = "external:EXT-12"
-consumers = ["CMP-018"]
+consumers = ["CMP-018", "CMP-019", "CMP-020"]
 channel = "filesystem queries"
 interface_from_external = ["B-17"]
 bridged_by = ["DA-06"]
@@ -443,8 +487,10 @@ consumers = ["CMP-022"]
 channel = "process environment"
 interface_from_external = ["B-19"]
 coincident = """The session is as the host reports it."""
-data = """Signals read at restore start: the operating system (Windows, Linux, macOS); whether standard input is redirected or closed; whether an interactive console is attached; whether a desktop session is present (on Linux, DISPLAY or WAYLAND_DISPLAY set); and the flavour of the system tools (GNU or BSD)."""
-rationale = """Without these signals a restore either asks a question nobody can answer, hanging a script, or never asks a person who double-clicked it."""
+data = """Signals read at restore start: the operating system (Windows, Linux, macOS); whether standard input is redirected or closed; whether an interactive console is attached; whether a desktop session is present (on Linux, DISPLAY or WAYLAND_DISPLAY set); the flavour of the system tools (GNU or BSD); and the restore side's environment variables, each optional:
+- FILEBACKUP_NO_GUI: the value 1 asks for no folder choice;
+- FILEBACKUP_PICKER: the path of one program that offers the folder choice (IF-027)."""
+rationale = """Without these signals a restore either asks a question nobody can answer, hanging a script, or never asks a person who double-clicked it. Keeping the restore side's variables with the backup side's environment lost because the restore kit must depend on nothing backup-only."""
 version = "1"
 status = "Drafted"
 
@@ -455,7 +501,7 @@ requestors = ["CMP-022"]
 channel = "desktop dialog"
 interface_from_external = ["B-19"]
 coincident = """The folder chosen is the answer."""
-data = """Request: a title text. Answer: one absolute folder path, or cancelled. Provided by the Windows folder browser, the macOS folder chooser, or zenity, kdialog or yad on a Linux desktop; or by the program named in FILEBACKUP_PICKER, which prints the chosen path on standard output and exits non-zero on cancel."""
+data = """Request: a title text. Answer: one folder path, or cancelled. Providers: the program FILEBACKUP_PICKER names (IF-026), called with the title as its one argument, printing the chosen path on standard output and exiting non-zero on cancel; the Windows folder browser; the macOS folder chooser; and on a Linux desktop zenity, kdialog and yad, in that order of preference, each printing the chosen path on standard output and exiting non-zero on cancel."""
 rationale = """A double-clicked restore has no command line to read a target from; a typed prompt alone lost because a desktop user may never see a console."""
 version = "1"
 status = "Drafted"
@@ -481,17 +527,17 @@ consumers = ["external:EXT-01"]
 channel = "file"
 interface_to_external = ["B-24", "B-20"]
 coincident = """The record is plain text the owner can open as written."""
-data = """A record of contents (IF-014) with DataPath, Compressed and StoredAsHashSize blank, and its completeness evidence (IF-015), named MANIFEST.csv and MANIFEST.csv.meta, at the SourceStatePath location, by default the source root."""
-rationale = """Re-reading every file on every run overruns the backup window; the record of each file's last size, time and digest is what lets a run read only what changed. A private binary cache lost: the owner must be able to open and read what the tool keeps in his source."""
-version = "2"
+data = """A record of contents (IF-014) with DataPath, Compressed and StoredAsHashSize blank, and its completeness evidence (IF-015), named FILEBACKUP-CHANGES.csv and FILEBACKUP-CHANGES.csv.meta, with publication temporaries FILEBACKUP-CHANGES.csv.tmp and FILEBACKUP-CHANGES.csv.meta.tmp, at the SourceStatePath location, by default the source root. Its earlier name, used by versions before this one, was MANIFEST.csv and MANIFEST.csv.meta, the names of a backup's own record."""
+rationale = """Re-reading every file on every run overruns the backup window; the record of each file's last size, time and digest is what lets a run read only what changed. A private binary cache lost: the owner must be able to open and read what the tool keeps in his source. Keeping the backup record's own name lost: a source whose root holds a copy of a backup's record would have it taken for the run's own state and overwritten."""
+version = "3"
 status = "Drafted"
 
 [interface.IF-030]
 title = "Run-state record"
 owner = "CMP-011"
-consumers = ["CMP-009", "CMP-011"]
+consumers = ["CMP-009"]
 channel = "file"
-data = """FileBackupState.json at the backup root: a UTF-8 JSON object with LastBackupRun (string, ISO-8601 round-trip, the completion time of the latest state) and LastHashRun (string, ISO-8601 round-trip, the time the last completed full re-read began). FileBackupState.json.tmp is its publication temporary. A writer of a later version may add keys; a reader ignores keys it does not know."""
+data = """FileBackupState.json at the backup root: a UTF-8 JSON object with LastBackupRun (string, ISO-8601 round-trip, the completion time of the latest state) and LastHashRun (string, ISO-8601 round-trip, the time the last completed full re-read began); a later version may add keys. FileBackupState.json.tmp is its publication temporary."""
 rationale = """The next saved state is named by the latest state's completion time and the re-read schedule counts from the last completed full re-read; neither can be read back from the source. Keeping them in the change-detection record lost: that record lives in the source, which may be read-only or elsewhere."""
 version = "1"
 status = "Drafted"
@@ -503,7 +549,7 @@ consumers = ["CMP-010", "CMP-013"]
 channel = "filesystem queries"
 interface_from_external = ["B-03"]
 bridged_by = ["DA-06"]
-data = """For a path: the host's mount table on Linux and macOS, or the drive or share root on Windows; and for a volume, its free bytes and its allocation unit in bytes, each or unknown."""
+data = """For a path: its physical location, and the mount points of the host (on Windows the drive roots, share roots and folder mount points; on Linux and macOS the mount table), each with the identity of the volume mounted there. A volume identity is stable while the volume is mounted: on Windows the volume's GUID path, or the share root for a share; on Linux and macOS the device number. For a volume: its free bytes and its allocation unit in bytes, each or unknown."""
 rationale = """Two locations on one volume compete for the same free space; a check that measures each path separately passes two demands that together do not fit. Treating every path as its own volume lost for that reason."""
 version = "1"
 status = "Drafted"
@@ -511,7 +557,7 @@ status = "Drafted"
 [interface.IF-032]
 title = "Exclusive-use claim"
 owner = "CMP-012"
-consumers = ["CMP-013", "CMP-014"]
+consumers = ["CMP-011", "CMP-013", "CMP-014"]
 channel = "operating-system file lock"
 interface_to_external = ["B-04"]
 bridged_by = ["DA-02", "DA-03"]
@@ -527,7 +573,18 @@ consumers = ["CMP-011", "CMP-013"]
 channel = "filesystem"
 interface_to_external = ["B-04"]
 bridged_by = ["DA-16"]
-data = """Temp at the saved-state root: the staging area of the one changing operation holding the backup. While a backup holds it, Temp contains RUN.inprogress, a UTF-8 JSON object: SchemaVersion (integer), Kind (string), RunId (string, a fresh GUID per acquisition), SetName, Host, ContainerId, BootId (strings, diagnostic), Pid (integer, diagnostic), StartedUtc (ISO-8601), HeartbeatIntervalSeconds (integer, 60), StaleAfterSeconds (integer, at least 1800); its modification time is part of the record. While a removal holds it, Temp contains PRUNE.inprogress, UTF-8 text holding the name of the saved-state folder being removed. Other entries a backup may place in Temp: the copied prior record of contents, its completeness evidence, the folder record, the link record and their publication temporaries."""
+data = """Temp at the saved-state root: the staging area of the one changing operation holding the backup.
+While a backup holds it, Temp contains RUN.inprogress, the owner record: a UTF-8 JSON object of schema version 1:
+- SchemaVersion: integer, 1;
+- Kind: string, backup;
+- RunId: string, a fresh GUID per acquisition;
+- StartedUtc: ISO-8601 time;
+- HeartbeatIntervalSeconds: integer, 60;
+- StaleAfterSeconds: integer, at least 1800;
+- SetName, Host, ContainerId, BootId (strings) and Pid (integer): diagnostic, optional.
+SchemaVersion, Kind, RunId, StartedUtc, HeartbeatIntervalSeconds and StaleAfterSeconds are required; a record with another SchemaVersion or Kind, or without a required field, is of an unknown schema. The record's modification time is part of it.
+While a removal holds it, Temp contains PRUNE.inprogress, UTF-8 text holding the name of the saved-state folder being removed.
+Other entries a backup may place in Temp: the folder of the saved state being prepared, named as it will be published (IF-013), holding the copied prior record of contents, its completeness evidence, the folder record, the link record, the kit and their publication temporaries."""
 rationale = """A dead run's leftovers must be told from a live run's by any later FileBackup, on any host or container sharing the store, from the disk alone; a process-identity check lost because a container shares neither process namespace nor host with the reader."""
 version = "1"
 status = "Drafted"
@@ -549,7 +606,7 @@ status = "Drafted"
 [interface.IF-035]
 title = "Archive tool"
 owner = "external:EXT-06"
-requestors = ["CMP-010", "CMP-013", "CMP-014", "CMP-019"]
+requestors = ["CMP-010", "CMP-013", "CMP-014", "CMP-018", "CMP-019"]
 channel = "host command"
 interface_from_external = ["B-10"]
 bridged_by = ["DA-18"]
@@ -591,8 +648,9 @@ requestors = ["external:EXT-09", "external:EXT-03"]
 channel = "container start arguments and environment"
 interface_from_external = ["B-12"]
 coincident = """The action and variables given at start are the request."""
-data = """Action: a leading positional word, or FILEBACKUP_ACTION, one of backup (the default when both are absent), prune, snapshots, verify. Any argument starting with '-' passes through to the backup launch request (IF-002) unchanged.
-Variables: FILEBACKUP_CONFIG_PATH (default /config/FileBackup.json); FILEBACKUP_LOG_PATH (default /logs/Backup_Global.log); FILEBACKUP_SNAPSHOT (saved-state names for prune, comma-separated); FILEBACKUP_REPAIR (with verify, run the repair); FILEBACKUP_DRY_RUN (with prune, the removal dry run); and the environment settings of IF-007. A flag variable is set when it holds exactly one of 1, true, TRUE, True, yes, YES, Yes.
+data = """Action: a leading positional word, or FILEBACKUP_ACTION, one of backup (the default when both are absent), prune, snapshots, verify. Arguments after the action that start with '-' are switches of the backup launch request (IF-002).
+Variables: FILEBACKUP_CONFIG_PATH (default /config/FileBackup.json); FILEBACKUP_LOG_PATH (default /logs/Backup_Global.log); FILEBACKUP_SNAPSHOT (saved-state names for prune, comma-separated); FILEBACKUP_REPAIR (with verify, run the repair); FILEBACKUP_DRY_RUN (with prune, the removal dry run); and the environment settings of IF-007.
+A flag variable is set when it holds exactly one of 1, true, TRUE, True, yes, YES, Yes, and unset when it is absent, empty or exactly one of 0, false, FALSE, False, no, NO, No.
 Exit status: the operation outcome value (IF-003)."""
 rationale = """A container platform starts an image with words and variables, not a shell; without a stated mapping a host could not run removals or checks in the container. Requiring a shell inside the container lost: the image runs with no interactive session and as an unprivileged user."""
 version = "2"
@@ -606,7 +664,7 @@ channel = "container platform"
 interface_from_external = ["B-12"]
 bridged_by = ["DA-13"]
 data = """Mounts: /config (the configuration document, read-only), /source (read-only), /state (the change-detection record location, writable), /backup (writable), /changes (writable), /logs (writable), /tmp (writable scratch, may be a memory filesystem). User: uid 65532, gid 65532, no added capabilities. No network is required."""
-rationale = """A host must know which folders to mount and how, or a run either fails on a missing mount or is given more access than it needs. Running as root with one writable mount lost on SR-130's least-access requirement."""
+rationale = """A host must know which folders to mount and how, or a run either fails on a missing mount or is given more access than it needs. Running as root with one writable mount lost on the least-access requirement."""
 version = "1"
 status = "Drafted"
 
@@ -631,7 +689,7 @@ consumers = ["external:EXT-01"]
 channel = "files"
 interface_to_external = ["B-06", "B-20"]
 coincident = """The view as written is what the owner opens."""
-data = """At the ViewPath location: INDEX.tsv (UTF-8, tab-separated, a header then one row per path of the latest state, duplicates included: RelativePath, DataPath, Length, xxH2Hash, Compressed); one INDEX.html per folder of the latest state, each entry a relative link to its stored object; a root INDEX.html with a name search, replaced by a pointer to INDEX.tsv above a documented row count; and .viewstamp holding the SHA-256 of the canonical rows the view mirrors."""
+data = """At the ViewPath location: INDEX.tsv (UTF-8, tab-separated, a header then one row per path of the latest state, duplicates included: RelativePath, DataPath, Length, xxH2Hash, Compressed); one INDEX.html per folder of the latest state, each entry a relative link to its stored object; a root INDEX.html in one of two forms, a search page embedding every row with a name filter, or a pointer page giving search commands over INDEX.tsv; and .viewstamp holding the SHA-256 of the canonical rows the view mirrors. The search-page row limit is 50000 rows."""
 rationale = """An owner who wants one file back without a restore needs to find and open it by name; a listing inside the backup folder lost because it would be taken for data and would not be outside every source and store."""
 version = "1"
 status = "Drafted"
@@ -643,7 +701,7 @@ consumers = ["external:EXT-01"]
 channel = "file"
 interface_to_external = ["B-06"]
 coincident = """The listing as written is what the owner reads."""
-data = """SPACE.tsv at the ViewPath location: UTF-8, tab-separated, a header then one row per file of the latest state, ordered by StoredBytes descending then RelativePath ordinal. Columns: RelativePath; StoredBytes (integer, the size of the stored copy); Shared (yes when the stored copy serves more than one path, else no); MediaMBPerSec (decimal with three places, or blank); MediaMeasure (taken, not-taken: <reason>)."""
+data = """SPACE.tsv at the ViewPath location: UTF-8, tab-separated, a header then one row per file of the latest state, ordered by StoredBytes descending then RelativePath ordinal. Columns: RelativePath; xxH2Hash and Length (the content key); StoredBytes (integer, the size of the stored copy); Shared (yes when the stored copy serves more than one path, else no); MediaMBPerSec (decimal with three places, or blank); MediaMeasure (taken, not-yet-measured, or not-taken: <reason>), taken with a blank rate meaning the tool gave no playing time."""
 rationale = """An owner deciding where backup space goes needs the files ordered by what they cost; the browse view's folder order cannot answer that. A report inside the run record lost: it would bury the run's own entries."""
 version = "1"
 status = "Drafted"
@@ -663,9 +721,17 @@ status = "Drafted"
 [interface.IF-044]
 title = "Leftover classification verdict"
 owner = "CMP-012"
-consumers = ["CMP-011"]
+consumers = ["CMP-011", "CMP-013"]
 channel = "in-process call"
-data = """Request: the listing of the staging area and the owner record as read (parsed, unparseable or unreadable, with its modification time and age). Answer: one verdict of Empty, EmptyFresh, OwnerStale, OwnerLive, PruneHeld, HoldsContent, Indeterminate, with the evidence it rests on."""
+data = """Request: the staging area as read: whether it exists and whether it is a link; its listing (entry names), or unreadable; its own modification time and age, or unreadable; the owner record (IF-033) as read, one of absent, parsed, unparseable or of an unknown schema (its bytes readable), or unreadable after three reads, with its modification time and age where readable; and optionally a second sample of the owner record's modification time.
+Answer: one verdict, with the evidence it rests on:
+- Empty: no entry but record publication temporaries, the area's own time stale;
+- EmptyFresh: the same, the area's own time fresh;
+- OwnerStale: the owner record readable, older than its stale time and unchanged at the second sample;
+- OwnerLive: the owner record readable and fresh, future-dated, or not yet confirmed stale;
+- PruneHeld: a removal's marker;
+- HoldsContent: any other entry;
+- Indeterminate: the area is a link, or its listing, its own time or the owner record could not be read."""
 rationale = """The decision whether an earlier run's leftovers may be reclaimed must be testable over every combination without a filesystem; a classifier that performs its own reads lost because its matrix could then only be exercised on real disks."""
 version = "1"
 status = "Drafted"
@@ -680,7 +746,7 @@ data = """Request: a content key (the digest and the length); the pool folders, 
 - content-missing: with the candidates that failed and why;
 - dependency-missing: the tool that was needed;
 - storage-unreadable: the folder or item that could not be read."""
-rationale = """Both restore routes realise this search, and a restore's outcome depends on which answer it gives; a typed answer set is what the two routes must agree on. Leaving the answer set in prose lost because a route that folds a host cause into content-missing reports loss where there is none."""
+rationale = """Both restore routes realise this search, and a restore's outcome depends on which answer it gives; the interface sits inside one component on purpose, as the parity form the two routes must agree on. Leaving the answer set in prose lost because a route that folds a host cause into content-missing reports loss where there is none."""
 version = "1"
 status = "Drafted"
 

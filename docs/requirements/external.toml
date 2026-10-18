@@ -100,7 +100,7 @@ status = "Drafted"
 [boundary.B-01]
 entity = "EXT-04"
 direction = "in"
-carries = """Each source file's bytes, name, size, modification time and attributes, and the directory structure including empty and hidden folders, read without writing anything back to the source."""
+carries = """Each source file's bytes, name, size, modification time and attributes, the directory structure including empty and hidden folders, and each folder link and junction with the target it leads to, read without writing anything back to the source."""
 system = "operation"
 status = "Drafted"
 
@@ -205,7 +205,7 @@ status = "Drafted"
 [boundary.B-16]
 entity = "EXT-12"
 direction = "out"
-carries = """The restored tree written to the target: each file's bytes, name and modification time, empty folders, and the folder attributes the target supports."""
+carries = """The restored tree written to the target: each file's bytes, name and modification time, empty folders, the folder attributes the target supports, and the recorded links."""
 system = "operation"
 status = "Drafted"
 
