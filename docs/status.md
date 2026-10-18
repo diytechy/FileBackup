@@ -24,6 +24,18 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **SPINE RESTRUCTURE IN PROGRESS — THIS BRANCH IS SPINE-ONLY (2026-10-17).**
+  `SpineRestructure` rewrites the SN → SR → LLR → TC spine to the current
+  ai-template model, then rebuilds the design (components, interfaces,
+  architecture.md, AGENTS.md §2–3) around it. The plan, the gap map and the
+  Owner's rulings so far are in
+  [plans/spine-restructure-gap-map.md](plans/spine-restructure-gap-map.md).
+  **No code changes and no fix-queue work on this branch.** Everything below
+  this entry is the fix queue's state as of `New_Fix_Batch` `d61e57a`. It is
+  HELD there and must not be picked up here. The tooling (`trace.py`,
+  `check.ps1`) is expected to fail on the new spine shape until the tooling
+  phase; do not "fix" the spine to satisfy the old checker.
+
 - **M-1 SINGLE PROBE PASS (2026-10-10, branch fix-m1-single-probe-pass off New_Fix_Batch;
   NOT merged, awaiting review).** Review finding (performance, the Owner's NTFS probing
   rule), verified: M-1's merged `Optimize-ChangeFolders` probed a change folder's DataPaths
