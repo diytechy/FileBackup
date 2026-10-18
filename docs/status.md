@@ -25,7 +25,7 @@ last) — it is the record, not required reading for every pass.
 ## Current State
 
 - **SPINE RESTRUCTURE IN PROGRESS — THIS BRANCH IS SPINE-ONLY (2026-10-17).**
-  `SpineRestructure` rewrites the SN → SR → LLR → TC spine to the current
+  This branch (`DirectRebuild`, split from `SpineRestructure`) rewrites the SN → SR → LLR → TC spine to the current
   ai-template model, then rebuilds the design (components, interfaces,
   architecture.md, AGENTS.md §2–3) around it. The plan, the gap map and the
   Owner's rulings so far are in
@@ -35,15 +35,16 @@ last) — it is the record, not required reading for every pass.
   HELD there and must not be picked up here. The tooling (`trace.py`,
   `check.ps1`) is expected to fail on the new spine shape until the tooling
   phase; do not "fix" the spine to satisfy the old checker.
-  **Next:** the Owner approves the need tier (`requirements/stakeholder-needs.toml`,
-  48 needs, with the frame in `external.toml` and `assumptions.toml`) and then the
-  SR tier (`requirements/system-requirements.toml`, 120 rows). All rows are
-  Drafted, and only the Owner's reviewed Status-change commit approves them.
-  After that comes the design tier: components, interfaces (form only) and LLRs
-  in contract voice, derived twice independently and cross-compared like the
-  tiers above (method and records in `plans/spine-restructure/`). The legacy
-  `low-level-requirements.csv` and `test/test-cases.csv` still point at old ids
-  until they are rebuilt.
+  **RESUME HERE:** [plans/spine-restructure/handoff-2026-10-18-design-tier.md](plans/spine-restructure/handoff-2026-10-18-design-tier.md).
+  **Next:** round 3, the design tier (components, interfaces with their form
+  only, and LLRs in contract voice), from
+  [plans/spine-restructure/derive-brief-r3-design.md](plans/spine-restructure/derive-brief-r3-design.md).
+  It is derived twice independently, then aligned, reviewed and converged as
+  in rounds 1–2. Its reviews start with the SR edits not yet reviewed (the
+  handoff's open item 1). The need tier (48) and the SR tier (123) are
+  Drafted, awaiting the Owner's approval, which only a reviewed Status-change
+  commit gives. The legacy `low-level-requirements.csv`, `interfaces.csv` and
+  `test/test-cases.csv` still point at old ids until they are rebuilt.
 
 - **M-1 SINGLE PROBE PASS (2026-10-10, branch fix-m1-single-probe-pass off New_Fix_Batch;
   NOT merged, awaiting review).** Review finding (performance, the Owner's NTFS probing
