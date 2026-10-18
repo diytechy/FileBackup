@@ -273,3 +273,59 @@ Also open from the round-3 builder: SR-144's requirement text still says
 store-only acceptance. Adding "in the store" matches P-09 (a). And at build
 time, confirm per filesystem that a reclaim can move aside a folder holding a
 file open on another host (it fails toward refusal).
+
+## Closing the design tier (session 2026-10-18 c, the Owner present)
+
+The Owner was present for this session, so the open behaviour calls went to
+the Owner one at a time, as multiple choice with a recommendation.
+
+**Why P-14 (c) was not taken.** The handoff recommended (c), the owner record
+as the no-writer signal. Reading LLR-080 and LLR-094 showed that only a backup
+writes an owner record; a repair and a kit refresh hold only the operating-system
+claim. Under (c), a shell restore on a stock Mac that meets a live kit
+refresh's mixed kit, or a live repair's half-published record, would find no
+owner record and report damage (3) for a store that is only busy. Widening (c)
+to every changing operation would add owner records, and their kill points, to
+two more operations.
+
+| # | Question | Ruling (Owner, 2026-10-18) | Rows |
+|---|---|---|---|
+| P-14 | Where a restore cannot test the claim (the stock macOS shell route), what does a record still disagreeing with its evidence, or a kit still of two revisions, report after the 60 s wait? | **(a)** retry later (4), the message naming the remedy and stating that, where no changing operation is running, the record is damaged (or the kit is an interrupted refresh's). SR-039, SR-082 and SR-110 admit 4 on such a route. | SR-039, SR-082, SR-110, LLR-039, LLR-123 |
+| P-15 | **New, found while enumerating the staging sequence.** The latest state's folder record and link record are published as separate files beside the record and its evidence; no row orders those publications, and the evidence binds those two files by row count only. A kill between them, or a reader during a backup, can pair one run's files with another run's folder set, undetectably when the counts match (SR-082). | **Evidence version 4**: the evidence also carries the digest of the folder record and of the link record. A writer writes every temporary first, then renames the folder record, the link record, the record and the evidence last, so the evidence is the commit point for all three. The next run rolls forward from the evidence temporary. | IF-015, LLR-038, LLR-118, LLR-039, LLR-123, LLR-143, LLR-162 |
+| P-16 | Under P-15, the record of contents matches its evidence but the folder or link record still disagrees after the wait (a kill mid-publication, or a damaged folder record). | **Restore every file, apply neither mismatched record, report part failed (1)**, naming it as damaged or a publication in progress. This keeps SR-040's existing value for a damaged folder record, and folder metadata never blocks a file restore. SR-082 admits it. | SR-082, LLR-039, LLR-143 |
+
+**Coordinator calls (design only, recorded for the Owner):**
+- **R3G-001, tightened.** A prepared saved-state folder is recognised as holding
+  no content whatever its completeness: it holds no stored object and nothing
+  outside its closed set, and partial bytes may lie only in a temporary. Each
+  whole record copy in it must still be byte-identical to the backup root's
+  file of the same name, and whole evidence, where present, must be valid for
+  the folder's whole record copy. This is stricter than the disposition's
+  "whatever its completeness" and covers every kill while it is being filled,
+  because each file in it is written at its temporary and then renamed.
+- **R3G-002.** In a run folder beside no owner record, the owner record's own
+  deletion entry holds no content, as the run's location record already does.
+  The order (owner record deleted through the run folder) stays, because a
+  plain delete of the owner record by path would delete a successor's.
+- **The kit before the record.** A backup places the latest state's kit before
+  it publishes the latest state's records, so a kill between two kit files
+  leaves the pre-run records beside a mixed kit, refused as LLR-159 states
+  until the next run places the whole kit again. A new kit reads an older
+  record; an older kit beside a newer record would not know its evidence.
+- **The roll-forward search covers every reclaimed-leftover folder of that
+  root.** A reclaim killed between moving the backup root's staging area aside
+  and moving the saved-state root's would otherwise leave the evidence
+  temporary in a folder the second reclaim did not move, turning an
+  identifiable interrupted publication into a refusal. An evidence temporary
+  is positively identified by its digests wherever it lies.
+- **R3G-004.** IF-009 keeps the paths, names and entry grammar; IF-044 keeps the
+  typed request, the verdict variants and the evidence payload. Publication
+  timing stays in LLR-161, and the classification mapping in LLR-017 and
+  LLR-088.
+- **SR-144** gains "in the store", matching P-09 (a).
+- **The staging sequence as one table: LLR-162**, a child of LLR-088. Every kill
+  point of a backup and of a reclaim, with the leftover shape and its verdict,
+  closed over the steps. Round 4 takes its rows as test cases directly.
+
+The changed rows then go to one bounded convergence check (a fresh session, no
+earlier verdicts), scoped to them.
