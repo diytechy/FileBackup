@@ -1,0 +1,149 @@
+[
+  {
+    "id": "R2A-001",
+    "severity": "BLOCKER",
+    "rule": "§0 upward trace and sideways consistency",
+    "finding": "SR-043 collapses two outcomes that SN-045 requires to be distinct. SN-045 acceptance lists complete, some part failed, configuration refused, and operation refused because the backup is busy/not ready, and says each reports its own outcome. SR-043 explicitly defines only three values and assigns configuration refusal and busy/not-ready the same value 2. An ordinary scheduler cannot make the distinction the need requires from the result alone.",
+    "suggested_fix": "Retain separate machine-readable outcomes for configuration refusal and busy/not-ready, or obtain an amendment of SN-045 authorizing their merger. Then reconcile all SRs assigning these values, including container and multi-location aggregation."
+  },
+  {
+    "id": "R2A-002",
+    "severity": "BLOCKER",
+    "rule": "§0 sideways consistency; §2(b3) joint-delivery alignment",
+    "finding": "SR-001 requires every file to be present after a run completes and its acceptance makes any absent file a failure of the requirement. SR-074 permits only the source-root working state and volume system folders to be omitted and says 'Nothing else is omitted.' Yet SR-055 mandates omission of invalid names, SR-089 permits capture failures, and SR-137 mandates not following folder links and permits an otherwise complete outcome. A previously unbacked-up unreadable file is a routine case that cannot meet both the capture acceptance and the failure contract. The declared exclusions are also inconsistent across SR-074 and SR-137.",
+    "suggested_fix": "Define the captured-tree domain and the distinction between a completed attempt and a successful capture. State the allowed per-entry failure/freeze behavior and intentional exclusions normatively, with a consistent result policy. Resolve the folder-link success exemption against SN-001's requirement that uncaptured files fail the run; do not hide that policy solely in rationale or a sibling."
+  },
+  {
+    "id": "R2A-003",
+    "severity": "BLOCKER",
+    "rule": "§0 contradictory obligations; §2(b2) applicability; §2(b3) joint-delivery alignment",
+    "finding": "SR-082 acceptance requires the next run, 'before it does anything else,' to re-establish matching completeness evidence, make every visible state restorable and replace incomplete leftovers. SR-017 instead requires no mutation when prior work may hold content or its owner is unproven; SR-085/SR-086 require no mutation when another writer holds the backup or exclusivity cannot be established; SR-018 also requires a bad configuration to change nothing. These conditions can coincide after an ordinary crash. SR-110 similarly says the next run leaves every affected state restorable without admission/recoverability conditions. The current text gives no valid ordering satisfying both recovery and refusal.",
+    "suggested_fix": "Make admission and exclusive ownership precede recovery. Specify which positively identifiable interrupted publications can be recovered from trustworthy surviving evidence, and require refusal for ambiguous damage or unsafe leftovers. Limit the next-run recovery acceptance to admitted, recoverable cases and align SN-013's corresponding ordering clause. Do not make matching evidence alone proof that a damaged record is authoritative."
+  },
+  {
+    "id": "R2A-004",
+    "severity": "BLOCKER",
+    "rule": "§0 sideways consistency; §2(b2) missing applicability condition",
+    "finding": "SR-024 and SR-100 key their no-change obligations solely to an unchanged source: the latest record must remain identical and no saved state may be created. SR-053 explicitly requires healing even with unchanged source size/time, and says that when healing changes the record the preceding state is saved. For an unchanged source whose missing stored copy is healed using a surviving copy in a different place/form, SR-053's accepted record-changing healing case conflicts with both no-op rows.",
+    "suggested_fix": "Define no-op in terms of no source change and no required store repair/record change, or explicitly exempt healing from SR-024/SR-100. Reconcile this exception with SN-021 and specify whether a repair-only record change represents a new saved state."
+  },
+  {
+    "id": "R2A-005",
+    "severity": "MAJOR",
+    "rule": "§0 read the chain against the frame; §2(b3) boundary alignment",
+    "finding": "SR-139 requires writing change-detection state at the source root by default, and SR-093 permits this exception, matching SN-037. But EXT-04 says FileBackup only reads the source filesystem, and B-01 is inbound-only and explicitly says 'without writing anything back to the source.' SR-139 cites B-01 as the crossing for the default write. B-20's working-state crossing does not remove B-01's explicit prohibition.",
+    "suggested_fix": "Amend the frame to represent the narrowly authorized source-root state write, either with an explicit exception and appropriate direction or a distinct crossing whose overlap is stated. Keep the remainder of the source read-only contract intact."
+  },
+  {
+    "id": "R2A-006",
+    "severity": "MAJOR",
+    "rule": "§0 closed and feasible obligation; §2(d2) filesystem assumptions",
+    "finding": "SR-093 acceptance requires every source folder's modification time to remain unchanged, excepting only the change-detection state itself. SR-139 requires creation of that state at the source root on first use. On ordinary NTFS and POSIX filesystems, creating a child changes its parent directory's modification time. DA-21 excludes other writers but does not remove this effect of FileBackup's own write. The default first run therefore violates the stated source-preservation acceptance even when it changes no owner file.",
+    "suggested_fix": "Resolve the same exception in SN-037 and SR-093: either explicitly permit the containing directory's incidental metadata change, or authorize and require preservation of that metadata with a suitable filesystem premise. State the chosen boundary outcome rather than leaving the exception to implementation interpretation."
+  },
+  {
+    "id": "R2A-007",
+    "severity": "MAJOR",
+    "rule": "§0 parent-obligation coverage; §2(b) fit criterion",
+    "finding": "SR-023 checks only expanded content size, leaving SN-019's promise that a restore does not run out of space partway uncovered. On a normal local filesystem, many small files require allocation units and directory metadata beyond the sum of their lengths; extraction and verification may also need temporary space. DA-06 concerns whether reported free space is usable, not whether the demand estimate includes these writes. SR-052 already recognizes analogous non-content demand for backups, but the restore row has no such allowance or successful-fit criterion.",
+    "suggested_fix": "Define restore demand to cover the destination's required allocations, metadata and temporary working space, or declare a conservative bounded allowance and applicable filesystem/workload conditions. Require refusal below that demand and completion without a capacity failure when the admitted demand fits under DA-06."
+  },
+  {
+    "id": "R2A-008",
+    "severity": "MAJOR",
+    "rule": "§0 sideways consistency; §2(b2) buried or missing preconditions",
+    "finding": "SR-029 requires every other file to restore whenever some content cannot be restored, and SR-121 requires every other entry to restore when an escaping entry is present. Neither conditions this continuation on an accepted authority record and passed preconditions. A record with an escaping entry and mismatching completeness evidence falls under SR-039's no-write refusal as well as SR-121's write-the-other-entries acceptance. Likewise, a backup with missing content and insufficient target space triggers both SR-029 and SR-023. SR-040 defines exit-code precedence, but not whether writing is permitted.",
+    "suggested_fix": "State a common restore admission boundary: whole-record integrity and precondition refusals stop before writes; per-entry continuation applies only after admission. Reference that boundary in SR-029, SR-120 and SR-121, and test combined faults for both write behavior and outcome precedence."
+  },
+  {
+    "id": "R2A-009",
+    "severity": "MAJOR",
+    "rule": "§0 upward trace and coverage; §2(c) derived restriction",
+    "finding": "SR-109 narrows SN-047's repair of every problem with a certain answer to two local form/name classes. It explicitly leaves 'content missing from its place' unrepaired even when an intact, identity-verified copy exists elsewhere in the backup. SR-119 treats such alternate stored copies as sufficient for recovery at restore. The rationale asserts that certainty must come from the entry's own place but does not explain why verified surviving content cannot establish it, and no hat records this restriction. Thus an ordinary repairable missing-reference case is excluded from the parent's broader promise.",
+    "suggested_fix": "Either include relocation/reference repair from independently verified surviving content, or have the need owner explicitly bound the supported repair classes. If a safety constraint excludes otherwise certain repairs, record its applicable hat and a substantive argument rather than defining certainty by storage location alone."
+  },
+  {
+    "id": "R2A-010",
+    "severity": "MAJOR",
+    "rule": "§0 upward trace; §2(a) one decision; §2(c) derived argument",
+    "finding": "SR-116 combines compatibility for positively identified old records with an unconditional rule that absent or malformed folder metadata never fails a restore. The latter also covers current-format damage, where empty folders or supported attributes required by SN-036 may be lost, and is not demanded by SN-041's old-format compatibility promise. Its rationale argues historical absence, not current corruption. Similarly, SR-066 adds 'a time never fails a restore' for invalid recorded timestamps without recording a deriving hat or explaining the loss of SN-036's fidelity obligation. These are separate degraded-success policies, not merely compatibility details.",
+    "suggested_fix": "Separate old-version compatibility from metadata-damage outcomes. Obtain or record an explicit, justified requirement for which missing metadata may yield success, which omissions must be reported, and how that qualifies SN-036. Attribute a live hat only where its listens_for actually supports the policy."
+  },
+  {
+    "id": "R2A-011",
+    "severity": "MAJOR",
+    "rule": "§0 upward trace; §2(c) derived requirement record",
+    "finding": "SR-142 requires an omitted container action to perform a backup. SN-024 requires the ability to run backups, removals and reports in a container, but does not demand this default action. The rationale adds an existing-client compatibility premise ('would break every host set up before...') rather than deriving the default from the need. The row has no hat_refs and no recorded derivation through a roster lens. A builder could satisfy SN-024 by requiring an explicit action and still fail this new SR.",
+    "suggested_fix": "Make the default an explicit owner-approved configuration/launch obligation upstream, or record a legitimate derived constraint with a matching declared hat and evidence-based argument. If no roster hat supports it, do not invent attribution to make the trace look complete; place the choice at the appropriate lower tier or amend the governing inputs."
+  },
+  {
+    "id": "R2A-012",
+    "severity": "MAJOR",
+    "rule": "§0 upward trace; §2(c) rationale must argue the deriving lens",
+    "finding": "SR-129 acceptance refuses a JSON configuration carrying the notification login 'in any form' while accepting protected credentials in the native-Windows form. SN-049 forbids readable credentials, not protected credentials based on configuration syntax. SECURITY's listens_for addresses plain-form exposure; the row's rationale asserts that only the native form may carry the login but does not establish why an opaque host-protected credential in JSON would violate that protection. This is an extra format restriction without the required argument.",
+    "suggested_fix": "Restrict refusal to readable credentials, or explicitly justify and record the additional format-specific security constraint, including what protection property cannot be retained in the disallowed form. Keep the security outcome separate from an arbitrary carrier-format restriction."
+  },
+  {
+    "id": "R2A-013",
+    "severity": "MAJOR",
+    "rule": "§0 need coverage; §2(b) objective measurement boundary",
+    "finding": "SR-112 bounds 'peak process memory' to 4 GiB without specifying whether this is the main process, each process separately, or aggregate memory of the operation and its tools. B-10 and B-18 explicitly put hashing/archive/media tools at the boundary. A run can satisfy a main-process or per-process reading while its concurrently running tools exceed the reference host's available memory, defeating SN-043. The requirement also says 'a run' while the acceptance covers only a run with few changes.",
+    "suggested_fix": "Define the bounded quantity and scope, including concurrent child/tool memory and the memory metric used, without naming a measuring instrument. Align the requirement's run envelope with the acceptance and SN-043, and give a pass/fail condition for the total operation under that envelope."
+  },
+  {
+    "id": "R2A-014",
+    "severity": "MAJOR",
+    "rule": "§2(b) reproducible fit criterion; §2(d2) bounded domain",
+    "finding": "SR-064's eight-hour and SR-113's thirty-minute budgets use a reference host described only by four cores, available memory and storage sustaining 200 MiB/s. That does not bound CPU throughput or small-file/random-metadata performance: ordinary local disks with the same sequential throughput behave very differently over one million files. It is also unclear whether the 2 TiB/one-million-file envelope includes all saved-state records/content for a whole-backup check, or only the current source; SR-113 separately admits 365 states. The same written criteria can select materially different workloads and produce opposite verdicts.",
+    "suggested_fix": "Declare a reproducible host performance floor and workload envelope, including relevant small-file/metadata behavior and total historical rows/content inspected. State the comparison conditions for the history-doubling test. Keep the benchmark implementation and measurement instrument in the TC tier."
+  },
+  {
+    "id": "R2A-015",
+    "severity": "MAJOR",
+    "rule": "§0 parent-obligation coverage",
+    "finding": "SN-051 acceptance explicitly requires the record to say the media measure was not taken when the feature is off as well as when measurement cannot be done. SR-099 reports absence/failure only while the space view is on; SR-133 reports a missing optional tool. Neither covers an intentionally disabled feature with its tool present, and SR-097/SR-098 likewise apply only when enabled. A normal off-setting run can satisfy every child while omitting this required record entry.",
+    "suggested_fix": "Add the disabled-feature reporting condition to the appropriate reporting row, or amend SN-051 if deliberate disablement is intended to be silent. Keep the view's enabled-only behavior separate from the run record's status."
+  },
+  {
+    "id": "R2A-016",
+    "severity": "MAJOR",
+    "rule": "§0 sideways consistency with frame; §2(b3) premises of joint delivery",
+    "finding": "SR-144 acceptance requires a successor to reclaim and complete while the earlier run is merely suspended. SR-085 requires exclusion for the whole changing operation, and B-04 describes the exclusive claim as released at its end or process death. A paused VM/container is neither ended nor dead; on the same-kernel locking domain of DA-03 its live claim still blocks the successor. SR-075 and SR-144 provide no distinct supported ownership model in which the prescribed reclamation can occur without violating that exclusion. The acceptance currently asks a test to bypass another requirement.",
+    "suggested_fix": "Define whether reclamation of a suspended holder is actually permitted in the supported exclusivity model. If not, make the acceptance verify refusal until release and scope lost-ownership handling to a separately defined reachable condition. If lease revocation is intended, specify its boundary contract and reconcile B-04, the assumptions and SR-085 before requiring the scenario."
+  },
+  {
+    "id": "R2A-017",
+    "severity": "MAJOR",
+    "rule": "§2(a) one decision per row; §0 normative closure",
+    "finding": "SR-139's requirement applies only when no working-state location is configured and decides its default. Its acceptance independently requires successful explicit relocation and several invalid-location refusals; the rationale adds their policy explanation. Those configured cases are outside the requirement's Where condition. A default-location implementation and a relocation/admission implementation can fail independently, yet only the former has a shall obligation.",
+    "suggested_fix": "Keep SR-139 for the default location, and give explicit relocation and location-admission rules their own normative home, linking existing SR-094/SR-140 where they already carry behavior. Specify the exact allowed relation to source, backup and saved-state locations once."
+  },
+  {
+    "id": "R2A-018",
+    "severity": "MAJOR",
+    "rule": "§2(b) pass/fail completeness; §2(d2) open-time absolute",
+    "finding": "SR-125 promises progress at intervals no greater than two minutes throughout a run, without a scheduling premise or exclusion for a suspended process; SR-144 explicitly includes ordinary paused VMs/frozen containers in the supported scenarios. No process can emit progress while suspended. Separately, acceptance checks only gaps between consecutive progress entries, allowing an implementation with no first entry, or a long silence after its last entry, to evade the stated check.",
+    "suggested_fix": "Define whether the budget is active execution time or wall time under a declared host-scheduling assumption. Measure the first interval from run start and the last interval to completion, as well as intervening intervals, and define the observable status after suspension/resumption."
+  },
+  {
+    "id": "R2A-019",
+    "severity": "MAJOR",
+    "rule": "§0 sideways consistency; §2(b) acceptance must preserve requirement meaning",
+    "finding": "SR-059 acceptance says 'After every operation, every file of every state that restored before restores the same bytes.' Applied to the latest state after an ordinary edit, this demands the old bytes, whereas SR-088/SR-105 require the new bytes and SR-059's own first acceptance sentence explicitly says the latest state restores the new bytes. The intended preservation unit appears to be the prior point-in-time state retained as history, not the mutable 'latest' selection, but that distinction is absent from the universal clause.",
+    "suggested_fix": "State preservation in terms of retained point-in-time state identities and their recorded content. Explicitly allow the latest selection to advance and named states to be removed through authorized removal, while requiring every surviving prior state to retain its bytes."
+  },
+  {
+    "id": "R2A-020",
+    "severity": "MINOR",
+    "rule": "§2(b2) EARS buried applicability condition",
+    "finding": "SR-015 opens 'Where notification is set up' but buries the second applicability condition after shall: 'unless notification was switched off for that run.' This is an optional-feature activation condition, not merely a qualifier on what a sent message contains.",
+    "suggested_fix": "Open with 'Where notification is set up and is not switched off for the run...' and retain the disabled/unconfigured no-send acceptance."
+  },
+  {
+    "id": "R2A-021",
+    "severity": "MINOR",
+    "rule": "§2(b2) EARS pattern chosen from applicability",
+    "finding": "SR-031 is written as a ubiquitous obligation even though it applies only where recorded names remain distinct and the host meets the documented tool floor. Those material conditions are buried in the object and host phrases after shall. They determine when the identical-tree promise applies and should be visible at its opening.",
+    "suggested_fix": "Front the target-name and tool-floor conditions using Where, retain the direct DA-08/DA-10/DA-18 references, and keep collision refusal in SR-092."
+  }
+]

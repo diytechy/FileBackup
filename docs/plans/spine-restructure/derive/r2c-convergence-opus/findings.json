@@ -1,0 +1,9 @@
+[
+  {
+    "id": "R2C-OPUS-01",
+    "severity": "MAJOR",
+    "rows": ["SR-017", "SR-082", "SR-110", "SR-043", "SR-046"],
+    "finding": "A backup that finds a damaged record of a state reports 2, not the 3 the outcome vocabulary gives a damaged record. SR-082 (and SR-110 the same way) sends 'damage or leftovers it cannot positively identify as an interrupted publication' to SR-017. SR-017's findings list has no damaged-record case, so that damage falls into its catch-all: 'a precondition not met (value 2) where any other finding is present'. That conflicts with three rows. SR-043 requires a backup and a removal to return 3, 'refused over a damaged record of a state', and asks for a deliberately induced instance of that class for a backup. SR-046 gives a removal 3 when a remaining state's record fails its completeness check. SR-039/SR-040 give the restore 3 for the same torn state. So the same damaged record yields 3 from a removal and a restore but 2 from a backup, and no row lets a backup ever produce 3. That leaves SR-043's backup class-3 case without any row to build or test it from.",
+    "suggested_fix": "In SR-017, add a damaged record of a state (a record whose completeness evidence does not match, that cannot be positively identified as an interrupted publication) to the findings, and give it value 3 (damaged record, SR-043). Keep the precedence 2 over 3 over 4 that SR-043 and SR-040 already state: value 3 where the only findings are a damaged record, with or without a live or unproven owner; value 2 where any other finding is present; value 4 only where the sole finding is a live or unproven owner. Add a damaged-record case to SR-017's leftover permutation."
+  }
+]

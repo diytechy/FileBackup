@@ -223,3 +223,13 @@ obstacle = "A sync client, an indexer that writes metadata, an application savin
 falsifier = "A watch on the source during a run records a write, move, deletion or time change made by a process other than FileBackup."
 status = "Drafted"
 standing = "active"
+
+[assumption.DA-22]
+effect_at = ["B-06", "B-20"]
+assumption = "A run's process is not suspended by its host while the run is in progress, so its active execution time and the wall time differ only by ordinary scheduling delays."
+holds_when = "The run executes as an ordinary scheduled task, service or container on a host that stays awake and does not pause the run's virtual machine or container during the run."
+obstacle = "A paused virtual machine, a frozen or checkpointed container, or a host that sleeps or hibernates during the run."
+falsifier = "A run on a host meeting the holding condition is found to have been suspended while it was in progress."
+obstacle_hats = ["UNATTENDED-OPS"]
+status = "Drafted"
+standing = "active"

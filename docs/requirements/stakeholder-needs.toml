@@ -13,7 +13,7 @@ status = "Drafted"
 need = """Every run backs up the whole of each source tree, capturing every file in it, and picks up new and changed files on later runs. A file the run could not capture is never skipped silently."""
 why = """The point of a backup is that whatever was in the source is in the backup. A file that is silently left out is discovered missing only when it is needed, which is the one moment it cannot be recovered."""
 priority = "M"
-acceptance = """After a run against a known tree, every file in that tree is restorable, including hidden, system and dot-named files and files nested anywhere that happen to share a name with the backup's own files; only the backup's own files and the volume's own system folders are left out; a later run restores new and changed files at their new content; any file not captured is named in the run's record and the run reports failure."""
+acceptance = """After a run against a known tree, every file in that tree is restorable, including hidden, system and dot-named files and files nested anywhere that happen to share a name with the backup's own files; the only things left out are the declared exclusions: the backup's own files, the volume's own system folders, the change-detection record at the source root, what lies behind folder links that are not followed, which are named in the run's record, and files whose names are refused as non-portable, which are named and make the run report failure; a later run restores new and changed files at their new content; any file not captured is named in the run's record and the run reports failure."""
 tags = ["filesystem"]
 stakeholder_refs = ["STK-01"]
 
@@ -37,10 +37,10 @@ stakeholder_refs = ["STK-01", "STK-02"]
 
 [need.SN-037]
 status = "Drafted"
-need = """Backing up never alters, moves or deletes anything in the source: the files, their times, their attributes and the folders that hold them stay exactly as they were. The one exception is the record of what the tool last saw, which it keeps as a plain file at the source root unless the owner sets it to live on the backup side."""
+need = """Backing up never alters, moves or deletes anything in the source: the files, their times, their attributes and the folders that hold them stay exactly as they were. The one exception is the record of what the tool last saw, which it keeps as a plain file at the source root unless the owner sets it to live on the backup side, together with the change to the source-root folder's own modification time that creating or updating that record causes; nothing else in the source changes."""
 why = """The owner's live files are the thing being protected. A backup tool that changes them, even by touching a time stamp or an attribute, can damage the very data it exists to keep safe and makes the source no longer trustworthy as the reference a restore is compared against."""
 priority = "M"
-acceptance = """After any run, every file and folder in the source is byte-identical with unchanged modification times and attributes, apart from that record where it is kept at the source root; with the record set to live on the backup side, a run succeeds against a source the run is only allowed to read, and a source the run cannot write, with no such setting, is refused before the run starts, naming the setting."""
+acceptance = """After any run, every file and folder in the source is byte-identical with unchanged modification times and attributes, apart from that record and the source-root folder's own modification time, where the record is kept at the source root; with the record set to live on the backup side, a run succeeds against a source the run is only allowed to read, and a source the run cannot write, with no such setting, is refused before the run starts, naming the setting."""
 tags = ["filesystem"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
@@ -154,7 +154,7 @@ status = "Drafted"
 need = """A run that is interrupted, killed or loses power never leaves a half-written state that a later run builds on or a restore reads as complete, and it does not block later runs for longer than it takes to tell that nothing would be lost."""
 why = """Unattended runs get killed by reboots, power cuts and hosts stopping containers. A later run that builds on the half-finished work corrupts the store, while one that refuses forever stops all future backups until someone notices."""
 priority = "M"
-acceptance = """After an interruption at any point of a run, the latest state is either the state before the run or the state after it, and every visible state either restores correctly or is refused by a restore as damaged, never restored wrongly; the next run puts back what a restore needs to check each state before it does anything else, and either completes by itself, when it can tell from the backup alone that the interrupted run is dead and that nothing would be lost, or refuses before changing anything and names what it found."""
+acceptance = """After an interruption at any point of a run, the latest state is either the state before the run or the state after it, and every visible state either restores correctly or is refused by a restore as damaged, never restored wrongly; once the next run holds the backup exclusively and has passed its checks, it first puts back what a restore needs to check each state, and either completes by itself, when it can tell from the backup alone that the interrupted run is dead and that nothing would be lost, or refuses before changing anything and names what it found."""
 tags = ["store-mutation", "filesystem", "unattended"]
 stakeholder_refs = ["STK-01", "STK-02", "STK-03"]
 
@@ -401,7 +401,7 @@ status = "Drafted"
 need = """A backup host can run backups, removals and the saved-state report inside a container, without installing the backup tool's runtime on the host, with no more access than reading the source and writing the backup."""
 why = """A home server or NAS often runs its services as containers and should not need a separate runtime installed to protect its files. A container that needed write access to the source or administrative rights would put the files at risk to protect them."""
 priority = "M"
-acceptance = """In a container on a host that has no backup runtime installed, a run backs up a source the container can only read, as an unprivileged user, into a backup that restores byte-exact, with compression on; a removal and the saved-state report run the same way and return the same outcomes as when started directly."""
+acceptance = """In a container on a host that has no backup runtime installed, a run backs up a source the container can only read, as an unprivileged user, into a backup that restores byte-exact, with compression on; a removal and the saved-state report run the same way and return the same outcomes as when started directly; a container started without naming an action runs a backup."""
 tags = ["unattended", "redistribution"]
 stakeholder_refs = ["STK-03", "STK-01"]
 

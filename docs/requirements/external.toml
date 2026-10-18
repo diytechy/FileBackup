@@ -32,7 +32,7 @@ mediates = "EXT-01"
 [entity.EXT-04]
 name = "Source filesystem"
 class = "enabling"
-description = """The filesystem holding each source tree the owner backs up: its files' bytes, names, sizes, times and attributes, and its directory structure. FileBackup only reads it."""
+description = """The filesystem holding each source tree the owner backs up: its files' bytes, names, sizes, times and attributes, and its directory structure. FileBackup only reads it, apart from the change-detection record it keeps at a source's root by default (B-24)."""
 status = "Drafted"
 
 [entity.EXT-05]
@@ -319,4 +319,13 @@ entity = "EXT-18"
 direction = "out"
 carries = """The release's quick-start guidance, configuration helper, published versioned description of the configuration and example configuration, handed to the owner or to an integrator who writes configurations."""
 system = "delivery"
+status = "Drafted"
+
+# --- THE ONE AUTHORISED WRITE INTO A SOURCE ---------------------------------
+
+[boundary.B-24]
+entity = "EXT-04"
+direction = "out"
+carries = """The change-detection record FileBackup keeps at a source's root when no other location is configured for it, created or updated by a run, and the incidental change to the source-root folder's own modification time that creating or updating it causes. It is the one exception to B-01's read-only reading of the source: nothing else is written to the source."""
+system = "operation"
 status = "Drafted"
