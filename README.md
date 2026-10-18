@@ -1,5 +1,21 @@
 # FileBackup
 
+<a id="vision"></a>
+**PROJECT-VISION:** FileBackup keeps a trustworthy, space-efficient history of
+one owner's files. It runs unattended, and any saved point in time can be
+restored bit-for-bit on a clean machine from the backup folder alone.
+
+What sets it apart:
+
+- FileBackup is needed only to *make* backups, never to recover them. Every
+  backup carries its own restore kit, which runs with commonly available tools.
+- It spends storage only where it pays: identical content is stored once, and a
+  file is compressed only when measuring it shows compression actually saves
+  space.
+
+It never loses content a saved state still depends on, never alters the files it
+backs up, and says plainly when it could not do its job.
+
 Periodic, content-aware backup with change tracking and self-contained
 reconstruction scripts. PowerShell **7+** on Windows, or the provided Linux
 container for unattended backup runs.

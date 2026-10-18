@@ -1,0 +1,67 @@
+# The HATS ROSTER: the expert perspectives every applicable decomposition must
+# face. Owner text: the roster below is the Owner's ruling for FileBackup.
+#
+# A hat is not a person and not a stakeholder. It is a QUESTION put to every
+# decomposition its `applies_when` matches. Its `listens_for` names the failure
+# class it exists to catch, and a row attributes a hat in `hat_refs` only where
+# that failure is one the row prevents.
+#
+# `applies_when` grammar: `always`, or `tags contains "<tag>"`, joined with
+# `or`. The tags are the ones a need carries in stakeholder-needs.toml:
+#
+#   store-mutation   the need's subject changes what the store holds
+#   store-format     the need's subject is how the store is laid out on disk,
+#                    or what an older or newer version of the tool reads there
+#   filesystem       the need's outcome depends on how a filesystem treats
+#                    renames, locks, names, times, attributes or free space
+#   unattended       the need holds while nobody is watching
+#   restore-host     the need's subject is a restore on a machine that is not
+#                    the backup host
+#   scale            the need's outcome depends on the size of the library
+#   redistribution   the need's subject ships third-party code or depends on
+#                    a third-party tool
+
+[hat.INTEGRITY-RECOVERABILITY]
+applies_when = "always"
+asks = "If this is interrupted mid-write (a kill, a power cut, a process that dies holding the store), what does the next run or the next restore find, and what gets the store back to a state it can name?"
+listens_for = "A durable store artifact updated in place with no all-or-nothing guarantee; a claim on the store nothing can reclaim once its holder is gone; a restore that reports success over bytes it did not check."
+
+[hat.SECURITY]
+applies_when = "always"
+asks = "What credential, privilege or irreversible action does this touch, and which requirement says who may reach it? Can a path, a link or a name make it read or write outside the place it was pointed at?"
+listens_for = "A stored credential readable in plain form; a restore or a prune that a crafted path or link walks outside its target or into the store; a container run with more privilege than its job needs."
+
+[hat.SHARED-CONTENT]
+applies_when = "tags contains \"store-mutation\""
+asks = "Which other paths, snapshots or saved states still depend on the bytes this changes or removes, and how does the operation know?"
+listens_for = "An operation on one path or one snapshot that destroys or rewrites bytes another path, snapshot or saved state still claims, found only when that state is restored."
+
+[hat.STORE-FORMAT-COMPATIBILITY]
+applies_when = "tags contains \"store-format\""
+asks = "What does a store written by an older version look like to this, and what does a store written by this look like to an older restorer still sitting in a snapshot?"
+listens_for = "A change that strands an existing store, misreads a format it does not recognise instead of refusing it, or leaves an older restore kit inside a snapshot unable to restore it."
+
+[hat.FILESYSTEM-SEMANTICS]
+applies_when = "tags contains \"filesystem\""
+asks = "Does this hold on every filesystem the store, the source and the restore target may sit on (NTFS, ext4, exFAT, APFS, network shares), for renames, locks, names, times, attributes and free space?"
+listens_for = "An atomicity, locking, naming or timestamp guarantee that holds on the author's filesystem and silently fails on another one the store may sit on."
+
+[hat.UNATTENDED-OPS]
+applies_when = "tags contains \"unattended\""
+asks = "What does this look like at 3am with nobody watching: what happens when its input is missing, stale or half-written, and how does the backup host learn the outcome?"
+listens_for = "A failure that tells nobody: a prompt that hangs a scheduled run, a silent degrade, a partial write left behind, an unbounded retry, a success status because nothing looked."
+
+[hat.CROSS-PLATFORM]
+applies_when = "tags contains \"restore-host\""
+asks = "Which of Windows, Linux and macOS, with only commonly available tools, breaks this: path separators, line endings, name normalisation, case, shell and tool differences?"
+listens_for = "A restore rule that is true only on the platform the backup was made on, shipped as if it held on every restore host."
+
+[hat.PERFORMANCE]
+applies_when = "tags contains \"scale\""
+asks = "Does this need a measurable bound on time, memory or disk work for a library of terabytes and millions of files? What is the budget, under which conditions is it measured, and what happens when it is exceeded?"
+listens_for = "A run, an audit or a restore whose cost grows with the library in a way nobody budgeted, until it no longer fits its window or the host's memory."
+
+[hat.LEGAL]
+applies_when = "tags contains \"redistribution\""
+asks = "Which licence governs each third-party component this ships or depends on (the hashing library, 7-Zip, ffmpeg/ffprobe), and does the way it is shipped meet that licence's terms?"
+listens_for = "Third-party code redistributed inside every backup or the container image under terms nothing records; a dependency whose licence obligations are assumed to be someone else's."
