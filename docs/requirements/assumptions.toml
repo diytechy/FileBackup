@@ -214,3 +214,12 @@ falsifier = "The protected credentials can be read in plain form by another acco
 obstacle_hats = ["SECURITY"]
 status = "Drafted"
 standing = "active"
+
+[assumption.DA-21]
+effect_at = ["B-01"]
+assumption = "Nothing other than FileBackup changes a source tree while a run is reading it."
+holds_when = "The owner and the owner's programs are not editing, syncing or deleting files in the source during the run, as in a scheduled night run or a test that prepares its tree before the run starts."
+obstacle = "A sync client, an indexer that writes metadata, an application saving files, or the owner editing during the run."
+falsifier = "A watch on the source during a run records a write, move, deletion or time change made by a process other than FileBackup."
+status = "Drafted"
+standing = "active"

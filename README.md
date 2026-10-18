@@ -11,7 +11,7 @@ What sets it apart:
   backup carries its own restore kit, which runs with commonly available tools.
 - It spends storage only where it pays: identical content is stored once, and a
   file is compressed only when measuring it shows compression actually saves
-  space.
+  space; where measuring is off or unavailable, its file type decides.
 
 It never loses content a saved state still depends on, never alters the files it
 backs up, and says plainly when it could not do its job.

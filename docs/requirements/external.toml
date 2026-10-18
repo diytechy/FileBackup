@@ -3,8 +3,10 @@
 # Who is outside FileBackup, what crosses its boundary, and the flows between
 # outside parties that FileBackup is not a party to. The system of interest is
 # FileBackup in OPERATION: the backup engine and the restore kit it places in
-# every backup. Building and exporting the container is delivery and outside
-# this frame, so no delivery crossing is drawn. All rows are Drafted.
+# every backup. Two DELIVERY crossings (system = "delivery") carry what a release
+# hands over: the container image with its bundled notices (B-22), and the
+# guidance and configuration contract (B-23). How either is built stays outside
+# this frame. All rows are Drafted.
 
 # --- ENTITIES -----------------------------------------------------------------
 
@@ -289,4 +291,32 @@ entity = "EXT-16"
 direction = "inout"
 carries = """The notification credentials protected when the owner sets them up and read back by a run that sends a notification, never entering the configuration, the backup or a run's record in plain form."""
 system = "operation"
+status = "Drafted"
+
+# --- DELIVERY ----------------------------------------------------------------
+
+[entity.EXT-17]
+name = "Container image"
+class = "deliverable"
+description = """The container image a release delivers to a backup host: the runtime, the backup program and the third-party components it carries, each with its licence and required notices."""
+status = "Drafted"
+
+[entity.EXT-18]
+name = "Release guidance and configuration contract"
+class = "deliverable"
+description = """What a release hands to an owner or an integrator besides the program: the quick-start guidance, the configuration helper, the published versioned description of the configuration and the example configuration."""
+status = "Drafted"
+
+[boundary.B-22]
+entity = "EXT-17"
+direction = "out"
+carries = """The container image handed to a backup host or its container platform, with every third-party component it carries and each component's licence and required notices."""
+system = "delivery"
+status = "Drafted"
+
+[boundary.B-23]
+entity = "EXT-18"
+direction = "out"
+carries = """The release's quick-start guidance, configuration helper, published versioned description of the configuration and example configuration, handed to the owner or to an integrator who writes configurations."""
+system = "delivery"
 status = "Drafted"
