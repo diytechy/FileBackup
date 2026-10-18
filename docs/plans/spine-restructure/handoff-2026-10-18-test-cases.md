@@ -110,7 +110,8 @@ The design moved most in two places: the fence and the staging sequence.
    in round 3:
    - the change-detection record's new name (P-08);
    - the path separator (P-06);
-   - kit revision 14, with a revision line in every kit file;
+   - kit revision 14, with a revision line in every kit file, and a new kit
+     file RECONSTRUCT-README.txt (P-07);
    - IF-010 version 2;
    - the per-run location record;
    - superseded content copied, not renamed (P-13);
@@ -129,8 +130,8 @@ rows affected, are in `r3-dispositions.md`.
 | P-03 | The check reads every stored object by default (about 3 h at the reference host). Accept? | **Ruled (b)** by the Owner, 2026-10-18: keep today's quick check, -Deep proves content; SR-049 narrowed |
 | P-04 | A volume whose free space cannot be measured: refuse, or proceed and record? | **Ruled** by the Owner, 2026-10-18: measure UNC shares (gap M96); a backup volume still unmeasurable is refused (2); restore unchanged |
 | P-05 | Does "re-derive and report" also cover a missing run-state record? | **Ruled (a)** by the Owner, 2026-10-18: rebuild and report |
-| P-06 | The record's path separator becomes the backslash on every host (Linux stores change form at their next real change, with no spurious saved state). Accept? | Accept |
-| P-07 | Does SR-072's macOS double-click cover a kit carried in a zip? | No: supported from the backup's own volume; the manual gives the remedy |
+| P-06 | The record's path separator becomes the backslash on every host (Linux stores change form at their next real change, with no spurious saved state). Accept? | **Ruled (a)** by the Owner, 2026-10-18: accept |
+| P-07 | Does SR-072's macOS double-click cover a kit carried in a zip? | **Ruled (a)** by the Owner, 2026-10-18: from the backup's own volume only, plus a kit readme (RECONSTRUCT-README.txt) naming the remedy |
 | P-08 | The change-detection record shares its name with a backup's own record. Rename it? | Rename it (`FILEBACKUP-CHANGES.csv`), reading the old name once |
 | P-09 | SR-144's "changes nothing further" cannot be absolute. Scope it to the store, with the change-detection state and views outside the guarantee? | Scope it to the store (the requirement text still needs "in the store", item 1) |
 | P-10 | SR-106's "normal outcome during a writer": exceptions for the very state being removed, a kit refresh outlasting the wait, and a record pair that does not settle within 60 s? | Those cases end with 4, never wrong |

@@ -390,6 +390,7 @@ data = """The kit's closed name set; every state's folder carries these artifact
 - FileBackup.Common.psm1: the restore-safe shared library;
 - System.IO.Hashing.dll: the hashing library the language-runtime route loads, at the version of IF-037;
 - RECONSTRUCT.paths.json: a JSON object {BackupRoot: string, ChangeRoot: string, KitRevision: integer}, BackupRoot and ChangeRoot absolute paths at backup time;
+- RECONSTRUCT-README.txt: restore steps for a person, UTF-8 plain text: a first line KitRevision: <integer>, then how to start a restore on Windows, macOS and Linux, including the one-line remedy where macOS refuses to launch RECONSTRUCT.command because it arrived without its executable permission (a kit carried inside a zip archive);
 - THIRD-PARTY-NOTICES.txt: a first line KitRevision: <integer>, then, for each third-party component in the folder, its name, version, licence and required notice text;
 - KIT-ORIGIN.txt: present only in a state whose kit a kit refresh has replaced; UTF-8, one line OriginalKitRevision=<integer>, the kit revision the state carried before its first refresh.
 Recognised, never written: RECONSTRUCT.bat, the retired Windows launcher.

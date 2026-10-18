@@ -756,8 +756,8 @@ title = "A double-clicked restore asks for the target and keeps its outcome on s
 sn_refs = ["SN-035"]
 boundary_refs = ["B-14", "B-15", "B-19"]
 requirement = """When a restore is opened by double-click from the backup folder on Windows or macOS, the restore kit shall ask for the target folder, restore, and keep the outcome on screen until it is dismissed."""
-rationale = """The moment of restore is the worst moment to recall a parameter, and a window that closes on its result leaves the restorer not knowing whether the files are back."""
-acceptance_criteria = """Double-clicking the restore on Windows and on macOS presents a folder choice, restores into the chosen folder, and leaves the outcome, its value included, visible until dismissed."""
+rationale = """The moment of restore is the worst moment to recall a parameter, and a window that closes on its result leaves the restorer not knowing whether the files are back. A kit carried to a Mac inside a zip archive arrives without the permission macOS needs to launch it; making the kit survive that lost to its cost (Owner ruling P-07, 2026-10-18), so the promise holds from the backup's own volume and the kit says, in a file a person sees, how to get past a refused launch."""
+acceptance_criteria = """Double-clicking the restore on Windows and on macOS, from the backup's own volume, presents a folder choice, restores into the chosen folder, and leaves the outcome, its value included, visible until dismissed. The kit holds plain-text restore steps naming, for a kit whose macOS launcher is refused, the one-line remedy."""
 permutations = """restore_system=set{windows,macos}; outcome=set{complete,failed}; @full"""
 priority = "S"
 verification = "Demonstration"
