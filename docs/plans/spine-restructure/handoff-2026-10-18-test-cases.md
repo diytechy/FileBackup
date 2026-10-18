@@ -128,7 +128,7 @@ rows affected, are in `r3-dispositions.md`.
 | P-02 | Keep or retire the removal dry run (no need asks for it)? | Kept working, with no LLR, until ruled |
 | P-03 | The check reads every stored object by default (about 3 h at the reference host). Accept? | **Ruled (b)** by the Owner, 2026-10-18: keep today's quick check, -Deep proves content; SR-049 narrowed |
 | P-04 | A volume whose free space cannot be measured: refuse, or proceed and record? | **Ruled** by the Owner, 2026-10-18: measure UNC shares (gap M96); a backup volume still unmeasurable is refused (2); restore unchanged |
-| P-05 | Does "re-derive and report" also cover a missing run-state record? | Yes, rebuild and report |
+| P-05 | Does "re-derive and report" also cover a missing run-state record? | **Ruled (a)** by the Owner, 2026-10-18: rebuild and report |
 | P-06 | The record's path separator becomes the backslash on every host (Linux stores change form at their next real change, with no spurious saved state). Accept? | Accept |
 | P-07 | Does SR-072's macOS double-click cover a kit carried in a zip? | No: supported from the backup's own volume; the manual gives the remedy |
 | P-08 | The change-detection record shares its name with a backup's own record. Rename it? | Rename it (`FILEBACKUP-CHANGES.csv`), reading the old name once |
