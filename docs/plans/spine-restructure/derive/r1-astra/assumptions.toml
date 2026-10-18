@@ -1,0 +1,208 @@
+# Independently derived round-1 proposal; all rows await review.
+
+[assumption.DA-01]
+effect_at = ["B-08","B-21","B-22"]
+assumption = "Replacing a published entry by a same-volume rename exposes either the complete old entry or the complete new entry."
+holds_when = "The actual filesystem and access path support atomic replacement within the same volume; this is established for the deployed path rather than inferred from its filesystem label."
+obstacle = "A network server, synchronization layer or filesystem implements replacement as separately visible operations."
+falsifier = "A concurrent reader or interruption experiment observes an absent, partial or mixed published entry."
+obstacle_hats = ["FILESYSTEM-SEMANTICS","INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-02]
+effect_at = ["B-08","B-09"]
+assumption = "The operating system releases a process-held store exclusion when that process terminates."
+holds_when = "The lock provider is functioning and all handles owned by that process have closed; process death and a merely paused process are distinguishable."
+obstacle = "A remote lease, orphaned handle or broken lock provider retains exclusion after process death."
+falsifier = "A fresh process remains unable to acquire the otherwise accessible exclusion after the holder and its handles have terminated."
+obstacle_hats = ["FILESYSTEM-SEMANTICS","INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-03]
+effect_at = ["B-08","B-09"]
+assumption = "Competing supported writers observe the same exclusion identity and cannot simultaneously hold it."
+holds_when = "Writers cooperate on the same coordination path and use an effective common lock domain; on Linux/macOS this normally means one kernel, including its containers, with functioning filesystem locks."
+obstacle = "Independent SMB/NFS clients, mixed local and remote access, old nonparticipating writers or replacement of the locked object break the common lock domain."
+falsifier = "Two supported competing writers acquire exclusive access simultaneously or a writer proceeds while another holds it."
+obstacle_hats = ["FILESYSTEM-SEMANTICS","SHARED-CONTENT"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-04]
+effect_at = ["B-07","B-14","B-15","B-16"]
+assumption = "A file read for backup represents stable bytes, or a change during the read is observable."
+holds_when = "The source is quiescent for the read or exposes reliable change information; application-consistent live-database recovery is not assumed."
+obstacle = "Concurrent writes change bytes without detectable length or timestamp change, or a multi-file application changes across the walk."
+falsifier = "The saved bytes are a mixture of versions or verification and copied content describe different versions without a detected source change."
+obstacle_hats = ["FILESYSTEM-SEMANTICS","INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-05]
+effect_at = ["B-14","B-17","B-21","B-22"]
+assumption = "Distinct ordinary source contents of equal length have a negligibly small probability of sharing the complete content digest."
+holds_when = "The full correctly implemented XXH128 digest is used over nonadversarial personal-library data; this is not authentication against chosen collisions."
+obstacle = "An implementation truncates or miscomputes the digest, or deliberately chosen content defeats the probabilistic premise."
+falsifier = "Two different equal-length inputs produce the same identity and are treated as one saved content."
+obstacle_hats = ["INTEGRITY-RECOVERABILITY","SECURITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-06]
+effect_at = ["B-09","B-12"]
+assumption = "Free-space reports and volume identities describe the capacity actually available to the operation."
+holds_when = "Mounted storage reports current usable capacity and identity, with applicable quotas and reservations represented and no competing consumption beyond the available margin."
+obstacle = "Quotas, sparse allocation, delayed accounting, changing mounts or another writer consume unreported space."
+falsifier = "An operation fails for capacity despite measured available capacity exceeding its actual demand, or shared paths are reported as different volumes."
+obstacle_hats = ["FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-07]
+effect_at = ["B-11","B-12"]
+assumption = "The target can represent saved modification times and directory attributes to its stated precision and capabilities."
+holds_when = "The target exposes writable time and attribute semantics compatible with each property being restored."
+obstacle = "Timestamp granularity or range differs, or a POSIX target cannot represent a Windows directory property."
+falsifier = "Readback differs beyond declared time precision or a supported property fails to persist."
+obstacle_hats = ["FILESYSTEM-SEMANTICS","CROSS-PLATFORM"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-08]
+effect_at = ["B-07","B-11","B-12"]
+assumption = "Accepted distinct saved paths remain distinct and representable on the chosen target."
+holds_when = "The actual target’s length, case, Unicode-normalization and reserved-name rules can represent every selected path distinctly."
+obstacle = "Case folding, Unicode normalization, path-length limits or target-specific reserved names collapse or reject paths."
+falsifier = "Two saved paths map to one target entry or an accepted path cannot be created literally."
+obstacle_hats = ["FILESYSTEM-SEMANTICS","CROSS-PLATFORM"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-09]
+effect_at = ["B-02","B-04","B-06","B-18"]
+assumption = "The owner or backup supervisor observes and acts on reported failures in time to preserve useful recovery options."
+holds_when = "Results reach a monitored endpoint and someone or an external policy handles incomplete work and warnings."
+obstacle = "Mail is accepted but not delivered or read, job status is ignored, or alarms are suppressed."
+falsifier = "A reported failed backup remains unattended through subsequent scheduled runs without the configured response."
+obstacle_hats = ["UNATTENDED-OPS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-10]
+effect_at = ["B-10","B-13","B-15","B-17","B-22"]
+assumption = "The future restorer can obtain a host with the documented commonly available restore prerequisites."
+holds_when = "A supported platform and compatible tool versions are installed before recovery, or the restorer can provision them."
+obstacle = "An offline or restricted rescue machine lacks required tools, execution rights or supported versions."
+falsifier = "A clean host cannot execute either documented recovery route despite the stated prerequisites."
+obstacle_hats = ["CROSS-PLATFORM","LEGAL"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-11]
+effect_at = ["B-08","B-21","B-22"]
+assumption = "Backup content and integrity evidence are not maliciously replaced together to present a forged saved state."
+holds_when = "The storage threat is accidental damage, deletion or quarantine, and access to the complete store remains trusted."
+obstacle = "An adversary can rewrite both content and its matching integrity evidence or substitute an entire consistent backup."
+falsifier = "A deliberately altered state passes integrity verification because matching evidence was forged."
+obstacle_hats = ["SECURITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-12]
+effect_at = ["B-07"]
+assumption = "Operating-system volume metadata and the volume recycle bin are not part of the owner’s intended live source data."
+holds_when = "The excluded directories are genuine system-managed pseudo-directories at an actual volume root, not similarly named ordinary folders."
+obstacle = "A mounted path is misidentified as a volume root or an ordinary user folder is mistaken for a system pseudo-directory."
+falsifier = "An owner-controlled ordinary source file is omitted solely because its ancestor has a system-like name."
+obstacle_hats = ["FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-13]
+effect_at = ["B-07","B-20"]
+assumption = "The container runtime enforces the supplied read-only mounts and execution identity."
+holds_when = "The runtime and host kernel apply mount permissions and user mappings as configured."
+obstacle = "Privileged execution, an incorrect mount, an unexpected user mapping or a runtime defect grants broader access."
+falsifier = "The process can modify a supposedly read-only source or exercises privileges outside the configured identity."
+obstacle_hats = ["SECURITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-14]
+effect_at = ["B-08","B-21","B-22"]
+assumption = "The backup handoff includes every shared content object required by the retained saved states."
+holds_when = "The complete required pool is retained or transferred consistently and remains accessible to the chosen recovery route."
+obstacle = "Only a snapshot subdirectory is copied while its shared content remains on the lost host, or transfer races store mutation."
+falsifier = "The received folder references content available only at the former location and cannot recover a selected intact state."
+obstacle_hats = ["SHARED-CONTENT","INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-15]
+effect_at = ["B-08","B-09","B-23"]
+assumption = "The host’s time observations are sufficiently consistent for the declared schedule and abandoned-work age decisions."
+holds_when = "Clock offsets and jumps stay within the operation’s conservative liveness and scheduling rules; elapsed observations remain meaningful."
+obstacle = "Clock rollback, forward jumps or skew among hosts make live work appear old or delay periodic checks indefinitely."
+falsifier = "A live owner is classified as stale or a scheduled recheck crosses its declared interval without the expected decision."
+obstacle_hats = ["UNATTENDED-OPS","FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-16]
+effect_at = ["B-08","B-21","B-22"]
+assumption = "Storage preserves successfully committed bytes and exposes subsequent read failures rather than silently substituting different data."
+holds_when = "The storage stack honors its advertised persistence guarantees and has functioning error reporting."
+obstacle = "A power loss exceeds the device’s durability guarantee, a controller loses acknowledged writes or media returns silent corruption."
+falsifier = "Previously verified committed content disappears or changes after restart without an intervening authorized write."
+obstacle_hats = ["INTEGRITY-RECOVERABILITY","FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-17]
+effect_at = ["B-14","B-15","B-17","B-19"]
+assumption = "The external hashing and archive capabilities used are authentic compatible implementations of the documented algorithms."
+holds_when = "Installed or provisioned dependencies come from the intended supplier and behave consistently for the supported version and platform."
+obstacle = "Compromised packages, incompatible output conventions or implementation defects change content identity or decoding."
+falsifier = "Known reference bytes yield divergent digests or lossless roundtrips fail on a supposedly supported dependency."
+obstacle_hats = ["LEGAL","SECURITY","CROSS-PLATFORM"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-18]
+effect_at = ["B-18","B-24"]
+assumption = "Host credential protection limits access to notification secrets to the authorized account and intended process context."
+holds_when = "The host account and protection facility are trusted and their access controls apply to retained secrets."
+obstacle = "A compromised account, exposed credential material or a mismatched host identity defeats protection or makes retrieval impossible."
+falsifier = "An unauthorized account reads the secret or the authorized notification process cannot retrieve its protected credential."
+obstacle_hats = ["SECURITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-19]
+effect_at = ["B-02","B-06","B-07","B-08","B-11","B-23"]
+assumption = "The deployed library and storage resources fit the published operating envelope used to assess runtime and memory costs."
+holds_when = "File counts, sizes, history depth, available memory and storage throughput fall within the declared performance budget conditions."
+obstacle = "Very slow remote access, extraordinary history depth, high contention or a much larger library invalidates the measured envelope."
+falsifier = "An in-envelope operation exceeds its published time, memory or temporary-space budget under the stated conditions."
+obstacle_hats = ["PERFORMANCE"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-20]
+effect_at = ["B-07","B-08","B-11","B-12"]
+assumption = "The local demonstration trees faithfully represent ordinary local filesystem content and recovery operations for the demonstrated cases."
+holds_when = "The host filesystem and selected names, bytes and metadata match the local cases being exercised; no network, power-loss, quota or foreign-platform claim is inferred."
+obstacle = "Real storage differs in locking, durability, capacity, normalization, attributes or access failures that the local demonstration does not exercise."
+falsifier = "The same case on the deployment filesystem gives different capture, persistence or recovery results from the local stand-in."
+obstacle_hats = ["FILESYSTEM-SEMANTICS","CROSS-PLATFORM"]
+status = "Drafted"
+standing = "active"
+realized_by = "SUR-01"
+
+[surrogate.SUR-01]
+name = "Local demonstration source and recovery trees"
+emulates = ["EXT-04","EXT-05","EXT-07"]
+description = "The README demonstration creates scratch source data, performs create/change/remove/re-add/no-op backup runs and restores current and dated states into temporary local trees. These are stand-ins for the owner’s real data and volumes, not evidence for every filesystem or host."
+status = "Drafted"

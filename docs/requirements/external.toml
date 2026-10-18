@@ -1,0 +1,292 @@
+# external.toml: FileBackup's depth-0 frame.
+#
+# Who is outside FileBackup, what crosses its boundary, and the flows between
+# outside parties that FileBackup is not a party to. The system of interest is
+# FileBackup in OPERATION: the backup engine and the restore kit it places in
+# every backup. Building and exporting the container is delivery and outside
+# this frame, so no delivery crossing is drawn. All rows are Drafted.
+
+# --- ENTITIES -----------------------------------------------------------------
+
+[entity.EXT-01]
+name = "Owner"
+class = "operational"
+description = """The person whose files are backed up, acting as operator: writes the configuration, starts or schedules runs, asks for removals, listings, checks and repairs, and reads outcomes, records and notifications."""
+status = "Drafted"
+
+[entity.EXT-02]
+name = "Restorer"
+class = "operational"
+description = """The person restoring from a backup folder: the owner, or whoever holds the folder, on a machine that may never have had FileBackup. Starts a restore, chooses the state and the target, and reads the outcome."""
+status = "Drafted"
+
+[entity.EXT-03]
+name = "Backup host"
+class = "operational"
+description = """Any system that runs FileBackup unattended for the owner and acts on its results: a scheduled task, a home server, a NAS, a container platform's scheduler. One example is the owner's HomeHub server; no row depends on which product it is."""
+status = "Drafted"
+mediates = "EXT-01"
+
+[entity.EXT-04]
+name = "Source filesystem"
+class = "enabling"
+description = """The filesystem holding each source tree the owner backs up: its files' bytes, names, sizes, times and attributes, and its directory structure. FileBackup only reads it."""
+status = "Drafted"
+
+[entity.EXT-05]
+name = "Backup volume"
+class = "enabling"
+description = """The filesystem holding each backup: stored content, the record of each state, saved states and restore kits. It also reports free space and volume identity, and provides the file locking and rename behaviour the store relies on. May be NTFS, exFAT, a network share or a cloud-synced folder."""
+status = "Drafted"
+
+[entity.EXT-06]
+name = "Backup runtime and tools"
+class = "enabling"
+description = """What FileBackup runs on and calls on the backup host: its language runtime, the content-hashing library, the archive tool used for compression, and the optional media-probe tool for the space view."""
+status = "Drafted"
+
+[entity.EXT-07]
+name = "Package source"
+class = "enabling"
+description = """The public package source from which a required component is obtained on first use, where the host does not already have it."""
+status = "Drafted"
+
+[entity.EXT-08]
+name = "Notification relay"
+class = "interoperating"
+description = """The mail server the owner configures to carry success-or-failure messages, which accepts a message on presentation of the owner's account credentials."""
+status = "Drafted"
+
+[entity.EXT-09]
+name = "Container platform"
+class = "enabling"
+description = """The container runtime on a backup host that runs FileBackup's image: it supplies the source as a read-only mount, the backup and state locations as writable mounts, the unprivileged user the run executes as, and the run's exit status back to the host."""
+status = "Drafted"
+
+[entity.EXT-10]
+name = "Restore host"
+class = "enabling"
+description = """The machine a restore runs on: Windows, Linux or macOS, with or without a desktop or console session, possibly a stock system that has never had FileBackup."""
+status = "Drafted"
+
+[entity.EXT-11]
+name = "Restore tools"
+class = "enabling"
+description = """The commonly available tools a restore relies on, from the documented floor: a shell and text-processing tools, a content-hash utility and an archive extractor where compressed content exists, or the language runtime on the restore host as the alternative route."""
+status = "Drafted"
+
+[entity.EXT-12]
+name = "Restore target filesystem"
+class = "enabling"
+description = """The filesystem the restorer chose to receive the restored tree: its free space, where it really is once links are resolved, and how it keeps names, times, empty folders and attributes."""
+status = "Drafted"
+
+[entity.EXT-13]
+name = "Out-of-band store actors"
+class = "operational"
+description = """Anything outside FileBackup that changes the backup volume's contents: antivirus quarantine, a cloud-sync space sweep, a person tidying a folder that looks like an ordinary copy."""
+status = "Drafted"
+
+[entity.EXT-14]
+name = "Backup folder"
+class = "deliverable"
+description = """The self-contained backup FileBackup produces and hands to a future restorer: the stored content, the record of the latest state and of every saved state, and in each a restore kit that needs no FileBackup installation."""
+status = "Drafted"
+
+# --- BOUNDARY CROSSINGS ------------------------------------------------------
+
+[boundary.B-01]
+entity = "EXT-04"
+direction = "in"
+carries = """Each source file's bytes, name, size, modification time and attributes, and the directory structure including empty and hidden folders, read without writing anything back to the source."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-02]
+entity = "EXT-05"
+direction = "inout"
+carries = """Stored content, the record of each state, saved states and restore kits, written to the backup volume and read back from it by backups, removals, checks, repairs and kit refreshes."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-03]
+entity = "EXT-05"
+direction = "in"
+carries = """The backup volume's reported free space and volume identity, read before a backup writes anything."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-04]
+entity = "EXT-05"
+direction = "inout"
+carries = """A claim of exclusive use of one backup, taken before changing it and released at the end or when the claiming process dies, and the refusal another operation observes while the claim is held."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-05]
+entity = "EXT-01"
+direction = "in"
+carries = """The owner's configuration and requested action (backup, removal, listing, check, repair, kit refresh, browse view), given at an interactive launch."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-06]
+entity = "EXT-01"
+direction = "out"
+carries = """What the owner reads: each run's record (added, changed, removed, failed files and causes, summary counts), progress during a long run, refusal messages naming what was found, the browse view and the space view."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-07]
+entity = "EXT-03"
+direction = "in"
+carries = """An unattended launch with a configuration document and a requested action, with no person present to answer anything."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-08]
+entity = "EXT-03"
+direction = "out"
+carries = """Each operation's outcome as one of a few documented classes, and, for a listing or a check, its findings in a machine-readable form."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-09]
+entity = "EXT-08"
+direction = "out"
+carries = """A success-or-failure message for a run, sent with the owner's account credentials, whose delivery result is recorded and never changes the run's outcome."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-10]
+entity = "EXT-06"
+direction = "inout"
+carries = """The presence and version of each required and optional component, checked at launch, and the calls made to them: content digests, compression and expansion, media measurements."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-11]
+entity = "EXT-07"
+direction = "in"
+carries = """A required component fetched on first use, where the host lacks it."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-12]
+entity = "EXT-09"
+direction = "inout"
+carries = """The container's mounts (read-only source, writable backup and state locations) and unprivileged user supplied to the run, and the run's exit status returned to the platform."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-13]
+entity = "EXT-14"
+direction = "out"
+carries = """The handed-off backup folder: for the latest state and each saved state, the stored content, the record of that state and a restore kit able to restore it with no FileBackup installed."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-14]
+entity = "EXT-02"
+direction = "in"
+carries = """A restore request: the state to restore (by the folder it is started from) and the target, given by arguments or by answering a folder dialog."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-15]
+entity = "EXT-02"
+direction = "out"
+carries = """A restore's outcome class, its summary counts and the name and cause of every file not restored, kept on screen for an interactive start."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-16]
+entity = "EXT-12"
+direction = "out"
+carries = """The restored tree written to the target: each file's bytes, name and modification time, empty folders, and the folder attributes the target supports."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-17]
+entity = "EXT-12"
+direction = "in"
+carries = """The target's free space and its real location once links are resolved, read before a restore writes anything."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-18]
+entity = "EXT-11"
+direction = "inout"
+carries = """Calls to the restore tools (content digests, archive extraction, text processing) and their results, and the presence or absence of each tool on the documented floor."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-19]
+entity = "EXT-10"
+direction = "in"
+carries = """The restore host's operating system, its flavour of system tools, and whether a desktop or a console session is present."""
+system = "operation"
+status = "Drafted"
+
+# --- RELATIONSHIPS (FileBackup not a party) ----------------------------------
+
+[relationship.REL-01]
+from = "EXT-13"
+to = "EXT-05"
+kind = "alters"
+flow = """Antivirus, cloud sync or a person deletes, quarantines or moves files inside a backup on the backup volume, without FileBackup taking part."""
+status = "Drafted"
+
+[relationship.REL-02]
+from = "EXT-14"
+to = "EXT-02"
+kind = "hands-off"
+flow = """The backup folder is copied, carried or handed to a restorer, possibly years later and onto another machine, with nothing else from FileBackup travelling with it."""
+status = "Drafted"
+
+[relationship.REL-03]
+from = "EXT-01"
+to = "EXT-03"
+kind = "configures"
+flow = """The owner sets up the backup host's schedule and retention policy and tells it which configuration to launch with; the host then acts for the owner."""
+status = "Drafted"
+
+[relationship.REL-04]
+from = "EXT-03"
+to = "EXT-09"
+kind = "runs-on"
+flow = """A backup host that uses containers starts FileBackup's image through the container platform and reads the run's exit status from it."""
+status = "Drafted"
+
+[relationship.REL-05]
+from = "EXT-03"
+to = "EXT-01"
+kind = "notifies"
+flow = """A backup host passes outcomes it acted on to the owner by its own means (an alert, a dashboard), independently of FileBackup's own notification."""
+status = "Drafted"
+
+[entity.EXT-15]
+name = "Working-state and log locations"
+class = "enabling"
+description = """The places outside the backup itself where FileBackup keeps its own working state and records: the per-source change-detection state, the run logs and the optional browse view. Losing or misreading them must never cost stored content."""
+status = "Drafted"
+
+[entity.EXT-16]
+name = "Credential protection facility"
+class = "enabling"
+description = """The host facility that protects the notification account's credentials so that only the owner's account on that host can read them."""
+status = "Drafted"
+
+[boundary.B-20]
+entity = "EXT-15"
+direction = "inout"
+carries = """The per-source change-detection state read at the start of a run and written at its end, each run's log, and the browse view, with any failure to read or write them reported."""
+system = "operation"
+status = "Drafted"
+
+[boundary.B-21]
+entity = "EXT-16"
+direction = "inout"
+carries = """The notification credentials protected when the owner sets them up and read back by a run that sends a notification, never entering the configuration, the backup or a run's record in plain form."""
+system = "operation"
+status = "Drafted"

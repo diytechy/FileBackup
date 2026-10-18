@@ -1,0 +1,476 @@
+# Stakeholder Needs (SN-###): FileBackup's need tier
+#
+# Every need below serves the [PROJECT-VISION](../../README.md#vision). All rows
+# are Drafted: authored here, approved only by a reviewed Status-change commit.
+# Legacy ids are kept where the need's meaning survives; new needs start at
+# SN-037. SN-014, SN-016, SN-017, SN-018 and SN-020 were merged into surviving
+# needs and SN-028 is retired; none of those ids is reused.
+
+# --- BACKUP: WHAT IS CAPTURED -------------------------------------------------
+
+[need.SN-001]
+status = "Drafted"
+need = """Every run backs up the whole of each source tree, capturing every file in it, and picks up new and changed files on later runs. A file the run could not capture is never skipped silently."""
+why = """The point of a backup is that whatever was in the source is in the backup. A file that is silently left out is discovered missing only when it is needed, which is the one moment it cannot be recovered."""
+priority = "M"
+acceptance = """After a run against a known tree, every file in that tree is restorable, including hidden, system and dot-named files and files nested anywhere that happen to share a name with the backup's own files; only the backup's own files and the volume's own system folders are left out; a later run restores new and changed files at their new content; any file not captured is named in the run's record and the run reports failure."""
+tags = ["filesystem"]
+stakeholder_refs = ["STK-01"]
+
+[need.SN-052]
+status = "Drafted"
+need = """A file that is briefly in use or unreadable when a run reaches it is still backed up once it can be read, and a file that stays unreadable never costs me the copy an earlier run already saved."""
+why = """Files are routinely held open for a moment by other programs. A run that gives up on the first refusal leaves gaps for no good reason, one that waits forever never finishes, and one that drops the earlier saved copy of an unreadable file turns a passing lock into data loss."""
+priority = "S"
+acceptance = """A file locked only briefly during a run is backed up by that run; a file that stays unreadable is named with the cause, the run reports failure, and the previously saved copy of that file still restores; repeated unreadable files do not stretch a run beyond a bounded extra wait."""
+tags = ["filesystem", "unattended"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-032]
+status = "Drafted"
+need = """Every file name comes back exactly as it was, including Unicode, brackets, parentheses and spaces; a name that cannot exist on both Windows and Linux is refused loudly at backup time instead of being half-handled."""
+why = """A restore that brings a file back under a different name, or loses it because its name was misread, has lost that file as surely as if its bytes were gone. A name one platform cannot hold breaks the promise that every backup restores on any of the supported systems, and is a name the owner almost always wants fixed at the source."""
+priority = "S"
+acceptance = """Files whose names contain Unicode, brackets, parentheses or spaces restore under their exact names through every restorer; a source file whose name is invalid on either platform is not backed up, is named in the run's record together with the offending character, the run reports failure, and every other file in the same source is still backed up."""
+tags = ["filesystem", "restore-host"]
+stakeholder_refs = ["STK-01", "STK-02"]
+
+[need.SN-037]
+status = "Drafted"
+need = """Backing up never alters, moves or deletes anything in the source: the files, their times, their attributes and the folders that hold them stay exactly as they were."""
+why = """The owner's live files are the thing being protected. A backup tool that changes them, even by touching a time stamp or an attribute, can damage the very data it exists to keep safe and makes the source no longer trustworthy as the reference a restore is compared against."""
+priority = "M"
+acceptance = """After any run, every file and folder in the source is byte-identical with unchanged modification times and attributes; a run succeeds against a source the run is only allowed to read."""
+tags = ["filesystem"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-038]
+status = "Drafted"
+need = """A source that suddenly looks empty, because a drive dropped off or a share was not mounted, never causes a run to record all my files as deleted."""
+why = """An unattended run cannot tell a missing drive from a deliberate wipe unless it is told. Treating the empty view as truth replaces the latest state with nothing, and a host acting on that state, or an owner restoring the latest state, would find every file gone."""
+priority = "M"
+acceptance = """A source that held files on the previous run and now shows none makes the run refuse before changing the backup and report failure, unless the owner has said that this source may become empty; a source that was empty from the first run is backed up normally."""
+tags = ["unattended"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-009]
+status = "Drafted"
+need = """One configured job covers several independent source and backup locations, and a failure in one does not stop the others from being backed up."""
+why = """The owner's data lives under more than one root. One scheduled job per root multiplies the setup and the places to look for failures, while a job that aborts all roots when one fails leaves good data unprotected because of an unrelated problem."""
+priority = "S"
+acceptance = """A configuration naming several source and backup locations backs up each of them in one run; when one of them fails, the others still complete and the run as a whole reports failure."""
+tags = ["unattended"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+# --- SPACE --------------------------------------------------------------------
+
+[need.SN-002]
+status = "Drafted"
+need = """Identical content is stored once, however many files, folders, runs or saved states contain it."""
+why = """Large media and document trees hold many duplicates and many files that do not change between runs. Storing each copy again multiplies the space the backup costs the owner for no gain in what can be restored."""
+priority = "M"
+acceptance = """Two files with identical bytes, in the same run or in different runs, under any names, take the space of one stored copy, and both restore byte-exact."""
+tags = ["store-mutation"]
+stakeholder_refs = ["STK-01"]
+
+[need.SN-003]
+status = "Drafted"
+need = """Where the owner turns compression on, a file is stored compressed only when compressing it measurably saves space; when compression is off, nothing is compressed."""
+why = """Documents and text shrink a lot, while media is already compressed and gets no smaller, only slower to store and restore. Choosing by a file's name rather than by the measured result either wastes space or wastes time."""
+priority = "S"
+acceptance = """With compression on, content that measurably shrinks is stored compressed and content that does not is stored as it is, whatever the file's name; with compression off, nothing is compressed; every file restores byte-exact either way."""
+tags = ["store-mutation", "redistribution"]
+stakeholder_refs = ["STK-01"]
+
+[need.SN-051]
+status = "Drafted"
+need = """Where the owner turns it on, the owner can see where backup space goes, such as the largest files and media that could be re-encoded at a lower bitrate."""
+why = """The owner pays for the space the backup takes and can only reduce it by knowing what fills it. Without that view, the choices that would save the most space are invisible."""
+priority = "C"
+acceptance = """With the feature on, the owner can list backed-up files by the space they take and see, for media files, a measure of how heavily each is encoded; with it off, or when that measure cannot be taken on this host, backups run exactly as before and the record says the measure was not taken."""
+tags = ["redistribution"]
+stakeholder_refs = ["STK-01"]
+
+# --- HISTORY AND RETENTION ----------------------------------------------------
+
+[need.SN-004]
+status = "Drafted"
+need = """Each run that changes anything keeps the previous backed-up state as a saved point in time, identified by its date, alongside the latest state."""
+why = """An accidental edit or deletion is often noticed only after the next backup has run. Without earlier states, the backup faithfully copies the mistake and the good version is gone."""
+priority = "M"
+acceptance = """After several runs with changes between them, each earlier state is listed by its date and the latest state is always present; a run that changes nothing adds no new saved state."""
+tags = ["store-mutation"]
+stakeholder_refs = ["STK-01"]
+
+[need.SN-034]
+status = "Drafted"
+need = """No later operation of the tool ever alters or loses stored content that the latest state or any saved state still depends on."""
+why = """Files and saved states share stored content. An operation that rewrites or removes a stored copy because one file changed or one state went away silently breaks every other file and state still relying on it, and that loss is found only when one of them is restored."""
+priority = "M"
+acceptance = """After one of two identical files is edited, or a file is removed, renamed or re-added, restoring every earlier saved state still reproduces the old bytes for every path that held them, and the latest state restores the new bytes; checking the store finds no recorded content that is unaccounted for."""
+tags = ["store-mutation"]
+stakeholder_refs = ["STK-01", "STK-02"]
+
+[need.SN-029]
+status = "Drafted"
+need = """The owner can remove saved states they no longer want, to bound the space the backup takes, without losing anything a remaining state needs."""
+why = """Without a way to remove saved states, history grows until the backup volume fills. Saved states share content, so a folder that looks like old history can hold the only stored copy of content other states need; removing it from outside the tool is silent data loss, which is why the removing has to be the tool's."""
+priority = "M"
+acceptance = """Removing a named saved state leaves every remaining saved state and the latest state restorable byte-exact, with compression on or off, including when the removed state held the only stored copy of shared content; a removal that would lose content is refused before anything changes, with its own outcome; a removal interrupted at any point loses nothing and can simply be run again."""
+tags = ["store-mutation"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-046]
+status = "Drafted"
+need = """Before removing anything, the owner, or a host deciding retention on their behalf, is told what removing each saved state would actually reclaim."""
+why = """Because content is shared, the size of a saved state's folder is not what removing it frees, and nobody outside the tool can work the true figure out. Retention decided on wrong numbers either removes history for nothing or keeps the volume full."""
+priority = "M"
+acceptance = """For every saved state the report gives the space its removal would free and the space that would have to be moved to keep shared content; the freed figure equals the drop in store size when that state is actually removed; producing the report changes nothing in the store; a host can read the report without parsing prose."""
+tags = ["store-mutation"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-021]
+status = "Drafted"
+need = """A run in which nothing in the source changed reports no changes and leaves the backup as it was."""
+why = """Spurious changes bury real ones, create saved states that hold nothing new, and make the owner distrust every change the tool reports."""
+priority = "S"
+acceptance = """Two consecutive runs over an unchanged source leave identical records of the backed-up state, report no added, changed or removed files, and create no new saved state."""
+tags = ["store-mutation"]
+stakeholder_refs = ["STK-01"]
+
+[need.SN-007]
+status = "Drafted"
+need = """The owner can choose how often the content of files that look unchanged is re-read and checked, trading run time against catching changes their size and time do not show."""
+why = """Re-reading a large library on every run can take longer than the backup window, while never re-reading it trusts that a file whose size and time are unchanged really is unchanged. The owner, not the tool, should pick the point on that trade-off."""
+priority = "S"
+acceptance = """Each offered setting, from every run to never, decides the same way every time whether an unchanged-looking file is re-read on a given run; a file whose content changed without changing its size or time is captured by the first run its setting makes re-read it."""
+tags = ["scale", "filesystem"]
+stakeholder_refs = ["STK-01"]
+
+# --- STORE INTEGRITY ----------------------------------------------------------
+
+[need.SN-013]
+status = "Drafted"
+need = """A run that is interrupted, killed or loses power never leaves a half-written state that a later run builds on or a restore reads as complete, and it does not block later runs for longer than it takes to tell that nothing would be lost."""
+why = """Unattended runs get killed by reboots, power cuts and hosts stopping containers. A later run that builds on the half-finished work corrupts the store, while one that refuses forever stops all future backups until someone notices."""
+priority = "M"
+acceptance = """After an interruption at any point of a run, every saved state that is visible is complete and restorable, and the latest state is either the state before the run or the state after it; the next run either completes by itself, when it can tell from the backup alone that the interrupted run is dead and that nothing would be lost, or refuses before changing anything and names what it found."""
+tags = ["store-mutation", "filesystem", "unattended"]
+stakeholder_refs = ["STK-01", "STK-02", "STK-03"]
+
+[need.SN-039]
+status = "Drafted"
+need = """Two operations that would change the same backup at the same time never both proceed; the one that arrives second is refused and the backup is left unchanged by it, while reading the backup and restoring from it still work."""
+why = """Scheduled runs overlap when a run takes longer than its interval, and a host may start a removal while a backup is still going. Two writers working on one store can each act on state the other is changing and destroy content neither meant to touch."""
+priority = "M"
+acceptance = """While a backup, a removal, a repair or a restore-kit refresh is changing a backup, starting another of them on the same backup is refused with its own outcome, names the operation holding it, and changes nothing; a check, a listing or a restore started at the same time still runs; once the first operation ends or its process dies, the next one proceeds."""
+tags = ["store-mutation", "filesystem", "unattended"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-031]
+status = "Drafted"
+need = """If something outside the tool damages the backup, such as antivirus quarantine, a cloud-sync space sweep or someone tidying a folder that looks like an ordinary copy, the next run puts it right while the source still holds the bytes."""
+why = """The backup looks like a plain copy but its content is shared between files and states. If lost content were only forgotten rather than restored, every later run would report success while that file could no longer be restored, and a new file with the same content would silently share the loss."""
+priority = "M"
+acceptance = """After stored content inside the backup is deleted from outside the tool, the next run succeeds, the affected file restores byte-exact from the latest state, and a new source file with identical content is stored for real rather than recorded as already present."""
+tags = ["store-mutation", "unattended"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-030]
+status = "Drafted"
+need = """On request, the owner can check the whole backup, the latest state and every saved state, and be told every place where what is stored is missing or disagrees with what the backup records about it, without the check changing anything."""
+why = """The backup's record of how each file was stored is kept apart from the stored bytes. Unless something compares the two, a wrong record or a lost file stays invisible until a restore fails, and a backup that says "fine" because nobody looked is not one the owner can trust."""
+priority = "M"
+acceptance = """After stored content is deleted, altered, or recorded in the wrong form, the check reports each affected file and the kind of problem, covering the latest state and every saved state, and reports failure; on an intact backup it reports clean; the store is byte-identical before and after the check."""
+tags = ["scale"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-047]
+status = "Drafted"
+need = """On request, the tool repairs the problems a check found where the right answer is certain, and leaves and reports every problem it cannot repair with certainty."""
+why = """A problem that can only be reported keeps the owner choosing between living with it and starting a fresh backup, which throws away all history. A repair that guesses can turn a recoverable store into a lost one."""
+priority = "S"
+acceptance = """After a repair, every problem whose right answer was certain no longer appears in a check, every other problem is still reported, and every state that restored before the repair still restores byte-exact."""
+tags = ["store-mutation", "store-format"]
+stakeholder_refs = ["STK-01"]
+
+[need.SN-048]
+status = "Drafted"
+need = """Turning compression on or off, or changing how it chooses, never makes any existing saved state restore wrongly or forces content already stored to be rewritten."""
+why = """The owner changes space settings in ordinary use, which leaves one store holding content in both forms. If the tool then misjudged which form a stored file is in, a restore could hand back archive bytes under the original file name and still report success."""
+priority = "M"
+acceptance = """After any change of compression setting, content already stored is left in the form it had, new content follows the new setting, and every saved state and the latest state restore byte-exact, or fail loudly, but never produce wrong bytes under a file's name."""
+tags = ["store-format", "store-mutation"]
+stakeholder_refs = ["STK-01", "STK-02"]
+
+[need.SN-019]
+status = "Drafted"
+need = """Neither a backup nor a restore runs out of space partway: each refuses before writing anything when its destination cannot hold what it is about to write, and says by how much."""
+why = """A backup that fills its volume midway can leave the store's record and its content out of step, and a restore that fills its target leaves a partial tree that looks finished. Knowing beforehand costs nothing; finding out halfway costs the run or the restore."""
+priority = "M"
+acceptance = """A backup whose new content would not fit on its destination, and a restore whose expanded content would not fit on its target, each refuse before writing, leave the destination as it was, name the volume with the space needed and the space free, and report failure; when several locations share one volume, their combined need is what is compared."""
+tags = ["filesystem", "unattended"]
+stakeholder_refs = ["STK-01", "STK-02", "STK-03"]
+
+[need.SN-043]
+status = "Drafted"
+need = """Backing up, checking and restoring a library of terabytes and millions of files fits in the backup host's memory and completes within a scheduled window, with a run's time driven by how much changed rather than by how much is stored."""
+why = """A personal library grows for years. A tool whose time or memory grows faster than the library eventually stops fitting its nightly window or the host's memory, and the backup quietly stops happening exactly when there is the most to lose."""
+priority = "S"
+acceptance = """For a library at the documented scale, a run with few changes, a check and a full restore each complete within their documented time budgets and stay within their documented memory bounds on the documented host class; doubling the stored history without changing the source does not double a run with few changes."""
+tags = ["scale"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+# --- COMPATIBILITY ACROSS VERSIONS --------------------------------------------
+
+[need.SN-040]
+status = "Drafted"
+need = """A newer FileBackup continues an existing backup without the owner starting a fresh one, and a backup in a form this version cannot safely continue is refused by name before anything is changed."""
+why = """A backup holds years of history. An upgrade that strands it forces the owner to keep two stores or give up that history, and a version that half-understands an unfamiliar form can damage a store it should have left alone."""
+priority = "M"
+acceptance = """A backup written by the previous released version is continued by the current version and every one of its states still restores; a backup in a retired or unrecognised form is refused before any change, with a message naming the form and what to do; a refused backup is byte-identical afterwards."""
+tags = ["store-format"]
+lifecycle = "Startup"
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-041]
+status = "Drafted"
+need = """Every saved state stays restorable whatever version of FileBackup wrote it and whatever version writes to the backup later, and the owner can bring the restore kit inside an existing backup up to date when they choose."""
+why = """A saved state may be restored years after it was written, with the restore kit it carries, after many newer versions have written to the same store. If a later version left an older kit unable to read what is now stored, or a newer kit unable to read an older state, history would be lost without a single file being deleted."""
+priority = "M"
+acceptance = """A saved state written by an older version restores byte-exact both with the restore kit it carries and with the current one, after the current version has run against the store; content recorded before a newer kind of record existed restores as it did before, with any check it could not make reported; refreshing the restore kits leaves every state restorable."""
+tags = ["store-format"]
+stakeholder_refs = ["STK-01", "STK-02"]
+
+[need.SN-023]
+status = "Drafted"
+need = """A backup made from a Linux host and one made from Windows are interchangeable: either restores through every restorer, and each host can continue a backup the other wrote."""
+why = """The owner may move backup duty between a Windows machine and a Linux host. If each wrote its own incompatible form, moving would strand the history, and a restorer would need to know which kind of host made the backup."""
+priority = "C"
+acceptance = """A backup made from a Linux host restores byte-exact through every restorer, and so does one made from Windows; either host continues the other's backup with identical treatment of shared content, compression and saved states."""
+tags = ["store-format"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+# --- RESTORE ------------------------------------------------------------------
+
+[need.SN-005]
+status = "Drafted"
+need = """Any backed-up state can be restored bit-for-bit on a clean machine from the backup folder alone, without FileBackup installed, using only commonly available tools."""
+why = """A backup that can only be restored with the tool that made it is hostage to that tool still existing, installing and running on whatever machine is at hand when the disaster comes. The folder alone must be enough."""
+priority = "M"
+acceptance = """A backup folder copied to a machine that has never had FileBackup, carrying only the documented, commonly available restore tools, restores the latest state to a tree byte-identical to the source at that run, with nothing downloaded at restore time."""
+tags = ["restore-host", "redistribution"]
+stakeholder_refs = ["STK-02"]
+
+[need.SN-006]
+status = "Drafted"
+need = """The restorer can pick any saved state by its date and restore exactly that state, not only the latest."""
+why = """The reason to keep history is to get back what existed before a mistake. A restore that can only reproduce the latest state brings back the mistake along with everything else."""
+priority = "M"
+acceptance = """Restoring a saved state chosen by its date rebuilds exactly that earlier state, byte for byte, with nothing from a newer state mixed in; restoring without choosing a state rebuilds the latest state."""
+stakeholder_refs = ["STK-02"]
+
+[need.SN-022]
+status = "Drafted"
+need = """A backup restores the same way on Windows, Linux or macOS, including a machine without the runtime the backup tool itself needs."""
+why = """The machine at hand after a disaster is often not the one that made the backup: a NAS, a rescue stick, a borrowed laptop that may be a Mac. A backup restorable on only one system, or one that misreads a different set of system tools and reports damage on an intact backup, fails the restorer when it matters."""
+priority = "S"
+acceptance = """A backup folder restores to an identical tree, latest state or any saved state, on a stock Windows, Linux or macOS machine meeting the documented tool floor; a machine missing a needed tool is refused with the name of the tool to install; no restore reports damage that is not there."""
+tags = ["restore-host"]
+stakeholder_refs = ["STK-02"]
+
+[need.SN-035]
+status = "Drafted"
+need = """A person can start a restore without remembering a command and can read its outcome before it disappears; a scripted restore is unaffected."""
+why = """The moment a restore is needed is the worst moment to recall a parameter name, and a window that closes on its result leaves the restorer not knowing whether the files are back."""
+priority = "S"
+acceptance = """On Windows and macOS, opening the restore from the backup folder by double-click asks for the target folder, restores, and keeps the outcome on screen until dismissed; a restore started by a script with its arguments runs without asking anything and returns its outcome."""
+tags = ["restore-host"]
+stakeholder_refs = ["STK-02"]
+
+[need.SN-033]
+status = "Drafted"
+need = """A restore that reports success has proved that every file it wrote has the content the backup recorded for it."""
+why = """A wrong stored copy, a flipped bit or a truncated file would otherwise restore with a success status. A backup whose restore can silently hand back damaged bytes and say "done" is not a backup."""
+priority = "M"
+acceptance = """When stored content has been altered, flipped or truncated, the restore either produces that file byte-exact from another intact copy in the backup or names the file and reports failure; it never reports success with wrong bytes."""
+stakeholder_refs = ["STK-02", "STK-03"]
+
+[need.SN-053]
+status = "Drafted"
+need = """When part of a backup cannot be restored, everything else still is, and the restorer is told exactly which files did not come back and why."""
+why = """A backup damaged in one place still holds everything else. A restore that stops at the first problem throws away what could be saved, and one that does not list what is missing leaves the restorer believing the tree is whole."""
+priority = "M"
+acceptance = """With some stored content missing or damaged beyond recovery, the restore writes every other file byte-exact, names every file it could not restore with the cause, reports how many, and reports failure."""
+stakeholder_refs = ["STK-02", "STK-03"]
+
+[need.SN-025]
+status = "Drafted"
+need = """A restore never proceeds from a damaged or substituted record of the backup's contents: it refuses before writing anything."""
+why = """If the record of what a state holds is truncated or replaced, a restore that trusts it reproduces a shrunken tree and reports success, and the restorer has no way to know files are missing."""
+priority = "M"
+acceptance = """With the record of the latest state, or of any saved state, truncated, partly written or replaced by another file, every restorer refuses before creating the target or writing anything, with its own outcome."""
+tags = ["restore-host"]
+stakeholder_refs = ["STK-02", "STK-03"]
+
+[need.SN-042]
+status = "Drafted"
+need = """A restore never writes into the backup it is restoring from, nor anywhere outside the target the restorer chose, whatever the backup's contents say."""
+why = """A restorer under stress may pick the wrong folder, and a damaged or crafted record may name a path that climbs out of the target. Writing into the backup can destroy the content being restored; writing outside the target can overwrite files the restorer never meant to touch."""
+priority = "M"
+acceptance = """A target inside the backup folder, reached directly or through a link, is refused before anything is written; an entry whose path would land outside the target is not written, is named, and the restore reports failure; an ordinary target outside the backup is unaffected."""
+stakeholder_refs = ["STK-02"]
+
+[need.SN-036]
+status = "Drafted"
+need = """A restored tree comes back the way it was, not merely with the right bytes: every file with its own modification time, empty folders present, and a folder made hidden still hidden where the target system supports it."""
+why = """Identical files are stored once, so unless each file's own time is restored, every twin comes back with the time of whichever was stored first; and a tree missing its empty folders or its hidden folders is not the tree the owner had."""
+priority = "S"
+acceptance = """Two identical files with different modification times restore with their own times, with compression on or off and through every restorer; an empty folder and a nested empty folder are recreated; a hidden and system folder comes back hidden and system on Windows, and on a system without those attributes the folder is created and the attributes it could not apply are reported."""
+tags = ["filesystem", "restore-host"]
+stakeholder_refs = ["STK-02"]
+
+[need.SN-026]
+status = "Drafted"
+need = """When a restore fails, a script and the restorer can tell what kind of failure it was without reading its log."""
+why = """A host supervising restores has to choose between "the bytes are gone", "fix this machine and retry" and "you pointed me at the wrong folder". One generic failure forces a person into the log every time and can send a script into retrying over real damage."""
+priority = "S"
+acceptance = """Every restorer reports the same documented outcome for each class (complete, content missing, host or tool problem, bad request or precondition, damaged record of contents); deliberately induced instances of each class each report their own outcome, identically on every supported system."""
+tags = ["unattended", "restore-host"]
+stakeholder_refs = ["STK-02", "STK-03"]
+
+[need.SN-008]
+status = "Drafted"
+need = """The owner can see what is in the backup and find a file by name without running a restore."""
+why = """The backup is organised by content rather than by the original folder tree, so it cannot be browsed directly. Without another way in, finding one file means restoring everything."""
+priority = "S"
+acceptance = """Where the owner turns it on, a browsable listing shows every backed-up path, every duplicate included, can be searched by name, and opening an entry opens that file's stored content; the listing reflects the latest run."""
+stakeholder_refs = ["STK-01"]
+
+# --- UNATTENDED OPERATION AND OUTCOMES ----------------------------------------
+
+[need.SN-011]
+status = "Drafted"
+need = """A run started with nobody present never waits for a person to answer."""
+why = """A scheduled task that hangs on a prompt is a silent backup failure: nothing is backed up, nothing reports failure, and the next run may be blocked behind it."""
+priority = "M"
+acceptance = """A run, a restore or any other operation started without a person present completes or fails without asking anything; one that would have needed an answer reports failure with the reason instead."""
+tags = ["unattended"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-045]
+status = "Drafted"
+need = """A backup host learns the outcome of every backup, removal and check from the result alone, as one of a few documented kinds, without reading the log."""
+why = """A host acting for the owner has to decide whether to retry, alert or carry on. If every failure looks the same, it either alerts on everything or ignores everything, and a run that silently backed up nothing looks like one that worked."""
+priority = "M"
+acceptance = """Each operation reports a distinct documented outcome for complete, some part failed, configuration refused, and operation refused because the backup is busy or not in a state to proceed; deliberately induced instances of each report their own outcome; a listing or a check also returns its findings in a form a program can read."""
+tags = ["unattended"]
+stakeholder_refs = ["STK-03", "STK-01"]
+
+[need.SN-044]
+status = "Drafted"
+need = """The owner can find out what a run did and why: what was added, changed and removed, what failed and the cause, and, while a long run is going, that it is still making progress."""
+why = """An unattended tool is trusted only as far as its record can be checked. Without a readable account of each run, a failure cannot be diagnosed and a success cannot be believed, and a long run that shows nothing cannot be told apart from a hung one."""
+priority = "S"
+acceptance = """After any run, its record names each file added, changed, removed or failed, with the cause of every failure and summary counts; during a long run, its record or display shows progress at least every few minutes; each refusal states what was found and what to do."""
+tags = ["unattended"]
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-010]
+status = "Drafted"
+need = """Where the owner sets it up, the owner is told by message whether each run succeeded or failed, and a failure to send that message never changes the run's own outcome."""
+why = """For scheduled runs the owner wants to know without checking logs. But a mail outage must not turn a good backup into a reported failure, nor a failed one into a success."""
+priority = "C"
+acceptance = """With notification set up, a message stating success or failure arrives after each run; with it not set up, or switched off for one run, none is sent; when sending fails, the run records a warning and reports the same outcome it would have without notification."""
+tags = ["unattended"]
+stakeholder_refs = ["STK-01"]
+
+[need.SN-049]
+status = "Drafted"
+need = """The account details used to send notifications are never kept where someone who can read the configuration or the backup can read them in plain form."""
+why = """Configurations are copied, shared with hosts and kept beside backups. A mail password readable there gives anyone holding the folder the owner's mail account."""
+priority = "S"
+acceptance = """A configuration or backup that carries readable account credentials for notification is refused or never produced; credentials set up for notification cannot be read in plain form from the configuration, the backup or a run's record."""
+lifecycle = "Provision"
+stakeholder_refs = ["STK-01"]
+
+# --- CONTAINER AND HOSTS ------------------------------------------------------
+
+[need.SN-024]
+status = "Drafted"
+need = """A backup host can run backups inside a container, without installing the backup tool's runtime on the host, with no more access than reading the source and writing the backup."""
+why = """A home server or NAS often runs its services as containers and should not need a separate runtime installed to protect its files. A container that needed write access to the source or administrative rights would put the files at risk to protect them."""
+priority = "M"
+acceptance = """In a container on a host that has no backup runtime installed, a run backs up a source the container can only read, as an unprivileged user, into a backup that restores byte-exact, with compression on."""
+tags = ["unattended", "redistribution"]
+stakeholder_refs = ["STK-03", "STK-01"]
+
+[need.SN-054]
+status = "Drafted"
+need = """Every third-party component shipped inside a backup or the container is shipped under terms that allow it, with those terms travelling with it."""
+why = """Each backup and the container carry other people's code so that a restore needs nothing else. If that code is shipped against its licence, every backup the owner hands on is a licence breach, and the owner, not the component's author, carries the risk."""
+priority = "S"
+acceptance = """For each third-party component inside a backup folder or the container, its licence permits that redistribution and its required notices are present alongside it."""
+tags = ["redistribution"]
+stakeholder_refs = ["STK-01", "STK-02"]
+
+# --- SETUP AND LAUNCH ---------------------------------------------------------
+
+[need.SN-012]
+status = "Drafted"
+need = """A new owner can get from nothing to a first successful backup by following the shipped guidance, without reverse-engineering the configuration or hunting for prerequisites."""
+why = """A tool that can only be configured by reading its code is set up wrongly or not at all, and the owner returning to it years later is a new user too."""
+priority = "S"
+acceptance = """Following only the shipped quick-start guidance and its configuration helper, a new user on a supported host builds a configuration and completes a first backup; each prerequisite the backup needs is either obtained on first use or named with how to obtain it."""
+tags = ["redistribution"]
+lifecycle = "Provision"
+stakeholder_refs = ["STK-01"]
+
+[need.SN-050]
+status = "Drafted"
+need = """A backup host can write a configuration from a documented, versioned description of it, and the example configuration that ships is itself accepted."""
+why = """A host that generates configurations for the owner needs a contract it can rely on across versions. An undocumented form, or a shipped example that is itself rejected, leaves every integrator guessing."""
+priority = "S"
+acceptance = """The documented description and the checks applied at launch accept and refuse exactly the same configurations; the shipped example passes them unchanged apart from its locations; each configuration states which version of the description it follows."""
+lifecycle = "Provision"
+stakeholder_refs = ["STK-03", "STK-01"]
+
+[need.SN-027]
+status = "Drafted"
+need = """A missing or wrong configuration stops the run before it touches any backup, saying exactly what is wrong; the tool never guesses at a setting it does not understand."""
+why = """A mistyped key or a quoted "false" where a yes-or-no belongs can silently change what the owner asked for, including switching on something destructive. A configuration written for another version is safe only if it is refused rather than half-understood."""
+priority = "M"
+acceptance = """A missing configuration, an unknown key, a value of the wrong kind, a missing required setting, and a configuration written for an unsupported version each refuse the run before any backup data is touched, naming the setting and what was expected, with the configuration-refused outcome; nothing is created or changed."""
+tags = ["unattended"]
+lifecycle = "Startup"
+stakeholder_refs = ["STK-01", "STK-03"]
+
+[need.SN-015]
+status = "Drafted"
+need = """When something the run needs is missing or unsupported on this host, the run stops before changing the backup and says what to install; only optional extras may be skipped, and then visibly."""
+why = """A run that proceeds without its content-identity function, or without the tool a chosen storage setting needs, writes a backup that cannot be trusted or cannot be restored. Failing first, with the fix, costs one run; failing later costs the store."""
+priority = "M"
+acceptance = """With an unsupported runtime, or a required component or a tool a chosen setting needs missing, the run refuses before changing the backup, naming what is missing and how to obtain it; with only an optional extra missing, the run completes and its record says the extra was skipped."""
+tags = ["unattended", "redistribution"]
+lifecycle = "Startup"
+stakeholder_refs = ["STK-01", "STK-03"]
+
+# --- STAKEHOLDERS --------------------------------------------------------------
+
+[stakeholder.STK-01]
+name = "Owner"
+description = """Configures FileBackup, schedules it, sets retention and checks store health, and owns the space and time the backups cost. Loses the protection of the files, the history and the space budget if a need of theirs is dropped."""
+party = "EXT-01"
+status = "Drafted"
+
+[stakeholder.STK-02]
+name = "Restorer"
+description = """The owner, or whoever holds the backup folder, restoring on a clean or foreign machine with no FileBackup installed, possibly another operating system, possibly under stress. Loses the files themselves if a restore need of theirs is dropped."""
+party = "EXT-02"
+status = "Drafted"
+
+[stakeholder.STK-03]
+name = "Backup host"
+description = """Any system that runs FileBackup unattended on the owner's behalf and acts on its results: a home server, a NAS, a container platform, a scheduled task. Loses the ability to run backups safely without a person present, and to act correctly on their outcomes, if a need of theirs is dropped."""
+party = "EXT-03"
+status = "Drafted"

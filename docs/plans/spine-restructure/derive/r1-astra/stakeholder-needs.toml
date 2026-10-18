@@ -1,0 +1,445 @@
+# Independently derived round-1 proposal; all rows await review.
+
+[stakeholder.STK-01]
+name = "Owner"
+description = "Configures, schedules, sets retention, checks store health, and owns the space and time the backups cost."
+party = "EXT-01"
+status = "Drafted"
+
+[stakeholder.STK-02]
+name = "Restorer"
+description = "The owner, or whoever holds the backup folder, on a clean or foreign machine with no FileBackup installed, possibly another OS, possibly under stress."
+party = "EXT-02"
+status = "Drafted"
+
+[stakeholder.STK-03]
+name = "Backup host"
+description = "Any system that runs FileBackup unattended on the owner’s behalf and acts on its results: a home server, a NAS, a container platform, or a scheduled task."
+party = "EXT-03"
+status = "Drafted"
+
+[need.SN-001]
+status = "Drafted"
+need = "Keep an up-to-date backup of every file in my selected source trees."
+acceptance = "Repeated backups capture additions, changes and removals, including hidden and nested files and user files whose names resemble backup housekeeping. Every omitted file is reported; operating-system volume metadata and discarded recycle-bin content are outside the selected user data."
+why = "Silent omissions leave gaps in recovery that the owner cannot anticipate."
+priority = "M"
+stakeholder_refs = ["STK-01"]
+tags = ["store-mutation","filesystem"]
+
+[need.SN-002]
+status = "Drafted"
+need = "Spend storage once on identical saved content while retaining every original path."
+acceptance = "Identical content first encountered together or in different runs consumes one stored copy across current and historical states; every saved path remains recoverable."
+why = "Duplicate-heavy libraries otherwise consume space without adding protection."
+priority = "M"
+stakeholder_refs = ["STK-01"]
+tags = ["store-mutation","scale"]
+
+[need.SN-003]
+status = "Drafted"
+need = "Choose whether to reduce backup space through lossless compression, based on whether the content benefits."
+acceptance = "With compression enabled, measured space savings govern eligible content regardless of its name; content that does not benefit stays uncompressed. Disabling compression leaves new content uncompressed. Both choices preserve original bytes."
+why = "Unproductive compression spends time and space without improving the backup."
+priority = "S"
+stakeholder_refs = ["STK-01"]
+tags = ["scale"]
+
+[need.SN-004]
+status = "Drafted"
+need = "Recover the latest saved state or any retained earlier state exactly as it was at that time."
+acceptance = "Each retained state is selectable by its backup completion date and restores its own paths and bytes without newer content mixed in. Later edits, deletions and other store operations never lose content that a retained state still needs, including content shared by multiple paths."
+why = "A history that changes underneath its owner cannot recover accidental edits or deletions."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-02"]
+tags = ["store-mutation"]
+
+[need.SN-005]
+status = "Drafted"
+need = "Recover my files from the complete backup folder alone on a clean machine without installing the backup application."
+acceptance = "With only the backup folder and documented commonly available prerequisites, a restorer recovers the chosen saved state byte-for-byte without the original source, repository, backup host or a download of backup-specific software."
+why = "A backup dependent on the failed machine cannot serve as disaster recovery."
+priority = "M"
+stakeholder_refs = ["STK-02"]
+tags = ["restore-host","redistribution"]
+
+[need.SN-007]
+status = "Drafted"
+need = "Choose how often unchanged files have their content rechecked to balance backup time and integrity."
+acceptance = "The owner can choose every run, periodic intervals or never; the same schedule and elapsed time produce the same recheck decision."
+why = "Repeated full reads can consume the time available for backups."
+priority = "S"
+stakeholder_refs = ["STK-01"]
+tags = ["scale"]
+
+[need.SN-008]
+status = "Drafted"
+need = "Find saved files by their original names and folders without restoring the tree."
+acceptance = "An optional browsable and searchable view includes every saved logical path, including duplicates, and lets the owner open its stored content. An absent or failed view does not impair backup or recovery."
+why = "Content that cannot be located is difficult to inspect or recover selectively."
+priority = "S"
+stakeholder_refs = ["STK-01"]
+
+[need.SN-009]
+status = "Drafted"
+need = "Protect several independent source trees in one unattended job without one failure stopping the others."
+acceptance = "One invocation handles all selected source and destination sets independently; a failed set does not prevent the others from completing, and the job reports any set failure."
+why = "Separate scheduling for every tree adds administration and lets unrelated failures leave data unprotected."
+priority = "S"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["unattended"]
+
+[need.SN-010]
+status = "Drafted"
+need = "Receive optional email notification of backup outcomes without making backup success depend on notification."
+acceptance = "Enabled notifications report success or failure; disabled notifications send nothing. Delivery failure is reported separately and does not change the actual backup result."
+why = "Unnoticed failures undermine unattended protection, while a mail outage should not invalidate saved data."
+priority = "C"
+stakeholder_refs = ["STK-01"]
+tags = ["unattended"]
+
+[need.SN-011]
+status = "Drafted"
+need = "Run backups and scripted recovery unattended without waiting for human input."
+acceptance = "Scheduled operations complete or fail with a machine-readable result, never wait for a prompt, and never report complete success when any requested set or file failed."
+why = "A stalled job can silently leave the owner without current protection."
+priority = "M"
+stakeholder_refs = ["STK-03"]
+tags = ["unattended"]
+
+[need.SN-012]
+status = "Drafted"
+need = "Get from a fresh installation to a first successful backup using discoverable setup guidance."
+acceptance = "A new owner can identify prerequisites, choose source and destination locations, supply valid settings and complete a first backup by following the supplied guidance without reverse-engineering the product."
+why = "Difficult setup encourages mistakes and postpones protection."
+priority = "S"
+stakeholder_refs = ["STK-01"]
+lifecycle = "Provision"
+
+[need.SN-013]
+status = "Drafted"
+need = "Keep previously saved content safe if an operation is interrupted, and know how to resume safely."
+acceptance = "After interruption at any stage of backup or maintenance, saved content is not lost and no incomplete state is offered as a completed snapshot. A later run recovers automatically only when abandoned work is demonstrably safe to reclaim; otherwise it preserves it and names the obstruction and recovery action. Interrupted removal can be requested again safely."
+why = "A power loss must not destroy the history meant to survive failures."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["store-mutation","filesystem","unattended"]
+
+[need.SN-015]
+status = "Drafted"
+need = "Know before work starts whether the host can perform the selected operation."
+acceptance = "Missing or unsupported required capabilities cause a clear refusal with remediation before backup or restore data is changed. A selected storage feature is never silently disabled; missing optional media information is reported without blocking backup."
+why = "An apparently successful run with unmet prerequisites cannot be trusted."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-02","STK-03"]
+tags = ["restore-host","redistribution","unattended"]
+lifecycle = "Startup"
+
+[need.SN-019]
+status = "Drafted"
+need = "Learn that a restore destination is too small or unwritable before recovery produces a partial tree."
+acceptance = "Known insufficient space is reported before target writes, accounting for expanded content, and an unusable target is refused with a clear cause. Space or access lost during recovery is reported as incomplete recovery rather than success."
+why = "A restorer needs to choose a usable destination instead of discovering an avoidable partial recovery."
+priority = "S"
+stakeholder_refs = ["STK-02"]
+tags = ["filesystem","restore-host"]
+lifecycle = "Startup"
+
+[need.SN-021]
+status = "Drafted"
+need = "Avoid spurious history and storage growth when nothing in the source has changed."
+acceptance = "Repeating a successful backup of unchanged content and metadata presents the same saved state and creates no new historical state or redundant content."
+why = "False changes waste space and obscure real history."
+priority = "S"
+stakeholder_refs = ["STK-01"]
+tags = ["store-mutation"]
+
+[need.SN-022]
+status = "Drafted"
+need = "Recover the same backup on Linux or macOS as well as Windows, without depending on the backup runtime."
+acceptance = "A supported backup restores the chosen current or historical state byte-for-byte on Linux and macOS using documented commonly available prerequisites without the backup runtime. Host differences never falsely label intact content damaged; unmet prerequisites are identified with remedies."
+why = "The available rescue machine may run a different operating system from the machine that made the backup."
+priority = "S"
+stakeholder_refs = ["STK-02"]
+tags = ["restore-host","redistribution"]
+
+[need.SN-023]
+status = "Drafted"
+need = "Make backups on Linux that remain interchangeable with backups made on Windows."
+acceptance = "Either platform can produce a backup whose latest and historical states restore on either platform with the same content, path and space-saving semantics."
+why = "The owner should not maintain separate incompatible histories for different backup hosts."
+priority = "C"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["store-format","restore-host"]
+
+[need.SN-024]
+status = "Drafted"
+need = "Run unattended backups and store maintenance inside a Linux container without installing the backup runtime on its host."
+acceptance = "The backup host can invoke backup, inventory, verification and selected history removal in a container, obtain their actual outcomes, retain state between runs and recover the resulting backups. Operation works with a read-only source and without administrator privileges inside the container."
+why = "A host managed around containers needs dependable protection without changing its own software environment or granting excessive access."
+priority = "M"
+stakeholder_refs = ["STK-03"]
+tags = ["unattended","filesystem","redistribution"]
+
+[need.SN-025]
+status = "Drafted"
+need = "Never be told a recovery is complete when damage to the saved description has silently omitted part of the saved state."
+acceptance = "A damaged or unrelated saved description is refused before any restore target writes. Supported older backups whose descriptions cannot be verified remain recoverable with an explicit unverified warning, unless the restorer chooses to require verification. This applies to current and historical states."
+why = "A truncated recovery job can appear successful while losing precisely the files the owner needs."
+priority = "M"
+stakeholder_refs = ["STK-02"]
+tags = ["store-format","restore-host"]
+
+[need.SN-026]
+status = "Drafted"
+need = "Distinguish recovery failure causes without interpreting a detailed log."
+acceptance = "People and automated callers receive consistent distinct outcomes across supported restore platforms for complete recovery, missing or damaged content, an unusable host, invalid requests or preconditions, and an untrustworthy saved description; concurrent failure classes remain visible."
+why = "Retrying cannot repair missing content, while a host problem may be recoverable on another machine."
+priority = "S"
+stakeholder_refs = ["STK-02","STK-03"]
+tags = ["restore-host","unattended"]
+
+[need.SN-027]
+status = "Drafted"
+need = "Have missing, invalid or incompatible settings rejected clearly before they can affect my data."
+acceptance = "An absent configuration or an unknown, mistyped, wrongly typed, missing or unsupported setting produces a refusal naming the problem and expected form before data changes. Unsupported configuration versions are identified rather than guessed; supported older settings retain their meaning."
+why = "Silently guessing the owner’s intent can direct an operation at the wrong data."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["unattended"]
+lifecycle = "Startup"
+
+[need.SN-029]
+status = "Drafted"
+need = "Remove only the historical states I choose, safely reclaiming space without harming retained states."
+acceptance = "The owner or delegated backup host chooses explicit states to remove. Removal preserves every surviving state including the latest, even where content is shared; a removal that cannot preserve them is refused before destructive work with a distinguishable outcome."
+why = "Unbounded history fills the backup volume, but deleting shared content can destroy unrelated recovery points."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["store-mutation"]
+
+[need.SN-030]
+status = "Drafted"
+need = "Check the health of the entire backup history on demand without changing it."
+acceptance = "An on-demand inspection reports each affected state and path whose saved description disagrees with stored content, whose content is missing or cannot be recovered, or whose stored content is damaged when full content checking is requested. Inspection itself changes no saved data and reports findings distinctly from a clean result."
+why = "Undetected damage can remain unnoticed until recovery is urgently needed."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["store-format"]
+
+[need.SN-031]
+status = "Drafted"
+need = "Recover from external loss of stored content while matching original content is still available."
+acceptance = "The next backup restores missing current content from a still-matching source or surviving saved copy. New paths never inherit a false claim that missing content was saved; content that cannot be recovered is reported and never counted as successfully repaired."
+why = "External cleanup or quarantine must not leave a permanently broken backup reporting success."
+priority = "M"
+stakeholder_refs = ["STK-01"]
+tags = ["store-mutation"]
+
+[need.SN-032]
+status = "Drafted"
+need = "Know at backup time whether my filenames can be recovered on the supported platforms."
+acceptance = "Portable names, including Unicode, brackets, parentheses, spaces and names without extensions, survive unchanged. A nonportable name is identified with its reason, makes the set incomplete and does not prevent other files being saved; any previously saved version remains protected and no unsaved content is claimed."
+why = "Discovering an unusable name only during a disaster makes recovery harder and can hide missing files."
+priority = "S"
+stakeholder_refs = ["STK-01","STK-02"]
+tags = ["filesystem","restore-host"]
+
+[need.SN-033]
+status = "Drafted"
+need = "Trust that a successful recovery has checked the actual bytes returned to me."
+acceptance = "Every recovered file counted as successful has been verified against the selected saved content. Wrong, truncated or altered content is recovered correctly where a good saved copy exists or is reported as an identified failure, never as success."
+why = "A success message over damaged output gives the restorer false confidence."
+priority = "M"
+stakeholder_refs = ["STK-02"]
+tags = ["restore-host"]
+
+[need.SN-035]
+status = "Drafted"
+need = "Start and complete an interactive restore without remembering commands, and have time to read its result."
+acceptance = "On a supported Windows or macOS desktop the restorer can start from the backup folder, choose a destination interactively and retain a readable result on screen. Where desktop launch is unavailable, guidance provides an alternative; scripted recovery remains noninteractive."
+why = "Recovery under stress should not depend on remembering invocation details."
+priority = "S"
+stakeholder_refs = ["STK-02"]
+tags = ["restore-host"]
+
+[need.SN-036]
+status = "Drafted"
+need = "Recover each file with its own saved modification time."
+acceptance = "Files with identical content but different saved times recover their respective times within the target’s supported precision. Missing, invalid or unrepresentable time information is reported without preventing byte recovery."
+why = "Incorrect times obscure which version of a file was saved and disrupt later work."
+priority = "S"
+stakeholder_refs = ["STK-02"]
+tags = ["filesystem","restore-host"]
+
+[need.SN-037]
+status = "Drafted"
+need = "See where backup space goes so I can choose what to reduce."
+acceptance = "When enabled, optional space information identifies large files and media whose bitrate may warrant re-encoding; the owner can configure or disable the information, and unavailable measurements do not block backup or change source content."
+why = "Without actionable space information the owner cannot distinguish useful savings from deleting valuable history."
+priority = "S"
+stakeholder_refs = ["STK-01"]
+
+[need.SN-038]
+status = "Drafted"
+need = "Know what removing a saved state will actually free before authorizing its removal."
+acceptance = "A read-only inventory identifies saved states by date and reports their occupied space, net reclaimable space and preservation copy cost. A preview changes nothing and, with the store unchanged, its reclaim figure matches the completed removal."
+why = "Shared content makes apparent folder size misleading for retention decisions."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["filesystem"]
+
+[need.SN-039]
+status = "Drafted"
+need = "Correct unambiguous backup bookkeeping errors without changing the history they describe."
+acceptance = "Explicitly requested repair corrects errors justified by available content while preserving saved paths, bytes and metadata for every affected state and shared path. Ambiguous errors and lost content remain reported rather than guessed or silently discarded."
+why = "Unsafe repair can replace an identifiable defect with irreversible loss."
+priority = "M"
+stakeholder_refs = ["STK-01"]
+tags = ["store-mutation","store-format"]
+
+[need.SN-040]
+status = "Drafted"
+need = "Be told before backup or history removal starts that its destination lacks the space it needs."
+acceptance = "When available-space measurements show insufficient room, the operation refuses before writing backup content and identifies each affected volume, required space and available space, including combined demand on a shared volume and temporary preservation copies."
+why = "Running out of space during preservation can leave the owner with unfinished work and no room to recover."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["filesystem","unattended"]
+lifecycle = "Startup"
+
+[need.SN-041]
+status = "Drafted"
+need = "Change compression choices without putting previously saved recovery points at risk."
+acceptance = "Changing the storage policy affects newly saved content only; existing content remains unchanged and every retained state still restores its original bytes even when older and newer content have different stored forms."
+why = "A space-saving preference should not invalidate earlier protection."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-02"]
+tags = ["store-mutation","store-format"]
+
+[need.SN-042]
+status = "Drafted"
+need = "Recover the empty folders that belonged to the chosen saved state."
+acceptance = "Saved empty and nested empty directories are recreated. If older or damaged directory information is unavailable, file recovery still succeeds and the limitation is reported."
+why = "Empty folders can convey organization and be required for subsequent work even when they contain no files."
+priority = "S"
+stakeholder_refs = ["STK-02"]
+tags = ["filesystem","restore-host"]
+
+[need.SN-043]
+status = "Drafted"
+need = "Recover the saved properties of my folders where the destination supports them."
+acceptance = "Saved hidden, system, read-only and not-content-indexed directory properties are restored where supported. Unsupported or unavailable properties are reported without preventing directory creation or byte recovery."
+why = "Losing folder properties changes how the recovered tree appears and behaves."
+priority = "S"
+stakeholder_refs = ["STK-02"]
+tags = ["filesystem","restore-host"]
+
+[need.SN-044]
+status = "Drafted"
+need = "Keep overlapping backup and maintenance requests from damaging the same store."
+acceptance = "Overlapping participating writers never act on each other’s unfinished changes; a contender that cannot establish safe access refuses without changing saved data and explains the conflict. A terminated writer does not permanently prevent later safe work, and the supported host and sharing limits are explicit."
+why = "Unattended jobs can overlap or resume unexpectedly and destroy shared history."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["store-mutation","filesystem","unattended"]
+
+[need.SN-045]
+status = "Drafted"
+need = "Keep an unavailable or unreadable source from being mistaken for intentional deletion."
+acceptance = "A previously populated source that appears wholly empty is refused without changing the backup unless the owner explicitly confirms the empty state is intended. Unreadable subtrees retain their previously saved content and are reported as incomplete, while a genuinely empty initial source is accepted."
+why = "A missing mount or denied directory can otherwise turn a routine backup into loss of the current saved state."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["store-mutation","filesystem","unattended"]
+
+[need.SN-046]
+status = "Drafted"
+need = "Leave the files being protected untouched by backup work."
+acceptance = "Backup, content checking and optional measurements do not alter source bytes, names, modification times or directory properties, and can operate with read-only source access."
+why = "A protection tool that changes the originals creates the very loss it is meant to prevent."
+priority = "M"
+stakeholder_refs = ["STK-01"]
+tags = ["filesystem"]
+
+[need.SN-047]
+status = "Drafted"
+need = "Know whether an existing backup is supported before an upgraded or different installation uses it."
+acceptance = "Supported existing backups retain their meaning and recoverability. Unsupported formats are refused before store or restore-target changes with an explanation and a safe next step; the system never silently converts an existing store or misreads it as empty."
+why = "An upgrade must not make preserved history silently unreadable or overwrite it as a new backup."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-02"]
+tags = ["store-format","restore-host"]
+lifecycle = "Startup"
+
+[need.SN-048]
+status = "Drafted"
+need = "Recover files without harming the backup or writing outside the destination I chose."
+acceptance = "A restore never overwrites its source store and never lets a stored name or redirected path place output outside the selected target. Unsafe destinations are refused and identified without the unsafe write."
+why = "A recovery attempt must not destroy the remaining backup or unrelated files."
+priority = "M"
+stakeholder_refs = ["STK-02"]
+tags = ["filesystem","restore-host"]
+
+[need.SN-049]
+status = "Drafted"
+need = "Keep routine backups, health checks and recovery practical for a large personal library."
+acceptance = "For declared library sizes, supported storage and host resources, published elapsed-time, memory and temporary-space budgets are met; measurements include large file counts and shared history, and an exceeded budget is visible to the owner."
+why = "A correct operation that cannot fit the available host resources or maintenance window leaves the library unprotected."
+priority = "S"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["scale"]
+
+[need.SN-050]
+status = "Drafted"
+need = "Understand what an operation is doing and what needs attention when it cannot finish."
+acceptance = "During long operations the owner can see current work and progress. Completion records identify affected sets or paths, failures and their causes, counts of completed and failed work, and actionable next steps; optional-feature warnings are distinguishable from data failures."
+why = "Opaque long runs and vague errors prevent timely intervention and sensible retries."
+priority = "S"
+stakeholder_refs = ["STK-01","STK-02","STK-03"]
+tags = ["unattended"]
+
+[need.SN-051]
+status = "Drafted"
+need = "Let the backup host distinguish an invalid backup request from an operational backup failure."
+acceptance = "Automated callers can distinguish complete success, invalid or unsupported configuration, and failed backup sets without interpreting narrative logs; partial failure never becomes success."
+why = "A supervisor needs to know whether retrying the job can help or the owner must fix its settings."
+priority = "S"
+stakeholder_refs = ["STK-03"]
+tags = ["unattended"]
+
+[need.SN-052]
+status = "Drafted"
+need = "Save what can be saved despite individual source failures without losing previously saved versions."
+acceptance = "Temporary source-access failures receive bounded opportunities to clear; persistent failures do not stop independent files. The result identifies every unsaved file and is incomplete, never claims content that was not saved, and retains any previously saved version. Waiting for repeated failures is bounded for the whole job."
+why = "A momentary lock should not cost a unique file its backup, while an unreadable tree must not stall the schedule indefinitely."
+priority = "M"
+stakeholder_refs = ["STK-01","STK-03"]
+tags = ["store-mutation","unattended"]
+
+[need.SN-053]
+status = "Drafted"
+need = "Recover all recoverable files even when some saved content is lost."
+acceptance = "With a trusted supported saved description and usable target, damage to an individual entry does not stop recovery of independent entries. The restorer receives every recoverable file and an incomplete result naming each remaining file and cause."
+why = "A damaged backup may still contain irreplaceable files that must not be withheld because others are gone."
+priority = "M"
+stakeholder_refs = ["STK-02"]
+tags = ["restore-host"]
+
+[need.SN-054]
+status = "Drafted"
+need = "Use optional authenticated notification without exposing my account secrets in ordinary settings or reports."
+acceptance = "Notification secrets are accessible only to authorized users and processes and are not revealed in ordinary settings, diagnostics or backup handoffs."
+why = "A monitoring convenience must not disclose credentials that grant access to other services."
+priority = "M"
+stakeholder_refs = ["STK-01"]
+tags = ["unattended"]
+
+[need.SN-055]
+status = "Drafted"
+need = "Apply recovery improvements to existing supported backups without changing their saved history."
+acceptance = "On explicit request, existing supported recovery points gain updated recovery capability while retaining their saved paths, bytes and metadata; incompatible updates are identified and refused safely. Merely making a new backup does not replace historical recovery capability."
+why = "A correction that reaches only future backups leaves older recovery points exposed to avoidable failures."
+priority = "S"
+stakeholder_refs = ["STK-01","STK-02"]
+tags = ["store-mutation","store-format","restore-host"]

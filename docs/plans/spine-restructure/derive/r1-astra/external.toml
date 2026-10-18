@@ -1,0 +1,333 @@
+# Independently derived round-1 proposal; all rows await review.
+
+[entity.EXT-01]
+name = "Owner as operator"
+class = "operational"
+description = "The person choosing protected data, destinations, schedules, retention and health checks."
+status = "Drafted"
+
+[entity.EXT-02]
+name = "Future restorer"
+class = "operational"
+description = "The owner or another holder of the backup who initiates recovery, possibly on a foreign machine under stress."
+status = "Drafted"
+
+[entity.EXT-03]
+name = "Backup host"
+class = "operational"
+description = "A scheduler, NAS, home server or supervisory system invoking unattended work and interpreting results. HomeHub is one example, not a required integration."
+status = "Drafted"
+mediates = "EXT-01"
+
+[entity.EXT-04]
+name = "Source filesystem"
+class = "enabling"
+description = "The filesystem exposing selected source bytes, paths, directory structure, times, attributes and read failures."
+status = "Drafted"
+
+[entity.EXT-05]
+name = "Backup storage volume"
+class = "enabling"
+description = "The storage service holding current and historical saved content, metadata and persistent coordination, potentially across multiple volumes or a network share."
+status = "Drafted"
+
+[entity.EXT-06]
+name = "Restore host"
+class = "enabling"
+description = "The operating system and desktop or shell environment in which the bundled restore capability executes, including Windows, Linux and macOS."
+status = "Drafted"
+
+[entity.EXT-07]
+name = "Restore target filesystem"
+class = "enabling"
+description = "The destination selected for recovered files and directories, providing capacity, path, time and attribute semantics."
+status = "Drafted"
+
+[entity.EXT-08]
+name = "PowerShell runtime"
+class = "enabling"
+description = "The supported runtime for the backup engine and PowerShell recovery route."
+status = "Drafted"
+
+[entity.EXT-09]
+name = "Hashing library"
+class = "enabling"
+description = "System.IO.Hashing supplies XXH128 content identity to the PowerShell route."
+status = "Drafted"
+
+[entity.EXT-10]
+name = "Archive utility"
+class = "enabling"
+description = "7-Zip or compatible supported utility supplies compression and expansion when required."
+status = "Drafted"
+
+[entity.EXT-11]
+name = "Media measurement utility"
+class = "enabling"
+description = "Optional ffprobe capability reports media duration and bitrate information."
+status = "Drafted"
+
+[entity.EXT-12]
+name = "POSIX restore toolchain"
+class = "enabling"
+description = "The documented bash, awk, xxhsum and host utilities used by the standalone Linux and macOS recovery route; archive extraction is a separate party."
+status = "Drafted"
+
+[entity.EXT-13]
+name = "Notification relay"
+class = "interoperating"
+description = "The configured SMTP service accepting outcome mail and returning delivery errors."
+status = "Drafted"
+
+[entity.EXT-14]
+name = "Dependency package feed"
+class = "interoperating"
+description = "The package source from which first-use setup can acquire required dependencies; recovery does not depend on downloading backup-specific packages."
+status = "Drafted"
+
+[entity.EXT-15]
+name = "Container runtime"
+class = "enabling"
+description = "The host container platform providing mounts, process execution, user identity and lifecycle control."
+status = "Drafted"
+
+[entity.EXT-16]
+name = "Self-contained backup folder"
+class = "deliverable"
+description = "The complete portable store handed to a future restorer: retained state descriptions, all shared content needed for them, and bundled recovery capability. An isolated snapshot directory is not necessarily the complete shared pool."
+status = "Drafted"
+
+[entity.EXT-17]
+name = "Out-of-band storage actor"
+class = "operational"
+description = "Antivirus, cloud synchronization or a person manipulating the backup outside FileBackup."
+status = "Drafted"
+
+[entity.EXT-18]
+name = "Working-state and diagnostic storage"
+class = "enabling"
+description = "Writable locations for source change-detection state, operational logs and optional browse output, logically separate from protected source data."
+status = "Drafted"
+
+[entity.EXT-19]
+name = "Credential protection facility"
+class = "enabling"
+description = "The host-provided protection used to retain and retrieve notification secrets where authenticated notification is supported."
+status = "Drafted"
+
+[boundary.B-01]
+entity = "EXT-01"
+direction = "in"
+carries = "Operator settings, action requests, selected history removals and explicit safety overrides enter the system."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-02]
+entity = "EXT-01"
+direction = "out"
+carries = "Operation progress, completion summaries, warnings, remediation guidance, health findings and snapshot space reports are presented to the owner."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-03]
+entity = "EXT-02"
+direction = "in"
+carries = "The restorer selects a saved state and destination, requests interactive or scripted recovery and chooses verification strictness."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-04]
+entity = "EXT-02"
+direction = "out"
+carries = "Recovery guidance, progress, unverified-data warnings and the final result with affected paths are presented to the restorer."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-05]
+entity = "EXT-03"
+direction = "in"
+carries = "The backup host supplies settings and invokes backup, inventory, verification or explicit maintenance requests."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-06]
+entity = "EXT-03"
+direction = "out"
+carries = "Machine-readable outcomes, per-set results, health findings and retention cost reports return to the backup host."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-07]
+entity = "EXT-04"
+direction = "in"
+carries = "Source bytes, literal names, directory membership, times, attributes and read or enumeration failures enter through read-only observation."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-08]
+entity = "EXT-05"
+direction = "inout"
+carries = "Stored content, state descriptions, recovery kits and ownership state are read or published, and selected obsolete content is removed."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-09]
+entity = "EXT-05"
+direction = "in"
+carries = "Backup-volume capacity, identity, access failures and coordination outcomes are observed."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-10]
+entity = "EXT-06"
+direction = "inout"
+carries = "Recovery uses host execution and optional destination-selection facilities and observes platform capabilities and failures."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-11]
+entity = "EXT-07"
+direction = "out"
+carries = "Verified recovered bytes at saved paths, saved times and directory properties are written within the selected destination."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-12]
+entity = "EXT-07"
+direction = "in"
+carries = "Target capacity, access, resolved paths, metadata capabilities and recovered-byte readback are observed."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-13]
+entity = "EXT-08"
+direction = "inout"
+carries = "Execution requests and runtime version or availability checks yield execution results or incompatibility errors."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-14]
+entity = "EXT-09"
+direction = "inout"
+carries = "Content bytes supplied to hashing produce a canonical digest or a reported computation failure."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-15]
+entity = "EXT-10"
+direction = "inout"
+carries = "Compression or expansion requests with content yield encoded or decoded bytes and completion or failure results."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-16]
+entity = "EXT-11"
+direction = "inout"
+carries = "Optional media inspection requests yield measurements or a reported unavailable result."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-17]
+entity = "EXT-12"
+direction = "inout"
+carries = "Standalone recovery invokes supported shell, text, hashing and filesystem capabilities and receives results or capability failures."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-18]
+entity = "EXT-13"
+direction = "inout"
+carries = "Outcome mail and authorized authentication are submitted to the configured relay, which acknowledges acceptance or reports failure."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-19]
+entity = "EXT-14"
+direction = "inout"
+carries = "Provisioning requests identify required dependency packages and receive package bytes or acquisition errors."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-20]
+entity = "EXT-15"
+direction = "inout"
+carries = "Container startup receives mounted paths, settings and execution identity and returns the operation result at process termination."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-21]
+entity = "EXT-16"
+direction = "out"
+carries = "A complete backup store with its saved-state descriptions, shared content and standalone recovery capability is made available for handoff."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-22]
+entity = "EXT-16"
+direction = "in"
+carries = "A locally present or relocated backup folder supplies the chosen saved state and its available content to standalone recovery."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-23]
+entity = "EXT-18"
+direction = "inout"
+carries = "Change-detection state, diagnostic records and optional browse output are read or written with access failures reported."
+system = "operation"
+status = "Drafted"
+
+[boundary.B-24]
+entity = "EXT-19"
+direction = "inout"
+carries = "Authorized notification credentials are protected or retrieved through the host facility without entering ordinary reports."
+system = "operation"
+status = "Drafted"
+
+[relationship.REL-01]
+from = "EXT-01"
+to = "EXT-03"
+kind = "delegates"
+flow = "The owner sets the external schedule and retention policy; the host decides when to invoke work and which saved states to request removal of."
+status = "Drafted"
+
+[relationship.REL-02]
+from = "EXT-03"
+to = "EXT-15"
+kind = "operates"
+flow = "The backup host provisions and starts the container runtime with the intended mounts and identity."
+status = "Drafted"
+
+[relationship.REL-03]
+from = "EXT-17"
+to = "EXT-05"
+kind = "alters"
+flow = "Out-of-band actors may delete, quarantine, replace or synchronize stored content independently of FileBackup."
+status = "Drafted"
+
+[relationship.REL-04]
+from = "EXT-01"
+to = "EXT-02"
+kind = "hands-off"
+flow = "The owner transfers custody of the complete backup folder and knowledge of required restore prerequisites to the future restorer."
+status = "Drafted"
+
+[relationship.REL-05]
+from = "EXT-13"
+to = "EXT-01"
+kind = "delivers"
+flow = "The notification service transports accepted mail to the owner; relay acceptance alone is not proof the owner read it."
+status = "Drafted"
+
+[relationship.REL-06]
+from = "EXT-02"
+to = "EXT-06"
+kind = "provisions"
+flow = "The restorer obtains a usable machine and its documented tool prerequisites."
+status = "Drafted"
+
+[relationship.REL-07]
+from = "EXT-06"
+to = "EXT-07"
+kind = "mounts"
+flow = "The restore host exposes the selected filesystem with its actual access rights, name rules and metadata capabilities."
+status = "Drafted"
