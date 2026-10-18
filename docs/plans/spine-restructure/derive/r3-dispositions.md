@@ -329,3 +329,19 @@ two more operations.
 
 The changed rows then go to one bounded convergence check (a fresh session, no
 earlier verdicts), scoped to them.
+
+## Convergence check of the closing fixes
+
+Input: `r3i-convergence-sol/` (Codex gpt-6.1-sol, high, a fresh session),
+scoped to the 22 rows changed at `c44a4e2`: 1 BLOCKER, 2 MAJOR, 0 MINOR. All
+three are **confirmed** and fixed by `r3-merged/_r3j_apply.py`
+(`r3h-change-log.md`, round 3j).
+
+| Finding | Rows | Disposition and fix |
+|---|---|---|
+| R3I-001 (BLOCKER) | LLR-162, LLR-118, IF-015, SR-082 | Confirmed. The first run that writes version 4 over a latest state bound by version-3 evidence could, killed after replacing the folder record with an equal-count one, leave a state that restores the old files with the new folders and reports 0. A new step S12: where the published evidence is of version 3, the run first publishes version-4 evidence for the unchanged state, by one rename, before it replaces any record. The table's closing caveat is replaced by that guard. Steps S12 to S26 become S13 to S27. |
+| R3I-002 (MAJOR) | SR-082, SR-106, LLR-123 | Confirmed. P-16 had reached SR-082's acceptance but not its requirement, and LLR-123 still gave 4 to any publication outlasting the wait. SR-082's requirement admits a state restored with its folder or link metadata left unapplied and reported as part failed; SR-106's acceptance says the same for a reader during a writer; LLR-123's 4 is limited to the record of contents. SN-013 is not edited: the files restore as recorded and the unapplied metadata is reported, which is not a wrong restore. The Owner may still want the need's wording to say so. |
+| R3I-003 (MAJOR) | LLR-162, LLR-124 | Confirmed. The reclaim's identity-mismatch rollback was missing from the table, and its order was open. The rollback moves the folders back in reverse order (the saved-state root's first), so a kill or a failed move back leaves R2's or R1's shape. It is the table's new R3; R3 to R5 become R4 to R6. |
+
+These fixes have not had a convergence check of their own. The method allows
+one scoped check per pass, so whether to run another is the Owner's call.

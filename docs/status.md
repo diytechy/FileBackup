@@ -36,16 +36,18 @@ last) — it is the record, not required reading for every pass.
   `check.ps1`) is expected to fail on the new spine shape until the tooling
   phase; do not "fix" the spine to satisfy the old checker.
   **RESUME HERE:** [plans/spine-restructure/handoff-2026-10-18-test-cases.md](plans/spine-restructure/handoff-2026-10-18-test-cases.md).
-  **Next:** close the design tier's last findings: one BLOCKER on the outcome
-  where a restore cannot test the claim (P-14), and the staging sequence's
-  kill points as one enumerated LLR. Then one scoped convergence check. Then
-  round 4, the test cases, regenerated from the new LLRs; it needs the
-  ai-template test-tagging ruling first. Fourteen Owner rulings (P-01..P-14)
-  are pending, each written to its default; the list is in the handoff. The
-  need tier (48), SR tier (123) and design tier (24 CMP, 45 IF, 139 LLR in
-  `requirements/*.toml`) are Drafted, awaiting the Owner's approval, which
-  only a reviewed Status-change commit gives. `test/test-cases.csv` still
-  points at old ids until round 4 rebuilds it.
+  **Design tier closed (2026-10-18, rounds 3h and 3j).** The Owner ruled
+  P-14 (a), P-15 (evidence version 4) and P-16. The staging sequence is one
+  enumerated table (LLR-162). The scoped convergence check's 1 BLOCKER and
+  2 MAJOR are fixed but not re-checked; the Owner decides whether to run one
+  more scoped check. **Next:** the Owner's remaining rulings (P-01..P-13,
+  each written to its default), then the Owner's approval of the need,
+  SR and design tiers. Then round 4, the test cases, regenerated from the new
+  LLRs; it needs the ai-template test-tagging ruling first. The need tier
+  (48), SR tier (123) and design tier (24 CMP, 45 IF, 140 LLR in
+  `requirements/*.toml`) are Drafted; only a reviewed Status-change commit
+  approves them. `test/test-cases.csv` still points at old ids until round 4
+  rebuilds it.
 
 - **M-1 SINGLE PROBE PASS (2026-10-10, branch fix-m1-single-probe-pass off New_Fix_Batch;
   NOT merged, awaiting review).** Review finding (performance, the Owner's NTFS probing

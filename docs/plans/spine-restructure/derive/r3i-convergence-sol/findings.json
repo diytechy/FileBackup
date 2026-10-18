@@ -1,0 +1,36 @@
+[
+  {
+    "id": "R3I-001",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-162",
+      "LLR-118",
+      "IF-015",
+      "SR-082"
+    ],
+    "finding": "The first publication over version-3 evidence can restore a mixed tree as complete. IF-015 says version 3 binds folder/link records only by row count. LLR-118 and S13/S14 replace those records before the contents record and evidence. Take an existing state with file f=old and empty folder A, then a run changing f to new and replacing A with empty folder B (the folder count stays one). Kill at S13: the old contents record still matches its version-3 evidence, and the new folder record still matches the old count. The restore therefore applies B to the old files and can return 0: neither the pre-run nor post-run tree. LLR-162's final paragraph explicitly acknowledges that equal-count changes are unseen, but supplies no guard. This contradicts SR-082's prohibition on a wrong restore; it is not the detected-metadata gap for which exit 1 is allowed.",
+    "suggested_fix": "Before replacing any folder/link record protected only by version-3 counts, establish digest-binding evidence for the unchanged published state, or use another publication order that cannot accept mixed generations. Include that transition and its kill points in LLR-162, and require the equal-count folder/link-change case to restore the old/new state or take the agreed incomplete/refusal path, never return complete with mixed metadata."
+  },
+  {
+    "id": "R3I-002",
+    "severity": "MAJOR",
+    "rows": [
+      "SR-082",
+      "LLR-123",
+      "LLR-162"
+    ],
+    "finding": "A metadata-only publication past the restore wait has incompatible outcome obligations. With version-4 evidence, kill or pause at S13/S14 while the old contents record still agrees and only folder/link metadata disagrees. SR-082's acceptance and LLR-162 prescribe restoring the files, skipping the disagreeing metadata and returning 1, matching LLR-039/143/144. But SR-082's requirement permits only restoration as recorded or refusal with damaged-record/retry-later outcomes, and LLR-123 later says a publication outlasting the wait ends with 4, without excluding the metadata-only case its earlier paragraph admits. A writer held past 60 seconds thus has both a return-1 and a return-4 obligation; a killed writer also exposes the SR's closed alternatives versus its acceptance exception. SN-013's closed restore-or-refuse guarantee needs to remain aligned with whichever policy is chosen.",
+    "suggested_fix": "Give metadata-only disagreement one explicit policy consistently in the normative SR, its acceptance and the reader/table rows, retaining alignment with SN-013. If the intended policy is the newly stated file restore plus outcome 1, make that exception explicit and limit LLR-123's outlasted-publication outcome 4 to contents-record disagreement (with the separately defined mixed-kit case)."
+  },
+  {
+    "id": "R3I-003",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-162",
+      "LLR-124",
+      "LLR-088"
+    ],
+    "finding": "The reclaim table is not closed over the reclaim it cites. LLR-124 requires an identity check after moving the areas and, on mismatch, moving the moved folders back before refusing 4. LLR-162 says reclaim changes the store only by R1-R5 in that order, but none lists the identity-check/rollback branch or its interruption points. This is an ordinary branch when a former owner resumes and changes the sampled leftovers. With both areas moved, the unspecified rollback order even permits restoring the backup-root area first and being killed before restoring the saved-state-root area: the backup area then has the old run folder and publication temporaries but no owner record. That is neither R1 (the opposite root remains) nor R2 (no area remains); LLR-088 classifies the ownerless nonempty run folder as content and refuses 2. The table's claim that every reclaim kill reaches one listed shape/verdict is therefore false.",
+    "suggested_fix": "Add the mismatch/rollback path to the closed reclaim sequence, prescribe its root order, and give the intermediate kill shapes their LLR-017/088 verdicts. Prefer an order that reuses the already-safe listed shapes; explicitly cover failed or interrupted rollback rather than letting the forward-only R1-R5 claim exclude a required LLR-124 step."
+  }
+]

@@ -30,3 +30,15 @@ Build list: `r3-merged/design-gaps.md` gains M91 to M95.
 SR-110, SR-144; LLR-007, LLR-017, LLR-038, LLR-039, LLR-040, LLR-088, LLR-118,
 LLR-123, LLR-124, LLR-143, LLR-144, LLR-150, LLR-162; IF-009, IF-015, IF-033,
 IF-044.
+
+## Round 3j: the scoped convergence check's fixes
+
+Applied by `r3-merged/_r3j_apply.py` from `r3-dispositions.md`, "Convergence
+check of the closing fixes". Structural check: 0 errors, 140 LLR, the same 14
+warnings.
+
+| Finding | Rows | What changed |
+|---|---|---|
+| R3I-001 | LLR-162, LLR-118 | New step S12 re-binds a version-3-evidenced latest state by digest before any record is replaced (S12..S26 become S13..S27). |
+| R3I-002 | SR-082, SR-106, LLR-123 | The metadata-only exception (P-16) is in SR-082's requirement and SR-106's acceptance; LLR-123's 4 covers only the record of contents. |
+| R3I-003 | LLR-162, LLR-124 | The identity-mismatch rollback moves back in reverse order; it is the table's new R3 (R3..R5 become R4..R6). |

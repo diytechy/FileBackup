@@ -17,7 +17,7 @@ force" still apply. This one replaces its "Where it stands" and "Open items".*
 | System requirements | `system-requirements.toml` | 123 SR | Drafted. 11 rows edited in round 3 (open item 1's set, plus SR-106, SR-144, SR-146) |
 | **Components** | `components.toml` | 24 CMP | **Drafted, new** |
 | **Interfaces** | `interfaces.toml` | 45 IF (41 boundary, 4 internal) | **Drafted, new**; IF-001 retired |
-| **Low-level requirements** | `low-level-requirements.toml` | 139 LLR (110 top-level, 29 child; 73 legacy ids kept) | **Drafted, new** |
+| **Low-level requirements** | `low-level-requirements.toml` | 140 LLR (110 top-level, 30 child; 73 legacy ids kept) | **Drafted, new**; LLR-162 (the staging table) added 2026-10-18 c |
 | Test cases | `docs/test/test-cases.csv` (legacy) | 234 | **next: round 4** |
 
 The legacy `low-level-requirements.csv` and `interfaces.csv` are removed. The
@@ -55,21 +55,24 @@ The design moved most in two places: the fence and the staging sequence.
 
 ## Open items, in order
 
-1. **Close the design tier's last findings** (recorded in
-   `r3-dispositions.md`, "Final convergence check").
-   - **R3G-003 / P-14:** where the claim cannot be tested, the LLRs give 4
-     and SR-039, SR-082 and SR-110 give 3. Apply P-14 (c), the owner record
-     as a no-writer signal readable without a lock, unless the Owner wants
-     (a).
-   - **R3G-001 and R3G-002:** two more unrecognised kill points. Do not fix
-     them one by one. Write one child LLR under LLR-088 that enumerates
-     every step of the staging sequence, each with the leftover shape a kill
-     there leaves and its verdict, closed over the steps.
-   - **R3G-004:** behaviour out of IF-009 and IF-044.
-   - **SR-144's requirement:** add "in the store", to match P-09 (a).
-
-   Then one bounded convergence check scoped to the changed rows (a fresh
-   session, no earlier verdicts).
+1. **DONE (session 2026-10-18 c, the Owner present): the design tier's last
+   findings.** Records: `r3-dispositions.md` ("Closing the design tier" and
+   "Convergence check of the closing fixes") and `r3h-change-log.md`.
+   - P-14 (c) was **not** taken: only a backup writes an owner record, so a
+     live kit refresh or repair would have read as damage. The Owner ruled
+     (a). The Owner also ruled P-15 (evidence version 4 binds the folder and
+     link records by digest, the evidence renamed last) and P-16 (a folder or
+     link record still disagreeing after the wait: restore the files, leave
+     it unapplied, part failed 1). P-15 was a new hole, found while
+     enumerating the staging sequence.
+   - LLR-162 (a child of LLR-088) is the staging table: S01..S27 for a backup
+     and R1..R6 for a reclaim, each with its leftover shape and verdict.
+     R3G-001, R3G-002, R3G-004 and SR-144 are fixed. The build list gains
+     M91..M95.
+   - The scoped convergence check (`r3i-convergence-sol/`) found 1 BLOCKER and
+     2 MAJOR, all confirmed and fixed (round 3j). **Those fixes are not
+     re-checked.** One more scoped check of LLR-162, LLR-118, LLR-123,
+     LLR-124, SR-082 and SR-106 is the Owner's call.
 2. **The Owner's pending rulings** below. Each is written to its default;
    flipping one is a row edit.
 3. **Owner approval of the need tier, then the SR tier, then the design
@@ -116,7 +119,9 @@ rows affected, are in `r3-dispositions.md`.
 | P-11 | Add the listing location (the views) to the system's own locations for links? | Add it |
 | P-12 | A pre-row-count state missing its folder record: complete (unverified) or part failed? | Complete, with the folder record reported unverified |
 | P-13 | Superseded content is copied into the saved state, then the original is deleted, so every move is fenced; a large edited file then pays a full copy. Accept? | Accept |
-| P-14 | Where the claim cannot be tested (macOS shell route), an unsettled record or mixed kit: 4, a lock tool, or the owner record as the no-writer signal? | **Not yet consistent:** the LLRs give 4 and the SRs give 3. Recommended: the owner record as the signal (item 1) |
+| P-14 | Where the claim cannot be tested (macOS shell route), an unsettled record or mixed kit: 4, a lock tool, or the owner record as the no-writer signal? | **Ruled (a)** by the Owner, 2026-10-18: 4, the message stating that the record is damaged unless a changing operation is running |
+| P-15 | Bind the folder and link records to the evidence by digest? | **Ruled**: evidence version 4 |
+| P-16 | A folder or link record alone still disagreeing after the wait? | **Ruled**: restore the files, leave it unapplied, part failed (1) |
 
 ## Traps learned this round
 
@@ -137,3 +142,13 @@ rows affected, are in `r3-dispositions.md`.
 - **A builder told "don't mint interfaces to place rows"** drops `constrains`
   cells, so rows show as unplaced (63 of 139). That is allowed, but expect
   the dashboard's component view to be sparse until the code headers exist.
+- **Only a backup writes an owner record** (LLR-080). A repair and a kit
+  refresh hold only the operating-system claim (LLR-094), and a removal leaves
+  its marker. Any "no writer" inference from the owner record alone is wrong
+  for those operations. Check which operations produce a signal before
+  relying on it.
+- **An enumerated table finds what prose hides.** Writing the staging table
+  surfaced a hole no review round had named: the folder and link records were
+  published apart from the record and evidence, bound by count only (P-15).
+  The table's own convergence check then found the version-3-to-4 transition
+  and the reclaim rollback missing. Expect a table to need one more pass.
