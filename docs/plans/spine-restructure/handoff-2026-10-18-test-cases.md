@@ -104,9 +104,21 @@ The design moved most in two places: the fence and the staging sequence.
    (P-01, P-03, P-13 among them), P-04 found and queued a live defect (M96:
    every UNC backup skips its space check today), and P-02 added SR-153 and
    LLR-163.
-3. **Owner approval of the need tier, then the SR tier, then the design
+3. **Finish the design layer (corrected order, session d).** The design tier
+   had its components, interfaces and LLRs, but not the architecture step's own
+   outputs. Done in round 3o: `docs/runtime-flows.md` (nine flows, two of them
+   state flows, every cited id checked) and
+   `derive/r3o-decomposition.md` (per-scope states, boundaries and dependency
+   tables, and four calls on the six empty leaf components). **Open: the Owner's
+   Calls 1 to 4**, then applying them (interface rows, placements, the component
+   tree), then the prose re-anchoring the gap map's Phase 3 names
+   (`architecture.md`, `interfaces.md`, AGENTS.md sections 2 and 3). Findings for
+   ai-template are in `AI-TEMPLATE-NOTES.md` at the repo root.
+4. **Owner approval of the need tier, then the SR tier, then the design
    tier.** Each is a reviewed Status-change commit, and only the Owner signs.
-4. **Round 4, the test cases.** Regenerate them from the new LLRs; do not edit
+   (ai-template's target has no approval act for the architecture step itself;
+   see `AI-TEMPLATE-NOTES.md` note 6.)
+5. **Round 4, the test cases.** Regenerate them from the new LLRs; do not edit
    the legacy rows. Use `harvest/tc.json` for the old cases' input sets and
    edges, keep old TC ids where a case maps one to one, and retire the 9
    overlap clusters (gap map Appendix D). Every LLR that constrains an
@@ -115,9 +127,10 @@ The design moved most in two places: the fence and the staging sequence.
    harvested edges. The staging kill-point table (item 1) becomes cases
    directly. **This needs an ai-template ruling first:** the test-tagging
    form, since FileBackup files verify up to 32 TCs each and the kit rule
-   says one tag per file. Run it as before: a brief, two blind derivations,
+   says one tag per file (the review-churn plan says tags may sit on a test
+   function; P8 there is still to be filed). Run it as before: a brief, two blind derivations,
    alignment, a builder, two reviews, dispositions, convergence.
-5. **Then the code:** `r3-merged/design-gaps.md` (90 items) is the build
+6. **Then the code:** `r3-merged/design-gaps.md` (90 items) is the build
    list, plus the `Component:`, `Implements:` and `Contract IF-NNN:` headers,
    then the tooling or a kit resync. Downstream-visible build changes flagged
    in round 3:
