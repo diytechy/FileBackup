@@ -43,7 +43,7 @@ status = "Drafted"
 [interface.IF-003]
 title = "Operation outcome value"
 owner = "CMP-002"
-consumers = ["external:EXT-03", "external:EXT-01", "CMP-005"]
+consumers = ["external:EXT-03", "external:EXT-01", "CMP-005", "CMP-023"]
 channel = "process exit status"
 interface_to_external = ["B-08"]
 bridged_by = ["DA-09"]
@@ -61,7 +61,7 @@ status = "Drafted"
 [interface.IF-004]
 title = "Configuration settings catalogue"
 owner = "CMP-003"
-requestors = ["external:EXT-01", "external:EXT-03", "CMP-002"]
+requestors = ["external:EXT-01", "external:EXT-03", "CMP-002", "CMP-004", "CMP-005"]
 channel = "configuration document"
 interface_from_external = ["B-05", "B-07"]
 carried_by = ["IF-005", "IF-006"]
@@ -793,8 +793,8 @@ title = "Location operation request and result"
 owner = "CMP-002"
 consumers = ["CMP-009", "CMP-011", "CMP-013", "CMP-014", "CMP-015"]
 channel = "in-process call"
-data = """Request, once for each configured location: the action, one of a backup, a removal (the saved states named, and whether it is a dry run), the saved-state report, a check (whether to repair, to refresh the kits, to read every stored object, or to check the latest state only) or a view rebuild; the location set as admitted (IF-004); the dependencies resolved at launch (IF-051); whether the launch has an interactive session; and the record to write to (IF-009).
-Answer: one outcome value of the shared vocabulary (the set of IF-003); each refusal or failure with its class, what was found and what to do; and, for a check and for the saved-state report, the findings document (IF-010, IF-047)."""
+data = """Request, once for each configured location: the action, one of a plan (for a backup: a reader's pass that changes nothing and answers with the location's space demand on each volume), a backup, a removal (the saved states named, and whether it is a dry run), the saved-state report, a check (whether to repair, to refresh the kits, to read every stored object, or to check the latest state only) or a view rebuild; the location set as admitted (IF-004); the dependencies resolved at launch (IF-051); whether the launch has an interactive session; and the record to write to (IF-009).
+Answer: for a plan, the demand on each volume (the volume's identity and the bytes needed); otherwise one outcome value of the shared vocabulary (the set of IF-003); each refusal or failure with its class, what was found and what to do; and, for a check and for the saved-state report, the findings document (IF-010, IF-047)."""
 rationale = """Every operation reports to the launch in one form, so the fold into one value and the never-prompt rule are decided once. Letting each operation return its own shape lost because the launch would need to know each one to fold them."""
 version = "1"
 status = "Drafted"
@@ -804,7 +804,7 @@ title = "Change set"
 owner = "CMP-009"
 consumers = ["CMP-011"]
 channel = "in-process call"
-data = """For one location and one walk: each walked file with its path, size, modification time and attributes, and one of new, changed (with its digest), unchanged (with its recorded digest) or removed; each entry not captured, with its cause, kept with its earlier content; each name refused, with its reason; each folder to record (empty, or carrying an attribute) and each link to record, for the folder record (IF-017) and the link record (IF-018); and whether the change-detection state was rebuilt, and why."""
+data = """For one location: each walked file with its path, size, modification time and attributes, and one of new (with its digest), changed (with its digest) or unchanged (with its recorded digest and stored-copy reference); each entry of the latest record that no walked file matches, as removed, with its path and recorded digest; each entry not captured, and each name refused, with its cause, kept with its earlier entry where there is one; each folder to record (empty, or carrying an attribute) and each link to record, for the folder record (IF-017) and the link record (IF-018); whether a full re-read was due, when it began and whether it completed; whether the change-detection state was rebuilt, and why; and the location's wait budget left (seconds)."""
 rationale = """Publication must not repeat the walk or the comparison, and change detection must not know how states are published; the change set is the narrow value between the two decisions. Publication reading the change-detection record itself lost because the comparison rules would then live in two places."""
 version = "1"
 status = "Drafted"
@@ -814,15 +814,15 @@ title = "Entry results"
 owner = "CMP-019"
 consumers = ["CMP-021"]
 channel = "in-process call"
-data = """For each entry of the chosen state's record, one of: restored and verified, with whether one recovery from another copy was needed; or not restored, with its cause and its class, one of content that could not be produced, two names colliding on the target, an entry escaping the target, or a host fault."""
-rationale = """The restore's one value and its report are decided from these results alone, the same on every route. Classifying inside entry restoration lost because the precedence over whole-restore faults and per-entry faults would then be split across two places."""
+data = """For each entry of the chosen state's record, one of: restored and verified, with, where one recovery from another copy was needed, the folder that copy came from; or not restored, with its cause and its class, one of content that could not be produced, two names colliding on the target, an entry escaping the target, or a host fault."""
+rationale = """The outcome classification must not repeat the content search or the verification; these results are the narrow value between the two. Classifying inside entry restoration lost because the precedence over whole-restore faults (IF-054) and per-entry faults would then be split across two places."""
 version = "1"
 status = "Drafted"
 
 [interface.IF-051]
 title = "Resolved dependencies"
 owner = "CMP-004"
-consumers = ["CMP-002", "CMP-011", "CMP-013", "CMP-014", "CMP-015"]
+consumers = ["CMP-002", "CMP-009", "CMP-011", "CMP-013", "CMP-014", "CMP-015"]
 channel = "in-process call"
 data = """Once for each launch: the runtime version and whether it meets the floor; the archive tool's location, or absent; the media-measurement tool's location, or absent, an absent one being a skipped extra; the hashing component, loaded; and the compression effort (IF-007)."""
 rationale = """Every location of a launch uses the same tools, found once; resolving them per location lost because one launch could then compress with two different tools, and a missing tool would be reported once per location."""
@@ -835,7 +835,27 @@ owner = "CMP-006"
 requestors = ["CMP-002", "CMP-003", "CMP-004", "CMP-005", "CMP-009", "CMP-011", "CMP-012", "CMP-013", "CMP-014", "CMP-015"]
 channel = "in-process call"
 data = """Request: one entry, as its level (one of DEBUG, INFO, WARN, ERROR) and one message of a kind the run record lists (IF-009), a refusal carrying its token, what was found and what to do; and whether it belongs to the global record, the location's record, or both.
-Answer: none. Writing an entry never changes the operation's outcome."""
+Answer: none."""
 rationale = """Every component reports into the one record through one entry form, so the record's grammar and its location rules live in one place. Each component writing the files itself lost because the grammar, the tokens and the rule that no record is created before admission would each be repeated."""
+version = "1"
+status = "Drafted"
+
+[interface.IF-053]
+title = "Admitted restore"
+owner = "CMP-017"
+consumers = ["CMP-019"]
+channel = "in-process call"
+data = """Once for each restore, after every whole-restore check has passed: the chosen state's folder and its record of contents (IF-014), the target's resolved physical location, the folders of the pool (the backup root and every saved-state folder), and the tools the route admitted (IF-024); then, one at a time, each entry of that record to restore."""
+rationale = """Entry restoration must not repeat the admission checks or choose the state itself; the admitted restore is the narrow value between the two. Letting entry restoration read the request lost because the request names a state and roots the admission may have resolved differently."""
+version = "1"
+status = "Drafted"
+
+[interface.IF-054]
+title = "Whole-restore results"
+owner = "CMP-017"
+consumers = ["CMP-021"]
+channel = "in-process call"
+data = """Before anything is written: each whole-restore check, passed, or failed with its cause and its class, one of a bad request, a precondition not met, a damaged record, or a kit or record not settled. After every file is written: each folder, folder attribute, link or file time not applied, with its cause."""
+rationale = """The restore's one value takes whole-restore faults over per-entry ones; the outcome classification must see both kinds, each in its own form. Folding these into the entry results lost because a refusal before any entry, and a folder not applied after every entry, belong to no entry."""
 version = "1"
 status = "Drafted"

@@ -28,9 +28,13 @@ per-scope boundary and dependency analysis that goes with these flows is in
 stateDiagram-v2
     direction LR
     [*] --> Started: a launch request, directly or from the container (LLR-016, LLR-048)
-    Started --> Refused: a bad request, a refused configuration, or a missing tool (LLR-042, LLR-020)
-    Started --> Admitted: every location set validated, dependencies resolved once (LLR-042, LLR-164)
-    Admitted --> Running: dispatch each configured location in turn (LLR-014)
+    Started --> Refused: a bad request or a refused configuration, before anything is loaded (LLR-042)
+    Started --> Admitted: every location set validated (LLR-042)
+    Admitted --> Refused: a missing runtime or tool (LLR-020)
+    Admitted --> Provisioned: dependencies resolved once for the launch (LLR-164)
+    Provisioned --> Planned: for a backup, every location planned as a reader and demand summed per volume (LLR-052)
+    Provisioned --> Running: any other action (LLR-014)
+    Planned --> Running: locations on a short or unmeasurable volume refused, the rest dispatched (LLR-052, LLR-014)
     Running --> Running: next location, whatever the last one's value (LLR-014)
     Running --> Folded: every location has a value (LLR-014, LLR-043)
     Folded --> Notified: one message where set up, a failed send changes nothing (LLR-015)
@@ -74,26 +78,13 @@ S01 to S27 (LLR-162) at the level a reviewer reads them.
 sequenceDiagram
     autonumber
     participant Op as Launch and outcome (CMP-002)
-    participant Cfg as Configuration (CMP-003)
     participant Scan as Source scan and change detection (CMP-009)
     participant Guard as Exclusive-use guard (CMP-012)
     participant Pub as Content storage and publication (CMP-011)
     participant Store as Store format (CMP-016)
     participant Views as Views (CMP-015)
-    Op->>Cfg: validate every location set before the first runs (LLR-042)
-    Note over Op,Cfg: no record is created or truncated before admission (LLR-095)
-    Op->>Scan: walk the source read-only, every entry, links classified (LLR-001, LLR-109, LLR-112)
-    Scan->>Scan: names refused, entries not captured are named, a briefly unreadable file retried within the location's limit (LLR-055, LLR-111, LLR-067)
-    alt the source suddenly looks empty and is not declared so
-        Scan-->>Op: refused, nothing changed (LLR-036)
-    end
-    Scan->>Scan: compare size and time, re-read when due (LLR-113, LLR-011)
-    Scan->>Scan: keep the change-detection record at the source root or its configured location (LLR-115, LLR-114)
-    Scan->>Pub: the change set (IF-049)
-    Pub->>Pub: space plan as a reader, before anything is created (LLR-052, LLR-135)
-    alt a volume lacks space or cannot be measured
-        Pub-->>Op: refused, 2, nothing created
-    end
+    Note over Op,Pub: the location arrives admitted and already planned with every other location, as a reader (flow 9)
+    Op->>Pub: run the backup for this location (IF-048)
     Pub->>Guard: take the claim (LLR-090, LLR-091)
     alt claim held by another operation
         Guard-->>Pub: held, refused busy 4, touching nothing (LLR-122)
@@ -110,6 +101,16 @@ sequenceDiagram
         Guard->>Guard: staging areas, run folders, owner record, refresh timer (LLR-161, LLR-080, S01 to S05)
     end
     Note over Guard,Pub: the location's record opens in the run folder (LLR-095, S06)
+    Pub->>Pub: blank the references to stored copies no longer present (LLR-053)
+    Pub->>Scan: the change set against the latest record as it now is (IF-049)
+    Scan->>Scan: walk the source read-only, every entry, links classified (LLR-001, LLR-109, LLR-112)
+    Scan->>Scan: names refused, entries not captured are named, a briefly unreadable file retried within the location's wait budget (LLR-055, LLR-111, LLR-067)
+    alt the source suddenly looks empty and is not declared so
+        Scan-->>Pub: refused, nothing changed (LLR-036)
+    end
+    Scan->>Scan: compare size and time, re-read when due (LLR-113, LLR-011)
+    Scan->>Scan: keep the change-detection record at the source root or its configured location (LLR-115, LLR-114)
+    Scan-->>Pub: the binding change set, the re-read's result, the wait budget left (IF-049)
     Pub->>Pub: plan again under the claim, binding (LLR-052)
     Pub->>Pub: content lost from the store is stored again, existing content adopted only where present (LLR-053)
     loop each new content, once per content key
@@ -122,7 +123,7 @@ sequenceDiagram
     loop each superseded or removed content
         Pub->>Store: rename into the saved state on one volume, verified copy then delete on two (LLR-059, LLR-150, S18 to S20)
     end
-    Pub->>Store: run-state record through the run folder (LLR-028, S21)
+    Pub->>Store: run-state record through the run folder, with the re-read's start where it completed (LLR-028, S21)
     Pub->>Store: collapse duplicates across states (LLR-026, S22 to S23)
     Op->>Views: rebuild the views where on, with the media rate where measured (LLR-061, LLR-132, LLR-133, LLR-134)
     Note over Scan,Pub: the run reads what changed, not the history (LLR-149)
@@ -331,6 +332,7 @@ sequenceDiagram
     actor Host as Host scheduler or owner
     participant Ctr as Container (CMP-023)
     participant Op as Launch and outcome (CMP-002)
+    participant Cfg as Configuration (CMP-003)
     participant Prov as Provisioning (CMP-004)
     participant Rec as Run record (CMP-006)
     participant Ntf as Notification (CMP-005)
@@ -340,15 +342,25 @@ sequenceDiagram
     else direct
         Host->>Op: launch request (LLR-016)
     end
-    Op->>Prov: runtime and every needed tool, before any location (LLR-020, LLR-105, LLR-037)
+    Op->>Cfg: validate every location set and the global record's location, before anything is loaded (IF-004)
+    Note over Op,Cfg: every location set validated, a refusal touching nothing (LLR-042, LLR-155, LLR-095)
+    Op->>Prov: runtime and every needed tool, with the configured tool settings (IF-051)
+    Prov->>Prov: check the runtime, locate the tools, load the hashing component (LLR-020, LLR-105, LLR-037)
     Prov-->>Op: the dependencies, resolved once for the launch (LLR-164)
-    loop each configured location, one failure never stops the next
-        Note over Op,Rec: the location's record opens inside the action, once it holds the backup and has passed admission (LLR-095, S06 in flow 2)
+    opt a backup
+        loop each configured location, as a reader, changing nothing
+            Op->>Op: plan, walk and compare as a reader, demand per volume (IF-048)
+        end
+        Op->>Op: sum the demand per volume, refuse the locations on a short or unmeasurable volume (LLR-052, LLR-135)
+    end
+    loop each location not refused, one failure never stops the next
+        Note over Op,Rec: the location's record opens inside the action, once it holds the backup (LLR-095, S06 in flow 2)
         Op->>Op: dispatch the action for that location and take its value (LLR-014, flows 2, 7, 8)
         Rec->>Rec: changes, failures, counts, progress at least every 2 minutes (LLR-107, LLR-108, LLR-097)
     end
     Op->>Op: fold the locations' values into one (LLR-014, LLR-043)
-    Op->>Ntf: one message where set up, a send failure changes nothing, credentials never written readable (LLR-015, LLR-106)
+    Op->>Ntf: the run's value and record, with the notification settings (IF-003)
+    Ntf->>Ntf: one message where set up, a send failure changes nothing, credentials never written readable (LLR-015, LLR-106)
     Op-->>Host: the value as exit status (LLR-043, LLR-048)
 ```
 

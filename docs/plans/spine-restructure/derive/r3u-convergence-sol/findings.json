@@ -1,0 +1,193 @@
+[
+  {
+    "id": "R3U-001",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-049",
+      "LLR-113",
+      "LLR-003"
+    ],
+    "finding": "The change-set form only enumerates walked files, yet includes removed as one of their states. A removed entry has no walked file: LLR-113 explicitly defines removal from the earlier entry that was not walked. Thus a source deletion has no representable item in the new handoff to publication. The new branch also does not explicitly carry the digest that storage needs to group a newly captured file by content key; only changed and unchanged branches specify one.",
+    "suggested_fix": "Close the file-result variants: new and changed carry the captured digest and file metadata; unchanged carries the retained metadata and digest; removed carries the earlier entry/path independently of the walked-file collection; retained failures identify their earlier entry where present."
+  },
+  {
+    "id": "R3U-002",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-048",
+      "IF-049",
+      "CMP-009",
+      "CMP-011",
+      "LLR-067",
+      "LLR-152"
+    ],
+    "finding": "No interface carries the remaining location wait budget from capture to storage. CMP-009 spends the location budget on hashing retries and link waits, while CMP-011 spends it on copying retries. IF-048 supplies no shared budget and IF-049 supplies no consumed or remaining allowance. Independently applying the same 60-second limit on the two sides permits more than the one shared limit LLR-067 and LLR-152 require.",
+    "suggested_fix": "Give the location an explicitly shared budget in its execution context, or pass the consumed/remaining allowance from scan to publication in a defined form. Both capture/link waits and storage retries must charge that same location budget."
+  },
+  {
+    "id": "R3U-003",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-049",
+      "IF-030",
+      "CMP-009",
+      "CMP-011",
+      "LLR-011",
+      "LLR-028"
+    ],
+    "finding": "The scan-to-publication handoff omits the start time and completion status of a scheduled full re-read. CMP-009 decides and performs the re-read, but CMP-011 owns publication of LastHashRun. LLR-011 permits updating that value only for a completed full re-read, and LLR-028 requires the time that re-read began. IF-049 contains file classifications and cache-rebuild information, neither of which supplies that timestamp or an explicit full-re-read result; IF-030 carries the persisted value in the opposite direction.",
+    "suggested_fix": "Define the scan result for a full re-read, including whether one ran, when it began, and whether it completed, and carry it to the run-state publisher. Distinguish a completed re-read from an interrupted or partly unreadable one."
+  },
+  {
+    "id": "R3U-004",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-050",
+      "IF-022",
+      "IF-045",
+      "CMP-019",
+      "CMP-021",
+      "LLR-056",
+      "LLR-029"
+    ],
+    "finding": "A successful entry result states only whether recovery from another copy was needed. The report form requires Recovered: <path> - from <folder>. Entry restoration knows the folder from the content search, but its only result interface to the report component drops it. Two recoveries from different pool folders therefore produce the same IF-050 value although IF-022 requires different report entries.",
+    "suggested_fix": "Include the recovery source folder in the successful recovered-result variant, correlated with the restored entry. Preserve that value from the content-search answer through to the report."
+  },
+  {
+    "id": "R3U-005",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-050",
+      "CMP-017",
+      "CMP-021",
+      "LLR-040",
+      "LLR-066",
+      "LLR-136",
+      "LLR-143",
+      "LLR-144"
+    ],
+    "finding": "There is no interface carrying whole-restore refusal causes or finishing results from the restore kit to the outcome component. IF-050 carries only file-entry restoration results, and its rationale claims the one outcome and report are decided from those results alone. An intact set of restored files with a malformed recorded time or a damaged current folder/link record must nevertheless end with 1; a refusal before entry restoration must also be classified and reported. Those cases provide no corresponding IF-050 result and no other internal input form to CMP-021.",
+    "suggested_fix": "Keep file-entry results as one information kind, and define the separate admission/finishing result information consumed by CMP-021, including causes, applicable classes, and metadata items not applied. Remove the claim that file-entry results alone determine the whole outcome."
+  },
+  {
+    "id": "R3U-006",
+    "severity": "MAJOR",
+    "rows": [
+      "CMP-017",
+      "CMP-019",
+      "IF-020",
+      "IF-014",
+      "IF-024",
+      "IF-050",
+      "LLR-010",
+      "LLR-136",
+      "LLR-158"
+    ],
+    "finding": "The restore parent admits the selected state, target, pool roots and tools, but no internal interface passes that admitted context or an entry request to CMP-019. IF-020 accepts the external restore request at CMP-017, and IF-050 is an output from CMP-019 to CMP-021. The existing disk and host forms do not state the parent-to-entry handoff. Entry restoration cannot select the correct authority, destination and fallback pool from its declared inputs alone.",
+    "suggested_fix": "Declare a typed admitted restore/entry request, owned or defined by the component that provides it and requested or consumed by CMP-019. Include the selected authoritative entry/state, resolved target and pool roots, and admitted tool context, reusing existing field forms where appropriate."
+  },
+  {
+    "id": "R3U-007",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-048",
+      "IF-049",
+      "CMP-002",
+      "CMP-011",
+      "LLR-052",
+      "docs/runtime-flows.md:2",
+      "docs/runtime-flows.md:9"
+    ],
+    "finding": "The launch dispatches complete location operations one at a time, and the new request and change-set interfaces carry one location only. There is no all-location demand exchange or planning phase before the first location writes. LLR-052 instead requires demand summed across every configured location sharing a volume before any location root, claim, staging area or log is created. Two locations that fit separately but exceed a shared volume together cannot be refused by the depicted per-location sequence before the first starts writing.",
+    "suggested_fix": "Make the launch-wide planning stage and its input/output form explicit: collect all relevant location demands, aggregate by volume, and deliver the per-volume admission decisions before dispatching mutations. Retain the separate binding recheck under each claim."
+  },
+  {
+    "id": "R3U-008",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-042",
+      "LLR-014",
+      "LLR-164",
+      "IF-048",
+      "docs/runtime-flows.md:0",
+      "docs/runtime-flows.md:2",
+      "docs/runtime-flows.md:9"
+    ],
+    "finding": "The composed launch order puts provisioning ahead of configuration admission. Flow 9 resolves and loads dependencies before entering its location loop, then dispatches flow 2; flow 2 places validation of every location set inside that dispatched sequence. LLR-042 requires validation before any component is loaded, and IF-048 already assumes an admitted location. Flow 0 describes an admitted launch before dispatch, so the flows give different homes and orders for admission.",
+    "suggested_fix": "Show configuration and location validation, including admission of the global record location, in flow 9 before provisioning and before dispatch. Start flow 2 with an already admitted location, and make flow 0 render that same order."
+  },
+  {
+    "id": "R3U-009",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-049",
+      "LLR-113",
+      "LLR-053",
+      "LLR-091",
+      "docs/runtime-flows.md:2"
+    ],
+    "finding": "Flow 2 computes and hands off the final change set before taking the claim, then reads authoritative store state and heals lost content afterward. LLR-053 requires absent stored-copy references to be blanked before computing the change set; LLR-091 requires decision-bearing store reads under the claim. The later step only remakes the space plan, not the comparison. Even without concurrency, an unchanged source file whose stored object disappeared must be reclassified as changed; the depicted order has already labelled and handed it off as unchanged. With a concurrent writer, reconciliation can also use superseded state.",
+    "suggested_fix": "Keep any preclaim scan/comparison explicitly provisional for the read-only capacity plan. After acquiring the claim and reading/sanitising the current authoritative state, recompute or reconcile the binding change set before storing. State the corresponding scan/publication handoff so publication does not silently duplicate comparison rules."
+  },
+  {
+    "id": "R3U-010",
+    "severity": "MAJOR",
+    "rows": [
+      "CMP-017",
+      "CMP-019",
+      "CMP-021"
+    ],
+    "finding": "The restore-kit parent has responsibilities that belong to neither child. CMP-017 explicitly owns launching and target choice, whole-restore admission, and finishing times/folders/links. CMP-019 owns restoration of individual entries and CMP-021 owns classification and reporting. Consequently the two children do not cover the parent responsibility set under the requested parent/child completeness test. Calling the phases states does not assign their work to a child.",
+    "suggested_fix": "Assign the remaining restore responsibilities to the existing children, extending their responsibility statements as needed, and leave the parent as their composition. Keep the phases as states; this does not require introducing phase components."
+  },
+  {
+    "id": "R3U-011",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-004",
+      "IF-048",
+      "IF-051",
+      "IF-003",
+      "IF-009",
+      "CMP-004",
+      "CMP-005",
+      "docs/runtime-flows.md:9"
+    ],
+    "finding": "The top-level handoffs still omit admitted configuration information needed by provisioning and notification. Provisioning needs the configured tool overrides and whether any selected setting needs the archive tool; IF-051 defines only its resolved output. Notification needs the relay, sender, recipient, port and run suppression choice; its added IF-003 and IF-009 consumer roles supply only outcome and summary records. IF-004 lists neither component as receiving the settings, and IF-048 serves location operations rather than these launch-level components. Flow 9 invokes both without a form for those inputs.",
+    "suggested_fix": "Define the launch-to-provisioning and launch-to-notification input forms, or explicitly reuse the admitted settings form with the correct endpoint roles and add the per-launch choices it does not contain. Keep resolved dependencies and the external mail message as their distinct output forms."
+  },
+  {
+    "id": "R3U-012",
+    "severity": "MINOR",
+    "rows": [
+      "IF-003",
+      "CMP-023",
+      "LLR-048",
+      "docs/runtime-flows.md:9"
+    ],
+    "finding": "The revised operation-outcome consumers omit the container component. CMP-023 and LLR-048 require it to receive the launched operation's value and return exactly that value as the container exit status. IF-002 now correctly names the container as a requestor, but the reverse outcome crossing names only the external host/owner and notification.",
+    "suggested_fix": "Add CMP-023 as a local consumer of IF-003 so the request and return path agree with the container responsibility and flow."
+  },
+  {
+    "id": "R3U-013",
+    "severity": "MINOR",
+    "rows": [
+      "IF-048",
+      "IF-051",
+      "CMP-009",
+      "LLR-164"
+    ],
+    "finding": "The new resolved-dependencies consumer list omits source capture. IF-048 explicitly supplies those dependencies to its location consumers, including CMP-009, and capture takes content digests using the hashing component that IF-051 says provisioning has loaded. The roles therefore disagree about whether source capture receives the launch-resolved dependency value.",
+    "suggested_fix": "Add CMP-009 to IF-051's consumers, or state a different explicit dependency handoff for capture and make IF-048 consistent with it."
+  },
+  {
+    "id": "R3U-014",
+    "severity": "MINOR",
+    "rows": [
+      "IF-052",
+      "LLR-097"
+    ],
+    "finding": "IF-052 ends its form with Writing an entry never changes the operation's outcome. That is an observable behavioural guarantee, not the shape of a request or answer. The constraining LLR-097 specifies refusal content but does not state this guarantee, leaving the new behaviour in the interface cell contrary to the review pointer rules.",
+    "suggested_fix": "Retain Answer: none in the form and move the outcome-preservation guarantee into the constraining LLR, with the relevant successful/failed record-write conditions in its dimensions."
+  }
+]

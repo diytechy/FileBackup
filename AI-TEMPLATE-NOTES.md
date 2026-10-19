@@ -10,6 +10,10 @@ to look in FileBackup, and a suggestion.
 
 Written 2026-10-18. FileBackup paths are relative to its repo root.
 
+A companion file, `ARCHITECTURE-FINDINGS.md`, holds the results of the
+unattended decomposition run: the procedure that worked, the lessons, the
+model ambiguities and a prototype checker.
+
 ## 1. Adopters have no process text for the design layer
 
 **What happened.** FileBackup's `docs/process.md` is the older kit version: it

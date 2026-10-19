@@ -1,0 +1,23 @@
+You are a fresh CONVERGENCE reviewer of FileBackup's design tier (repo C:\Projects\FileBackup). Earlier review rounds exist, but you see none of them: do NOT read anything under docs\plans\, and never read any OWNER_SCRATCHPAD.md.
+
+Scope: ONLY these, which changed in the last pass (a top-level decomposition pass that named the values passing between components):
+- The new internal interfaces IF-048 IF-049 IF-050 IF-051 IF-052, and the LLRs that now constrain them: LLR-014 LLR-113 LLR-056 LLR-164 (new, a child of LLR-020) LLR-097.
+- The consumers and requestors cells of IF-002 IF-003 IF-004 IF-009 IF-014 IF-015, and IF-009's rationale.
+- docs\runtime-flows.md flows 0, 2, 4, 7, 8 and 9 (flow 0 is new).
+- The component tree as a whole (docs\requirements\components.toml, 19 components): judge it against two questions only. (a) Do any two sibling components overlap in responsibility, or does any responsibility of a parent lie in none of its children (Parnas, Clements and Weiss 1985, goal g)? (b) Does any value still pass between two components with no interface row (read the flows and the LLRs)?
+The rows live in docs\requirements\*.toml. You may read any other row as context and the code (Modules\, *.ps1, bash\, container\) to check a claim about today's behaviour; LLR-164 claims the entry point resolves its tools once per launch and passes them to every location, and IF-052 claims every component writes the run record through one entry form.
+
+Stance: convergence, not a fresh hunt. Ask of each scoped item: (1) is it internally sound and consistent with its parents and with the forms it uses; (2) does it contradict any other row or flow (two outcome values, two orders, two forms; an owner or consumer that does not match who produces or uses the value); (3) for the new interfaces: does each carry one information kind in one direction, is its owner the component that produces or defines it, and is its form closed enough to test. Do not raise style, wording preferences, new corners an unchanged row already had, or a wish for more decomposition. Do not raise the absence of module, code_symbol or component cells on LLRs, or the Drafted status, or the validator's rule that a row may not carry both consumers and requestors.
+
+Deliberate decisions, NOT findings in themselves (raise only an item that contradicts them or states them inconsistently):
+- Components describe FileBackup's own internal behaviour; an external system is an external interface, never a component; rows across an external interface resolve to the system root.
+- The restore kit's phases are states of the restore kit, not components; its children are entry restoration (CMP-019) and outcome and report (CMP-021).
+- Source capture is part of CMP-009; content storage is part of CMP-011.
+- The store format (CMP-016) is the one shared definition read and written by both the backup engine and the restore kit, and it also holds the free-space and volume measurement both sides use.
+- The exclusive-use guard (CMP-012) keeps the claim, the owner record's liveness, the staging layout and the reclaim together as one protocol.
+- The content-location index is owned by removal (CMP-013) and consumed by the check and by publication.
+- An LLR need not constrain an interface; an unplaced LLR is counted, not refused.
+
+Rules for judging: C:\Projects\ai-template\docs\plans\2026-10-11-review-churn\pointer-rules.md (an interface states its form only; behaviour lives in the LLR or SR that constrains it; a child LLR carries parent and no sr_refs; no LLR, IF or CMP row names a code file, function, cmdlet or symbol, while an interface's form may spell the on-disk names, keys and switches that are the agreed form) and C:\Projects\ai-template\project-trajectory\prompts\spine-questions.md sections 0, 2 and 3. The outcome vocabulary: 0 complete; 1 part failed or content missing; 2 needs a person (bad request, configuration refused, or a precondition not met); 3 damaged record; 4 retry later (busy, or a host fault mid-work). The dimensions grammar: name=set{a,b}; name=range[min..max]; name=bool; with @pairwise, @full or @boundaries.
+
+Severity tracks plausibility; dismiss contrived or compromised-host scenarios: BLOCKER (a wrong or contradictory obligation), MAJOR (changes what gets built or tested), MINOR (wording that would mislead a builder or a reviewer reading the flows). Write findings.json (an array of {id, severity, rows, finding, suggested_fix}, ids prefixed R3U-) and summary.md (counts by severity, one line per finding) into your current working folder, C:\Projects\FileBackup\docs\plans\spine-restructure\derive\r3u-convergence-sol. Write only there.
