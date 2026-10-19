@@ -48,7 +48,8 @@ last) — it is the record, not required reading for every pass.
   resumes:** finish the design layer first (the order was wrong: test cases are
   not next). Round 3o wrote `runtime-flows.md` and `derive/r3o-decomposition.md`;
   the Owner's four calls on the six empty components are ruled and applied
-  (round 3p: 19 components, IF-010 split); next the prose re-anchoring, then the Owner's approval of the need, SR and design tiers.
+  (round 3p: 19 components, IF-010 split), and double-checked (`r3q-convergence-sol/`:
+  no BLOCKER, 3 MAJOR and 1 MINOR, all fixed in round 3r); next the prose re-anchoring, then the Owner's approval of the need, SR and design tiers.
   Findings for ai-template: `AI-TEMPLATE-NOTES.md` (repo root). Session d
   rulings: **P-01 calendar
   re-read periods** and **P-03 quick check plus -Deep**, both today's code;

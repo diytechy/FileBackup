@@ -77,10 +77,15 @@ sequenceDiagram
     end
     Guard->>Store: read run state, latest record and its evidence (LLR-035, LLR-118)
     Guard->>Guard: classify leftovers from the disk alone (LLR-017, LLR-088)
-    opt leftovers provably dead
-        Guard->>Guard: move them aside, complete an interrupted publication (LLR-124)
+    alt leftovers provably dead
+        Guard->>Guard: move them aside, the backup root's first (LLR-124, R1 to R2)
+        Guard->>Guard: fresh staging areas, run folders, owner record, refresh timer (LLR-124, LLR-080, R4)
+        Guard->>Store: complete an interrupted publication through this run's own folder (LLR-118, R5)
+        Guard->>Guard: delete the moved folders' recognised entries (LLR-124, R6)
+    else no leftovers
+        Guard->>Guard: staging areas, run folders, owner record, refresh timer (LLR-161, LLR-080, S01 to S05)
     end
-    Guard->>Guard: staging areas, run folders, owner record, refresh timer (LLR-161, LLR-080, S01 to S06)
+    Guard->>Guard: open the location's record in the run folder (LLR-095, S06)
     Pub->>Pub: plan again under the claim, binding (LLR-052)
     loop each new content, once per content key
         Pub->>Store: write temporary, verify, rename out (LLR-003, LLR-058, LLR-086, LLR-117, S07 to S08)
@@ -309,7 +314,7 @@ sequenceDiagram
     end
     Op->>Prov: runtime and every needed tool, before any location (LLR-020, LLR-105, LLR-037)
     loop each configured location, one failure never stops the next
-        Op->>Rec: open the location's record once admitted (LLR-095)
+        Note over Op,Rec: the location's record opens inside the action, once it holds the backup and has passed admission (LLR-095, S06 in flow 2)
         Op->>Op: run the action for that location (flows 2, 7, 8)
         Rec->>Rec: changes, failures, counts, progress at least every 2 minutes (LLR-107, LLR-108, LLR-097)
     end

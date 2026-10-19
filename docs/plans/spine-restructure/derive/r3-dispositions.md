@@ -396,3 +396,21 @@ rows written this session, all **confirmed** and fixed by
 
 These round-3n fixes are three wording-level corrections within rows the
 check already covered; they are not re-checked.
+
+## Double-check of rounds 3n, 3o and 3p (the Owner asked for it)
+
+Input: `r3q-convergence-sol/` (Codex gpt-6.1-sol, high, a fresh session),
+scoped to the round-3n rows, the whole component tree after the Owner's
+decomposition calls, the IF-010 / IF-047 split, the re-pointed LLRs and
+consumer lists, and the new `docs/runtime-flows.md`. No BLOCKER; 3 MAJOR and
+1 MINOR, all **confirmed** and fixed by `r3-merged/_r3r_apply.py` (round 3r).
+
+| Finding | Rows | Disposition and fix |
+|---|---|---|
+| R3Q-001 (MAJOR) | runtime-flows flow 2, LLR-124, LLR-118 | Confirmed. Flow 2 completed an interrupted publication before the successor's staging and owner record existed; LLR-124 orders move aside (R1, R2), fresh areas and owner record (R4), then the completion through this run's folder (R5), then the deletions (R6). Flow 2 now shows that order, with ordinary staging (S01..S05) only in the no-leftovers branch. |
+| R3Q-002 (MAJOR) | runtime-flows flow 9, LLR-095 | Confirmed. Flow 9 opened the location record before the action held the backup; it now notes that the record opens inside the action (S06). |
+| R3Q-003 (MAJOR) | LLR-163, IF-032 | Confirmed, a defect in round 3n's fix: the claim file is created when absent, so an absent file means no holder, and the non-creating probe would have refused a removal that proceeds. LLR-163 now treats absence as no holder; its dimensions gain the claim file's states. |
+| R3Q-004 (MINOR) | CMP-002, CMP-013 | Confirmed. Both notes still described one findings document; they now follow the split. |
+
+These are flow-order and wording corrections within what the check covered;
+they are not re-checked.

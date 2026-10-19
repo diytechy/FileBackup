@@ -1,0 +1,57 @@
+[
+  {
+    "id": "R3Q-001",
+    "severity": "MAJOR",
+    "rows": [
+      "docs/runtime-flows.md: flow 2",
+      "LLR-124",
+      "LLR-118",
+      "LLR-161",
+      "LLR-162"
+    ],
+    "finding": "Flow 2 completes an interrupted publication inside the reclaim branch before the subsequent step creates this run's staging areas, run folders and owner record (S01–S06). LLR-124 requires the opposite order: move the old areas aside, create the successor's areas/folders and owner record, then recover the publication through those new run folders (R4 before R5). LLR-118 forbids publishing the recovered temporary directly from the moved folder. Reading the reclaim arrow as the whole of LLR-124 instead would make the following creation step repeat creation of areas that LLR-161 says are never re-created.",
+    "suggested_fix": "Show move-aside first, fresh staging/run folders and owner record next, and interrupted-publication completion after that. Put ordinary staging creation in the no-reclaim branch so the run creates its areas only once."
+  },
+  {
+    "id": "R3Q-002",
+    "severity": "MAJOR",
+    "rows": [
+      "docs/runtime-flows.md: flow 9",
+      "docs/runtime-flows.md: flow 2",
+      "LLR-095",
+      "LLR-052",
+      "LLR-161",
+      "LLR-162"
+    ],
+    "finding": "Flow 9 opens the location record before invoking the location's action, which includes flow 2. For a backup, flow 2 has not yet made the initial capacity refusal, taken the claim or created the run folder at that point. LLR-095 permits creating the location record only after the location holds the backup and passes admission; LLR-052 requires the first space plan before any record or staging creation; S06 opens the record only after staging and the owner record exist. The two flows therefore give incompatible ordering for the same record creation.",
+    "suggested_fix": "Keep location-record opening inside the action at its permitted point (S06 for backup), after the claim and admission. Remove or relocate flow 9's pre-action opening; distinguish any earlier console/global-record activity from opening the location record."
+  },
+  {
+    "id": "R3Q-003",
+    "severity": "MAJOR",
+    "rows": [
+      "LLR-163",
+      "SR-153",
+      "LLR-159",
+      "LLR-090",
+      "LLR-092",
+      "IF-032"
+    ],
+    "finding": "LLR-163 makes a failed non-creating claim probe a refusal for every named state, using LLR-159's open-existing-file method. An otherwise valid store whose Temp.lock is absent exposes a mismatch: the probe cannot open the file, but a real removal creates the absent file and can take the claim (IF-032 and LLR-090). Thus the dry run reports refusal where the removal against the unchanged store proceeds, contrary to SR-153's required verdict parity. Absence is an explicitly supported claim-file state, not evidence of contention or an unusable location.",
+    "suggested_fix": "Distinguish an absent claim file from a held or untestable existing file. Specify the non-creating absent-file case as no existing holder, subject to the removal's other checks, while retaining refusal and cause classification for actual probe errors. Include claim-file absence in the dry-run dimensions."
+  },
+  {
+    "id": "R3Q-004",
+    "severity": "MINOR",
+    "rows": [
+      "CMP-002",
+      "CMP-013",
+      "IF-010",
+      "IF-047",
+      "LLR-047",
+      "LLR-049"
+    ],
+    "finding": "The component notes retain the ownership model that the interface split replaced. CMP-002 says its interfaces carry the findings document and that the report/check findings rows are unplaced. CMP-013 says it owns only the content-location index and that its report uses a findings document owned elsewhere, making the report row unplaced. IF-047 now belongs to CMP-013 and is constrained by LLR-047; IF-010 belongs to CMP-014 and is constrained by LLR-049. Both findings responsibilities are therefore placed through their own interfaces, contradicting these component descriptions.",
+    "suggested_fix": "Update CMP-002 to describe dispatch/return of documents produced by the report and check components, without claiming their interface ownership. Update CMP-013 to include ownership of IF-047 and placement of LLR-047, and remove the stale claims that the report and check findings rows are unplaced."
+  }
+]

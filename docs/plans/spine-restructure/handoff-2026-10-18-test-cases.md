@@ -110,7 +110,8 @@ The design moved most in two places: the fence and the staging sequence.
    state flows, every cited id checked) and
    `derive/r3o-decomposition.md` (per-scope states, boundaries and dependency
    tables, and four calls on the six empty leaf components). **The Owner ruled Calls 1 to 4
-   and they are applied (round 3p).** Open: the prose re-anchoring the gap map's Phase 3 names
+   and they are applied (round 3p), then double-checked (`r3q-convergence-sol/`: 3 MAJOR, 1
+   MINOR, all fixed in round 3r).** Open: the prose re-anchoring the gap map's Phase 3 names
    (`architecture.md`, `interfaces.md`, AGENTS.md sections 2 and 3). Findings for
    ai-template are in `AI-TEMPLATE-NOTES.md` at the repo root.
 4. **Owner approval of the need tier, then the SR tier, then the design
