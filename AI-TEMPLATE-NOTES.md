@@ -157,3 +157,34 @@ lets readers test. The earlier design rows came back clean.
 **Suggestion.** In the process text, name "rows changed to apply rulings" as
 a scope that always gets a convergence check before approval, even when the
 rulings themselves are behaviour choices nobody disputes.
+
+## 11. Desk research on established practice (the ranked fix list)
+
+**What happened.** At the Owner's request, a research pass checked the design
+layer against established systems-engineering practice: NASA SE Handbook and
+NPR 7123.1, DAU, SEBoK, Parnas's A-7E module guide, RUP-SE, OOSEM, Arcadia,
+ATAM, ISO 42010 via secondary sources, C4. Report:
+`docs/plans/spine-restructure/architecture-breakdown-research.md`. The key
+quotes from NASA Appendix L and §6.3 and from Parnas, Clements and Weiss
+(1985) were spot-checked against the primary texts. The structure matches
+practice. The holes are in **allocation** and **checking**.
+
+**Its ranked recommendations, in short** (full text and sources in the
+report):
+1. Place external-interface rows at the local endpoint, the component on
+   our side of the interface plane (NASA Appendix L; Parnas's device
+   interface modules). This resolves note 2.
+2. Check runtime flows against placement: a lifeline that cites an LLR
+   versus where it is placed (42010 correspondence rules, RUP-SE).
+3. Flag an empty leaf (DAU: every component meets at least one requirement).
+   This is note 3.
+4. Give unplaced rows an allocation kind: sole, derived per component,
+   budgeted, or system-level with a reason (RUP-SE, DAU, SEBoK).
+5. State the order: scenarios before child components (SEBoK pitfall).
+6. Make the dependency table a per-scope N2 chart, generated. This is note 4.
+7. Write "architecture ready for test cases" entry criteria (NASA SDR/PDR).
+   This is notes 1 and 6.
+8. Add ATAM-lite quality-attribute scenarios at the depth-0 critique.
+9. Require a decision record per decomposition call (NASA, Nygard).
+10. Add a designer-side stopping rule: one work assignment, one secret, and
+    siblings argued non-overlapping and covering (Parnas goal g).
