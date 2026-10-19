@@ -1,0 +1,37 @@
+[
+  {
+    "id": "R3M-001",
+    "severity": "BLOCKER",
+    "rows": [
+      "SR-011",
+      "LLR-011"
+    ],
+    "finding": "SR-011 requires a periodic re-read only on entering a later calendar period. LLR-011 instead makes weekly and monthly re-reads due whenever their year/week or year/month labels differ, explicitly including a clock set backwards. For example, with the last completed monthly re-read dated 2026-10-01 and the current date 2026-09-30, the SR says not due and the LLR says due. There is also a forward-time weekly counterexample: 2026-12-31 and 2027-01-01 belong to the same Monday-start, first-four-day week (2026-W53), but the LLR triggers because the calendar years differ. These are two different predicates for the same scheduled change-detection read.",
+    "suggested_fix": "Keep the Owner's calendar-period decision and make the SR and LLR specify one predicate. If retaining the LLR's deliberately preserved current comparisons, amend the SR's later-period-only acceptance to state those exceptions, including backward dates and the calendar-year boundary within one week. Otherwise change the LLR comparisons to the later-period predicate. The same boundary cases must have one expected result."
+  },
+  {
+    "id": "R3M-002",
+    "severity": "BLOCKER",
+    "rows": [
+      "LLR-035",
+      "LLR-011",
+      "SR-011"
+    ],
+    "finding": "For a populated latest state with valid completeness evidence and a missing run-state record, LLR-035 says to treat the last full re-read as never completed, \"so a re-read is due\"; its rationale likewise declares one full re-read as the accepted cost. LLR-011 explicitly says a never schedule never re-reads whether or not a completed re-read is on record, and SR-011 says it never does. With schedule N, intact change-detection state and unchanged-looking source files, rebuilding the run-state record therefore both requires and forbids a scheduled full re-read. This is distinct from the permitted reads needed to capture new content or heal lost content.",
+    "suggested_fix": "Rebuild the run-state record with no completed full re-read recorded, then let LLR-011 alone decide whether one is due. Qualify LLR-035's due statement and its stated full-re-read cost to periodic/every-run schedules; preserve N as never."
+  },
+  {
+    "id": "R3M-003",
+    "severity": "BLOCKER",
+    "rows": [
+      "SR-153",
+      "LLR-163",
+      "LLR-092",
+      "LLR-122",
+      "LLR-123",
+      "LLR-159"
+    ],
+    "finding": "SR-153 requires the dry run to make the removal's checks and report whether it would proceed or be refused with the refusal's outcome. LLR-163 explicitly permits a would-remove/0 result while a writer already holds the claim, asserting that taking no claim makes that holder invisible. A real removal must instead refuse every named state with 4 before planning (LLR-092 and LLR-122). A repair or kit refresh can hold the claim with settled records and no removal-blocking staging area, so the dry run can report 0 while the same request against the unchanged store returns 4. This is an existing busy condition, not contention arising after the preview. The stated reason is also inconsistent with the non-creating claim test already required of readers by LLR-123/LLR-159.",
+    "suggested_fix": "Keep the dry run read-only and non-blocking, but probe the existing claim without creating it or acquiring the removal's lasting claim, using the reader test. Include an observed busy or untestable holder in its per-state refusals and shared precedence. Limit the caveat to contention or store changes arising after the preview. If a holder-blind preview is intended instead, SR-153 must explicitly withdraw exact refusal prediction for an already-held claim."
+  }
+]

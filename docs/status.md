@@ -41,12 +41,11 @@ last) — it is the record, not required reading for every pass.
   The staging sequence is one enumerated table (LLR-162). Two scoped
   convergence checks found 3 findings each, all fixed; the last fixes are not
   re-checked. The Owner is comparing this branch with a different design
-  branch. **All Owner rulings P-01..P-16 are now made (2026-10-18, session d).**
-  **Next, if this branch resumes:** one scoped check of LLR-162, LLR-118,
-  LLR-124 and LLR-017 (the round-3l fixes), widened to the rows session d's
-  rulings changed on the integrity path: LLR-150, LLR-161, LLR-162 S18..S20,
-  LLR-125, SR-144 and DA-03 (P-13), LLR-052 (P-04), LLR-035 (P-05), LLR-163
-  (P-02); then the Owner's approval of the need, SR and design tiers. Session d
+  branch. **All Owner rulings P-01..P-16 are now made (2026-10-18, session d),
+  and the scoped check ran** (`r3m-convergence-sol/`: the round-3l fixes, the
+  staging table and the P-13 rename gave no finding; 3 BLOCKERs in rows written
+  for the rulings, all confirmed and fixed in round 3n). **Next, if this branch
+  resumes:** the Owner's approval of the need, SR and design tiers. Session d
   rulings: **P-01 calendar
   re-read periods** and **P-03 quick check plus -Deep**, both today's code;
   **P-04 measure UNC shares, refuse a backup volume still unmeasurable** (SR-052,

@@ -365,3 +365,34 @@ re-checked. The coordinator stops here, as the method's cap and the Owner's
 request to close the branch both say. A future check of LLR-162, LLR-118,
 LLR-124 and LLR-017 is the first thing to run if this branch is taken
 forward.
+
+## Owner rulings made (session 2026-10-18 d, the Owner present)
+
+P-01..P-13 were ruled one at a time with the Owner; each row in the tables
+above now records the ruling, and each ruling's commit names the rows it
+changed. In short: P-01 calendar periods as today's code; P-02 the removal
+dry run specified (SR-153, LLR-163); P-03 the plain check stays quick, -Deep
+proves content; P-04 shares measured by their network name, an unmeasurable
+backup volume refused (new gap M96); P-05 rebuild; P-06 accept; P-07 drive
+only, plus a kit readme; P-08 the source record renamed MANIFEST.fb.src.csv;
+P-09 store-scoped; P-10 retry later; P-11 add the views; P-12 complete,
+unverified; P-13 a direct rename on one volume, two writers unsupported
+(DA-03).
+
+## Scoped check of the round-3l fixes and the session-d rulings
+
+Input: `r3m-convergence-sol/` (Codex gpt-6.1-sol, high, a fresh session),
+scoped to the four round-3l rows (LLR-162, LLR-118, LLR-124, LLR-017) and the
+22 rows the Owner's rulings rewrote. Group A (round 3l, the staging table, the
+P-13 rename and its bound) gave **no finding**. Group B gave 3 BLOCKER, all in
+rows written this session, all **confirmed** and fixed by
+`r3-merged/_r3n_apply.py` (round 3n).
+
+| Finding | Rows | Disposition and fix |
+|---|---|---|
+| R3M-001 (BLOCKER) | SR-011, LLR-011 | Confirmed. SR-011 said "a later calendar period"; LLR-011 states today's comparisons, which fire on any different week or month (a clock set back included) and treat the year's end as dividing a week. P-01 ruled today's code, so SR-011 now states LLR-011's predicate, and its permutations gain the earlier period and the year-split week. |
+| R3M-002 (BLOCKER) | LLR-035, LLR-011, SR-011 | Confirmed. A rebuilt run-state record made "a re-read due" even under a never schedule. LLR-035 now leaves that to LLR-011: a periodic or every-run schedule re-reads, a never schedule does not. |
+| R3M-003 (BLOCKER) | SR-153, LLR-163, LLR-092, LLR-159 | Confirmed. LLR-163 claimed the dry run could not see an existing holder, but LLR-159 already gives readers a non-creating claim test. The dry run now makes that test first and reports a held claim, or a failed test, for every named state as the removal would (LLR-092); its remaining caveat is an operation starting after the preview. This is a small change from today's dry run, which makes no such test; the Owner is told. |
+
+These round-3n fixes are three wording-level corrections within rows the
+check already covered; they are not re-checked.

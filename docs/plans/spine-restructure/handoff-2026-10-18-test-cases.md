@@ -90,6 +90,11 @@ The design moved most in two places: the fence and the staging sequence.
      LLR-162 S18..S20, LLR-125, SR-144 and DA-03 (P-13: superseded content
      renamed on one volume, a deliberate hole in the fence), LLR-052 (P-04),
      LLR-035 (P-05) and LLR-163 (P-02).
+   - **DONE (session d): the widened check ran** (`r3m-convergence-sol/`).
+     Group A (round 3l, the staging table, the P-13 rename) gave no finding;
+     3 BLOCKERs in rows written for the rulings (SR-011 vs LLR-011, LLR-035
+     under a never schedule, the dry run's claim test) were confirmed and
+     fixed in round 3n (`r3-dispositions.md`, last section).
    - Also open, for the Owner: SN-013 still reads "restores correctly or is
      refused". P-16's case (files restored, folder metadata left unapplied and
      reported as 1) arguably fits it; the need may want to say so.
