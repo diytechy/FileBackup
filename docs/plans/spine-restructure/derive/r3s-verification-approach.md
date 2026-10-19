@@ -32,6 +32,18 @@ automated test).
 | IF-027 | Folder choice dialog | **Surrogate**: an injected picker scriptblock on Windows; a picker stub via `FILEBACKUP_PICKER` in bats, including a path with spaces and a cancel. | Keep the **surrogate**. **Attest** the real dialogs (WinForms, macOS, zenity, kdialog) per release. | The real toolkits never run in a test; they can only be attested. |
 | IF-012 | Protected notification credential | **Not tested.** Every fixture has no secrets and every run passes `-NoMail`. | **Real** on Windows: the credential helper writes a protected credential, the run reads it and hands it to a mail send replaced by a **mock**. **Attest** the real mail relay. | **Nothing tests the credential round trip today** (LLR-106, SR-128). Decrypting under another user, and the Linux form, are untested. |
 
+## The Owner's calls (2026-10-18)
+
+| Call | Ruling | Consequence for round 4 and the build |
+|---|---|---|
+| UNC measurement | **A real `\\localhost\` share in CI** | The Windows CI lane creates or uses an admin share and runs the free-space and volume-identity tests through it (IF-031, M96). The runner needs admin rights. |
+| Linux coverage of the backup engine | **Add a Linux Pester lane** | CI gains a Pester lane on `ubuntu-latest`; Windows-only tests stay marked as such. The container job remains, as the packaged-image evidence (SR-034, SR-136). |
+| macOS restore | **Attest per release** | The release checklist gains a manual macOS restore, by double-click and by the shell route (IF-024, IF-027, SR-072). The BSD and busybox shims stay the automated coverage. |
+| exFAT or FAT restore target | **Automate on the VHDX lane** | The self-hosted Hyper-V lane gains an exFAT-formatted target, so attributes and exact times the target can't hold are reported, not failed (IF-025, LLR-143, LLR-066). |
+
+Real mail stays attest only, as proposed; the credential round trip is tested
+with the send replaced by a mock (IF-012).
+
 ## What this asks of round 4 and of the Owner
 
 1. **The approach column is the round-4 default.** Each test case of a row
