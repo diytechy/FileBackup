@@ -51,8 +51,8 @@ last) — it is the record, not required reading for every pass.
   (round 3p: 19 components, IF-010 split), and double-checked (`r3q-convergence-sol/`:
   no BLOCKER, 3 MAJOR and 1 MINOR, all fixed in round 3r). Round 3s ran the
   eight-item 'ready for test cases' check (`derive/r3s-readiness-check.md`):
-  items 2, 4 and 5 closed; open are the Owner's items 6 (quality scenarios) and 8
-  (how a test drives each external interface, a round-4 prerequisite), and a
+  items 2, 4 and 5 closed; items 6 (quality scenarios) and 8 (how a test drives each external
+  interface, a round-4 prerequisite) are drafted for the Owner's review, and a
   placement residue that waits on ai-template's rules. Next the prose re-anchoring, then the Owner's approval of the need, SR and design tiers.
   Findings for ai-template: `AI-TEMPLATE-NOTES.md` (repo root). Session d
   rulings: **P-01 calendar
