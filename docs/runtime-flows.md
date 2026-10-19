@@ -22,6 +22,23 @@ per-scope boundary and dependency analysis that goes with these flows is in
 
 ## Runtime flows
 
+### 0. A launch: the modes at the top level
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Started: a launch request, directly or from the container (LLR-016, LLR-048)
+    Started --> Refused: a bad request, a refused configuration, or a missing tool (LLR-042, LLR-020)
+    Started --> Admitted: every location set validated, dependencies resolved once (LLR-042, LLR-164)
+    Admitted --> Running: dispatch each configured location in turn (LLR-014)
+    Running --> Running: next location, whatever the last one's value (LLR-014)
+    Running --> Folded: every location has a value (LLR-014, LLR-043)
+    Folded --> Notified: one message where set up, a failed send changes nothing (LLR-015)
+    Folded --> [*]: no notification set up
+    Notified --> [*]: one value as the exit status (LLR-043)
+    Refused --> [*]
+```
+
 ### 1. A backup run: the modes of one location
 
 ```mermaid
@@ -72,14 +89,15 @@ sequenceDiagram
     end
     Scan->>Scan: compare size and time, re-read when due (LLR-113, LLR-011)
     Scan->>Scan: keep the change-detection record at the source root or its configured location (LLR-115, LLR-114)
-    Scan->>Pub: new-or-changed set and removed set
+    Scan->>Pub: the change set (IF-049)
     Pub->>Pub: space plan as a reader, before anything is created (LLR-052, LLR-135)
     alt a volume lacks space or cannot be measured
         Pub-->>Op: refused, 2, nothing created
     end
-    Op->>Guard: take the claim (LLR-090, LLR-091)
+    Pub->>Guard: take the claim (LLR-090, LLR-091)
     alt claim held by another operation
-        Guard-->>Op: refused busy, 4, touching nothing (LLR-122)
+        Guard-->>Pub: held, refused busy 4, touching nothing (LLR-122)
+        Pub-->>Op: the location's value and reason (IF-048)
     end
     Pub->>Store: under the claim, read run state, latest record and its evidence (LLR-035, LLR-118)
     Guard->>Guard: classify leftovers from the disk alone (LLR-017, LLR-088)
@@ -106,7 +124,7 @@ sequenceDiagram
     end
     Pub->>Store: run-state record through the run folder (LLR-028, S21)
     Pub->>Store: collapse duplicates across states (LLR-026, S22 to S23)
-    Pub->>Views: rebuild the views where on, with the media rate where measured (LLR-061, LLR-132, LLR-133, LLR-134)
+    Op->>Views: rebuild the views where on, with the media rate where measured (LLR-061, LLR-132, LLR-133, LLR-134)
     Note over Scan,Pub: the run reads what changed, not the history (LLR-149)
     Guard->>Guard: publish location record, empty staging, delete owner record (S24 to S27)
     Guard->>Guard: release the claim on every path (LLR-091)
@@ -164,7 +182,7 @@ sequenceDiagram
     autonumber
     participant A as Run A, the former owner (CMP-007)
     participant Guard as Exclusive-use guard (CMP-012)
-    participant Store as Store and staging (CMP-016)
+    participant Store as Staging and owner record (CMP-012)
     participant B as Run B, the successor (CMP-007)
     A->>Store: staging, run folders, owner record (LLR-080, LLR-161)
     Note over A: A freezes. Its owner record stops being refreshed.
@@ -258,7 +276,7 @@ sequenceDiagram
         Rem->>Store: the removal's own plan and refusals, as a reader (LLR-163, LLR-046, LLR-047)
         Rem-->>Op: per state, would remove with figures, or refused with value and reason. Nothing written.
     else removal
-        Op->>Guard: take the claim for the whole batch (LLR-092)
+        Rem->>Guard: take the claim for the whole batch (LLR-092)
         loop each named saved state
             Rem->>Store: plan, collect every refusal before changing anything (LLR-046, LLR-126)
             alt any refusal
@@ -271,7 +289,7 @@ sequenceDiagram
                 Rem->>Store: delete it
             end
         end
-        Op->>Guard: release the claim
+        Rem->>Guard: release the claim
     end
 ```
 
@@ -291,15 +309,15 @@ sequenceDiagram
         Chk->>Store: opening bytes per object, and with -Deep every object's digest once (LLR-049)
         Chk-->>Op: one findings document, value by precedence (LLR-096, LLR-054)
     else repair
-        Op->>Guard: take the claim (LLR-094)
+        Chk->>Guard: take the claim (LLR-094)
         Chk->>Store: correct only the three certain classes, one item at a time (LLR-129, LLR-130)
-        Op->>Guard: release the claim
+        Chk->>Guard: release the claim
     else kit refresh
-        Op->>Guard: take the claim (LLR-094)
+        Chk->>Guard: take the claim (LLR-094)
         Chk->>Store: record each state's original kit revision once (LLR-131)
         Chk->>Store: restorers first, then every other kit file, each whole (LLR-130)
         Note over Chk,Store: a restore meeting a kit of two revisions waits, flow 3 (LLR-159)
-        Op->>Guard: release the claim
+        Chk->>Guard: release the claim
     end
 ```
 
@@ -318,14 +336,15 @@ sequenceDiagram
     participant Ntf as Notification (CMP-005)
     alt in the container
         Host->>Ctr: action word and environment (LLR-048)
-        Ctr->>Op: the same launch request a direct start makes (LLR-048)
+        Ctr->>Op: the same launch request a direct start makes (IF-002)
     else direct
         Host->>Op: launch request (LLR-016)
     end
     Op->>Prov: runtime and every needed tool, before any location (LLR-020, LLR-105, LLR-037)
+    Prov-->>Op: the dependencies, resolved once for the launch (LLR-164)
     loop each configured location, one failure never stops the next
         Note over Op,Rec: the location's record opens inside the action, once it holds the backup and has passed admission (LLR-095, S06 in flow 2)
-        Op->>Op: run the action for that location (flows 2, 7, 8)
+        Op->>Op: dispatch the action for that location and take its value (LLR-014, flows 2, 7, 8)
         Rec->>Rec: changes, failures, counts, progress at least every 2 minutes (LLR-107, LLR-108, LLR-097)
     end
     Op->>Op: fold the locations' values into one (LLR-014, LLR-043)

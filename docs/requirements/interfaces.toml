@@ -15,7 +15,7 @@
 [interface.IF-002]
 title = "Backup launch request"
 owner = "CMP-002"
-requestors = ["external:EXT-01", "external:EXT-03"]
+requestors = ["external:EXT-01", "external:EXT-03", "CMP-023"]
 channel = "process command line"
 interface_from_external = ["B-05", "B-07"]
 coincident = """The request as given is what the system acts on; no assumption sits between the caller and the command line."""
@@ -43,7 +43,7 @@ status = "Drafted"
 [interface.IF-003]
 title = "Operation outcome value"
 owner = "CMP-002"
-consumers = ["external:EXT-03", "external:EXT-01"]
+consumers = ["external:EXT-03", "external:EXT-01", "CMP-005"]
 channel = "process exit status"
 interface_to_external = ["B-08"]
 bridged_by = ["DA-09"]
@@ -61,7 +61,7 @@ status = "Drafted"
 [interface.IF-004]
 title = "Configuration settings catalogue"
 owner = "CMP-003"
-requestors = ["external:EXT-01", "external:EXT-03"]
+requestors = ["external:EXT-01", "external:EXT-03", "CMP-002"]
 channel = "configuration document"
 interface_from_external = ["B-05", "B-07"]
 carried_by = ["IF-005", "IF-006"]
@@ -153,7 +153,7 @@ status = "Drafted"
 [interface.IF-009]
 title = "Run record"
 owner = "CMP-006"
-consumers = ["external:EXT-01", "external:EXT-03"]
+consumers = ["external:EXT-01", "external:EXT-03", "CMP-005"]
 channel = "text files and console"
 interface_to_external = ["B-06", "B-20"]
 coincident = """The record the owner reads is the record the system writes."""
@@ -198,7 +198,7 @@ Refusal tokens, a closed set, each with the outcome value it reports:
 - [2/removal-refused]: a removal that could lose content;
 - [3/record-damage]: a state's record failing its completeness evidence;
 - [4/host-fault]: a host fault while the operation worked."""
-rationale = """An owner reading why a run failed, and a host searching for a refusal class, need stable entry kinds; free prose cannot be searched and a count without the names cannot be acted on. A structured log in a machine format lost for the owner-facing record: the machine-readable form is IF-010, and a person reads this one. The tokens already in use are kept exactly as hosts already search for them; every other token names the value and the cause and no requirement, because requirement numbering is not a host-visible form, and the set is closed so a host can match every refusal. One location record written in place lost because a run that lost its claim could still append to the record its successor writes; a record per run, reachable only through that run's own folder until it is published, cannot be."""
+rationale = """An owner reading why a run failed, and a host searching for a refusal class, need stable entry kinds; free prose cannot be searched and a count without the names cannot be acted on. A structured log in a machine format lost for the owner-facing record: the machine-readable forms are IF-010 and IF-047, and a person reads this one. The tokens already in use are kept exactly as hosts already search for them; every other token names the value and the cause and no requirement, because requirement numbering is not a host-visible form, and the set is closed so a host can match every refusal. One location record written in place lost because a run that lost its claim could still append to the record its successor writes; a record per run, reachable only through that run's own folder until it is published, cannot be."""
 version = "2"
 status = "Drafted"
 
@@ -281,7 +281,7 @@ status = "Drafted"
 [interface.IF-014]
 title = "Record of contents"
 owner = "CMP-016"
-consumers = ["CMP-009", "CMP-011", "CMP-013", "CMP-014", "CMP-015", "CMP-017"]
+consumers = ["CMP-009", "CMP-011", "CMP-012", "CMP-013", "CMP-014", "CMP-015", "CMP-017"]
 channel = "file"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
@@ -304,7 +304,7 @@ status = "Drafted"
 [interface.IF-015]
 title = "Completeness evidence"
 owner = "CMP-016"
-consumers = ["CMP-011", "CMP-013", "CMP-014", "CMP-017"]
+consumers = ["CMP-011", "CMP-012", "CMP-013", "CMP-014", "CMP-017"]
 channel = "file"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
@@ -786,4 +786,56 @@ interface_to_external = ["B-08"]
 coincident = """The document written is the report."""
 data = """One UTF-8 JSON document on standard output: an array, one object per saved state, oldest first: Name (string, the saved-state folder name), Date (string, ISO-8601), Rows (integer), PhysicalBytes, BytesReclaimed, BytesReHomed (integers, bytes)."""
 rationale = """A host deciding which saved state to remove must parse what each removal would free; scraping the human-readable record lost because its wording is free to change. Sharing one row with the check findings lost because they are two information kinds with two producers."""
+status = "Drafted"
+
+[interface.IF-048]
+title = "Location operation request and result"
+owner = "CMP-002"
+consumers = ["CMP-009", "CMP-011", "CMP-013", "CMP-014", "CMP-015"]
+channel = "in-process call"
+data = """Request, once for each configured location: the action, one of a backup, a removal (the saved states named, and whether it is a dry run), the saved-state report, a check (whether to repair, to refresh the kits, to read every stored object, or to check the latest state only) or a view rebuild; the location set as admitted (IF-004); the dependencies resolved at launch (IF-051); whether the launch has an interactive session; and the record to write to (IF-009).
+Answer: one outcome value of the shared vocabulary (the set of IF-003); each refusal or failure with its class, what was found and what to do; and, for a check and for the saved-state report, the findings document (IF-010, IF-047)."""
+rationale = """Every operation reports to the launch in one form, so the fold into one value and the never-prompt rule are decided once. Letting each operation return its own shape lost because the launch would need to know each one to fold them."""
+version = "1"
+status = "Drafted"
+
+[interface.IF-049]
+title = "Change set"
+owner = "CMP-009"
+consumers = ["CMP-011"]
+channel = "in-process call"
+data = """For one location and one walk: each walked file with its path, size, modification time and attributes, and one of new, changed (with its digest), unchanged (with its recorded digest) or removed; each entry not captured, with its cause, kept with its earlier content; each name refused, with its reason; each folder to record (empty, or carrying an attribute) and each link to record, for the folder record (IF-017) and the link record (IF-018); and whether the change-detection state was rebuilt, and why."""
+rationale = """Publication must not repeat the walk or the comparison, and change detection must not know how states are published; the change set is the narrow value between the two decisions. Publication reading the change-detection record itself lost because the comparison rules would then live in two places."""
+version = "1"
+status = "Drafted"
+
+[interface.IF-050]
+title = "Entry results"
+owner = "CMP-019"
+consumers = ["CMP-021"]
+channel = "in-process call"
+data = """For each entry of the chosen state's record, one of: restored and verified, with whether one recovery from another copy was needed; or not restored, with its cause and its class, one of content that could not be produced, two names colliding on the target, an entry escaping the target, or a host fault."""
+rationale = """The restore's one value and its report are decided from these results alone, the same on every route. Classifying inside entry restoration lost because the precedence over whole-restore faults and per-entry faults would then be split across two places."""
+version = "1"
+status = "Drafted"
+
+[interface.IF-051]
+title = "Resolved dependencies"
+owner = "CMP-004"
+consumers = ["CMP-002", "CMP-011", "CMP-013", "CMP-014", "CMP-015"]
+channel = "in-process call"
+data = """Once for each launch: the runtime version and whether it meets the floor; the archive tool's location, or absent; the media-measurement tool's location, or absent, an absent one being a skipped extra; the hashing component, loaded; and the compression effort (IF-007)."""
+rationale = """Every location of a launch uses the same tools, found once; resolving them per location lost because one launch could then compress with two different tools, and a missing tool would be reported once per location."""
+version = "1"
+status = "Drafted"
+
+[interface.IF-052]
+title = "Record entry"
+owner = "CMP-006"
+requestors = ["CMP-002", "CMP-003", "CMP-004", "CMP-005", "CMP-009", "CMP-011", "CMP-012", "CMP-013", "CMP-014", "CMP-015"]
+channel = "in-process call"
+data = """Request: one entry, as its level (one of DEBUG, INFO, WARN, ERROR) and one message of a kind the run record lists (IF-009), a refusal carrying its token, what was found and what to do; and whether it belongs to the global record, the location's record, or both.
+Answer: none. Writing an entry never changes the operation's outcome."""
+rationale = """Every component reports into the one record through one entry form, so the record's grammar and its location rules live in one place. Each component writing the files itself lost because the grammar, the tokens and the rule that no record is created before admission would each be repeated."""
+version = "1"
 status = "Drafted"
