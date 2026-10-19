@@ -56,22 +56,20 @@ sequenceDiagram
     autonumber
     participant Op as Launch and outcome (CMP-002)
     participant Cfg as Configuration (CMP-003)
-    participant Cap as Source capture (CMP-008)
-    participant Chg as Change detection (CMP-009)
-    participant Wr as Content writer (CMP-010)
+    participant Scan as Source scan and change detection (CMP-009)
     participant Guard as Exclusive-use guard (CMP-012)
-    participant Pub as State publication (CMP-011)
+    participant Pub as Content storage and publication (CMP-011)
     participant Store as Store format (CMP-016)
     participant Views as Views (CMP-015)
     Op->>Cfg: validate every location set before the first runs (LLR-042, LLR-014)
     Note over Op,Cfg: no record is created or truncated before admission (LLR-095)
-    Op->>Cap: walk the source read-only, every entry, links classified (LLR-001, LLR-109, LLR-112)
-    Cap->>Chg: walked entries, names refused, entries not captured (LLR-055, LLR-111)
-    Chg->>Chg: compare size and time, re-read when due (LLR-113, LLR-011)
-    Chg->>Wr: new-or-changed set and removed set
-    Wr->>Wr: space plan as a reader, before anything is created (LLR-052, LLR-135)
+    Op->>Scan: walk the source read-only, every entry, links classified (LLR-001, LLR-109, LLR-112)
+    Scan->>Scan: names refused, entries not captured are named (LLR-055, LLR-111)
+    Scan->>Scan: compare size and time, re-read when due (LLR-113, LLR-011)
+    Scan->>Pub: new-or-changed set and removed set
+    Pub->>Pub: space plan as a reader, before anything is created (LLR-052, LLR-135)
     alt a volume lacks space or cannot be measured
-        Wr-->>Op: refused, 2, nothing created
+        Pub-->>Op: refused, 2, nothing created
     end
     Op->>Guard: take the claim (LLR-090, LLR-091)
     alt claim held by another operation
@@ -83,9 +81,9 @@ sequenceDiagram
         Guard->>Guard: move them aside, complete an interrupted publication (LLR-124)
     end
     Guard->>Guard: staging areas, run folders, owner record, refresh timer (LLR-161, LLR-080, S01 to S06)
-    Wr->>Wr: plan again under the claim, binding (LLR-052)
+    Pub->>Pub: plan again under the claim, binding (LLR-052)
     loop each new content, once per content key
-        Wr->>Store: write temporary, verify, rename out (LLR-003, LLR-058, LLR-086, LLR-117, S07 to S08)
+        Pub->>Store: write temporary, verify, rename out (LLR-003, LLR-058, LLR-086, LLR-117, S07 to S08)
     end
     opt change set not empty
         Pub->>Store: prepare the saved state in the run folder, publish it (LLR-005, LLR-150, S09 to S10)
@@ -201,22 +199,20 @@ SR-040.
 sequenceDiagram
     autonumber
     actor U as Restorer
-    participant L as Launch and target choice (CMP-022)
-    participant Adm as Restore admission (CMP-018)
+    participant Kit as Restore kit (CMP-017)
     participant Ent as Entry restoration (CMP-019)
-    participant Fin as Tree finishing (CMP-020)
     participant Out as Outcome and report (CMP-021)
     participant Store as Store format (CMP-016)
-    U->>L: double-click, or start with arguments (LLR-074)
-    L->>L: ask for a target only where someone can answer (LLR-073, LLR-156, LLR-157)
-    L->>Adm: request, target, chosen state (LLR-010, LLR-158)
-    Note over Adm: every check before the target, the report or any file exists (LLR-136)
-    Adm->>Adm: target not inside the backup, resolvable, no parent component (LLR-009, LLR-079, LLR-137)
-    Adm->>Store: kit of one revision (LLR-159)
-    Adm->>Store: record against its evidence, with the wait (LLR-039, LLR-123, LLR-138)
-    Adm->>Adm: tools by name and version, target space with allowances (LLR-139, LLR-023)
+    U->>Kit: double-click, or start with arguments (LLR-074)
+    Kit->>Kit: launch, and ask for a target only where someone can answer (LLR-073, LLR-156, LLR-157)
+    Kit->>Kit: request, target, chosen state (LLR-010, LLR-158)
+    Note over Kit: admitting, every check before the target, the report or any file exists (LLR-136)
+    Kit->>Kit: target not inside the backup, resolvable, no parent component (LLR-009, LLR-079, LLR-137)
+    Kit->>Store: kit of one revision (LLR-159)
+    Kit->>Store: record against its evidence, with the wait (LLR-039, LLR-123, LLR-138)
+    Kit->>Kit: tools by name and version, target space with allowances (LLR-139, LLR-023)
     alt any check fails
-        Adm-->>Out: refused, value by precedence, shown on the console (LLR-136, LLR-040)
+        Kit-->>Out: refused, value by precedence, shown on the console (LLR-136, LLR-040)
     else all pass
         loop each entry of the chosen state's own record
             Ent->>Ent: refuse an entry landing outside the target (LLR-141)
@@ -224,8 +220,9 @@ sequenceDiagram
             Ent->>Ent: expand or copy, verify length and digest, one recovery (LLR-056, LLR-068)
             Ent->>Out: an entry not restored, with its cause (LLR-029, LLR-142)
         end
-        Fin->>Fin: each file's own time (LLR-066)
-        Fin->>Store: folder record, then link record, applied last (LLR-143, LLR-144)
+        Note over Kit: finishing, after every file is verified
+        Kit->>Kit: each file's own time (LLR-066)
+        Kit->>Store: folder record, then link record, applied last (LLR-143, LLR-144)
         Out->>U: one value, counts and causes, held on screen when started by hand (LLR-040, LLR-029, LLR-074)
     end
 ```

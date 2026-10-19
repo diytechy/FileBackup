@@ -119,7 +119,7 @@ status = "Drafted"
 [interface.IF-007]
 title = "Environment settings"
 owner = "CMP-004"
-consumers = ["CMP-006", "CMP-010"]
+consumers = ["CMP-006", "CMP-011"]
 channel = "process environment"
 interface_from_external = ["B-07"]
 coincident = """The variables as set are read as given."""
@@ -203,15 +203,13 @@ version = "2"
 status = "Drafted"
 
 [interface.IF-010]
-title = "Machine-readable findings"
-owner = "CMP-002"
+title = "Check findings"
+owner = "CMP-014"
 consumers = ["external:EXT-03"]
 channel = "standard output"
 interface_to_external = ["B-08"]
 coincident = """The document written is the findings."""
-data = """One UTF-8 JSON document on standard output.
-Saved-state report: an array, one object per saved state, oldest first: Name (string, the saved-state folder name), Date (string, ISO-8601), Rows (integer), PhysicalBytes, BytesReclaimed, BytesReHomed (integers, bytes).
-Check, and check with repair: an array, one object per finding, empty when clean. Every finding carries Folder (string), FolderName (string), RelativePath (string, empty for a finding about a folder or a stored object rather than an entry), DataPath (string, possibly empty), Class, Observed (string), Expected (string), Repairable (boolean) and KitRevision (integer or null); with repair, also Repaired (boolean).
+data = """One UTF-8 JSON document on standard output, for a check and a check with repair: an array, one object per finding, empty when clean. Every finding carries Folder (string), FolderName (string), RelativePath (string, empty for a finding about a folder or a stored object rather than an entry), DataPath (string, possibly empty), Class, Observed (string), Expected (string), Repairable (boolean) and KitRevision (integer or null); with repair, also Repaired (boolean).
 Class, one of:
 - PoolDataPathMissing: an entry's stored-copy reference names a copy absent from its folder while the same content survives elsewhere in the backup (missing from its place);
 - PoolUnresolvable: an entry whose content is found nowhere in the backup (missing from the whole backup);
@@ -224,7 +222,7 @@ Class, one of:
 - LegacyStoredForm: a state in a retired form;
 - RecordEvidenceMismatch: a state's record that fails its completeness evidence.
 DanglingDataPath, the earlier name of a missing-from-its-place finding, is retired."""
-rationale = """A host deciding whether to remove a saved state, or whether a store is healthy, must parse the answer; scraping the human-readable record lost because its wording is free to change."""
+rationale = """A host deciding whether a store is healthy must parse the answer; scraping the human-readable record lost because its wording is free to change. One document for the check and the saved-state report lost because they are two information kinds with two producers (IF-047)."""
 version = "2"
 status = "Drafted"
 
@@ -326,7 +324,7 @@ status = "Drafted"
 [interface.IF-016]
 title = "Stored object name and form"
 owner = "CMP-016"
-consumers = ["CMP-010", "CMP-013", "CMP-014", "CMP-019"]
+consumers = ["CMP-011", "CMP-013", "CMP-014", "CMP-019"]
 channel = "file name and bytes"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
@@ -346,7 +344,7 @@ status = "Drafted"
 [interface.IF-017]
 title = "Folder record"
 owner = "CMP-016"
-consumers = ["CMP-008", "CMP-011", "CMP-020"]
+consumers = ["CMP-009", "CMP-011", "CMP-017"]
 channel = "file"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
@@ -359,7 +357,7 @@ status = "Drafted"
 [interface.IF-018]
 title = "Link record"
 owner = "CMP-016"
-consumers = ["CMP-008", "CMP-020"]
+consumers = ["CMP-009", "CMP-017"]
 channel = "file"
 carried_by = ["IF-013"]
 interface_to_external = ["B-13"]
@@ -475,7 +473,7 @@ status = "Drafted"
 [interface.IF-025]
 title = "Restore target probe"
 owner = "external:EXT-12"
-consumers = ["CMP-018", "CMP-019", "CMP-020"]
+consumers = ["CMP-017", "CMP-019"]
 channel = "filesystem queries"
 interface_from_external = ["B-17"]
 bridged_by = ["DA-06"]
@@ -487,7 +485,7 @@ status = "Drafted"
 [interface.IF-026]
 title = "Restore host session"
 owner = "external:EXT-10"
-consumers = ["CMP-022"]
+consumers = ["CMP-017"]
 channel = "process environment"
 interface_from_external = ["B-19"]
 coincident = """The session is as the host reports it."""
@@ -501,7 +499,7 @@ status = "Drafted"
 [interface.IF-027]
 title = "Folder choice dialog"
 owner = "external:EXT-10"
-requestors = ["CMP-022"]
+requestors = ["CMP-017"]
 channel = "desktop dialog"
 interface_from_external = ["B-19"]
 coincident = """The folder chosen is the answer."""
@@ -515,7 +513,7 @@ status = "Drafted"
 [interface.IF-028]
 title = "Source tree view"
 owner = "external:EXT-04"
-consumers = ["CMP-008", "CMP-009"]
+consumers = ["CMP-009"]
 channel = "filesystem"
 interface_from_external = ["B-01"]
 bridged_by = ["DA-04", "DA-12", "DA-14", "DA-21"]
@@ -549,7 +547,7 @@ status = "Drafted"
 [interface.IF-031]
 title = "Volume space and identity"
 owner = "external:EXT-05"
-consumers = ["CMP-010", "CMP-013"]
+consumers = ["CMP-011", "CMP-013"]
 channel = "filesystem queries"
 interface_from_external = ["B-03"]
 bridged_by = ["DA-06"]
@@ -561,7 +559,7 @@ status = "Drafted"
 [interface.IF-032]
 title = "Exclusive-use claim"
 owner = "CMP-012"
-consumers = ["CMP-011", "CMP-013", "CMP-014", "CMP-018"]
+consumers = ["CMP-011", "CMP-013", "CMP-014", "CMP-017"]
 channel = "operating-system file lock"
 interface_to_external = ["B-04"]
 bridged_by = ["DA-02", "DA-03"]
@@ -605,7 +603,7 @@ status = "Drafted"
 [interface.IF-034]
 title = "Content digest"
 owner = "CMP-016"
-consumers = ["CMP-009", "CMP-010", "CMP-013", "CMP-014", "CMP-019"]
+consumers = ["CMP-009", "CMP-011", "CMP-013", "CMP-014", "CMP-019"]
 channel = "library call or host command"
 interface_from_external = ["B-10"]
 bridged_by = ["DA-18", "DA-05"]
@@ -617,7 +615,7 @@ status = "Drafted"
 [interface.IF-035]
 title = "Archive tool"
 owner = "external:EXT-06"
-requestors = ["CMP-010", "CMP-013", "CMP-014", "CMP-018", "CMP-019"]
+requestors = ["CMP-011", "CMP-013", "CMP-014", "CMP-017", "CMP-019"]
 channel = "host command"
 interface_from_external = ["B-10"]
 bridged_by = ["DA-18"]
@@ -777,4 +775,15 @@ data = """What a backup host provides for the backup side:
 Each tool, when looked for, is either found (with its location and version) or absent."""
 rationale = """A run that finds a missing runtime or tool halfway has already changed the backup, so the floor must be stated where the launch can check it first. Leaving the floor in the user manual only lost because nothing then ties the launch check to it."""
 version = "1"
+status = "Drafted"
+
+[interface.IF-047]
+title = "Saved-state report"
+owner = "CMP-013"
+consumers = ["external:EXT-03"]
+channel = "standard output"
+interface_to_external = ["B-08"]
+coincident = """The document written is the report."""
+data = """One UTF-8 JSON document on standard output: an array, one object per saved state, oldest first: Name (string, the saved-state folder name), Date (string, ISO-8601), Rows (integer), PhysicalBytes, BytesReclaimed, BytesReHomed (integers, bytes)."""
+rationale = """A host deciding which saved state to remove must parse what each removal would free; scraping the human-readable record lost because its wording is free to change. Sharing one row with the check findings lost because they are two information kinds with two producers."""
 status = "Drafted"

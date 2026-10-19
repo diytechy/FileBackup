@@ -51,35 +51,21 @@ name = "Backup engine"
 category = "software"
 part_of = "CMP-001"
 status = "Drafted"
-notes = """Everything that produces and maintains a backup and that a restore never needs. Its children are drawn by responsibility. Today one backup-only module holds nine of them (source capture, change detection, content writing, state publication, the exclusive-use guard, removal, check and repair, and the views), which is why one change to any of them touches the same file; the tree records the seams that file does not."""
-
-[component.CMP-008]
-name = "Source capture"
-category = "software"
-part_of = "CMP-007"
-status = "Drafted"
-notes = """Walks each source tree read-only, every entry at every depth hidden, system and dot-named ones included, leaving out only the declared exclusions; classifies each folder link or junction as followed or recorded; refuses names that cannot exist on Windows or Linux; retries a briefly unreadable file within a per-location limit; names everything it could not capture; and records the empty and attributed folders. Today the walk does not distinguish links: it lists a folder link like a folder and writes it to the folder record as an empty folder, so a link comes back from a restore as an empty folder; and a file that cannot be hashed aborts the whole location instead of being named. It owns no interface, so its rows show as unplaced: placement is derived only through an interface's owner, and no interface was minted just to place them. Most of them state behaviour across the external source tree view."""
+notes = """Everything that produces and maintains a backup and that a restore never needs. Its children are drawn by the decision each one hides: source scan and change detection, content storage and state publication, the exclusive-use guard, removal and the saved-state report, check, repair and kit refresh, and the views. Today one backup-only module holds all of them, which is why one change to any of them touches the same file; the tree records the seams that file does not."""
 
 [component.CMP-009]
-name = "Change detection"
+name = "Source scan and change detection"
 category = "software"
 part_of = "CMP-007"
 status = "Drafted"
-notes = """Decides which files are new, changed or removed: compares each file's size and modification time with the change-detection record, re-reads unchanged-looking content on the runs the re-read schedule makes due, rebuilds the record from the backup's own record of contents when it is missing, damaged or foreign, and keeps that record at the source root or at the configured state location. Today the record is a second record of contents plus its completeness evidence kept at the state location; a missing record is silently treated as empty and an unreadable one fails the location rather than being rebuilt. It owns the change-detection record; the re-read schedule row states no behaviour across it and shows as unplaced."""
-
-[component.CMP-010]
-name = "Content writer"
-category = "software"
-part_of = "CMP-007"
-status = "Drafted"
-notes = """Stores each distinct content once: groups new and changed files by content key, elects the one stored form of each group, decides compression from a measured saving or from the file type, writes the stored object under its content-derived name, stores lost content again, adopts existing content only where it is actually present, and checks free space per volume before anything is written. Today the measurement and the decision live in the backup-only engine module while the already-compressed type list and the archive calls live in the restore-safe shared library, so a list edit moves the kit revision although no restore reads the list. It owns no interface, so its rows show as unplaced: placement is derived only through an interface's owner, and no interface was minted just to place them. The stored-object name and form it writes is the store format's interface."""
+notes = """Walks each source tree read-only, every entry at every depth hidden, system and dot-named ones included, leaving out only the declared exclusions; classifies each folder link or junction as followed or recorded; refuses names that cannot exist on Windows or Linux; retries a briefly unreadable file within a per-location limit; names everything it could not capture; records the empty and attributed folders; and decides which files are new, changed or removed, comparing each file's size and modification time with the change-detection record and re-reading unchanged-looking content on the runs the re-read schedule makes due. It rebuilds the change-detection record from the backup's own record of contents when that record is missing, damaged or foreign, and keeps it at the source root or at the configured state location. The source tree it reads belongs to the source system, outside FileBackup, so it is an external interface and never a component: the walk's rows constrain that interface and show at the system root. Today the walk lists a folder link like a folder, so a link comes back from a restore as an empty folder; a file that cannot be hashed aborts the whole location instead of being named; and a missing change-detection record is silently treated as empty while an unreadable one fails the location. It owns the change-detection record; the re-read schedule row states no behaviour across it and shows as unplaced."""
 
 [component.CMP-011]
-name = "State publication"
+name = "Content storage and state publication"
 category = "software"
 part_of = "CMP-007"
 status = "Drafted"
-notes = """Turns a run's captured changes into published states: stages the previous state, keeps its superseded and removed content, removes from the latest state only content no remaining entry claims, publishes each record of contents with matching completeness evidence so a reader never sees a torn one, dates and names the saved state, adds none for an unchanged run, places the restore kit in every state, collapses content duplicated across saved states, and keeps the run-state record. Today this is spread over the backup driver and its staging, eviction, preservation and finalisation steps in the backup-only engine module, with the record writer in the restore-safe shared library. It owns only the run-state record; its publication rows state behaviour across the store layout and the record of contents, which the store format owns, so they show as unplaced rather than placed in the format."""
+notes = """Stores each distinct content once and turns a run's changes into published states. Storage: groups new and changed files by content key, elects the one stored form of each group, decides compression from a measured saving or from the file type, writes each stored object under its content-derived name, stores lost content again, adopts existing content only where it is actually present, and checks free space per volume before anything is written. Publication: stages the previous state, keeps its superseded and removed content, removes from the latest state only content no remaining entry claims, publishes each record of contents with matching completeness evidence so a reader never sees a torn one, dates and names the saved state, adds none for an unchanged run, places the restore kit in every state, collapses content duplicated across saved states, and keeps the run-state record. Today the compression measurement and decision live in the backup-only engine module while the already-compressed type list and the archive calls live in the restore-safe shared library, so a list edit moves the kit revision although no restore reads the list; and publication is spread over the backup driver and its staging, eviction, preservation and finalisation steps, with the record writer in the shared library. It owns only the run-state record; stored objects, the store layout and the record of contents are the store format's, so its storage and publication rows show as unplaced rather than placed in the format."""
 
 [component.CMP-012]
 name = "Exclusive-use guard"
@@ -100,7 +86,7 @@ name = "Check, repair and kit refresh"
 category = "software"
 part_of = "CMP-007"
 status = "Drafted"
-notes = """Checks every state against what is stored and reports each disagreement by kind; repairs only the finding classes declared certain, copying content back only from a copy it has hashed; and refreshes the restore kit in every state from the installed program without changing anything else, recording once each state's original kit revision. The default check reads only a stored object's opening bytes, so altered content is found only by the opt-in deep check (Owner ruling P-03); today repair renames objects but never copies content back. It owns no interface, so its rows show as unplaced: placement is derived only through an interface's owner, and no interface was minted just to place them."""
+notes = """Checks every state against what is stored and reports each disagreement by kind; repairs only the finding classes declared certain, copying content back only from a copy it has hashed; and refreshes the restore kit in every state from the installed program without changing anything else, recording once each state's original kit revision. The default check reads only a stored object's opening bytes, so altered content is found only by the opt-in deep check (Owner ruling P-03); today repair renames objects but never copies content back. It owns the check findings (IF-010)."""
 
 [component.CMP-015]
 name = "Views"
@@ -121,14 +107,7 @@ name = "Restore kit"
 category = "software"
 part_of = "CMP-001"
 status = "Drafted"
-notes = """What every state of a backup carries so it can be restored with no FileBackup installed. Its children are drawn by responsibility, and each is realised twice today: once on the language-runtime route and once on the shell route. One set of requirements binds both routes; parity between them is verified per route at the test tier. It owns the kit artifact set, the restore request and the restored tree, which its children produce together, so rows of its children that state behaviour across those are placed here."""
-
-[component.CMP-018]
-name = "Restore admission"
-category = "software"
-part_of = "CMP-017"
-status = "Drafted"
-notes = """Makes every whole-restore decision before anything is written to the target: the request and its target (inside the backup, unresolvable, a parent-folder component), the record's completeness evidence and form, the age evidence that excuses a check an older state cannot support, the tools the route needs, and the target's space. Today the language-runtime route runs the space check after it has created the target and its log, the shell route runs its retired-form check after the same point, and neither consults positive age evidence. It owns no interface: its rows on the target probe and the tool floor constrain external interfaces and show as unplaced, and its age and kit-revision rows are placed at the restore kit through the kit artifact set."""
+notes = """What every state of a backup carries so it can be restored with no FileBackup installed. A restore runs through the states its runtime flow shows: launched, admitting, restoring, finishing and reported. The launchers start it and carry no restore logic, and the target is asked for only where someone can answer, an interactively started restore keeping its outcome on screen until dismissed. Admission makes every whole-restore decision before anything is written: the request and its target, the kit's revision, the record's completeness evidence and form, the age evidence that excuses a check an older state cannot support, the tools the route needs, and the target's space. Finishing applies, after every file is written and verified, each file's own time, the empty folders and folder attributes the target can hold, and the recorded links. Entry restoration and the outcome classification are its child components, since each hides a decision of its own; the phases are states, not components. Everything is realised twice today, once on the language-runtime route and once on the shell route; one set of requirements binds both, and parity is verified per route at the test tier. Today the language-runtime route runs the space check after it has created the target and its log, the shell route runs its retired-form check after the same point, neither consults positive age evidence, links are neither recorded nor rebuilt, and folder metadata that is missing or malformed never changes the outcome. It owns the kit artifact set, the restore request and the restored tree; rows that state behaviour across those are placed here, and rows across the target probe, the tool floor, the host session and the folder dialog, which belong to systems outside FileBackup, show at the system root."""
 
 [component.CMP-019]
 name = "Entry restoration"
@@ -137,26 +116,12 @@ part_of = "CMP-017"
 status = "Drafted"
 notes = """Restores each entry of the chosen state: refuses an entry that would land outside the target, finds its content at its own place or anywhere in the backup by content key, decides the stored form from the bytes, produces and verifies the file, tries one recovery from another copy, refuses to write either of two names that would collide on the target, and records every entry not restored with its cause. Owns the content search by key, whose answer set both routes must give alike; its rows on the restored tree are placed at the restore kit, which owns that tree."""
 
-[component.CMP-020]
-name = "Tree finishing"
-category = "software"
-part_of = "CMP-017"
-status = "Drafted"
-notes = """Completes the restored tree after every file is written and verified: each file's own modification time, the empty folders and the folder attributes the target can hold, and the recorded links rebuilt at their places. Today links are neither recorded nor rebuilt, and folder metadata that is missing or malformed never changes the outcome. It owns no interface: its time rows are placed at the restore kit through the restored tree, and its folder-record and link-record rows show as unplaced, the two records being the store format's."""
-
 [component.CMP-021]
 name = "Restore outcome and report"
 category = "software"
 part_of = "CMP-017"
 status = "Drafted"
 notes = """Classifies a restore's result into one value of the shared vocabulary with the fixed precedence, identically on every route and system, and reports the counts and the name and cause of every entry not restored, kept on screen for an interactive start."""
-
-[component.CMP-022]
-name = "Restore launch and target choice"
-category = "software"
-part_of = "CMP-017"
-status = "Drafted"
-notes = """The launchers a restorer double-clicks and the target choice: decides from the session whether to ask for a target by folder choice, by typed prompt, or not at all, and keeps an interactively started restore's outcome on screen until dismissed. The launchers carry no restore logic; holding the window is the restorer's job, so it can never reach an automated caller. It owns no interface: the restore request is the restore kit's, so its launcher rows are placed there, and its folder-choice rows constrain the external session and dialog and show as unplaced."""
 
 [component.CMP-023]
 name = "Container"

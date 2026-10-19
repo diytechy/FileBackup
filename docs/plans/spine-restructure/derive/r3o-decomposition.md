@@ -164,3 +164,15 @@ session and dialog rows, provisioning's floor rows. In round 4, each one's
 test case names the interface it observes at, which places it where that
 interface's owner is. Rows constraining no interface (the 28 counted in this
 session) are placed the same way, and the remainder is counted, not refused.
+
+## The Owner's calls (applied in round 3p, `r3-merged/_r3p_apply.py`)
+
+| Call | Ruling | Applied |
+|---|---|---|
+| 1, Source capture | **(b) fold into change detection.** The Owner's principle: components describe FileBackup's own internal behaviour; the source belongs to an external system and is an external interface (IF-028), never a component, so it does not earn a component of its own here. | CMP-008 retired into CMP-009, renamed "Source scan and change detection". The walk's rows still constrain IF-028 and show at the system root. |
+| 2, Content writer | **(b) fold into state publication.** | CMP-010 retired into CMP-011, renamed "Content storage and state publication". Its rows stay unplaced (stored objects are the store format's). |
+| 3, Findings document | **(a) split IF-010.** | IF-010 is now "Check findings" (owner CMP-014, constrained by LLR-049 and LLR-096); new IF-047 "Saved-state report" (owner CMP-013, constrained by LLR-047). |
+| 4, Restore phases | **(a) fold into the restore kit as states.** | CMP-018, CMP-020 and CMP-022 retired into CMP-017; flows 5 and 6 keep admitting, finishing and launch visible as states. |
+
+The tree is now 19 components. The analysis above is kept as written before
+the calls.

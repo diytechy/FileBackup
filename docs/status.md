@@ -47,8 +47,8 @@ last) — it is the record, not required reading for every pass.
   for the rulings, all confirmed and fixed in round 3n). **Next, if this branch
   resumes:** finish the design layer first (the order was wrong: test cases are
   not next). Round 3o wrote `runtime-flows.md` and `derive/r3o-decomposition.md`;
-  the Owner's four calls on the six empty components are open, then the prose
-  re-anchoring, then the Owner's approval of the need, SR and design tiers.
+  the Owner's four calls on the six empty components are ruled and applied
+  (round 3p: 19 components, IF-010 split); next the prose re-anchoring, then the Owner's approval of the need, SR and design tiers.
   Findings for ai-template: `AI-TEMPLATE-NOTES.md` (repo root). Session d
   rulings: **P-01 calendar
   re-read periods** and **P-03 quick check plus -Deep**, both today's code;
@@ -68,7 +68,7 @@ last) — it is the record, not required reading for every pass.
   writing one backup is officially unsupported (DA-03; SR-144 bounds the damage
   to at most one misplaced, not lost, object). Then round 4, the test cases, regenerated from the new
   LLRs; it needs the ai-template test-tagging ruling first. The need tier
-  (48), SR tier (124) and design tier (24 CMP, 45 IF, 141 LLR in
+  (48), SR tier (124) and design tier (19 CMP, 46 IF, 141 LLR in
   `requirements/*.toml`) are Drafted; only a reviewed Status-change commit
   approves them. `test/test-cases.csv` still points at old ids until round 4
   rebuilds it.

@@ -38,7 +38,16 @@ gets nothing, however clearly the rows are its own. In FileBackup that emptied:
 See `docs/plans/spine-restructure/derive/r3o-decomposition.md`, "Why six leaves
 are empty".
 
-**Suggestion.** Decide and state one rule:
+**The Owner's principle (FileBackup, 2026-10-18).** Components describe the
+system's own internal behaviour. An external system, such as the source tree
+a backup reads, is an external interface, never a component, and shouldn't
+clog the component registry. FileBackup therefore folded its source-capture
+leaf into the internal component that acts on what it reads, and folded its
+restore phases into the restore kit as states.
+
+**Suggestion.** Write that principle into the kit (what a component is, and
+that an external system is only ever an interface). Then decide and state one
+rule for the rows themselves:
 - an external interface with exactly one internal consumer places its rows at
   that consumer; or
 - such a leaf is legal and shown as "external-facing, placed at root"; or

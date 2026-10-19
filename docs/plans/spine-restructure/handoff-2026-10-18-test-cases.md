@@ -26,8 +26,8 @@ force" still apply. This one replaces its "Where it stands" and "Open items".*
 | Frame | `external.toml`, `assumptions.toml` | as before | Drafted. B-01 and B-16 now carry links (a clarity edit) |
 | Hats | `hats.toml` | 9 | unchanged |
 | System requirements | `system-requirements.toml` | 124 SR | Drafted. SR-153 added 2026-10-18 (P-02). 11 rows edited in round 3 (open item 1's set, plus SR-106, SR-144, SR-146) |
-| **Components** | `components.toml` | 24 CMP | **Drafted, new** |
-| **Interfaces** | `interfaces.toml` | 45 IF (41 boundary, 4 internal) | **Drafted, new**; IF-001 retired |
+| **Components** | `components.toml` | 19 CMP | **Drafted, new**; 5 leaves folded by the Owner's Calls 1, 2 and 4 (round 3p) |
+| **Interfaces** | `interfaces.toml` | 46 IF (42 boundary, 4 internal) | **Drafted, new**; IF-001 retired; IF-047 split from IF-010 (Call 3) |
 | **Low-level requirements** | `low-level-requirements.toml` | 141 LLR (111 top-level, 30 child; 73 legacy ids kept) | **Drafted, new**; LLR-162 (the staging table) added 2026-10-18 c; LLR-163 (the removal dry run, P-02) added 2026-10-18 |
 | Test cases | `docs/test/test-cases.csv` (legacy) | 234 | **next: round 4** |
 
@@ -109,9 +109,8 @@ The design moved most in two places: the fence and the staging sequence.
    outputs. Done in round 3o: `docs/runtime-flows.md` (nine flows, two of them
    state flows, every cited id checked) and
    `derive/r3o-decomposition.md` (per-scope states, boundaries and dependency
-   tables, and four calls on the six empty leaf components). **Open: the Owner's
-   Calls 1 to 4**, then applying them (interface rows, placements, the component
-   tree), then the prose re-anchoring the gap map's Phase 3 names
+   tables, and four calls on the six empty leaf components). **The Owner ruled Calls 1 to 4
+   and they are applied (round 3p).** Open: the prose re-anchoring the gap map's Phase 3 names
    (`architecture.md`, `interfaces.md`, AGENTS.md sections 2 and 3). Findings for
    ai-template are in `AI-TEMPLATE-NOTES.md` at the repo root.
 4. **Owner approval of the need tier, then the SR tier, then the design
