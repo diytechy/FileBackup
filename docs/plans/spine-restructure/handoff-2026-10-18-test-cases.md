@@ -135,8 +135,8 @@ rows affected, are in `r3-dispositions.md`.
 | P-08 | The change-detection record shares its name with a backup's own record. Rename it? | **Ruled (a)** by the Owner, 2026-10-18: renamed `MANIFEST.fb.src.csv`, reading the old name once; the backup's `MANIFEST.csv` keeps its name |
 | P-09 | SR-144's "changes nothing further" cannot be absolute. Scope it to the store, with the change-detection state and views outside the guarantee? | **Ruled (a)** by the Owner, 2026-10-18: store-scoped, as drafted |
 | P-10 | SR-106's "normal outcome during a writer": exceptions for the very state being removed, a kit refresh outlasting the wait, and a record pair that does not settle within 60 s? | Those cases end with 4, never wrong |
-| P-11 | Add the listing location (the views) to the system's own locations for links? | Add it |
-| P-12 | A pre-row-count state missing its folder record: complete (unverified) or part failed? | Complete, with the folder record reported unverified |
+| P-11 | Add the listing location (the views) to the system's own locations for links? | **Ruled (a)** by the Owner, 2026-10-18: add the listing location (the views) |
+| P-12 | A pre-row-count state missing its folder record: complete (unverified) or part failed? | **Ruled (a)** by the Owner, 2026-10-18: complete, folder record reported unverified |
 | P-13 | Superseded content is copied into the saved state, then the original is deleted, so every move is fenced; a large edited file then pays a full copy. Accept? | Accept |
 | P-14 | Where the claim cannot be tested (macOS shell route), an unsettled record or mixed kit: 4, a lock tool, or the owner record as the no-writer signal? | **Ruled (a)** by the Owner, 2026-10-18: 4, the message stating that the record is damaged unless a changing operation is running |
 | P-15 | Bind the folder and link records to the evidence by digest? | **Ruled**: evidence version 4 |

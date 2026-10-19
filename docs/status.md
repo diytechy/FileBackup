@@ -42,7 +42,7 @@ last) — it is the record, not required reading for every pass.
   convergence checks found 3 findings each, all fixed; the last fixes are not
   re-checked. The Owner is comparing this branch with a different design
   branch. **Next, if this branch resumes:** one scoped check of LLR-162,
-  LLR-118, LLR-124 and LLR-017; then the Owner's remaining rulings (P-10..P-13, each written to its default; ruled 2026-10-18: **P-01 calendar
+  LLR-118, LLR-124 and LLR-017; then the Owner's remaining rulings (P-10 and P-13, each written to its default; ruled 2026-10-18: **P-01 calendar
   re-read periods** and **P-03 quick check plus -Deep**, both today's code;
   **P-04 measure UNC shares, refuse a backup volume still unmeasurable** (SR-052,
   LLR-052, new gap M96: today every UNC backup skips its space check); **P-05
@@ -52,7 +52,9 @@ last) — it is the record, not required reading for every pass.
   change-detection record renamed `MANIFEST.fb.src.csv`**, the backup's
   `MANIFEST.csv` unchanged (IF-029); **P-02 the removal dry run specified**
   (SN-046 widened, new SR-153 and LLR-163); **P-09 a reclaimed run's guarantee is
-  store-scoped**, as drafted (SR-144)), then the Owner's approval of the need,
+  store-scoped**, as drafted (SR-144); **P-11 the views folder is a system location**
+  (SR-151) and **P-12 an old state missing its folder record restores complete,
+  reported unverified** (LLR-138), both as drafted), then the Owner's approval of the need,
   SR and design tiers. Then round 4, the test cases, regenerated from the new
   LLRs; it needs the ai-template test-tagging ruling first. The need tier
   (48), SR tier (124) and design tier (24 CMP, 45 IF, 141 LLR in
