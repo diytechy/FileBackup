@@ -40,6 +40,8 @@ stateDiagram-v2
     Unchanged --> Collapsed
     Collapsed --> Released: views built, location record published, staging removed, claim released (LLR-061, LLR-091)
     Staged --> Reclaimed: a successor took the backup, the run stops with 1 (LLR-125, SR-144)
+    Staged --> Failed: a host fault mid-work gives 4, a location failure 1, leftovers recognised next run (LLR-043, LLR-162)
+    Failed --> [*]
     Released --> [*]
     Refused --> [*]
     Busy --> [*]
@@ -61,11 +63,15 @@ sequenceDiagram
     participant Pub as Content storage and publication (CMP-011)
     participant Store as Store format (CMP-016)
     participant Views as Views (CMP-015)
-    Op->>Cfg: validate every location set before the first runs (LLR-042, LLR-014)
+    Op->>Cfg: validate every location set before the first runs (LLR-042)
     Note over Op,Cfg: no record is created or truncated before admission (LLR-095)
     Op->>Scan: walk the source read-only, every entry, links classified (LLR-001, LLR-109, LLR-112)
-    Scan->>Scan: names refused, entries not captured are named (LLR-055, LLR-111)
+    Scan->>Scan: names refused, entries not captured are named, a briefly unreadable file retried within the location's limit (LLR-055, LLR-111, LLR-067)
+    alt the source suddenly looks empty and is not declared so
+        Scan-->>Op: refused, nothing changed (LLR-036)
+    end
     Scan->>Scan: compare size and time, re-read when due (LLR-113, LLR-011)
+    Scan->>Scan: keep the change-detection record at the source root or its configured location (LLR-115, LLR-114)
     Scan->>Pub: new-or-changed set and removed set
     Pub->>Pub: space plan as a reader, before anything is created (LLR-052, LLR-135)
     alt a volume lacks space or cannot be measured
@@ -75,7 +81,7 @@ sequenceDiagram
     alt claim held by another operation
         Guard-->>Op: refused busy, 4, touching nothing (LLR-122)
     end
-    Guard->>Store: read run state, latest record and its evidence (LLR-035, LLR-118)
+    Pub->>Store: under the claim, read run state, latest record and its evidence (LLR-035, LLR-118)
     Guard->>Guard: classify leftovers from the disk alone (LLR-017, LLR-088)
     alt leftovers provably dead
         Guard->>Guard: move them aside, the backup root's first (LLR-124, R1 to R2)
@@ -85,8 +91,9 @@ sequenceDiagram
     else no leftovers
         Guard->>Guard: staging areas, run folders, owner record, refresh timer (LLR-161, LLR-080, S01 to S05)
     end
-    Guard->>Guard: open the location's record in the run folder (LLR-095, S06)
+    Note over Guard,Pub: the location's record opens in the run folder (LLR-095, S06)
     Pub->>Pub: plan again under the claim, binding (LLR-052)
+    Pub->>Pub: content lost from the store is stored again, existing content adopted only where present (LLR-053)
     loop each new content, once per content key
         Pub->>Store: write temporary, verify, rename out (LLR-003, LLR-058, LLR-086, LLR-117, S07 to S08)
     end
@@ -99,7 +106,8 @@ sequenceDiagram
     end
     Pub->>Store: run-state record through the run folder (LLR-028, S21)
     Pub->>Store: collapse duplicates across states (LLR-026, S22 to S23)
-    Pub->>Views: rebuild the views where on (LLR-061, LLR-132)
+    Pub->>Views: rebuild the views where on, with the media rate where measured (LLR-061, LLR-132, LLR-133, LLR-134)
+    Note over Scan,Pub: the run reads what changed, not the history (LLR-149)
     Guard->>Guard: publish location record, empty staging, delete owner record (S24 to S27)
     Guard->>Guard: release the claim on every path (LLR-091)
     Op->>Op: fold this location into the run's value (LLR-014, LLR-043)
@@ -134,8 +142,8 @@ sequenceDiagram
             alt they come to agree
                 R->>R: read normally, normal outcome
             else still disagree
-                R->>Guard: test the claim without creating it (LLR-159)
-                Guard-->>R: held or untestable gives retry later 4. Free gives damaged record 3 (LLR-123, LLR-039)
+                R->>Store: test the claim file without creating it (LLR-159)
+                R->>R: held or untestable gives retry later 4. Free gives damaged record 3 (LLR-123, LLR-039)
             end
         end
     end
@@ -189,6 +197,8 @@ stateDiagram-v2
     Waiting --> Refused: still unsettled, 4 or 3 by the claim test (LLR-159, LLR-039)
     Admitting --> Restoring: every check passed
     Restoring --> Finishing: every file written and verified (LLR-056)
+    Restoring --> Failed: an I/O or tool failure mid-restore, 4, files written stay verified (LLR-040)
+    Failed --> [*]
     Finishing --> Reported: times, folders, attributes, links applied (LLR-066, LLR-143, LLR-144)
     Reported --> [*]: one value, report kept on screen when started by hand (LLR-040, LLR-074)
     Refused --> [*]
@@ -215,7 +225,7 @@ sequenceDiagram
     Kit->>Kit: target not inside the backup, resolvable, no parent component (LLR-009, LLR-079, LLR-137)
     Kit->>Store: kit of one revision (LLR-159)
     Kit->>Store: record against its evidence, with the wait (LLR-039, LLR-123, LLR-138)
-    Kit->>Kit: tools by name and version, target space with allowances (LLR-139, LLR-023)
+    Kit->>Kit: tools by name and version, the same verdict whatever the host tools' flavour, target space with allowances (LLR-139, LLR-071, LLR-023)
     alt any check fails
         Kit-->>Out: refused, value by precedence, shown on the console (LLR-136, LLR-040)
     else all pass
@@ -244,7 +254,7 @@ sequenceDiagram
     participant Guard as Exclusive-use guard (CMP-012)
     participant Store as Store format (CMP-016)
     alt dry run
-        Op->>Guard: test the claim without creating it (LLR-163, LLR-159)
+        Rem->>Store: test the claim file without creating it, an absent file meaning no holder (LLR-163, LLR-159)
         Rem->>Store: the removal's own plan and refusals, as a reader (LLR-163, LLR-046, LLR-047)
         Rem-->>Op: per state, would remove with figures, or refused with value and reason. Nothing written.
     else removal
@@ -319,9 +329,24 @@ sequenceDiagram
         Rec->>Rec: changes, failures, counts, progress at least every 2 minutes (LLR-107, LLR-108, LLR-097)
     end
     Op->>Op: fold the locations' values into one (LLR-014, LLR-043)
-    Op->>Ntf: one message where set up, a send failure changes nothing (LLR-015)
+    Op->>Ntf: one message where set up, a send failure changes nothing, credentials never written readable (LLR-015, LLR-106)
     Op-->>Host: the value as exit status (LLR-043, LLR-048)
 ```
 
 _Update a flow in the same change that alters its LLRs: a stale flow is a
 design error._
+
+## Requirements no flow renders (declared flow-free)
+
+These SRs state static rules (a check made once against a document, a form, a
+package or a pair of versions) rather than an ordering, a concurrency or a
+sequence of steps, so no runtime flow renders them. Their LLRs and test cases
+carry them.
+
+- **Configuration and locations, checked at admission:** SR-042, SR-063,
+  SR-123, SR-129, SR-134, SR-135, SR-138, SR-140, SR-149.
+- **Store form and compatibility across versions and hosts:** SR-021, SR-033,
+  SR-061, SR-084, SR-114, SR-115, SR-136.
+- **What a restore may depend on:** SR-008, SR-031.
+- **Delivery and packaging:** SR-027, SR-034, SR-130, SR-131, SR-143.
+

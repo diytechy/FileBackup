@@ -49,7 +49,11 @@ last) — it is the record, not required reading for every pass.
   not next). Round 3o wrote `runtime-flows.md` and `derive/r3o-decomposition.md`;
   the Owner's four calls on the six empty components are ruled and applied
   (round 3p: 19 components, IF-010 split), and double-checked (`r3q-convergence-sol/`:
-  no BLOCKER, 3 MAJOR and 1 MINOR, all fixed in round 3r); next the prose re-anchoring, then the Owner's approval of the need, SR and design tiers.
+  no BLOCKER, 3 MAJOR and 1 MINOR, all fixed in round 3r). Round 3s ran the
+  eight-item 'ready for test cases' check (`derive/r3s-readiness-check.md`):
+  items 2, 4 and 5 closed; open are the Owner's items 6 (quality scenarios) and 8
+  (how a test drives each external interface, a round-4 prerequisite), and a
+  placement residue that waits on ai-template's rules. Next the prose re-anchoring, then the Owner's approval of the need, SR and design tiers.
   Findings for ai-template: `AI-TEMPLATE-NOTES.md` (repo root). Session d
   rulings: **P-01 calendar
   re-read periods** and **P-03 quick check plus -Deep**, both today's code;
