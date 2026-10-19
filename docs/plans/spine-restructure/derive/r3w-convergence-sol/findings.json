@@ -1,0 +1,15 @@
+[
+  {
+    "id": "R3W-001",
+    "severity": "MAJOR",
+    "rows": [
+      "IF-054",
+      "LLR-023",
+      "LLR-138",
+      "LLR-040",
+      "IF-022"
+    ],
+    "finding": "IF-054 gives each pre-write whole-restore check only two forms: passed, or failed with a fault class. It has no form for a permitted check not made. LLR-023 permits restoring to a volume whose free space cannot be measured and requires the report to say the check was not made; LLR-138 permits older states to restore with specified checks unverified, and LLR-040 requires an otherwise intact such restore to end with 0. IF-022 explicitly carries Unverified entries. Admission belongs to CMP-017 and reporting to CMP-021, but their new results interface cannot convey these non-failing omissions and their reasons: a passed result has no such payload, while a failed result gives a whole-restore fault. This leaves the reporting component without the information needed to produce the required report while retaining the successful outcome.",
+    "suggested_fix": "Extend the pre-write result form on IF-054 with an explicit permitted-not-made/unverified disposition carrying the check identity and reason, alongside passed and failed. Keep the conditions permitting that disposition and its outcome treatment in the behavioral requirements. Ensure that a permitted omission can proceed through admission and reach CMP-021 without being represented as a whole-restore failure."
+  }
+]

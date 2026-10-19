@@ -414,3 +414,38 @@ consumer lists, and the new `docs/runtime-flows.md`. No BLOCKER; 3 MAJOR and
 
 These are flow-order and wording corrections within what the check covered;
 they are not re-checked.
+
+## The decomposition finished unattended (session 2026-10-18 e)
+
+The Owner asked for the decomposition to be finished unattended by best
+judgement, with every call needing a closer look recorded for review in
+`DECOMPOSITION-REVIEW.md` (repo root). Working record:
+`r3t-root-decomposition.md`.
+
+- **Round 3t:** the top-level pass. Flow 0, N2 charts at every decomposed
+  scope, the sibling argument and the descend test. IF-048 to IF-052 and child
+  LLR-164 were added; consumer lists completed; flows put each step on the
+  component doing the work. A new advisory checker,
+  `check_design_layer.py`, was committed.
+- **Round 3u** (`r3u-convergence-sol/`, Codex gpt-6.1-sol, high): 0 BLOCKER,
+  11 MAJOR, 3 MINOR. Thirteen were confirmed and fixed in round 3v:
+  - IF-049 and IF-050 forms closed;
+  - IF-053 and IF-054 added;
+  - IF-048 gained the plan request (LLR-052);
+  - flows 0, 2 and 9 reordered (admission before provisioning, a launch-wide
+    plan, the claim before the binding comparison);
+  - endpoints completed;
+  - gap M97 added.
+
+  R3U-010 was not taken: it contradicts the Owner's Call 4, and is recorded for
+  the Owner.
+- **Round 3w** (`r3w-convergence-sol/`): the first attempt failed before
+  reading anything (a Codex sandbox error). The retry, on the same model,
+  completed: 0 BLOCKER, 1 MAJOR, 0 MINOR. R3W-001 was confirmed: IF-054 had no
+  form for a check permitted not to be made (LLR-023, LLR-138). It was fixed in
+  round 3x. That fix is a one-clause form extension and is not re-checked.
+
+End state: 19 components, 53 interfaces (11 internal), 142 LLRs.
+`validate_design.py` reports 0 errors. `check_design_layer.py` reports 0
+design-owned findings and 55 placement disagreements, which are ai-template's
+placement rule.

@@ -55,7 +55,17 @@ last) — it is the record, not required reading for every pass.
   interface, a round-4 prerequisite) are drafted; the Owner ruled item 8's calls
   (a real UNC share in CI, a Linux Pester lane, a macOS restore attest per release,
   an exFAT target on the VHDX lane), and item 6 awaits the Owner's read, and a
-  placement residue that waits on ai-template's rules. Next the prose re-anchoring, then the Owner's approval of the need, SR and design tiers.
+  placement residue that waits on ai-template's rules.
+  **The component decomposition was finished unattended (session e, rounds 3t
+  to 3x):** a top-level pass named every value passing between components
+  (IF-048 to IF-054, new child LLR-164), and two scoped Sol checks were fixed
+  (R3U, R3W). The end state is 19 CMP, 53 IF (11 internal) and 142 LLR, with 0
+  design-owned checker findings (`plans/spine-restructure/check_design_layer.py`).
+  **The Owner reviews `DECOMPOSITION-REVIEW.md` (repo root) first.** It lists
+  every call made unattended. Architecture findings for ai-template are in
+  `ARCHITECTURE-FINDINGS.md` and `AI-TEMPLATE-NOTES.md` (repo root). Then
+  the prose re-anchoring, then the Owner's approval of the need, SR and design
+  tiers.
   Findings for ai-template: `AI-TEMPLATE-NOTES.md` (repo root). Session d
   rulings: **P-01 calendar
   re-read periods** and **P-03 quick check plus -Deep**, both today's code;
@@ -75,7 +85,7 @@ last) — it is the record, not required reading for every pass.
   writing one backup is officially unsupported (DA-03; SR-144 bounds the damage
   to at most one misplaced, not lost, object). Then round 4, the test cases, regenerated from the new
   LLRs; it needs the ai-template test-tagging ruling first. The need tier
-  (48), SR tier (124) and design tier (19 CMP, 46 IF, 141 LLR in
+  (48), SR tier (124) and design tier (19 CMP, 53 IF, 142 LLR in
   `requirements/*.toml`) are Drafted; only a reviewed Status-change commit
   approves them. `test/test-cases.csv` still points at old ids until round 4
   rebuilds it.

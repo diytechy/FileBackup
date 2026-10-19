@@ -38,6 +38,10 @@ At each component scope, in this order:
 4. **Settle every unnamed value:** name it as an interface (one information
    kind, one direction, owned by its producer), or fold the two components into
    one. Record which, and why.
+   - **4b. Check each form against its readers:** for every interface, read
+     the LLRs of each component that consumes it, and check that the form
+     carries every value they use. The N2 chart can't do this, because it only
+     sees declared values (lesson 8).
 5. **Make the sibling argument** (Parnas, Clements and Weiss 1985, goal g):
    siblings don't overlap, and together they cover the parent. Record the
    candidates you considered splitting or merging, even when you keep them.
@@ -95,7 +99,36 @@ At each component scope, in this order:
      cites the **interface** it travels on; a self-message cites the **LLR**
      being performed. A checker can then credit work correctly.
 
+8. **The generated N2 chart can't see what the interfaces leave out.** It is
+   built from the interface rows, so it only shows values someone already
+   declared. The round-3u reviewer found the values a component's *LLRs need*
+   but no interface carries: a location's wait budget shared between the scan
+   and storage, a full re-read's start time needed by the run-state publisher,
+   a recovery's source folder needed by the report. It found 11 of these,
+   against 0 left by the checker.
+   - *Rule:* procedure step 4b: for every interface, read each consuming
+     component's LLRs and check that the form carries every value they use.
+     This is the one check here that only reading can do.
+9. **Planning across scopes is easy to lose.** A rule summing space demand
+   across *all* locations before any runs (FileBackup LLR-052) was drawn
+   per location in the flows, so it could never refuse early.
+   - *Rule:* when an LLR quantifies over siblings ("every configured
+     location"), the flows must show a phase at the parent that sees them all.
+10. **Interface count grows fast once every crossing must be named.** The
+    tree went from 4 internal interfaces to 11 in one pass.
+    - *Open question for the kit:* when is a passed value an interface, and
+      when is it a parameter of an existing one? FileBackup folded
+      parameters into existing forms where the information kind matched
+      (the plan request into IF-048) and minted new rows only for new kinds.
+
 ## Ambiguities in the ruled model that this run hit
+
+- **May a parent component do work of its own?** FileBackup's owner folded the
+  restore kit's phases into the parent as *states*, keeping two child
+  components. A reviewer applying Parnas's coverage rule argued that all of a
+  parent's work must lie in its children. Both readings are defensible. The
+  kit should say whether a parent may hold states (and own interfaces to its
+  children), or must be pure composition.
 
 - **"Interfaces at every boundary, optional inside a component."** Is the edge
   between two *siblings* a boundary, or "inside" their parent? FileBackup
@@ -139,9 +172,18 @@ It takes the repo root and reads only `docs/requirements/*.toml` and
 - **Six leaves** were empty. **Three** of the 24 components were later found to
   be states, not components.
 - **The decomposition pass and its follow-ups** produced the final tree of 19
-  components, 51 interfaces (9 internal) and 142 LLRs.
-- **Scoped checks** after each pass found: 3 BLOCKERs (rows rewritten to apply
-  rulings); 3 MAJOR and 1 MINOR (restructuring and new flows); and round 3u
-  (below).
+  components, 53 interfaces (11 internal) and 142 LLRs.
+- **Scoped checks** after each pass found:
+  - 3 BLOCKERs, in rows rewritten to apply rulings;
+  - 3 MAJOR and 1 MINOR, from the restructuring and the new flows;
+  - 11 MAJOR and 3 MINOR in the top-level pass, mostly forms missing what
+    consuming LLRs need (lesson 8);
+  - a final check of those fixes found 1 MAJOR, again a form missing
+    something its readers need (a 'permitted, not made' disposition):
+    lesson 8 once more.
+- **Tool note:** a Codex reviewer run once failed before reading anything (a
+  sandbox start-up error). The process rule "retry once, then substitute the
+  other family" handled it; the retry succeeded. Always check a reviewer's log
+  for evidence it read the files before trusting "no findings".
 - **The correspondence checker** ended with 0 design-owned findings and 55
   placement disagreements due to the kit's placement rule.

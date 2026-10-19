@@ -27,8 +27,8 @@ force" still apply. This one replaces its "Where it stands" and "Open items".*
 | Hats | `hats.toml` | 9 | unchanged |
 | System requirements | `system-requirements.toml` | 124 SR | Drafted. SR-153 added 2026-10-18 (P-02). 11 rows edited in round 3 (open item 1's set, plus SR-106, SR-144, SR-146) |
 | **Components** | `components.toml` | 19 CMP | **Drafted, new**; 5 leaves folded by the Owner's Calls 1, 2 and 4 (round 3p) |
-| **Interfaces** | `interfaces.toml` | 46 IF (42 boundary, 4 internal) | **Drafted, new**; IF-001 retired; IF-047 split from IF-010 (Call 3) |
-| **Low-level requirements** | `low-level-requirements.toml` | 141 LLR (111 top-level, 30 child; 73 legacy ids kept) | **Drafted, new**; LLR-162 (the staging table) added 2026-10-18 c; LLR-163 (the removal dry run, P-02) added 2026-10-18 |
+| **Interfaces** | `interfaces.toml` | 53 IF (42 boundary, 11 internal) | **Drafted, new**; IF-001 retired; IF-047 split from IF-010 (Call 3) |
+| **Low-level requirements** | `low-level-requirements.toml` | 142 LLR (111 top-level, 31 child; 73 legacy ids kept) | **Drafted, new**; LLR-162 (the staging table) added 2026-10-18 c; LLR-163 (the removal dry run, P-02) added 2026-10-18 |
 | Test cases | `docs/test/test-cases.csv` (legacy) | 234 | **next: round 4** |
 
 The legacy `low-level-requirements.csv` and `interfaces.csv` are removed. The
@@ -112,7 +112,9 @@ The design moved most in two places: the fence and the staging sequence.
    tables, and four calls on the six empty leaf components). **The Owner ruled Calls 1 to 4
    and they are applied (round 3p), then double-checked (`r3q-convergence-sol/`: 3 MAJOR, 1
    MINOR, all fixed in round 3r), then the eight-item readiness check (round 3s,
-   `derive/r3s-readiness-check.md`).** Open: items 6 and 8 of that check (the
+   `derive/r3s-readiness-check.md`), then the unattended top-level pass (rounds
+   3t to 3x, `derive/r3t-root-decomposition.md`; the Owner reviews
+   `DECOMPOSITION-REVIEW.md` at the repo root).** Open: items 6 and 8 of that check (the
    Owner's), the prose re-anchoring the gap map's Phase 3 names
    (`architecture.md`, `interfaces.md`, AGENTS.md sections 2 and 3). Findings for
    ai-template are in `AI-TEMPLATE-NOTES.md` at the repo root.

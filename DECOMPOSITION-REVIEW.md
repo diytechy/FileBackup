@@ -17,15 +17,35 @@ changed is recorded at the end.
 
 ## Calls to review, most consequential first
 
-### 1. Five internal interfaces were added (IF-048 to IF-052)
+### 0. The restore kit keeps its phases as its own states (review finding R3U-010 not taken)
+
+- **What:** the round-3u reviewer argued, from Parnas's coverage rule, that a
+  parent's work should all lie in its children. So the restore kit's launch,
+  admission and finishing would be assigned to entry restoration or the
+  outcome component.
+- **Decided:** not taken, because it contradicts your Call 4, which made those
+  phases states of the restore kit itself. As a consequence, the restore kit
+  owns two interfaces to its children: IF-053 (the admitted restore) and
+  IF-054 (the whole-restore results).
+- **Look at:** whether you want the parent to do work of its own. If not, the
+  cleanest alternative is to fold entry restoration and the outcome into the
+  restore kit as well, making it one leaf. Its internal interfaces (IF-045,
+  IF-050, IF-053, IF-054) would then become optional.
+
+### 1. Seven internal interfaces were added (IF-048 to IF-054)
 
 - **What:** each names a value that already passed between two components
   with no interface row:
-  - IF-048: the launch dispatching each operation and taking its value;
+  - IF-048: the launch dispatching each operation and taking its value; also
+    the launch-wide space plan (a reader's pass per location, added after the
+    review);
   - IF-049: the change set, source scan → publication;
   - IF-050: the entry results, entry restoration → outcome;
   - IF-051: the tools resolved at launch;
-  - IF-052: entries written to the run record.
+  - IF-052: entries written to the run record;
+  - IF-053 and IF-054: the restore kit's own states handing the admitted
+    restore to entry restoration, and the whole-restore results to the
+    outcome (added after the review; see call 0).
 - **Alternative:** your Calls 1 and 2 folded components rather than drawing a
   boundary between them. The same choice was open here: fold source scan into
   publication, entry restoration into the outcome, and so on.
@@ -34,7 +54,7 @@ changed is recorded at the end.
   architecture research says an unnamed value between two components is either
   an interface or a sign the two are one. Since they stay two, they're
   interfaces.
-- **Look at:** whether five extra rows is more structure than you want. IF-052
+- **Look at:** whether seven extra rows is more structure than you want. IF-052
   (record entry) is the most debatable: logging is a cross-cutting service.
 
 ### 2. A new LLR was written: LLR-164 (dependencies resolved once per launch)
@@ -111,6 +131,38 @@ changed is recorded at the end.
     sections 2 and 3);
   - your approval of the tiers.
 
-## Independent review of this pass
+### 8. The backup's order was corrected (from the review)
 
-(Filled in after round 3u completes.)
+- **What:** the flows had the change set decided before the lock was taken.
+  It's now:
+  1. take the lock;
+  2. read the store state and handle any leftovers;
+  3. blank references to stored copies that have gone missing;
+  4. only then make the change set the run acts on.
+- **Two related changes:**
+  - a comparison before the lock is a reader's estimate, used only for the
+    launch-wide space plan;
+  - the launch now plans every location before any location runs, which
+    LLR-052 already required.
+- **Look at:** this matches the rows (LLR-052, LLR-053, LLR-091, LLR-113). It
+  may differ from today's code order, which the build will reconcile.
+
+## Independent reviews of this pass
+
+- **Round 3u** (Codex Sol, high, fresh session) on round 3t: 0 BLOCKER, 11
+  MAJOR, 3 MINOR. 13 were confirmed and fixed in round 3v, mostly gaps in the
+  new interfaces' forms plus three ordering faults in the flows. R3U-010 was
+  not taken (call 0). It also noted that several code paths write records
+  directly rather than through the shared logger: new build gap M97.
+- **Round 3w** (final scoped check of round 3v): the first attempt failed
+  before reading anything (a Codex sandbox error), and the retry completed:
+  0 BLOCKER, 1 MAJOR. IF-054 could not say "this check was permitted not to be
+  made" (for example, a target whose free space can't be measured, which a
+  restore may proceed past). The form was fixed in round 3x and isn't
+  re-checked.
+
+**End state:**
+- 19 components, 53 interfaces (11 internal), 142 LLRs;
+- the validator reports 0 errors;
+- the checker reports 0 design-owned findings. Its 55 placement disagreements
+  are ai-template's placement rule.
