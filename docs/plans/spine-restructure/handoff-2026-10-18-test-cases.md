@@ -85,12 +85,20 @@ The design moved most in two places: the fence and the staging sequence.
      Owner's request (`r3k-convergence-sol/`), found 2 BLOCKER and 1 MAJOR, all
      confirmed and fixed (round 3l). **The round-3l fixes are not re-checked**:
      if this branch is taken forward, first run one scoped check of LLR-162,
-     LLR-118, LLR-124 and LLR-017.
+     LLR-118, LLR-124 and LLR-017. **Widen it (session d, 2026-10-18)** to the
+     rows the Owner's rulings changed on the integrity path: LLR-150, LLR-161,
+     LLR-162 S18..S20, LLR-125, SR-144 and DA-03 (P-13: superseded content
+     renamed on one volume, a deliberate hole in the fence), LLR-052 (P-04),
+     LLR-035 (P-05) and LLR-163 (P-02).
    - Also open, for the Owner: SN-013 still reads "restores correctly or is
      refused". P-16's case (files restored, folder metadata left unapplied and
      reported as 1) arguably fits it; the need may want to say so.
-2. **The Owner's pending rulings** below. Each is written to its default;
-   flipping one is a row edit.
+2. **DONE (session 2026-10-18 d, the Owner present): the Owner's rulings.**
+   All of P-01..P-13 are ruled (table below); each ruling is written into
+   its rows and recorded in `r3-dispositions.md`. Six kept today's code
+   (P-01, P-03, P-13 among them), P-04 found and queued a live defect (M96:
+   every UNC backup skips its space check today), and P-02 added SR-153 and
+   LLR-163.
 3. **Owner approval of the need tier, then the SR tier, then the design
    tier.** Each is a reviewed Status-change commit, and only the Owner signs.
 4. **Round 4, the test cases.** Regenerate them from the new LLRs; do not edit
@@ -114,7 +122,6 @@ The design moved most in two places: the fence and the staging sequence.
      file RECONSTRUCT-README.txt (P-07);
    - IF-010 version 2;
    - the per-run location record;
-   - superseded content copied, not renamed (P-13);
    - a backup to a destination whose free space cannot be measured is
      refused (2), with UNC shares now measured (P-04, M96).
 
@@ -134,10 +141,10 @@ rows affected, are in `r3-dispositions.md`.
 | P-07 | Does SR-072's macOS double-click cover a kit carried in a zip? | **Ruled (a)** by the Owner, 2026-10-18: from the backup's own volume only, plus a kit readme (RECONSTRUCT-README.txt) naming the remedy |
 | P-08 | The change-detection record shares its name with a backup's own record. Rename it? | **Ruled (a)** by the Owner, 2026-10-18: renamed `MANIFEST.fb.src.csv`, reading the old name once; the backup's `MANIFEST.csv` keeps its name |
 | P-09 | SR-144's "changes nothing further" cannot be absolute. Scope it to the store, with the change-detection state and views outside the guarantee? | **Ruled (a)** by the Owner, 2026-10-18: store-scoped, as drafted |
-| P-10 | SR-106's "normal outcome during a writer": exceptions for the very state being removed, a kit refresh outlasting the wait, and a record pair that does not settle within 60 s? | Those cases end with 4, never wrong |
+| P-10 | SR-106's "normal outcome during a writer": exceptions for the very state being removed, a kit refresh outlasting the wait, and a record pair that does not settle within 60 s? | **Ruled** by the Owner, 2026-10-18: wait, then retry later (4), never wrong |
 | P-11 | Add the listing location (the views) to the system's own locations for links? | **Ruled (a)** by the Owner, 2026-10-18: add the listing location (the views) |
 | P-12 | A pre-row-count state missing its folder record: complete (unverified) or part failed? | **Ruled (a)** by the Owner, 2026-10-18: complete, folder record reported unverified |
-| P-13 | Superseded content is copied into the saved state, then the original is deleted, so every move is fenced; a large edited file then pays a full copy. Accept? | Accept |
+| P-13 | Superseded content is copied into the saved state, then the original is deleted, so every move is fenced; a large edited file then pays a full copy. Accept? | **Ruled** by the Owner, 2026-10-18: direct rename on one volume, as today; two hosts writing one backup unsupported (DA-03) |
 | P-14 | Where the claim cannot be tested (macOS shell route), an unsettled record or mixed kit: 4, a lock tool, or the owner record as the no-writer signal? | **Ruled (a)** by the Owner, 2026-10-18: 4, the message stating that the record is damaged unless a changing operation is running |
 | P-15 | Bind the folder and link records to the evidence by digest? | **Ruled**: evidence version 4 |
 | P-16 | A folder or link record alone still disagreeing after the wait? | **Ruled**: restore the files, leave it unapplied, part failed (1) |

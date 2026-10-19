@@ -41,8 +41,13 @@ last) — it is the record, not required reading for every pass.
   The staging sequence is one enumerated table (LLR-162). Two scoped
   convergence checks found 3 findings each, all fixed; the last fixes are not
   re-checked. The Owner is comparing this branch with a different design
-  branch. **Next, if this branch resumes:** one scoped check of LLR-162,
-  LLR-118, LLR-124 and LLR-017; then the Owner's remaining rulings (P-10 and P-13, each written to its default; ruled 2026-10-18: **P-01 calendar
+  branch. **All Owner rulings P-01..P-16 are now made (2026-10-18, session d).**
+  **Next, if this branch resumes:** one scoped check of LLR-162, LLR-118,
+  LLR-124 and LLR-017 (the round-3l fixes), widened to the rows session d's
+  rulings changed on the integrity path: LLR-150, LLR-161, LLR-162 S18..S20,
+  LLR-125, SR-144 and DA-03 (P-13), LLR-052 (P-04), LLR-035 (P-05), LLR-163
+  (P-02); then the Owner's approval of the need, SR and design tiers. Session d
+  rulings: **P-01 calendar
   re-read periods** and **P-03 quick check plus -Deep**, both today's code;
   **P-04 measure UNC shares, refuse a backup volume still unmeasurable** (SR-052,
   LLR-052, new gap M96: today every UNC backup skips its space check); **P-05
@@ -54,8 +59,11 @@ last) — it is the record, not required reading for every pass.
   (SN-046 widened, new SR-153 and LLR-163); **P-09 a reclaimed run's guarantee is
   store-scoped**, as drafted (SR-144); **P-11 the views folder is a system location**
   (SR-151) and **P-12 an old state missing its folder record restores complete,
-  reported unverified** (LLR-138), both as drafted), then the Owner's approval of the need,
-  SR and design tiers. Then round 4, the test cases, regenerated from the new
+  reported unverified** (LLR-138), both as drafted; **P-10 a restore that cannot
+  settle ends retry later (4)**, as drafted (SR-106, LLR-123); **P-13 superseded
+  content is renamed on one volume, as today**, and two hosts or containers
+  writing one backup is officially unsupported (DA-03; SR-144 bounds the damage
+  to at most one misplaced, not lost, object). Then round 4, the test cases, regenerated from the new
   LLRs; it needs the ai-template test-tagging ruling first. The need tier
   (48), SR tier (124) and design tier (24 CMP, 45 IF, 141 LLR in
   `requirements/*.toml`) are Drafted; only a reviewed Status-change commit
