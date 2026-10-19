@@ -1,5 +1,11 @@
 # Handoff 2026-10-18 (b): FileBackup spine restructure, design tier done, into round 4
 
+> **Superseded as the resume point by
+> [handoff-2026-10-19-decomposition-review.md](handoff-2026-10-19-decomposition-review.md)
+> (2026-10-19).** Session 2026-10-18 d/e ruled P-01..P-13, found that test
+> cases were not next, and finished the design layer and the component
+> decomposition. This file stays as the record of round 3 and its traps.
+
 > **Branch paused for comparison (2026-10-18, session c).** The Owner closed
 > this session here and is starting a different design branch, to compare the
 > builds for capability, maintainability and compatibility. This branch's spine

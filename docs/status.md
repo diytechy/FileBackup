@@ -35,7 +35,12 @@ last) — it is the record, not required reading for every pass.
   HELD there and must not be picked up here. The tooling (`trace.py`,
   `check.ps1`) is expected to fail on the new spine shape until the tooling
   phase; do not "fix" the spine to satisfy the old checker.
-  **RESUME HERE:** [plans/spine-restructure/handoff-2026-10-18-test-cases.md](plans/spine-restructure/handoff-2026-10-18-test-cases.md).
+  **RESUME HERE:** [plans/spine-restructure/handoff-2026-10-19-decomposition-review.md](plans/spine-restructure/handoff-2026-10-19-decomposition-review.md)
+  (written 2026-10-19 at the end of session 2026-10-18 d/e). It holds the
+  ordered next steps, every Owner ruling made, the session log, the tools and
+  the traps. The Owner's first task is `DECOMPOSITION-REVIEW.md` (repo root).
+  The earlier handoff, [plans/spine-restructure/handoff-2026-10-18-test-cases.md](plans/spine-restructure/handoff-2026-10-18-test-cases.md),
+  stays as the round-3 record.
   **Design tier closed; branch paused for comparison (2026-10-18, rounds
   3h to 3l).** The Owner ruled P-14 (a), P-15 (evidence version 4) and P-16.
   The staging sequence is one enumerated table (LLR-162). Two scoped
