@@ -63,8 +63,9 @@ BeforeAll {
     }
 
     function Set-ManifestRows {
-        # Rewrite a folder's MANIFEST.csv and re-stamp its SR-038 witness so the
-        # tampered store fails the way the test means to exercise, not exit 3.
+        # Rewrite a folder's MANIFEST.csv and re-stamp its SR-038 witness. Kit
+        # revision 14 no longer reads the witness; the re-stamp only keeps the
+        # tampered store self-consistent.
         param([string]$Folder, [object[]]$Rows)
         $Rows | Export-Csv -LiteralPath (Join-Path $Folder 'MANIFEST.csv') -NoTypeInformation
         Write-ManifestWitness -FolderPath $Folder | Out-Null
