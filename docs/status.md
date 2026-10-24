@@ -9,7 +9,7 @@ last) — it is the record, not required reading for every pass.
 > back-fill SN/SR/LLR/TC from what the tool already does and from
 > [AGENTS.md](../AGENTS.md), close traceability gaps, then keep new work gated.
 > The spine's top layer is
-> [requirements/stakeholder-needs.md](requirements/stakeholder-needs.md)
+> [requirements/stakeholder-needs.toml](requirements/stakeholder-needs.toml)
 > (formerly `user-needs.md`/UN-###; ids kept their numbers, so audit entries
 > below still resolve). Cross-project contracts live in
 > [requirements/interfaces.csv](requirements/interfaces.csv) — IF-001 (the
