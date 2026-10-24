@@ -833,6 +833,12 @@ function Expand-FileWithSevenZip {
     <#
     .SYNOPSIS
         Extracts the single payload file from a .7z archive to -DestinationFile.
+
+    .DESCRIPTION
+        7-Zip extracts into a hidden '.fbexpand-*' folder beside the destination,
+        so the payload is written once, on the destination's own volume, and
+        reaches its name by a rename. The system temp folder is never used: in
+        the container it is RAM (a tmpfs), where a large archive would not fit.
     #>
     # Implements: SR-008, LLR-008
     [CmdletBinding()]
@@ -844,7 +850,11 @@ function Expand-FileWithSevenZip {
     # Every step stops on failure (-ErrorAction Stop) whatever the caller's
     # preference: a caller that sees no exception treats the destination as the
     # payload, so a move that failed on a full volume must never pass silently.
-    $tempDir = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+    $destDir = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($DestinationFile))
+    if (-not (Test-Path -LiteralPath $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
+    }
+    $tempDir = Join-Path $destDir ('.fbexpand-' + [IO.Path]::GetRandomFileName())
     New-Item -ItemType Directory -Path $tempDir -Force -ErrorAction Stop | Out-Null
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -869,10 +879,6 @@ function Expand-FileWithSevenZip {
             throw "No file extracted from archive '$Archive'"
         }
 
-        $destDir = [System.IO.Path]::GetDirectoryName($DestinationFile)
-        if (-not (Test-Path -LiteralPath $destDir)) {
-            New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
-        }
         Move-Item -LiteralPath $extracted.FullName -Destination $DestinationFile -Force -ErrorAction Stop
     } finally {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue

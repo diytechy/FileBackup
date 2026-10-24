@@ -436,7 +436,10 @@ function Find-DataFileByHash {
                         Detail = "An archive candidate '$($f.FullName)' needs 7-Zip, which was not found at '$SevenZipPath'." })
                     continue
                 }
-                $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                # Expanded on the restore target's volume, never in the system
+                # temp folder (RAM in the container): see $script:ExpandScratch.
+                $scratchBase = if ($script:ExpandScratch) { $script:ExpandScratch } else { [IO.Path]::GetTempPath() }
+                $tmp = Join-Path $scratchBase ('.fbexpand-' + [IO.Path]::GetRandomFileName())
                 $expandError = $null
                 try {
                     Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $f.FullName -DestinationFile $tmp
@@ -655,6 +658,19 @@ if ($isChangeFolder) {
 } else {
     $backupRoot = $here
     $changeRoot = $null     # B10: no assumed CHANGES sibling; only used if known.
+    # A latest-state restore needs the snapshots only for a row whose object
+    # still sits in one (a move back that failed, plan C19). With no change root
+    # recorded or given, the one folder inside or beside the backup root that
+    # holds Snapshot_* folders is it - found, not assumed by name (B10). Every
+    # restored file is verified, so a wrong guess can supply no wrong bytes.
+    if (-not $ChangeRootOverride) {
+        $parent = [System.IO.Path]::GetDirectoryName($here)
+        $candidates = @(@(Get-ChildItem -LiteralPath $here -Directory -Force -ErrorAction SilentlyContinue) +
+                        @(if ($parent) { Get-ChildItem -LiteralPath $parent -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $here } }) |
+                        Where-Object { @(Get-ChildItem -LiteralPath $_.FullName -Directory -Force -ErrorAction SilentlyContinue |
+                                         Where-Object Name -match $ChangeFolderPattern | Select-Object -First 1).Count -gt 0 })
+        if ($candidates.Count -eq 1) { $changeRoot = $candidates[0].FullName }
+    }
 }
 
 if ($BackupRootOverride) { $backupRoot = $BackupRootOverride }
@@ -1148,6 +1164,9 @@ if (-not (Test-Path -LiteralPath $TargetRoot -PathType Container)) {
         Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "Cannot create target folder '$TargetRoot': $($_.Exception.Message)"
     }
 }
+# Where the content scan expands a candidate archive to test it: the target's
+# own volume (each file is created and deleted beside the restored tree).
+$script:ExpandScratch = $TargetRoot
 
 $logPath = Join-Path $TargetRoot $ReconstructLogName
 try {

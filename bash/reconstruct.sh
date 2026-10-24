@@ -208,9 +208,17 @@ iso_now() { date +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || date; }
 # explicit template is correct on both.
 make_tempdir() { mktemp -d "${TMPDIR:-/tmp}/reconstruct.XXXXXX" 2>/dev/null; }
 
-# make_tempfile : a private temp FILE, or non-zero. Same portability rule as
-# make_tempdir - a bare `mktemp` has no template either, so BSD refuses it.
-make_tempfile() { mktemp "${TMPDIR:-/tmp}/reconstruct.XXXXXX" 2>/dev/null; }
+# make_tempdir_beside <path> : a private temp directory in <path>'s own folder,
+# so a payload extracted there reaches <path> by a rename on one volume. The
+# system temp is avoided because in the container it is RAM (a tmpfs).
+make_tempdir_beside() { mktemp -d "$(dirname -- "$1")/.fbexpand.XXXXXX" 2>/dev/null; }
+
+# make_scratchfile : a private temp FILE for testing a candidate archive, on
+# the restore target's volume once the target exists (SCRATCH_DIR), else in
+# the system temp. Same portability rule as make_tempdir: a bare `mktemp` has
+# no template, so BSD refuses it.
+SCRATCH_DIR=''
+make_scratchfile() { mktemp "${SCRATCH_DIR:-${TMPDIR:-/tmp}}/.fbexpand.XXXXXX" 2>/dev/null; }
 
 log() {
     # Append "<iso-ts> - <msg>" to the target-root log and echo to stderr.
@@ -273,7 +281,7 @@ find_seven_zip() {
 sevenzip_to_file() {
     local archive="$1" dest="$2" tmpd first
     [[ -n "$SEVEN_ZIP" ]] || return 1
-    tmpd="$(make_tempdir)" || return 1
+    tmpd="$(make_tempdir_beside "$dest")" || return 1
     [[ -n "$tmpd" && -d "$tmpd" ]] || return 1
     if ! "$SEVEN_ZIP" e -bd -y -o"$tmpd" -- "$archive" >/dev/null 2>&1; then rm -rf "$tmpd"; return 1; fi
     first="$(find "$tmpd" -type f 2>/dev/null | head -n1)"
@@ -680,8 +688,8 @@ find_by_hash() {
                 # never showed it, because those rows go through
                 # sevenzip_to_file instead - which is why only the
                 # BSD+Compress+snapshot permutation caught this.
-                if ! tmp="$(make_tempfile)" || [[ -z "$tmp" ]]; then
-                    host_storage="cannot create a temporary file to expand candidate '$f' (TMPDIR='${TMPDIR:-/tmp}')"
+                if ! tmp="$(make_scratchfile)" || [[ -z "$tmp" ]]; then
+                    host_storage="cannot create a temporary file to expand candidate '$f' (in '${SCRATCH_DIR:-${TMPDIR:-/tmp}}')"
                     continue
                 fi
                 expand_failed=0
@@ -1154,6 +1162,21 @@ main() {
         fi
     else
         auto_backup="$origin"
+        # A latest-state restore needs the snapshots only for a row whose
+        # object still sits in one (a move back that failed, plan C19). With no
+        # change root given, the one folder inside or beside the backup root
+        # that holds Snapshot_* folders is it (Reconstruct.ps1 applies the same
+        # rule). Every restored file is verified, so a wrong guess can supply
+        # no wrong bytes.
+        local cand sub chg_found='' chg_n=0
+        for cand in "$origin"/*/ "$(dirname -- "$origin")"/*/; do
+            cand="${cand%/}"
+            [[ -d "$cand" && "$cand" != "$origin" ]] || continue
+            for sub in "$cand"/*/; do
+                if [[ "$(basename -- "${sub%/}")" =~ $SNAPSHOT_RE ]]; then chg_found="$cand"; chg_n=$((chg_n + 1)); break; fi
+            done
+        done
+        (( chg_n == 1 )) && auto_change="$chg_found"
     fi
 
     # A path sidecar (written for the Windows kit) only applies on Linux if its
@@ -1232,6 +1255,7 @@ main() {
 
     mkdir -p -- "$TARGET_ROOT" || die "cannot create target '$TARGET_ROOT'."
     TARGET_ROOT="$(canon "$TARGET_ROOT")" || die "cannot canonicalise target '$TARGET_ROOT' on this host. Pass an absolute path containing no '..'."
+    SCRATCH_DIR="$TARGET_ROOT"
     LOG_PATH="$TARGET_ROOT/$LOG_NAME"
     : >"$LOG_PATH" 2>/dev/null || true
     log "Reconstruction starting (origin=$origin, snapshot=$is_snapshot, backupRoot=$backup_root, changeRoot=${change_root:-<none>})"

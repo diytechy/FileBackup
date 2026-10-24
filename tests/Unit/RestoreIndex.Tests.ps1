@@ -236,6 +236,25 @@ Describe 'A snapshot finds its backup root beside its change root (one-mount lay
         $r.Log | Should -Not -Match 'attempting hash scan' -Because 'the backup root beside the change root is indexed by name'
         $r.Log | Should -Not -Match 'Hash-recovered'
     }
+
+    It 'restores the latest state of a copied store whose row names an object still in a snapshot (plan C32)' {
+        # A move back that failed (or call C19) leaves a latest row naming an
+        # object inside a snapshot. With no change root recorded for the copy,
+        # the kit finds the change folder beside the backup folder.
+        $root = Join-Path $TestDrive 'latest-in-snapshot'
+        $made = New-IndexStore -Root (Join-Path $root 'store')
+        $copy = Join-Path $root 'copied'
+        Copy-Item -LiteralPath (Join-Path $root 'store') -Destination $copy -Recurse
+        $bkp = Join-Path $copy 'bkp'
+        $snap = Join-Path (Join-Path $copy 'chg') (Split-Path $made.Snap -Leaf)
+        $keep = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'keep.txt')[0]
+        Move-Item -LiteralPath (Join-Path $bkp $keep.DataPath) -Destination (Join-Path $snap $keep.DataPath)
+
+        $t = Join-Path $root 'restored'
+        $r = Invoke-IndexRestore -Recon (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t
+        $r.Code | Should -Be 0 -Because $r.Output
+        Assert-RestoredFromManifest -Manifest (Join-Path $bkp 'MANIFEST.csv') -TargetRoot $t
+    }
 }
 
 Describe 'A stale DataPath resolves through the name index (kit revision 14, R6)' {
@@ -334,7 +353,7 @@ Describe 'The restorer no longer reads MANIFEST.csv.meta (kit revision 14, R5)' 
     It 'an ABSENT witness restores with no "unverified index" warning' {
         $root = Join-Path $TestDrive 'no-meta'
         $s = New-IndexStore -Root $root
-        Remove-Item -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv.meta') -Force
+        Test-Path -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv.meta') | Should -BeFalse -Because 'no witness is written (plan R5)'
         $t = Join-Path $root 'restored'
         $r = Invoke-IndexRestore -Recon $s.Recon -TargetRoot $t
         $r.Code | Should -Be 0 -Because $r.Output

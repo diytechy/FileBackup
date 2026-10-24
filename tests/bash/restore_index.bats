@@ -148,3 +148,22 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
         [ "$(grep -c 'attempting hash scan' "$log")" -eq 0 ]
     done
 }
+
+@test "a latest-state restore finds the change folder for a row whose object is still in a snapshot (plan C32)" {
+    # A move back that failed leaves a latest row naming an object inside a
+    # snapshot; with no --change-root, the folder inside or beside the backup
+    # root that holds Snapshot_* folders is used.
+    local mode obj snap
+    for mode in "${MODES[@]}"; do
+        copy_store "$mode"
+        snap="$CH/Snapshot_2024_01_01_09_00_00"
+        obj="$(gawk -F'"' 'NR > 1 && $2 != "" { print $2; exit }' "$BK/MANIFEST.csv")"
+        [ -f "$BK/$obj" ] || { echo "$mode: no latest object '$obj'"; false; }
+        mv -- "$BK/$obj" "$snap/$obj"
+
+        run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tl-$mode" --from "$BK"
+        [ "$status" -eq 0 ] || { echo "$mode: expected 0, got $status"; echo "$output"; false; }
+        run verify_tree "$BATS_TEST_TMPDIR/tl-$mode" "$FIXTURES/bash-restore/$mode/expected/root.tsv"
+        [ "$status" -eq 0 ] || { echo "$mode: $output"; false; }
+    done
+}
