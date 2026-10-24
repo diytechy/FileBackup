@@ -6149,3 +6149,24 @@ and `check_readability.py` (deep-module-design). Read those mentions as
 guidance, not as runnable steps. No design rows, rulings or method files
 from `DirectRebuild` were brought over; this branch stays the independent
 comparison.
+
+**2026-10-24 (later): the architecture-decomposition project skill copied onto this branch.**
+At the Owner's request (the Owner will constrain this branch's architecture,
+and the method still applies), `.claude/skills/architecture-decomposition/`
+was copied verbatim from `DirectRebuild` at `48b1608`. It holds:
+- the decomposition procedure;
+- the model it assumes, in which rows never bind the code: no `module`,
+  `code_symbol` or `component` cell on an LLR;
+- the runtime-flow conventions and the "ready for test cases" exit criteria;
+- the generalised `validate_design.py` and `check_design_layer.py`;
+- a review-prompt template, a flows skeleton, and the architecture research
+  report.
+
+It is the method only, with no design rows or rulings from `DirectRebuild`.
+Its scripts expect the ruled TOML shape (`components.toml`,
+`interfaces.toml`, `low-level-requirements.toml`, `docs/runtime-flows.md`),
+which this branch hasn't written yet.
+
+The kit skills copied earlier were re-checked against ai-template's latest
+commit (`96faaeeda`). Their content is unchanged, so `spine-authoring` here is
+current.
