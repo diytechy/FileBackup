@@ -516,6 +516,78 @@ function Test-ContainerCompressProbe {
         "image: $Image; runtime: $script:ContainerRuntime $runtimeVersion.")
 }
 
+function Test-ContainerSplitMountRefusal {
+    <#
+    .SYNOPSIS
+        The pre-R8 layout, BackupPath and ChangePath on two separate bind
+        mounts, is refused with exit 2 and writes no manifest.
+    .DESCRIPTION
+        On Linux a rename between two bind mounts fails even when both are one
+        host filesystem, so the engine's test directory rename
+        (Assert-SingleStoreMount) must refuse the old /backup + /changes
+        compose layout on a real container runtime (bounded-run-loop plan R8,
+        §6). This check owns its own tree beneath the smoke root.
+    .PARAMETER Image
+        Local image reference to run.
+    .PARAMETER Root
+        Scratch root (the smoke root); this check builds its own tree beneath it.
+    .OUTPUTS
+        None. Throws on any failed assertion.
+    #>
+    # Implements: SR-059, LLR-150
+    param(
+        [Parameter(Mandatory)][string]$Image,
+        [Parameter(Mandatory)][string]$Root
+    )
+    $splitRoot  = Join-Path $Root 'split'
+    $source     = Join-Path $splitRoot 'source'
+    $backup     = Join-Path $splitRoot 'backup'
+    $changes    = Join-Path $splitRoot 'changes'
+    $logs       = Join-Path $splitRoot 'logs'
+    $configFile = Join-Path $splitRoot 'FileBackup.json'
+    $folders    = @($splitRoot,$source,$backup,$changes,$logs)
+    New-Item -ItemType Directory -Path $folders -Force | Out-Null
+    if ($IsLinux -or $IsMacOS) {
+        & chmod 0777 @folders
+        if ($LASTEXITCODE -ne 0) { throw 'Could not make the split-mount bind directories writable.' }
+    }
+    [System.IO.File]::WriteAllText((Join-Path $source 'alpha.txt'), 'split-mount payload')
+    $set = [ordered]@{
+        Name = 'ContainerSplitMount'
+        SourcePath = '/source'
+        BackupPath = '/backup'
+        ChangePath = '/changes'
+        HashRecalcFreq = 'N'
+        CompressEnabled = $true
+    }
+    [ordered]@{ ConfigVersion = 2; Tools = [ordered]@{ SevenZipPath = '/usr/bin/7z' }; BackupSets = @($set) } |
+        ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configFile -Encoding UTF8
+
+    $runArgs = [System.Collections.Generic.List[string]]@(
+        'run','--rm','--network','none','--read-only',
+        '--security-opt','no-new-privileges','--cap-drop','ALL',
+        '--tmpfs','/tmp:rw,noexec,nosuid,nodev'
+    )
+    Add-BindMountArguments -Arguments $runArgs -Source $configFile -Target '/config/FileBackup.json' -ReadOnly
+    Add-BindMountArguments -Arguments $runArgs -Source $source -Target '/source' -ReadOnly
+    Add-BindMountArguments -Arguments $runArgs -Source $backup -Target '/backup'
+    Add-BindMountArguments -Arguments $runArgs -Source $changes -Target '/changes'
+    Add-BindMountArguments -Arguments $runArgs -Source $logs -Target '/logs'
+    $runArgs.Add($Image)
+    $output = & $script:ContainerRuntime @($runArgs.ToArray()) 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    if ($code -ne 2) {
+        throw "A backup with BackupPath and ChangePath on two bind mounts exited $code; plan R8 refuses it with 2.`n$output"
+    }
+    if ($output -notmatch 'one volume and one mount') {
+        throw "The split-mount backup exited 2, but not with the one-mount refusal.`n$output"
+    }
+    if (Test-Path -LiteralPath (Join-Path $backup 'MANIFEST.csv')) {
+        throw 'The refused split-mount backup wrote a MANIFEST.csv; a refusal must write no backup.'
+    }
+    Write-Host 'Container split-mount check passed: BackupPath and ChangePath on two bind mounts are refused with exit 2, and no manifest is written.'
+}
+
 function Invoke-ContainerSmokeTest {
     Write-Host "Smoke-testing $Image"
     Invoke-ContainerCommand -Arguments @('image','inspect',$Image)
@@ -705,6 +777,8 @@ function Invoke-ContainerSmokeTest {
         Write-Host 'Container smoke test passed: incremental run produced a restorable dated snapshot alongside a byte-exact latest-state restore.'
 
         Test-ContainerCompressProbe -Image $Image -Root $smokeRoot
+
+        Test-ContainerSplitMountRefusal -Image $Image -Root $smokeRoot
     }
     finally {
         if (Test-Path -LiteralPath $smokeRoot) {
