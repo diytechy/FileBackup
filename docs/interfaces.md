@@ -20,10 +20,14 @@ action and exits. HomeHub owns scheduling, mount-identity preflight, retention
 *policy*, and NagLight alerting; FileBackup owns the storage engine, retention
 *mechanism*, and its own exit-code contract.
 
-**Mounts.** Read-only `source` + `config`; writable `source-state` (the source
-hash-cache `MANIFEST.csv`, kept outside the read-only source), `backup`,
-`change`, and `log`. `SourceStatePath` in the config points at the writable
-source-state mount.
+**Mounts.** Read-only `source` + `config`; writable `store` and `log`. The store
+is **one** mount (`/store`) holding `backup/` and `changes/` (config
+`BackupPath=/store/backup`, `ChangePath=/store/changes`): since the bounded run
+loop (2026-10-24, [plans/bounded-run-loop.md](plans/bounded-run-loop.md) R8)
+content moves between the two by rename, Linux cannot rename across two bind
+mounts even of one disk, and a set whose two paths a rename cannot cross is
+refused with exit 2. There is no source-state mount any more: nothing is written
+into the source (R3).
 
 **One BackupSet per container invocation** (ruled 2026-08-21). HomeHub runs one
 service/invocation per directory rather than one multi-set config; a JSON config
@@ -39,8 +43,9 @@ WP9 — storage is always content-addressed, and a config still carrying the key
 is refused with a named removal diagnostic); optional `BrowseView`
 (`off`|`index`, default `off` — note a containerized run cannot satisfy the
 view's same-volume rule, so `index` is native-host functionality until IF-001
-rules otherwise) and `ViewPath`; optional `SourceStatePath` (default
-`SourcePath`) and `AllowEmptySource` (default `false`); no
+rules otherwise) and `ViewPath`; `SourceStatePath` and `AllowEmptySource`,
+both still accepted and both ignored (R3; an empty source now warns and deletes
+nothing); no
 `Secrets.Credential` (JSON can't carry a `PSCredential` — containerized runs are
 always `-NoMail`). CLIXML remains the unversioned legacy native-Windows form;
 JSON is the only form this contract covers.
@@ -51,10 +56,9 @@ argument starting with `-` passes through to `FileBackup.ps1` unchanged. `prune`
 also reads `FILEBACKUP_SNAPSHOT` / `-Snapshot` (required) and
 `FILEBACKUP_DRY_RUN` / `-WhatIf`; `verify` reads `FILEBACKUP_REPAIR=1` for its
 opt-in repair mode. `view` (SR-062) is deliberately **not** one of them: the
-browse view must be written outside both roots and on the backup volume, which
-a container's separate `/backup` bind mount cannot satisfy, so it stays
-native-host functionality until a later IF-001 revision rules on a container
-view mount.
+browse view must be written outside both roots and on the backup volume. With
+the single `/store` mount a view at `/store/view` would satisfy that, but no
+IF-001 revision has ruled on it yet, so it stays native-host functionality.
 
 **Environment overrides.** Beside the tool paths (`FILEBACKUP_7ZIP_PATH`,
 `FILEBACKUP_FFPROBE_PATH`), `FILEBACKUP_7Z_LEVEL` (added 2026-09-01) selects
@@ -78,7 +82,7 @@ bytes, bytes-reclaimable-if-pruned — a figure only FileBackup can compute) and
 `prune` (`Remove-BackupSnapshot`; `Prune-` is not an approved PowerShell verb),
 which re-homes still-referenced bytes into the surviving pool and proves every
 surviving manifest still resolves before it deletes anything. Pruning needs the
-`backup` mount writable in addition to `change`.
+`store` mount writable.
 
 **JSON framing.** The `snapshots` inventory and `verify` findings documents are
 printed to stdout, which also carries timestamped log lines. A consumer must
@@ -86,24 +90,25 @@ extract the document by LINE: it is either the single line `[]`, or the block
 from the line that is exactly `[` through the line that is exactly `]`. (The
 repo's own harness does exactly this — `scripts/Invoke-Container.ps1`.) `verify` (optionally with
 `FILEBACKUP_REPAIR=1`) audits storage form across the live backup and every
-snapshot without mutating anything unless repair is requested.
+snapshot without mutating anything unless repair is requested; it also reports
+duplicate objects (`DuplicateObject`) and, under `-Deep`, damaged ones
+(`DamagedObject`), which repair MOVES into `/store/changes/Verify/` — nothing is
+deleted.
 
-**Exit-code table** — the same table for backup, restore (`RECONSTRUCT.cmd` /
-`reconstruct.sh`), prune, and verify, precedence `2 > 3 > 4 > 1`:
+**Exit-code table** — one vocabulary for backup, restore (`RECONSTRUCT.cmd` /
+`reconstruct.sh`), prune, and verify:
 
-| Code | Meaning | NagLight translation |
-|---|---|---|
-| 0 | Complete / nothing to report | ok |
-| 1 | Partial: content unrecoverable, or a backup/prune batch incomplete, but nothing lost | warn — retry |
-| 2 | Usage or precondition error; nothing mutated | error — do not retry |
-| 3 | Manifest-witness verification failed; nothing mutated | error — **escalate** (backup-integrity alarm, not a retention alarm) |
-| 4 | Host/dependency I/O failure; retriable | warn — retry |
+| Code | Backup | Restore / prune / verify | NagLight translation |
+|---|---|---|---|
+| 0 | Every file captured | Complete / nothing to report | ok |
+| 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
+| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest) | Usage or precondition error; nothing mutated | error — do not retry |
+| 3 | — never | Restore: retired from kit revision 14 (an older kit bundled in an older snapshot can still return it). Prune: a witness an older build left disagrees with its manifest; nothing mutated | error — **escalate** |
+| 4 | Stopped by a host problem (volume full or gone) or another run holds the lock; every state stays restorable | Host/dependency I/O failure | warn — retry |
 
-A backup run whose estimated additions don't fit the backup/change volume
-refuses before writing anything (status 1 for that set, naming the volume, the
-requirement, and the free space). A restore origin's `MANIFEST.csv` is witnessed
-by `MANIFEST.csv.meta`, verified by both restorers before writing anything
-(`SR-038`/`SR-039`/`SR-040`). There is no bash `prune` — `reconstruct.sh` stays
+Precedence across sets or batch items is `2 > 3 > 4 > 1`. A backup no longer
+estimates the space it needs before it starts (plan C3): a write that fails for
+space stops the set with 4. There is no bash `prune` — `reconstruct.sh` stays
 restore-only, and pruning is never required to restore.
 
 **Stability: `Experimental`.** IF-001 stays `Experimental` — free to change
@@ -112,7 +117,8 @@ condition below; then it can move to `Stable` (version bump + notice required
 for any breaking change thereafter).
 
 **Exit condition to leave `Experimental`** (both halves, jointly): **WP1**'s
-witnessed-manifest + shared exit-code contract (`SR-038`..`SR-040`), and
+shared exit-code contract (`SR-040`; the witnessed-manifest half, `SR-038`/`SR-039`,
+was retired by the bounded run loop's R5), and
 **WP2**'s versioned, validating config loader (`SR-042`/`SR-043`) — i.e. both
 the restore-trust half and the config-contract half of this interface must be
 `Verified`, not merely `Implemented`. See [status.md](status.md) for current

@@ -58,7 +58,7 @@
         },
         "SourceStatePath": {
           "type": "string",
-          "description": "Accepted for compatibility; no longer used. The latest backup MANIFEST.csv is the only change-detection record, so nothing is read from or written to this path, and a run that sets it logs a warning. Leave it out. Its one remaining effect: when it names a folder other than SourcePath, root-level source files that carry FileBackup's own names (MANIFEST.csv, backup.log and the like) are captured as data instead of skipped."
+          "description": "Accepted for compatibility; no longer used. The latest backup MANIFEST.csv is the only change-detection record, so nothing is read from or written to this path, and a run that sets it logs a warning. Leave it out. Its one remaining effect: without it, the old source-side record's files at the source root (MANIFEST.csv, MANIFEST.csv.meta and their .tmp) are kept out of the backup; when it names a folder other than SourcePath, those files are captured as data like any other."
         },
         "AllowEmptySource": {
           "type": "boolean",

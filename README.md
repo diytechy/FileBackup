@@ -90,6 +90,17 @@ pwsh -File .\FileBackup.ps1 -NoMail               # skip the success/failure ema
 
 First run installs `System.IO.Hashing` per-user (prompts unless already present).
 
+A run never stops for a file it cannot read: it carries on with everything else, keeps
+that file's earlier copy, and names it in the set's log. Its exit code says what happened
+(the worst set wins, precedence 2 > 4 > 1):
+
+| Code | Meaning | What to do |
+|---|---|---|
+| **0** | Every file was captured. | Nothing. |
+| **1** | The run completed, but one or more files were not captured (locked after three tries 60 s apart, unreadable, or named in a way Windows or Linux cannot restore). Each is named in `backup.log`; their earlier copies are kept. | Read the log; usually nothing — the next run tries again. |
+| **2** | Refused before changing anything: a bad configuration, a missing tool, a missing source folder, a `BackupPath`/`ChangePath` pair on different volumes, or a damaged latest manifest. | Fix what the message names. |
+| **4** | Stopped partway by a host problem — the backup volume full or gone — or another run of this store holds its lock. Every state stays restorable. | Retry later. |
+
 ### 3. Restore
 
 Open the backup folder and double-click **`RECONSTRUCT.cmd`** (Windows) or
@@ -129,17 +140,14 @@ waiting for an answer nobody is there to give. `-NoGui` (or `FILEBACKUP_NO_GUI=1
 the typed prompt instead of the picker, and on Linux/macOS the picker is only ever
 reached by asking for it with `--pick-target`.
 
-**The index is checked before anything is restored.** Every `MANIFEST.csv` is
-written together with a small witness file, `MANIFEST.csv.meta`, recording that
-manifest's row count, byte length, and xxHash128. Both restorers verify the
-manifest against its witness *before* writing a single file, so a truncated,
-half-written, or replaced index refuses the restore instead of quietly
-"succeeding" against a shrunken job. Each dated snapshot carries its own witness
-for its own manifest.
-
-A backup written by an older version has no witness; it still restores, and the
-log says `UNVERIFIED`. Pass `-RequireWitness` (Windows) or `--require-witness`
-(Linux) to refuse an unverifiable index instead.
+**The index is checked before anything is restored, and every file after.** Both
+restorers refuse a `MANIFEST.csv` that is not a FileBackup manifest *before* they
+create the target, and they check every file they write against its row's length
+and xxHash128, healing it once from another copy in the pool if it does not match.
+From restore-kit revision 14 they read no `MANIFEST.csv.meta` witness: this version
+writes none, and deletes the one an older version left whenever it rewrites that
+manifest. A snapshot written by an older version keeps its own older kit, which still
+checks that snapshot's own witness.
 
 ### Restore exit codes
 
@@ -153,7 +161,7 @@ error unless you pass `-ExitCode` (which `RECONSTRUCT.cmd` does for you).
 | **0** | Complete | Every manifest row restored. | Nothing. |
 | **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool. | Real data loss: check an older backup. |
 | **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, a legacy path-addressed store (see `StoredAsHashSize` below), target inside the backup, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
-| **3** | Witness verification failed | The index itself is untrustworthy; **no file is written to the target.** | The manifest is damaged — restore from a snapshot or another copy. |
+| **3** | *Retired* | Never returned from kit revision 14. A kit an older version bundled into an older snapshot can still return it when that snapshot's witness disagrees with its manifest. | Restore that snapshot with a current kit (`-Action Verify -RefreshKits`), or from another copy. |
 | **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error on an **archive-shaped** object. | **Retriable** — fix the host and run again. |
 
 Since kit revision 8 the split between **1** and **4** is decided by the stored
@@ -164,11 +172,15 @@ retriable sent wrappers into loops over corruption. An object that *does* look
 like an archive and will not open is still **4**, because this host's 7-Zip
 genuinely may be at fault.
 
-When several apply the precedence is **2 > 3 > 4 > 1**: codes 2 and 3 abort
-before anything is written — the manifest's header and witness are checked before
-the target folder and the restore log are even created, so a refused restore
-leaves the target exactly as it was — and 4 outranks 1 because it is the
-actionable one.
+When several apply the precedence is **2 > 4 > 1**: code 2 aborts before anything
+is written — the manifest's header is checked before the target folder and the
+restore log are even created, so a refused restore leaves the target exactly as it
+was — and 4 outranks 1 because it is the actionable one.
+
+A row whose data file is not in its own folder — blank, or moved to another folder
+of the pool — is found through a **name index**: each stored object's name carries
+its content key, so the restorer lists the pool once and looks the row up. Only a
+row the index cannot place falls back to scanning and hashing the pool.
 The summary line names both counts regardless, e.g.
 `Reconstruction INCOMPLETE: 3 file(s) could not be restored (2 content-missing, 1 host).`
 
@@ -191,11 +203,14 @@ bash reconstruct.sh --target-root /tmp/asof --from /path/to/backup/changes/Snaps
 
 `--from` names the restore origin (a backup root or a `Snapshot_<date>` folder;
 default: the current directory). The backup root and the snapshot folder are
-auto-detected from that location; pass `--backup-root` / `--change-root` to
-override (needed when the backup and change folders are not nested — the sidecar's
-Windows paths are ignored on Linux). Like the Windows restorer it **fails loudly**:
-it verifies the manifest against its `MANIFEST.csv.meta` witness before writing
-anything, then restores everything recoverable and exits with the code from
+auto-detected from that location: for a snapshot, the backup root is the change
+folder's parent when that holds a `MANIFEST.csv`, else the one folder beside the
+change folder that does (the one-mount layout, `<store>/backup` beside
+`<store>/changes`). Pass `--backup-root` / `--change-root` to override when neither
+fits — the sidecar's Windows paths are ignored on Linux, and a container's `/store`
+paths do not exist on the host. Like the Windows restorer it **fails loudly**:
+it checks the manifest's header before writing anything, then restores everything
+recoverable and exits with the code from
 "Restore exit codes" above — the same numbers the Windows restorer returns.
 New backups carry the tested script as
 `reconstruct.sh` in the live root and each snapshot; an external rescue copy of
@@ -240,8 +255,7 @@ up front with status **2** rather than performing part of a run.
 
 Removing a snapshot first copies any content whose only physical copy it holds
 into the surviving pool (the backup root, or the newest surviving snapshot that
-needs it), rewrites that destination's manifest — re-stamping its witness —
-proves that **every** surviving manifest row still resolves, and only then
+needs it), rewrites that destination's manifest, proves that **every** surviving manifest row still resolves, and only then
 deletes the folder. The last step out of the `Snapshot_` namespace is a single
 rename, so no restore ever sees a half-removed snapshot. Nothing is deleted
 until the pool is provably redundant.
@@ -249,10 +263,9 @@ until the pool is provably redundant.
 It refuses rather than guesses. Removal reports the same status codes as a
 restore (see "Restore exit codes"): **0** removed, **1** a batch finished
 incomplete but **no data was lost**, **2** usage or precondition (nothing was
-mutated), **3** a manifest witness did not verify (nothing was mutated),
-**4** a host I/O problem — retriable, and always before the point of no return.
-Common refusals: a manifest with no witness at all (pass
-`-AllowUnverifiedIndex` for a backup written before witnesses existed), data
+mutated), **3** a witness an older version left does not match its manifest
+(nothing was mutated), **4** a host I/O problem — retriable, and always before the
+point of no return. Common refusals: data
 files in the snapshot its own manifest does not reference (`-DiscardUnreferencedData`
 to discard them deliberately), a backup that is running (prune and backup are
 mutually exclusive), or a pool that does not resolve as it stands.
@@ -311,16 +324,25 @@ Each finding names the folder, the row, and a class:
 | `FlagOverRaw` | The row says compressed; the bytes are raw. | yes |
 | `FlagOverArchive` | The row says not compressed; the bytes are a `.7z` archive. | yes |
 | `NameLies` | Flag and bytes agree, but the data file's name claims the other form. | yes |
-| `DanglingDataPath` | The row names a data file that is not there. | no |
+| `DanglingDataPath` | The row names a data file that is not there, and its content is nowhere else in the pool. | no |
 | `PayloadMismatch` | `-Deep` only: the stored bytes do not reproduce the row's hash/length. | no |
 | `BlankRowFormDisagreement` | A row that resolves by content hash, whose `Compressed` disagrees with the copy the restore would find. Harmless with a current restore kit — see below. | no |
 | `Unreferenced` | A data file in the folder that no manifest row names. | no |
+| `DuplicateObject` | The same content is stored in a second folder (stores written by older versions). The copy kept is the latest state's, else the newest snapshot's. | yes — moved |
+| `DamagedObject` | `-Deep` only: a stored object whose bytes do not hash to the content its name records. | yes — moved |
+
+A row whose named data file has moved to another folder of the pool is **not** a
+finding: snapshots are written once, so this happens whenever content that was
+deleted comes back and is moved back into the latest state, and every restore finds
+it by name.
 
 Repair takes the **bytes as ground truth**: it rewrites `Compressed` and renames
 the data file so its name stops lying. It never re-packs or re-compresses
 content, never touches the logical columns (path, length, timestamp, hash), and
 never migrates layout. Findings it will not touch are reported, not silently
-"fixed".
+"fixed". **It never deletes:** duplicate and damaged objects are moved into
+`<ChangePath>/Verify/<folder>/`, which no backup and no restore reads — delete that
+folder yourself once you no longer want them.
 
 Status follows the same table as a restore: **0** nothing to report, **1**
 findings (a statement about your data, not a usage error), **2** a precondition
@@ -502,7 +524,6 @@ exempt from `ConfigVersion`, the closed schema, and the credential rule.
             CompressEnabled    = $true
             CompressProbe      = 'always' # 'always' (default) | 'excluded-extensions' | 'off'
             BrowseView         = 'index'  # 'off' (default) | 'index' browsable view
-            AllowEmptySource   = $false   # true only for an intentional delete-all
         }
     )
 } | Export-Clixml -Path $HOME\BackupConfig.xml
@@ -517,9 +538,8 @@ The equivalent container-oriented JSON is:
   "BackupSets": [{
     "Name": "MainData",
     "SourcePath": "/source",
-    "SourceStatePath": "/state",
-    "BackupPath": "/backup",
-    "ChangePath": "/changes",
+    "BackupPath": "/store/backup",
+    "ChangePath": "/store/changes",
     "HashRecalcFreq": "W",
     "CompressEnabled": true
   }]
@@ -556,12 +576,17 @@ value is refused by name before a compression-enabled backup creates anything
 |---|---|
 | `ConfigVersion` | JSON only, required. Currently `2` (version 1 is refused as too old — it carried the removed `PreserveFolderTree` selector). A config declaring a higher version is refused by name rather than half-understood; a missing/non-integer/out-of-range value is a hard error. |
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
-| `SourceStatePath` | Optional writable folder for the source hash-cache `MANIFEST.csv`. Omit for legacy in-source storage; containers should set a unique path outside the read-only source, backup, and change trees. |
+| `SourceStatePath` | Ignored; accepted so older configurations still load. Nothing is written into the source any more: the latest backup manifest is the change-detection record. A `MANIFEST.csv` an older version left at the source root stays out of the backup and can be deleted. |
 | `CompressEnabled` | `$true`/`true` allows data files to be re-packed as `.7z`; `false` stores everything verbatim and probes nothing. Which allowed files are actually compressed is decided per object — see "How the stored form is chosen". JSON must use a real boolean, not a quoted string. |
 | `CompressProbe` | Optional; `off` \| `excluded-extensions` \| `always` (default `always`), exact lowercase. How the stored form is decided when `CompressEnabled` is on: `off` trusts the already-compressed extension list alone; `excluded-extensions` keeps the list's exemptions and measures everything it would otherwise compress; `always` measures a sample of the bytes of every file at or above 256 KiB, the list serving only the smaller files. |
-| `AllowEmptySource` | Defaults to `$false`/`false`, refusing to empty a previously populated backup when its source is unexpectedly empty. Set `true` only for an intentional delete-all. |
+| `AllowEmptySource` | Ignored; accepted so older configurations still load. A source that is suddenly empty is a warning, not a refusal: nothing is deleted, every file moves into that run's snapshot, and it all moves back when the source returns. |
 | `BrowseView` | `off` (default) or `index`: generate a browsable, manifest-derived `INDEX.tsv` + per-folder HTML view of the backup, outside the backup root. `link` is reserved and refused by name. |
 | `ViewPath` | Where the view is written. Defaults to `<BackupPath>_View`; must lie outside the backup and change roots and on the backup volume. |
+
+`BackupPath` and `ChangePath` must be two folders on **one volume** (in a
+container: under one mount). Content moves between the latest state and the
+snapshots by rename, and a run refuses (status 2) a pair that a rename cannot
+cross — on Linux that includes two separate bind mounts of the same disk.
 
 Storage is always content-addressed: every data file is stored once per unique
 content under a `<hash>_<len><ext>` name and referenced via the manifest. The
@@ -702,12 +727,14 @@ more than one set is accepted (a legitimate native-Windows use) but logs a
 `WARN` naming the count instead of failing.
 
 `FileBackup.ps1 -ExitCode` (passed by `container/entrypoint.sh`) reports
-outcome as a process exit code instead of only a terminating error: `0`
-complete, `1` a backup set failed, `2` the configuration could not be loaded —
-the file is **missing** or unreadable, or it violates the contract above — the
-same usage/precondition class as the restore table in "Restore exit codes". A
-supervisor can therefore tell "your config is wrong, retrying will not help"
-from "the backup failed". A refused run creates **nothing**: no log directory
+outcome as a process exit code instead of only a terminating error, from the
+table under "2. Run a backup": `0` every file captured, `1` completed with
+files not captured, `2` refused before anything changed — a configuration file
+that is **missing**, unreadable or violates the contract above among the causes,
+the same usage/precondition class as the restore table in "Restore exit codes" —
+and `4` stopped by a host problem or a held lock. A supervisor can therefore
+tell "your config is wrong, retrying will not help" from "try again later".
+Without `-ExitCode` a run still ends with the same non-zero code. A refused run creates **nothing**: no log directory
 is made and the previous run's global log is left byte-for-byte intact (the
 message goes to stderr, and is appended to that log only if it already
 exists). Without `-ExitCode`, a configuration
@@ -725,25 +752,27 @@ host bind-mount directory (especially on NTFS/exFAT mounts):
 
 ```bash
 cp container/FileBackup.example.json /srv/homehub/filebackup.json
-mkdir -p /srv/backups/source-state /srv/backups/current /srv/backups/changes /srv/backups/logs
+mkdir -p /srv/backups/store /srv/backups/logs
 docker build -t filebackup:local .
 docker run --rm --network none --read-only \
   --security-opt no-new-privileges --cap-drop ALL \
   --tmpfs /tmp:rw,noexec,nosuid,nodev \
   -v /srv/homehub/filebackup.json:/config/FileBackup.json:ro \
   -v /srv/library:/source:ro \
-  -v /srv/backups/source-state:/state \
-  -v /srv/backups/current:/backup \
-  -v /srv/backups/changes:/changes \
+  -v /srv/backups/store:/store \
   -v /srv/backups/logs:/logs \
   filebackup:local
 ```
 
-`compose.example.yaml` expresses the same boundary using
-`FILEBACKUP_SOURCE`, `FILEBACKUP_STATE`, `FILEBACKUP_DESTINATION`,
-`FILEBACKUP_CHANGES`, and `FILEBACKUP_LOGS`. The source and config are read-only;
-source-state, backup, change, and log mounts must be writable by the selected
-`FILEBACKUP_UID`/`FILEBACKUP_GID`. Give each backup set its own state folder.
+`compose.example.yaml` expresses the same boundary using `FILEBACKUP_SOURCE`,
+`FILEBACKUP_STORE` and `FILEBACKUP_LOGS`. The source and config are read-only;
+the store and log mounts must be writable by the selected
+`FILEBACKUP_UID`/`FILEBACKUP_GID`. **The store is ONE mount** holding `backup/`
+and `changes/`: content moves between them by rename, Linux cannot rename across
+two bind mounts even of the same disk, and a set whose `BackupPath` and
+`ChangePath` sit on separate mounts is refused with exit 2. Give each backup set
+its own store folder. Nothing is written into `/source`, so there is no
+source-state mount any more.
 The entrypoint preserves FileBackup's exit code, so HomeHub can wrap the job and
 post its own NagLight result without coupling this project to that service.
 The image sets `FILEBACKUP_7ZIP_PATH`; add `-e FILEBACKUP_7Z_LEVEL=<0-9>` to
@@ -763,15 +792,16 @@ docker run --rm ... filebackup:local snapshots
 docker run --rm ... filebackup:local prune -Snapshot Snapshot_2024_01_01_09_00_00
 ```
 
-Pruning writes to `/changes` **and** `/backup`, so both must be mounted
-writable for that action. See "Snapshot retention (pruning)" above for the
+Pruning writes inside `/store`, so it must be mounted writable for that action. See "Snapshot retention (pruning)" above for the
 status codes and the refusal set.
 
 ### Build, verify, and move the image
 
 The checked-in helper uses the same commands locally and in CI. Its test creates
-a real compressed backup in the container, checks the six-file recovery kit,
-restores it in a second container, and compares every file byte-for-byte:
+a real compressed backup in the container, checks the restore kit, restores
+the latest state and a snapshot in further containers and compares every file
+byte-for-byte, checks that a clean store verifies clean, and checks that the old
+two-mount layout is refused:
 
 ```powershell
 pwsh -File scripts/Invoke-Container.ps1 -Action BuildAndTest
@@ -824,27 +854,36 @@ consumption paths on their own.
 ```
 SOURCE                      BACKUP (latest state)                 SNAPSHOTS (older states)
 ------                      ---------------------                 ------------------------
-D:\Data\report.docx  -hash→ E:\…\DataStore\Ab92Cd 5K.7z          E:\…\DataChanges\
-D:\Data\photo.jpg    -hash→ E:\…\DataStore\Xy7Ko 3M.jpg            Snapshot_2026_03_19_22_50_06\
+D:\Data\report.docx  -hash→ E:\Store\Backup\Ab92Cd…_5K.7z         E:\Store\Changes\
+D:\Data\photo.jpg    -hash→ E:\Store\Backup\Xy7Ko…_3M.jpg           Snapshot_2026_03_19_22_50_06\
                             MANIFEST.csv                            ← full point-in-time MANIFEST.csv
-                            MANIFEST.csv.meta                          + its own MANIFEST.csv.meta
-                            RECONSTRUCT.ps1/.bat/.sh                   + only the superseded bytes
+                            RECONSTRUCT.ps1/.cmd/.sh                   + the bytes superseded after it
                             FileBackup.Common.psm1                     + a restore kit
                             System.IO.Hashing.dll                  Snapshot_2026_02_10_08_00_00\  …
                             FileBackupState.json
 ```
 
-Identical content is stored once (keyed on `(xxHash128, length)`); extra logical names just
-point at the same data file. The backup root is always the **latest** state. Each older
-state is a `Snapshot_<date>` folder named for the backup whose state it preserves — it holds
-that point's full manifest plus only the bytes superseded afterward, and resolves everything
-else by hash from the backup root. The **most recent run has no snapshot** (it *is* the live
-backup), and a run that changes nothing creates none.
+Identical content is stored once (keyed on `(xxHash128, length)`) under a name that
+carries that key; extra logical names just point at the same object. The backup root
+is always the **latest** state. Each older state is a `Snapshot_<date>` folder named
+for the backup whose state it preserves — its full manifest plus the objects that
+stopped being used after it; everything else it resolves by name from the rest of the
+pool. The **most recent run has no snapshot** (it *is* the live backup), and a run
+that changes nothing creates none. A rename, a time-only change or an added copy does
+make one: a state is its list of paths, not just its bytes.
 
-**A note on your source folder:** each run keeps its hash cache as a
-`MANIFEST.csv` (and now a `MANIFEST.csv.meta` beside it) in the source-state
-location, which by default is the source root itself. Set `SourceStatePath` to
-keep both out of the tree being backed up.
+A run, in order: take the store's lock; read the latest manifest and list every
+folder of the pool once; **publish the previous state as its snapshot first**; walk
+the source, hashing each new or changed file *while* copying it, so a stored object
+is always named after the bytes actually written; bring content that comes back
+from a snapshot back by rename instead of copying it again; save progress about
+once a minute; write the new manifest; then move what is no longer used into the
+snapshot. Nothing is ever deleted. A kill at any point leaves every state
+restorable, and the next run simply carries on from the files.
+
+**A note on your source folder:** nothing is written into it. Older versions kept a
+hash cache as a `MANIFEST.csv` at the source root (or at `SourceStatePath`); it is no
+longer read or written, stays out of the backup, and can be deleted.
 
 **Hidden and dot-prefixed files are backed up** (since kit revision 6 —
 before it, no PowerShell-side walk saw them at all). That deliberately
@@ -888,12 +927,13 @@ named below so you can recognise every file the tool creates:
 | File | Where | What it holds |
 |---|---|---|
 | `MANIFEST.csv` | backup root, and each `Snapshot_<date>` folder | **The index.** One row per logical file, nine columns (below). A snapshot's copy is that point in time's complete index. |
-| `MANIFEST.csv.meta` | beside every `MANIFEST.csv` | **The witness** — `Version`, `Rows`, `Bytes`, `XxH128`, `Written`. Lets a restore prove the index it is about to trust is the index that was written. |
-| `MANIFEST.csv` + `MANIFEST.csv.meta` | the **source-state** location (`SourceStatePath`; the source root by default) | **The hash cache.** The same format, used to decide what changed without re-reading every byte. Point `SourceStatePath` somewhere else to keep it out of the tree being backed up. |
+| `MANIFEST.csv.meta` | beside a `MANIFEST.csv` an **older version** wrote | The witness older versions wrote. Not written any more; a run deletes it when it rewrites that manifest, and only the older kit bundled beside it reads it. |
+| `Incoming\`, `Building_<date>\` | change root, while a run is working | A run's temporary copies and the snapshot it is preparing. A run that is killed leaves them; the next run deletes them — neither ever holds the only copy of anything. |
+| `Verify\` | change root, only after `-Action Verify -RepairStorage` | Duplicate and damaged objects that repair set aside instead of deleting. Delete it yourself. |
 | `DIRECTORIES.csv` | backup root, and each `Snapshot_<date>` folder, when there is anything to say | **The directory sidecar.** One row per folder that holds no file anywhere beneath it, or that carries a `Hidden`, `System`, `ReadOnly` or `NotContentIndexed` attribute - the two things a one-row-per-file index cannot express. Advisory: it is not witnessed, and a restore never fails over it. A tree with no empty or attributed folder gets no such file at all. |
-| `FileBackupState.json` | backup root | Two dates: `LastHashRun` (when the last full re-hash swept) and `LastBackupRun` (which dates the next snapshot). Written by rename, so a crash cannot leave it torn. |
+| `FileBackupState.json` | backup root | Two dates: `LastHashRun` (when the last full re-hash swept) and `LastBackupRun` (which dates the next snapshot). Written by rename, so a crash cannot leave it torn. If it is missing or unreadable, a run warns, sets it aside, and dates the previous state by the manifest file's own time. |
 | `RECONSTRUCT.paths.json` | backup root | The source/backup/change paths this store was written with, so a restore in place needs no arguments. Ignored once the folder is moved elsewhere. |
-| `backup.log` | change root | The run log: what was hashed, copied, staged, refused. |
+| `backup.log` | change root | The run log: what was hashed, stored, moved, not captured, refused. |
 | `RECONSTRUCT.log` | the **restore target** | Written by a restore, not a backup — the per-file record of what was recovered and how. |
 | `.viewstamp` | the view root (`ViewPath`), only with `BrowseView: index` | A digest of the manifest rows the browse view mirrors, so a stale view is rebuilt rather than trusted. |
 | `RECONSTRUCT.ps1` · `RECONSTRUCT.cmd` · `RECONSTRUCT.command` · `reconstruct.sh` · `FileBackup.Common.psm1` · `System.IO.Hashing.dll` | backup root and every snapshot | The restore kit — the reason a backup folder needs nothing else to give your files back. (Stores older than kit revision 10 carry `RECONSTRUCT.bat` in place of the `.cmd`.) |
@@ -901,15 +941,10 @@ named below so you can recognise every file the tool creates:
 Those names are **infrastructure at the root only**. A file of your own called
 `MANIFEST.csv` in a subfolder is ordinary data and is backed up as such.
 
-One detail about the witness is deliberate and worth knowing: `MANIFEST.csv` and
-the witness beside it are each published by atomic rename (the new file is
-written as `MANIFEST.csv.tmp` / `MANIFEST.csv.meta.tmp` and renamed over the old
-one), so neither can ever be half-written. The manifest is published first, so a
-crash between the two renames leaves a complete index beside a witness that
-*disagrees* with it — which refuses the restore (exit 3) rather than quietly
-passing, and the next successful run rewrites both. It fails in the safe
-direction on purpose. A `.tmp` file left by a crash is harmless: the next write
-replaces it, and it is never backed up or reported.
+`MANIFEST.csv` is published by atomic rename — written as `MANIFEST.csv.tmp` and
+renamed over the old one — so it can never be half-written. A `.tmp` file left by a
+crash is harmless: the next write replaces it, and it is never backed up or
+reported.
 
 ### Manifest columns
 
@@ -1062,57 +1097,41 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   `System.Memory` assemblies absent from a stock 5.1 session. Use `pwsh`.
 - **Email is optional.** Omit the `Secrets` SMTP fields (or pass `-NoMail`); mail failures
   are logged, never fatal.
-- **A run refuses because `Temp` exists (stale `Temp` folder error).** A prior run aborted
-  mid-flight — and the leftover `Temp` under your `ChangePath` may hold the **only physical
-  copy** of bytes that older snapshots recover by hash (the run moves superseded and removed
-  content there before finalizing the snapshot). **Do not delete it.** Safe recovery:
-  (1) move the whole `Temp` folder *aside*, outside `ChangePath` (a rename is instant and
-  loses nothing); (2) re-run the backup, which is now unblocked; (3) run `-Action Verify`
+- **A run refuses because `Temp` exists (stale `Temp` folder error).** Older versions
+  staged a run in a `Temp` folder under `ChangePath`, and one left by an aborted run may
+  hold the **only physical copy** of bytes that older snapshots recover by hash. This
+  version never uses `Temp`: a run that finds one warns that it is left alone and carries
+  on. **Do not delete it.** Safe recovery: (1) move the whole `Temp` folder *aside*,
+  outside `ChangePath` (a rename is instant and loses nothing); (2) run `-Action Verify`
   and test-restore your oldest snapshot — if verification is clean and restores complete,
-  discard the moved folder; (4) if any snapshot restore reports missing content, copy the
-  moved folder's *data files* into the backup root under any non-colliding names (skip its
-  `MANIFEST.csv` — that is the interrupted run's staging copy of the index) — both restorers
-  find content by hash regardless of filename — and verify again.
-
-  **Most of these now recover themselves.** A `Temp` that is *empty*, or that holds
-  *only* a stale `RUN.inprogress` owner record and nothing else, is **reclaimed
-  automatically**: the run confirms with a second sample — taken a while later — that the
-  previous owner really is gone and is not merely quiet, moves the old folder aside,
-  recreates `Temp` and carries on, logging `[SR-075/reclaimed]`. Nothing is deleted to get
-  there. A run that is genuinely still alive is refused, not stomped
-  (`[SR-075/owner-live]`), as is a `Temp` held by a prune (`[SR-075/prune-held]`).
-  The four steps above remain the operator's path for the one case that is never
-  reclaimed: a `Temp` that holds **content** (`[SR-075/content-refused]`).
-
-  **`Temp.stale-<utc>-<hex>` folders** are that moved-aside prior staging folder — created
-  by the automatic reclaim, and the same thing you produce by hand at step (1). They sit
-  beside `Temp` under `ChangePath`, are safe to inspect and safe to copy files out of, and
-  are **never deleted automatically while they hold anything**: an aside folder that proves
-  to contain nothing but the old owner record (or nothing at all) is cleaned up for you,
-  and any other one is kept until you work through steps (3) and (4).
+  discard the moved folder; (3) if any snapshot restore reports missing content, copy the
+  moved folder's *data files* into the backup root (skip its `MANIFEST.csv`) — both
+  restorers find content by name and hash regardless of folder — and verify again. A
+  `Temp` left by an interrupted **prune** blocks further prunes the same way; the same
+  steps apply.
 - **`Temp.lock` and the `[SR-075/lock-held]` refusal.** Every backup and every prune —
   and `-Action Verify` when given `-RepairStorage` or `-RefreshKits` (exit 2 if refused) —
   holds an exclusive lock on the empty file `Temp.lock` in `ChangePath` for as long as it runs;
   the operating system drops it the instant that process ends, however it ends. A run that
-  finds it held refuses straight away with `[SR-075/lock-held]` and touches nothing: another
-  backup or prune of this store is still alive. If none is, something else has the file
-  open (an antivirus scanner, a backup agent) — find it rather than deleting the file.
-  **Leave `Temp.lock` where it is.** It is never written, it is not part of the backup, and
-  deleting it while a run holds it can let a second run lock a fresh copy alongside the
-  first on Linux. On Linux the lock is advisory (`flock`): it excludes every FileBackup
-  process on the same host, containers included, but it is not guaranteed to exclude a run
-  on another machine reaching the same store over SMB or NFS — do not point two machines at
-  one `ChangePath`. A run of a FileBackup older than this lock takes no lock at all; the
-  `RUN.inprogress` rules above still protect against it.
-- **Where a run's log lives.** Per-set detail — the staging-lock messages above included —
+  finds it held refuses straight away with `[SR-075/lock-held]` and touches nothing
+  (a backup exits 4): another backup or prune of this store is still alive. If none is,
+  something else has the file open (an antivirus scanner, a backup agent) — find it rather
+  than deleting the file. **Leave `Temp.lock` where it is.** It is never written, it is not
+  part of the backup, and deleting it while a run holds it can let a second run lock a fresh
+  copy alongside the first on Linux. On Linux the lock is advisory (`flock`): it excludes
+  every FileBackup process on the same host, containers included, but not a run on another
+  machine reaching the same store over SMB or NFS — **two machines writing one store are not
+  supported**.
+- **Where a run's log lives.** Per-set detail — the lock messages above included —
   is written to **`backup.log` inside that set's `ChangePath`**. `Backup_Global.log` (beside
   the config unless `-GlobalLogPath` / `FILEBACKUP_LOG_PATH` says otherwise) is the
   orchestrator's sink: configuration, dependency checks, cross-set failure summaries and
   mail. It is legitimately near-empty while a set is running, so read `ChangePath\backup.log`
   when you want to know what a run is doing or why it refused.
-- **Unexpected empty source.** A previously populated set fails before mutating the backup
-  when its source becomes empty (often an unavailable share). Set `AllowEmptySource = $true`
-  on that set only when deleting every backed-up file is intentional.
+- **Unexpected empty source.** A previously populated set whose source becomes empty (often
+  an unavailable share) warns and carries on: nothing is deleted — every file moves into that
+  run's snapshot by rename, and moves back when the source returns. A source folder that
+  does not exist at all is refused (exit 2).
 - **Never delete or "clean up" files inside the backup root or snapshot folders.** The
   backup root is a managed pool of content-addressed objects: deduplication means one file
   there can be the only physical copy that other rows and older snapshots recover by

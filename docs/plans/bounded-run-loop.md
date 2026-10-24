@@ -1,7 +1,8 @@
 # Bounded run loop: the Owner's architecture for the backup run
 
-*Branch `BoundedRebuild`, 2026-10-24. Status: rulings recorded; the calls in
-§11 await the Owner's confirmation. Nothing here is implemented.*
+*Branch `BoundedRebuild`, 2026-10-24. Status: rulings recorded; C1–C8 confirmed
+by the Owner; implemented on this branch (§13 lists the calls the implementation
+made unattended).*
 
 This branch rebuilds the spine against an architecture the Owner fixes up
 front. The aim is to **bound the run loop**: a corner case gives a warning and
@@ -183,7 +184,9 @@ by rename on the next run.
 - There is no `.meta` check and no "unverified index" warning.
 - Both restorers change together (`Reconstruct.ps1` and `bash/reconstruct.sh`).
 - Old kits stay in old snapshots and still restore, more slowly. They still
-  check their own snapshot's `.meta`, which stays valid (R6). Nothing outside
+  check their own snapshot's `.meta`, which stays valid (R6). Nothing is moved
+  out of a folder whose kit is older than revision 4, which cannot look
+  elsewhere for a row's object (C19). Nothing outside
   the tests passes `-RequireWitness`.
 
 ## 8. Continuing an existing store (HomeHub)
@@ -236,10 +239,57 @@ The need tier still has to be checked against R1 to R14 before the SR rewrite.
 
 ## 12. Not designed yet
 
-- **Prune under write-once snapshots:** move last-copy objects into a surviving
-  snapshot without rewriting its manifest.
-- **Verify's moves into `Verify/`,** and how `Verify/` is named and reported.
 - **The component and LLR breakdown** of this run (the
-  `architecture-decomposition` skill applies).
+  `architecture-decomposition` skill applies), and the SR rewrite §10 lists.
 - **Unchanged and out of this scope:** links (SR-150..152), the folder sidecar
-  (SR-065), the views, and the container action words.
+  (SR-065), the views (a container view at `/store/view` is now possible, but no
+  IF-001 revision has ruled on it), and the container action words.
+
+## 13. Implementation (2026-10-24, unattended): what was built and the calls made
+
+The Owner confirmed C1–C8 and asked for the implementation, then was away. What
+follows is what the implementation decided inside the rulings; each is a row to
+flip, not a re-ruling. Numbering continues from §11.
+
+| # | Call | Why |
+|---|---|---|
+| C9 | The first file in walk order whose content is new decides that object's extension and form; the old group "owner" election (shortest path) is gone. | Hashing while copying means an object is named the moment its first file is copied; electing an owner first would need the whole group read beforehand. |
+| C10 | `Publish-PriorStateSnapshot` keeps the prior manifest's DataPaths instead of blanking them. | Superseded objects keep their names when step 8 moves them in, so the snapshot's own rows still name them - the existing retention mechanism and storage audit index the pool by exactly that. Blank DataPaths made prune refuse every store and Verify report false data loss (found by reading, confirmed by the container smoke test). |
+| C11 | A DataPath that names a file moved elsewhere in the pool is resolved by content, like a blank one: `Test-PoolResolves` accepts it for a folder whose kit is revision 4 or later, the storage audit reports no finding for it, and Verify reports only truly missing content. | R6 makes stale DataPaths normal (re-added content moves back out of snapshots); kit 4+ falls back to the pool, kit 14 by name. |
+| C12 | The retention and audit index answers "is the file there?" from one listing per folder instead of a probe per row. | C10 leaves most snapshot rows non-blank, and a probe per row is the stat storm of the 2026-09-06 review. |
+| C13 | Prune no longer refuses a manifest without a witness; `-AllowUnverifiedIndex` is accepted and has no effect. A witness an older build left that disagrees with its manifest still refuses (3). | R5: no witness is written, so absent is normal; deleting is not recoverable, so evidence of damage still stops it. |
+| C14 | Duplicate and damaged objects move into `<ChangePath>/Verify/` only under `-Action Verify -RepairStorage`; plain Verify stays read-only. | SR-103 (read-only actions change nothing). R9's "Verify moves them" is read as the repair half of Verify. |
+| C15 | The source walk skips only the old source-side record's names (`MANIFEST.csv`, its `.meta`, their `.tmp`) at the source root, and only when no separate `SourceStatePath` was configured. Other root-level FileBackup names in a source are user data. | Dropping `/state` would otherwise have made the container exclude every root-level FileBackup-named file (container review finding 3). |
+| C16 | A run refused at step 1 still leaves `Temp.lock`, `backup.log` and any missing roots it created; no store content is touched. | Taking the lock and opening the log come first by design. |
+| C17 | A kill between the final manifest write and the `LastBackupRun` write leaves that state unsnapshotted by the next run (it keeps the older `Snapshot_D`). No bytes are lost. | A two-write window; closing it would need a marker R1 does not ask for. |
+| C18 | Kit 14 (agent call): an index hit that is archive-shaped and will not open is a host problem (4) without a content-scan fallback, and only the first index candidate is tried. | Bounded; the content scan stays for rows the index cannot place. |
+| C19 | An object in a folder whose restore kit is older than revision 4 is never moved: re-added content is used where it is (the latest state's kit finds it by name), and Verify reports a duplicate there as not repairable, naming `-RefreshKits`. | Such a kit finds a row's object only in the folder its DataPath names, so moving it out would break that old snapshot's restore. HomeHub's oldest snapshots may carry such kits; the check reads one kit marker per folder touched, only when a move is due. |
+| C20 | Every latest-state row is rebuilt from the object it names: its `Compressed` column is read from the object's listing (SR-068), so a column bent out of true is corrected by the next run, and a row whose `DataPath` is not a stored-object name (only hand-made stores have one) has its content stored again from the source. The bent file is left in place for Verify to report as unreferenced. | The run places objects by name (§2) and never re-forms bytes (SR-061, R9); copying a bent row forward verbatim would need a second path through the loop for shapes no supported operation produces. |
+| C21 | Both restorers auto-detect a snapshot's backup root as the change folder's parent when that holds a manifest (as before), else as the one sibling folder of the change folder that does. | The one-mount layout puts `backup/` beside `changes/`; restored on the host, a container store's path sidecar names `/store/...` and is ignored, and the old guess (`<store>`) left the latest state out of the name index, so every row naming a latest object fell to the content scan (rows × pool). Found from the HomeHub contract review. |
+
+**Known costs, measured or read (follow-ups, not defects):**
+- **Kit name index:** each object name is decoded with Common's BigInteger
+  decoder, about 1.1 ms a name, so a full restore of a 180,000-object pool spends
+  about 3.3 minutes building it. That replaces rows × pool hashing. A compiled
+  decoder would bring it to seconds.
+- **Reading the latest manifest:** `Read-Manifest` (Import-Csv plus two
+  Add-Members a row) stays the slowest and largest per-run read at HomeHub scale.
+  It is read once per run.
+- **Local temp tier (§4):** a small file whose length matches a stored object is
+  copied to the host or container temp before it is known to be new. The OS page
+  cache would usually serve a second read of such a file anyway, so this tier
+  buys little and costs a temp write per renamed or copied file. It is
+  implemented as ruled; removing it is a one-line change if the Owner agrees.
+
+**Defects found and fixed during the implementation (recorded so the trail is
+complete):**
+- `Get-SortedManifestRow` sorted only its keys: PowerShell bound
+  `[Array]::Sort(keys, items, comparer)` to the generic overload and sorted a
+  converted copy of the rows, so the latest manifest was written in hashtable
+  order and the Duplicate flag's shortest-path pick saw unsorted rows. Found by
+  the canonical-bytes test; fixed by casting to the non-generic overload.
+- Blank snapshot DataPaths (before C10) made prune refuse every store and
+  Verify report false data loss; found by reading and by the container smoke
+  test.
+- The move-back of re-added content would have broken a snapshot whose kit is
+  older than revision 4 (C19); found while re-scoping the retention tests.
