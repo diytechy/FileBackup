@@ -28,14 +28,15 @@ last) — it is the record, not required reading for every pass.
   OWNER.** `BoundedRebuild` holds the bounded backup run of
   [plans/bounded-run-loop.md](plans/bounded-run-loop.md): rulings R1–R14 and
   calls C1–C8 (confirmed), implemented unattended at the Owner's request, with
-  the implementation's own calls C9–C24 and the open items in its §13. Lint,
-  865 unit tests, 274 integration tests, the container smoke and 120 bats tests
-  pass (entry of 2026-10-24 at the end of this log). HomeHub's side is on its own
+  the implementation's own calls C9–C24, and the Owner's rulings on the open
+  items as C25–C35, in its §13. Lint, 876 unit tests, 274 integration tests,
+  the container smoke and 122 bats tests pass (entries of 2026-10-24 at the end
+  of this log). HomeHub's side is on its own
   branch, not merged. `DirectRebuild` is cited for its rulings only. The
   spine-restructure entry below is the shared starting point; its **Next**
-  describes the other branch. **Next here:** the Owner reviews C9–C24 and the
-  open items, and decides the HomeHub branch; then the SR tier is rewritten as
-  the plan's §10 lists. No pending agent action — do not reopen gates.
+  describes the other branch. **Next here:** the Owner reviews C9–C35 and
+  decides the HomeHub branch; then the SR tier is rewritten as the plan's §10
+  lists. No pending agent action — do not reopen gates.
 
 - **SPINE RESTRUCTURE IN PROGRESS — THIS BRANCH IS SPINE-ONLY (2026-10-17).**
   `SpineRestructure` rewrites the SN → SR → LLR → TC spine to the current
@@ -6316,3 +6317,48 @@ Next: the Owner reviews C9–C24 and the open items in plan §13 ("Left for the
 Owner"), then
 decides the HomeHub branch (the image must be built from this branch first).
 No pending agent action.
+
+**2026-10-24 (later): the Owner's rulings on the open items, built (BoundedRebuild).**
+The Owner chose, from the options laid out for each open item: 1B, 2B with 2C,
+3B, 4a (both halves), 4b(i), 4c(ii), and asked for logging and time metrics good
+enough to find a check that slows the backup. Built as plan §13 calls C25–C32:
+a store drive that is not attached returns 4 (C25); a missing `BackupPath` is
+never recreated beside existing snapshots, 2 (C26); a source that empties
+mid-run stops with 4 (C27); `-RepairStorage` confirms the copy it keeps before
+setting a duplicate aside, and a plain Verify reports that cost first (C28);
+every run logs step timings, work per kind of read, the slowest files and a
+`metrics` JSON line (C29); an archive as long as its content is stored raw and
+Verify expands one before judging it (C30); expands never use the system temp
+folder, which is RAM in the container (C31); a latest-state restore finds the
+change folder beside the backup folder (C32). Commits `a03ea91`, `69eb254`,
+`5dfe366`.
+
+Two reviews of `554258c..5dfe366` (reports 4 and 5 in
+[plans/bounded-run-loop-reviews.md](plans/bounded-run-loop-reviews.md)): Sol
+(low) found bash's searches skipping dot-named folders (`cb17486`); Opus
+(medium) found two defects C31 made reachable — on a full backup volume `-Deep`
+read intact archives as damaged, and a nearly full volume could refuse every
+prune — fixed with a mapped-drive hint as C33–C35 (`91aa3fc`). Its other
+questions are answered in plan §13. The full run on `5dfe366` also caught 65
+unit tests whose hand-built capture context lacked the new metrics field
+(`08ef525`, test-side only).
+
+Evidence (real runs this session):
+- lint PASS; Pester unit 876 passed, 0 failed, 4 skipped, 1 not run;
+  integration (`Run-All.ps1 -Backend Subst -Modes Plain,Compress`) 274 passed,
+  0 failed, 2 skipped (G8.0, RealUSB only); container smoke exit 0 — all on
+  `91aa3fc`.
+- bats 122 of 122 and shellcheck clean on `cb17486` (`reconstruct.sh`
+  unchanged since).
+- Metrics overhead, measured with the machine otherwise idle: 20,000 unchanged
+  files, the two versions in separate processes and stores, alternating, three
+  unchanged runs each — `554258c` (no metrics) 26.9, 28.9, 30.6 s, mean 28.8 s;
+  `91aa3fc` 22.1, 23.3, 24.0 s, mean 23.1 s. No measurable cost. The new
+  `Timings:` line of such a run (23.8 s): reading the latest manifest 4.7 s,
+  walking the source 3.6 s, the capture loop over 20,000 unread files 7.2 s,
+  finishing the latest state 2.7 s, indexing 1.7 s, the restore kit 1.7 s, the
+  rest under 1 s each - about 3.5 minutes per unchanged night at 180,000 files
+  if it scales linearly.
+
+Next: unchanged — the Owner reviews C9–C35 and decides the HomeHub branch. No
+pending agent action.
