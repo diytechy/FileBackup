@@ -115,12 +115,17 @@ one_row_store() {
     [[ $EUID -ne 0 ]] || skip "running as root reads through chmod 000"
     local s="$BATS_TEST_TMPDIR/unreadable"
     one_row_store "$s" 'UNREADABLE-CANDIDATE'
-    sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
-    restamp_witness "$s/MANIFEST.csv"
-    chmod 000 "$s/$STORE_DATA"
+    # Blank the row and park its bytes under a name that is NOT an object
+    # name, so the content scan - not the name index - is what meets the
+    # unreadable file. (This used to blank '"data.bin"', which stopped
+    # matching anything when WP12 gave fixtures SR-069 names, so the row was
+    # never blanked and the test exercised a different path.)
+    sed -i "s|^\"$STORE_DATA\"|\"\"|" "$s/MANIFEST.csv"
+    mv "$s/$STORE_DATA" "$s/data.bin"
+    chmod 000 "$s/data.bin"
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tunread" --from "$s"
-    chmod 644 "$s/$STORE_DATA"
+    chmod 644 "$s/data.bin"
     [ "$status" -eq 4 ]
     [[ "$output" == *"StorageUnreadable"* ]]
     [[ "$output" == *"could not be read"* ]]
@@ -132,8 +137,8 @@ one_row_store() {
     one_row_store "$s" 'SNAPSHOT-ONLY-BYTES'
     mkdir -p "$s/changes/Snapshot_2024_01_01_00_00_01"
     mv "$s/$STORE_DATA" "$s/changes/Snapshot_2024_01_01_00_00_01/data.bin"
-    sed -i 's/^"data.bin"/""/' "$s/MANIFEST.csv"
-    restamp_witness "$s/MANIFEST.csv"
+    # Blank the row (the old '"data.bin"' pattern stopped matching at WP12).
+    sed -i "s|^\"$STORE_DATA\"|\"\"|" "$s/MANIFEST.csv"
 
     # Sanity: with the tree listable, the blank row heals from the snapshot.
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tchg-ok" --from "$s" --backup-root "$s" --change-root "$s/changes"

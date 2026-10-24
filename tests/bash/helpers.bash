@@ -59,7 +59,9 @@ WITNESS_FORMAT_VERSION=2
 # Re-stamp a manifest's witness after a test has deliberately modified the
 # manifest. Lived in FIVE byte-identical copies across the suites until
 # 2026-08-27, each with the version hard-coded - so the WP12 bump broke 30 tests
-# at once. One definition now: the next bump touches this line only.
+# at once. One definition now: the next bump touches this line only. Since kit
+# revision 14 the restorer ignores the witness, so a re-stamp only keeps a
+# tampered store self-consistent; no test depends on it to avoid exit 3.
 restamp_witness() {  # <manifest-path>
     local manifest="$1" witness="${1}.meta" rows bytes hash
     rows="$(gawk 'NR>1 && NF>0' "$manifest" | wc -l | tr -d ' ')"

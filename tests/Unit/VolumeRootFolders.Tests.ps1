@@ -193,9 +193,10 @@ Describe 'A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040
         Test-Path -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Should -BeTrue
 
         # Force the pool scan AND make it fail: blank the row's DataPath so the
-        # bytes must be located by (hash, length), and delete the object so the
-        # search cannot succeed. Re-stamp the witness, or the run exits 3 on the
-        # edited index instead of ever reaching the pool.
+        # bytes must be located by (hash, length), and delete the object so
+        # neither the name index nor the content scan can succeed. (The
+        # re-stamp is no longer needed - kit revision 14 reads no witness - and
+        # only keeps the edited store self-consistent.)
         $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
         $victim = $rows | Where-Object RelativePath -eq 'a.txt'
         Remove-Item -LiteralPath (Join-Path $bkp $victim.DataPath) -Force

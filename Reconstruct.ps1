@@ -12,8 +12,11 @@
           snapshot's own manifest is the authoritative point-in-time state, with
           bytes resolved by hash from the backup root + sibling snapshots.
 
-    When a row's DataPath is blank/missing, the file is recovered by scanning the
-    search folders for a file whose length and xxHash128 match.
+    When a row's DataPath is blank or its file is missing, the bytes are found
+    through a name index built once per restore: every stored object is named
+    by its own (hash, length) (SR-069), so listing the pool folders once
+    resolves every such row. Only a row the index cannot resolve falls back to
+    scanning the pool for a file whose length and xxHash128 match.
 
 .NOTES
     Requires PowerShell 7+ (pwsh). Logs to RECONSTRUCT.log in the target root.
@@ -31,14 +34,16 @@
            unrecognizable manifest, target inside the backup, an unusable target
            path, missing required tool, insufficient capacity). Any terminating
            error this script did not classify lands here too: nothing was
-           attempted, so it must not be reported as data loss (code 1).
-        3  Manifest-witness verification failed — the index is untrustworthy;
-           NO file is written to the target (SR-039). Header/witness
-           verification runs before the target folder and the log are created,
-           so those refusals (and code 3 always) leave the target exactly as
-           they found it — as reconstruct.sh does. The later code-2 preflights
+           attempted, so it must not be reported as data loss (code 1). The
+           header check and the store refusals run before the target folder
+           and the log are created, so they leave the target exactly as they
+           found it — as reconstruct.sh does. The later code-2 preflights
            (capacity, 7-Zip) run after target+log creation, identically in
            both restorers.
+        3  Retired at kit revision 14; never returned. It was "manifest-witness
+           verification failed". The kit no longer reads MANIFEST.csv.meta at
+           all (bounded-run-loop R5), so a witness that is present, stale or
+           garbage changes nothing.
         4  Incomplete, HOST — rows failed for reasons on this machine, not in
            the backup (unreadable search folder or candidate, 7-Zip unavailable
            for an archive candidate, extraction/copy I/O error on the row's OWN
@@ -49,14 +54,14 @@
            data damage (ContentMissing, 1) — only the restore loop raises
            CandidateError.
 
-    Precedence when several apply: 2 > 3 > 4 > 1.
+    Precedence when several apply: 2 > 4 > 1.
 
     Delivery: by default every failure is a TERMINATING ERROR (throw), which is
     what in-process callers and the test harness rely on. Pass -ExitCode (as
     RECONSTRUCT.cmd does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 13
+# KitRevision: 14
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -105,7 +110,18 @@
 # restored file, so a write-protected store cannot hand its protection to
 # the restored tree - a snapshot keeps its kit forever, so this half must
 # ship BEFORE the store is ever marked, not with it. Its POSIX twin also
-# stops assuming GNU coreutils (SR-071).
+# stops assuming GNU coreutils (SR-071). Revisions 11 to 13 changed only the
+# bundled FileBackup.Common.psm1 (AGENTS.md section 3).
+# Revision 14 (2026-10-24): a row whose DataPath is blank or names a missing
+# file is resolved through a NAME INDEX built once per restore - the top-level
+# files of the origin, the backup root and every snapshot, keyed by the
+# (hash, length) each SR-069 name carries - instead of a recursive scan that
+# hashed the whole pool once per such row. An index hit is treated exactly like
+# a DataPath file (form from its bytes, SR-068; written file verified, SR-056);
+# the content scan remains only as the last resort for a row the index cannot
+# resolve. The MANIFEST.csv.meta witness is no longer read at all, so exit 3,
+# the 'unverified index' warning, -RequireWitness and the witness-version
+# refusal are gone (bounded-run-loop R5/R6, section 7).
 # Restoring a snapshot with its OWN older kit
 # still carries the defects fixed after it.
 
@@ -117,10 +133,6 @@ param(
     # Report the SR-040 exit code as a process exit status instead of throwing.
     # Only process entry points pass this; in-process callers keep the throw.
     [switch]$ExitCode,
-    # Strict mode (SR-039): a MISSING manifest witness becomes an abort instead
-    # of an 'unverified index' warning. Off by default so backups written before
-    # the witness contract still restore.
-    [switch]$RequireWitness,
     # Automation safety (SR-016, kit revision 6): never prompt. A missing
     # -TargetRoot prints usage and exits 2 instead of blocking on Read-Host —
     # the behavior reconstruct.sh has always had (--target-root is required).
@@ -140,23 +152,24 @@ $here = [System.IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)
 $EXIT_COMPLETE    = 0
 $EXIT_CONTENT     = 1
 $EXIT_PRECONDITION= 2
-$EXIT_WITNESS     = 3
+# 3 is retired (kit revision 14): it meant "manifest witness failed".
 $EXIT_HOST        = 4
 
 $logPath = $null
 
 # Log lines produced BEFORE the target (and therefore RECONSTRUCT.log) exists.
-# The index is verified before anything is written to the target (SR-039), so
-# its findings are held here and flushed once the log is opened.
+# The manifest is checked before anything is written to the target, so any
+# finding from that stage is held here and flushed once the log is opened.
 $pendingLog = New-Object System.Collections.Generic.List[string]
 
 function Add-ReconstructLog {
     <#
     .SYNOPSIS
         Appends one timestamped line to RECONSTRUCT.log, buffering it when the
-        log does not exist yet (verification runs before the target is created).
+        log does not exist yet (the manifest checks run before the target is
+        created).
     #>
-    # Implements: SR-039, LLR-039
+    # Implements: SR-040, LLR-040
     param([Parameter(Mandatory)][string]$Message)
     $line = "$(Get-Date -Format 'O') - $Message"
     if ($logPath) { $line | Out-File -LiteralPath $logPath -Append }
@@ -235,9 +248,9 @@ function Exit-Reconstruct {
         [Parameter(Mandatory)][int]$Code,
         [Parameter(Mandatory)][string]$Message
     )
-    # A pre-mutation refusal (codes 2 and 3) happens before the target — and its
-    # log — exists, on purpose (SR-039): the message goes to the console and the
-    # thrown error instead of a log file we must not create.
+    # A pre-mutation refusal (code 2) happens before the target — and its log —
+    # exists, on purpose: the message goes to the console and the thrown error
+    # instead of a log file we must not create.
     if ($logPath) {
         "$(Get-Date -Format 'O') - ERROR: $Message" | Out-File -LiteralPath $logPath -Append
     }
@@ -498,6 +511,102 @@ function Find-DataFileByHash {
     }
 }
 
+function New-StoredObjectNameIndex {
+    <#
+    .SYNOPSIS
+        Lists the TOP-LEVEL files of each pool folder once and maps every
+        stored-object name to the (hash, length) it carries (kit revision 14).
+
+    .DESCRIPTION
+        Every stored object is named "<hash22>_<len><ext>" from its own content
+        (SR-069), and objects sit flat at the top of the backup root and of each
+        Snapshot_* folder. So one listing answers "where are the bytes for this
+        (hash, length)?" for every row of the restore. Before revision 14 each
+        blank or stale row ran Find-DataFileByHash, which re-listed the whole
+        pool recursively and hashed candidates FOR EACH ROW: rows x pool.
+
+        Names are parsed only by ConvertFrom-HashSizeFileName, the one parser
+        (AGENTS.md section 3). A name that does not parse - infrastructure, a
+        pre-WP12 base-85 name, debris - is not an object and is ignored; the
+        content scan still covers it as the last resort. A folder that does not
+        exist or cannot be listed simply contributes nothing: the content scan
+        is what reports an unreadable pool (StorageUnreadable, exit 4).
+
+        A name is a CLAIM about the bytes, not proof. The caller treats a hit
+        exactly like a DataPath file: its form comes from its bytes (SR-068)
+        and the written file is verified against the row (SR-056).
+
+    .PARAMETER Folders
+        Pool folders in candidate order: the restore origin first, then the
+        backup root, then snapshots newest first. Duplicates are the caller's
+        to remove.
+
+    .OUTPUTS
+        [hashtable] "<HASH32>:<length>" -> List[string] of full paths, in the
+        order of -Folders.
+    #>
+    # Implements: SR-010, SR-069, LLR-069
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowEmptyCollection()][string[]]$Folders = @())
+
+    $index = @{}
+    foreach ($folder in $Folders) {
+        if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
+        # -Force (SR-057): a pool object carrying the Hidden attribute is still
+        # an object. Top level only - objects never nest.
+        foreach ($f in @(Get-ChildItem -LiteralPath $folder -File -Force -ErrorAction SilentlyContinue)) {
+            $parsed = ConvertFrom-HashSizeFileName -Name $f.Name
+            if ($null -eq $parsed) { continue }
+            $key  = "$($parsed.HashHex):$($parsed.Length)"
+            $list = $index[$key]
+            if ($null -eq $list) {
+                $list = New-Object System.Collections.Generic.List[string]
+                $index[$key] = $list
+            }
+            $list.Add($f.FullName)
+        }
+    }
+    return $index
+}
+
+function Find-DataFileByName {
+    <#
+    .SYNOPSIS
+        The first indexed object for a row's (hash, length) that still exists,
+        or $null when the name index has no usable candidate (kit revision 14).
+
+    .PARAMETER Index
+        The table New-StoredObjectNameIndex built.
+
+    .PARAMETER Hash
+        The row's xxH2Hash, 32 hex digits (compared in upper case, as
+        ConvertFrom-HashSizeFileName reports it).
+
+    .PARAMETER Length
+        The row's Length.
+
+    .OUTPUTS
+        [string] a full path, or $null.
+    #>
+    # Implements: SR-010, SR-069, LLR-069
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][hashtable]$Index,
+        [Parameter(Mandatory)][string]$Hash,
+        [Parameter(Mandatory)][long]$Length
+    )
+    $list = $Index["$($Hash.ToUpperInvariant()):$Length"]
+    if ($null -eq $list) { return $null }
+    # Listed once at the start; a candidate can have gone since. The first that
+    # is still there wins - it is verified after the write in any case.
+    foreach ($candidate in $list) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    return $null
+}
+
 # ---- Resolve backup/change roots ----
 $isChangeFolder = $folderName -match $ChangeFolderPattern
 
@@ -552,15 +661,13 @@ function Show-ReconstructUsage {
     return @'
 Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-BackupRootOverride DIR]
                        [-ChangeRootOverride DIR] [-SevenZipPath PATH]
-                       [-RequireWitness] [-NonInteractive] [-NoGui] [-ExitCode]
+                       [-NonInteractive] [-NoGui] [-ExitCode]
 
   -TargetRoot DIR          Where to rebuild the tree (must be OUTSIDE the backup).
   -BackupRootOverride DIR  Override the auto-detected backup root (the live data pool).
   -ChangeRootOverride DIR  Override the folder that holds the Snapshot_<date> siblings.
   -SevenZipPath PATH       Explicit 7z binary (else the configured default; needed
                            only when the backup has compressed rows).
-  -RequireWitness          Refuse an origin with no MANIFEST.csv.meta witness instead
-                           of restoring it with an 'unverified index' warning.
   -NonInteractive          Never prompt: a missing -TargetRoot becomes this usage
                            text and exit 2 (reconstruct.sh's required --target-root
                            is the twin).
@@ -569,8 +676,8 @@ Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-BackupRootOverride DIR]
   -ExitCode                Exit the process with the SR-040 code instead of throwing.
 
 Exit: 0 complete; 1 incomplete, content unrecoverable; 2 usage/precondition;
-      3 manifest-witness verification failed (nothing written); 4 incomplete,
-      host problem (retry after fixing this machine). Precedence: 2 > 3 > 4 > 1.
+      4 incomplete, host problem (retry after fixing this machine).
+      Precedence: 2 > 4 > 1. (3, the manifest-witness refusal, is retired.)
 '@
 }
 
@@ -904,30 +1011,27 @@ if ($changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container) -a
 function Read-RawManifest {
     <#
     .SYNOPSIS
-        Reads the restore origin's MANIFEST.csv after proving it is trustworthy:
-        it exists, its header is a FileBackup manifest header, and (when a
-        witness sidecar is present) its bytes/rows/digest match that witness.
+        Reads the restore origin's MANIFEST.csv after proving it is one: it
+        exists and its header is a FileBackup manifest header.
 
     .DESCRIPTION
-        Runs BEFORE the target folder, the log, and the capacity pre-check exist,
-        so a damaged index refuses the restore rather than "succeeding" against a
-        shrunken job (SR-039) and leaves the target byte-for-byte untouched — not
-        even a RECONSTRUCT.log — exactly as reconstruct.sh does. Its own log
-        lines are therefore buffered (Add-ReconstructLog) and flushed once the
-        log exists; refusals go to the console and the thrown error. Three
-        outcomes:
+        Runs BEFORE the target folder, the log, and the capacity pre-check
+        exist, so a refusal leaves the target byte-for-byte untouched - not
+        even a RECONSTRUCT.log - exactly as reconstruct.sh does. An
+        unrecognizable header is exit 2: this is not a manifest at all (the
+        corrupt-file guard, matching reconstruct.sh's wording).
 
-          * header unrecognizable  -> exit 2 (this is not a manifest at all —
-            the legacy corrupt-file guard, matching reconstruct.sh's wording)
-          * witness disagrees / unparseable, or absent under -RequireWitness
-            -> exit 3
-          * witness absent          -> WARN 'unverified index' and continue, so
-            backups written before the witness contract still restore.
+        Kit revision 14 reads NO MANIFEST.csv.meta witness (bounded-run-loop
+        R5). One that is present, stale or garbage is ignored; there is no
+        exit 3 and no 'unverified index' warning any more. A snapshot's
+        manifest is written once and never rewritten (R6); a damaged row is
+        caught where it matters, when every written file is verified against
+        its row (SR-056).
 
     .PARAMETER Folder
         The restore origin (backup root or Snapshot_<date> folder).
     #>
-    # Implements: SR-039, SR-040, LLR-039, LLR-040
+    # Implements: SR-040, LLR-040
     param([string]$Folder)
 
     $path = Join-Path $Folder $DatabaseFilename
@@ -937,36 +1041,10 @@ function Read-RawManifest {
 
     # Header-shape guard (mirrors reconstruct.sh): a legitimately empty backup
     # still carries the full header row, so this only rejects a corrupt or
-    # wrong file — including a legacy one that has no witness to check.
+    # wrong file.
     $header = ("$(Get-Content -LiteralPath $path -TotalCount 1)").TrimStart([char]0xFEFF)
     if ($header -notmatch 'RelativePath' -or $header -notmatch 'xxH2Hash') {
         Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "'$path' is not a FileBackup manifest (unexpected header). Corrupt or wrong file."
-    }
-
-    $verdict = Test-ManifestWitness -FolderPath $Folder
-    switch ($verdict.Status) {
-        'Verified' {
-            if ($verdict.VersionUnknown) {
-                Add-ReconstructLog "WARN: manifest witness declares format version $($verdict.Version) (newer than this build understands); verified the known fields only."
-            }
-            if ($verdict.Warning) {
-                # Rows-only divergence: the digest says the bytes are right, so
-                # this is a counting-semantics difference, not damage (SR-039).
-                Add-ReconstructLog "WARN: $($verdict.Warning)"
-                Write-Warning $verdict.Warning
-            }
-            Add-ReconstructLog $verdict.Detail
-        }
-        'Absent' {
-            if ($RequireWitness) {
-                Exit-Reconstruct -Code $EXIT_WITNESS -Message "No manifest witness beside '$path' and -RequireWitness was given: the index cannot be verified."
-            }
-            Add-ReconstructLog "WARN: $($verdict.Detail) Restoring against an UNVERIFIED index (backup predates the witness contract)."
-            Write-Warning "Restoring against an unverified index: $($verdict.Detail)"
-        }
-        default {
-            Exit-Reconstruct -Code $EXIT_WITNESS -Message "Manifest witness verification failed for '$path'. $($verdict.Detail) The index is damaged; nothing was restored."
-        }
     }
 
     Import-Csv -LiteralPath $path
@@ -996,39 +1074,28 @@ foreach ($row in (Read-RawManifest -Folder $authorityFolder)) {
 # space-separated names. Refused as a PRECONDITION before the target exists -
 # nothing attempted, nothing written.
 #
-# THREE markers, because no one of them is complete:
+# TWO markers, because neither is complete alone:
 #   1. StoredAsHashSize='Original'  - a pre-content-addressed store (WP9).
-#   2. A witness declaring format version < this build's - the positive,
-#      always-present-on-modern-stores marker for the base-85 grammar. It is
-#      only a marker when a witness EXISTS: SR-039 deliberately lets a
-#      witness-less store restore with a warning, so absence proves nothing.
-#   3. A DataPath in a RETIRED grammar - a path separator (pre-WP9
+#   2. A DataPath in a RETIRED grammar - a path separator (pre-WP9
 #      path-addressed), or a space at index 16 (the pre-WP12 base-85
-#      "<hash16> <len10><ext>" form). Catches a store whose witness was lost.
+#      "<hash16> <len10><ext>" form).
+# Until kit revision 14 a third marker read the format Version out of the
+# MANIFEST.csv.meta witness. The kit no longer reads the witness at all
+# (bounded-run-loop R5), so that marker went with it.
 #
-# Marker 3 is a POSITIVE test, NOT "does not parse under SR-069". Those are not
+# Marker 2 is a POSITIVE test, NOT "does not parse under SR-069". Those are not
 # complements: a merely DAMAGED DataPath parses under neither grammar, and
 # SR-049/SR-053/SR-056 require the per-row audit, heal and verify machinery to
 # answer for it. Refusing the whole store there would turn one repairable row
 # into an unrestorable backup.
 #
-# A blank DataPath means 'recover by hash' and is NOT tested by 3 - a blank
-# string carries no grammar. That is the one residual gap and it is benign: the
-# locators find data by CONTENT, never by name, so a store that reaches them
-# through blank rows alone restores correctly whatever its objects are called.
+# A blank DataPath means 'resolve by (hash, length)' and is NOT tested by 2 - a
+# blank string carries no grammar. That gap is benign: a pre-WP12 object name
+# never parses under SR-069, so the name index cannot misread one, and the
+# content scan behind it matches CONTENT, never names. A store reached through
+# blank rows alone restores correctly whatever its objects are called.
 $legacyRow = $null
 $legacyWhy = $null
-
-$authorityWitness = Test-ManifestWitness -FolderPath $authorityFolder
-if ($authorityWitness.Status -ne 'Absent' -and $authorityWitness.Version -gt 0 -and
-    $authorityWitness.Version -lt (Get-FileBackupDefaults).WitnessFormatVersion) {
-    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message (
-        "'$authorityFolder' is a pre-WP12 store: its manifest witness declares format version " +
-        "$($authorityWitness.Version), and this kit (revision 9) writes and reads " +
-        "$((Get-FileBackupDefaults).WitnessFormatVersion) - the SR-069 base-57 name grammar. " +
-        'This kit does not restore stores written under the older base-85 grammar (SR-061). Restore it ' +
-        'with the kit bundled inside that backup folder, which was written by the build that produced it.')
-}
 
 foreach ($rel in $main.Keys) {
     $candidate = $main[$rel]
@@ -1057,8 +1124,8 @@ if ($legacyRow) {
 }
 
 # ---- Create the target and open the log (first mutation of this run) ----
-# Everything above refuses with 2 or 3 without writing a single byte into the
-# target (SR-039). Failures here are PRECONDITION failures: nothing has been
+# Everything above refuses with 2 without writing a single byte into the
+# target. Failures here are PRECONDITION failures: nothing has been
 # attempted, and reconstruct.sh's `mkdir -p || die` returns 2 for the same
 # causes (a file occupying the target path, a read-only parent).
 if (Test-Path -LiteralPath $TargetRoot -PathType Leaf) {
@@ -1115,14 +1182,16 @@ if ($null -eq $freeBytes) {
 # survived: unchanged files from the live backup, superseded versions from the
 # snapshot that retained them. Built as a list so an empty snapshot set never
 # injects a $null folder.
-$searchFolders = New-Object System.Collections.Generic.List[string]
+$searchFolders   = New-Object System.Collections.Generic.List[string]
+$snapshotFolders = New-Object System.Collections.Generic.List[string]
 if ($haveSnapshotTree) {
     # -Force (SR-057): a hidden snapshot folder must not drop out of the pool.
     $snapEnumErr = $null
     Get-ChildItem -LiteralPath $changeRoot -Directory -Force -ErrorAction SilentlyContinue -ErrorVariable snapEnumErr |
         Where-Object { $_.Name -match $ChangeFolderPattern } |
         Sort-Object Name -Descending |
-        ForEach-Object { $searchFolders.Add($_.FullName) }
+        ForEach-Object { $snapshotFolders.Add($_.FullName) }
+    foreach ($snap in $snapshotFolders) { $searchFolders.Add($snap) }
     if ($snapEnumErr) {
         # The snapshot tree exists but could not be LISTED: the pool is
         # incomplete in an unknowable way, and silently continuing would let
@@ -1134,6 +1203,94 @@ if ($haveSnapshotTree) {
     }
 }
 $searchFolders.Add($backupRoot)
+
+# ---- Name index folders (kit revision 14) ----
+# The same pool, in the order a row's bytes are most likely to be: the restore
+# origin first (a snapshot's own superseded objects), then the backup root
+# (latest), then snapshots newest first. Built lazily, on the first row that
+# needs it, so a restore whose every DataPath resolves never lists the pool.
+$indexFolders = New-Object System.Collections.Generic.List[string]
+foreach ($folder in @($authorityFolder, $backupRoot) + @($snapshotFolders)) {
+    $full = [System.IO.Path]::GetFullPath($folder).TrimEnd('\', '/')
+    if ($indexFolders -notcontains $full) { $indexFolders.Add($full) }
+}
+$script:nameIndex = $null
+
+function Resolve-RowDataSource {
+    <#
+    .SYNOPSIS
+        Decides which file supplies a row's bytes: its own DataPath, else the
+        name index, else the content scan (kit revision 14).
+
+    .DESCRIPTION
+        A non-blank DataPath whose file exists in the row's own folder is used
+        as before. Otherwise the row's (hash, length) is looked up in the name
+        index, built on first use (New-StoredObjectNameIndex). A hit is treated
+        exactly like a DataPath file: LocatedForm stays $null, so the caller
+        decides the form from the bytes (SR-068) and verifies the write
+        (SR-056). Only when the index has no usable candidate does
+        Find-DataFileByHash scan the pool by content - the last resort, which
+        reports the form it PROVED (SR-050) and the cause of a failure
+        (SR-040). The log says which of the three resolved the row.
+
+    .PARAMETER Row
+        The manifest row, carrying SourceFolder.
+
+    .PARAMETER Rel
+        The row's RelativePath, for the log.
+
+    .OUTPUTS
+        [pscustomobject] Path / LocatedForm / Cause / Detail. Path set: restore
+        from it. Path $null: Cause and Detail are ready for Add-Unrestored.
+    #>
+    # Implements: SR-010, SR-040, SR-050, SR-068, SR-069, LLR-040, LLR-050
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Row,
+        [Parameter(Mandatory)][string]$Rel
+    )
+    $dataPath = "$($Row.DataPath)"
+    $blank    = [string]::IsNullOrWhiteSpace($dataPath)
+    if (-not $blank) {
+        $own = Join-Path $Row.SourceFolder (ConvertTo-LocalRelativePath $dataPath)
+        if (Test-Path -LiteralPath $own -PathType Leaf) {
+            return [pscustomobject]@{ Path = $own; LocatedForm = $null; Cause = $null; Detail = $null }
+        }
+    }
+
+    # No usable DataPath. Without a key there is nothing to look up or scan for.
+    if (-not $Row.xxH2Hash -or -not $Row.Length) {
+        if ($blank) {
+            return [pscustomobject]@{ Path = $null; LocatedForm = $null; Cause = 'NoDataPathOrHash'
+                Detail = 'The manifest row carries neither a DataPath nor a (hash,length) to recover by.' }
+        }
+        return [pscustomobject]@{ Path = $null; LocatedForm = $null; Cause = 'MissingDataFile'
+            Detail = "The row's data file '$dataPath' is not present in the restore origin, and no pool file matches its (hash,length)." }
+    }
+    $why = if ($blank) { "No datapath for $Rel" } else { "Data file '$dataPath' missing for $Rel" }
+
+    if ($null -eq $script:nameIndex) {
+        $script:nameIndex = New-StoredObjectNameIndex -Folders $indexFolders
+        Add-ReconstructLog "Name index built: $($script:nameIndex.Count) object key(s) from $($indexFolders.Count) pool folder(s)."
+    }
+    $byName = Find-DataFileByName -Index $script:nameIndex -Hash $Row.xxH2Hash -Length ([long]$Row.Length)
+    if ($byName) {
+        Add-ReconstructLog "$why; resolved by name index to '$byName'"
+        return [pscustomobject]@{ Path = $byName; LocatedForm = $null; Cause = $null; Detail = $null }
+    }
+
+    Add-ReconstructLog "$why; attempting hash scan..."
+    $found = Find-DataFileByHash -Hash $Row.xxH2Hash -Length ([long]$Row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
+    if ($found.Cause -eq 'Found') {
+        Add-ReconstructLog "Hash-recovered $Rel from '$($found.Path)' (form: $($found.Form))"
+        return [pscustomobject]@{ Path = $found.Path; LocatedForm = $found.Form; Cause = $null; Detail = $null }
+    }
+    if ($blank) {
+        # One message per CAUSE, not one warning for all four (SR-040).
+        return [pscustomobject]@{ Path = $null; LocatedForm = $null; Cause = $found.Cause; Detail = $found.Detail }
+    }
+    return [pscustomobject]@{ Path = $null; LocatedForm = $null; Cause = 'MissingDataFile'
+        Detail = "The row's data file '$dataPath' is not present in the restore origin, and no pool file matches its (hash,length)." }
+}
 
 if ([string]::IsNullOrWhiteSpace($SevenZipPath)) {
     $SevenZipPath = $Def.SevenZipDefaultPath
@@ -1401,58 +1558,21 @@ foreach ($rel in $main.Keys) {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
     }
 
-    $srcFolder = $row.SourceFolder
-    $dataPath  = $row.DataPath
-    # The PROVEN form of a hash-recovered file, which outranks the row's
-    # Compressed column for that row (SR-050). Stays $null for a non-blank
-    # DataPath, whose Compressed does describe its own folder's file.
-    $locatedForm = $null
-
-    if ([string]::IsNullOrWhiteSpace($dataPath)) {
-        if ($row.xxH2Hash -and $row.Length) {
-            "$(Get-Date -Format 'O') - No datapath for $rel; attempting hash scan..." | Out-File -LiteralPath $logPath -Append
-            $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
-            if ($found.Cause -eq 'Found') {
-                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$($found.Path)' (form: $($found.Form))" | Out-File -LiteralPath $logPath -Append
-                $srcFull     = $found.Path
-                $locatedForm = $found.Form
-            } else {
-                # One message per CAUSE, not one warning for all four (SR-040).
-                Add-Unrestored -RelativePath $rel -Cause $found.Cause -Detail $found.Detail
-                continue
-            }
-        } else {
-            Add-Unrestored -RelativePath $rel -Cause 'NoDataPathOrHash' `
-                -Detail "The manifest row carries neither a DataPath nor a (hash,length) to recover by."
-            continue
-        }
-    } else {
-        $srcFull = Join-Path $srcFolder (ConvertTo-LocalRelativePath $dataPath)
+    # Own DataPath, else the name index, else the content scan (kit revision
+    # 14). A non-blank DataPath is a locator HINT, not the content authority:
+    # snapshot manifests are written once (R6), so a DataPath can name an
+    # object that has since moved to another pool folder; its name still
+    # carries the row's (hash, length), which is what the index looks up.
+    $source = Resolve-RowDataSource -Row $row -Rel $rel
+    if (-not $source.Path) {
+        Add-Unrestored -RelativePath $rel -Cause $source.Cause -Detail $source.Detail
+        continue
     }
-
-    if (-not (Test-Path -LiteralPath $srcFull -PathType Leaf)) {
-        # A non-blank DataPath is a locator HINT, not the content authority: a
-        # run killed between Optimize-ChangeFolders' duplicate deletion and its
-        # manifest rewrite leaves rows naming deleted files while the keeper
-        # copy still sits in the pool. Try (hash,length) recovery — the same
-        # machinery blank rows use — before declaring the content missing.
-        $recovered = $false
-        if ($row.xxH2Hash -and $row.Length) {
-            "$(Get-Date -Format 'O') - Data file '$dataPath' missing for $rel; attempting hash scan..." | Out-File -LiteralPath $logPath -Append
-            $found = Find-DataFileByHash -Hash $row.xxH2Hash -Length ([long]$row.Length) -SearchFolders $searchFolders -SevenZipPath $SevenZipPath
-            if ($found.Cause -eq 'Found') {
-                "$(Get-Date -Format 'O') - Hash-recovered $rel from '$($found.Path)' (form: $($found.Form))" | Out-File -LiteralPath $logPath -Append
-                $srcFull     = $found.Path
-                $locatedForm = $found.Form
-                $recovered   = $true
-            }
-        }
-        if (-not $recovered) {
-            Add-Unrestored -RelativePath $rel -Cause 'MissingDataFile' `
-                -Detail "The row's data file '$dataPath' is not present in the restore origin, and no pool file matches its (hash,length)."
-            continue
-        }
-    }
+    $srcFull = $source.Path
+    # The PROVEN form of a content-scanned file, which outranks the row's
+    # Compressed column for that row (SR-050). $null for an own-DataPath or
+    # name-index source, whose form the bytes decide below (SR-068).
+    $locatedForm = $source.LocatedForm
 
     # SR-050 proved the form for a hash-recovered row. SR-068 (kit revision 8)
     # extends that to a row resolved through its OWN DataPath, which was the

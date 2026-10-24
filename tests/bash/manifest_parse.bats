@@ -81,7 +81,9 @@ write_csv() { { printf '%s\r\n' "$HDR"; for r in "$@"; do printf '%s\r\n' "$r"; 
     local m rows want
     for m in "${MODES[@]}"; do
         rows="$(parse_manifest "$FIXTURES/bash-restore/$m/backup/MANIFEST.csv" | wc -l)"
-        want="$(witness_value "$FIXTURES/bash-restore/$m/backup/MANIFEST.csv.meta" 'Rows')"
+        # Read here rather than through the kit: kit revision 14 carries no
+        # witness reader (the sidecar is still written by the engine).
+        want="$(grep -m1 '^Rows=' "$FIXTURES/bash-restore/$m/backup/MANIFEST.csv.meta" | cut -d= -f2 | tr -d '\r')"
         [[ "$want" =~ ^[0-9]+$ ]] || { echo "no Rows= in the $m witness"; false; }
         [ "$rows" -ge 10 ] || { echo "$m: only $rows rows parsed"; false; }
         [ "$rows" -eq "$want" ] || { echo "$m: bash parsed $rows rows, engine recorded $want"; false; }

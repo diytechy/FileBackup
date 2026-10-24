@@ -19,7 +19,8 @@ use_fixture() {  # <mode>
 }
 
 # Rewrite one manifest row's DataPath and Compressed, then re-stamp the SR-038
-# witness so the restore observes the case under test and not exit 3.
+# witness. Kit revision 14 no longer reads the witness; the re-stamp keeps the
+# store self-consistent, which is what an older kit would need.
 bend_row() {  # <relpath> <new-datapath> <new-compressed>
     local m="$WORK/MANIFEST.csv"
     gawk -v FPAT='("([^"]|"")*")|([^,]*)' -v OFS=',' \

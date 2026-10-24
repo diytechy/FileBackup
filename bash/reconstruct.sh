@@ -18,7 +18,10 @@
 #
 # Restore semantics (mirror Reconstruct.ps1):
 #   - a row's DataPath (Windows '\' mapped to '/') resolves against the origin
-#     folder; a blank/missing DataPath recovers by content hash from the pool;
+#     folder; a blank DataPath, or one whose file is missing, resolves through
+#     a NAME INDEX of the pool built once per restore (every object is named by
+#     its own hash and length, SR-069), and only a row the index cannot resolve
+#     falls back to recovering by content hash from the pool (kit revision 14);
 #   - a LEGACY path-addressed store (a DataPath carrying a path separator) is
 #     REFUSED as a precondition (exit 2), not restored: support for
 #     pre-content-addressed stores was withdrawn at kit revision 7, and kit
@@ -55,8 +58,10 @@
 #      written file disagreed with the row's Length/xxH2Hash — SR-056).
 #   2  usage or precondition failure (bad args, missing or unrecognizable
 #      manifest, target inside backup, missing tool, insufficient capacity).
-#   3  manifest-witness verification failed — the index itself is untrustworthy;
-#      NO file is written to the target (SR-039).
+#   3  retired at kit revision 14; never returned. It was "manifest-witness
+#      verification failed": this kit no longer reads MANIFEST.csv.meta at all
+#      (bounded-run-loop R5), so a witness present, stale or garbage changes
+#      nothing.
 #   4  INCOMPLETE, HOST — rows failed for reasons on this machine, not in the
 #      backup (unreadable search folder, 7z unavailable/unusable for an
 #      archive candidate, extraction/copy I/O error on the row's OWN file, or
@@ -69,12 +74,12 @@
 #      fails to expand while 7z passes its self-test is data damage
 #      (ContentMissing, exit 1).
 #
-# Precedence when several apply: 2 > 3 > 4 > 1.
+# Precedence when several apply: 2 > 4 > 1.
 #
-# Implements: SR-030, SR-031, SR-032, SR-039, SR-040, SR-050 (LLR-030, LLR-031,
-#             LLR-032, LLR-039, LLR-040, LLR-050)
+# Implements: SR-030, SR-031, SR-032, SR-040, SR-050, SR-069 (LLR-030, LLR-031,
+#             LLR-032, LLR-040, LLR-050, LLR-069)
 #
-# KitRevision: 13
+# KitRevision: 14
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from
@@ -108,16 +113,23 @@
 # also refuses a target path it cannot canonicalise instead of silently handing
 # back the raw input, and clears the read-only bit on every restored file so a
 # write-protected store cannot hand its protection to the restored tree.
+# Revisions 11 to 13 changed only the PowerShell kit's bundled Common module.
+# Revision 14 (2026-10-24): a row whose DataPath is blank or names a missing
+# file is resolved through a NAME INDEX built once per restore - the top-level
+# files of the origin, the backup root and every snapshot, keyed by the
+# (hash, length) each SR-069 name carries, decoded in gawk because bash has no
+# 128-bit arithmetic - instead of find_by_hash walking and hashing the whole
+# pool once per such row. An index hit is treated exactly like a DataPath file
+# (form from its bytes, SR-068; written file verified, SR-056); find_by_hash
+# remains only as the last resort. MANIFEST.csv.meta is no longer read: exit 3,
+# the 'unverified index' warning, --require-witness and the witness-version
+# refusal are gone (bounded-run-loop R5/R6, section 7).
 # Restoring a snapshot with its OWN older kit still carries the defects fixed
 # after it.
 
 set -uo pipefail
 
 readonly MANIFEST_NAME='MANIFEST.csv'
-# Witness sidecar written by Write-Manifest (SR-038): five Key=Value lines,
-# UTF-8 without BOM, LF-terminated — deliberately not JSON so this reader stays
-# a grep/cut with no new tool on the Linux floor.
-readonly WITNESS_NAME='MANIFEST.csv.meta'
 readonly SIDECAR_NAME='RECONSTRUCT.paths.json'
 readonly LOG_NAME='RECONSTRUCT.log'
 readonly SNAPSHOT_RE='^Snapshot_[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}'
@@ -215,7 +227,6 @@ die() {
 
 die_code() {
     # Abort with an explicit SR-040 code: message to stderr and (if open) the log.
-    # Used for 3 (witness verification failed) as well as die()'s 2.
     local code="$1" msg="$2"
     printf 'reconstruct.sh: %s\n' "$msg" >&2
     [[ -n "$LOG_PATH" ]] && printf 'ERROR: %s\n' "$msg" >>"$LOG_PATH" 2>/dev/null
@@ -742,6 +753,147 @@ find_by_hash() {
 }
 
 # ---------------------------------------------------------------------------
+# Name index over the data pool — SR-069 / SR-010 (kit revision 14)
+# ---------------------------------------------------------------------------
+# Every stored object is named "<hash22>_<len><ext>" from its own content, flat
+# at the top of the backup root and of each Snapshot_* folder. Listing those
+# folders ONCE therefore answers "where are the bytes for this (hash, length)?"
+# for every row, where find_by_hash walks and hashes the whole pool per row.
+INDEX_FOLDERS=()    # populated in main(): origin, backup root, snapshots (desc)
+INDEX_HIT=''        # set by lookup_name_index
+
+# decode_hash_size_names [<prefix>] : the SR-069 name parser, as a filter.
+# Reads NUL-terminated records on stdin; the NAME is the record with <prefix>
+# removed (the whole record when no prefix is given). For each name that
+# parses, writes
+#     <HASH32>\037<length>\037<record>\0
+# with the hash as 32 upper-case hex digits and the length in decimal, and
+# drops every other record. Twin of ConvertFrom-HashSizeFileName in
+# FileBackup.Common.psm1; tests/bash/name_grammar.bats holds the two to the
+# PowerShell oracle's answers (TC-151) and decoded values.
+#
+# The grammar, positionally: exactly 22 alphabet characters, '_', one or more
+# alphabet characters (the length), then the extension verbatim - empty, or
+# starting with '.', and holding no path separator. The alphabet is the 62
+# alphanumerics less 0 O I l 1, and '2' is its zero digit. Never split on '_':
+# the extension is opaque and may contain one.
+#
+# bash has no 128-bit arithmetic and gawk's -M (MPFR) is optional, so the
+# base-57 fields are decoded into base-65536 limbs held in doubles; no
+# intermediate exceeds 2^30, so every step is exact. As in PowerShell, a hash
+# field >= 2^128 (57^22 is 128.3 bits) and a length above 2^63-1 do not parse.
+# LC_ALL=C makes the test bytewise; the fields are ASCII, so that decides
+# exactly what the UTF-16 PowerShell parser decides.
+# Implements: SR-069, SR-070 (LLR-069)
+decode_hash_size_names() {
+    FB_NAME_PREFIX="${1-}" LC_ALL=C gawk '
+        BEGIN {
+            RS = "\0"; ORS = "\0"
+            prefix = ENVIRON["FB_NAME_PREFIX"]
+            A = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+            for (i = 1; i <= 57; i++) V[substr(A, i, 1)] = i - 1
+        }
+        # dec57(s, L): the base-57 string s into little-endian base-65536
+        # limbs L[0..n-1]; returns n (1 for zero, otherwise minimal).
+        function dec57(s, L,    n, i, j, t, carry) {
+            split("", L); L[0] = 0; n = 1
+            for (i = 1; i <= length(s); i++) {
+                carry = V[substr(s, i, 1)]
+                for (j = 0; j < n; j++) {
+                    t = L[j] * 57 + carry
+                    L[j] = t % 65536
+                    carry = int(t / 65536)
+                }
+                while (carry > 0) { L[n++] = carry % 65536; carry = int(carry / 65536) }
+            }
+            return n
+        }
+        function hex128(L, n,    s, j) {
+            s = ""
+            for (j = 7; j >= 0; j--) s = s sprintf("%04X", (j < n) ? L[j] : 0)
+            return s
+        }
+        # decimal(L, n): the limbs as a decimal string (consumes L).
+        function decimal(L, n,    s, j, t, r, nonzero) {
+            s = ""
+            while (1) {
+                nonzero = 0
+                for (j = 0; j < n; j++) if (L[j] != 0) { nonzero = 1; break }
+                if (!nonzero) break
+                r = 0
+                for (j = n - 1; j >= 0; j--) {
+                    t = r * 65536 + L[j]
+                    L[j] = int(t / 10000)
+                    r = t % 10000
+                }
+                s = sprintf("%04d", r) s
+            }
+            sub(/^0+/, "", s)
+            return (s == "") ? "0" : s
+        }
+        {
+            name = $0
+            if (prefix != "" && substr(name, 1, length(prefix)) == prefix) name = substr(name, length(prefix) + 1)
+            if (length(name) < 24 || substr(name, 23, 1) != "_") next
+            hf = substr(name, 1, 22)
+            if (hf !~ /^[2-9A-HJ-NP-Za-km-z]+$/) next
+            rest = substr(name, 24)
+            if (!match(rest, /^[2-9A-HJ-NP-Za-km-z]+/)) next
+            lf  = substr(rest, 1, RLENGTH)
+            ext = substr(rest, RLENGTH + 1)
+            if (ext != "" && substr(ext, 1, 1) != ".") next
+            if (index(ext, "/") > 0 || index(ext, "\\") > 0) next
+            hn = dec57(hf, H)
+            if (hn > 8) next                                    # >= 2^128
+            ln = dec57(lf, LN)
+            if (ln > 4 || (ln == 4 && LN[3] >= 32768)) next     # > 2^63 - 1
+            print hex128(H, hn) "\037" decimal(LN, ln) "\037" $0
+        }
+    '
+}
+
+# build_name_index : list the top-level files of every INDEX_FOLDERS entry once
+# and key each SR-069 object by (hash, length), candidates in folder order.
+# A folder that is absent or cannot be listed contributes nothing: find_by_hash
+# is what reports an unreadable pool (StorageUnreadable, exit 4). Uses main()'s
+# NAME_INDEX / NAME_INDEX_BUILT, so it must run in main's shell.
+build_name_index() {
+    local folder hash len path key
+    for folder in "${INDEX_FOLDERS[@]}"; do
+        [[ -d "$folder" && -r "$folder" && -x "$folder" ]] || continue
+        while IFS=$'\037' read -r -d '' hash len path; do
+            key="$hash:$len"
+            if [[ -n "${NAME_INDEX[$key]+set}" ]]; then NAME_INDEX[$key]+=$'\037'"$path"
+            else NAME_INDEX[$key]="$path"; fi
+        done < <(find "$folder" -mindepth 1 -maxdepth 1 -type f -print0 2>/dev/null \
+                    | decode_hash_size_names "${folder%/}/")
+    done
+    NAME_INDEX_BUILT=1
+    log "Name index built: ${#NAME_INDEX[@]} object key(s) from ${#INDEX_FOLDERS[@]} pool folder(s)."
+}
+
+# lookup_name_index <hash> <len> : set INDEX_HIT to the first indexed object
+# for the key that still exists, building the index on first use; return 1
+# when the index has no usable candidate. Called DIRECTLY, never in a command
+# substitution, so the index and INDEX_HIT survive in main's shell. A hit is a
+# name's CLAIM about the bytes: the caller treats it exactly like a DataPath
+# file (form from the bytes, SR-068; the write verified, SR-056).
+lookup_name_index() {
+    local key rest cand
+    INDEX_HIT=''
+    (( NAME_INDEX_BUILT )) || build_name_index
+    key="${1^^}:$(( 10#$2 ))"
+    [[ -n "${NAME_INDEX[$key]+set}" ]] || return 1
+    rest="${NAME_INDEX[$key]}"
+    while [[ -n "$rest" ]]; do
+        cand="${rest%%$'\037'*}"
+        if [[ "$rest" == *$'\037'* ]]; then rest="${rest#*$'\037'}"; else rest=''; fi
+        if [[ -f "$cand" ]]; then INDEX_HIT="$cand"; return 0; fi
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
 
@@ -807,24 +959,14 @@ is_inside() {
 }
 
 # ---------------------------------------------------------------------------
-# The witness format version this kit writes and reads. 2 = the SR-069 base-57
-# name grammar (WP12); 1 = the pre-WP12 base-85, space-separated grammar. A
-# store declaring less than this is refused outright — see the SR-061 gate in
-# restore_from(). Kept beside the witness code because that is what stamps it.
-WITNESS_FORMAT_VERSION=2
-
 # is_legacy_stored_name <datapath> : true when <datapath> is a PRE-WP12 stored
 # object name. A POSITIVE test for the retired grammars, deliberately NOT the
-# negation of "parses under SR-069" - see the SR-061 gate in restore_from()
-# for why those two are not complements. Blank is never legacy: it means
-# "recover by hash". Mirrors Test-LegacyStoredObjectName in
-# FileBackup.Common.psm1, and tests/bash/name_grammar.bats holds them to a
-# shared corpus case for case (TC-151).
-#
-# This kit deliberately carries NO "is it the current grammar?" predicate.
-# It would be dead weight in a file bundled into every backup: the locator
-# matches CONTENT, never names, so the only naming question this kit ever
-# asks is whether a store is one it must refuse.
+# negation of "parses under SR-069" - see the SR-061 gate in main() for why
+# those two are not complements (the name index's decode_hash_size_names is
+# the SR-069 parser). Blank is never legacy: it means "resolve by (hash,
+# length)". Mirrors Test-LegacyStoredObjectName in FileBackup.Common.psm1, and
+# tests/bash/name_grammar.bats holds them to a shared corpus case for case
+# (TC-151).
 is_legacy_stored_name() {
     [[ -n "$1" ]] || return 1
     # A path separator: the pre-WP9 path-addressed form. The backslash is held
@@ -835,92 +977,6 @@ is_legacy_stored_name() {
     # The base-85 form's space at index 16. Decisive: a WP12 name's first 22
     # characters are its hash field and are always alphanumeric.
     [[ ${#1} -ge 27 && "${1:16:1}" == ' ' ]]
-}
-
-# Manifest witness verification — SR-039 / LLR-039
-# ---------------------------------------------------------------------------
-
-# witness_value <file> <key> : echo the value of a Key=Value line, or empty.
-# Tolerates a stray CR so a witness that survived a CRLF-mangling transfer still
-# reads, and takes the first occurrence.
-witness_value() {
-    local f="$1" key="$2" line
-    line="$(grep -m1 -E "^${key}=" -- "$f" 2>/dev/null)" || return 1
-    printf '%s' "${line#*=}" | tr -d '\r'
-}
-
-# verify_manifest_witness <manifest> <require>
-#   Compares the manifest on disk against its MANIFEST.csv.meta sidecar (Bytes,
-#   Rows, XxH128). A mismatch or an unparseable sidecar aborts with exit 3
-#   BEFORE anything is written to the target. An ABSENT sidecar is a backup
-#   written before the witness contract: warn 'unverified index' and continue,
-#   unless <require> is 1 (--require-witness), which makes absence an abort.
-#   A sidecar whose Version is newer than this build verifies only the keys it
-#   understands and warns — a witness from the future must never condemn a good
-#   manifest.
-# Implements: SR-039, LLR-039
-verify_manifest_witness() {
-    local manifest="$1" require="$2"
-    local witness="${manifest%/*}/$WITNESS_NAME"
-    local version want_bytes want_rows want_hash have_bytes have_rows have_hash
-
-    if [[ ! -f "$witness" ]]; then
-        if (( require )); then
-            die_code 3 "no $WITNESS_NAME beside '$manifest' and --require-witness was given: the index cannot be verified."
-        fi
-        log "WARN: no $WITNESS_NAME beside the manifest — restoring against an UNVERIFIED index (backup predates the witness contract)."
-        return 0
-    fi
-
-    version="$(witness_value "$witness" 'Version')"
-    [[ "$version" =~ ^[0-9]+$ ]] || die_code 3 "'$witness' has no readable Version line; it is not a manifest witness."
-    (( version > WITNESS_FORMAT_VERSION )) && log "WARN: $WITNESS_NAME declares format version $version (newer than this build understands); verifying the known fields only."
-
-    want_bytes="$(witness_value "$witness" 'Bytes')"
-    want_rows="$(witness_value "$witness" 'Rows')"
-    want_hash="$(witness_value "$witness" 'XxH128')"
-    if [[ -z "$want_bytes" && -z "$want_rows" && -z "$want_hash" ]]; then
-        die_code 3 "'$witness' carries none of Bytes, Rows or XxH128 — nothing to verify the manifest against."
-    fi
-
-    # Bytes is the cheap pre-check that names truncation precisely.
-    if [[ "$want_bytes" =~ ^[0-9]+$ ]]; then
-        have_bytes="$(stat_size "$manifest")"
-        if [[ "$have_bytes" != "$want_bytes" ]]; then
-            die_code 3 "manifest byte length disagrees with its witness: expected $want_bytes, found $have_bytes. The index is damaged; nothing was restored."
-        fi
-    fi
-
-    # Rows is the operator-legible number ("expected 412 rows, found 118"). A
-    # row-count disagreement is DEFERRED: the digest gets the final say, so a
-    # counting-semantics difference between the writer and this reader can never
-    # alone condemn a manifest the digest proves intact (WP1 plan sec.6 dec. 3).
-    local rows_disagreement=''
-    if [[ "$want_rows" =~ ^[0-9]+$ ]]; then
-        have_rows="$(parse_manifest "$manifest" | wc -l | tr -d ' ')"
-        if [[ "$have_rows" != "$want_rows" ]]; then
-            rows_disagreement="manifest row count disagrees with its witness: expected $want_rows row(s), found $have_rows."
-        fi
-    fi
-
-    # XxH128 is the authoritative check.
-    if [[ -n "$want_hash" ]]; then
-        have_hash="$(hash_file "$manifest")" || die_code 3 "could not hash '$manifest' to verify it against its witness."
-        want_hash="$(printf '%s' "$want_hash" | tr '[:lower:]' '[:upper:]')"
-        if [[ "$have_hash" != "$want_hash" ]]; then
-            die_code 3 "manifest digest disagrees with its witness: expected $want_hash, found $have_hash. The index is damaged; nothing was restored."
-        fi
-    fi
-
-    if [[ -n "$rows_disagreement" ]]; then
-        if [[ -n "$want_hash" ]]; then
-            log "WARN: $rows_disagreement The byte length and digest both match, so the index is intact — this is a row-counting difference, not damage."
-        else
-            die_code 3 "$rows_disagreement The witness carries no digest to defer to. The index is damaged; nothing was restored."
-        fi
-    fi
-
-    log "Manifest verified against its witness (version $version, rows=${want_rows:-?}, bytes=${want_bytes:-?})."
 }
 
 # ---------------------------------------------------------------------------
@@ -988,8 +1044,7 @@ Exited with code %s. Press Return to close.' "$rc" >&2
 usage() {
     cat >&2 <<'EOF'
 Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
-                      [--change-root DIR] [--seven-zip PATH] [--require-witness]
-                      [--pick-target]
+                      [--change-root DIR] [--seven-zip PATH] [--pick-target]
 
   --target-root DIR   Where to rebuild the tree (must be OUTSIDE the backup).
   --from DIR          Restore origin: a backup root or a Snapshot_<date> folder.
@@ -998,9 +1053,7 @@ Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
   --change-root DIR   Override the folder that holds the Snapshot_<date> siblings.
   --seven-zip PATH    Explicit 7z/7za binary (else auto-probed; needed only when
                       the backup has compressed rows).
-  --require-witness   Refuse an origin with no MANIFEST.csv.meta witness instead
-                      of restoring it with an 'unverified index' warning.
-  --pick-target       Choose the target folder in a graphical file dialog when
+  --pick-target      Choose the target folder in a graphical file dialog when
                       one is available (macOS 'choose folder', or zenity/kdialog
                       on Linux). Explicit by design: WITHOUT this flag a missing
                       --target-root is still a usage failure, never a prompt, so
@@ -1009,8 +1062,8 @@ Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
   -h, --help          This help.
 
 Exit: 0 complete; 1 incomplete, content unrecoverable; 2 usage/precondition;
-      3 manifest-witness verification failed (nothing written); 4 incomplete,
-      host problem (retry after fixing this machine). Precedence: 2 > 3 > 4 > 1.
+      4 incomplete, host problem (retry after fixing this machine).
+      Precedence: 2 > 4 > 1. (3, the manifest-witness refusal, is retired.)
 EOF
 }
 
@@ -1018,13 +1071,12 @@ EOF
 # Main
 # ---------------------------------------------------------------------------
 main() {
-    local from='' backup_root='' change_root='' seven_zip_opt='' require_witness=0
+    local from='' backup_root='' change_root='' seven_zip_opt=''
     local pick_target=0
     TARGET_ROOT=''
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --require-witness) require_witness=1; shift ;;
-            --pick-target)     pick_target=1; shift ;;
+            --pick-target) pick_target=1; shift ;;
             --target-root) TARGET_ROOT="${2:?--target-root needs a value}"; shift 2 ;;
             --from)        from="${2:?--from needs a value}"; shift 2 ;;
             --backup-root) backup_root="${2:?--backup-root needs a value}"; shift 2 ;;
@@ -1159,11 +1211,10 @@ main() {
         fi
     fi
 
-    # --- Verify the index itself before touching the target (SR-039) ---
-    # Placed AFTER the exit-2 precondition checks (precedence 2 > 3) and BEFORE
-    # the target is created, so a damaged index writes nothing at all — not even
-    # the log — into the target.
-    verify_manifest_witness "$authority" "$require_witness"
+    # No MANIFEST.csv.meta witness is read (kit revision 14, bounded-run-loop
+    # R5): one that is present, stale or garbage is simply ignored. A snapshot
+    # manifest is written once (R6), and every written file is verified against
+    # its own row below (SR-056).
 
     mkdir -p -- "$TARGET_ROOT" || die "cannot create target '$TARGET_ROOT'."
     TARGET_ROOT="$(canon "$TARGET_ROOT")" || die "cannot canonicalise target '$TARGET_ROOT' on this host. Pass an absolute path containing no '..'."
@@ -1190,35 +1241,27 @@ main() {
     # space-separated names. Refused as a PRECONDITION, before any file is
     # restored. Mirrors Reconstruct.ps1 exactly.
     #
-    # THREE markers, because no one of them is complete:
+    # TWO markers, because neither is complete alone:
     #   1. StoredAsHashSize='Original' — a pre-content-addressed store (WP9).
     #      It does NOT identify a base-85 store: those say 'Hash', like ours.
-    #   2. A witness declaring a format version below ours — the positive
-    #      marker, and the only one that works on a manifest whose DataPath
-    #      values are all blank. Only meaningful when a witness EXISTS: SR-039
-    #      deliberately lets a witness-less store restore with a warning.
-    #   3. A DataPath in a RETIRED grammar - a path separator (pre-WP9
+    #   2. A DataPath in a RETIRED grammar - a path separator (pre-WP9
     #      path-addressed), or a space at index 16 (the pre-WP12 base-85
-    #      "<hash16> <len10><ext>" form). Catches a witness-less old store.
+    #      "<hash16> <len10><ext>" form).
+    # Until kit revision 14 a third marker read the format Version out of the
+    # MANIFEST.csv.meta witness. The kit no longer reads the witness at all
+    # (bounded-run-loop R5), so that marker went with it.
     #
-    # Marker 3 is a POSITIVE test, NOT "does not parse under SR-069". Those are
+    # Marker 2 is a POSITIVE test, NOT "does not parse under SR-069". Those are
     # not complements: a merely DAMAGED DataPath parses under neither grammar,
     # and SR-056's verify-and-heal machinery must get to answer for it - a
     # whole-store refusal would turn one repairable row into an unrestorable
     # backup. Refuse the old FORMAT; let damaged ROWS take the content path.
     #
-    # A blank DataPath means "recover by hash" and is not tested by 3 — a blank
-    # string carries no grammar. Benign: the locator matches CONTENT, so a store
-    # reached through blank rows alone restores correctly whatever its objects
-    # are named.
-    local w_version
-    if [[ -f "${authority%/*}/$WITNESS_NAME" ]]; then
-        w_version="$(witness_value "${authority%/*}/$WITNESS_NAME" 'Version')"
-        if [[ "$w_version" =~ ^[0-9]+$ ]] && (( w_version < WITNESS_FORMAT_VERSION )); then
-            die "'$authority' is a pre-WP12 store: its manifest witness declares format version $w_version, and this kit (revision 9) writes and reads $WITNESS_FORMAT_VERSION — the SR-069 base-57 name grammar. This kit does not restore stores written under the older base-85 grammar (SR-061). Restore it with the kit bundled inside that backup folder, which was written by the build that produced it."
-        fi
-    fi
-
+    # A blank DataPath means "resolve by (hash, length)" and is not tested by 2
+    # — a blank string carries no grammar. Benign: a pre-WP12 object name never
+    # parses under SR-069, so the name index cannot misread one, and the content
+    # scan behind it matches CONTENT, so a store reached through blank rows
+    # alone restores correctly whatever its objects are named.
     local lg_i lg_form
     for (( lg_i=0; lg_i<nrows; lg_i++ )); do
         lg_form="$(printf '%s' "${d_form[lg_i]}" | tr '[:upper:]' '[:lower:]')"
@@ -1271,13 +1314,15 @@ main() {
 
     # --- Build the data pool for hash recovery: snapshots (desc) then backup root ---
     SEARCH_FOLDERS=()
+    local -a snapshots=()
     if [[ -n "$change_root" && -d "$change_root" ]]; then
         if [[ -r "$change_root" && -x "$change_root" ]]; then
             while IFS= read -r sn; do
-                [[ -n "$sn" ]] && SEARCH_FOLDERS+=("$sn")
+                [[ -n "$sn" ]] && snapshots+=("$sn")
             done < <(find "$change_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
                         | sed 's#.*/##' \
                         | grep -E "$SNAPSHOT_RE" | sort -r | sed "s#^#$change_root/#")
+            SEARCH_FOLDERS+=(${snapshots[@]+"${snapshots[@]}"})
         else
             # The snapshot tree exists but cannot be LISTED: silently shrinking
             # the pool would let a blank row whose only copy lives in a snapshot
@@ -1290,6 +1335,25 @@ main() {
     fi
     SEARCH_FOLDERS+=("$backup_root")
 
+    # --- Name index folders (kit revision 14) ---
+    # The same pool, in the order a row's bytes are most likely to be: the
+    # origin first (a snapshot's own superseded objects), then the backup root
+    # (latest), then snapshots newest first. The index itself is built lazily,
+    # on the first row that needs it, so a restore whose every DataPath
+    # resolves never lists the pool. It lives in main's scope: bash 4.0/4.1
+    # cannot declare a global associative array from inside a function.
+    INDEX_FOLDERS=()
+    local ix_f ix_g ix_dup
+    for ix_f in "$origin" "$backup_root" ${snapshots[@]+"${snapshots[@]}"}; do
+        ix_dup=0
+        for ix_g in ${INDEX_FOLDERS[@]+"${INDEX_FOLDERS[@]}"}; do
+            [[ "$ix_g" == "$ix_f" ]] && { ix_dup=1; break; }
+        done
+        (( ix_dup )) || INDEX_FOLDERS+=("$ix_f")
+    done
+    local -A NAME_INDEX=()
+    local NAME_INDEX_BUILT=0
+
     # Any compressed row means 7z is mandatory (degrade only where PS degrades).
     if (( any_comp )) && [[ -z "$SEVEN_ZIP" ]]; then
         die "backup has compressed (.7z) rows but no 7z/7za found. Install: apt-get install p7zip-full / dnf install p7zip p7zip-plugins."
@@ -1299,11 +1363,11 @@ main() {
     # Failures are split by class so the exit code separates "your bytes are
     # gone" (1) from "fix this host and retry" (4) — SR-040.
     local -a unrestored=() unrestored_host=()
-    local rel dest destdir src found fcause frest fdetail fpath located_form own_form needs_expand recovered rc
+    local rel dest destdir src own why found fcause frest fdetail fpath located_form own_form needs_expand rc
     for (( i=0; i<nrows; i++ )); do
-        # The PROVEN form of a hash-recovered file, which outranks the row's
-        # Compressed column for that row (SR-050). Empty for a non-blank
-        # DataPath, whose Compressed does describe its own folder's file.
+        # The PROVEN form of a content-scanned file, which outranks the row's
+        # Compressed column for that row (SR-050). Empty for an own-DataPath or
+        # name-index source, whose form the bytes decide below (SR-068).
         located_form=''
         rel="$(to_posix "${d_rel[i]}")"
         [[ -n "$rel" ]] || continue
@@ -1320,8 +1384,28 @@ main() {
         destdir="$(dirname -- "$dest")"
         mkdir -p -- "$destdir" 2>/dev/null
 
-        if [[ -z "${d_data[i]}" ]]; then
-            if [[ -n "${d_hash[i]}" && "${d_len[i]}" =~ ^[0-9]+$ ]]; then
+        # Own DataPath, else the name index, else the content scan (kit
+        # revision 14; Reconstruct.ps1's Resolve-RowDataSource is the twin). A
+        # non-blank DataPath is a locator HINT, not the content authority:
+        # snapshot manifests are written once (R6), so a DataPath can name an
+        # object that has since moved to another pool folder - and its name
+        # still carries the row's (hash, length), which is what the index
+        # looks up.
+        own=''
+        [[ -n "${d_data[i]}" ]] && own="$origin/$(to_posix "${d_data[i]}")"
+        if [[ -n "$own" && -f "$own" ]]; then
+            src="$own"
+        elif [[ -z "${d_hash[i]}" || ! "${d_len[i]}" =~ ^[0-9]+$ ]]; then
+            if [[ -z "$own" ]]; then log "WARN: no DataPath or hash for '$rel'."
+            else log "WARN: missing data file '${own}' for '$rel' and no pool file matches its (hash,length)."; fi
+            unrestored+=("$rel"); continue
+        else
+            if [[ -z "$own" ]]; then why="No DataPath for '$rel'"; else why="Data file '${own}' missing for '$rel'"; fi
+            if lookup_name_index "${d_hash[i]}" "${d_len[i]}"; then
+                log "$why; resolved by name index to '$INDEX_HIT'"
+                src="$INDEX_HIT"
+            else
+                log "$why; attempting hash scan..."
                 # <cause>\037<detail>\037<path> — see find_by_hash.
                 found="$(find_by_hash "${d_hash[i]}" "${d_len[i]}")"
                 fcause="${found%%$'\037'*}"
@@ -1332,7 +1416,7 @@ main() {
                     log "Hash-recovered '$rel' from '$fpath' (form: $fdetail)"
                     src="$fpath"
                     located_form="$fdetail"
-                else
+                elif [[ -z "$own" ]]; then
                     # One message per CAUSE, not one warning for all four (SR-040).
                     log "WARN: [$fcause] '$rel' — $fdetail"
                     case "$fcause" in
@@ -1340,40 +1424,10 @@ main() {
                         *) unrestored+=("$rel") ;;
                     esac
                     continue
+                else
+                    log "WARN: missing data file '${own}' for '$rel' and no pool file matches its (hash,length)."
+                    unrestored+=("$rel"); continue
                 fi
-            else
-                log "WARN: no DataPath or hash for '$rel'."
-                unrestored+=("$rel"); continue
-            fi
-        else
-            src="$origin/$(to_posix "${d_data[i]}")"
-        fi
-
-        if [[ ! -f "$src" ]]; then
-            # A non-blank DataPath is a locator HINT, not the content authority:
-            # a run killed between Optimize-ChangeFolders' duplicate deletion
-            # and its manifest rewrite leaves rows naming deleted files while
-            # the keeper copy still sits in the pool. Try (hash,length)
-            # recovery — the same machinery blank rows use — before declaring
-            # the content missing (Reconstruct.ps1 does the same).
-            recovered=0
-            if [[ -n "${d_hash[i]}" && "${d_len[i]}" =~ ^[0-9]+$ ]]; then
-                log "Data file '${src}' missing for '$rel'; attempting hash scan..."
-                found="$(find_by_hash "${d_hash[i]}" "${d_len[i]}")"
-                fcause="${found%%$'\037'*}"
-                frest="${found#*$'\037'}"
-                fdetail="${frest%%$'\037'*}"
-                fpath="${frest#*$'\037'}"
-                if [[ "$fcause" == 'Found' ]]; then
-                    log "Hash-recovered '$rel' from '$fpath' (form: $fdetail)"
-                    src="$fpath"
-                    located_form="$fdetail"
-                    recovered=1
-                fi
-            fi
-            if (( ! recovered )); then
-                log "WARN: missing data file '${src}' for '$rel' and no pool file matches its (hash,length)."
-                unrestored+=("$rel"); continue
             fi
         fi
 

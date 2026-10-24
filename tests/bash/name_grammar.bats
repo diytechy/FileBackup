@@ -14,16 +14,81 @@
 # The Pester twin (Common.Tests.ps1) re-derives the same file, so it cannot rot
 # unnoticed either. Same pattern as the hash-conformance goldens (TC-053).
 #
-# Only IsLegacy is checked here, and deliberately so: this kit carries no
-# "is it the current grammar?" predicate, because it would be dead weight in a
-# file bundled into every backup. The locator matches CONTENT, never names, so
-# the only naming question a restore ever asks is whether the store is one it
-# must refuse. IsCurrent is the ENGINE's concern and the Pester twin owns it.
+# Since kit revision 14 the kit ALSO parses the current grammar: the name index
+# (decode_hash_size_names) keys every pool object by the (hash, length) its
+# name carries, so a bash parser that disagrees with ConvertFrom-HashSizeFileName
+# would send a row to the wrong object (caught by SR-056's verify, but only
+# after the fact) or miss the right one and fall back to the slow content scan.
+# IsCurrent is checked against cases.tsv, and the DECODED values against
+# decode.tsv - a 146-case corpus of random keys over the whole range plus the
+# edges (2^128, 2^63, leading zero digits, extension shapes) whose expected
+# values RestoreIndex.Tests.ps1 re-derives from the PowerShell parser.
 
 setup() {
     load helpers
     source "$RS"                                   # source-guard => main() does not run
     CASES="$FIXTURES/name-grammar/cases.tsv"
+    DECODE="$FIXTURES/name-grammar/decode.tsv"
+}
+
+@test "decode_hash_size_names decodes every name exactly as ConvertFrom-HashSizeFileName does (kit revision 14, SR-069)" {
+    [ -f "$DECODE" ]
+    # One decoder process for the whole corpus, as the index uses it.
+    local -A got=()
+    local h l name
+    while IFS=$'\037' read -r -d '' h l name; do
+        got["$name"]="$h"$'\t'"$l"
+    done < <(tail -n +2 "$DECODE" | cut -f1 | tr '\n' '\0' | decode_hash_size_names)
+
+    local fail=0 n=0 parsed=0 rejected=0 want_h want_l have
+    while IFS=$'\t' read -r name want_h want_l; do
+        [[ "$name" == "Name" ]] && continue
+        [[ -n "$name" ]] || continue
+        n=$((n+1))
+        have="${got[$name]-}"
+        if [[ "$want_h" == '-' ]]; then
+            rejected=$((rejected+1))
+            [[ -z "$have" ]] || { echo "ACCEPTED '$name' as $have; PowerShell rejects it"; fail=$((fail+1)); }
+        else
+            parsed=$((parsed+1))
+            [[ "$have" == "$want_h"$'\t'"$want_l" ]] ||
+                { echo "MISMATCH '$name': bash='${have:-<rejected>}' powershell='$want_h $want_l'"; fail=$((fail+1)); }
+        fi
+    done < "$DECODE"
+
+    echo "checked $n names: $parsed parse, $rejected rejected"
+    [ "$parsed" -ge 100 ]
+    [ "$rejected" -ge 15 ]
+    [ "$fail" -eq 0 ]
+}
+
+@test "decode_hash_size_names accepts exactly the names the PowerShell oracle calls current (kit revision 14, TC-151)" {
+    [ -f "$CASES" ]
+    local -A ok=()
+    local h l name
+    while IFS=$'\037' read -r -d '' h l name; do ok["$name"]=1; done \
+        < <(tail -n +2 "$CASES" | cut -f1 | tr '\n' '\0' | decode_hash_size_names)
+
+    local fail=0 n=0 want_cur want_leg got_cur
+    while IFS=$'\t' read -r name want_cur want_leg; do
+        [[ "$name" == "Name" ]] && continue
+        [[ -n "$name" ]] || continue
+        n=$((n+1))
+        if [[ -n "${ok[$name]-}" ]]; then got_cur=1; else got_cur=0; fi
+        [[ "$got_cur" == "$want_cur" ]] || { echo "IsCurrent MISMATCH '$name': bash=$got_cur powershell=$want_cur"; fail=$((fail+1)); }
+    done < "$CASES"
+    echo "checked $n name-grammar cases"
+    [ "$n" -ge 20 ]
+    [ "$fail" -eq 0 ]
+}
+
+@test "decode_hash_size_names strips a folder prefix and keeps the full path (kit revision 14)" {
+    # The index feeds it `find -print0` output: the NAME is what follows the
+    # folder, and the record that comes back is the whole path.
+    local out
+    out="$(printf '/pool dir/bqCY8RX7mwkoaQybcV4qdG_k.a_b\0/pool dir/MANIFEST.csv\0' |
+           decode_hash_size_names '/pool dir/' | tr '\0\037' '\n|')"
+    [ "$out" = "BE20CA004CC2993A396345E0D52DF013|42|/pool dir/bqCY8RX7mwkoaQybcV4qdG_k.a_b" ]
 }
 
 @test "is_legacy_stored_name matches the PowerShell oracle for every case (TC-151, SR-061)" {
@@ -126,31 +191,29 @@ setup() {
     [ "$bad" -eq 0 ]
 }
 
-@test "the witness format version agrees across every file that declares it (TC-152, SR-061)" {
-    # Three files declare it and they must move together: FileBackup.Common.psm1
-    # STAMPS it, bash/reconstruct.sh REFUSES anything below it, and
-    # tests/bash/helpers.bash RE-STAMPS fixtures with it. When the WP12 bump left
-    # the third behind, 30 bats tests failed at once — and a mismatch between the
-    # first two would be far worse: the POSIX restorer would refuse every store
-    # the Windows engine writes, and no test here would have said why.
-    local ps_v sh_v helper_v
+@test "the witness format version agrees where it is still declared, and the kit no longer reads it (TC-152, SR-061)" {
+    # FileBackup.Common.psm1 STAMPS it and tests/bash/helpers.bash RE-STAMPS
+    # fixtures with it, so those two must move together. Until kit revision 14
+    # bash/reconstruct.sh also REFUSED a store declaring less; the kit no longer
+    # reads the witness at all (bounded-run-loop R5), so it must not declare a
+    # version it never checks.
+    local ps_v helper_v
     ps_v="$(grep -oE '^\$script:WitnessFormatVersion[[:space:]]*=[[:space:]]*[0-9]+' "$REPO/Modules/FileBackup.Common.psm1" | grep -oE '[0-9]+$')"
-    sh_v="$(grep -oE '^WITNESS_FORMAT_VERSION=[0-9]+' "$RS" | grep -oE '[0-9]+$')"
     helper_v="$(grep -oE '^WITNESS_FORMAT_VERSION=[0-9]+' "$REPO/tests/bash/helpers.bash" | grep -oE '[0-9]+$')"
 
-    echo "Common.psm1=$ps_v reconstruct.sh=$sh_v helpers.bash=$helper_v"
-    [ -n "$ps_v" ] && [ -n "$sh_v" ] && [ -n "$helper_v" ]
-    [ "$ps_v" == "$sh_v" ]
+    echo "Common.psm1=$ps_v helpers.bash=$helper_v"
+    [ -n "$ps_v" ] && [ -n "$helper_v" ]
     [ "$ps_v" == "$helper_v" ]
+    [ "$(grep -cE '^WITNESS_FORMAT_VERSION=' "$RS")" -eq 0 ]
 }
 
 @test "the ONE gap the gate leaves open is benign: blank rows restore by content (TC-154, SR-061)" {
     # SR-061's markers cannot classify a store whose DataPath values are ALL
-    # blank and whose witness is absent — a blank string carries no grammar, and
-    # SR-039 deliberately lets a witness-less store restore with a warning. WP12
-    # accepted that gap on the grounds that it is HARMLESS: the locator matches
-    # CONTENT, never names, so such a store restores correctly whatever its
-    # objects are called.
+    # blank — a blank string carries no grammar, and since kit revision 14 no
+    # witness is read either. WP12 accepted that gap on the grounds that it is
+    # HARMLESS: a retired name never parses under SR-069, so the name index
+    # cannot misread one, and the content scan behind it matches CONTENT, so
+    # such a store restores correctly whatever its objects are called.
     #
     # That is an argument, and arguments rot. This is the experiment. The store
     # below is the worst case the gap admits — every object renamed into the

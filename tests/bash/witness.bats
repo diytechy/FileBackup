@@ -1,23 +1,26 @@
 #!/usr/bin/env bats
-# TC-069 / SR-039 (with SR-031) — reconstruct.sh verifies the manifest witness
-# (MANIFEST.csv.meta) BEFORE restoring anything: a damaged index refuses the
-# restore rather than "succeeding" against a shrunken job. The bash twin of
-# TC-068. A backup written before the witness contract (no sidecar) must still
-# restore, with an explicit 'unverified index' warning.
+# Kit revision 14 (bounded-run-loop R5) — reconstruct.sh no longer reads the
+# MANIFEST.csv.meta witness. A witness that is present, stale, garbage, from the
+# future, from a pre-WP12 store, or absent changes nothing: there is no exit 3,
+# no 'unverified index' warning and no --require-witness. Until revision 13
+# this file (TC-069) pinned the opposite; the witness WRITER's own contract
+# (SR-038) still holds for the shipped fixtures and is kept at the end.
+#
+# What still refuses: a file that is not a manifest at all (the header guard,
+# exit 2), and the SR-061 name-grammar markers (name_grammar.bats,
+# restore_fidelity.bats).
 
 setup() {
     load helpers
-    # Work on a WRITABLE copy so we can damage the index.
+    # Work on a WRITABLE copy so we can damage the witness and the manifest.
     WORK="$BATS_TEST_TMPDIR/work"
     cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$WORK"
     BK="$WORK"; CH="$WORK/changes"
     MANIFEST="$BK/MANIFEST.csv"
     WITNESS="$BK/MANIFEST.csv.meta"
+    EXPECTED="$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
 }
 
-# Re-stamp the witness the way Write-Manifest does (SR-038): five Key=Value
-# lines, UTF-8 without BOM, LF. Used to prove a damaged manifest restores again
-# once its witness agrees, and to keep deliberate tampering on-target.
 # Count files the restore actually wrote into the target. The restorer's own
 # RECONSTRUCT.log does not count as a restored row.
 restored_count() {
@@ -26,73 +29,61 @@ restored_count() {
     find "$target" -type f ! -name 'RECONSTRUCT.log' | wc -l | tr -d ' '
 }
 
-@test "the shipped fixtures carry a witness that verifies (SR-038/SR-039)" {
-    [ -f "$WITNESS" ]
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/ok" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"verified against its witness"* ]]
+# restore_ok <target> : restore the root and require exit 0, byte-exact, and no
+# word about a witness anywhere in the output.
+restore_ok() {
+    run bash "$RS" --target-root "$1" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 0 ] || { echo "expected 0, got $status"; echo "$output"; return 1; }
+    [[ "$output" != *[Ww]itness* ]] || { echo "the witness was consulted:"; echo "$output"; return 1; }
+    run verify_tree "$1" "$EXPECTED"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
-@test "a TRUNCATED manifest exits 3 and writes nothing into the target (SR-039)" {
-    # Byte length is the cheap pre-check that names truncation precisely.
-    truncate -s -40 "$MANIFEST"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/trunc" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 3 ]
-    [[ "$output" == *"byte length disagrees with its witness"* ]]
-    [ "$(restored_count "$BATS_TEST_TMPDIR/trunc")" -eq 0 ]
+@test "a witness that DISAGREES with its manifest no longer refuses: exit 0, not 3 (kit revision 14, R5)" {
+    # Edit the manifest WITHOUT re-stamping: blank every DataPath, so the
+    # bytes, the digest and the row text all disagree with the witness. Until
+    # revision 13 this was exit 3 and nothing was written.
+    gawk -v FPAT='("([^"]|"")*")|([^,]*)' -v OFS=',' \
+        'NR==1 { print; next } { $1="\"\""; print }' "$MANIFEST" > "$MANIFEST.tmp"
+    mv "$MANIFEST.tmp" "$MANIFEST"
+    restore_ok "$BATS_TEST_TMPDIR/stale"
 }
 
-@test "a BYTE-EDITED manifest of the same length exits 3 (digest catches it) (SR-039)" {
-    # Same length and same row count, so only the xxHash128 can catch it — this
-    # is why the digest, not the counts, is the authoritative check.
-    local before after
-    before="$(stat -c '%s' -- "$MANIFEST")"
-    # Overwrite ONE byte in place, deep inside the data rows, so byte length and
-    # row count are untouched and only the digest can catch the change.
-    printf 'X' | dd of="$MANIFEST" bs=1 seek=$(( before - 12 )) count=1 conv=notrunc status=none
-    after="$(stat -c '%s' -- "$MANIFEST")"
-    [ "$before" -eq "$after" ]
-
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/edit" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 3 ]
-    [[ "$output" == *"digest disagrees with its witness"* ]]
-    [ "$(restored_count "$BATS_TEST_TMPDIR/edit")" -eq 0 ]
+@test "a GARBAGE witness is ignored rather than refused (kit revision 14, R5)" {
+    printf 'garbage sidecar, no keys here\n' > "$WITNESS"
+    restore_ok "$BATS_TEST_TMPDIR/garbage-meta"
 }
 
-@test "a manifest with rows REMOVED exits 3 naming the expected row count (SR-039)" {
-    # The operator-legible failure: "expected N rows, found M" — the exact shape
-    # of HomeHub cross-check finding E (a shrunken job reported as success).
-    head -n 3 "$MANIFEST" > "$MANIFEST.tmp" && mv -f "$MANIFEST.tmp" "$MANIFEST"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/short" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 3 ]
-    [ "$(restored_count "$BATS_TEST_TMPDIR/short")" -eq 0 ]
+@test "a witness declaring the pre-WP12 format version no longer refuses the store (kit revision 14)" {
+    # Version=1 was the witness marker for a base-85 store (exit 2). The kit
+    # does not read it any more; the name-grammar markers still guard SR-061.
+    sed -i -E 's/^Version=[0-9]+$/Version=1/' "$WITNESS"
+    restore_ok "$BATS_TEST_TMPDIR/v1-meta"
 }
 
-@test "a ROWS-ONLY disagreement warns and restores, because the digest is authoritative (SR-039)" {
-    # WP1 plan sec.6 decision 3: XxH128 is the authority, Rows is the
-    # operator-legible number. Bytes and digest matching means this is exactly
-    # the manifest that was witnessed, so a differing count is a
-    # counting-semantics divergence, not damage — it must not refuse a restore.
-    sed -i -E 's/^Rows=[0-9]+$/Rows=999/' "$WITNESS"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/rowsonly" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"row count disagrees with its witness"* ]]
-    [[ "$output" == *"not damage"* ]]
-    [ -f "$BATS_TEST_TMPDIR/rowsonly/hello.txt" ]
+@test "an ABSENT witness restores with no 'unverified index' warning (kit revision 14)" {
+    rm -f "$WITNESS"
+    restore_ok "$BATS_TEST_TMPDIR/no-meta"
+    [[ "$output" != *UNVERIFIED* ]]
 }
 
-@test "a ROWS disagreement with NO digest to defer to still exits 3 (SR-039)" {
-    sed -i -E 's/^Rows=[0-9]+$/Rows=999/' "$WITNESS"
-    sed -i -E '/^XxH128=/d' "$WITNESS"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/rowsnodigest" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 3 ]
-    [ "$(restored_count "$BATS_TEST_TMPDIR/rowsnodigest")" -eq 0 ]
+@test "--require-witness is gone: it is an unknown argument, usage and exit 2 (kit revision 14)" {
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/strict" --from "$BK" --backup-root "$BK" \
+        --change-root "$CH" --require-witness
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown argument: --require-witness"* ]]
+    [ "$(restored_count "$BATS_TEST_TMPDIR/strict")" -eq 0 ]
 }
 
-@test "a manifest REPLACED BY GARBAGE exits 2 via the header guard (SR-039/SR-040)" {
-    # Precedence 2 > 3: an unrecognizable header means this is not a manifest at
-    # all, which is the pre-existing corrupt-file guard (fail_loudly.bats pins
-    # the same code) — the witness never gets a say.
+@test "the kit carries no witness reader at all (kit revision 14)" {
+    # A structural pin, so a half-removal cannot pass the behavioural cases by
+    # luck: no reader of the sidecar is left in the shipped restorer.
+    [ "$(grep -cE 'verify_manifest_witness|witness_value|WITNESS_NAME|WITNESS_FORMAT_VERSION' "$RS")" -eq 0 ]
+}
+
+@test "a manifest REPLACED BY GARBAGE still exits 2 via the header guard, writing nothing (SR-040)" {
+    # The header-shape check stays: an unrecognizable header means this is not
+    # a manifest at all (fail_loudly.bats pins the same code).
     printf 'this is not a backup manifest at all\n' > "$MANIFEST"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/garbage" --from "$BK" --backup-root "$BK" --change-root "$CH"
     [ "$status" -eq 2 ]
@@ -100,56 +91,10 @@ restored_count() {
     [ "$(restored_count "$BATS_TEST_TMPDIR/garbage")" -eq 0 ]
 }
 
-@test "an UNPARSEABLE witness exits 3 rather than being ignored (SR-039)" {
-    printf 'garbage sidecar, no keys here\n' > "$WITNESS"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/badmeta" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 3 ]
-    [ "$(restored_count "$BATS_TEST_TMPDIR/badmeta")" -eq 0 ]
-}
-
-@test "RE-STAMPING the witness makes the same damaged-then-restamped manifest restore (SR-039)" {
-    # Proves the refusal is about the manifest DISAGREEING with its witness, not
-    # about the manifest being unusual: re-stamp and the restore proceeds.
-    truncate -s -40 "$MANIFEST"
-    restamp_witness "$MANIFEST"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/restamped" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    # The index is now self-consistent, so verification passes. (Rows really are
-    # gone, so this is a smaller job — which is exactly the point: the witness
-    # detects DISAGREEMENT, and re-stamping is a deliberate operator act.)
-    [ "$status" -ne 3 ]
-    [[ "$output" != *"witness"*"disagrees"* ]]
-}
-
-@test "a LEGACY origin with no witness restores, warning that the index is unverified (SR-039)" {
-    # Every backup written before this contract must keep restoring.
-    rm -f "$WITNESS"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/legacy" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"UNVERIFIED"* ]]
-    [ -f "$BATS_TEST_TMPDIR/legacy/hello.txt" ]
-}
-
-@test "--require-witness turns a missing witness into a refusal (SR-039)" {
-    rm -f "$WITNESS"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/strict" --from "$BK" --backup-root "$BK" \
-        --change-root "$CH" --require-witness
-    [ "$status" -eq 3 ]
-    [[ "$output" == *"require-witness"* ]]
-    [ "$(restored_count "$BATS_TEST_TMPDIR/strict")" -eq 0 ]
-}
-
-@test "a witness from the FUTURE verifies the known fields and warns (SR-039)" {
-    # A newer witness format must never condemn a good manifest.
-    sed -i -E 's/^Version=[0-9]+$/Version=99/' "$WITNESS"
-    printf 'SomeFutureKey=whatever\n' >> "$WITNESS"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/future" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"newer than this build understands"* ]]
-}
-
-@test "each SNAPSHOT carries its OWN witness, not the backup root's (SR-038)" {
-    # The single most dangerous mistake available in SR-038 would be copying the
-    # root's witness into snapshots with the restore kit.
+@test "each SNAPSHOT carries its OWN witness, not the backup root's (SR-038, writer side)" {
+    # The writer's contract, checked on fixtures the real engine produced. The
+    # kit no longer reads these, but an OLDER kit bundled in an old snapshot
+    # still does (bounded-run-loop section 7), so they must stay correct.
     local snap
     for snap in "$CH"/Snapshot_*; do
         [ -f "$snap/MANIFEST.csv.meta" ]

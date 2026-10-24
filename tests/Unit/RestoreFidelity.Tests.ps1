@@ -75,8 +75,9 @@ BeforeAll {
     }
 
     function Set-FidelityManifest {
-        # Rewrite a manifest and re-stamp its witness, so the damage a test means
-        # to exercise is what the restorer reports (SR-038).
+        # Rewrite a manifest and re-stamp its witness (SR-038). Kit revision 14
+        # no longer reads the witness; the re-stamp only keeps the store
+        # self-consistent.
         param([string]$Folder, [object[]]$Rows)
         $Rows | Export-Csv -LiteralPath (Join-Path $Folder 'MANIFEST.csv') -NoTypeInformation
         Write-ManifestWitness -FolderPath $Folder | Out-Null
