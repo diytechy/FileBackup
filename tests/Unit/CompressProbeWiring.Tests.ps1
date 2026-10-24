@@ -101,6 +101,7 @@ BeforeAll {
             SevenZip = $script:sevenZip; Ffprobe = $null; Recalc = $false
             Index = (Get-StoreObjectIndex -BackupRoot $Fixture.Bkp -ChangeRoot $Fixture.Chg)
             ProbeStats = $Stats; Log = $log; Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }
+            Metrics = (New-RunMetric); KitRevisionOf = @{}
         }
         $map = @{}; $ok = $true
         foreach ($n in $Fixture.Names) {

@@ -1181,6 +1181,7 @@ Describe 'A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)
             Index = (Get-StoreObjectIndex -BackupRoot $bkp -ChangeRoot $chg)
             ProbeStats = (InModuleScope FileBackup.Engine { New-ProbeStatistic }); Log = { param($m, $l = 'INFO') }
             Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }
+            Metrics = (New-RunMetric); KitRevisionOf = @{}
         }
         $item = [pscustomobject]@{ RelativePath = $Name; File = [IO.FileInfo]::new($file) }
         $result = Invoke-SourceFileCapture -Item $item -PriorRow $null -Context $context
