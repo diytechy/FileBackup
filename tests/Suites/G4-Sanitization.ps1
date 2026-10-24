@@ -37,7 +37,7 @@ function Invoke-G4 {
     New-TestFile (Join-Path $Env.SrcPath 'doc.txt') 'edited after the store went legacy'
     $backupOut = (& $pwshExe -NoProfile -File $BackupScript -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-String)
     $backupCode = $LASTEXITCODE
-    Assert-True $suite $group 'G4.1' 'Legacy_backupRefused' { $backupCode -eq 1 }
+    Assert-True $suite $group 'G4.1' 'Legacy_backupRefused' { $backupCode -eq 2 }
     Assert-True $suite $group 'G4.1' 'Legacy_refusalNamesRemedy' {
         $backupOut -match 'legacy path-addressed' -and $backupOut -match 'fresh BackupPath'
     }
@@ -141,7 +141,7 @@ function Invoke-G4 {
     New-TestFile (Join-Path $Env.SrcPath 'doc.txt') 'edited after the store went stale'
     $bOut  = (& $pwshExe -NoProfile -File $BackupScript -ConfigPath $cfgL -NoMail -NonInteractive *>&1 | Out-String)
     $bCode = $LASTEXITCODE
-    Assert-True $suite $group 'G4.1b' 'PreWP12_backupRefused' { $bCode -eq 1 }
+    Assert-True $suite $group 'G4.1b' 'PreWP12_backupRefused' { $bCode -eq 2 }
     Assert-True $suite $group 'G4.1b' 'PreWP12_backupNamesRemedy' { $bOut -match 'fresh BackupPath' }
 }
 

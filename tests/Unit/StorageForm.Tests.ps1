@@ -696,8 +696,8 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
                 (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash | Should -Be $payloads[$row.RelativePath]
             }
         }
-        # Every rewritten folder witness is re-stamped by Write-Manifest.
-        (Test-ManifestWitness -FolderPath $s.Bkp).Status | Should -Be 'Verified'
+        # Write-Manifest leaves no witness on a rewritten folder (plan R5).
+        (Test-ManifestWitness -FolderPath $s.Bkp).Status | Should -Be 'Absent'
     }
 
     It 'heals BOTH rows of a deduplicated pair that share one data file (SR-049, SR-003)' {
@@ -714,9 +714,8 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         $payload = 'DEDUPED-CONTENT ' * 300
         [IO.File]::WriteAllText((Join-Path $src 'one.txt'), $payload)
         Invoke-FormBackup -Cfg $cfg | Out-Null
-        # The second file is added in a LATER run: that is when
-        # Invoke-BackupFileGroup takes its reuse branch and points the new row at
-        # the EXISTING row's DataPath (SR-003).
+        # The second file is added in a LATER run: that run finds the content
+        # already stored and points the new row at the same object (SR-003).
         [IO.File]::WriteAllText((Join-Path $src 'two.txt'), $payload)
         Invoke-FormBackup -Cfg $cfg | Out-Null
 
@@ -1143,7 +1142,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
 
 Describe 'A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)' {
     # TC-231's Part-A arm - the hub's actual fix path, and the nine days Part A
-    # recovers. Driven at Invoke-BackupFileGroup rather than through the entry
+    # recovers. Driven at Invoke-SourceFileCapture rather than through the entry
     # point because FileBackup.ps1 re-imports both modules with -Force, which
     # discards the module mock the call counter needs (plan section 5).
     #
@@ -1155,8 +1154,8 @@ Describe 'A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)
         @{ Name = 'notes.txt';  Compressed = 'Yes'; Ext = '.7z'; Calls = 1 }
     ) {
         $root = Join-Path $TestDrive ('tc231-' + ($Name -replace '\W', '-'))
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src, $bkp, (Join-Path $chg 'Incoming') -Force | Out-Null
         $file = Join-Path $src $Name
         if ($Ext -eq '.z7') {
             $bytes = New-Object byte[] 8192
@@ -1167,29 +1166,31 @@ Describe 'A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)
             [IO.File]::WriteAllText($file, ('COMPRESSIBLE ' * 200))
         }
         $hash = Get-FileXxHash -FilePath $file
-        $len  = (Get-Item -LiteralPath $file).Length
-        $group = @([pscustomobject]@{
-            RelativePath = $Name; Length = $len; xxH2Hash = $hash
-            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
-        })
 
-        Mock -ModuleName FileBackup.Engine Compress-FileWithSevenZip { }
-        $map = @{}; $changed = 0; $ok = $true
-        Invoke-BackupFileGroup -Group $group -SrcPath $src -BkpPath $bkp `
-            -CompressEnabled $true -SevenZipPath $script:sevenZip `
-            -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
-            -Log { param($m, $l = 'INFO') } -OverallSuccess ([ref]$ok)
+        # A stand-in compressor that still produces a file, so the object can be
+        # published under its .7z name.
+        Mock -ModuleName FileBackup.Engine Compress-FileWithSevenZip { [IO.File]::WriteAllText($Destination7z, 'archive') }
+        $context = [pscustomobject]@{
+            BackupRoot = $bkp; Incoming = (Join-Path $chg 'Incoming'); LocalTemp = $null; LocalTempMax = [long]0
+            Set = [pscustomobject]@{ Name = 'T'; CompressEnabled = $true; CompressProbe = 'always' }
+            SevenZip = $script:sevenZip; Ffprobe = $null; Recalc = $false
+            Index = (Get-StoreObjectIndex -BackupRoot $bkp -ChangeRoot $chg)
+            ProbeStats = (InModuleScope FileBackup.Engine { New-ProbeStatistic }); Log = { param($m, $l = 'INFO') }
+            Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }
+        }
+        $item = [pscustomobject]@{ RelativePath = $Name; File = [IO.FileInfo]::new($file) }
+        $result = Invoke-SourceFileCapture -Item $item -PriorRow $null -Context $context
 
-        $ok | Should -BeTrue
-        $map[$Name].Compressed | Should -Be $Compressed
-        [IO.Path]::GetExtension($map[$Name].DataPath) | Should -Be $Ext
+        $result.Status | Should -Be 'Captured'
+        $result.Row.Compressed | Should -Be $Compressed
+        [IO.Path]::GetExtension($result.Row.DataPath) | Should -Be $Ext
         Should -Invoke Compress-FileWithSevenZip -ModuleName FileBackup.Engine -Times $Calls -Exactly
 
         if ($Calls -eq 0) {
             # Raw really means raw: the object is the source's own bytes, under
             # its own extension, and nothing in the store is named '.7z'.
             @(Get-ChildItem -LiteralPath $bkp -Filter '*.7z') | Should -BeNullOrEmpty
-            Get-FileXxHash -FilePath (Join-Path $bkp $map[$Name].DataPath) | Should -Be $hash
+            Get-FileXxHash -FilePath (Join-Path $bkp $result.Row.DataPath) | Should -Be $hash
         }
     }
 }
@@ -1277,170 +1278,6 @@ Describe 'The already-compressed extension list is one list (SR-004)' {
         $documented = @([regex]::Matches($block, '\.[a-z0-9]+') | ForEach-Object { $_.Value }) | Sort-Object
         ($documented -join ' ') | Should -Be ($live -join ' ')
     }
-}
-
-Describe 'Backup capacity preflight refuses before mutating (SR-052)' {
-    # TC-100. The shortfall is induced by STUBBING the free-space probe, so the
-    # test needs no full volume and stays deterministic. The arithmetic itself
-    # (Get-BackupCapacityDemand) is asserted directly, because that is the part
-    # a wrong estimate would silently break. The migration component is gone
-    # with the migration itself (SR-061).
-    BeforeAll {
-        function New-CapacityStore {
-            param([string]$Root, [bool]$Compress = $false)
-            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
-            $cfg = Join-Path $Root 'c.xml'
-            New-Item -ItemType Directory -Path $src -Force | Out-Null
-            New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
-            [IO.File]::WriteAllText((Join-Path $src 'seed.txt'), ('SEED ' * 100))
-            Invoke-FormBackup -Cfg $cfg | Out-Null
-            return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg }
-        }
-    }
-
-    It 'refuses the set and writes nothing when the estimate exceeds free space (SR-052, SR-013)' {
-        $s = New-CapacityStore -Root (Join-Path $TestDrive 'tc100-refuse')
-        [IO.File]::WriteAllText((Join-Path $s.Src 'big.txt'), ('X' * 200000))
-
-        $beforeData  = @(Get-DataFile -Root $s.Bkp | ForEach-Object { "$($_.Name)|$($_.Length)" }) | Sort-Object
-        $beforeState = Get-Content -LiteralPath (Join-Path $s.Bkp 'FileBackupState.json') -Raw
-        $beforeChg   = @(Get-ChildItem -LiteralPath $s.Chg -Recurse -File | ForEach-Object { $_.FullName }) | Sort-Object
-
-        $failed = $null
-        try {
-            InModuleScope FileBackup.Engine -Parameters @{ Set = $s } {
-                param($Set)
-                # The volume reports one byte free; everything else is real.
-                Mock Get-FreeSpaceBytes { return 1L }
-                $cfgSet = [pscustomobject]@{ Name = 'S'; SourcePath = $Set.Src; BackupPath = $Set.Bkp
-                    ChangePath = $Set.Chg; HashRecalcFreq = 'A'; CompressEnabled = $false }
-                $ok = $true
-                Invoke-BackupSet -Set $cfgSet -Deps @{ '7z' = $null; 'ffprobe' = $null; 'xxhash' = $true } `
-                    -OverallSuccess ([ref]$ok) -LogPaths (New-Object System.Collections.Generic.List[string])
-            }
-        } catch {
-            $failed = $_.Exception.Message
-        }
-
-        $failed | Should -Not -BeNullOrEmpty
-        $failed | Should -Match 'Not enough free space on the backup volume'
-        $failed | Should -Match 'Required: \d+ byte\(s\), Free: 1 byte\(s\)'
-
-        # Nothing was written: no data file changed or appeared, the run state is
-        # untouched, and no staging folder was orphaned for the SR-017 guard.
-        (@(Get-DataFile -Root $s.Bkp | ForEach-Object { "$($_.Name)|$($_.Length)" }) | Sort-Object) -join ',' |
-            Should -Be ($beforeData -join ',')
-        Get-Content -LiteralPath (Join-Path $s.Bkp 'FileBackupState.json') -Raw | Should -Be $beforeState
-        (@(Get-ChildItem -LiteralPath $s.Chg -Recurse -File | ForEach-Object { $_.FullName }) | Sort-Object) -join ',' |
-            Should -Be ($beforeChg -join ',')
-        Test-Path -LiteralPath (Join-Path $s.Chg 'Temp') | Should -BeFalse
-    }
-
-    It 'fails the SET (status 1), not the whole invocation as a usage error (SR-052, SR-014)' {
-        # A per-set refusal is status 1: other configured sets may still have run.
-        # OBSERVED at the process boundary (WP5 review, finding m1): asserting on
-        # the in-process throw alone never proved the entry point's status.
-        #
-        # The shortfall is genuine and needs no stub. SR-061 deleted the step-5.5
-        # migration component this used to inflate, so it is induced on the
-        # component that remains: an EVICTION. A removed row's bytes are moved to
-        # staging, sized from the BACKUP row's Length - but ONLY when the change
-        # root is on a different volume, because a same-volume move is a rename
-        # and correctly costs nothing. So the change root gets its own drive via
-        # subst, the way the integration harness makes volumes. That also makes
-        # this the only unit-level coverage of the SameVolume=$false arm.
-        $free = @('X', 'Y', 'W', 'V', 'U') |
-                Where-Object { $_ -notin (Get-PSDrive -PSProvider FileSystem).Name } |
-                Select-Object -First 1
-        if (-not $free) { Set-ItResult -Skipped -Because 'no free drive letter for the second volume'; return }
-
-        $root = Join-Path $TestDrive 'tc100-status'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chgHost = Join-Path $root 'chg'
-        New-Item -ItemType Directory -Path $src, $chgHost -Force | Out-Null
-        $substOut = & cmd.exe /c "subst ${free}: `"$chgHost`"" 2>&1
-        if ($LASTEXITCODE -ne 0) { Set-ItResult -Skipped -Because "subst failed: $substOut"; return }
-        try {
-            $chg = "${free}:\"
-            $cfg = Join-Path $root 'c.xml'
-            New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
-            [IO.File]::WriteAllText((Join-Path $src 'seed.txt'), ('SEED ' * 100))
-            # A second file keeps the source non-empty when seed.txt goes, so the
-            # refusal under test is the capacity one and not the delete-all guard.
-            [IO.File]::WriteAllText((Join-Path $src 'keep.txt'), ('KEEP ' * 50))
-            Invoke-FormBackup -Cfg $cfg | Out-Null
-
-            $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
-            foreach ($row in $rows) {
-                if ($row.RelativePath -eq 'seed.txt') { $row.Length = [string]([long]::MaxValue / 4) }
-            }
-            Set-ManifestRows -Folder $bkp -Rows $rows
-            Remove-Item -LiteralPath (Join-Path $src 'seed.txt') -Force
-
-            Invoke-FormBackupExitCode -Cfg $cfg | Should -Be 1
-            (Invoke-FormBackup -Cfg $cfg) | Should -Match 'Not enough free space'
-        } finally {
-            & cmd.exe /c "subst ${free}: /D" 2>&1 | Out-Null
-        }
-
-        # ...and the same refusal is a terminating error in process.
-        $demand = Get-BackupCapacityDemand -NewOrChanged @([pscustomobject]@{ RelativePath = 'big.txt'
-                        xxH2Hash = 'DEADBEEF'; Length = [long]::MaxValue / 4 }) `
-                    -RemovedFromSource @() -BackupDb @() -SameVolume $true
-        { Assert-BackupCapacity -BackupPath $TestDrive -ChangePath $TestDrive -BackupBytes $demand.BackupBytes -Log { param($m, $l) } } |
-            Should -Throw -ExpectedMessage '*Not enough free space*'
-    }
-
-    It 'sums both demands when the backup and change roots share one volume (SR-052)' {
-        # WP5 review, finding M2. Two demands that each fit but together do not
-        # must refuse when they compete for the same bytes — checking them
-        # separately passed the pair.
-        $bkp = Join-Path $TestDrive 'tc100-same\bkp'
-        $chg = Join-Path $TestDrive 'tc100-same\chg'
-        New-Item -ItemType Directory -Path $bkp, $chg -Force | Out-Null
-        (Get-VolumeIdentity -Path $bkp) | Should -Be (Get-VolumeIdentity -Path $chg)
-
-        $free = Get-FreeSpaceBytes -Path $bkp
-        $each = [long]($free * 0.6)          # each demand is 60% of the SAME free space
-        { Assert-BackupCapacity -BackupPath $bkp -ChangePath $chg -BackupBytes $each -ChangeBytes $each -Log { param($m, $l) } } |
-            Should -Throw -ExpectedMessage '*Not enough free space*'
-        # Each alone still fits, so the refusal is the SUM and nothing else.
-        { Assert-BackupCapacity -BackupPath $bkp -ChangePath $chg -BackupBytes $each -Log { param($m, $l) } } |
-            Should -Not -Throw
-    }
-
-    It 'lets a run that fits proceed unchanged (SR-052)' {
-        $s = New-CapacityStore -Root (Join-Path $TestDrive 'tc100-fits')
-        [IO.File]::WriteAllText((Join-Path $s.Src 'more.txt'), ('MORE ' * 100))
-        Invoke-FormBackupExitCode -Cfg $s.Cfg | Should -Be 0
-        @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'more.txt') |
-            Should -Not -BeNullOrEmpty
-    }
-
-    It 'counts only NEW deduplicated content on the backup volume (SR-052)' {
-        # DataPath populated: a real held row carries one; a BLANK row's key is
-        # deliberately NOT held (its bytes are gone and the SR-053 heal will
-        # copy them — see the WP7 'budgets heal copies' pin).
-        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; DataPath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
-        $new  = @(
-            [pscustomobject]@{ RelativePath = 'b.txt'; xxH2Hash = 'H1'; Length = 1000L }   # dedup: already held
-            [pscustomobject]@{ RelativePath = 'c.txt'; xxH2Hash = 'H2'; Length = 500L }
-            [pscustomobject]@{ RelativePath = 'd.txt'; xxH2Hash = 'H2'; Length = 500L }    # dedup: same new key
-        )
-        $d = Get-BackupCapacityDemand -NewOrChanged $new -RemovedFromSource @() -BackupDb $held -SameVolume $true
-        $d.BackupBytes | Should -Be 500
-        $d.ChangeBytes | Should -Be 0 -Because 'on one volume, staging is a rename'
-    }
-
-    It 'counts staging bytes only when the change root is on another volume (SR-052)' {
-        $held = @([pscustomobject]@{ RelativePath = 'a.txt'; DataPath = 'a.txt'; xxH2Hash = 'H1'; Length = 1000L })
-        $new  = @([pscustomobject]@{ RelativePath = 'a.txt'; xxH2Hash = 'H9'; Length = 2000L })   # a.txt modified
-        (Get-BackupCapacityDemand -NewOrChanged $new -RemovedFromSource @() -BackupDb $held -SameVolume $true).ChangeBytes |
-            Should -Be 0
-        $cross = Get-BackupCapacityDemand -NewOrChanged $new -RemovedFromSource @() -BackupDb $held -SameVolume $false
-        $cross.BackupBytes | Should -Be 2000
-        $cross.ChangeBytes | Should -Be 1000 -Because 'the superseded version must be COPIED across the volume boundary'
-    }
-
 }
 
 Describe 'Free space is measured the same way on both platforms (SR-052, SR-023)' {

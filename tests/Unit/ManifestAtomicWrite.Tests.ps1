@@ -130,12 +130,19 @@ Describe 'Write-Manifest publishes MANIFEST.csv atomically (TC-237, SR-082, LLR-
         Get-Sha256 (Join-Path $folder 'MANIFEST.csv') | Should -Be $script:OldHash
     }
 
-    It 'fails loud, in the safe direction, between the manifest rename and the witness (TC-237, SR-038)' {
-        # A kill after the rename leaves the NEW complete manifest beside the OLD
-        # witness: a mismatch, i.e. a refused restore, never a silent pass.
-        $folder = New-SeededFolder 'stale-witness'
+    It 'never leaves a new manifest beside an older build''s witness (TC-237, plan R5)' {
+        # Every kit already in a backup refuses a MISMATCHED witness (exit 3)
+        # but restores beside a missing one, so the old witness goes BEFORE the
+        # rename: a kill before it leaves the old pair intact, a kill after it
+        # leaves the new manifest with no witness at all.
+        $folder = New-SeededFolder 'old-witness-before'
+        Write-ManifestWitness -FolderPath $folder | Out-Null
+        Invoke-KilledWrite -Folder $folder -Stage 'AfterTempWrite' -Tear $null
+        (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Verified'
+        $folder = New-SeededFolder 'old-witness-after'
+        Write-ManifestWitness -FolderPath $folder | Out-Null
         Invoke-KilledWrite -Folder $folder -Stage 'AfterRename' -Tear $null
-        (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Mismatch'
+        (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Absent'
     }
 
     It 'resolves a RELATIVE folder against the PowerShell location, not the process directory (TC-237, SR-082)' {
@@ -166,10 +173,11 @@ Describe 'Write-Manifest publishes MANIFEST.csv atomically (TC-237, SR-082, LLR-
         Test-Path -LiteralPath (Join-Path $folder 'MANIFEST.csv.tmp') | Should -BeFalse
     }
 
-    It 'writes the same bytes as the pre-SR-082 in-place writer for an empty record set (TC-237, SR-025)' {
+    It 'writes the header row, and no witness, for an empty record set (TC-237, SR-025, plan R5)' {
         $folder = New-Folder 'empty-set'
         Write-Manifest -FolderPath $folder -Records $null
-        (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Verified'
+        (Get-Content -LiteralPath (Join-Path $folder 'MANIFEST.csv') -TotalCount 1) | Should -Match 'RelativePath'
+        (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Absent'
     }
 }
 
@@ -268,11 +276,11 @@ Describe 'A leftover MANIFEST.csv.tmp breaks nothing (TC-239, SR-083, LLR-088)' 
         Test-Path -LiteralPath (Join-Path $folder 'MANIFEST.csv.tmp') | Should -BeFalse
     }
 
-    It 'leaves a VERIFIED witness after that next write (TC-239, SR-083, SR-038)' {
+    It 'leaves no witness after that next write (TC-239, SR-083, plan R5)' {
         $folder = New-SeededFolder 'next-write-witness'
         Invoke-KilledWrite -Folder $folder -Stage 'AfterRename' -Tear $null
         Write-Manifest -FolderPath $folder -Records $script:NewRows
-        (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Verified'
+        (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Absent'
     }
 
     It 'is root-level infrastructure: never data, never an orphan, never a storage-form finding (TC-239, SR-083, SR-022)' {
@@ -285,15 +293,6 @@ Describe 'A leftover MANIFEST.csv.tmp breaks nothing (TC-239, SR-083, LLR-088)' 
         ($names -join '|') | Should -Be (Join-Path 'sub' 'MANIFEST.csv.tmp')
     }
 
-
-    It 'does not make Test-BackupManifest warn about an orphan (TC-239, SR-083, SR-064)' {
-        $root = New-Folder 'tbm-orphan'
-        Write-Manifest -FolderPath $root -Records @()
-        [System.IO.File]::WriteAllText((Join-Path $root 'MANIFEST.csv.tmp'), 'torn')
-        $messages = New-Object System.Collections.Generic.List[string]
-        Test-BackupManifest -FolderRoot $root -Log { param($m, $l) $messages.Add("$l $m") }.GetNewClosure()
-        @($messages | Where-Object { $_ -match 'MANIFEST\.csv\.tmp' }).Count | Should -Be 0
-    }
 
     It 'raises no storage-form finding in the backup root or a snapshot (TC-239, SR-083, SR-049)' {
         $root = New-Folder 'sf-root'
@@ -312,11 +311,9 @@ Describe 'A leftover MANIFEST.csv.tmp through whole backup runs (TC-240, SR-083,
         $script:Fx = $null
         function Invoke-FixtureBackup {
             param([object]$Fixture, [datetime]$When)
-            $ok = $true
-            Invoke-BackupSet -Set $Fixture.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
-                -OverallSuccess ([ref]$ok) -LogPaths (New-Object System.Collections.Generic.List[string]) `
-                -BackupTime $When
-            return $ok
+            $code = Invoke-BackupSet -Set $Fixture.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
+                -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime $When
+            return ($code -eq 0)
         }
         $root = Join-Path $TestDrive 'e2e'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
@@ -367,7 +364,7 @@ Describe 'A leftover MANIFEST.csv.tmp through whole backup runs (TC-240, SR-083,
         Test-Path -LiteralPath (Join-Path $script:Fx.Bkp 'MANIFEST.csv.tmp') | Should -BeFalse
     }
 
-    It 'ends with a verified witness (TC-240, SR-083, SR-038)' {
-        (Test-ManifestWitness -FolderPath $script:Fx.Bkp).Status | Should -Be 'Verified'
+    It 'ends with no witness (TC-240, SR-083, plan R5)' {
+        (Test-ManifestWitness -FolderPath $script:Fx.Bkp).Status | Should -Be 'Absent'
     }
 }

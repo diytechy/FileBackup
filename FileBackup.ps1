@@ -504,6 +504,18 @@ function Invoke-VerifyAction {
             $kits = Update-BackupSnapshotKit -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -Log $Log
             & $Log "Refreshed the restore kit in $($kits.Refreshed) snapshot folder(s) to revision $($kits.Revision)." 'INFO'
         }
+        # Object-level audit (bounded-run-loop plan R9, R10, C4): duplicate
+        # copies always, damaged objects under -Deep. -RepairStorage moves both
+        # into <ChangePath>/Verify/ - nothing is deleted - and the audit runs
+        # again so the report is the state the caller is left in.
+        $objectFindings = @(Get-StoreObjectFinding -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
+                                -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
+        if ($Repair -and $objectFindings.Count -gt 0) {
+            $movedToVerify = Move-StoreObjectToVerify -Finding $objectFindings -ChangeRoot $paths.ChgPath -Log $Log
+            & $Log "Moved $movedToVerify object(s) into '$(Join-Path $paths.ChgPath 'Verify')'; delete that folder by hand once you no longer want them." 'INFO'
+            $objectFindings = @(Get-StoreObjectFinding -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
+                                    -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
+        }
         if ($Repair) {
             $result   = Repair-BackupStorageForm -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -BackupRootOnly:$RootOnly -Log $Log
             & $Log "Repaired $($result.Repaired) finding(s); $(@($result.Skipped).Count) reported only." 'INFO'
@@ -512,6 +524,7 @@ function Invoke-VerifyAction {
         # re-verification, so a clean exit 0 means the store is now coherent.
         $findings = @(Test-BackupStorageForm -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                         -BackupRootOnly:$RootOnly -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
+        $findings += $objectFindings
         # WP7 (SR-054): the form audit answers "do the bytes match the index's
         # CLAIMS"; the pool audit answers "does every row resolve to bytes AT
         # ALL" — the blind spot that let a store with permanently unrestorable
@@ -519,27 +532,20 @@ function Invoke-VerifyAction {
         # scopes only the form audit) and broken-pool only (form disagreements
         # are the form audit's report). Report-only: the heal is the next
         # backup run while the source still holds the content — -RepairStorage
-        # cannot conjure bytes.
+        # cannot conjure bytes. A row whose named file has moved while its
+        # content survives elsewhere is NOT a finding: snapshots are write-once
+        # (plan R6), so a DataPath goes stale whenever content moves back to the
+        # latest state, and the kit finds it by name.
+        $stale = 0
         $findings += @(Test-PoolResolves -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath |
             Where-Object Kind -eq 'broken-pool' | ForEach-Object {
-                # Two honest classes (WP7 review, required change 2): a row
-                # whose CONTENT is truly gone is the escalate-worthy loss; a
-                # row whose named file is gone while the bytes survive
-                # elsewhere restores via the revision-4+ fallback and heals on
-                # the next backup run — calling it unresolvable would hand the
-                # wrapper a false data-loss alarm.
-                if ($_.BytesSurvive) {
-                    [pscustomobject]@{ Class = 'PoolDataPathMissing'; FolderName = $_.Folder
-                        RelativePath = $_.RelativePath; DataPath = $_.DataPath
-                        Observed = 'the named data file is gone, but the content survives elsewhere in the pool'
-                        Expected = 'the row''s DataPath names a file present in its folder' }
-                } else {
-                    [pscustomobject]@{ Class = 'PoolUnresolvable'; FolderName = $_.Folder
-                        RelativePath = $_.RelativePath; DataPath = $_.DataPath
-                        Observed = 'no bytes for this row anywhere in the pool'
-                        Expected = 'every manifest row resolves to real bytes' }
-                }
+                if ($_.BytesSurvive) { $stale++; return }
+                [pscustomobject]@{ Class = 'PoolUnresolvable'; FolderName = $_.Folder
+                    RelativePath = $_.RelativePath; DataPath = $_.DataPath
+                    Observed = 'no bytes for this row anywhere in the pool'
+                    Expected = 'every manifest row resolves to real bytes' }
             })
+        if ($stale -gt 0) { & $Log "$stale row(s) name a data file that has moved; their content is found elsewhere in the pool." 'INFO' }
     } catch {
         & $Log "Storage-form verification could not run: $($_.Exception.Message)" 'ERROR'
         return 2
@@ -612,26 +618,24 @@ if ($Action -ne 'Backup') {
     return
 }
 
-$overallSuccess = $true
-$witnessFailed  = $false
 $logPaths = New-Object System.Collections.Generic.List[string]
 
-# SR-014: process each set independently — one set's failure marks the run failed
-# but must not abort the remaining sets.
+# SR-014: process each set independently - one set's outcome never stops the
+# others. Each set reports 0 / 1 / 2 / 4 (bounded-run-loop plan §6); the
+# process reports the worst, precedence 2 > 4 > 1 > 0.
 $setExtra = @{}
 if ($PSBoundParameters.ContainsKey('BackupTime')) { $setExtra['BackupTime'] = $BackupTime }
+$setCodes = New-Object System.Collections.Generic.List[int]
 foreach ($set in $Sets) {
     try {
-        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$overallSuccess) -LogPaths $logPaths @setExtra
+        $setCodes.Add([int](Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logPaths @setExtra))
     } catch {
-        & $globalLog ("Backup set '{0}' failed: {1}" -f $set.Name, $_.Exception.Message) 'ERROR'
-        $overallSuccess = $false
-        # The witness gate refuses with a distinct ErrorId so a torn root index
-        # surfaces as the SR-040 witness code (3, escalate) rather than the
-        # generic set-failure 1 (warn/retry) — IF-001's table applies to backup.
-        if ($_.FullyQualifiedErrorId -like 'ManifestWitnessMismatch*') { $witnessFailed = $true }
+        & $globalLog ("Backup set '{0}' stopped: {1}" -f $set.Name, $_.Exception.Message) 'ERROR'
+        $setCodes.Add(4)
     }
 }
+$runCode = 0
+foreach ($rank in 2, 4, 1) { if ($setCodes.Contains($rank)) { $runCode = $rank; break } }
 
 # region Notification (B15: optional; Send-MailMessage only when configured)
 
@@ -639,11 +643,15 @@ $haveMailConfig = $Secrets -and $Secrets.SmtpServer -and $Secrets.ToEmail -and $
 if ($NoMail -or -not $haveMailConfig) {
     & $globalLog ("Skipping email notification ({0})." -f $(if ($NoMail) { '-NoMail' } else { 'SMTP not configured' }))
 } else {
-    $subject = if ($overallSuccess) { 'Automatic Backup Successful' } else { 'Automatic Backup Failed' }
-    $body = if ($overallSuccess) {
-        "All backup sets completed successfully.`r`n`r`nLogs:`r`n"   + ($logPaths -join "`r`n")
-    } else {
-        "One or more backup sets encountered errors.`r`n`r`nCheck logs:`r`n" + ($logPaths -join "`r`n")
+    $subject = switch ($runCode) {
+        0 { 'Automatic Backup Successful' }
+        1 { 'Automatic Backup Completed With Files Not Captured' }
+        default { 'Automatic Backup Failed' }
+    }
+    $body = switch ($runCode) {
+        0 { "All backup sets completed successfully.`r`n`r`nLogs:`r`n" + ($logPaths -join "`r`n") }
+        1 { "Every backup set completed, but some files were not captured; each is named in its set's log.`r`n`r`nLogs:`r`n" + ($logPaths -join "`r`n") }
+        default { "One or more backup sets did not run or did not finish.`r`n`r`nCheck logs:`r`n" + ($logPaths -join "`r`n") }
     }
 
     $sendParams = @{
@@ -663,4 +671,4 @@ if ($NoMail -or -not $haveMailConfig) {
 
 # endregion
 
-if (-not $overallSuccess) { exit ($witnessFailed ? 3 : 1) }
+if ($runCode -ne 0) { exit $runCode }

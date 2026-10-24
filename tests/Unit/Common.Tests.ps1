@@ -291,9 +291,10 @@ Describe 'Read/Write-Manifest' {
     }
 }
 
-Describe 'Manifest witness sidecar (SR-038)' {
-    # TC-066. Write-Manifest is the ONLY writer of the witness, so every origin
-    # (backup root, staging, snapshot, source hash cache) is covered by one path.
+Describe 'Manifest witness sidecar of stores written by older builds (SR-038, SR-039)' {
+    # TC-066. No witness is written any more (bounded-run-loop plan R5);
+    # these functions remain to read the witnesses older builds left, so
+    # each test stamps one explicitly with Write-ManifestWitness.
     BeforeAll {
         $script:witnessName = (Get-FileBackupDefaults).WitnessFilename
         function New-WitnessRow {
@@ -316,6 +317,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $folder = Join-Path $TestDrive 'w1'
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Manifest -FolderPath $folder -Records @((New-WitnessRow 'a.txt'), (New-WitnessRow 'b.txt' 9))
+        Write-ManifestWitness -FolderPath $folder | Out-Null
 
         $manifest = Join-Path $folder 'MANIFEST.csv'
         $map = Get-WitnessMap $folder
@@ -331,6 +333,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $folder = Join-Path $TestDrive 'w-enc'
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+        Write-ManifestWitness -FolderPath $folder | Out-Null
 
         $bytes = [IO.File]::ReadAllBytes((Join-Path $folder $script:witnessName))
         # No UTF-8 BOM...
@@ -344,6 +347,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $folder = Join-Path $TestDrive 'w2'
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Manifest -FolderPath $folder -Records $null
+        Write-ManifestWitness -FolderPath $folder | Out-Null
         (Get-WitnessMap $folder)['Rows'] | Should -Be '0'
         Test-ManifestWitness -FolderPath $folder | Select-Object -ExpandProperty Status | Should -Be 'Verified'
     }
@@ -352,9 +356,11 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $folder = Join-Path $TestDrive 'w3'
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+        Write-ManifestWitness -FolderPath $folder | Out-Null
         $first = (Get-WitnessMap $folder)['XxH128']
 
         Write-Manifest -FolderPath $folder -Records @((New-WitnessRow 'a.txt'), (New-WitnessRow 'c.txt' 12))
+        Write-ManifestWitness -FolderPath $folder | Out-Null
         $second = Get-WitnessMap $folder
         $second['Rows'] | Should -Be '2'
         $second['XxH128'] | Should -Not -Be $first
@@ -366,6 +372,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $folder = Join-Path $TestDrive 'w4'
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+        Write-ManifestWitness -FolderPath $folder | Out-Null
         $manifest = Join-Path $folder 'MANIFEST.csv'
         $witness  = Join-Path $folder $script:witnessName
 
@@ -400,6 +407,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $folder = Join-Path $TestDrive 'w5'
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Manifest -FolderPath $folder -Records @(New-WitnessRow)
+        Write-ManifestWitness -FolderPath $folder | Out-Null
         $witness = Join-Path $folder $script:witnessName
 
         $text = [IO.File]::ReadAllText($witness) -replace 'Version=\d+', 'Version=99'
@@ -417,6 +425,7 @@ Describe 'Manifest witness sidecar (SR-038)' {
         $folder = Join-Path $TestDrive 'w6'
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Manifest -FolderPath $folder -Records @((New-WitnessRow 'a.txt'), (New-WitnessRow 'b.txt' 9))
+        Write-ManifestWitness -FolderPath $folder | Out-Null
         $witness = Join-Path $folder $script:witnessName
 
         # Rewrite ONLY the Rows line; Bytes and XxH128 still describe the manifest.

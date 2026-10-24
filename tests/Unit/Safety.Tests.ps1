@@ -5,6 +5,7 @@
 
 BeforeAll {
     $script:repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
     $script:entry = Join-Path $repo 'FileBackup.ps1'
 
     function New-SafetyConfig {
@@ -37,10 +38,25 @@ BeforeAll {
                     Where-Object RelativePath -eq $RelativePath)[0]
         return [IO.File]::ReadAllText((Join-Path $Backup $row.DataPath))
     }
+
+    function Get-SnapshotText {
+        # A snapshot row resolves through its content name, anywhere in the
+        # pool (bounded-run-loop plan section 7): its own folder, then the
+        # backup root.
+        param([string]$Snapshot, [string]$Backup, [string]$RelativePath)
+        $row = @(Import-Csv -LiteralPath (Join-Path $Snapshot 'MANIFEST.csv') |
+                    Where-Object RelativePath -eq $RelativePath)[0]
+        $prefix = Get-HashSizeFileName -HashHex $row.xxH2Hash -Length ([long]$row.Length) -Extension ''
+        foreach ($folder in $Snapshot, $Backup) {
+            $hit = @(Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name.StartsWith($prefix, [StringComparison]::Ordinal) })
+            if ($hit.Count -gt 0) { return [IO.File]::ReadAllText($hit[0].FullName) }
+        }
+        return $null
+    }
 }
 
-Describe 'Backup history safety gates (SR-035, SR-036)' {
-    It 'refuses to mutate an initialized backup when LastBackupRun state is missing (SR-035)' {
+Describe 'Backup history safety: corner cases warn, and the prior state stays restorable (SR-035, SR-036, plan R1, C2)' {
+    It 'dates the prior state by the manifest file when LastBackupRun is missing, and keeps it as a snapshot (SR-035)' {
         $root = Join-Path $TestDrive 'missing-state'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'config.xml'
@@ -49,17 +65,18 @@ Describe 'Backup history safety gates (SR-035, SR-036)' {
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'OLD')
         (Invoke-SafetyBackup $cfg) | Should -Be 0
 
-        $manifestHash = (Get-FileHash -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Hash
         Remove-Item -LiteralPath (Join-Path $bkp 'FileBackupState.json') -Force
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'NEW')
 
-        (Invoke-SafetyBackup $cfg) | Should -Be 1
-        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
-        (Get-FileHash -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Hash | Should -Be $manifestHash
-        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_').Count | Should -Be 0
+        (Invoke-SafetyBackup $cfg) | Should -Be 0
+        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'NEW'
+        $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_')
+        $snap.Count | Should -Be 1
+        (Get-SnapshotText -Snapshot $snap[0].FullName -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
+        Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw | Should -Match 'No usable LastBackupRun'
     }
 
-    It 'refuses malformed state instead of treating it as a first backup (SR-035)' {
+    It 'sets a malformed state file aside instead of treating the store as new (SR-035)' {
         $root = Join-Path $TestDrive 'bad-state'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'config.xml'
@@ -70,11 +87,14 @@ Describe 'Backup history safety gates (SR-035, SR-036)' {
 
         [IO.File]::WriteAllText((Join-Path $bkp 'FileBackupState.json'), '{broken')
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'NEW')
-        (Invoke-SafetyBackup $cfg) | Should -Be 1
-        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
+        (Invoke-SafetyBackup $cfg) | Should -Be 0
+        @(Get-ChildItem -LiteralPath $bkp -Filter 'FileBackupState.json.unreadable-*').Count | Should -Be 1
+        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'NEW'
+        $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_')
+        (Get-SnapshotText -Snapshot $snap[0].FullName -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
     }
 
-    It 'blocks an unexpected empty source and permits an explicit delete-all override (SR-036)' {
+    It 'moves everything into the snapshot when the source is empty, deleting nothing (SR-036, C2)' {
         $root = Join-Path $TestDrive 'empty-source'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'config.xml'
@@ -84,13 +104,11 @@ Describe 'Backup history safety gates (SR-035, SR-036)' {
         (Invoke-SafetyBackup $cfg) | Should -Be 0
 
         Remove-Item -LiteralPath (Join-Path $src 'f.txt') -Force
-        (Invoke-SafetyBackup $cfg) | Should -Be 1
-        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'KEEP'
-        @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Count | Should -Be 1
-
-        New-SafetyConfig -Path $cfg -Source $src -Backup $bkp -Changes $chg -AllowEmptySource $true
         (Invoke-SafetyBackup $cfg) | Should -Be 0
         @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Count | Should -Be 0
-        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_').Count | Should -Be 1
+        $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_')
+        $snap.Count | Should -Be 1
+        (Get-SnapshotText -Snapshot $snap[0].FullName -Backup $bkp -RelativePath 'f.txt') | Should -Be 'KEEP'
+        Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw | Should -Match 'Nothing is deleted'
     }
 }

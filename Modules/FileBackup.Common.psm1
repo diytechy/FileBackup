@@ -1204,16 +1204,96 @@ function Read-Manifest {
     return $rows
 }
 
+# Write-Manifest's compiled row writer is used from this many rows up. Below it
+# the PowerShell loop is fast enough and costs no compile; the backup run's
+# checkpoints of a large library are what the compiled path is for.
+$script:ManifestCompiledWriterMinRows = 5000
+$script:ManifestRowWriterState = $null   # $null untried, $true compiled, $false unavailable
+
+function Initialize-ManifestRowWriter {
+    <#
+    .SYNOPSIS
+        Compiles the manifest row writer on first use; returns $true when it is
+        available, $false when it could not be compiled (the caller then uses
+        the PowerShell loop, which writes the same bytes).
+
+    .DESCRIPTION
+        Compiled lazily, never at import: Common is imported by every restore,
+        and a restore never writes a manifest, so it must not pay the compile.
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-025, LLR-025
+    [CmdletBinding()]
+    param()
+    if ($null -ne $script:ManifestRowWriterState) { return $script:ManifestRowWriterState }
+    if ('FileBackup.ManifestRowWriter' -as [type]) { $script:ManifestRowWriterState = $true; return $true }
+    try {
+        Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Globalization;
+using System.IO;
+using System.Management.Automation;
+using System.Text;
+namespace FileBackup {
+    // Writes manifest rows exactly as Export-Csv -NoTypeInformation would:
+    // every field double-quoted with inner quotes doubled, a null field empty
+    // and unquoted, the platform newline. The header is written by the caller.
+    public static class ManifestRowWriter {
+        static readonly string[] Columns = { "DataPath", "RelativePath", "Length", null, "xxH2Hash",
+                                             "Compressed", "StoredAsHashSize", "Duplicate", "MediaMBPerSec" };
+        public static void Write(TextWriter writer, object[] records, string dateFormat) {
+            var nl = Environment.NewLine;
+            var line = new StringBuilder(256);
+            foreach (var record in records) {
+                var row = PSObject.AsPSObject(record);
+                line.Clear();
+                for (int i = 0; i < Columns.Length; i++) {
+                    if (i > 0) line.Append(',');
+                    object value;
+                    if (Columns[i] == null) {
+                        var stamp = row.Properties["LastWriteTime"];
+                        object raw = stamp == null ? null : stamp.Value;
+                        if (raw == null) throw new ArgumentException("A manifest record has no LastWriteTime.");
+                        var when = (DateTime)LanguagePrimitives.ConvertTo(raw, typeof(DateTime), CultureInfo.InvariantCulture);
+                        value = when.ToString(dateFormat, CultureInfo.InvariantCulture);
+                    } else {
+                        var property = row.Properties[Columns[i]];
+                        value = property == null ? null : property.Value;
+                    }
+                    if (value == null) continue;
+                    var text = (string)LanguagePrimitives.ConvertTo(value, typeof(string), CultureInfo.InvariantCulture);
+                    line.Append('"').Append(text.Replace("\"", "\"\"")).Append('"');
+                }
+                line.Append(nl);
+                writer.Write(line.ToString());
+            }
+        }
+    }
+}
+'@
+        $script:ManifestRowWriterState = $true
+    } catch {
+        Write-Verbose "Compiled manifest writer unavailable, using the PowerShell loop: $($_.Exception.Message)"
+        $script:ManifestRowWriterState = $false
+    }
+    return $script:ManifestRowWriterState
+}
+
 function Write-Manifest {
     <#
     .SYNOPSIS
         Writes the canonical 9-column MANIFEST.csv to a folder ATOMICALLY (a
-        sibling MANIFEST.csv.tmp, then a rename over the destination), then
-        stamps its witness sidecar so the index can be proven intact at restore
-        time.
+        sibling MANIFEST.csv.tmp, then a rename over the destination), and
+        removes any MANIFEST.csv.meta witness beside it.
     .NOTES
-        Sole writer of MANIFEST.csv.meta (SR-038) — every origin is covered here
-        rather than in the callers, so the witness cannot drift from its manifest.
+        No witness is written any more (bounded-run-loop plan, R5). A witness
+        an earlier build left beside this manifest would no longer match it,
+        and every kit already in a backup refuses a mismatched witness with exit
+        3 but restores a missing one with a warning - so it is deleted, BEFORE
+        the rename: a kill between the two then leaves the old manifest with no
+        witness (restorable), never a new manifest beside a stale one.
 
         Atomic publish (SR-082, LLR-087): at every instant MANIFEST.csv is the
         complete old file or the complete new one. The rename is
@@ -1224,8 +1304,20 @@ function Write-Manifest {
         section 4), so the .NET Core 3.0+ overload always exists; 5.1 is
         unsupported. A MANIFEST.csv.tmp left by a killed earlier write is
         deleted before the new one is written and is never read.
+
+        The bytes are exactly what Export-Csv -NoTypeInformation writes (UTF-8
+        without BOM, the platform newline, every field double-quoted with inner
+        quotes doubled, a $null field left empty and unquoted), so a manifest
+        rewritten by this build is byte-identical to one an older build wrote
+        for the same rows. They are streamed rather than piped through
+        Export-Csv because the backup run checkpoints its manifest about once a
+        minute and Export-Csv takes ~20 s for 180,000 rows; from
+        $script:ManifestCompiledWriterMinRows rows up a compiled row writer
+        (Initialize-ManifestRowWriter) does the loop. Unlike Export-Csv,
+        an empty record set still writes the header row, which is what both
+        restorers' header check expects of an empty backup.
     #>
-    # Implements: SR-025, SR-038, SR-082, LLR-025, LLR-038, LLR-087
+    # Implements: SR-025, SR-082, LLR-025, LLR-087
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$FolderPath,
@@ -1241,26 +1333,14 @@ function Write-Manifest {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
 
-    $out = foreach ($r in $Records) {
-        [pscustomobject]@{
-            DataPath         = $r.DataPath
-            RelativePath     = $r.RelativePath
-            Length           = $r.Length
-            LastWriteTimeStr = ConvertTo-ManifestDateString $r.LastWriteTime
-            xxH2Hash         = $r.xxH2Hash
-            Compressed       = $r.Compressed
-            StoredAsHashSize = $r.StoredAsHashSize
-            Duplicate        = $r.Duplicate
-            MediaMBPerSec    = $r.MediaMBPerSec
-        }
-    }
-
     # SR-082: write beside the destination, publish by rename. Absolute paths for
     # the .NET calls: they resolve against the PROCESS directory, while every
     # path in this module is relative to the PowerShell location.
     $tempPath = Join-Path $FolderPath $script:DatabaseTempFilename
     $fullDest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
     $fullTemp = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($tempPath)
+    $fullMeta = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+                    (Join-Path $FolderPath $script:WitnessFilename))
     $hook     = $script:ManifestWriteTestHook
     $context  = [pscustomobject]@{ Destination = $fullDest; Temp = $fullTemp }
 
@@ -1272,7 +1352,36 @@ function Write-Manifest {
         # A leftover from a killed earlier write is not trusted and not appended
         # to: remove it (a no-op when absent), then write from scratch.
         [System.IO.File]::Delete($fullTemp)
-        $out | Export-Csv -LiteralPath $tempPath -NoTypeInformation
+        $nl = [Environment]::NewLine
+        $writer = [System.IO.StreamWriter]::new($fullTemp, $false, [System.Text.UTF8Encoding]::new($false))
+        try {
+            $writer.Write('"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"')
+            $writer.Write($nl)
+            $compiled = ($Records.Count -ge $script:ManifestCompiledWriterMinRows) -and (Initialize-ManifestRowWriter)
+            if ($compiled) {
+                [FileBackup.ManifestRowWriter]::Write($writer, $Records, $script:CSVDateFormat)
+            } else {
+                foreach ($r in $Records) {
+                    # Field order is the schema's; LastWriteTimeStr is derived
+                    # here, as it always was, from the record's LastWriteTime.
+                    $values = $r.DataPath, $r.RelativePath, $r.Length,
+                              ([datetime]$r.LastWriteTime).ToString($script:CSVDateFormat),
+                              $r.xxH2Hash, $r.Compressed, $r.StoredAsHashSize, $r.Duplicate, $r.MediaMBPerSec
+                    $line = [System.Text.StringBuilder]::new(256)
+                    for ($i = 0; $i -lt 9; $i++) {
+                        if ($i -gt 0) { [void]$line.Append(',') }
+                        $v = $values[$i]
+                        if ($null -ne $v) {
+                            [void]$line.Append('"').Append(([string]$v).Replace('"', '""')).Append('"')
+                        }
+                    }
+                    [void]$line.Append($nl)
+                    $writer.Write($line.ToString())
+                }
+            }
+        } finally {
+            $writer.Dispose()
+        }
     } catch {
         # An ordinary failure (disk full, access denied) leaves the destination
         # untouched; do not also leave a partial staging file behind.
@@ -1281,16 +1390,16 @@ function Write-Manifest {
     }
     if ($null -ne $hook) { & $hook 'AfterTempWrite' $context }
     try {
+        # A witness from an older build goes first (see .NOTES); File.Delete on
+        # an absent path is a no-op. Its own publish-by-rename leftover too.
+        [System.IO.File]::Delete($fullMeta)
+        [System.IO.File]::Delete("$fullMeta.tmp")
         [System.IO.File]::Move($fullTemp, $fullDest, $true)
     } catch {
         try { [System.IO.File]::Delete($fullTemp) } catch { Write-Verbose "could not remove '$fullTemp': $($_.Exception.Message)" }
         throw
     }
     if ($null -ne $hook) { & $hook 'AfterRename' $context }
-
-    # The row count is already known here (one CSV row per record, and an empty
-    # set writes no rows), so the witness does not re-read the file to count it.
-    Write-ManifestWitness -FolderPath $FolderPath -RowCount $Records.Count | Out-Null
 }
 
 function Get-ManifestWitnessPath {

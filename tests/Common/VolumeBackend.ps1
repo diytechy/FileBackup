@@ -2,7 +2,9 @@
 .SYNOPSIS
     Backend abstraction: every backend returns a [pscustomobject] with the same shape:
         @{ SrcPath; BkpPath; ChgPath; ReconPath; Dispose=<scriptblock> }
-    so the suites are backend-agnostic.
+    so the suites are backend-agnostic. BkpPath and ChgPath are two folders on
+    ONE volume (Backup and Changes): the engine moves content between them by
+    rename and refuses a pair a rename cannot cross (bounded-run-loop plan R8).
 
     Backends:
         Subst      - subst-mapped letters over %TEMP%; default; no admin.
@@ -27,7 +29,7 @@ function New-TestEnvironment {
 function New-SubstEnv {
     param([string]$Root)
 
-    # Pick four free drive letters (high letters first) instead of hardcoding
+    # Pick three free drive letters (high letters first) instead of hardcoding
     # X/Y/Z/W, which can collide with real drives on a dev machine.
     # Test-Path alone is not enough: a disconnected-but-remembered network
     # mapping (net use) answers False yet still owns the letter, and a subst
@@ -37,42 +39,41 @@ function New-SubstEnv {
     $free = @()
     foreach ($c in $candidates) {
         if ($c -notin $used -and -not (Test-Path "${c}:\")) { $free += $c }
-        if ($free.Count -eq 4) { break }
+        if ($free.Count -eq 3) { break }
     }
-    if ($free.Count -lt 4) {
-        throw "Need 4 free drive letters for the Subst backend; found only $($free.Count) ($($free -join ',')). Free up some drive letters and retry."
+    if ($free.Count -lt 3) {
+        throw "Need 3 free drive letters for the Subst backend; found only $($free.Count) ($($free -join ',')). Free up some drive letters and retry."
     }
-    $letters = @{ Src=$free[0]; Bkp=$free[1]; Chg=$free[2]; Recon=$free[3] }
+    $letters = @{ Src=$free[0]; Store=$free[1]; Recon=$free[2] }
 
     $phys = @{
         Src   = Join-Path $Root 'Source'
-        Bkp   = Join-Path $Root 'Backup'
-        Chg   = Join-Path $Root 'Changes'
+        Store = Join-Path $Root 'Store'
         Recon = Join-Path $Root 'Recon'
     }
     foreach ($p in $phys.Values) {
         New-Item -ItemType Directory -Path $p -Force | Out-Null
     }
+    New-Item -ItemType Directory -Path (Join-Path $phys.Store 'Backup'), (Join-Path $phys.Store 'Changes') -Force | Out-Null
 
     cmd /c "subst $($letters.Src):   `"$($phys.Src)`""   | Out-Null
-    cmd /c "subst $($letters.Bkp):   `"$($phys.Bkp)`""   | Out-Null
-    cmd /c "subst $($letters.Chg):   `"$($phys.Chg)`""   | Out-Null
+    cmd /c "subst $($letters.Store): `"$($phys.Store)`"" | Out-Null
     cmd /c "subst $($letters.Recon): `"$($phys.Recon)`"" | Out-Null
 
     [pscustomobject]@{
         Backend   = 'Subst'
         Root      = $Root
         SrcPath   = "$($letters.Src):\"
-        BkpPath   = "$($letters.Bkp):\"
-        ChgPath   = "$($letters.Chg):\"
+        BkpPath   = "$($letters.Store):\Backup"
+        ChgPath   = "$($letters.Store):\Changes"
         ReconPath = "$($letters.Recon):\"
         PhysSrc   = $phys.Src
-        PhysBkp   = $phys.Bkp
-        PhysChg   = $phys.Chg
+        PhysBkp   = Join-Path $phys.Store 'Backup'
+        PhysChg   = Join-Path $phys.Store 'Changes'
         PhysRecon = $phys.Recon
-        UsedLetters = @($letters.Src, $letters.Bkp, $letters.Chg, $letters.Recon)
+        UsedLetters = @($letters.Src, $letters.Store, $letters.Recon)
         Dispose   = {
-            foreach ($l in @($letters.Src, $letters.Bkp, $letters.Chg, $letters.Recon)) {
+            foreach ($l in @($letters.Src, $letters.Store, $letters.Recon)) {
                 cmd /c "subst ${l}: /d" 2>&1 | Out-Null
             }
         }.GetNewClosure()
@@ -90,8 +91,7 @@ function New-VhdxEnv {
 
     $vols = @(
         @{ Name='FBTEST-SRC'; SizeGB=2 },
-        @{ Name='FBTEST-BKP'; SizeGB=4 },
-        @{ Name='FBTEST-CHG'; SizeGB=4 },
+        @{ Name='FBTEST-BKP'; SizeGB=8 },
         @{ Name='FBTEST-RCN'; SizeGB=4 }
     )
     $mounted = @()
@@ -116,8 +116,8 @@ function New-VhdxEnv {
         Backend   = 'VHDX'
         Root      = $Root
         SrcPath   = "$($byLabel['FBTEST-SRC'].Letter):\"
-        BkpPath   = "$($byLabel['FBTEST-BKP'].Letter):\"
-        ChgPath   = "$($byLabel['FBTEST-CHG'].Letter):\"
+        BkpPath   = "$($byLabel['FBTEST-BKP'].Letter):\Backup"
+        ChgPath   = "$($byLabel['FBTEST-BKP'].Letter):\Changes"
         ReconPath = "$($byLabel['FBTEST-RCN'].Letter):\"
         Mounted   = $mounted
         Dispose   = {
@@ -148,19 +148,21 @@ function New-RealUsbEnv {
 
     $src = Resolve-Label $cfg.Source.Label  $cfg.Source.MinSizeGB
     $bkp = Resolve-Label $cfg.Backup.Label  $cfg.Backup.MinSizeGB
-    $chg = Resolve-Label $cfg.Changes.Label $cfg.Changes.MinSizeGB
     $rcn = Resolve-Label $cfg.Recon.Label   $cfg.Recon.MinSizeGB
 
-    # Wipe contents (but never reformat)
-    foreach ($p in @($src,$bkp,$chg,$rcn)) {
+    # Wipe contents (but never reformat). The Changes volume of older
+    # real-volumes.json files is no longer used: Backup and Changes are two
+    # folders on the Backup volume (R8).
+    foreach ($p in @($src,$bkp,$rcn)) {
         Get-ChildItem -LiteralPath $p -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
+    New-Item -ItemType Directory -Path (Join-Path $bkp 'Backup'), (Join-Path $bkp 'Changes') -Force | Out-Null
 
     [pscustomobject]@{
         Backend   = 'RealUSB'
         SrcPath   = $src
-        BkpPath   = $bkp
-        ChgPath   = $chg
+        BkpPath   = (Join-Path $bkp 'Backup')
+        ChgPath   = (Join-Path $bkp 'Changes')
         ReconPath = $rcn
         Dispose   = { }
     }
@@ -176,7 +178,7 @@ function Remove-TestEnvironment {
 function Reset-TestEnvironment {
     <#
     .SYNOPSIS
-        Clears the four volumes between scenarios without re-mounting, and
+        Clears the four test folders between scenarios without re-mounting, and
         PROVES they are clear.
 
     .DESCRIPTION
@@ -188,8 +190,8 @@ function Reset-TestEnvironment {
         subsequent backup REFUSE, which is how the 2026-08-26 Full-tier
         intermittent presented: G9 fixture backups exiting 1 and their
         assertions failing several steps downstream with 'Condition returned
-        false'. G5.1 creates such a Temp on purpose, and prune takes a Temp lock
-        of its own, so there is always something here worth failing to delete.
+        false'. Prune takes a Temp lock of its own, so there is always something
+        here worth failing to delete.
 
         Now: bounded retries for a transient lock, then a LOUD, named failure
         listing exactly what survived. A dirty environment must never be handed
@@ -210,8 +212,7 @@ function Reset-TestEnvironment {
             $names = ($left | ForEach-Object { $_.Name }) -join ', '
             Add-TestResult 'harness' 'Environment' 'reset' 'EnvironmentNotClean' 'FAIL' `
                 ("could not clear '$p' after 5 attempts; $($left.Count) item(s) survived: $names. " +
-                 "Every assertion in the scenario that follows is built on a dirty environment - " +
-                 "a surviving 'Temp' makes each backup refuse on the SR-017 stale-staging guard.")
+                 "Every assertion in the scenario that follows is built on a dirty environment.")
         }
     }
 }

@@ -49,47 +49,6 @@ Describe 'Test-HashRecalcDue' {
     }
 }
 
-Describe 'Compare-SourceToBackup' {
-    BeforeAll { $t = Get-Date '2026-01-01' }
-
-    It 'flags new files' {
-        $src = @( (New-Row 'a' 1 'H' $t) )
-        $diff = Compare-SourceToBackup -SourceDb $src -BackupDb @()
-        $diff.NewOrChanged.Count | Should -Be 1
-        $diff.RemovedFromSource.Count | Should -Be 0
-    }
-    It 'flags removed files' {
-        $bkp = @( (New-Row 'gone' 1 'H' $t) )
-        $diff = Compare-SourceToBackup -SourceDb @() -BackupDb $bkp
-        $diff.RemovedFromSource.Count | Should -Be 1
-    }
-    It 'ignores unchanged files' {
-        $row = New-Row 'same' 10 'H1' $t
-        # A real backup row always carries a DataPath (the manifest schema);
-        # WP7 treats a BLANK one as damage to heal, so the unchanged case must
-        # be modeled with the column populated.
-        $bkpRow = $row | Select-Object *
-        $bkpRow | Add-Member -NotePropertyName DataPath -NotePropertyValue 'same' -Force
-        $diff = Compare-SourceToBackup -SourceDb @($row) -BackupDb @($bkpRow)
-        $diff.NewOrChanged.Count | Should -Be 0
-        $diff.RemovedFromSource.Count | Should -Be 0
-
-        # WP7 (SR-053): the same metadata with a BLANK DataPath is not
-        # "unchanged" — it re-enters the diff so the run can heal it.
-        $bkpRow.DataPath = ''
-        (Compare-SourceToBackup -SourceDb @($row) -BackupDb @($bkpRow)).NewOrChanged.Count | Should -Be 1
-    }
-    It 'detects a content change (hash differs)' {
-        $s = New-Row 'f' 10 'NEW' $t
-        $b = New-Row 'f' 10 'OLD' $t
-        $diff = Compare-SourceToBackup -SourceDb @($s) -BackupDb @($b)
-        $diff.NewOrChanged.Count | Should -Be 1
-    }
-    It 'tolerates null inputs' {
-        { Compare-SourceToBackup -SourceDb $null -BackupDb $null } | Should -Not -Throw
-    }
-}
-
 Describe 'Test-IsInfrastructureFile' {
     It 'flags root-level infrastructure files' {
         $root = Join-Path $TestDrive 'bk'; New-Item -ItemType Directory -Path $root | Out-Null
@@ -116,36 +75,35 @@ Describe 'Test-IsInfrastructureFile' {
     }
 }
 
-Describe 'External source state' {
-    It 'keeps the cache outside the source and treats a root MANIFEST.csv as user data' {
+Describe 'The source walk and the retired source-side record (plan R3, C6)' {
+    It 'treats a root MANIFEST.csv as user data when SourceStatePath points elsewhere' {
         $source = Join-Path $TestDrive 'external-state-source'
-        $state = Join-Path $TestDrive 'external-state-cache'
-        New-Item -ItemType Directory -Path $source,$state | Out-Null
+        New-Item -ItemType Directory -Path $source | Out-Null
         Set-Content -LiteralPath (Join-Path $source 'sample.txt') -Value 'sample'
         Set-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Value 'user-owned data'
-
-        $rows = @(Update-SourceManifest -SourcePath $source -ManifestFolderPath $state)
-
-        $rows.Count | Should -Be 2
-        $rows.RelativePath | Should -Contain 'MANIFEST.csv'
-        Test-Path -LiteralPath (Join-Path $state 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
-        (Get-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Raw).Trim() | Should -Be 'user-owned data'
+        $walk = Get-SourceFileList -SourcePath $source -ExcludeRootInfrastructure $false
+        @($walk.Files | ForEach-Object RelativePath) | Sort-Object | Should -Be @('MANIFEST.csv', 'sample.txt')
     }
 
-    It 'rejects a state cache nested inside the source tree' {
+    It 'keeps the old in-source record out of the backup, but not a nested file of that name (C6, B6)' {
+        $source = Join-Path $TestDrive 'in-source-record'
+        New-Item -ItemType Directory -Path (Join-Path $source 'sub') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Value 'old record'
+        Set-Content -LiteralPath (Join-Path $source 'sub\MANIFEST.csv') -Value 'user data'
+        $walk = Get-SourceFileList -SourcePath $source -ExcludeRootInfrastructure $true
+        @($walk.Files | ForEach-Object RelativePath) | Should -Be @('sub\MANIFEST.csv')
+    }
+
+    It 'neither creates nor refuses a SourceStatePath, which is no longer written' {
         $source = Join-Path $TestDrive 'nested-state-source'
-        $backup = Join-Path $TestDrive 'nested-state-backup'
-        $changes = Join-Path $TestDrive 'nested-state-changes'
         New-Item -ItemType Directory -Path $source | Out-Null
         $set = [pscustomobject]@{
-            Name = 'UnsafeState'
-            SourcePath = $source
-            SourceStatePath = (Join-Path $source '.state')
-            BackupPath = $backup
-            ChangePath = $changes
+            Name = 'OldState'; SourcePath = $source; SourceStatePath = (Join-Path $source '.state')
+            BackupPath = (Join-Path $TestDrive 'nested-state-backup'); ChangePath = (Join-Path $TestDrive 'nested-state-changes')
         }
-
-        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage '*must not be inside SourcePath*'
+        $paths = Resolve-BackupSetPaths -Set $set
+        $paths.SrcStatePath | Should -Be (Join-Path $source '.state')
+        Test-Path -LiteralPath (Join-Path $source '.state') | Should -BeFalse
     }
 }
 

@@ -8,18 +8,20 @@ function Invoke-G5 {
     $cfg = Join-Path $Env.Root 'cfg-g5.xml'
     Write-TestConfig $cfg $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
 
-    # G5.1 pre-existing Temp staging folder must abort
+    # G5.1 an older engine's Temp staging folder is left alone with a warning,
+    # and the run carries on (bounded-run-loop plan R1, §8): it may hold the
+    # only copy of superseded content, and this engine never uses it.
     Reset-TestEnvironment $Env
-    New-Item -ItemType Directory -Path (Join-Path $Env.ChgPath 'Temp') -Force | Out-Null
-    Assert-True $suite $group 'G5.1' 'PreexistingTemp_throws' {
-        try {
-            Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
-            $log = Join-Path $Env.ChgPath 'backup.log'
-            if (Test-Path -LiteralPath $log) {
-                return [bool](Select-String -LiteralPath $log -Pattern 'staging folder' -Quiet)
-            }
-            return $false
-        } catch { return $true }
+    $oldTemp = Join-Path $Env.ChgPath 'Temp'
+    New-Item -ItemType Directory -Path $oldTemp -Force | Out-Null
+    New-TestFile (Join-Path $oldTemp 'keep-me.bin') 'only copy'
+    New-TestFile (Join-Path $Env.SrcPath 'g51.txt') 'G51'
+    Assert-True $suite $group 'G5.1' 'PreexistingTemp_leftAlone' {
+        Invoke-Backup -BackupScriptPath $BackupScript -ConfigPath $cfg | Out-Null
+        $log = Join-Path $Env.ChgPath 'backup.log'
+        (Test-Path -LiteralPath (Join-Path $oldTemp 'keep-me.bin')) -and
+            [bool](Select-String -LiteralPath $log -Pattern 'is left alone' -Quiet) -and
+            ($null -ne (Get-ManifestRow (Join-Path $Env.BkpPath 'MANIFEST.csv') 'g51.txt'))
     }
 
     # G5.4 read-only file in source

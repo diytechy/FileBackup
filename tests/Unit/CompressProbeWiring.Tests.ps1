@@ -9,11 +9,15 @@
            HOW THESE CASES REACH THE ENGINE (plan section 5). The suites drive
            backups through FileBackup.ps1, which re-imports both modules with
            -Force and thereby discards any Mock -ModuleName injected earlier.
-           Cases that need a seam therefore call Invoke-BackupFileGroup
-           DIRECTLY in-process, where Mock -ModuleName FileBackup.Engine has
-           precedent (Coverage.Tests.ps1:1862); cases about the whole run
-           (TC-224's Q7 pin, TC-227's exit codes) go through the entry point
-           and assert on the manifest and the process status instead.
+           Cases that need a seam therefore call Invoke-SourceFileCapture - the
+           bounded run's per-file capture - DIRECTLY in-process; cases about
+           the whole run (TC-224's Q7 pin, TC-227's exit codes) go through the
+           entry point and assert on the manifest and the process status.
+
+           The form is decided from the STAGED copy (bounded-run-loop plan
+           section 4), which is always readable, so the old cases about a locked
+           or unsampleable owner (part of TC-226, TC-228's real-lock arm) no
+           longer arise; the mocked "no measurement" arm of TC-228 still does.
 
            Every fixture is built from a SEEDED Random and fixed text, so the
            measured ratios are deterministic on a given runtime: random 1.000,
@@ -66,50 +70,45 @@ BeforeAll {
     function New-ProbeGroup {
         <#
         .SYNOPSIS
-            Builds src/bkp roots plus the (hash,length) group rows for one
-            content, under one or more member names, ready for a direct
-            Invoke-BackupFileGroup call.
+            Builds src/bkp/chg roots and one or more source files holding the
+            same content, ready for Invoke-ProbeGroup.
         #>
         param([string]$Label, [string[]]$Name, [byte[]]$Bytes)
         $root = Join-Path $TestDrive ($Label + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
-        $rows = foreach ($n in $Name) {
-            $file = Join-Path $src $n
-            [IO.File]::WriteAllBytes($file, $Bytes)
-            [pscustomobject]@{
-                RelativePath = $n; Length = $Bytes.LongLength
-                xxH2Hash = (Get-FileXxHash -FilePath $file)
-                LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
-            }
-        }
-        [pscustomobject]@{ Root = $root; Src = $src; Bkp = $bkp; Group = @($rows) }
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        foreach ($n in $Name) { [IO.File]::WriteAllBytes((Join-Path $src $n), $Bytes) }
+        [pscustomobject]@{ Root = $root; Src = $src; Bkp = $bkp; Chg = $chg; Names = @($Name) }
     }
 
     function Invoke-ProbeGroup {
         <#
         .SYNOPSIS
-            Calls Invoke-BackupFileGroup directly and returns the resulting map,
-            the success flag and every log line (so a test can count WARNs and
-            read the compress-decision DEBUG line).
+            Captures each fixture file through Invoke-SourceFileCapture, in
+            order, and returns the rows, the success flag and every log line (so
+            a test can count WARNs and read the compress-decision DEBUG line).
         #>
         param([pscustomobject]$Fixture, [string]$Mode = 'always',
-              [bool]$CompressEnabled = $true, [object[]]$BackupDb = @(),
-              [hashtable]$Stats, [Nullable[int]]$RetryBudgetMs)
+              [bool]$CompressEnabled = $true, [hashtable]$Stats)
         $logs = [System.Collections.Generic.List[object]]::new()
         $log = { param($m, $l = 'INFO') $logs.Add([pscustomobject]@{ Message = $m; Level = $l }) }.GetNewClosure()
-        $map = @{}; $changed = 0; $ok = $true
-        $extra = @{}
-        if ($Stats) { $extra['ProbeStats'] = $Stats }
-        # A zero budget makes an unreadable source fail on its first attempt:
-        # the engine's retry waits are real Start-Sleep calls, and a test must
-        # not synchronize on them (or pay for them).
-        if ($null -ne $RetryBudgetMs) { $budget = [int]$RetryBudgetMs; $extra['RetryBudgetMs'] = [ref]$budget }
-        Invoke-BackupFileGroup -Group $Fixture.Group -SrcPath $Fixture.Src -BkpPath $Fixture.Bkp `
-            -CompressEnabled $CompressEnabled -SevenZipPath $script:sevenZip -BackupDb $BackupDb `
-            -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) -Log $log `
-            -OverallSuccess ([ref]$ok) -CompressProbe $Mode @extra
-        [pscustomobject]@{ Map = $map; Ok = $ok; Changed = $changed; Logs = $logs }
+        $incoming = Join-Path $Fixture.Chg 'Incoming'
+        [void][IO.Directory]::CreateDirectory($incoming)
+        if (-not $Stats) { $Stats = InModuleScope FileBackup.Engine { New-ProbeStatistic } }
+        $context = [pscustomobject]@{
+            BackupRoot = $Fixture.Bkp; Incoming = $incoming; LocalTemp = $null; LocalTempMax = [long]0
+            Set = [pscustomobject]@{ Name = 'P'; CompressEnabled = $CompressEnabled; CompressProbe = $Mode }
+            SevenZip = $script:sevenZip; Ffprobe = $null; Recalc = $false
+            Index = (Get-StoreObjectIndex -BackupRoot $Fixture.Bkp -ChangeRoot $Fixture.Chg)
+            ProbeStats = $Stats; Log = $log; Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }
+        }
+        $map = @{}; $ok = $true
+        foreach ($n in $Fixture.Names) {
+            $item = [pscustomobject]@{ RelativePath = $n; File = [IO.FileInfo]::new((Join-Path $Fixture.Src $n)) }
+            $result = Invoke-SourceFileCapture -Item $item -PriorRow $null -Context $context
+            if ($null -ne $result.Row) { $map[$n] = $result.Row } else { $ok = $false }
+        }
+        [pscustomobject]@{ Map = $map; Ok = $ok; Changed = $map.Count; Logs = $logs }
     }
 
     function New-ProbeClixmlConfig {
@@ -259,7 +258,7 @@ Describe 'Q7: the bytes decide, not the name (SR-004, SR-081, TC-224)' {
 }
 
 Describe 'Mode always measures every name above the floor (SR-081, TC-225)' {
-    # The finding itself. Driven at Invoke-BackupFileGroup: the negative control
+    # The finding itself. Driven at Invoke-SourceFileCapture: the negative control
     # needs the probe seam, and FileBackup.ps1 re-imports the modules with
     # -Force, discarding any module mock (plan section 5).
     It 'stores <Kind> under <Name> as <Ext> (<Compressed>) (TC-225)' -ForEach @(
@@ -305,7 +304,7 @@ Describe 'Mode always measures every name above the floor (SR-081, TC-225)' {
     }
 }
 
-Describe 'The probe is lazy and memoized at group scope (SR-081, LLR-058, TC-226)' {
+Describe 'The probe is lazy: content already stored is never probed (SR-081, LLR-058, TC-226)' {
     BeforeEach {
         # Incompressible: the arms below assert CALL COUNTS, so the verdict only
         # has to be stable. The literal is inline because a -ModuleName mock body
@@ -316,87 +315,25 @@ Describe 'The probe is lazy and memoized at group scope (SR-081, LLR-058, TC-226
         }
     }
 
-    It 'never probes for a prior-backup dedup hit (TC-226)' {
-        $fx = New-ProbeGroup -Label 'tc226-hit' -Name @('a.qqq') -Bytes (New-ProbeContent -Kind 'random')
-        $existing = @([pscustomobject]@{
-            DataPath = 'already.qqq'; RelativePath = 'a.qqq'; Length = $fx.Group[0].Length
-            xxH2Hash = $fx.Group[0].xxH2Hash; Compressed = 'No'; StoredAsHashSize = 'Hash'
-            Duplicate = 'No'; MediaMBPerSec = '' })
-        $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always' -BackupDb $existing
-        $r.Map['a.qqq'].DataPath | Should -Be 'already.qqq'
-        # I-3: an object dedup already located is adopted BEFORE the probe is
-        # ever consulted, so no stored object's form is re-decided.
+    It 'never probes for content the backup already holds (TC-226)' {
+        $bytes = New-ProbeContent -Kind 'random'
+        $fx = New-ProbeGroup -Label 'tc226-hit' -Name @('a.qqq') -Bytes $bytes
+        $hash = Get-FileXxHash -FilePath (Join-Path $fx.Src 'a.qqq')
+        $already = Get-HashSizeFileName -HashHex $hash -Length $bytes.LongLength -Extension '.qqq'
+        [IO.File]::WriteAllBytes((Join-Path $fx.Bkp $already), $bytes)
+        $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always'
+        $r.Map['a.qqq'].DataPath | Should -Be $already
+        # I-3: an object already stored is adopted without the probe ever being
+        # consulted, so no stored object's form is re-decided.
         Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 0 -Exactly
     }
 
-    It 'probes exactly once for a group of in-run twins (TC-226)' {
+    It 'probes exactly once for twins first seen in one run (TC-226)' {
         $fx = New-ProbeGroup -Label 'tc226-twin' -Name @('a.qqq', 'b.qqq') -Bytes (New-ProbeContent -Kind 'random')
         $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always'
         $r.Map['a.qqq'].DataPath | Should -Be $r.Map['b.qqq'].DataPath
         Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 1 -Exactly
-    }
-
-    It 'probes ONCE and warns at most once when the first member''s copy fails and the second succeeds (TC-226)' {
-        # The memo is what makes this true: the write branch is INSIDE the member
-        # loop and a failed member `continue`s with the written-object memo still
-        # null, so a naive lazy expression would re-probe and re-WARN per member.
-        # The copy mock fails BOTH candidates for the first member (a
-        # NON-transient message, so no retry and no sleep) and succeeds after.
-        $env:FB_TC226_COPYCALLS = '0'
-        try {
-            Mock -ModuleName FileBackup.Engine Copy-SourceFileToBackup {
-                $n = [int]$env:FB_TC226_COPYCALLS + 1
-                $env:FB_TC226_COPYCALLS = "$n"
-                if ($n -le 2) { return "destination '$BackupFilePath' is a directory; refusing to copy into it" }
-                Copy-Item -LiteralPath $SourceFilePath -Destination $BackupFilePath -Force
-                return 0
-            }
-            $fx = New-ProbeGroup -Label 'tc226-fail' -Name @('a.qqq', 'b.qqq') -Bytes (New-ProbeContent -Kind 'random')
-            $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always'
-            # The first member failed (no row); the second wrote the object.
-            $r.Map.ContainsKey('a.qqq') | Should -BeFalse
-            $r.Map['b.qqq'] | Should -Not -BeNullOrEmpty
-            Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 1 -Exactly
-            # (The WARN count is not asserted here: this arm's probe always
-            # yields a measurement, so ProbeUnavailable never fires and "at most
-            # one" would pass on zero. The honest one-WARN arm is the next
-            # Describe - review R-12.)
-            # One decision line for the one group that was written.
-            @($r.Logs | Where-Object { $_.Message -like 'compress-decision:*' }).Count | Should -Be 1
-        } finally { Remove-Item Env:\FB_TC226_COPYCALLS -ErrorAction SilentlyContinue }
-    }
-
-}
-
-Describe 'The memo warns ONCE even when a member''s copy fails (SR-081, LLR-058, TC-226)' {
-    # R-12's honest arm: the previous Describe's probe always measures, so
-    # "at most one WARN" there passes on zero. Here the probe yields NO
-    # measurement for every call, so the ProbeUnavailable WARN really is
-    # reachable - and the group-scope memo is what keeps it to exactly one
-    # across a failing member and a succeeding twin.
-    It 'emits exactly one probe WARN and one ProbeUnavailable line across a failed member and its twin (TC-226, R-12)' {
-        Mock -ModuleName FileBackup.Engine Measure-SampleCompressibility { $null }
-        $env:FB_TC226_COPYCALLS = '0'
-        try {
-            # Fails BOTH candidates of the first member (a NON-transient message,
-            # so no retry and no sleep), then succeeds - the same mechanism the
-            # laziness arm uses.
-            Mock -ModuleName FileBackup.Engine Copy-SourceFileToBackup {
-                $n = [int]$env:FB_TC226_COPYCALLS + 1
-                $env:FB_TC226_COPYCALLS = "$n"
-                if ($n -le 2) { return "destination '$BackupFilePath' is a directory; refusing to copy into it" }
-                Copy-Item -LiteralPath $SourceFilePath -Destination $BackupFilePath -Force
-                return 0
-            }
-            $fx = New-ProbeGroup -Label 'tc226-warnonce' -Name @('a.qqq', 'b.qqq') -Bytes (New-ProbeContent -Kind 'random')
-            $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always'
-            $r.Map.ContainsKey('a.qqq') | Should -BeFalse
-            $r.Map['b.qqq'] | Should -Not -BeNullOrEmpty
-            @($r.Logs | Where-Object { $_.Level -eq 'WARN' -and $_.Message -like '*compressibility probe*' }).Count |
-                Should -Be 1 -Because 'the memo survives the failing member''s continue'
-            @($r.Logs | Where-Object { $_.Message -like 'compress-decision:*ProbeUnavailable*' }).Count |
-                Should -Be 1
-        } finally { Remove-Item Env:\FB_TC226_COPYCALLS -ErrorAction SilentlyContinue }
+        @($r.Logs | Where-Object { $_.Message -like 'compress-decision:*' }).Count | Should -Be 1
     }
 }
 
@@ -417,11 +354,11 @@ Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-08
             -Because 'the vocabulary is checked before the probe, not after it'
     }
 
-    It 'refuses a hand-built set at step 10, before the group loop (TC-227, R-10)' {
+    It 'refuses a hand-built set with 2 before anything is read (TC-227, R-10)' {
         # Invoke-BackupSet directly (the entry point re-imports the module and
         # would tear down the mock, plan section 5): a set object that never went
-        # through the config validator carries 'Always', and step 10 refuses it
-        # with the SR-042 wording BEFORE a single group is copied.
+        # through the config validator carries 'Always', and the run refuses it
+        # with the SR-042 wording BEFORE a single file is captured.
         Mock -ModuleName FileBackup.Engine Measure-SampleCompressibility {
             [pscustomobject]@{ SampledBytes = [long]786432; CompressedBytes = [long]786432
                                Windows = @(1.0, 1.0, 1.0); Ratio = 1.0 }
@@ -435,10 +372,11 @@ Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-08
             HashRecalcFreq = 'A'; CompressEnabled = $true; AllowEmptySource = $false
             BrowseView = 'off'; ViewPath = ''; CompressProbe = 'Always'
         }
-        $ok = $true; $logs = New-Object System.Collections.Generic.List[string]
-        { Invoke-BackupSet -Set $set -Deps @{ '7z' = $script:sevenZip; 'ffprobe' = $null } `
-            -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01') } |
-            Should -Throw -ExpectedMessage "*Backup set 'R10' has invalid CompressProbe 'Always'*"
+        $logs = New-Object System.Collections.Generic.List[string]
+        Invoke-BackupSet -Set $set -Deps @{ '7z' = $script:sevenZip; 'ffprobe' = $null } `
+            -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01') | Should -Be 2
+        Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw |
+            Should -Match "Backup set 'R10' has invalid CompressProbe 'Always'"
         Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 0 -Exactly
         @(Get-ChildItem -LiteralPath $bkp -File -ErrorAction SilentlyContinue |
           Where-Object { $_.Name -like '*.qqq' -or $_.Name -like '*.7z' }) |
@@ -446,22 +384,18 @@ Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-08
     }
 }
 
-Describe 'A locked owner does not cost the group its measurement (SR-081, TC-226)' {
-    # The candidate walk (WP9 MIN-1, applied to the probe). No mock here: only
-    # the REAL probe can tell a locked handle from a readable one, so this arm
-    # proves the walk end to end rather than through a stub.
-    It 'samples the readable twin and does not report ProbeUnavailable (TC-226)' {
+Describe 'A locked twin does not cost the readable one its measurement (SR-081, TC-226)' {
+    # No mock here: only the REAL probe can tell a measured form from a default.
+    It 'captures and measures the readable twin while the locked one waits for its retry (TC-226)' {
         $fx = New-ProbeGroup -Label 'tc226-lock' -Name @('a.qqq', 'b.qqq') -Bytes (New-ProbeContent -Kind 'random')
         $hold = [IO.FileStream]::new((Join-Path $fx.Src 'a.qqq'), [IO.FileMode]::Open,
                                      [IO.FileAccess]::Read, [IO.FileShare]::None)
         try {
             $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always'
-            $r.Ok | Should -BeTrue
+            $r.Map.ContainsKey('a.qqq') | Should -BeFalse -Because 'a locked file is retried later (R12)'
             $line = @($r.Logs | Where-Object { $_.Message -like 'compress-decision:*' })[0].Message
-            $line | Should -Not -Match 'ProbeUnavailable'
-            # Random bytes: the twin really was measured, not defaulted.
             $line | Should -Match 'ProbeIncompressible'
-            $r.Map['a.qqq'].Compressed | Should -Be 'No'
+            $r.Map['b.qqq'].Compressed | Should -Be 'No'
             @($r.Logs | Where-Object { $_.Level -eq 'WARN' -and $_.Message -like '*compressibility probe*' }) |
                 Should -BeNullOrEmpty
         } finally { $hold.Dispose() }
@@ -486,35 +420,6 @@ Describe 'A group nothing can sample falls back to the list, never to a failure 
         @($r.Logs | Where-Object { $_.Message -like 'compress-decision:*ProbeUnavailable*' }).Count | Should -Be 1
     }
 
-    It 'holds a REAL FileShare.None handle on every member: one probe WARN, no probe exception (TC-228)' {
-        # The honest end of the real-lock case. If NO member can be opened then
-        # the copy cannot read them either, so this group legitimately fails to
-        # copy (SR-067's ordinary ERROR, which marks the set failed). What
-        # TC-228 pins is that the PROBE contributes exactly one WARN and no
-        # exception, and that the copy's failure is the ordinary one.
-        $fx = New-ProbeGroup -Label 'tc228-lock' -Name @('a.qqq', 'b.qqq') -Bytes (New-ProbeContent -Kind 'random')
-        $holds = foreach ($n in 'a.qqq', 'b.qqq') {
-            [IO.FileStream]::new((Join-Path $fx.Src $n), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
-        }
-        try {
-            $r = $null
-            { $script:tc228 = Invoke-ProbeGroup -Fixture $fx -Mode 'always' -RetryBudgetMs 0 } | Should -Not -Throw
-            $r = $script:tc228
-            @($r.Logs | Where-Object { $_.Level -eq 'WARN' -and $_.Message -like '*compressibility probe*' }).Count |
-                Should -Be 1
-            # The decision took the list's answer, and it is the ONLY probe
-            # verdict this group produced.
-            @($r.Logs | Where-Object { $_.Message -like '*compressibility probe*' -and $_.Message -like '*extension list*' }).Count |
-                Should -Be 1
-            # The copy failed the ordinary way: SR-067's ERROR naming the copy,
-            # not a probe error, and the set is marked failed rather than the
-            # run throwing.
-            $err = @($r.Logs | Where-Object { $_.Level -eq 'ERROR' })
-            $err.Count | Should -Be 2
-            foreach ($e in $err) { $e.Message | Should -Match 'Failed to copy/compress' }
-            $r.Ok | Should -BeFalse
-        } finally { foreach ($h in $holds) { $h.Dispose() } }
-    }
 }
 
 Describe 'The CompressProbe configuration key (SR-042, SR-063, SR-081, TC-227)' {
@@ -613,12 +518,11 @@ Describe 'The CompressProbe configuration key (SR-042, SR-063, SR-081, TC-227)' 
                   Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] })[0].ValidValues
             }
             [pscustomobject]@{
-                Group    = @(& $read 'Invoke-BackupFileGroup' 'CompressProbe')
                 Decision = @(& $read 'Resolve-CompressionDecision' 'Mode')
                 Form     = @(& $read 'Resolve-GroupStorageForm' 'Mode')
             }
         }
-        foreach ($v in $sets.Group, $sets.Decision, $sets.Form) {
+        foreach ($v in $sets.Decision, $sets.Form) {
             (@($v) -join '|') | Should -BeExactly ($expected -join '|')
         }
     }
