@@ -6129,3 +6129,23 @@ re-classify, a killed run's staging without a person, and without losing the
 superseded bytes it holds. Recorded as follow-up 6 of
 [defect-review-2026-10-05-content-index-memory.md](defect-review-2026-10-05-content-index-memory.md);
 it gates the watchdog's reboot phase. Not designed yet.
+
+**2026-10-24: ai-template authoring skills copied onto this branch (BoundedRebuild).**
+At the Owner's request, copied verbatim from ai-template at `aa1215540`
+(2026-10-23), before this branch's own work starts:
+- `.claude/skills/spine-authoring/`, with `references/in-lane.md`;
+- `.claude/skills/deep-module-design/`;
+- `.claude/skills/subagent-brief/`;
+- `.claude/skills/autonomous-gate-operations/`;
+- `prompts/spine-questions.md`, the question list `spine-authoring` cites at
+  `prompts/`.
+
+This is a partial copy, not a kit resync. `docs/kit-version` is unchanged,
+and the three process skills already here (gate-advance, registry-hygiene,
+downstream-resync) keep their older versions. The copied skills mention kit
+tooling this repo doesn't have: `hats.py`, `check.py`, `docs/process.toml`,
+`docs/archive/last_approved/` (spine-authoring), and `check_complexity.py`
+and `check_readability.py` (deep-module-design). Read those mentions as
+guidance, not as runnable steps. No design rows, rulings or method files
+from `DirectRebuild` were brought over; this branch stays the independent
+comparison.
