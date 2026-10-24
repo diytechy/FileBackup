@@ -92,7 +92,8 @@ repo's own harness does exactly this — `scripts/Invoke-Container.ps1`.) `verif
 `FILEBACKUP_REPAIR=1`) audits storage form across the live backup and every
 snapshot without mutating anything unless repair is requested; it also reports
 duplicate objects (`DuplicateObject`) and, under `-Deep`, damaged ones
-(`DamagedObject`), which repair MOVES into `/store/changes/Verify/` — nothing is
+(`DamagedObject`; one it could not check is `UnverifiedObject` and is never
+moved), which repair MOVES into `/store/changes/Verify/` — nothing is
 deleted.
 
 **Exit-code table** — one vocabulary for backup, restore (`RECONSTRUCT.cmd` /

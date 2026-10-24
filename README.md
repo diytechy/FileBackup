@@ -329,7 +329,8 @@ Each finding names the folder, the row, and a class:
 | `BlankRowFormDisagreement` | A row that resolves by content hash, whose `Compressed` disagrees with the copy the restore would find. Harmless with a current restore kit — see below. | no |
 | `Unreferenced` | A data file in the folder that no manifest row names. | no |
 | `DuplicateObject` | The same content is stored in a second folder (stores written by older versions). The copy kept is the latest state's, else the newest snapshot's. | yes — moved |
-| `DamagedObject` | `-Deep` only: a stored object whose bytes do not hash to the content its name records. | yes — moved |
+| `DamagedObject` | `-Deep` only: a stored object whose bytes were read (or expanded) completely and do not hash to the content its name records. | yes — moved |
+| `UnverifiedObject` | `-Deep` only: a stored object that could not be checked — a read or a 7-Zip expand failed, which can be a corrupt archive or a host problem such as a full volume. Nothing is moved on a guess. `-Deep` without 7-Zip is refused before any object is checked. | no |
 
 A row whose named data file has moved to another folder of the pool is **not** a
 finding: snapshots are written once, so this happens whenever content that was

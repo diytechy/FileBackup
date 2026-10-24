@@ -51,11 +51,12 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 12. `Invoke-LibraryCapture` — Walks the source and captures every file into the latest state (plan
 13. `Publish-LatestState` — Finishes the latest state (plan step 6): the final manifest and the
 14. `Test-StateChanged` — Whether a run changed the latest state (plan step 7, R7): a row was
-15. `Move-SupersededObject` — Moves every object in the backup root that no row of the final manifest
-16. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
-17. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
-18. `Test-BackupDiskFull` — True when an error record is the destination running out of space,
-19. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
+15. `Remove-UnchangedSnapshot` — Removes the snapshot a run built when the run changed no row (plan
+16. `Move-SupersededObject` — Moves every object in the backup root that no row of the final manifest
+17. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
+18. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
+19. `Test-BackupDiskFull` — True when an error record is the destination running out of space,
+20. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -183,6 +184,7 @@ Imports (internal): `Common`
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
 | `Get-StoredObjectCompressedFlag` | no | SR-068, LLR-068 |
 | `Get-StoredObjectPrefix` | yes | SR-069, LLR-069 |
+| `Get-StoredObjectVerdict` | yes | SR-049, SR-068, LLR-049 |
 | `Get-StoreObjectFinding` | yes | SR-003, SR-049, LLR-049 |
 | `Get-StoreObjectIndex` | yes | SR-003, SR-053, SR-108 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
@@ -209,6 +211,7 @@ Imports (internal): `Common`
 | `Read-PriorStateForRun` | no | SR-042, SR-061, SR-081, LLR-014 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
+| `Remove-UnchangedSnapshot` | no | SR-100, LLR-150 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
@@ -231,7 +234,6 @@ Imports (internal): `Common`
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
 | `Test-StateChanged` | no | SR-005, SR-100, LLR-005 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
-| `Test-StoredObjectBytes` | yes | SR-049, SR-068, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
 | `Write-ProbeStatistic` | no | SR-081, LLR-086 |

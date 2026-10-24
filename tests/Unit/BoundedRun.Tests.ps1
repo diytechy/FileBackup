@@ -317,6 +317,32 @@ Describe 'A kill at any stage leaves every state restorable, and the next run fi
     }
 }
 
+Describe 'An object a killed run left in the latest state goes back to the snapshot that names it (C10, C12)' {
+    It 'heals on the next run that keeps a snapshot, so retention sees every object again' {
+        $s = New-Store 'leftover'
+        Set-SourceFile $s 'keep.txt' 'keep'
+        Set-SourceFile $s 'edit.txt' 'old'
+        Invoke-Run $s '2026-05-01T10:00:00' | Should -Be 0
+        Set-SourceFile $s 'edit.txt' 'new'
+        Set-EngineVar 'BackupRunTestHook' ({ param($st, $ctx) if ($st -eq 'BeforeSupersededMove') { throw 'simulated kill' } })
+        Invoke-Run $s '2026-05-02T10:00:00' | Should -Be 4
+        Set-EngineVar 'BackupRunTestHook' $null
+        $snap = Join-Path $s.Chg 'Snapshot_2026_05_01_10_00_00'
+        $old = @((Get-PoolObject $s).GetEnumerator() | Where-Object { [IO.File]::ReadAllText($_.Value[0]) -eq 'old' })[0]
+        $old.Value[0] | Should -BeLike "$($s.Bkp)*" -Because 'the kill came before the superseded move'
+        @(Test-PoolResolves -BackupRoot $s.Bkp -ChangeRoot $s.Chg).Count | Should -BeGreaterThan 0 -Because 'retention cannot see the stranded object yet'
+
+        Set-SourceFile $s 'keep.txt' 'keep-2'
+        Invoke-Run $s '2026-05-03T10:00:00' | Should -Be 0
+        $pool = Get-PoolObject $s
+        $pool[$old.Key].Count | Should -Be 1
+        $pool[$old.Key][0] | Should -BeLike "$snap*" -Because 'it goes to the snapshot whose own rows name it'
+        @(Test-PoolResolves -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -BeNullOrEmpty
+        Format-State (Get-StateContent $s $snap) | Should -Be 'edit.txt=old;keep.txt=keep'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'edit.txt=new;keep.txt=keep-2'
+    }
+}
+
 Describe 'Progress checkpoints (R13)' {
     It 'saves captured rows during the loop, keeping the rows it has not reached' {
         $s = New-Store 'checkpoint'
@@ -412,6 +438,61 @@ Describe 'Corner cases warn and the run carries on (R1, C2)' {
     }
 }
 
+Describe 'A source that goes away is no state of the source (plan section 6)' {
+    It 'stops with 4 and keeps the latest state when the source root disappears mid-run' {
+        $s = New-Store 'src-vanish'
+        foreach ($n in 'a', 'b', 'c', 'd') { Set-SourceFile $s "$n.txt" "one-$n" }
+        Invoke-Run $s '2026-06-01T10:00:00' | Should -Be 0
+        foreach ($n in 'a', 'b', 'c', 'd') { Set-SourceFile $s "$n.txt" "two-$n" }
+        $away = "$($s.Src)-unplugged"
+        $src = $s.Src
+        # The drive goes away after the first file is captured.
+        Set-EngineVar 'BackupRunTestHook' ({ param($st, $ctx) if ($st -eq 'AfterFileCaptured' -and (Test-Path -LiteralPath $src)) { Rename-Item -LiteralPath $src -NewName (Split-Path $away -Leaf) } }.GetNewClosure())
+        Invoke-Run $s '2026-06-02T10:00:00' | Should -Be 4
+        Set-EngineVar 'BackupRunTestHook' $null
+        @(Read-Manifest -FolderPath $s.Bkp).Count | Should -Be 4 -Because 'the latest state still lists every file'
+        Rename-Item -LiteralPath $away -NewName (Split-Path $src -Leaf)
+        Invoke-Run $s '2026-06-03T10:00:00' | Should -Be 0
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=two-a;b.txt=two-b;c.txt=two-c;d.txt=two-d'
+    }
+    It 'keeps every earlier row when the source root cannot be listed, and reports 1' -Skip:(-not $IsWindows) {
+        $s = New-Store 'src-denied'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'sub\b.txt' 'bravo'
+        Invoke-Run $s '2026-06-04T10:00:00' | Should -Be 0
+        icacls $s.Src /deny "${env:USERNAME}:(OI)(CI)(RD)" | Out-Null
+        try {
+            Invoke-Run $s '2026-06-05T10:00:00' | Should -Be 1
+        } finally {
+            icacls $s.Src /remove:d "${env:USERNAME}" | Out-Null
+        }
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;sub\b.txt=bravo'
+    }
+}
+
+Describe 'Setting aside an unneeded snapshot never fails a finished run (SR-100)' {
+    It 'keeps the snapshot whole, and reports 0, when it cannot be set aside' {
+        $s = New-Store 'unneeded-held'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Invoke-Run $s '2026-07-01T10:00:00' | Should -Be 0
+        $snap = Join-Path $s.Chg 'Snapshot_2026_07_01_10_00_00'
+        $held = [ref]$null
+        Set-EngineVar 'BackupRunTestHook' ({ param($st, $ctx)
+            if ($st -eq 'AfterFinalManifest') { $held.Value = [IO.File]::Open((Join-Path $snap 'MANIFEST.csv'), 'Open', 'Read', 'None') }
+        }.GetNewClosure())
+        try {
+            Invoke-Run $s '2026-07-02T10:00:00' | Should -Be 0 -Because 'the run finished; the snapshot is only redundant'
+        } finally {
+            Set-EngineVar 'BackupRunTestHook' $null
+            if ($held.Value) { $held.Value.Dispose() }
+        }
+        Test-Path -LiteralPath (Join-Path $snap 'MANIFEST.csv') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $snap 'RECONSTRUCT.ps1') | Should -BeTrue
+        Format-State (Get-StateContent $s $snap) | Should -Be 'a.txt=alpha'
+        @(Get-ChildItem -LiteralPath $s.Chg -Directory | Where-Object Name -like 'Building_*').Count | Should -Be 0
+    }
+}
+
 Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9, R10, C4)' {
     It 'reports a second copy, and -RepairStorage moves it into Verify while every state still restores' {
         $s = New-Store 'dups'
@@ -454,6 +535,7 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         Test-Path -LiteralPath (Join-Path $snap $alpha.Name) | Should -BeTrue
     }
     It 'keeps the good copy when the preferred one is damaged (-Deep)' {
+        if (-not (Test-Path -LiteralPath (Get-FileBackupDefaults).SevenZipDefaultPath -PathType Leaf)) { Set-ItResult -Skipped -Because '-Deep needs 7-Zip'; return }
         $s = New-Store 'damaged'
         Set-SourceFile $s 'a.txt' 'alpha'
         Set-SourceFile $s 'b.txt' 'bravo'
@@ -464,12 +546,42 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         $snap = Join-Path $s.Chg 'Snapshot_2026_08_01_10_00_00'
         Copy-Item -LiteralPath $alpha.FullName -Destination $snap
         [IO.File]::WriteAllText($alpha.FullName, 'alphX')       # same length, wrong bytes
-        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep)
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath)
         $found.Count | Should -Be 1
         $found[0].Class | Should -Be 'DamagedObject'
         $found[0].Path | Should -Be $alpha.FullName
         Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 1
         Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo-2'
+    }
+}
+
+Describe 'Verify moves nothing aside on missing evidence (R9, C4)' {
+    BeforeAll { $script:sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath }
+    It 'refuses -Deep without 7-Zip before any object is judged' {
+        $s = New-Store 'deep-no7z'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Invoke-Run $s '2026-09-01T10:00:00' | Should -Be 0
+        { Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $null } | Should -Throw -ExpectedMessage '*needs 7-Zip*'
+    }
+    It 'reports an archive that will not expand as unverified, and does not move it' {
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) { Set-ItResult -Skipped -Because '7-Zip not installed'; return }
+        $s = New-Store 'deep-unexpandable'
+        $s.Set.CompressEnabled = $true
+        Set-SourceFile $s 'big.txt' ('COMPRESSIBLE ' * 2000)
+        $logs = [System.Collections.Generic.List[string]]::new()
+        Invoke-BackupSet -Set $s.Set -Deps @{ '7z' = $sevenZip; ffprobe = $null } -LogPaths $logs -BackupTime ([datetime]'2026-09-02T10:00:00') | Should -Be 0
+        $archive = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object Name -like '*.7z')[0]
+        $archive | Should -Not -BeNullOrEmpty -Because 'the fixture needs a stored archive'
+        # Bytes 7-Zip cannot open, at the archive's own length: as a corrupt
+        # archive or a full scratch volume looks from here.
+        $len = $archive.Length
+        [IO.File]::WriteAllBytes($archive.FullName, [byte[]]::new($len))
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $sevenZip)
+        $found.Count | Should -Be 1
+        $found[0].Class | Should -Be 'UnverifiedObject'
+        $found[0].Repairable | Should -BeFalse
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 0
+        Test-Path -LiteralPath $archive.FullName | Should -BeTrue
     }
 }
 
@@ -498,10 +610,11 @@ Describe 'Verify and prune work on what the bounded run writes (R6, SR-045, SR-0
         }
     }
     It 'verifies clean: no storage-form, pool or object finding' {
+        if (-not (Test-Path -LiteralPath (Get-FileBackupDefaults).SevenZipDefaultPath -PathType Leaf)) { Set-ItResult -Skipped -Because '-Deep needs 7-Zip'; return }
         $s = New-ChurnedStore 'verify-clean'
         @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -BeNullOrEmpty
         @(Test-PoolResolves -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -BeNullOrEmpty
-        @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep) | Should -BeNullOrEmpty
+        @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath) | Should -BeNullOrEmpty
     }
     It 'prunes the <Which> snapshot, and every remaining state still restores' -ForEach @(
         @{ Which = 'oldest'; Index = 0 }, @{ Which = 'newest'; Index = 1 }

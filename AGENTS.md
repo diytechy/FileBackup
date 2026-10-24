@@ -205,6 +205,7 @@ Imports (internal): `Common`
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
 | `Get-StoredObjectCompressedFlag` | no | SR-068, LLR-068 |
 | `Get-StoredObjectPrefix` | yes | SR-069, LLR-069 |
+| `Get-StoredObjectVerdict` | yes | SR-049, SR-068, LLR-049 |
 | `Get-StoreObjectFinding` | yes | SR-003, SR-049, LLR-049 |
 | `Get-StoreObjectIndex` | yes | SR-003, SR-053, SR-108 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
@@ -231,6 +232,7 @@ Imports (internal): `Common`
 | `Read-PriorStateForRun` | no | SR-042, SR-061, SR-081, LLR-014 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
+| `Remove-UnchangedSnapshot` | no | SR-100, LLR-150 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
@@ -253,7 +255,6 @@ Imports (internal): `Common`
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
 | `Test-StateChanged` | no | SR-005, SR-100, LLR-005 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
-| `Test-StoredObjectBytes` | yes | SR-049, SR-068, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
 | `Write-ProbeStatistic` | no | SR-081, LLR-086 |

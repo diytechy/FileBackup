@@ -1591,17 +1591,25 @@ function Test-BackupStorageForm {
     return $all.ToArray()
 }
 
-function Test-StoredObjectBytes {
+function Get-StoredObjectVerdict {
     <#
     .SYNOPSIS
-        True when a stored object's bytes - expanded, for an archive this tool
-        made - hash to the content key its name carries.
+        Checks a stored object's bytes - expanded, for an archive this tool
+        made - against the content key its name carries, and says whether they
+        are good, proven damaged, or could not be checked.
 
     .DESCRIPTION
         An object whose file length equals its content length is read raw (that
         includes the user's own '.7z' stored as is, SR-068); a '.7z' of another
         length is expanded into a scratch file beside the change root, on the
         backup volume and never in RAM (the C-12 lesson), hashed and deleted.
+        A raw object of the wrong length is damaged by its size alone.
+
+        'Unverified' is the answer whenever the bytes could not be judged: no
+        7-Zip for an archive, a read or expand that failed. A failed expand can
+        be a corrupt archive or a host problem (a full scratch volume), and
+        7-Zip does not tell them apart, so only a completed comparison is
+        evidence of damage: nothing is moved aside on anything less.
 
     .PARAMETER Entry
         A Get-StoreObjectIndex entry.
@@ -1613,7 +1621,7 @@ function Test-StoredObjectBytes {
         7-Zip, needed only for an archive.
 
     .OUTPUTS
-        [bool]
+        [pscustomobject] Verdict ('Good' | 'Damaged' | 'Unverified'), Reason.
     #>
     # Implements: SR-049, SR-068, LLR-049
     [CmdletBinding()]
@@ -1622,25 +1630,31 @@ function Test-StoredObjectBytes {
         [Parameter(Mandatory)][string]$ScratchFolder,
         [AllowNull()][string]$SevenZipPath
     )
+    $verdict = { param([string]$V, [string]$R) [pscustomobject]@{ Verdict = $V; Reason = $R } }
     $key = ConvertFrom-HashSizeFileName -Name $Entry.Name
-    if ($null -eq $key) { return $false }
+    if ($null -eq $key) { return (& $verdict 'Unverified' 'its name does not carry a content key') }
+    $want = $key.HashHex.ToUpperInvariant()
     try {
         if ($Entry.FileLength -eq $Entry.ContentLength) {
-            return ((Get-FileXxHash -FilePath $Entry.Path) -eq $key.HashHex.ToUpperInvariant())
+            if ((Get-FileXxHash -FilePath $Entry.Path) -eq $want) { return (& $verdict 'Good' '') }
+            return (& $verdict 'Damaged' 'its bytes do not hash to the content its name records')
         }
-        if ($Entry.Extension -ine '.7z' -or -not $SevenZipPath) { return $false }
+        if ($Entry.Extension -ine '.7z') { return (& $verdict 'Damaged' 'its length is not the content length its name records') }
+        if (-not $SevenZipPath) { return (& $verdict 'Unverified' 'an archive, and no 7-Zip to expand it') }
         [void][System.IO.Directory]::CreateDirectory($ScratchFolder)
         $scratch = Join-Path $ScratchFolder ([guid]::NewGuid().ToString('N'))
         try {
             Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $Entry.Path -DestinationFile $scratch
             $file = [System.IO.FileInfo]::new($scratch)
-            return ($file.Exists -and $file.Length -eq $Entry.ContentLength -and
-                    (Get-FileXxHash -FilePath $scratch) -eq $key.HashHex.ToUpperInvariant())
+            if ($file.Exists -and $file.Length -eq $Entry.ContentLength -and (Get-FileXxHash -FilePath $scratch) -eq $want) {
+                return (& $verdict 'Good' '')
+            }
+            return (& $verdict 'Damaged' 'it expands to bytes that are not the content its name records')
         } finally {
             Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
         }
     } catch {
-        return $false
+        return (& $verdict 'Unverified' "it could not be checked: $($_.Exception.Message)")
     }
 }
 
@@ -1657,7 +1671,10 @@ function Get-StoreObjectFinding {
         -RepairStorage moves the findings into the change root's Verify folder
         through Move-StoreObjectToVerify. For each content the copy kept is the
         backup root's, else the newest snapshot's - unless -Deep finds that copy
-        damaged and another one good, in which case the good one is kept. A
+        damaged and another one good, in which case the good one is kept. Under
+        -Deep a copy that could not be checked is an 'UnverifiedObject' finding,
+        never repairable, and -Deep without 7-Zip is refused up front, as the
+        storage-form audit refuses it, so nothing is moved on missing evidence. A
         duplicate in a folder whose restore kit is older than revision 4 is
         reported but not repairable: that kit finds a row's object only where
         its DataPath names it (-RefreshKits upgrades it).
@@ -1675,8 +1692,9 @@ function Get-StoreObjectFinding {
         7-Zip, for archives under -Deep.
 
     .OUTPUTS
-        [pscustomobject[]] findings with Class 'DuplicateObject' or
-        'DamagedObject', the object's Path, Folder, FolderName and DataPath.
+        [pscustomobject[]] findings with Class 'DuplicateObject',
+        'DamagedObject' or 'UnverifiedObject', the object's Path, Folder,
+        FolderName and DataPath.
     #>
     # Implements: SR-003, SR-049, LLR-049
     [CmdletBinding()]
@@ -1686,6 +1704,9 @@ function Get-StoreObjectFinding {
         [switch]$Deep,
         [AllowNull()][string]$SevenZipPath
     )
+    if ($Deep -and (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf))) {
+        throw "-Deep proves payload identity and needs 7-Zip, which was not found at '$SevenZipPath'."
+    }
     $findings = [System.Collections.Generic.List[object]]::new()
     if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { $ChangeRoot = $BackupRoot }
     $index = Get-StoreObjectIndex -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot
@@ -1706,9 +1727,18 @@ function Get-StoreObjectFinding {
     foreach ($copies in $groups.Values) {
         $keep = $copies[0]
         if ($Deep) {
-            $good = @($copies | Where-Object { Test-StoredObjectBytes -Entry $_ -ScratchFolder $scratch -SevenZipPath $SevenZipPath })
-            foreach ($bad in @($copies | Where-Object { $good -notcontains $_ })) {
-                $findings.Add((& $newFinding $bad 'DamagedObject' 'bytes that do not hash to the content its name records' 'every object''s bytes match its name (SR-049)'))
+            $good = [System.Collections.Generic.List[object]]::new()
+            foreach ($copy in $copies) {
+                $check = Get-StoredObjectVerdict -Entry $copy -ScratchFolder $scratch -SevenZipPath $SevenZipPath
+                switch ($check.Verdict) {
+                    'Good'    { $good.Add($copy) }
+                    'Damaged' { $findings.Add((& $newFinding $copy 'DamagedObject' $check.Reason 'every object''s bytes match its name (SR-049)')) }
+                    default {
+                        $unverified = & $newFinding $copy 'UnverifiedObject' $check.Reason 'every object''s bytes checked against its name (SR-049)'
+                        $unverified.Repairable = $false
+                        $findings.Add($unverified)
+                    }
+                }
             }
             if ($good.Count -eq 0) { continue }
             $keep = $good[0]
@@ -4678,19 +4708,80 @@ function Publish-PriorStateSnapshot {
     return [pscustomobject]@{ Path = $final; BuiltNow = $true }
 }
 
+function Remove-UnchangedSnapshot {
+    <#
+    .SYNOPSIS
+        Removes the snapshot a run built when the run changed no row (plan
+        step 7, SR-100), without ever leaving a half-deleted Snapshot_* folder.
+
+    .DESCRIPTION
+        The folder is first renamed back to Building_<D> - one rename, so it is
+        either a whole snapshot or not a snapshot at all - and only then
+        deleted. A rename that fails (a scanner holding a file just written)
+        keeps the snapshot: it holds the same state as the latest, so it is
+        redundant, not wrong. A delete that fails leaves Building_<D>, which
+        the next run's residue clean-up removes. Either is a warning; the run
+        has finished.
+
+    .PARAMETER SnapshotPath
+        The snapshot this run built.
+
+    .PARAMETER ChangeRoot
+        The change root.
+
+    .PARAMETER Log
+        The set logger.
+
+    .OUTPUTS
+        [bool] true when the snapshot is gone.
+    #>
+    # Implements: SR-100, LLR-150
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$SnapshotPath,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $label = ([System.IO.Path]::GetFileName($SnapshotPath)).Substring($script:Def.SnapshotPrefix.Length)
+    $building = Join-Path $ChangeRoot "$($script:BuildingFolderPrefix)$label"
+    try {
+        [System.IO.Directory]::Move($SnapshotPath, $building)
+    } catch {
+        & $Log "No file changed, but the unneeded snapshot '$SnapshotPath' could not be set aside ($($_.Exception.Message)); it is kept, holding the same state as the latest." 'WARN'
+        return $false
+    }
+    try {
+        Remove-Item -LiteralPath $building -Recurse -Force -ErrorAction Stop
+    } catch {
+        & $Log "Could not delete '$building' ($($_.Exception.Message)); the next run removes it." 'WARN'
+    }
+    & $Log 'No file changed; no snapshot kept (the latest state is unchanged).'
+    return $true
+}
+
 function Move-SupersededObject {
     <#
     .SYNOPSIS
         Moves every object in the backup root that no row of the final manifest
-        uses into the run's snapshot (plan step 8).
+        uses into the snapshot whose own manifest names it (plan step 8).
 
     .DESCRIPTION
         The question is asked of the FINAL manifest (SR-059): rows kept for
         files the run could not read still claim their objects, so those stay.
+        Normally an unused object was used by the prior state, so it goes to
+        this run's snapshot of that state. One left in the backup root by an
+        interrupted run, or by a move that failed, is named only by an older
+        snapshot: it goes there, so every object lives where a row of its own
+        folder names it - what retention and the storage audit index the pool
+        by (C10, C12). Older manifests are read only when such an object exists
+        and this run keeps a snapshot; one no snapshot names goes to this run's
+        snapshot. With no snapshot this run, unused objects stay and a warning
+        counts them.
+
         A move is a rename on one volume (R8), so an object is in exactly one
         place before and after; one that fails to move stays in the backup root
-        and still restores. With no snapshot this run, unused objects stay and
-        a warning counts them. Nothing is deleted (R9).
+        and still restores. Nothing is deleted (R9).
 
     .PARAMETER Index
         The run's object index.
@@ -4700,6 +4791,13 @@ function Move-SupersededObject {
 
     .PARAMETER SnapshotPath
         The run's snapshot folder, or $null.
+
+    .PARAMETER SnapshotRows
+        The rows of that snapshot's manifest when they are already in memory
+        (a snapshot this run built holds the prior rows), else empty.
+
+    .PARAMETER ChangeRoot
+        The change root, for the older snapshots.
 
     .PARAMETER Log
         The set logger.
@@ -4713,6 +4811,8 @@ function Move-SupersededObject {
         [Parameter(Mandatory)][pscustomobject]$Index,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$FinalRows,
         [AllowNull()][string]$SnapshotPath,
+        [AllowNull()][AllowEmptyCollection()][object[]]$SnapshotRows,
+        [Parameter(Mandatory)][string]$ChangeRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
     $used = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
@@ -4726,14 +4826,50 @@ function Move-SupersededObject {
         & $Log "$($unused.Count) stored object(s) in the latest state are used by no row and there is no snapshot this run to move them to; they stay where they are." 'WARN'
         return 0
     }
+
+    # Where each one goes: the newest snapshot whose own manifest names it.
+    $destination = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+    $named = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($row in @($SnapshotRows)) { if ($row -and $row.DataPath) { [void]$named.Add([string]$row.DataPath) } }
+    $left = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $unused) {
+        if ($named.Contains($entry.Name)) { $destination[$entry.Name] = $SnapshotPath } else { $left.Add($entry) }
+    }
+    if ($left.Count -gt 0) {
+        $placed = 0
+        $folders = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | ForEach-Object FullName)
+        [array]::Reverse($folders)
+        foreach ($folder in $folders) {
+            if ($left.Count -eq 0) { break }
+            if ($folder -eq $SnapshotPath -and $named.Count -gt 0) { continue }
+            $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+            try {
+                foreach ($row in @(Import-Csv -LiteralPath (Join-Path $folder $script:Def.DatabaseFilename))) { if ($row.DataPath) { [void]$names.Add([string]$row.DataPath) } }
+            } catch { continue }
+            $still = [System.Collections.Generic.List[object]]::new()
+            foreach ($entry in $left) {
+                if (-not $names.Contains($entry.Name)) { $still.Add($entry); continue }
+                $destination[$entry.Name] = $folder
+                if ($folder -ne $SnapshotPath) { $placed++ }
+            }
+            $left = $still
+        }
+        if ($placed -gt 0) {
+            & $Log "$placed stored object(s) left in the latest state by an interrupted run go back to the snapshot that names them." 'WARN'
+        }
+        # No manifest names these: this run's snapshot holds them, as before.
+        foreach ($entry in $left) { $destination[$entry.Name] = $SnapshotPath }
+    }
+
     $moved = 0
     foreach ($entry in $unused) {
         Invoke-BackupRunTestHook -Stage 'BeforeSupersededMove' -Context $entry
+        $target = $destination[$entry.Name]
         try {
-            [System.IO.File]::Move($entry.Path, (Join-Path $SnapshotPath $entry.Name))
+            [System.IO.File]::Move($entry.Path, (Join-Path $target $entry.Name))
             $moved++
         } catch {
-            & $Log "Could not move superseded '$($entry.Name)' into '$SnapshotPath': $($_.Exception.Message). It stays in the latest state and still restores." 'WARN'
+            & $Log "Could not move superseded '$($entry.Name)' into '$target': $($_.Exception.Message). It stays in the latest state and still restores." 'WARN'
         }
     }
     return $moved
@@ -5168,8 +5304,10 @@ function Invoke-LibraryCapture {
         fails keeps its prior row. Rows of files the walk cannot see - a name
         that is not portable, a folder that cannot be listed - stay as they
         were (SR-055, SR-057, SR-091); every other row the walk did not visit
-        is a removal. The local temp folder is removed however the capture
-        ends.
+        is a removal - unless the source root itself disappeared during the
+        run, which throws so the set stops (4) before a latest state that
+        lists nothing is written; a source root that cannot be listed keeps
+        every row. The local temp folder is removed however the capture ends.
 
     .PARAMETER Context
         The run context (New-BackupRunContext).
@@ -5216,7 +5354,8 @@ function Invoke-LibraryCapture {
             $notCaptured++
             if ("$($bad.Path)".StartsWith($Paths.SrcPath, [System.StringComparison]::OrdinalIgnoreCase)) {
                 $prefix = "$($bad.Path)".Substring($Paths.SrcPath.Length).TrimStart('\', '/')
-                if ($prefix) { $unreadablePrefixes.Add($prefix + [System.IO.Path]::DirectorySeparatorChar) }
+                # The source root itself: every row is beneath it.
+                if ($prefix) { $unreadablePrefixes.Add($prefix + [System.IO.Path]::DirectorySeparatorChar) } else { $unreadablePrefixes.Add('') }
             }
         }
         if ($walk.Files.Count -eq 0 -and $PriorRows.Count -gt 0 -and $walk.Unreadable.Count -eq 0) {
@@ -5228,6 +5367,7 @@ function Invoke-LibraryCapture {
         $working = New-RelativePathMap
         foreach ($r in $PriorRows) { $working[$r.RelativePath] = $r }
         $visited = New-RelativePathMap
+        $gone = 0
         $pending = [System.Collections.Generic.List[object]]::new()
         $dirty = $false
         $nextCheckpoint = [datetime]::UtcNow.AddSeconds($script:CheckpointMinSeconds)
@@ -5237,7 +5377,7 @@ function Invoke-LibraryCapture {
             switch ($result.Status) {
                 'Kept'     { $working[$item.RelativePath] = $result.Row }
                 'Captured' { $working[$item.RelativePath] = $result.Row; $dirty = $true }
-                'Gone'     { $visited.Remove($item.RelativePath) }
+                'Gone'     { $visited.Remove($item.RelativePath); $gone++ }
                 'Failed'   { $pending.Add([pscustomobject]@{ Item = $item; Attempts = 1; LastAttempt = [datetime]::UtcNow; Message = $result.Message }) }
             }
             Invoke-BackupRunTestHook -Stage 'AfterFileCaptured' -Context $item
@@ -5266,7 +5406,7 @@ function Invoke-LibraryCapture {
                 $p.LastAttempt = [datetime]::UtcNow
                 switch ($result.Status) {
                     { $_ -in 'Kept', 'Captured' } { $working[$p.Item.RelativePath] = $result.Row }
-                    'Gone' { $visited.Remove($p.Item.RelativePath) }
+                    'Gone' { $visited.Remove($p.Item.RelativePath); $gone++ }
                     'Failed' {
                         $p.Message = $result.Message
                         if ($p.Attempts -lt $script:RetryMaxAttempts) { $next.Add($p) } else {
@@ -5279,6 +5419,13 @@ function Invoke-LibraryCapture {
                 }
             }
             $pending = $next
+        }
+
+        # Files that vanished are removals - unless the source itself went
+        # away (a share dropped, a drive unplugged): then this is no state of
+        # the source at all, and the set stops before it is written (4).
+        if ($gone -gt 0 -and -not [System.IO.Directory]::Exists($Paths.SrcPath)) {
+            throw "The source root '$($Paths.SrcPath)' disappeared during the run ($gone file(s) vanished); the latest state is left as it was."
         }
 
         # The final rows: what the loop captured, plus the prior rows of
@@ -5483,14 +5630,14 @@ function Invoke-BackupSet {
 
         # 7. A run that changed no row keeps no snapshot it built itself (SR-100).
         if ($null -ne $snapshot -and $snapshot.BuiltNow -and -not (Test-StateChanged -PriorRows $priorRows -FinalRows $finalRows)) {
-            Remove-Item -LiteralPath $snapshot.Path -Recurse -Force
-            & $log 'No file changed; no snapshot kept (the latest state is unchanged).'
-            $snapshot = $null
+            if (Remove-UnchangedSnapshot -SnapshotPath $snapshot.Path -ChangeRoot $paths.ChgPath -Log $log) { $snapshot = $null }
         }
 
         # 8. Superseded content into the snapshot.
         $snapshotPath = if ($null -ne $snapshot) { $snapshot.Path } else { $null }
-        $moved = Move-SupersededObject -Index $index -FinalRows $finalRows -SnapshotPath $snapshotPath -Log $log
+        $snapshotRows = if ($null -ne $snapshot -and $snapshot.BuiltNow) { $priorRows } else { @() }
+        $moved = Move-SupersededObject -Index $index -FinalRows $finalRows -SnapshotPath $snapshotPath `
+                     -SnapshotRows $snapshotRows -ChangeRoot $paths.ChgPath -Log $log
 
         # 9. The browse view (SR-062), cosmetic: a failure is a warning.
         if ([string]$Set.BrowseView -eq 'index' -and $paths.ViewPath) {
@@ -6026,7 +6173,7 @@ Export-ModuleMember -Function @(
     'New-ReconstructScript',
     'Get-StagingOsLockPath', 'Enter-StagingOsLock', 'Exit-StagingOsLock',
     'Resolve-BackupSetPaths',
-    'Test-StoredObjectBytes', 'Get-StoreObjectFinding', 'Move-StoreObjectToVerify',
+    'Get-StoredObjectVerdict', 'Get-StoreObjectFinding', 'Move-StoreObjectToVerify',
     'Get-StoreObjectIndex', 'ConvertFrom-StoredObjectName', 'Get-StoredObjectPrefix', 'Assert-SingleStoreMount',
     'Copy-FileWithHash', 'Get-SourceFileList', 'Invoke-SourceFileCapture', 'Publish-PriorStateSnapshot',
     'Move-SupersededObject', 'Get-SortedManifestRow',
