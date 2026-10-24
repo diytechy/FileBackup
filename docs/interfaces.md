@@ -103,9 +103,9 @@ deleted.
 |---|---|---|---|
 | 0 | Every file captured | Complete / nothing to report | ok |
 | 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
-| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest) | Usage or precondition error; nothing mutated | error — do not retry |
+| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a `BackupPath` gone while its `ChangePath` holds snapshots) | Usage or precondition error; nothing mutated | error — do not retry |
 | 3 | — never | Restore: retired from kit revision 14 (an older kit bundled in an older snapshot can still return it). Prune: a witness an older build left disagrees with its manifest; nothing mutated | error — **escalate** |
-| 4 | Stopped by a host problem (volume full or gone) or another run holds the lock; every state stays restorable | Host/dependency I/O failure | warn — retry |
+| 4 | Stopped by a host problem (volume full or gone, the store's drive not attached, the source gone or emptied mid-run) or another run holds the lock; every state stays restorable | Host/dependency I/O failure | warn — retry |
 
 Precedence across sets or batch items is `2 > 3 > 4 > 1`. A backup no longer
 estimates the space it needs before it starts (plan C3): a write that fails for

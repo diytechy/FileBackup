@@ -272,26 +272,21 @@ behind C22–C24 are recorded verbatim in
 | C23 | An unused object in the backup root goes to the newest snapshot whose own manifest names it, not always to this run's; older manifests are read only when such an object exists and this run keeps a snapshot. | A kill before step 8, or a move that failed, otherwise strands the object where no row of its folder names it: retention could not see it (prune refused every store, Verify reported loss). Found by both reviews (Sol, Opus F2). |
 | C24 | A source root that disappears during the run stops the set with 4 before the latest state is written; a source root that cannot be listed keeps every earlier row (1). The unneeded snapshot of an unchanged run is renamed back to `Building_<D>` before it is deleted, and a failure there is a warning, never a failed run. | A dropped share or unplugged drive otherwise recorded every file as deleted with exit 0; a scanner holding a just-written kit file otherwise failed a finished run with 4 and could leave a half-deleted snapshot the next run would keep. Opus F3, F4. |
 
-**Left for the Owner (review findings judged out of scope or a ruling):**
-- *Opus F5:* when a move back into the latest state fails (or C19 leaves re-added
-  content in an old-kit snapshot), a latest-state restore on another host finds
-  that object only if `--change-root` is passed; the kit does not guess a change
-  root for a backup-root origin (the B10 decision). The restore fails loudly
-  (exit 1), naming the row.
-- *Opus F6:* a backup drive missing at the start is refused with 2 on Windows
-  (the root cannot be created) where C1's table reads "volume gone" as 4; on
-  Linux an unmounted mount point is created on the root filesystem
-  (pre-existing; HomeHub's wrapper refuses a store on the root filesystem).
-- *Opus open question 1 (R10, C14):* a repair without `-Deep` moves a duplicate
-  without checking the copy it keeps. Hashing the kept copy first would cost one
-  read per duplicate group.
-- *Fix review (review 3) questions:* a `.7z` the tool made whose file length
-  happens to equal its content length is treated as raw everywhere (pre-existing,
-  very rare); `-Deep` expands through the system temp folder first, which is
-  RAM-backed in some containers (a large archive is then Unverified, never
-  moved); a source mount that drops on Linux can leave an empty mount-point
-  directory, so files vanish while the root still exists - recorded as removals
-  (exit 0), as C2 rules for an empty source, and restored by the next run.
+**The Owner's rulings on the open items (2026-10-24, after the reviews).** The
+Owner chose, among the options laid out for each: 1B, 2B with 2C, 3B, 4a (both
+halves), 4b(i), 4c(ii), and asked for logging and time metrics good enough to find
+a check that slows the backup. They are built as these calls:
+
+| # | Call | Why |
+|---|---|---|
+| C25 | A backup whose `BackupPath` or `ChangePath` lies on a drive or share that is not attached (its path root is missing) returns 4, writing nothing (Opus F6, option B). | "Plug the drive back in" is retry-later, not a configuration error; the next scheduled run is the retry. On Linux the root is `/`, so this never fires there (C26 and HomeHub's wrapper cover a missing mount). |
+| C26 | A missing `BackupPath` is never created while its `ChangePath` holds `Snapshot_*` folders: the set is refused with 2 (option C). | An existing store that lost its backup folder (moved, renamed, a mount not there) must not get a fresh full backup beside its old snapshots; that is also the plain-Linux root-filesystem trap. A new store is unaffected. |
+| C27 | Files that vanished during the run while the source is now empty stop the set with 4 before the latest state is written (review 3 Q3, option ii). | A Linux mount that drops leaves its empty mount point. A source already empty when the walk began is still C2's case (a warning). |
+| C28 | `-RepairStorage` reads and checks the copy it keeps before it moves a duplicate aside, once per content and not at all when `-Deep` already proved it; a duplicate whose kept copy is not proven good stays. A plain Verify reports the cost first (duplicate copies, bytes wasted, kept copies and bytes a repair would read); a repair logs progress every minute and its total (Opus Q1, option B). | Until then the duplicate is real redundancy: a restore heals a damaged copy from another one in the pool, and `Verify/` is not in the pool. The cost is reported before it is paid, so how often it bites is known before it is run. |
+| C29 | Every backup run logs `Timings:` (each step), `Work:` (files skipped unread, and per kind of read, compression, probes, moves back, checkpoints and retry waits: count, bytes, seconds, MB/s), `Slowest files:` (the five slowest captures of half a second or more), one `metrics {...}` JSON line, and a `Progress:` line every minute; a stopped run still writes them. Verify logs `Verify timings:` and a metrics line. | The Owner's ask: a check that slows the backup must be visible so it can be iterated on. Per file the cost is a stopwatch and a counter; files skipped unread cost one increment. |
+| C30 | An archive that comes out exactly as long as its content is stored raw; Verify expands an equal-length `.7z` that hashes wrong before calling it damaged; the `Compressed` column of such an object keeps the prior row's answer (review 3 Q1). | Its listing cannot tell it from the user's own raw `.7z`, so Verify's length rule called it damaged and a repair would have hidden it; the restorers already decide it from the bytes (SR-068). |
+| C31 | 7-Zip expands beside the destination (a hidden `.fbexpand-*` folder), and every expand the engine or a restorer makes lands on the store's or the restore target's volume - never the system temp folder (review 3 Q2, option i). | In the container the system temp is a RAM tmpfs: a large archive would not fit, and `-Deep` reported it Unverified. |
+| C32 | A latest-state restore with no change root recorded or given uses the one folder inside or beside the backup root that holds `Snapshot_*` folders (Opus F5, option B). | A latest row can name an object still in a snapshot (a failed move back, C19). The folder is found, not assumed by name (B10), and every restored file is verified, so a wrong guess can supply no wrong bytes. |
 
 **Known costs, measured or read (follow-ups, not defects):**
 - **Kit name index:** each object name is decoded with Common's BigInteger

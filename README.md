@@ -98,8 +98,27 @@ that file's earlier copy, and names it in the set's log. Its exit code says what
 |---|---|---|
 | **0** | Every file was captured. | Nothing. |
 | **1** | The run completed, but one or more files were not captured (locked after three tries 60 s apart, unreadable, or named in a way Windows or Linux cannot restore). Each is named in `backup.log`; their earlier copies are kept. | Read the log; usually nothing — the next run tries again. |
-| **2** | Refused before changing anything: a bad configuration, a missing tool, a missing source folder, a `BackupPath`/`ChangePath` pair on different volumes, or a damaged latest manifest. | Fix what the message names. |
-| **4** | Stopped partway by a host problem — the backup volume full or gone — or another run of this store holds its lock. Every state stays restorable. | Retry later. |
+| **2** | Refused before changing anything: a bad configuration, a missing tool, a missing source folder, a `BackupPath`/`ChangePath` pair on different volumes, a damaged latest manifest, or a `BackupPath` that is gone while its `ChangePath` still holds snapshots (moved, renamed, or a mount that is not there — a fresh full backup is never started beside old snapshots). | Fix what the message names. |
+| **4** | Stopped by a host problem, or not started: the backup drive is not attached (a Windows drive letter or a network share), the backup volume filled up or went away, the source disappeared or emptied during the run (a dropped mount looks like that), or another run of this store holds its lock. Every state stays restorable. | Retry later — the next scheduled run is the retry. |
+
+### Where a run's time goes
+
+Every run ends its `backup.log` with what it spent its time on, so a check that
+slows the backup can be found and changed:
+
+- `Timings:` — each step of the run in seconds (reading the latest manifest,
+  indexing the store, publishing the snapshot, walking the source, capturing
+  files, the retry pass, finishing the latest state, moving superseded objects).
+- `Work:` — how many files were skipped unread, and for each kind of read
+  (`copy while hashing (new or changed)`, `hash in place (scheduled re-read)`,
+  `copy to local temp (likely already stored)`, ...) and for compression, the
+  compressibility probe, the media probe, moves back from snapshots, progress
+  checkpoints and retry waits: count, bytes, seconds and MB/s.
+- `Slowest files:` — the five slowest captures that took half a second or more.
+- `metrics {...}` — the same as one JSON line, to compare night with night.
+- During a long run, a `Progress:` line every minute.
+
+A run that stops (exit 4) still writes what it had measured.
 
 ### 3. Restore
 
@@ -206,7 +225,9 @@ default: the current directory). The backup root and the snapshot folder are
 auto-detected from that location: for a snapshot, the backup root is the change
 folder's parent when that holds a `MANIFEST.csv`, else the one folder beside the
 change folder that does (the one-mount layout, `<store>/backup` beside
-`<store>/changes`). Pass `--backup-root` / `--change-root` to override when neither
+`<store>/changes`); for the latest state, the change folder is the one folder inside
+or beside the backup root that holds `Snapshot_*` folders (needed only for a row
+whose object is still in a snapshot). Pass `--backup-root` / `--change-root` to override when neither
 fits — the sidecar's Windows paths are ignored on Linux, and a container's `/store`
 paths do not exist on the host. Like the Windows restorer it **fails loudly**:
 it checks the manifest's header before writing anything, then restores everything
@@ -329,7 +350,7 @@ Each finding names the folder, the row, and a class:
 | `BlankRowFormDisagreement` | A row that resolves by content hash, whose `Compressed` disagrees with the copy the restore would find. Harmless with a current restore kit — see below. | no |
 | `Unreferenced` | A data file in the folder that no manifest row names. | no |
 | `DuplicateObject` | The same content is stored in a second folder (stores written by older versions). The copy kept is the latest state's, else the newest snapshot's. | yes — moved |
-| `DamagedObject` | `-Deep` only: a stored object whose bytes were read (or expanded) completely and do not hash to the content its name records. | yes — moved |
+| `DamagedObject` | `-Deep` only: a stored object whose bytes were read (or expanded) completely and do not hash to the content its name records. A `.7z` exactly as long as its content is expanded before it is judged. | yes — moved |
 | `UnverifiedObject` | `-Deep` only: a stored object that could not be checked — a read or a 7-Zip expand failed, which can be a corrupt archive or a host problem such as a full volume. Nothing is moved on a guess. `-Deep` without 7-Zip is refused before any object is checked. | no |
 
 A row whose named data file has moved to another folder of the pool is **not** a
@@ -344,6 +365,15 @@ never migrates layout. Findings it will not touch are reported, not silently
 "fixed". **It never deletes:** duplicate and damaged objects are moved into
 `<ChangePath>/Verify/<folder>/`, which no backup and no restore reads — delete that
 folder yourself once you no longer want them.
+
+A duplicate is moved aside only after the copy that is kept has been read and
+checked against its name: until then the second copy is real redundancy (a restore
+that finds a damaged copy heals from another one in the pool), and `Verify/` is not
+in the pool. A plain `-Action Verify` says what that costs before you repair —
+`Found N duplicate cop(ies) ... first reads M kept cop(ies), X, to confirm them` —
+and a repair logs its progress every minute and its total time. Under `-Deep` every
+copy is checked anyway, so nothing is read twice. Each Verify ends its log with
+`Verify timings:` and a `metrics {...}` line, like a backup run.
 
 Status follows the same table as a restore: **0** nothing to report, **1**
 findings (a statement about your data, not a usage error), **2** a precondition

@@ -3,7 +3,8 @@
 Recorded verbatim so the review trail outlives the session. The brief reviews
 1 and 2 got comes first; each report follows as its author wrote it (headings
 demoted two levels). Adjudication is in [bounded-run-loop.md](bounded-run-loop.md)
-section 13 (calls C22-C24 and "Left for the Owner"); the fixes are commit `868adb2`.
+section 13 (calls C22-C24, and the Owner's rulings on the open items, C25-C32); the
+fixes are commits `868adb2` and `870314a`.
 
 | Review | Reviewer | Commit reviewed | Findings | Accepted and fixed |
 |---|---|---|---|---|
