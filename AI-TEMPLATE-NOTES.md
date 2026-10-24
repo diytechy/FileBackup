@@ -192,3 +192,16 @@ report):
 9. Require a decision record per decomposition call (NASA, Nygard).
 10. Add a designer-side stopping rule: one work assignment, one secret, and
     siblings argued non-overlapping and covering (Parnas goal g).
+
+## 12. A FileBackup project skill carries the decomposition method
+
+**What happened.** The procedure in `ARCHITECTURE-FINDINGS.md` was packaged as
+a project skill, `.claude/skills/architecture-decomposition/`, on 2026-10-24.
+It holds the procedure, the model it assumes, the flow conventions, the exit
+criteria, the two checkers (generalised: no FileBackup ids or paths; `--shared`
+names a shared-definition component), a review-prompt template and a flows
+skeleton, with the research report as its sources.
+
+**Suggestion.** It's a ready first draft for ai-template's planned
+`architecture-decomposition` skill (P6). Its scripts run against the ruled
+TOML shape.

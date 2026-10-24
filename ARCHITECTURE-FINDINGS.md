@@ -104,8 +104,9 @@ At each component scope, in this order:
    declared. The round-3u reviewer found the values a component's *LLRs need*
    but no interface carries: a location's wait budget shared between the scan
    and storage, a full re-read's start time needed by the run-state publisher,
-   a recovery's source folder needed by the report. It found 11 of these,
-   against 0 left by the checker.
+   a recovery's source folder needed by the report. Seven of its eleven MAJOR
+   findings were of this kind (R3U-001 to 006 and 011), against 0 left by the
+   checker.
    - *Rule:* procedure step 4b: for every interface, read each consuming
      component's LLRs and check that the form carries every value they use.
      This is the one check here that only reading can do.
