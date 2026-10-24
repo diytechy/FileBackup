@@ -642,6 +642,16 @@ if (-not $BackupRootOverride -and (Test-Path -LiteralPath $sidecar -PathType Lea
 if ($isChangeFolder) {
     $changeRoot = [System.IO.Path]::GetDirectoryName($here)
     $backupRoot = [System.IO.Path]::GetDirectoryName($changeRoot)
+    # The one-mount layout (bounded-run-loop R8) keeps the backup root BESIDE
+    # the change root (<store>/backup, <store>/changes), not above it. When the
+    # parent holds no manifest, the one sibling that does is the backup root;
+    # otherwise the name index would miss the latest state's objects and every
+    # row naming one would fall to the content scan.
+    if ($backupRoot -and -not (Test-Path -LiteralPath (Join-Path $backupRoot $DatabaseFilename) -PathType Leaf)) {
+        $siblings = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Force -ErrorAction SilentlyContinue |
+                      Where-Object { $_.FullName -ne $changeRoot -and (Test-Path -LiteralPath (Join-Path $_.FullName $DatabaseFilename) -PathType Leaf) })
+        if ($siblings.Count -eq 1) { $backupRoot = $siblings[0].FullName }
+    }
 } else {
     $backupRoot = $here
     $changeRoot = $null     # B10: no assumed CHANGES sibling; only used if known.

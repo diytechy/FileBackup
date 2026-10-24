@@ -124,3 +124,27 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
     [ "$status" -eq 0 ]
     [ "$(grep -c 'Name index built' "$BATS_TEST_TMPDIR/tnoindex/RECONSTRUCT.log")" -eq 0 ]
 }
+
+@test "a snapshot of a one-mount store finds its backup root beside its change root (plan R8)" {
+    # <store>/backup beside <store>/changes, restored with no root flags: the
+    # change root's parent holds no manifest, so the one sibling that does is
+    # the backup root, and every blank row is found by name.
+    local mode store snap log rows
+    for mode in "${MODES[@]}"; do
+        store="$BATS_TEST_TMPDIR/onemount-$mode"
+        mkdir -p "$store"
+        cp -r "$FIXTURES/bash-restore/$mode/backup" "$store/backup"
+        mv "$store/backup/changes" "$store/changes"
+        snap="$store/changes/Snapshot_2024_01_01_09_00_00"
+        blank_datapaths "$snap/MANIFEST.csv"
+        rows="$(data_rows "$snap/MANIFEST.csv")"
+
+        run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t1-$mode" --from "$snap"
+        [ "$status" -eq 0 ] || { echo "$mode: expected 0, got $status"; echo "$output"; false; }
+        run verify_tree "$BATS_TEST_TMPDIR/t1-$mode" "$FIXTURES/bash-restore/$mode/expected/Snapshot_2024_01_01_09_00_00.tsv"
+        [ "$status" -eq 0 ] || { echo "$mode: $output"; false; }
+        log="$BATS_TEST_TMPDIR/t1-$mode/RECONSTRUCT.log"
+        [ "$(grep -c 'resolved by name index' "$log")" -eq "$rows" ] || { echo "$mode:"; cat "$log"; false; }
+        [ "$(grep -c 'attempting hash scan' "$log")" -eq 0 ]
+    done
+}

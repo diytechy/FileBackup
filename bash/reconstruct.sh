@@ -1138,6 +1138,20 @@ main() {
     if (( is_snapshot )); then
         auto_change="$(dirname -- "$origin")"
         auto_backup="$(dirname -- "$auto_change")"
+        # The one-mount layout (bounded-run-loop R8) keeps the backup root
+        # BESIDE the change root (<store>/backup, <store>/changes), not above
+        # it. When the parent holds no manifest, the one sibling that does is
+        # the backup root (Reconstruct.ps1 applies the same rule).
+        if [[ ! -f "$auto_backup/$MANIFEST_NAME" ]]; then
+            local sib found='' n=0
+            for sib in "$auto_backup"/*/; do
+                sib="${sib%/}"
+                [[ "$(basename -- "$sib")" == "$(basename -- "$auto_change")" ]] && continue
+                [[ -f "$sib/$MANIFEST_NAME" ]] || continue
+                found="$sib"; n=$((n + 1))
+            done
+            (( n == 1 )) && auto_backup="$found"
+        fi
     else
         auto_backup="$origin"
     fi

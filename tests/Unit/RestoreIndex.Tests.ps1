@@ -215,6 +215,29 @@ Describe 'Snapshot restore resolves blank rows through the name index (kit revis
     }
 }
 
+Describe 'A snapshot finds its backup root beside its change root (one-mount layout, plan R8)' {
+    It 'indexes the sibling backup root of a copied store (store\bkp beside store\chg), so no row needs the content scan' {
+        $root = Join-Path $TestDrive 'onemount'
+        $made = New-IndexStore -Root (Join-Path $root 'store')
+        # A copy, so the path sidecar's recorded roots no longer hold the origin
+        # and the kit falls back to auto-detection - the host's view of a store
+        # the container wrote under /store.
+        $copy = Join-Path $root 'copied'
+        Copy-Item -LiteralPath (Join-Path $root 'store') -Destination $copy -Recurse
+        $snap = Join-Path (Join-Path $copy 'chg') (Split-Path $made.Snap -Leaf)
+        $rows = @(Import-Csv -LiteralPath (Join-Path $snap 'MANIFEST.csv'))
+        @($rows | Where-Object { -not (Test-Path -LiteralPath (Join-Path $snap $_.DataPath) -PathType Leaf) }).Count |
+            Should -BeGreaterThan 0 -Because 'some rows must name objects that live in the backup root'
+
+        $t = Join-Path $root 'restored'
+        $r = Invoke-IndexRestore -Recon (Join-Path $snap 'RECONSTRUCT.ps1') -TargetRoot $t
+        $r.Code | Should -Be 0 -Because $r.Output
+        Assert-RestoredFromManifest -Manifest (Join-Path $snap 'MANIFEST.csv') -TargetRoot $t
+        $r.Log | Should -Not -Match 'attempting hash scan' -Because 'the backup root beside the change root is indexed by name'
+        $r.Log | Should -Not -Match 'Hash-recovered'
+    }
+}
+
 Describe 'A stale DataPath resolves through the name index (kit revision 14, R6)' {
     It 'finds an object that was moved to another pool folder (Plain)' {
         $root = Join-Path $TestDrive 'moved'
