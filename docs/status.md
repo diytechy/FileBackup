@@ -24,6 +24,16 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **BOUNDED REBUILD — THIS BRANCH (2026-10-24).** `BoundedRebuild` rebuilds the
+  spine against an architecture the Owner fixes up front: the bounded backup run
+  in [plans/bounded-run-loop.md](plans/bounded-run-loop.md). Rulings R1–R14 were
+  recorded on 2026-10-24; calls C1–C8 (its §11) await the Owner. `DirectRebuild`
+  is cited for its rulings only, and none of its rows are adopted. The
+  spine-restructure entry below is the shared starting point, and its **Next**
+  describes the other branch, not this one. **Next here:** the Owner confirms
+  C1–C8; then the need tier is checked against R1–R14 and the SR tier is
+  rewritten as the plan's §10 lists.
+
 - **SPINE RESTRUCTURE IN PROGRESS — THIS BRANCH IS SPINE-ONLY (2026-10-17).**
   `SpineRestructure` rewrites the SN → SR → LLR → TC spine to the current
   ai-template model, then rebuilds the design (components, interfaces,
@@ -6170,3 +6180,46 @@ which this branch hasn't written yet.
 The kit skills copied earlier were re-checked against ai-template's latest
 commit (`96faaeeda`). Their content is unchanged, so `spine-authoring` here is
 current.
+
+**2026-10-24 (later): the Owner's rulings for the bounded run loop (BoundedRebuild).**
+Three rounds of questions with the Owner produced
+[plans/bounded-run-loop.md](plans/bounded-run-loop.md), the architecture this
+branch's spine is rebuilt against. Rulings R1–R14:
+- corner cases warn and never get a recovery path;
+- concurrent runs are unsupported, so the only exclusion is the OS lock;
+- the latest `MANIFEST.csv` is the only record, with no source-side record;
+- the 9-column manifest is kept, and the HomeHub store is continued in place;
+- `.meta` is dropped;
+- snapshots are write-once;
+- a snapshot follows any row change;
+- one volume and mount, so every move is a rename;
+- a backup run never deletes an object, and duplicates go to `Verify/`;
+- backup hash validation lives in Verify, not in the run;
+- the calendar re-read schedule is unchanged;
+- a failed file is retried no sooner than 60 s after its last attempt, at most
+  3 attempts;
+- checkpoints run about once a minute;
+- exit codes are chosen so a missed file reaches the scheduler, HomeHub and mail.
+
+Calls C1–C8, made within those rulings, await the Owner. They cover:
+- the exit-code table;
+- an empty source warning rather than being refused;
+- no space estimate before the run;
+- Verify quarantining damaged objects;
+- the kit keeping today's content scan as a last resort;
+- the old source record staying excluded;
+- the temp threshold;
+- the checkpoint limits.
+
+Evidence behind the plan:
+- `Write-Manifest` takes about 20 s for 180,000 rows (26.4 MB) on the
+  development machine (measured, three runs). This is why checkpoints are
+  limited.
+- Today's copy does not hash the bytes it writes (read from
+  `Invoke-BackupFileGroup`).
+- Today's kit scans and hashes the whole pool for each blank row (read from
+  `Reconstruct.ps1`, not measured).
+
+The plan changes IF-001: the `/state` mount goes, `/backup` and `/changes`
+become one mount, and a backup no longer returns 3. That needs HomeHub's
+agreement. Docs only: no code changed and no tests run.
