@@ -1,16 +1,18 @@
 <#
 .SYNOPSIS  Pester 5 tests for the staging OS lock (SR-085, SR-086, SR-087;
            LLR-090..LLR-093; TC-241..TC-250).
-.NOTES     The lock is <ChangePath>/Temp.lock opened with FileShare.None. It is the
-           only liveness signal in the window from the RUN.inprogress delete to the
-           Temp -> Snapshot_* rename, where no marker, heartbeat or fence exists, and
-           it is what the killed-staging recovery will rely on not to move data out
-           from under a live run.
+.NOTES     The lock is <ChangePath>/Temp.lock opened with FileShare.None. Since the
+           bounded run loop (docs/plans/bounded-run-loop.md, R2) it is the ONLY
+           exclusion: there is no owner record, heartbeat, fence or reclaim, and
+           concurrent runs are unsupported - a second changing operation simply
+           refuses while the first holds the lock, and the OS releases it however
+           the holder dies.
 
            Live holders are REAL processes wherever liveness is the claim: a child
-           pwsh is parked at a seam (the module's Invoke-StagingTestHook pattern,
-           as in TC-238) and later killed with Stop-Process -Force, so nothing in
-           it can release anything on the way out.
+           pwsh is parked at a stage of the backup run (the module's
+           BackupRunTestHook seam) or in a prune transaction, and later killed
+           with Stop-Process -Force, so nothing in it can release anything on the
+           way out.
 
            Every negative case asserts BYTES: the SHA-256 of every file under the
            backup root and the change root, before and after. Two exclusions,
@@ -43,28 +45,22 @@ BeforeAll {
     }
 
     function Clear-OsLockSeams {
-        foreach ($name in @(
-                'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename',
-                'StagingTestHook_AfterFinalizeRename', 'PruneTestHook_InTransaction',
-                'StagingOsLockTestHook_BeforeOpen', 'StagingFenceTestHook')) {
+        foreach ($name in @('BackupRunTestHook', 'PruneTestHook_InTransaction', 'StagingOsLockTestHook_BeforeOpen')) {
             Set-EngineVariable -Name $name -Value $null
         }
     }
 
     function New-LockFixture {
-        # The shape New-BackupSetFixture in StagingLock.Tests.ps1 builds: the
-        # set object Invoke-BackupSet takes, over three folders.
+        # The set object Invoke-BackupSet takes, over sibling folders on one
+        # volume (plan R8).
         param([string]$Name)
         $root = Join-Path $TestDrive $Name
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
-        # The source hash cache lives OUTSIDE the source, so the source tree is
-        # exactly the user's files and a restore can be compared with it whole.
-        $state = Join-Path $root 'state'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
         [pscustomobject]@{
-            Root = $root; Src = $src; Bkp = $bkp; Chg = $chg; State = $state
+            Root = $root; Src = $src; Bkp = $bkp; Chg = $chg
             Set  = [pscustomobject]@{
-                Name = $Name; SourcePath = $src; SourceStatePath = $state; BackupPath = $bkp
+                Name = $Name; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp
                 ChangePath = $chg; HashRecalcFreq = 'A'; CompressEnabled = $false
                 AllowEmptySource = $false; BrowseView = 'off'; ViewPath = ''
             }
@@ -72,20 +68,18 @@ BeforeAll {
     }
 
     function Invoke-LockBackup {
+        # $true when the run reported 0 (every file captured).
         param([object]$Fixture, [datetime]$When)
-        $ok = $true
-        Invoke-BackupSet -Set $Fixture.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
-            -OverallSuccess ([ref]$ok) -LogPaths (New-Object System.Collections.Generic.List[string]) `
-            -BackupTime $When
-        return $ok
+        $code = Invoke-BackupSet -Set $Fixture.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
+            -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime $When
+        return ($code -eq 0)
     }
 
     function Initialize-TwoRunStore {
         # Run 1 (D1) and run 2 (D2), in-process: the store then holds a
         # Snapshot_<D1> to prune, and the source is edited so a THIRD run
-        # supersedes content (a removed file evicted into Temp, a changed one
-        # preserved there) and therefore finalizes by RENAME, which is the
-        # window under test.
+        # supersedes content (a changed file and a removed one) and therefore
+        # publishes a snapshot and moves objects into it.
         param([object]$Fixture)
         [System.IO.File]::WriteAllText((Join-Path $Fixture.Src 'a.txt'), 'ALPHA one')
         [System.IO.File]::WriteAllText((Join-Path $Fixture.Src 'b.txt'), 'BRAVO one')
@@ -148,39 +142,43 @@ BeforeAll {
     }
 
     # --- the parked child ------------------------------------------------
-    # One driver script. Mode Backup runs run 3 (D3) with the named seam set to
-    # park; Prune runs Remove-BackupSnapshot with the prune seam set to park;
-    # Hold just takes the OS lock and parks (a frozen run whose heartbeat has
-    # stopped). 'Parked' means: write the ready flag, then sleep 600 s.
+    # One driver script. Mode Backup runs a backup that parks at the named
+    # stage of the run; Prune runs Remove-BackupSnapshot with the prune seam set
+    # to park; Hold just takes the OS lock and parks. 'Parked' means: write the
+    # ready flag, then sleep 600 s (or, with -Go, wait for that file and carry
+    # on).
     $script:ChildScript = Join-Path $TestDrive 'oslock-child.ps1'
     $childText = @'
-param([string]$Repo, [string]$Mode, [string]$Hook, [string]$Ready,
-      [string]$Src, [string]$State, [string]$Bkp, [string]$Chg, [string]$When, [string]$SnapshotName,
-      [string]$Phase, [string]$Go)
+param([string]$Repo, [string]$Mode, [string]$Stage, [string]$Ready,
+      [string]$Src, [string]$Bkp, [string]$Chg, [string]$When, [string]$SnapshotName,
+      [string]$Go)
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $Repo 'Modules/FileBackup.Common.psm1') -Force
 Import-Module (Join-Path $Repo 'Modules/FileBackup.Engine.psm1') -Force
-# -Phase: park only at that fence phase (the fence seam fires at five). -Go:
-# park until that file appears, then CONTINUE the run, instead of sleeping.
+$parked = @{ Done = $false }
 $park = {
-    param($c)
-    if ($Phase -and -not ($c.PSObject.Properties['Phase'] -and $c.Phase -eq $Phase)) { return }
+    if ($parked.Done) { return }
+    $parked.Done = $true
     [System.IO.File]::WriteAllText($Ready, 'parked')
     if ($Go) { while (-not (Test-Path -LiteralPath $Go)) { Start-Sleep -Milliseconds 100 } }
     else { Start-Sleep -Seconds 600 }
 }.GetNewClosure()
-if ($Hook) {
-    $engine = Get-Module FileBackup.Engine
-    & $engine { param($n, $h) Set-Variable -Name $n -Value $h -Scope Script } $Hook $park
+$engine = Get-Module FileBackup.Engine
+if ($Mode -eq 'Backup' -and $Stage) {
+    $hook = { param($s, $c) if ($s -eq $Stage) { & $park } }.GetNewClosure()
+    & $engine { param($h) $script:BackupRunTestHook = $h } $hook
+}
+if ($Mode -eq 'Prune') {
+    $hook = { param($c) & $park }.GetNewClosure()
+    & $engine { param($h) $script:PruneTestHook_InTransaction = $h } $hook
 }
 switch ($Mode) {
     'Backup' {
-        $set = [pscustomobject]@{ Name = 'oslock'; SourcePath = $Src; SourceStatePath = $State; BackupPath = $Bkp
+        $set = [pscustomobject]@{ Name = 'oslock'; SourcePath = $Src; SourceStatePath = ''; BackupPath = $Bkp
             ChangePath = $Chg; HashRecalcFreq = 'A'; CompressEnabled = $false
             AllowEmptySource = $false; BrowseView = 'off'; ViewPath = '' }
-        $ok = $true
-        Invoke-BackupSet -Set $set -Deps @{ '7z' = $null; 'ffprobe' = $null } -OverallSuccess ([ref]$ok) `
-            -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime ([datetime]$When)
+        Invoke-BackupSet -Set $set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
+            -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime ([datetime]$When) | Out-Null
     }
     'Prune' {
         Remove-BackupSnapshot -BackupRoot $Bkp -ChangeRoot $Chg -Name $SnapshotName -Confirm:$false | Out-Null
@@ -199,8 +197,8 @@ switch ($Mode) {
         # Starts the driver and waits until it reports PARKED. A child that
         # finishes or dies first is a fixture error -- the test would prove
         # nothing -- and its output is quoted.
-        param([object]$Fixture, [string]$Mode, [string]$Hook = '', [string]$When = '', [string]$SnapshotName = '',
-              [string]$Phase = '', [string]$Go = '')
+        param([object]$Fixture, [string]$Mode, [string]$Stage = '', [string]$When = '', [string]$SnapshotName = '',
+              [string]$Go = '')
         $tag   = [guid]::NewGuid().ToString('N').Substring(0, 8)
         $ready = Join-Path $TestDrive "ready-$tag.flag"
         $out   = Join-Path $TestDrive "child-$tag.out"
@@ -208,11 +206,10 @@ switch ($Mode) {
         $pwsh  = (Get-Process -Id $PID).Path
         $argv  = @('-NoProfile', '-NonInteractive', '-File', $script:ChildScript,
             '-Repo', $script:Repo, '-Mode', $Mode, '-Ready', $ready,
-            '-Src', $Fixture.Src, '-State', $Fixture.State, '-Bkp', $Fixture.Bkp, '-Chg', $Fixture.Chg)
-        if ($Hook) { $argv += @('-Hook', $Hook) }
+            '-Src', $Fixture.Src, '-Bkp', $Fixture.Bkp, '-Chg', $Fixture.Chg)
+        if ($Stage) { $argv += @('-Stage', $Stage) }
         if ($When) { $argv += @('-When', $When) }
         if ($SnapshotName) { $argv += @('-SnapshotName', $SnapshotName) }
-        if ($Phase) { $argv += @('-Phase', $Phase) }
         if ($Go) { $argv += @('-Go', $Go) }
         $proc = Start-Process -FilePath $pwsh -PassThru -WindowStyle Hidden -ArgumentList $argv `
             -RedirectStandardOutput $out -RedirectStandardError $err
@@ -224,7 +221,7 @@ switch ($Mode) {
             if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
             $proc.WaitForExit(30000) | Out-Null
             $detail = (@(Get-Content -LiteralPath $out, $err -ErrorAction SilentlyContinue) | Select-Object -Last 25) -join "`n"
-            throw "fixture error: the $Mode child never parked at '$Hook' (exited=$($proc.HasExited)):`n$detail"
+            throw "fixture error: the $Mode child never parked at '$Stage' (exited=$($proc.HasExited)):`n$detail"
         }
         return $proc
     }
@@ -305,53 +302,38 @@ Describe 'The lock is released on every way a run ends in-process (TC-242, SR-08
         if (-not (Invoke-LockBackup -Fixture $fx -When $script:D1)) { throw 'fixture error: the normal run failed' }
         $script:Released.Normal = Test-LockAcquirable -ChgPath $fx.Chg
 
-        # An ordinary throw after Temp gained content (rethrown by the set).
+        # An ordinary throw late in the run: the run stops with 4.
         $fx = New-LockFixture 'rel-throw'
         [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'A')
         Invoke-LockBackup -Fixture $fx -When $script:D1 | Out-Null
         [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'A changed')
-        Mock -ModuleName FileBackup.Engine Save-SupersededData { throw 'SIMULATED FAILURE at step 11.5' }
-        $threw = $false
-        try { Invoke-LockBackup -Fixture $fx -When $script:D2 | Out-Null } catch { $threw = ($_.Exception.Message -match 'SIMULATED FAILURE') }
-        if (-not $threw) { throw 'fixture error: the mocked step-11.5 failure did not surface' }
+        Mock -ModuleName FileBackup.Engine Move-SupersededObject { throw 'SIMULATED FAILURE at step 8' }
+        $code = Invoke-BackupSet -Set $fx.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
+                    -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime $script:D2
+        if ($code -ne 4) { throw "fixture error: the mocked step-8 failure did not stop the run (code $code)" }
         $script:Released.Throw = Test-LockAcquirable -ChgPath $fx.Chg
 
-        # A step-3 refusal: a Temp that holds content.
+        # A refusal before anything changes: a damaged latest manifest (2).
         $fx = New-LockFixture 'rel-refusal'
         [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'A')
-        New-Item -ItemType Directory -Path (Join-Path $fx.Chg 'Temp') -Force | Out-Null
-        [System.IO.File]::WriteAllText((Join-Path $fx.Chg 'Temp\data.bin'), 'ONLY COPY')
-        if (Invoke-LockBackup -Fixture $fx -When $script:D1) { throw 'fixture error: the content-holding Temp did not refuse' }
+        New-Item -ItemType Directory -Path $fx.Bkp -Force | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $fx.Bkp 'MANIFEST.csv'), "not,a,manifest`r`n")
+        $code = Invoke-BackupSet -Set $fx.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
+                    -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime $script:D1
+        if ($code -ne 2) { throw "fixture error: the damaged manifest did not refuse (code $code)" }
         $script:Released.Refusal = Test-LockAcquirable -ChgPath $fx.Chg
-
-        # A tripped RunId fence (the lock-lost return path).
-        $fx = New-LockFixture 'rel-fence'
-        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'A')
-        Set-EngineVariable -Name 'StagingFenceTestHook' -Value {
-            param($c)
-            [System.IO.File]::WriteAllText($c.StagingLock.MarkerPath,
-                '{"SchemaVersion":1,"Kind":"backup","RunId":"successor-run","SetName":"x","Host":"h","ContainerId":"","BootId":"","Pid":1,"StartedUtc":"2026-01-01T00:00:00Z","HeartbeatIntervalSeconds":60,"StaleAfterSeconds":1800}')
-        }
-        try {
-            if (Invoke-LockBackup -Fixture $fx -When $script:D1) { throw 'fixture error: the swapped marker did not trip the fence' }
-        } finally { Set-EngineVariable -Name 'StagingFenceTestHook' -Value $null }
-        $script:Released.Fence = Test-LockAcquirable -ChgPath $fx.Chg
     }
 
     It 'is released after a run that completes normally (TC-242, SR-085)' {
         $script:Released.Normal | Should -BeTrue
     }
 
-    It 'is released after an ordinary throw past step 7, by the finally (TC-242, SR-085)' {
+    It 'is released after an ordinary throw late in the run, by the finally (TC-242, SR-085)' {
         $script:Released.Throw | Should -BeTrue
     }
 
-    It 'is released after a step-3 staging refusal (TC-242, SR-085)' {
+    It 'is released after a refusal (TC-242, SR-085)' {
         $script:Released.Refusal | Should -BeTrue
-    }
-
-    It 'is released after a tripped RunId fence (TC-242, SR-085)' {
-        $script:Released.Fence | Should -BeTrue
     }
 }
 
@@ -360,7 +342,7 @@ Describe 'A hard kill releases the lock (TC-243, SR-085, LLR-091)' {
     BeforeAll {
         $fx = New-LockFixture 'kill'
         Initialize-TwoRunStore -Fixture $fx | Out-Null
-        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingTestHook_AfterMarkerDelete' -When ($script:D3.ToString('o'))
+        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Stage 'AfterSnapshotPublished' -When ($script:D3.ToString('o'))
         try {
             $script:WhileParked = Test-LockAcquirable -ChgPath $fx.Chg
         } finally {
@@ -378,112 +360,66 @@ Describe 'A hard kill releases the lock (TC-243, SR-085, LLR-091)' {
     }
 }
 
-Describe 'The lock is held across the whole no-marker window (TC-244, E3, SR-085, SR-086, LLR-091)' {
-    # A run parked at each end of the window: just after the RUN.inprogress
-    # delete, and just before the Temp -> Snapshot_* rename (blanked manifest
-    # and kit already in Temp). Neither a marker nor a heartbeat nor a fence
-    # exists there, and Temp holds the only copy of the evicted and superseded
-    # bytes.
+Describe 'The lock is held across the whole run (TC-244, TC-245, SR-085, SR-086, LLR-091, LLR-092)' {
+    # A run parked at each end of what it changes: just after it published the
+    # prior state's snapshot, and just before it moves superseded objects into
+    # that snapshot. A second backup and a prune must both refuse on the lock,
+    # touching nothing.
 
     BeforeAll {
         $script:Window = @{}
-        foreach ($hook in 'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
-            $fx = New-LockFixture ("e3-" + $hook.Substring($hook.LastIndexOf('_') + 1))
+        foreach ($stage in 'AfterSnapshotPublished', 'BeforeSupersededMove') {
+            $fx = New-LockFixture ("whole-" + $stage)
             $snapshot = Initialize-TwoRunStore -Fixture $fx
-            $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook $hook -When ($script:D3.ToString('o'))
+            $child = Start-ParkedChild -Fixture $fx -Mode Backup -Stage $stage -When ($script:D3.ToString('o'))
             try {
                 $r = @{}
-                $r.TempHasMarker = Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp\RUN.inprogress')
-                $r.TempExists    = Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp') -PathType Container
+                $r.Published = Test-Path -LiteralPath (Join-Path $fx.Chg ('Snapshot_' + $script:D2.ToString('yyyy_MM_dd_HH_mm_ss'))) -PathType Container
                 $before = Get-FixtureStoreHash -Fixture $fx
-
                 $r.ProbeAcquired = Test-LockAcquirable -ChgPath $fx.Chg
-
-                $r.BackupOk  = Invoke-LockBackup -Fixture $fx -When $script:D4
+                $r.BackupCode = Invoke-BackupSet -Set $fx.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
+                                    -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime $script:D4
                 $r.BackupLog = Get-LockSetLog -Fixture $fx
                 $r.AfterBackupHash = Get-FixtureStoreHash -Fixture $fx
-
                 $r.Prune = @(Remove-BackupSnapshot -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Name $snapshot -Confirm:$false)
                 $r.AfterPruneHash = Get-FixtureStoreHash -Fixture $fx
                 $r.Before = $before
             } finally {
                 Stop-ParkedChild -Process $child
             }
-            $script:Window[$hook] = $r
+            $script:Window[$stage] = $r
         }
     }
 
-    It 'parks the run with no marker in Temp, and Temp present, at <_> (precondition) (TC-244)' -ForEach @(
-        'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
-        "$($script:Window[$_].TempExists)/$($script:Window[$_].TempHasMarker)" | Should -Be 'True/False'
+    It 'parks the run after it published the prior state at <_> (precondition) (TC-244)' -ForEach @(
+        'AfterSnapshotPublished', 'BeforeSupersededMove') {
+        $script:Window[$_].Published | Should -BeTrue
     }
 
-    It 'holds the OS lock at <_> (TC-244, SR-085)' -ForEach @(
-        'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
+    It 'holds the OS lock at <_> (TC-244, SR-085)' -ForEach @('AfterSnapshotPublished', 'BeforeSupersededMove') {
         $script:Window[$_].ProbeAcquired | Should -BeFalse
     }
 
-    It 'makes a concurrent BACKUP refuse on the OS lock at <_> (TC-244, SR-086)' -ForEach @(
-        'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
+    It 'makes a concurrent BACKUP refuse on the OS lock with 4 at <_> (TC-244, SR-086)' -ForEach @(
+        'AfterSnapshotPublished', 'BeforeSupersededMove') {
         $script:Window[$_].BackupLog | Should -Match ([regex]::Escape($script:LockHeldToken))
-    }
-
-    It 'fails the concurrent backup set at <_> (TC-244, SR-086)' -ForEach @(
-        'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
-        $script:Window[$_].BackupOk | Should -BeFalse
+        $script:Window[$_].BackupCode | Should -Be 4
     }
 
     It 'leaves every byte under BkpPath and ChgPath unchanged by the refused backup at <_> (TC-244, SR-086)' -ForEach @(
-        'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
+        'AfterSnapshotPublished', 'BeforeSupersededMove') {
         $script:Window[$_].AfterBackupHash | Should -Be $script:Window[$_].Before
     }
 
-    It 'makes a concurrent PRUNE refuse on the OS lock at <_> (TC-244, SR-086)' -ForEach @(
-        'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
+    It 'makes a concurrent PRUNE refuse on the OS lock with code 2 at <_> (TC-245, SR-086)' -ForEach @(
+        'AfterSnapshotPublished', 'BeforeSupersededMove') {
         $script:Window[$_].Prune[0].Message | Should -Match ([regex]::Escape($script:LockHeldToken))
+        "$($script:Window[$_].Prune[0].Status)/$($script:Window[$_].Prune[0].Code)" | Should -Be 'Refused/2'
     }
 
-    It 'leaves every byte unchanged by the refused prune at <_> (TC-244, SR-086)' -ForEach @(
-        'StagingTestHook_AfterMarkerDelete', 'StagingTestHook_BeforeFinalizeRename') {
+    It 'leaves every byte unchanged by the refused prune at <_> (TC-245, SR-086)' -ForEach @(
+        'AfterSnapshotPublished', 'BeforeSupersededMove') {
         $script:Window[$_].AfterPruneHash | Should -Be $script:Window[$_].Before
-    }
-}
-
-Describe 'Prune against a live backup past its finalize rename (TC-245, SR-085, LLR-092)' {
-    # Temp is GONE here -- renamed into Snapshot_<D2> -- so the Temp-folder rail
-    # cannot see the run at all; Optimize-ChangeFolders, which rewrites snapshot
-    # manifests, is next. Only the OS lock keeps prune out.
-
-    BeforeAll {
-        $fx = New-LockFixture 'prune-vs-backup'
-        $snapshot = Initialize-TwoRunStore -Fixture $fx
-        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingTestHook_AfterFinalizeRename' -When ($script:D3.ToString('o'))
-        try {
-            $script:PvB = @{}
-            $script:PvB.TempGone = -not (Test-Path -LiteralPath (Join-Path $fx.Chg 'Temp'))
-            $before = Get-FixtureStoreHash -Fixture $fx
-            $script:PvB.Result = @(Remove-BackupSnapshot -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg -Name $snapshot -Confirm:$false)
-            $script:PvB.After  = Get-FixtureStoreHash -Fixture $fx
-            $script:PvB.Before = $before
-        } finally {
-            Stop-ParkedChild -Process $child
-        }
-    }
-
-    It 'parks the backup with Temp already renamed away (precondition) (TC-245)' {
-        $script:PvB.TempGone | Should -BeTrue
-    }
-
-    It 'leaves every byte under BkpPath and ChgPath unchanged (TC-245, SR-085)' {
-        $script:PvB.After | Should -Be $script:PvB.Before
-    }
-
-    It 'refuses the prune with code 2 (TC-245, SR-085, SR-040)' {
-        "$($script:PvB.Result[0].Status)/$($script:PvB.Result[0].Code)" | Should -Be 'Refused/2'
-    }
-
-    It 'names the OS lock in the refusal (TC-245, SR-086)' {
-        $script:PvB.Result[0].Message | Should -Match ([regex]::Escape($script:LockHeldToken))
     }
 }
 
@@ -492,7 +428,7 @@ Describe 'Backup against a live prune (TC-246, SR-085, LLR-092)' {
     BeforeAll {
         $fx = New-LockFixture 'backup-vs-prune'
         $snapshot = Initialize-TwoRunStore -Fixture $fx
-        $child = Start-ParkedChild -Fixture $fx -Mode Prune -Hook 'PruneTestHook_InTransaction' -SnapshotName $snapshot
+        $child = Start-ParkedChild -Fixture $fx -Mode Prune -SnapshotName $snapshot
         try {
             $script:BvP = @{}
             $before = Get-FixtureStoreHash -Fixture $fx
@@ -518,129 +454,11 @@ Describe 'Backup against a live prune (TC-246, SR-085, LLR-092)' {
     }
 }
 
-Describe 'Reclaim against a live run whose marker looks dead (TC-247, SR-085, SR-086, LLR-091)' {
-    # A frozen run: alive (it holds the OS lock) but its heartbeat stopped, so
-    # its marker is three hours old and unchanging. The SR-075 rules alone call
-    # that dead and would reclaim it after the confirmation sample -- the control
-    # arm below proves this exact folder IS reclaimed once the holder is gone.
-
-    BeforeAll {
-        InModuleScope FileBackup.Engine { $script:StagingConfirmationSampleSeconds = 0.2 }
-        $fx = New-LockFixture 'reclaim-vs-live'
-        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'A')
-        if (-not (Invoke-LockBackup -Fixture $fx -When $script:D1)) { throw 'fixture error: run 1 failed' }
-        $temp = Join-Path $fx.Chg 'Temp'
-        New-Item -ItemType Directory -Path $temp | Out-Null
-        $rec = Write-StagingOwnerRecord -StagingFolder $temp -SetName 'frozen'
-        [System.IO.File]::SetLastWriteTimeUtc($rec.MarkerPath, [datetime]::UtcNow.AddHours(-3))
-
-        $child = Start-ParkedChild -Fixture $fx -Mode Hold
-        try {
-            $script:RvL = @{}
-            $before = Get-FixtureStoreHash -Fixture $fx
-            $script:RvL.Ok     = Invoke-LockBackup -Fixture $fx -When $script:D2
-            $script:RvL.Log    = Get-LockSetLog -Fixture $fx
-            $script:RvL.After  = Get-FixtureStoreHash -Fixture $fx
-            $script:RvL.Before = $before
-            $script:RvL.Aside  = @(Get-ChildItem -LiteralPath $fx.Chg -Directory -Force | Where-Object Name -like 'Temp.stale-*').Count
-        } finally {
-            Stop-ParkedChild -Process $child
-        }
-        # Control arm: the same folder, the holder gone.
-        $script:RvL.ControlOk  = Invoke-LockBackup -Fixture $fx -When $script:D2
-        $script:RvL.ControlLog = Get-LockSetLog -Fixture $fx
-    }
-
-    AfterAll { InModuleScope FileBackup.Engine { $script:StagingConfirmationSampleSeconds = 90 } }
-
-    It 'refuses on the OS lock (TC-247, SR-086)' {
-        $script:RvL.Log | Should -Match ([regex]::Escape($script:LockHeldToken))
-    }
-
-    It 'leaves every byte unchanged, the dead-looking Temp included (TC-247, SR-086)' {
-        $script:RvL.After | Should -Be $script:RvL.Before
-    }
-
-    It 'moves nothing aside (TC-247, SR-086)' {
-        $script:RvL.Aside | Should -Be 0
-    }
-
-    It 'control: reclaims that same folder once the holder is gone (TC-247, SR-075)' {
-        $script:RvL.ControlLog | Should -Match ([regex]::Escape('[SR-075/reclaimed]'))
-    }
-}
-
-Describe 'A free lock is not proof of death (TC-248, SR-086, LLR-091)' {
-    # An OLDER FileBackup never takes the OS lock. Its live run is represented
-    # by what it leaves on disk: a Temp with a FRESH RUN.inprogress. The lock is
-    # free, this run acquires it, and the SR-075 rules must still say LIVE.
-
-    BeforeAll {
-        InModuleScope FileBackup.Engine { $script:StagingConfirmationSampleSeconds = 0.2 }
-        $script:Sem2 = @{}
-
-        $fx = New-LockFixture 'sem2-fresh'
-        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'A')
-        if (-not (Invoke-LockBackup -Fixture $fx -When $script:D1)) { throw 'fixture error: run 1 failed' }
-        $temp = Join-Path $fx.Chg 'Temp'
-        New-Item -ItemType Directory -Path $temp | Out-Null
-        Write-StagingOwnerRecord -StagingFolder $temp -SetName 'older-version' | Out-Null
-        $script:Sem2.FreeBefore = Test-LockAcquirable -ChgPath $fx.Chg
-        $before = Get-FixtureStoreHash -Fixture $fx
-        $script:Sem2.Ok     = Invoke-LockBackup -Fixture $fx -When $script:D2
-        $script:Sem2.Log    = Get-LockSetLog -Fixture $fx
-        $script:Sem2.After  = Get-FixtureStoreHash -Fixture $fx
-        $script:Sem2.Before = $before
-
-        # The content refusal is untouched by a free lock too.
-        $fx = New-LockFixture 'sem2-content'
-        [System.IO.File]::WriteAllText((Join-Path $fx.Src 'a.txt'), 'A')
-        if (-not (Invoke-LockBackup -Fixture $fx -When $script:D1)) { throw 'fixture error: run 1 failed' }
-        $temp = Join-Path $fx.Chg 'Temp'
-        New-Item -ItemType Directory -Path $temp | Out-Null
-        $rec = Write-StagingOwnerRecord -StagingFolder $temp -SetName 'older-version'
-        [System.IO.File]::WriteAllText((Join-Path $temp 'only-copy.bin'), 'ONLY PHYSICAL COPY')
-        [System.IO.File]::SetLastWriteTimeUtc($rec.MarkerPath, [datetime]::UtcNow.AddHours(-3))
-        $before = Get-FixtureStoreHash -Fixture $fx
-        Invoke-LockBackup -Fixture $fx -When $script:D2 | Out-Null
-        $script:Sem2.ContentLog    = Get-LockSetLog -Fixture $fx
-        $script:Sem2.ContentAfter  = Get-FixtureStoreHash -Fixture $fx
-        $script:Sem2.ContentBefore = $before
-    }
-
-    AfterAll { InModuleScope FileBackup.Engine { $script:StagingConfirmationSampleSeconds = 90 } }
-
-    It 'starts with the lock free (precondition) (TC-248)' {
-        $script:Sem2.FreeBefore | Should -BeTrue
-    }
-
-    It 'leaves every byte unchanged when the lock is free and the heartbeat is fresh (TC-248, SR-086)' {
-        $script:Sem2.After | Should -Be $script:Sem2.Before
-    }
-
-    It 'refuses as owner-live, by the SR-075 rules (TC-248, SR-086, SR-075)' {
-        $script:Sem2.Log | Should -Match ([regex]::Escape('[SR-075/owner-live]'))
-    }
-
-    It 'fails the set (TC-248, SR-014)' {
-        $script:Sem2.Ok | Should -BeFalse
-    }
-
-    It 'leaves every byte unchanged when the lock is free and Temp holds content (TC-248, SR-086, SR-017)' {
-        $script:Sem2.ContentAfter | Should -Be $script:Sem2.ContentBefore
-    }
-
-    It 'still refuses content with the content token (TC-248, SR-017)' {
-        $script:Sem2.ContentLog | Should -Match ([regex]::Escape('[SR-075/content-refused]'))
-    }
-}
-
 Describe 'An open failure that is not a sharing violation is LIVE (TC-249, SR-086, LLR-090)' {
-    # Each arm stands a reclaimable folder in Temp -- a marker-only Temp three
-    # hours stale -- so "proceeding" would be visible: the reclaim would move it.
+    # Each arm has a source edit pending, so "proceeding" would be visible: the
+    # run would publish a snapshot and change the latest state.
 
     BeforeAll {
-        InModuleScope FileBackup.Engine { $script:StagingConfirmationSampleSeconds = 0.2 }
         $script:OpenFail = @{}
 
         $arms = @(
@@ -651,10 +469,6 @@ Describe 'An open failure that is not a sharing violation is LIVE (TC-249, SR-08
         foreach ($arm in $arms) {
             $fx = New-LockFixture ("openfail-" + $arm.Name)
             $snapshot = Initialize-TwoRunStore -Fixture $fx
-            $temp = Join-Path $fx.Chg 'Temp'
-            New-Item -ItemType Directory -Path $temp | Out-Null
-            $rec = Write-StagingOwnerRecord -StagingFolder $temp -SetName 'dead'
-            [System.IO.File]::SetLastWriteTimeUtc($rec.MarkerPath, [datetime]::UtcNow.AddHours(-3))
             if ($arm.Name -eq 'directory-at-path') {
                 Remove-Item -LiteralPath (Get-StagingOsLockPath -ChgPath $fx.Chg) -Force
                 New-Item -ItemType Directory -Path (Get-StagingOsLockPath -ChgPath $fx.Chg) | Out-Null
@@ -675,8 +489,6 @@ Describe 'An open failure that is not a sharing violation is LIVE (TC-249, SR-08
         }
     }
 
-    AfterAll { InModuleScope FileBackup.Engine { $script:StagingConfirmationSampleSeconds = 90 } }
-
     It 'refuses the backup on the OS lock for <_> (TC-249, SR-086)' -ForEach @('directory-at-path', 'io-error', 'access-denied') {
         $script:OpenFail[$_].Log | Should -Match ([regex]::Escape($script:LockHeldToken))
     }
@@ -685,7 +497,7 @@ Describe 'An open failure that is not a sharing violation is LIVE (TC-249, SR-08
         "$($script:OpenFail[$_].Prune[0].Status)/$($script:OpenFail[$_].Prune[0].Code)" | Should -Be 'Refused/2'
     }
 
-    It 'leaves every byte unchanged, the reclaimable Temp included, for <_> (TC-249, SR-086)' -ForEach @('directory-at-path', 'io-error', 'access-denied') {
+    It 'leaves every byte unchanged for <_> (TC-249, SR-086)' -ForEach @('directory-at-path', 'io-error', 'access-denied') {
         $script:OpenFail[$_].After | Should -Be $script:OpenFail[$_].Before
     }
 }
@@ -727,8 +539,9 @@ Describe 'The lock file is invisible to every consumer of the store (TC-250, SR-
         @(Test-PoolResolves -BackupRoot $script:Inv.Bkp -ChangeRoot $script:Inv.Chg).Count | Should -Be 0
     }
 
-    It 'lets Optimize-ChangeFolders run without touching it (TC-250, SR-087, SR-026)' {
-        { Optimize-ChangeFolders -ChangeRoot $script:Inv.Chg -BackupRoot $script:Inv.Bkp -Log { param($m, $l) } } | Should -Not -Throw
+    It 'is not indexed as a stored object (TC-250, SR-087)' {
+        @((Get-StoreObjectIndex -BackupRoot $script:Inv.Bkp -ChangeRoot $script:Inv.Chg).Objects.Values |
+            Where-Object { $_.Name -eq 'Temp.lock' }).Count | Should -Be 0
     }
 
     It 'lets the latest state restore byte-exact while the lock is held (TC-250, SR-087, SR-008)' {
@@ -771,36 +584,25 @@ Describe 'Where the lock is taken and released, statically (TC-250, SR-085, LLR-
         $script:CallLine = ${function:Get-CallLine}
     }
 
-    It 'calls Initialize-StagingFolder from Invoke-BackupSet only (TC-250, SR-085)' {
-        $callers = foreach ($name in $script:Fns.Keys) {
-            if (@(& $script:CallLine $name 'Initialize-StagingFolder').Count -gt 0) { $name }
-        }
-        (@($callers) -join ',') | Should -Be 'Invoke-BackupSet'
-    }
-
-    It 'takes the OS lock in Invoke-BackupSet before Initialize-StagingFolder (TC-250, SR-085)' {
+    It 'takes the OS lock in Invoke-BackupSet exactly once and releases it only in its finally (TC-250, SR-085)' {
         $enter = @(& $script:CallLine 'Invoke-BackupSet' 'Enter-StagingOsLock')
-        $init  = @(& $script:CallLine 'Invoke-BackupSet' 'Initialize-StagingFolder')
-        ($enter.Count -eq 1 -and $init.Count -eq 1 -and $enter[0] -lt $init[0]) | Should -BeTrue
+        $exits = @(& $script:CallLine 'Invoke-BackupSet' 'Exit-StagingOsLock')
+        $finally = $script:Fns['Invoke-BackupSet'].Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.TryStatementAst] -and $null -ne $n.Finally }, $true) |
+                   ForEach-Object { $_.Finally.Extent }
+        "$($enter.Count)/$($exits.Count)" | Should -Be '1/1'
+        @($finally | Where-Object { $_.StartLineNumber -le $exits[0] -and $_.EndLineNumber -ge $exits[0] }).Count | Should -BeGreaterThan 0
     }
 
-    It 'releases the OS lock in Invoke-BackupSet only in the step-2.95, logger and step-3 catches and after Complete-ChangeFolder (TC-250, SR-085)' {
-        $exits    = @(& $script:CallLine 'Invoke-BackupSet' 'Exit-StagingOsLock')
-        $enter    = @(& $script:CallLine 'Invoke-BackupSet' 'Enter-StagingOsLock')[0]
-        $init     = @(& $script:CallLine 'Invoke-BackupSet' 'Initialize-StagingFolder')[0]
-        $finalize = @(& $script:CallLine 'Invoke-BackupSet' 'Complete-ChangeFolder')[0]
-        $early    = @($exits | Where-Object { $_ -gt $enter -and $_ -lt ($init + 4) })
-        $late     = @($exits | Where-Object { $_ -gt $finalize })
-        "$($exits.Count)/$($early.Count)/$($late.Count)" | Should -Be '4/3/1'
-    }
-
-    It 'reads no prior store state in Invoke-BackupSet before taking the OS lock (TC-250, SR-085)' {
+    It 'reads no store state in Invoke-BackupSet before taking the OS lock (TC-250, SR-085)' {
         $enter = @(& $script:CallLine 'Invoke-BackupSet' 'Enter-StagingOsLock')[0]
-        $reads = @(& $script:CallLine 'Invoke-BackupSet' 'Get-LastBackupRun') +
+        $reads = @(& $script:CallLine 'Invoke-BackupSet' 'Get-PriorBackupDate') +
                  @(& $script:CallLine 'Invoke-BackupSet' 'Get-LastHashRun') +
                  @(& $script:CallLine 'Invoke-BackupSet' 'Read-Manifest') +
-                 @(& $script:CallLine 'Invoke-BackupSet' 'Test-ManifestWitness') +
+                 @(& $script:CallLine 'Invoke-BackupSet' 'Get-StoreObjectIndex') +
+                 @(& $script:CallLine 'Invoke-BackupSet' 'Clear-InterruptedRunResidue') +
+                 @(& $script:CallLine 'Invoke-BackupSet' 'Assert-SingleStoreMount') +
                  @(& $script:CallLine 'Invoke-BackupSet' 'Test-Path')
+        $reads.Count | Should -BeGreaterThan 0
         @($reads | Where-Object { $_ -lt $enter }).Count | Should -Be 0
     }
 
@@ -823,14 +625,16 @@ Describe 'Storage repair against a live backup (TC-251, SR-085, SR-086, LLR-094)
         $snapshot = Initialize-TwoRunStore -Fixture $fx
         $snapDir  = Join-Path $fx.Chg $snapshot
         $rows = @(Read-Manifest -FolderPath $snapDir)
-        $target = @($rows | Where-Object { -not [string]::IsNullOrWhiteSpace($_.DataPath) })[0]
-        if ($null -eq $target) { throw 'fixture error: the snapshot has no row with a DataPath to tamper' }
+        # A row whose object is in the snapshot's own folder: the snapshot keeps
+        # every DataPath (plan C10), most naming objects in the backup root.
+        $target = @($rows | Where-Object { $_.DataPath -and (Test-Path -LiteralPath (Join-Path $snapDir $_.DataPath) -PathType Leaf) })[0]
+        if ($null -eq $target) { throw 'fixture error: the snapshot holds no object of its own to tamper' }
         $target.Compressed = 'Yes'
         Write-Manifest -FolderPath $snapDir -Records $rows
         $script:Rep = @{}
         $script:Rep.Repairable = @(Test-BackupStorageForm -BackupRoot $fx.Bkp -ChangeRoot $fx.Chg | Where-Object Repairable).Count
 
-        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingTestHook_AfterMarkerDelete' -When ($script:D3.ToString('o'))
+        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Stage 'AfterSnapshotPublished' -When ($script:D3.ToString('o'))
         try {
             $lines = New-Object System.Collections.Generic.List[string]
             $before = Get-FixtureStoreHash -Fixture $fx
@@ -883,7 +687,7 @@ Describe 'Kit refresh against a live backup (TC-252, SR-085, SR-086, LLR-094)' {
         $script:Ref = @{}
         $script:Ref.Stale = ((Get-FileHash -LiteralPath $script:RefSnapKit).Hash -ne (Get-FileHash -LiteralPath $script:RefRootKit).Hash)
 
-        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingTestHook_AfterMarkerDelete' -When ($script:D3.ToString('o'))
+        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Stage 'AfterSnapshotPublished' -When ($script:D3.ToString('o'))
         try {
             $lines = New-Object System.Collections.Generic.List[string]
             $before = Get-FixtureStoreHash -Fixture $fx
@@ -932,7 +736,7 @@ Describe '-Action Verify through the entry point with the lock held (TC-253, SR-
         Initialize-TwoRunStore -Fixture $fx | Out-Null
         $cfg = Join-Path $fx.Root 'config.xml'
         @{ Secrets = $null; BackupSets = @([pscustomobject]@{
-                    Name = 'V'; SourcePath = $fx.Src; SourceStatePath = $fx.State; BackupPath = $fx.Bkp
+                    Name = 'V'; SourcePath = $fx.Src; BackupPath = $fx.Bkp
                     ChangePath = $fx.Chg; HashRecalcFreq = 'A'; CompressEnabled = $false }) } |
             Export-Clixml -LiteralPath $cfg
         $entry = Join-Path $script:Repo 'FileBackup.ps1'
@@ -1047,14 +851,12 @@ Describe 'The maintenance lock edge cases and placement (TC-254, SR-085, SR-086,
 }
 
 Describe 'A run reads the prior store state only after it holds the lock (TC-250, SR-085, LLR-091)' {
-    # Run A is the store's FIRST backup. It is parked holding the lock at its
-    # first fence (step 7), before it has written a manifest or LastBackupRun.
-    # Run B starts then; the moment B goes for the lock, the seam lets A run to
+    # Run A is the store's FIRST backup. It is parked holding the lock after its
+    # first file, before it has written a manifest or LastBackupRun. Run B
+    # starts then; the moment B goes for the lock, the seam lets A run to
     # completion (writing LastBackupRun = D1) and waits for it to exit, so B's
     # open then succeeds. A B that read the prior state BEFORE the lock would
-    # still believe this is the first backup: it would supersede A's a.txt,
-    # move A's bytes into Temp, and Complete-ChangeFolder would DELETE that Temp
-    # as a first-run no-snapshot staging folder -- the version A stored, gone.
+    # still believe this is the first backup and keep no snapshot of A's state.
 
     BeforeAll {
         $fx = New-LockFixture 'read-after-lock'
@@ -1062,7 +864,7 @@ Describe 'A run reads the prior store state only after it holds the lock (TC-250
         [System.IO.File]::WriteAllText((Join-Path $fx.Src 'b.txt'), 'BRAVO')
         $script:RalAHash = (Get-FileHash -LiteralPath (Join-Path $fx.Src 'a.txt') -Algorithm SHA256).Hash
         $go = Join-Path $TestDrive 'read-after-lock.go'
-        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Hook 'StagingFenceTestHook' -Phase 'Write-StagingManifest' `
+        $child = Start-ParkedChild -Fixture $fx -Mode Backup -Stage 'AfterFileCaptured' `
                     -Go $go -When ($script:D1.ToString('o'))
         $null = $child.Handle   # cache the handle, so ExitCode is readable after the exit
         $st = @{ Fired = $false; AExited = $false; AExitCode = $null }

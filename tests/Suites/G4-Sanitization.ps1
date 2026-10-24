@@ -87,10 +87,10 @@ function Invoke-G4 {
     # Runs LAST in this group: it calls Reset-TestEnvironment, so placing it
     # mid-scenario would demolish the store G4.1's later assertions read.
     # StoredAsHashSize cannot tell rev-8 from rev-9: a base-85 content-addressed
-    # store says 'Hash', exactly like this one. So the gate leans on two other
-    # markers, and BOTH are exercised here - the witness format version, then
-    # the same store with its witness deleted so only the structural name test
-    # can fire (2026-08-27 independent review, T3).
+    # store says 'Hash', exactly like this one. The restorers (kit 14) refuse it
+    # by the structural name test alone, with or without the witness an older
+    # build left; the engine also reads that witness's version, so the backup
+    # refusal is exercised with it deleted (2026-08-27 independent review, T3).
     Reset-TestEnvironment $Env
     $cfgL = Join-Path $Env.Root 'cfg-g4-legacy.xml'
     Write-TestConfig $cfgL $Env.SrcPath $Env.BkpPath $Env.ChgPath $Compress
@@ -121,8 +121,10 @@ function Invoke-G4 {
     $rOut  = (& $pwshExe -NoProfile -File (Join-Path $Env.BkpPath 'RECONSTRUCT.ps1') `
                 -TargetRoot $legacyRestore -NonInteractive -ExitCode *>&1 | Out-String)
     $rCode = $LASTEXITCODE
-    Assert-True $suite $group 'G4.1b' 'PreWP12_restoreRefused_byWitness' { $rCode -eq 2 }
-    Assert-True $suite $group 'G4.1b' 'PreWP12_refusalNamesVersion' { $rOut -match 'format version 1' }
+    # Kit revision 14 reads no witness (bounded-run-loop plan R5), so a
+    # version-1 witness changes nothing: the name grammar alone refuses.
+    Assert-True $suite $group 'G4.1b' 'PreWP12_restoreRefused' { $rCode -eq 2 }
+    Assert-True $suite $group 'G4.1b' 'PreWP12_refusalNamesGrammar_witnessIgnored' { $rOut -match 'SR-069 base-57 name grammar' }
     Assert-True $suite $group 'G4.1b' 'PreWP12_nothingWritten' {
         -not (Test-Path -LiteralPath (Join-Path $legacyRestore 'doc.txt'))
     }

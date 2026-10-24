@@ -96,23 +96,26 @@ BeforeAll {
     function Set-SnapshotBlankRowForm {
         <#
         .SYNOPSIS
-            Makes a snapshot's blank-DataPath rows claim a form the pool copy
-            does not have, re-stamping the SR-038 witness so the store fails the
-            way the test means to rather than exiting 3.
+            Gives a snapshot the shape the old engine wrote - every row whose
+            object lives in another folder blanked, to be found by hash - and
+            makes those rows claim a form the pool copy does not have.
         .NOTES
             Constructed rather than produced by a CompressEnabled flip: SR-061
             deleted the layout migration that used to re-form the backup root
-            while snapshots kept their form.
+            while snapshots kept their form, and the bounded run loop keeps
+            snapshot DataPaths (plan C10).
         #>
         param([string]$Folder, [string]$Compressed)
-        $rows = @(Import-Csv -LiteralPath (Join-Path $Folder 'MANIFEST.csv'))
+        $rows = @(Read-Manifest -FolderPath $Folder)
         $touched = 0
         foreach ($row in $rows) {
-            if ([string]::IsNullOrWhiteSpace($row.DataPath)) { $row.Compressed = $Compressed; $touched++ }
+            if ([string]::IsNullOrWhiteSpace($row.DataPath) -or
+                -not (Test-Path -LiteralPath (Join-Path $Folder $row.DataPath) -PathType Leaf)) {
+                $row.DataPath = ''; $row.Compressed = $Compressed; $touched++
+            }
         }
-        if ($touched -eq 0) { throw "fixture: no blank-DataPath row in '$Folder'" }
-        $rows | Export-Csv -LiteralPath (Join-Path $Folder 'MANIFEST.csv') -NoTypeInformation
-        Write-ManifestWitness -FolderPath $Folder | Out-Null
+        if ($touched -eq 0) { throw "fixture: no row in '$Folder' resolves outside it" }
+        Write-Manifest -FolderPath $Folder -Records $rows
     }
 
     # --- WP9 step 1: the D-1 / D-5 timelines (TC-118, TC-119) ---------------
@@ -423,8 +426,9 @@ Describe 'Independent multi-set processing (SR-014)' {
         Test-Path -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Should -BeTrue
         @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
             Where-Object { $_.RelativePath -eq 'g.txt' }) | Should -Not -BeNullOrEmpty
-        # ...and the failed set forced a non-zero exit.
-        $code | Should -Be 1
+        # ...and the failed set forced a non-zero exit: a missing source root is
+        # refused before anything changes (2), which outranks the good set's 0.
+        $code | Should -Be 2
     }
 }
 
@@ -507,31 +511,6 @@ Describe 'Media metric degradation (SR-020)' {
         $f = Join-Path $TestDrive 'mm.bin'; [IO.File]::WriteAllBytes($f, [byte[]](1, 2, 3))
         Get-MediaMBPerSec -FilePath $f -FfprobePath $null | Should -BeNullOrEmpty
         Get-MediaMBPerSec -FilePath $f -FfprobePath 'Z:\no\ffprobe.exe' | Should -BeNullOrEmpty
-    }
-}
-
-Describe 'Cross-change duplicate collapse (SR-026)' {
-    It 'keeps one physical copy of identical data shared across change folders (SR-026)' {
-        $bkpRoot = Join-Path $TestDrive 's26\bkp'; $chgRoot = Join-Path $TestDrive 's26\chg'
-        New-Item -ItemType Directory -Path $bkpRoot, $chgRoot -Force | Out-Null
-        Write-Manifest -FolderPath $bkpRoot -Records @()   # backup not a keeper here
-
-        $bytes = [byte[]](1,2,3,4,5,6,7,8)
-        foreach ($name in 'Snapshot_2024_01_01_00_00_01','Snapshot_2024_01_01_00_00_02') {
-            $d = Join-Path $chgRoot $name
-            New-Item -ItemType Directory -Path $d -Force | Out-Null
-            [IO.File]::WriteAllBytes((Join-Path $d 'd.bin'), $bytes)
-            $row = [pscustomobject]@{
-                DataPath='d.bin'; RelativePath='d.bin'; Length=$bytes.Length; LastWriteTime=(Get-Date)
-                xxH2Hash='DEADBEEFDEADBEEFDEADBEEFDEADBEEF'; Compressed='No'; StoredAsHashSize='No'
-                Duplicate='No'; MediaMBPerSec=''
-            }
-            Write-Manifest -FolderPath $d -Records @($row)
-        }
-
-        Optimize-ChangeFolders -ChangeRoot $chgRoot -BackupRoot $bkpRoot -Log { param($m, $lvl) }
-
-        @(Get-ChildItem -LiteralPath $chgRoot -Recurse -Filter 'd.bin').Count | Should -Be 1
     }
 }
 
@@ -751,13 +730,11 @@ Describe 'Reconstruct sidecar is infrastructure (SR-022)' {
     }
 }
 
-Describe 'Manifest witness is infrastructure (SR-022, SR-038)' {
-    # TC-067. Two halves of B6: the ROOT-level MANIFEST.csv.meta is infrastructure
-    # (no orphan WARN), a NESTED user file of the same name is real data. Plus the
-    # single most dangerous mistake available in SR-038 — the witness must NOT be
-    # copied into snapshots with the restore kit, or every snapshot would carry the
-    # backup root's witness and fail verification against its own manifest.
-    It 'logs no orphan warning for the root witness, keeps a nested one as data, and gives each snapshot its own (SR-038)' {
+Describe 'No manifest witness is written; a nested file of that name is data (SR-022, plan R5)' {
+    # TC-067, re-scoped by the bounded run loop: R5 retired the MANIFEST.csv.meta
+    # witness, so no origin carries one any more. The B6 half stands: a NESTED
+    # user file named like the witness is real data and restores byte-exact.
+    It 'writes no witness into any origin, and keeps a nested same-named file as data' {
         $root = Join-Path $TestDrive 's38'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
@@ -772,11 +749,7 @@ Describe 'Manifest witness is infrastructure (SR-022, SR-038)' {
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'v2')
         Invoke-FB $cfg                                   # run2 ⇒ snapshot of state-1
 
-        # Half 1: root-level witness is infrastructure — no orphan/not-in-DB WARN.
-        (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) |
-            Should -Not -Match ([regex]::Escape($witnessName))
-
-        # Half 2: the nested same-named file is data — it is in the manifest...
+        # The nested same-named file is data — it is in the manifest...
         @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
             Where-Object { $_.RelativePath -eq "sub\$witnessName" }) | Should -Not -BeNullOrEmpty
         # ...and restores byte-exact.
@@ -784,28 +757,11 @@ Describe 'Manifest witness is infrastructure (SR-022, SR-038)' {
         & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
         [IO.File]::ReadAllText((Join-Path $t "sub\$witnessName")) | Should -Be 'NESTED-USER-WITNESS'
 
-        # Every origin carrying a manifest carries a witness that verifies against
-        # ITS OWN manifest — the backup root, and each snapshot independently.
+        # No origin carries a root-level witness: not the backup root, not a snapshot.
         $snaps = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' })
         $snaps.Count | Should -BeGreaterThan 0
         foreach ($origin in @($bkp) + $snaps.FullName) {
-            Test-Path -LiteralPath (Join-Path $origin $witnessName) -PathType Leaf | Should -BeTrue
-            (Test-ManifestWitness -FolderPath $origin).Status | Should -Be 'Verified'
-        }
-        # The snapshot's witness is its OWN, not a copy of the backup root's: the
-        # two manifests differ (blanked DataPaths), so the digests must differ too.
-        # Compare the DIGESTS the sidecars actually carry (an earlier revision of
-        # this test compared the sidecar's *path*, which can never be empty).
-        $rootDigest = ([regex]::Match(
-            [IO.File]::ReadAllText((Join-Path $bkp $witnessName)),
-            '(?m)^XxH128=(?<h>[0-9A-Fa-f]{32})$')).Groups['h'].Value
-        $rootDigest | Should -Not -BeNullOrEmpty
-        $rootDigest | Should -Be (Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv'))
-        foreach ($snap in $snaps) {
-            $snapHash = Get-FileXxHash -FilePath (Join-Path $snap.FullName 'MANIFEST.csv')
-            $snapHash | Should -Not -Be $rootDigest
-            ([IO.File]::ReadAllText((Join-Path $snap.FullName $witnessName))) |
-                Should -Match ([regex]::Escape("XxH128=$snapHash"))
+            Test-Path -LiteralPath (Join-Path $origin $witnessName) | Should -BeFalse -Because "R5: '$origin' gets no witness"
         }
     }
 }
@@ -925,65 +881,37 @@ Describe 'Manifest witness verification on restore (SR-039)' {
         }
     }
 
-    It 'refuses a truncated, byte-edited or garbage manifest without restoring a row (SR-039)' {
+    It 'refuses a garbage manifest without writing into the target (SR-039 header half)' {
         $root = Join-Path $TestDrive 'w39-damage'
         $bkp = New-WitnessOrigin $root
         $manifest = Join-Path $bkp 'MANIFEST.csv'
         $recon = Join-Path $bkp 'RECONSTRUCT.ps1'
-        $pristine = [IO.File]::ReadAllBytes($manifest)
 
-        # 1. Truncated (a half-written manifest) — caught by Bytes.
-        [IO.File]::WriteAllBytes($manifest, $pristine[0..($pristine.Length - 30)])
-        $t1 = Join-Path $root 'r-trunc'
-        { & $recon -TargetRoot $t1 } | Should -Throw -ExpectedMessage '*witness verification failed*'
-        # Nothing at all: the target folder was never even created.
-        Test-Path -LiteralPath $t1 | Should -BeFalse
-
-        # 2. Byte-edited at the same length — slips past Bytes/Rows, caught by the digest.
-        $edited = [byte[]]::new($pristine.Length)
-        [Array]::Copy($pristine, $edited, $pristine.Length)
-        $edited[$edited.Length - 6] = [byte]0x51
-        [IO.File]::WriteAllBytes($manifest, $edited)
-        # An EXISTING target must come out untouched too — no RECONSTRUCT.log
-        # dropped into a folder the operator already had.
-        $t2 = Join-Path $root 'r-edit'
-        New-Item -ItemType Directory -Path $t2 -Force | Out-Null
-        { & $recon -TargetRoot $t2 } | Should -Throw -ExpectedMessage '*witness verification failed*'
-        Get-TargetContents $t2 | Should -BeNullOrEmpty
-
-        # 3. Replaced by unrelated text — the header guard catches it first
-        #    (exit 2 class), which is the legacy corrupt-file path.
+        # Replaced by unrelated text — the header guard refuses it (exit 2 class).
+        # An EXISTING target must come out untouched — no RECONSTRUCT.log dropped
+        # into a folder the operator already had.
         [IO.File]::WriteAllText($manifest, "hello, this is not a manifest at all`r`n")
-        $t3 = Join-Path $root 'r-garbage'
-        { & $recon -TargetRoot $t3 } | Should -Throw -ExpectedMessage '*not a FileBackup manifest*'
-        Test-Path -LiteralPath $t3 | Should -BeFalse
-
-        # 4. Re-stamping the witness makes the SAME (restored) manifest verify.
-        [IO.File]::WriteAllBytes($manifest, $pristine)
-        Write-ManifestWitness -FolderPath $bkp | Out-Null
-        $t4 = Join-Path $root 'r-ok'
-        { & $recon -TargetRoot $t4 *>&1 | Out-Null } | Should -Not -Throw
-        [IO.File]::ReadAllText((Join-Path $t4 'a.txt')) | Should -Be 'AAA'
+        $t = Join-Path $root 'r-garbage'
+        New-Item -ItemType Directory -Path $t -Force | Out-Null
+        { & $recon -TargetRoot $t } | Should -Throw -ExpectedMessage '*not a FileBackup manifest*'
+        Get-TargetContents $t | Should -BeNullOrEmpty
     }
 
-    It 'restores a sidecar-less legacy origin with an unverified warning, and refuses it under -RequireWitness (SR-039)' {
-        $root = Join-Path $TestDrive 'w39-legacy'
+    It 'ignores a witness an older build left, even one that disagrees (kit revision 14, plan R5)' {
+        $root = Join-Path $TestDrive 'w39-stale'
         $bkp = New-WitnessOrigin $root
         $recon = Join-Path $bkp 'RECONSTRUCT.ps1'
-        # Model a backup written before the witness contract.
-        Remove-Item -LiteralPath (Join-Path $bkp (Get-FileBackupDefaults).WitnessFilename) -Force
+        # A witness stamped for different bytes, as an older build could leave:
+        # stamp it, then rewrite the same rows with different quoting.
+        Write-ManifestWitness -FolderPath $bkp | Out-Null
+        $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        $rows | Export-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -NoTypeInformation -UseQuotes AsNeeded
+        (Test-ManifestWitness -FolderPath $bkp).Status | Should -Not -Be 'Verified' -Because 'the fixture must really be stale'
 
-        $t = Join-Path $root 'r-legacy'
-        & $recon -TargetRoot $t *>&1 | Out-Null
+        $t = Join-Path $root 'r-stale'
+        { & $recon -TargetRoot $t *>&1 | Out-Null } | Should -Not -Throw
         [IO.File]::ReadAllText((Join-Path $t 'a.txt')) | Should -Be 'AAA'
         [IO.File]::ReadAllText((Join-Path $t 'b.txt')) | Should -Be 'BBB'
-        (Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw) | Should -Match 'UNVERIFIED'
-
-        # Opt-in strict mode turns that absence into the same abort.
-        $tStrict = Join-Path $root 'r-strict'
-        { & $recon -TargetRoot $tStrict -RequireWitness } |
-            Should -Throw -ExpectedMessage '*RequireWitness*'
-        Test-Path -LiteralPath $tStrict | Should -BeFalse
     }
 }
 
@@ -1116,7 +1044,6 @@ Describe 'Restore exit-code table (SR-040)' {
         Invoke-ReconProcess $recon @('-TargetRoot', (Join-Path $bkp 'inside')) | Should -Be 2
 
         Remove-Item -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -Force
-        Remove-Item -LiteralPath (Join-Path $bkp (Get-FileBackupDefaults).WitnessFilename) -Force
         Invoke-ReconProcess $recon @('-TargetRoot', (Join-Path $root 'r')) | Should -Be 2
     }
 
@@ -1135,18 +1062,14 @@ Describe 'Restore exit-code table (SR-040)' {
         [IO.File]::ReadAllText($blocked) | Should -Be 'I am a file, not a folder'
     }
 
-    It 'returns 3 when the manifest disagrees with its witness (SR-040)' {
+    It 'never returns 3: a witness that disagrees with its manifest is ignored (kit revision 14)' {
         $root = Join-Path $TestDrive 'x3'
         $bkp = New-ExitCodeOrigin $root
         $manifest = Join-Path $bkp 'MANIFEST.csv'
-        $bytes = [IO.File]::ReadAllBytes($manifest)
-        [IO.File]::WriteAllBytes($manifest, $bytes[0..($bytes.Length - 25)])
-        $t = Join-Path $root 'r'
-        Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $t) | Should -Be 3
-        # 3 means the index is untrustworthy: NOTHING reached the target — not a
-        # manifest row, not even the restorer's own log, because verification
-        # runs before the target folder exists (SR-039).
-        Test-Path -LiteralPath $t | Should -BeFalse
+        Write-ManifestWitness -FolderPath $bkp | Out-Null
+        @(Import-Csv -LiteralPath $manifest) | Export-Csv -LiteralPath $manifest -NoTypeInformation -UseQuotes AsNeeded
+        (Test-ManifestWitness -FolderPath $bkp).Status | Should -Not -Be 'Verified' -Because 'the fixture must really be stale'
+        Invoke-ReconProcess (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', (Join-Path $root 'r')) | Should -Be 0
     }
 
     It 'returns 4 when hash recovery needs a 7-Zip this host lacks (host class) (SR-040)' {
@@ -1187,49 +1110,41 @@ Describe 'Restore exit-code table (SR-040)' {
     }
 }
 
-Describe 'Move loops aggregate failures (SR-041)' {
-    # TC-073. HomeHub cross-check finding J: one failed Move-Item escaped
-    # Invoke-BackupSet, which hid every other failure, skipped snapshot
-    # finalization, and left the Temp staging folder behind — so the NEXT run
-    # aborted on the SR-017 stale-staging guard. A single locked file must not
-    # cost the user their next backup too.
-    It 'logs an ERROR per failed move, still finalizes the snapshot, and leaves no Temp behind (SR-041)' {
+Describe 'A superseded object that will not move only warns (SR-041, plan R1)' {
+    # TC-073, re-scoped by the bounded run loop. One failed move must not cost
+    # the user this backup or the next: step 8 moves each object no row of the
+    # final manifest uses into the run's snapshot by rename, and one that will
+    # not move (an AV scanner or an open handle) stays in the latest state,
+    # where it still restores, with a WARN naming it.
+    It 'warns per failed move, moves the rest, keeps every state restorable, and the next run is clean' {
         $root = Join-Path $TestDrive 's41'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
 
-        # Run 1: four files, two of which this run will supersede/remove.
+        # Run 1: four files, which run 2 supersedes or removes.
         [IO.File]::WriteAllText((Join-Path $src 'super.txt'),  'OLD-SUPERSEDED')
         [IO.File]::WriteAllText((Join-Path $src 'gone.txt'),   'OLD-REMOVED')
         [IO.File]::WriteAllText((Join-Path $src 'super2.txt'), 'OLD-SUPERSEDED-2')
         [IO.File]::WriteAllText((Join-Path $src 'gone2.txt'),  'OLD-REMOVED-2')
-        Invoke-FB $cfg
-        # Resolve every pool object BEFORE run 2 replaces the rows: the loops
-        # move these hash-named objects, and the assertions below read them.
+        & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-01-01 00:00:01') *>&1 | Out-Null
         $r1data = @{}
         foreach ($row in @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))) {
             $r1data[$row.RelativePath] = $row.DataPath
         }
 
-        # Set up run 2: supersede one file (Save-SupersededData, the step-11.5
-        # post-evict position — this is that arm's failure-aggregation
-        # coverage, step-4 review MIN-2) and remove another
-        # (Move-RemovedFilesToStaging), so BOTH loops have work.
         [IO.File]::WriteAllText((Join-Path $src 'super.txt'),  'NEW-CONTENT')
         [IO.File]::WriteAllText((Join-Path $src 'super2.txt'), 'NEW-CONTENT-2')
         Remove-Item -LiteralPath (Join-Path $src 'gone.txt')  -Force
         Remove-Item -LiteralPath (Join-Path $src 'gone2.txt') -Force
 
-        # Hold TWO pool objects open with no sharing, so their moves fail —
-        # one in each loop. FileShare::None makes Move-Item throw exactly the way
-        # a real locked file (AV scanner, open handle) does.
+        # Hold two of the four objects open with no sharing, so their renames fail.
         $lock1 = [IO.File]::Open((Join-Path $bkp $r1data['super.txt']), 'Open', 'Read', 'None')
         $lock2 = [IO.File]::Open((Join-Path $bkp $r1data['gone.txt']),  'Open', 'Read', 'None')
         try {
-            # Child process so the exit code is observable.
-            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive `
+                -BackupTime ([datetime]'2024-02-02 00:00:02') *>&1 | Out-Null
             $code = $LASTEXITCODE
         }
         finally {
@@ -1237,40 +1152,29 @@ Describe 'Move loops aggregate failures (SR-041)' {
         }
 
         $log = Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw
+        # 1. Each failure is its own WARN naming the object.
+        $log | Should -Match "WARN.*Could not move superseded '$([regex]::Escape($r1data['super.txt']))'"
+        $log | Should -Match "WARN.*Could not move superseded '$([regex]::Escape($r1data['gone.txt']))'"
+        # 2. Every file was captured, so the run reports 0 (C1: a failed move is no lost file).
+        $code | Should -Be 0
 
-        # 1. Each failure is logged as its own ERROR naming the file — not one
-        #    generic abort that hides the second failure.
-        $log | Should -Match "ERROR.*Failed to preserve superseded data for 'super\.txt'"
-        $log | Should -Match "ERROR.*Failed to evict 'gone\.txt'"
-        # 2. ...plus a summary count per loop.
-        $log | Should -Match 'Superseded-data preservation finished with 1 failure'
-        $log | Should -Match 'Removed-file eviction finished with 1 failure'
-        # 3. The run reports overall failure.
-        $code | Should -Be 1
-
-        # 4. Every MOVABLE entry was still staged: the loops continued past the
-        #    failures instead of aborting on the first one.
-        $snaps = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' })
-        $snaps.Count | Should -Be 1
-        $snap = $snaps[0].FullName
+        # 3. The movable objects were moved; the locked ones stayed in the latest state.
+        $snap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
         [IO.File]::ReadAllText((Join-Path $snap $r1data['super2.txt'])) | Should -Be 'OLD-SUPERSEDED-2'
         [IO.File]::ReadAllText((Join-Path $snap $r1data['gone2.txt']))  | Should -Be 'OLD-REMOVED-2'
+        Test-Path -LiteralPath (Join-Path $bkp $r1data['super.txt']) -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $bkp $r1data['gone.txt'])  -PathType Leaf | Should -BeTrue
 
-        # 5. The snapshot was still FINALIZED (it has its own manifest + witness)
-        #    rather than being abandoned mid-flight.
-        Test-Path -LiteralPath (Join-Path $snap 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
-        (Test-ManifestWitness -FolderPath $snap).Status | Should -Be 'Verified'
+        # 4. The snapshot restores state 1 exactly, finding the unmoved objects by name.
+        $t = Join-Path $root 'r-snap'
+        { & (Join-Path $snap 'RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null } | Should -Not -Throw
+        [IO.File]::ReadAllText((Join-Path $t 'super.txt')) | Should -Be 'OLD-SUPERSEDED'
+        [IO.File]::ReadAllText((Join-Path $t 'gone.txt'))  | Should -Be 'OLD-REMOVED'
 
-        # 6. No Temp staging folder survives...
-        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -eq 'Temp' }) |
-            Should -BeNullOrEmpty
-
-        # 7. ...so the NEXT run proceeds normally instead of tripping the SR-017
-        #    stale-staging guard. This is the half that actually cost the user a
-        #    backup before the fix.
-        & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+        # 5. The next run proceeds normally.
+        & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive `
+            -BackupTime ([datetime]'2024-03-03 00:00:03') *>&1 | Out-Null
         $LASTEXITCODE | Should -Be 0
-        (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) | Should -Not -Match 'stale'
     }
 }
 
@@ -1307,18 +1211,17 @@ Describe 'The shipped example config is executable (SR-042)' {
         $exampleFile = Join-Path $repo 'container\FileBackup.example.json'
         $exampleObj  = Get-Content -LiteralPath $exampleFile -Raw | ConvertFrom-Json
 
-        $src = Join-Path $TestDrive 'ex76\src'; $state = Join-Path $TestDrive 'ex76\state'
+        $src = Join-Path $TestDrive 'ex76\src'
         $bkp = Join-Path $TestDrive 'ex76\bkp'; $chg = Join-Path $TestDrive 'ex76\chg'
-        New-Item -ItemType Directory -Path $src, $state -Force | Out-Null
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $src 'report.txt'), ('EXAMPLE CONFIG DATA ' * 500))
 
         # Retarget ONLY the path fields and the 7-Zip tool path; every other key
         # (ConfigVersion, Name, HashRecalcFreq, CompressEnabled) is kept
         # exactly as checked in.
-        $exampleObj.BackupSets[0].SourcePath      = $src
-        $exampleObj.BackupSets[0].SourceStatePath = $state
-        $exampleObj.BackupSets[0].BackupPath      = $bkp
-        $exampleObj.BackupSets[0].ChangePath      = $chg
+        $exampleObj.BackupSets[0].SourcePath = $src
+        $exampleObj.BackupSets[0].BackupPath = $bkp
+        $exampleObj.BackupSets[0].ChangePath = $chg
         $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
         $exampleObj.Tools.SevenZipPath = $sevenZip
 
@@ -1473,17 +1376,15 @@ Describe 'Entry-point status codes (SR-043)' {
         Test-Path -LiteralPath (Split-Path $freshLog) | Should -BeFalse
     }
 
-    It 'returns 1 when the one backup set fails, under -ExitCode' {
+    It 'returns 2 when the one backup set is refused at its start, under -ExitCode' {
         $root = Join-Path $TestDrive 'tc078-setfail'
         $cfg = Join-Path $root 'config.json'
         New-Item -ItemType Directory -Path $root -Force | Out-Null
         # A well-formed config (passes SR-042) whose SourcePath does not exist:
-        # the set fails at Resolve-BackupSetPaths, which FileBackup.ps1's
-        # per-set try/catch turns into overall failure -- exit 1 regardless of
-        # -ExitCode, unchanged since before WP2.
+        # the set is refused before anything changes (plan C1), so 2.
         New-JsonBackupConfig -Path $cfg -Src (Join-Path $root 'no-such-source') -Bkp (Join-Path $root 'bkp') -Chg (Join-Path $root 'chg')
 
-        (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 1
+        (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 2
     }
 
     It 'returns 0 for a clean single-set run under -ExitCode' {
@@ -1496,7 +1397,7 @@ Describe 'Entry-point status codes (SR-043)' {
         (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 0
     }
 
-    It 'without -ExitCode returns the pre-WP2 codes: a bad config still exits non-zero (1, not 2), a failed set still exits 1, a clean run still exits 0' {
+    It 'without -ExitCode: a bad config still exits non-zero (1, not 2), a refused set exits 2, a clean run exits 0' {
         $root = Join-Path $TestDrive 'tc078-nopswitch'
         New-Item -ItemType Directory -Path $root -Force | Out-Null
 
@@ -1506,7 +1407,7 @@ Describe 'Entry-point status codes (SR-043)' {
 
         $failCfg = Join-Path $root 'fail.json'
         New-JsonBackupConfig -Path $failCfg -Src (Join-Path $root 'no-such-source-2') -Bkp (Join-Path $root 'bkp2') -Chg (Join-Path $root 'chg2')
-        (Invoke-FBChild -Cfg $failCfg) | Should -Be 1
+        (Invoke-FBChild -Cfg $failCfg) | Should -Be 2
 
         $cleanSrc = Join-Path $root 'src3'
         New-Item -ItemType Directory -Path $cleanSrc -Force | Out-Null
@@ -1547,114 +1448,6 @@ Describe 'Entry-point status codes (SR-043)' {
         Test-Path -LiteralPath (Join-Path $bkpA 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $bkpB 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
         (Get-Content -LiteralPath $log -Raw) | Should -Match '(?i)2 BackupSets entries.*IF-001'
-    }
-}
-
-Describe 'Optimize-ChangeFolders is unchanged by the shared index (SR-026)' {
-    # TC-089 — the regression pin for WP4 phase A. Optimize-ChangeFolders'
-    # inline reference scan is lifted into Get-BackupContentIndex so prune can
-    # reuse it; these post-conditions are asserted against a hand-built pool so
-    # the lift can be proven behavior-preserving rather than assumed.
-    BeforeAll {
-        function New-PoolRow {
-            param([string]$DataPath, [string]$RelativePath, [long]$Length,
-                  [string]$Hash, [string]$Compressed = 'No', [string]$StoredAs = 'Hash')
-            [pscustomobject]@{
-                DataPath = $DataPath; RelativePath = $RelativePath; Length = $Length
-                LastWriteTime = [datetime]'2024-01-01 00:00:00'; xxH2Hash = $Hash
-                Compressed = $Compressed; StoredAsHashSize = $StoredAs
-                Duplicate = 'No'; MediaMBPerSec = ''
-            }
-        }
-        function New-PoolFile {
-            param([string]$Folder, [string]$Name, [string]$Content)
-            $full = Join-Path $Folder $Name
-            $dir = [IO.Path]::GetDirectoryName($full)
-            if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-            [IO.File]::WriteAllText($full, $Content)
-            return $full
-        }
-    }
-
-    It 'keeps the backup copy, elects the newest snapshot without one, blanks vanished rows, and leaves one physical copy per key (SR-026)' {
-        $root = Join-Path $TestDrive 'tc089'
-        $bkp  = Join-Path $root 'bkp'
-        $chg  = Join-Path $root 'chg'
-        $s1   = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
-        $s2   = Join-Path $chg 'Snapshot_2024_02_02_00_00_02'
-        New-Item -ItemType Directory -Path $bkp, $s1, $s2 -Force | Out-Null
-
-        $X = 'ROOT-KEPT-CONTENT ' * 20      # lives in the root AND both snapshots
-        $Y = 'SNAPSHOT-ONLY-CONTENT ' * 20  # lives in both snapshots only
-        $Z = 'VANISHED-CONTENT ' * 20       # referenced by a snapshot row, no file anywhere
-
-        $fx = New-PoolFile $bkp 'x.txt' $X
-        New-PoolFile $s1 'x.txt' $X | Out-Null
-        New-PoolFile $s2 'x.txt' $X | Out-Null
-        New-PoolFile $s1 'y.txt' $Y | Out-Null
-        New-PoolFile $s2 'y.txt' $Y | Out-Null
-        $hx = Get-FileXxHash -FilePath $fx; $lx = (Get-Item -LiteralPath $fx).Length
-        $hy = Get-FileXxHash -FilePath (Join-Path $s1 'y.txt'); $ly = (Get-Item -LiteralPath (Join-Path $s1 'y.txt')).Length
-
-        Write-Manifest -FolderPath $bkp -Records @(New-PoolRow 'x.txt' 'x.txt' $lx $hx)
-        Write-Manifest -FolderPath $s1 -Records @(
-            (New-PoolRow 'x.txt' 'x.txt' $lx $hx),
-            (New-PoolRow 'y.txt' 'y.txt' $ly $hy),
-            (New-PoolRow 'gone.txt' 'gone.txt' $Z.Length 'DEADBEEFDEADBEEFDEADBEEFDEADBEEF'))
-        Write-Manifest -FolderPath $s2 -Records @(
-            (New-PoolRow 'x.txt' 'x.txt' $lx $hx),
-            (New-PoolRow 'y.txt' 'y.txt' $ly $hy))
-
-        Optimize-ChangeFolders -ChangeRoot $chg -BackupRoot $bkp -Log { param($m, $l) } | Out-Null
-
-        # 1. The backup copy is always the keeper, and no backup-root file is deleted.
-        Test-Path -LiteralPath (Join-Path $bkp 'x.txt') -PathType Leaf | Should -BeTrue
-        Test-Path -LiteralPath (Join-Path $s1 'x.txt') -PathType Leaf | Should -BeFalse
-        Test-Path -LiteralPath (Join-Path $s2 'x.txt') -PathType Leaf | Should -BeFalse
-
-        # 2. Absent a root copy the NEWEST snapshot wins.
-        Test-Path -LiteralPath (Join-Path $s2 'y.txt') -PathType Leaf | Should -BeTrue
-        Test-Path -LiteralPath (Join-Path $s1 'y.txt') -PathType Leaf | Should -BeFalse
-
-        # 3. Every row whose data file went away is blanked (restore recovers by hash),
-        #    including the row whose file never existed.
-        $m1 = @(Read-Manifest -FolderPath $s1)
-        ($m1 | Where-Object { $_.RelativePath -eq 'x.txt' }).DataPath    | Should -BeNullOrEmpty
-        ($m1 | Where-Object { $_.RelativePath -eq 'y.txt' }).DataPath    | Should -BeNullOrEmpty
-        ($m1 | Where-Object { $_.RelativePath -eq 'gone.txt' }).DataPath | Should -BeNullOrEmpty
-        $m2 = @(Read-Manifest -FolderPath $s2)
-        ($m2 | Where-Object { $_.RelativePath -eq 'x.txt' }).DataPath | Should -BeNullOrEmpty
-        ($m2 | Where-Object { $_.RelativePath -eq 'y.txt' }).DataPath | Should -Be 'y.txt'
-
-        # 4. Row sets are otherwise untouched — Optimize only ever blanks DataPath.
-        $m1.Count | Should -Be 3
-        $m2.Count | Should -Be 2
-
-        # 5. Every rewritten manifest is re-witnessed (Write-Manifest, never Export-Csv).
-        foreach ($folder in $bkp, $s1, $s2) {
-            (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Verified'
-        }
-
-        # 6. TC-049's property on the quiescent pool: exactly one physical copy per key.
-        foreach ($pair in @(@($hx, $lx), @($hy, $ly))) {
-            @(Get-ChildItem -LiteralPath $bkp, $chg -File -Recurse |
-                Where-Object { $_.Name -notmatch '^MANIFEST\.csv' -and $_.Length -eq $pair[1] -and
-                               (Get-FileXxHash -FilePath $_.FullName) -eq $pair[0] }).Count | Should -Be 1
-        }
-    }
-
-    It 'does nothing when the change root has no snapshot folders (SR-026)' {
-        $root = Join-Path $TestDrive 'tc089b'
-        $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
-        New-Item -ItemType Directory -Path $bkp, $chg -Force | Out-Null
-        $f = New-PoolFile $bkp 'only.txt' 'ONLY'
-        Write-Manifest -FolderPath $bkp -Records @(New-PoolRow 'only.txt' 'only.txt' (Get-Item -LiteralPath $f).Length (Get-FileXxHash -FilePath $f))
-        $before = Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv')
-
-        Optimize-ChangeFolders -ChangeRoot $chg -BackupRoot $bkp -Log { param($m, $l) } | Out-Null
-
-        Test-Path -LiteralPath (Join-Path $bkp 'only.txt') -PathType Leaf | Should -BeTrue
-        Get-FileXxHash -FilePath (Join-Path $bkp 'MANIFEST.csv') | Should -Be $before
     }
 }
 
@@ -1727,10 +1520,9 @@ Describe 'Snapshot inventory reports true dedup-aware reclaim (SR-047)' {
 
 Describe 'Prune refuses before mutating (SR-046)' {
     # TC-084. Each rail is induced on a real store, and every refusal must name
-    # its SR-040 code AND leave the tree byte-identical — FileBackupState.json,
-    # every manifest and every witness included. Manifests tampered with on
-    # purpose are re-stamped with Write-ManifestWitness, or the failure observed
-    # would be exit 3 instead of the one the case means to exercise (AGENTS.md §3).
+    # its SR-040 code AND leave the tree byte-identical — FileBackupState.json
+    # and every manifest included. No witness is written any more (plan R5), so
+    # a tampered manifest refuses only through the rail the case exercises.
     BeforeAll {
         function Get-Refusal {
             param([pscustomobject]$Env, [string]$Name, [hashtable]$Extra = @{})
@@ -1769,11 +1561,11 @@ Describe 'Prune refuses before mutating (SR-046)' {
                 Write-Manifest -FolderPath $e.Bkp -Records $rows } }
         @{ Kind = 'witness-mismatch'; Code = 3; Target = $null; Extra = @{}; Induce = {
                 param($e)
-                $m = Join-Path $e.Bkp 'MANIFEST.csv'
-                [IO.File]::AppendAllText($m, "`r`n")   # deliberately NOT re-stamped: this case IS the witness
+                # A witness an older build left, then the manifest changed under
+                # it - deliberately NOT re-stamped: this case IS the witness (C13).
+                Write-ManifestWitness -FolderPath $e.Bkp | Out-Null
+                [IO.File]::AppendAllText((Join-Path $e.Bkp 'MANIFEST.csv'), "`r`n")
             } }
-        @{ Kind = 'witness-absent'; Code = 3; Target = $null; Extra = @{}; Induce = {
-                param($e) Remove-Item -LiteralPath (Get-ManifestWitnessPath -FolderPath $e.Bkp) -Force } }
         @{ Kind = 'no-7zip'; Code = 2; Target = $null; Extra = @{ SevenZipPath = 'Z:\no\such\7z.exe' }; Compress = $true; Induce = { param($e) } }
         # The two plan-time rails WP4 shipped untested (review finding M3). The
         # reviewer hand-verified destination-collision; both are pinned here.
@@ -1782,6 +1574,17 @@ Describe 'Prune refuses before mutating (SR-046)' {
                 # Occupy the elected destination name with DIFFERENT bytes:
                 # identical bytes are an interrupted run's completed copy and
                 # must NOT refuse, anything else must never be overwritten.
+                # The demander is given the old engine's shape first - rows
+                # whose object is elsewhere blanked, found by hash - because
+                # the bounded run's kept DataPath would name the blocker itself,
+                # and a file at a row's own name reads as its copy (plan C12;
+                # bytes that lie about their name are Verify -Deep's, R10).
+                $oldest = Join-Path $e.Chg $e.Oldest
+                $rows = @(Read-Manifest -FolderPath $oldest)
+                foreach ($r in $rows) {
+                    if ($r.DataPath -and -not (Test-Path -LiteralPath (Join-Path $oldest $r.DataPath) -PathType Leaf)) { $r.DataPath = '' }
+                }
+                Write-Manifest -FolderPath $oldest -Records $rows
                 $plan = Get-SnapshotPrunePlan -BackupRoot $e.Bkp -ChangeRoot $e.Chg -Name $e.Newest
                 $item = $plan.Items.ToArray()[0]
                 [IO.File]::WriteAllText((Join-Path $item.DestinationFolder $item.DestinationDataPath),
@@ -1819,12 +1622,12 @@ Describe 'Prune refuses before mutating (SR-046)' {
         Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
     }
 
-    It '-AllowUnverifiedIndex converts the absent-witness refusal into a go (SR-046)' {
+    It 'an absent witness is no refusal, with or without -AllowUnverifiedIndex (plan C13)' {
         $root = Join-Path $TestDrive 'tc084-allowunverified'
         $env  = New-PruneTimeline -Root $root
-        Remove-Item -LiteralPath (Get-ManifestWitnessPath -FolderPath $env.Bkp) -Force
+        Test-Path -LiteralPath (Get-ManifestWitnessPath -FolderPath $env.Bkp) | Should -BeFalse -Because 'R5: no witness is written'
 
-        (Get-Refusal -Env $env -Name $env.Newest).Count | Should -BeGreaterThan 0
+        (Get-Refusal -Env $env -Name $env.Newest).Count | Should -Be 0
         (Get-Refusal -Env $env -Name $env.Newest -Extra @{ AllowUnverifiedIndex = $true }).Count | Should -Be 0
     }
 
@@ -1840,6 +1643,7 @@ Describe 'Prune refuses before mutating (SR-046)' {
     It 'still refuses a mismatched witness when -AllowUnverifiedIndex is passed (absent is not damaged) (SR-039)' {
         $root = Join-Path $TestDrive 'tc084-tamper'
         $env  = New-PruneTimeline -Root $root
+        Write-ManifestWitness -FolderPath $env.Bkp | Out-Null
         [IO.File]::AppendAllText((Join-Path $env.Bkp 'MANIFEST.csv'), "`r`n")
 
         $refusals = Get-Refusal -Env $env -Name $env.Newest -Extra @{ AllowUnverifiedIndex = $true }
@@ -2074,10 +1878,12 @@ Describe 'Prune changes only the storage-form columns (SR-045)' {
     }
 }
 
-Describe 'Prune re-stamps every manifest it rewrites (SR-038)' {
-    # TC-085. The witness is written by Write-Manifest ONLY, and never copied
-    # between folders (AGENTS.md 3 "the single most dangerous mistake").
-    It 'leaves every pool manifest Verified after re-homing into <Destination>' -ForEach @(
+Describe 'Prune leaves no stale witness beside a manifest it rewrites (SR-038, plan R5)' {
+    # TC-085, re-scoped by the bounded run loop: no witness is written any more,
+    # and Write-Manifest removes one an older build left, so a manifest prune
+    # rewrites can never carry a witness that disagrees with it (which would
+    # refuse every later prune with 3, C13).
+    It 'leaves every pool manifest without a witness, and restorable, after re-homing into <Destination>' -ForEach @(
         @{ Destination = 'snapshot' }, @{ Destination = 'backup-root' }
     ) {
         $root = Join-Path $TestDrive ('tc085-' + $Destination)
@@ -2093,16 +1899,10 @@ Describe 'Prune re-stamps every manifest it rewrites (SR-038)' {
 
         $folders = @($env.Bkp) + @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg | ForEach-Object { $_.FullName })
         foreach ($folder in $folders) {
-            (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Verified'
+            (Test-ManifestWitness -FolderPath $folder).Status | Should -Be 'Absent'
             $target = Join-Path $root ('rw-' + [IO.Path]::GetFileName($folder))
-            & (Join-Path $folder 'RECONSTRUCT.ps1') -TargetRoot $target -RequireWitness *>&1 | Out-Null
+            { & (Join-Path $folder 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null } | Should -Not -Throw
         }
-        # Each folder's witness is its OWN: no two folders share a digest for
-        # different manifests (the copied-witness mistake).
-        $digests = foreach ($folder in $folders) {
-            (Get-Content -LiteralPath (Get-ManifestWitnessPath -FolderPath $folder) | Where-Object { $_ -like 'XxH128=*' })
-        }
-        @($digests | Select-Object -Unique).Count | Should -Be $folders.Count
     }
 
     It 'the prune path calls neither Export-Csv nor Write-ManifestWitness directly (SR-038)' {
@@ -2264,7 +2064,7 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
 
         Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-manifest'
-        (Test-ManifestWitness -FolderPath (Join-Path $env.Chg $env.Oldest)).Status | Should -Be 'Verified'
+        (Test-ManifestWitness -FolderPath (Join-Path $env.Chg $env.Oldest)).Status | Should -Be 'Absent' -Because 'Write-Manifest leaves no witness (plan R5)'
 
         # Re-running recomputes the plan from disk: nothing is endangered any
         # more, so it copies nothing and simply finishes the deletion.
@@ -2741,7 +2541,7 @@ Describe 'WP8 portable names and raw-candidate recovery (SR-055, SR-050)' {
 
         $run = Invoke-FBWp8 -Cfg $cfg
         $run.Code | Should -Be 1 -Because "a skipped file is a loud failure, never a silent omission. Run output: $($run.Output)"
-        $run.Output | Should -Match "Skipping 'bad\.'"
+        $run.Output | Should -Match "Not capturing 'bad\.'"
 
         $after = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
         @($after | Where-Object RelativePath -eq 'also-good.txt').Count | Should -Be 1 -Because 'the rest of the set still backs up'
@@ -2781,20 +2581,6 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
                         -NoMail -NonInteractive -ExitCode @Arguments 2>&1
             return [pscustomobject]@{ Code = $LASTEXITCODE; Output = ($out | Out-String) }
         }
-    }
-
-    It 'treats a blank-DataPath root row as changed so the diff can heal it (SR-053)' {
-        # Pure-diff pin: metadata equality must not hide a row whose bytes are gone.
-        $row = { param($rel, $data) [pscustomobject]@{
-            RelativePath = $rel; Length = 10; LastWriteTime = '2026-01-01 00:00:00'
-            xxH2Hash = 'ABCD'; DataPath = $data } }
-        $src = @(& $row 'a.txt' 'ignored')
-        # .Count direct — @() around a List reached via a PSObject property
-        # throws on PS 7.5 (see the step-8 note in Invoke-BackupSet).
-        $diff = Compare-SourceToBackup -SourceDb $src -BackupDb @(& $row 'a.txt' '')
-        $diff.NewOrChanged.Count | Should -Be 1 -Because 'a blank DataPath is damage to heal, not an unchanged row'
-        $diff = Compare-SourceToBackup -SourceDb $src -BackupDb @(& $row 'a.txt' 'a.txt')
-        $diff.NewOrChanged.Count | Should -Be 0
     }
 
     It 'heals an externally deleted data file from the still-matching source, and never adopts the blank row (SR-053)' {
@@ -2855,26 +2641,12 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
         @($doc | Where-Object Class -eq 'PoolUnresolvable') | Should -Not -BeNullOrEmpty
     }
 
-    It 'budgets heal copies in the capacity preflight (SR-052, SR-053)' {
-        # WP7 review, required change 1: a blank row's key must not read as
-        # "already held" — the heal WILL copy those bytes, and the preflight
-        # must refuse before mutation, not fail mid-copy on a full volume.
-        $mk = { param($rel, $data) [pscustomobject]@{
-            RelativePath = $rel; DataPath = $data; Length = 500
-            LastWriteTime = '2026-01-01 00:00:00'; xxH2Hash = 'AB12' } }
-        $demand = Get-BackupCapacityDemand -NewOrChanged @(& $mk 'big.bin' 'ignored') `
-            -RemovedFromSource @() -BackupDb @(& $mk 'big.bin' '') -SameVolume $true
-        $demand.BackupBytes | Should -Be 500 -Because 'a blank row holds no bytes; the heal will copy them'
-        $demand = Get-BackupCapacityDemand -NewOrChanged @(& $mk 'big.bin' 'ignored') `
-            -RemovedFromSource @() -BackupDb @(& $mk 'big.bin' 'big.bin') -SameVolume $true
-        $demand.BackupBytes | Should -Be 0 -Because 'a non-blank row genuinely holds the bytes'
-    }
-
-    It 'verify tells a missing named file with surviving bytes apart from true loss (SR-054)' {
+    It 'verify tells a missing named file with surviving bytes apart from true loss (SR-054, plan C11)' {
         # WP7 review, required change 2: a row whose named file is gone while
         # the CONTENT survives elsewhere restores via the revision-4+ fallback
         # and heals next run — reporting it PoolUnresolvable handed the wrapper
-        # a false data-loss alarm.
+        # a false data-loss alarm. Since the bounded run loop such a row is
+        # normal (R6 leaves stale DataPaths), so it is no finding at all.
         $root = Join-Path $TestDrive 'wp7-classes'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
@@ -2904,11 +2676,8 @@ Describe 'WP7 storage self-healing and retention unblock (SR-053, SR-054, SR-046
             return @(($lines[$start..$end] -join "`n") | ConvertFrom-Json)
         }
         $run = Invoke-FBArgs -Cfg $cfg -Arguments @('-Action', 'Verify')
-        $run.Code | Should -Be 1 -Because "Run output: $($run.Output)"
-        $doc = & $parse $run.Output
-        @($doc | Where-Object Class -eq 'PoolDataPathMissing') | Should -Not -BeNullOrEmpty
-        @($doc | Where-Object Class -eq 'PoolUnresolvable') |
-            Should -BeNullOrEmpty -Because 'the bytes survive as spare.bin; nothing is lost'
+        $run.Code | Should -Be 0 -Because "the bytes survive as spare.bin; nothing is lost. Run output: $($run.Output)"
+        $run.Output | Should -Not -Match 'PoolUnresolvable'
 
         [IO.File]::Delete((Join-Path $bkp 'spare.bin'))
         $run = Invoke-FBArgs -Cfg $cfg -Arguments @('-Action', 'Verify')
@@ -2969,7 +2738,7 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         }
     }
 
-    It 'refuses to back up over a manifest whose witness disagrees, with exit 3 and nothing mutated (SR-038, SR-040)' {
+    It 'refuses to back up over a torn latest manifest, with exit 2 and the store untouched (plan section 6)' {
         $root = Join-Path $TestDrive 'wg-mismatch'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
@@ -2978,17 +2747,21 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('ALPHA ' * 40))
         Invoke-FB $cfg
 
-        # A torn Export-Csv is a size change the witness catches; simulate the
-        # damage without re-running the writer (the writer would re-stamp).
+        # A torn trailing row: the run must not build a latest state on it.
         $manifest = Join-Path $bkp 'MANIFEST.csv'
         [IO.File]::AppendAllText($manifest, "torn trailing bytes")
         $before = Get-StoreFingerprint -Folder @($bkp, $chg)
 
-        Invoke-FBExit -Cfg $cfg | Should -Be 3 -Because 'IF-001 maps a witness failure to 3 for every action, backup included'
-        Assert-StoreUnchanged -Before $before -Folder @($bkp, $chg)
+        Invoke-FBExit -Cfg $cfg | Should -Be 2 -Because 'a latest manifest that cannot be read needs a person'
+        # Only the run's own lock and log may differ (plan C16).
+        $after = Get-StoreFingerprint -Folder @($bkp, $chg)
+        foreach ($k in @(@($before.Keys) + @($after.Keys) | Select-Object -Unique)) {
+            if ([IO.Path]::GetFileName($k) -in 'backup.log', 'Temp.lock') { continue }
+            $after[$k] | Should -Be $before[$k] -Because "'$k' must be untouched"
+        }
     }
 
-    It 'still backs up a legacy store that has no witness at all (SR-038)' {
+    It 'backs up a store that carries no witness (SR-038, plan R5)' {
         $root = Join-Path $TestDrive 'wg-legacy'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
@@ -2997,9 +2770,9 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('ALPHA ' * 40))
         Invoke-FB $cfg
 
-        Remove-Item -LiteralPath (Join-Path $bkp 'MANIFEST.csv.meta') -Force
+        Test-Path -LiteralPath (Join-Path $bkp 'MANIFEST.csv.meta') | Should -BeFalse -Because 'R5: no witness is written'
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('BETA ' * 40))
-        Invoke-FBExit -Cfg $cfg | Should -Be 0 -Because 'Absent is legal: a pre-SR-038 store must still back up'
+        Invoke-FBExit -Cfg $cfg | Should -Be 0 -Because 'a store without a witness is the normal case'
     }
 
     It 'fails the set on an unreadable source file without stranding Temp for the next run (SR-017)' {
@@ -3322,204 +3095,77 @@ Describe 'Same-run duplicates are stored once (D-5, SR-060, TC-119)' {
     }
 }
 
-Describe 'An unreadable owner does not fail its whole content group (WP9 review MIN-1)' {
-    # Owner election picks ONE member's file as the source for the group's
-    # single stored object. Before this fix that was the ONLY source tried, so
-    # one unreadable file left every one of its content twins unbacked-up - and
-    # the error named the twin rather than the file that could not be read.
-    # Every member of a (hash,length) group holds identical bytes by
-    # definition, so any member can supply them.
-    #
-    # Driven at Invoke-BackupFileGroup rather than end-to-end on purpose: an
-    # exclusive lock taken before a run also blocks HASHING, so the set would
-    # fail at the source walk and never reach the copy branch. Removing the
-    # owner's file after the group is built reaches it deterministically, and
-    # is the same shape as a file that vanishes mid-run.
-    It 'stores the shared content from a readable member (<Mode>)' -ForEach @(
-        @{ Mode = 'Plain';    Compress = $false }
-        @{ Mode = 'Compress'; Compress = $true  }
-    ) {
-        $root = Join-Path $TestDrive ('min1\' + ($Mode -replace '\W', ''))
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path (Join-Path $src 'sub'), $bkp -Force | Out-Null
-        $shared = 'UNREADABLE-OWNER-SHARED ' * 60
-        # 'a.bin' is shorter than 'sub\twin.bin', so it is the elected owner.
-        [IO.File]::WriteAllText((Join-Path $src 'a.bin'), $shared)
-        [IO.File]::WriteAllText((Join-Path $src 'sub\twin.bin'), $shared)
-        $hash = Get-FileXxHash -FilePath (Join-Path $src 'a.bin')
-        $len  = (Get-Item -LiteralPath (Join-Path $src 'a.bin')).Length
-
-        $group = @('a.bin', 'sub\twin.bin') | ForEach-Object {
-            [pscustomobject]@{
-                RelativePath = $_; Length = $len; xxH2Hash = $hash
-                LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
+Describe 'A snapshot can never exist without its restore kit (F8, SR-028)' {
+    BeforeAll {
+        function New-HookedSet {
+            param([string]$Root, [string]$Name)
+            $src = Join-Path $Root 'src'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            return [pscustomobject]@{
+                Name = $Name; SourcePath = $src; BackupPath = (Join-Path $Root 'bkp'); ChangePath = (Join-Path $Root 'chg')
+                HashRecalcFreq = 'A'; CompressEnabled = $false; BrowseView = 'off'
             }
         }
-        # The owner becomes unreadable AFTER hashing - the copy branch's problem.
-        Remove-Item -LiteralPath (Join-Path $src 'a.bin') -Force
-
-        $map = @{}; $changed = 0; $ok = $true; $lines = New-Object System.Collections.Generic.List[string]
-        $log = { param($m, $l = 'INFO') $lines.Add("[$l] $m") }
-        Invoke-BackupFileGroup -Group $group -SrcPath $src -BkpPath $bkp `
-            -CompressEnabled $Compress -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath `
-            -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
-            -Log $log -OverallSuccess ([ref]$ok)
-
-        $ok | Should -BeTrue -Because 'a readable member supplied the bytes'
-        $map.Keys | Should -HaveCount 2
-        $map['a.bin'].DataPath | Should -Be $map['sub\twin.bin'].DataPath
-
-        # The bytes really are the group's content, proven from disk.
-        $stored = Join-Path $bkp $map['sub\twin.bin'].DataPath
-        Test-Path -LiteralPath $stored | Should -BeTrue
-        if ($Compress) {
-            $tmp = Join-Path $root 'expanded.bin'
-            Expand-FileWithSevenZip -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath -Archive $stored -DestinationFile $tmp
-            Get-FileXxHash -FilePath $tmp | Should -Be $hash
-        } else {
-            Get-FileXxHash -FilePath $stored | Should -Be $hash
-        }
-
-        # And the diagnostic names the file that could not be read, not a twin.
-        @($lines | Where-Object { $_ -match 'Could not read' -and $_ -match 'a\.bin' }) |
-            Should -Not -BeNullOrEmpty -Because 'the WARN must name the unreadable OWNER'
+        function Set-RunHook { param($Hook) & (Get-Module FileBackup.Engine) { param($h) $script:BackupRunTestHook = $h } $Hook }
     }
-}
+    AfterEach { Set-RunHook $null }
 
-Describe 'A snapshot can never exist without its restore kit (F8, SR-028, WP9 step 8)' {
-    It 'stages the kit BEFORE the publish rename: a crash at the rename leaves a complete Temp and NO snapshot' {
-        # The old order was rename-then-copy, so a crash in the window left a
-        # valid, published snapshot with no restore kit. Now the rename IS the
-        # last mutation: a Snapshot_* folder structurally cannot exist without
-        # its kit. Driven through Invoke-BackupSet directly (the entry point
-        # re-imports the module, which would tear down the mock).
+    It 'builds the kit into Building_<D> BEFORE the publish rename: a crash there leaves no snapshot, and the next run publishes it' {
+        # The rename IS the publish, and the kit is in the folder before it, so
+        # a Snapshot_* folder structurally cannot exist without its kit. Driven
+        # through Invoke-BackupSet directly (the entry point re-imports the
+        # module, which would drop the hook).
         $root = Join-Path $TestDrive 'f8'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
-        New-Item -ItemType Directory -Path $src -Force | Out-Null
-        $set = [pscustomobject]@{
-            Name = 'F8'; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp; ChangePath = $chg
-            HashRecalcFreq = 'A'; CompressEnabled = $false; AllowEmptySource = $false
-            BrowseView = 'off'; ViewPath = ''
-        }
+        $set = New-HookedSet -Root $root -Name 'F8'
         $deps = @{ '7z' = $null; 'ffprobe' = $null }
-        $ok = $true; $logs = New-Object System.Collections.Generic.List[string]
+        $logs = New-Object System.Collections.Generic.List[string]
+        [IO.File]::WriteAllText((Join-Path $set.SourcePath 'a.txt'), 'ONE')
+        Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01') | Should -Be 0
+        [IO.File]::WriteAllText((Join-Path $set.SourcePath 'a.txt'), 'TWO')
 
-        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'ONE')
-        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01')
-        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'TWO')
+        $seen = [ref]$null
+        Set-RunHook ({ param($stage, $ctx)
+            if ($stage -eq 'BeforeSnapshotPublish') { $seen.Value = @(Get-ChildItem -LiteralPath $ctx -File | ForEach-Object Name); throw 'INJECTED: crash at the publish rename' }
+        }.GetNewClosure())
+        Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-02-02 00:00:02') | Should -Be 4
+        Set-RunHook $null
 
-        Mock -ModuleName FileBackup.Engine Rename-Item { throw 'INJECTED: crash at the publish rename' }
-        { Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-02-02 00:00:02') } |
-            Should -Throw -ExpectedMessage '*INJECTED*'
-
-        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_') |
+        foreach ($artifact in 'RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json', 'MANIFEST.csv') {
+            $seen.Value | Should -Contain $artifact -Because "'$artifact' must be in the folder BEFORE the rename"
+        }
+        @(Get-ChildItem -LiteralPath $set.ChangePath -Directory | Where-Object Name -match '^Snapshot_') |
             Should -BeNullOrEmpty -Because 'nothing was published; the crash hit the publish itself'
-        $temp = Join-Path $chg 'Temp'
-        Test-Path -LiteralPath $temp -PathType Container | Should -BeTrue -Because 'the unpublished snapshot stays as Temp for the SR-017 guard'
-        foreach ($artifact in 'RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh', 'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json') {
-            Test-Path -LiteralPath (Join-Path $temp $artifact) -PathType Leaf |
-                Should -BeTrue -Because "the kit ('$artifact') must be staged BEFORE the rename"
-        }
-        Test-Path -LiteralPath (Join-Path $temp 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
-    }
-}
 
-Describe 'Run state is persisted before the cross-snapshot dedupe (defect review M-4, SR-028, SR-011)' {
-    It 'a kill in Optimize-ChangeFolders (step 15) still leaves LastBackupRun and LastHashRun at this run' {
-        # The hub was SIGKILLed in dedupe every night, and state recorded after
-        # it never landed: snapshot names froze and the weekly rehash ran nightly.
-        # A kill cannot be caught, so the in-process stand-in is a throw from the
-        # dedupe itself: whatever state the run recorded before step 15 must be
-        # on disk when the run dies there.
+        # The next run clears the unpublished folder and publishes the same state.
+        Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-03-03 00:00:03') | Should -Be 0
+        @(Get-ChildItem -LiteralPath $set.ChangePath -Directory | ForEach-Object Name) | Should -Be @('Snapshot_2024_01_01_00_00_01')
+        $t = Join-Path $root 'r'
+        & (Join-Path $set.ChangePath 'Snapshot_2024_01_01_00_00_01\RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $t 'a.txt')) | Should -Be 'ONE'
+    }
+
+    It 'records LastBackupRun and LastHashRun with the final manifest: a kill after it leaves both at this run (defect review M-4, SR-011)' {
+        # The hub was SIGKILLed late in the run every night, and state recorded
+        # after that point never landed: snapshot names froze and the weekly
+        # rehash ran nightly. Both dates are written right after the final
+        # manifest, before the superseded move and the browse view.
         $root = Join-Path $TestDrive 'm4'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
-        New-Item -ItemType Directory -Path $src -Force | Out-Null
-        $set = [pscustomobject]@{
-            Name = 'M4'; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp; ChangePath = $chg
-            HashRecalcFreq = 'A'; CompressEnabled = $false; AllowEmptySource = $false
-            BrowseView = 'off'; ViewPath = ''
-        }
+        $set = New-HookedSet -Root $root -Name 'M4'
         $deps = @{ '7z' = $null; 'ffprobe' = $null }
-        $ok = $true; $logs = New-Object System.Collections.Generic.List[string]
+        $logs = New-Object System.Collections.Generic.List[string]
+        [IO.File]::WriteAllText((Join-Path $set.SourcePath 'a.txt'), 'ONE')
+        Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01') | Should -Be 0
+        [IO.File]::WriteAllText((Join-Path $set.SourcePath 'a.txt'), 'TWO')
 
-        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'ONE')
-        Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01')
-        Get-LastBackupRun -BackupRoot $bkp | Should -Be ([datetime]'2024-01-01 00:00:01')
-        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'TWO')
+        Set-RunHook ({ param($stage, $ctx) if ($stage -eq 'AfterFinalManifest') { throw 'INJECTED: killed after the final manifest' } })
+        Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-02-02 00:00:02') | Should -Be 4
+        Set-RunHook $null
 
-        Mock -ModuleName FileBackup.Engine Optimize-ChangeFolders { throw 'INJECTED: killed in dedupe (step 15)' }
-        { Invoke-BackupSet -Set $set -Deps $deps -OverallSuccess ([ref]$ok) -LogPaths $logs -BackupTime ([datetime]'2024-02-02 00:00:02') } |
-            Should -Throw -ExpectedMessage '*INJECTED*'
-
-        # The snapshot of the prior state was published (step 13 ran) ...
-        @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_').Count |
-            Should -Be 1 -Because 'the step-13 publish precedes the dedupe'
-        # ... and the run state reflects THIS run, not the stale 2024-01-01 value.
-        # One assertion over both, so moving EITHER write back past the dedupe fails
-        # here; two sequential Should lines let the first mask the second.
-        $state = [pscustomobject]@{
-            LastBackupRun = Get-LastBackupRun -BackupRoot $bkp
-            LastHashRun   = Get-LastHashRun -BackupRoot $bkp
-        }
-        "$($state.LastBackupRun)|$($state.LastHashRun)" |
+        @(Get-ChildItem -LiteralPath $set.ChangePath -Directory | Where-Object Name -match '^Snapshot_').Count |
+            Should -Be 1 -Because 'the prior state was published before the loop'
+        # One assertion over both, so moving EITHER write past the hook fails here.
+        "$(Get-LastBackupRun -BackupRoot $set.BackupPath)|$(Get-LastHashRun -BackupRoot $set.BackupPath)" |
             Should -Be "$([datetime]'2024-02-02 00:00:02')|$([datetime]'2024-02-02 00:00:02')" -Because "LastBackupRun names the next snapshot and the rehash ran this run (freq 'A'); neither may freeze"
-    }
-}
-
-Describe 'A directory squatting on a copy destination is refused (step-4 review n6)' {
-    It 'Copy-SourceFileToBackup returns the error string instead of silently copying INTO the directory' {
-        $root = Join-Path $TestDrive 'n6'
-        New-Item -ItemType Directory -Path (Join-Path $root 'dest.bin') -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path $root 'src.bin'), 'PAYLOAD')
-        $result = Copy-SourceFileToBackup -SourceFilePath (Join-Path $root 'src.bin') `
-            -BackupFilePath (Join-Path $root 'dest.bin') -ShouldCompress:$false
-        $result | Should -Match 'is a directory'
-        @(Get-ChildItem -LiteralPath (Join-Path $root 'dest.bin')) |
-            Should -BeNullOrEmpty -Because 'nothing may be copied INTO the squatting directory'
-    }
-}
-
-Describe 'The unreferenced-data audit is linear (SR-064, LLR-062, TC-132)' {
-    It 'scales linearly from 1k to 4k rows and still catches the orphan and the missing file' {
-        function New-AuditStore {
-            param([string]$Root, [int]$Count)
-            New-Item -ItemType Directory -Path $Root -Force | Out-Null
-            $rows = for ($i = 0; $i -lt $Count; $i++) {
-                $name = 'obj{0:D5}.bin' -f $i
-                [IO.File]::WriteAllText((Join-Path $Root $name), "payload $i")
-                [pscustomobject]@{
-                    DataPath = $name; RelativePath = "file$i.bin"; Length = 9
-                    LastWriteTime = [datetime]'2024-01-01'; xxH2Hash = 'ABCD'
-                    Compressed = 'No'; StoredAsHashSize = 'Hash'; Duplicate = ''; MediaMBPerSec = ''
-                }
-            }
-            Write-Manifest -FolderPath $Root -Records @($rows)
-            return $Root
-        }
-        $log = { param($m, $l) }
-
-        $small = New-AuditStore -Root (Join-Path $TestDrive 'tc132\small') -Count 1000
-        $big   = New-AuditStore -Root (Join-Path $TestDrive 'tc132\big')   -Count 4000
-        [void](Test-BackupManifest -FolderRoot $small -Log $log)   # warm-up (module JIT, FS cache)
-        $tSmall = (Measure-Command { Test-BackupManifest -FolderRoot $small -Log $log | Out-Null }).TotalMilliseconds
-        $tBig   = (Measure-Command { Test-BackupManifest -FolderRoot $big   -Log $log | Out-Null }).TotalMilliseconds
-
-        # Linear scales ~4x here; the old per-file Where-Object re-pipe scaled
-        # ~16x. The bound is generous against noisy hosts, and still separates
-        # the two shapes decisively (TC-132's behavioral/timing proof).
-        ($tBig / [math]::Max($tSmall, 1)) | Should -BeLessThan 10 -Because "1k took ${tSmall}ms, 4k took ${tBig}ms"
-
-        # The behavioral half at scale: one orphan file and one missing-file
-        # row are both still reported.
-        $store = New-AuditStore -Root (Join-Path $TestDrive 'tc132\beh') -Count 50
-        [IO.File]::WriteAllText((Join-Path $store 'orphan.bin'), 'NO ROW NAMES ME')
-        $rows = @(Read-Manifest -FolderPath $store)
-        Remove-Item -LiteralPath (Join-Path $store $rows[0].DataPath) -Force
-        $lines = New-Object System.Collections.Generic.List[string]
-        $healed = @(Test-BackupManifest -FolderRoot $store -Log { param($m, $l) $lines.Add($m) })
-        @($lines | Where-Object { $_ -match 'exists in backup folder but not in DB: orphan\.bin' }).Count | Should -Be 1
-        @($lines | Where-Object { $_ -match 'Datapath missing in backup DB' }).Count | Should -Be 1
-        @($healed | Where-Object { -not $_.DataPath }).Count | Should -Be 1
     }
 }
 
@@ -3593,7 +3239,7 @@ Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059,
         # passes without testing SR-059 at all. Prove SR-057 actually froze
         # the pair before trusting anything else.
         (Get-Content -LiteralPath (Join-Path $t.Chg 'backup.log') -Raw) |
-            Should -Match 'Cannot enumerate' -Because 'the fixture is vacuous unless SR-057 actually fired'
+            Should -Match 'Cannot list' -Because 'the fixture is vacuous unless SR-057 actually fired'
 
         # (1) The distinguisher: the frozen row's DataPath must still hold
         # its bytes. The source-based test could not see this claim - the
@@ -3650,49 +3296,46 @@ Describe 'Preservation consults the FINAL manifest, not the source walk (SR-059,
         }
     }
 
-    It 'keeps the old object in the pool when the replacement copy FAILS (TC-118 failed-copy arm, <Mode>)' -ForEach @(
+    It 'keeps the old object in the pool when the new content cannot be captured (TC-118 failed-copy arm, <Mode>)' -ForEach @(
         @{ Mode = 'Plain';    Compress = $false }
         @{ Mode = 'Compress'; Compress = $true }
     ) {
-        # The severest exactness win (review 2026-08-25, MIN-1; red-first
-        # proven by the reviewer's pre-change probe): a failed step-10 copy
-        # leaves the OLD row live in the final manifest, so the exact test
-        # keeps its object. The source-based test moved it out - the new
-        # content is in the source, the old is not - and the live root then
-        # failed to restore with content-missing.
+        # A file the run cannot capture keeps its OLD row in the final
+        # manifest, so the superseded move - asked of the final manifest
+        # (SR-059) - keeps its object; a source-based test would move it out
+        # and the latest state would fail to restore. Driven in-process so the
+        # retry spacing (R12) can be zeroed.
+        $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+        if ($Compress -and -not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) { Set-ItResult -Skipped -Because '7-Zip not installed'; return }
         $root = Join-Path $TestDrive ('fcpy\' + ($Mode -replace '\W', ''))
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
-        $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
+        $set = [pscustomobject]@{
+            Name = 'FC'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            HashRecalcFreq = 'A'; CompressEnabled = $Compress; BrowseView = 'off'
+        }
+        $deps = @{ '7z' = $(if ($Compress) { $sevenZip } else { $null }); ffprobe = $null }
+        $logs = New-Object System.Collections.Generic.List[string]
+        $engine = Get-Module FileBackup.Engine
 
         $one = 'FAILED-COPY-OLD ' * 60
         $two = 'FAILED-COPY-NEW ' * 60
         [IO.File]::WriteAllText((Join-Path $src 'f.bin'), $one)
         [IO.File]::WriteAllText((Join-Path $src 'steady.txt'), 'STEADY')
-        & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime ([datetime]'2024-01-01 00:00:01') *>&1 | Out-Null
+        Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01') | Should -Be 0
 
-        # Pre-create and lock the NEW content's destination so step 10's copy
-        # fails exactly the way a real locked file (AV hold) does.
         [IO.File]::WriteAllText((Join-Path $src 'f.bin'), $two)
-        $probe = Join-Path $src 'f.bin'
-        $destName = Get-HashSizeFileName -HashHex (Get-FileXxHash -FilePath $probe) `
-            -Length (Get-Item -LiteralPath $probe).Length `
-            -Extension $(if ($Compress) { '.7z' } else { '.bin' })
-        $blockPath = Join-Path $bkp $destName
-        [IO.File]::WriteAllText($blockPath, 'BLOCKER')
-        $lock = [IO.File]::Open($blockPath, 'Open', 'Read', 'None')
+        & $engine { $script:RetryMinSpacingSeconds = 0 }
+        $lock = [IO.File]::Open((Join-Path $src 'f.bin'), 'Open', 'Read', 'None')
         try {
-            # Child process so the exit code is observable.
-            & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
-            $LASTEXITCODE | Should -Be 1 -Because 'a failed copy must fail the set loudly (SR-014)'
+            Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-02-02 00:00:02') |
+                Should -Be 1 -Because 'a file not captured is reported (C1)'
         } finally {
             $lock.Dispose()
+            & $engine { $script:RetryMinSpacingSeconds = 60 }
         }
-        Remove-Item -LiteralPath $blockPath -Force
-
         (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) |
-            Should -Match 'Failed to copy/compress' -Because 'the fixture is vacuous unless the copy actually failed'
+            Should -Match "Not capturing 'f\.bin'" -Because 'the fixture is vacuous unless the capture actually failed'
 
         # The old row is still live, so its object must still be in the pool.
         @(Get-ClaimedRowViolations -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
@@ -3748,10 +3391,10 @@ Describe 'One dedup member deleted while the others live (B9, SR-006, TC-135)' {
 }
 
 Describe 'One (hash,length) group elects one physical object (SR-060, TC-120)' {
-    # Step 2's own proof. Members of a group can disagree about BOTH inputs to
-    # the stored form - extension and compressibility - and content addressing
-    # has room for only one object, so the owner decides and every row must
-    # describe the object that was actually written.
+    # Members of a group can disagree about BOTH inputs to the stored form -
+    # extension and compressibility - and content addressing has room for only
+    # one object, so the first file in walk order decides (plan C9) and every
+    # row must describe the object that was actually written.
     It 'stores one object for identical bytes under different extensions' {
         $root = Join-Path $TestDrive 'elect-ext'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
@@ -3768,8 +3411,8 @@ Describe 'One (hash,length) group elects one physical object (SR-060, TC-120)' {
         $rows.Count | Should -Be 2
         $paths = @($rows | Select-Object -ExpandProperty DataPath -Unique)
         $paths.Count | Should -Be 1 -Because 'one (hash,length) means one physical object'
-        # 'a.dat' and 'a.txt' are the same length, so the ORDINAL tie-break
-        # elects 'a.dat' - and the stored object carries the owner's extension.
+        # 'a.dat' is walked before 'a.txt', so it decides - and the stored
+        # object carries its extension.
         $paths[0] | Should -BeLike '*.dat'
         Get-PoolContentCopyCount -Folders @($bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
             Should -Be 1
@@ -3796,9 +3439,9 @@ Describe 'One (hash,length) group elects one physical object (SR-060, TC-120)' {
                   Where-Object { $_.RelativePath -in 'x.txt', 'x.jpg' })
         $rows.Count | Should -Be 2
         @($rows | Select-Object -ExpandProperty DataPath -Unique).Count | Should -Be 1
-        # 'x.jpg' wins the ordinal tie-break, so the group is stored RAW and
-        # EVERY row must say so - a row whose Compressed disagrees with the
-        # object it names is the finding-B family (SR-049/SR-050).
+        # 'x.jpg' is walked first, so the content is stored RAW and EVERY row
+        # must say so - a row whose Compressed disagrees with the object it
+        # names is the finding-B family (SR-049/SR-050).
         @($rows | Select-Object -ExpandProperty Compressed -Unique) | Should -Be 'No'
         Get-PoolContentCopyCount -Folders @($bkp) -Hash $rows[0].xxH2Hash -Length ([long]$rows[0].Length) |
             Should -Be 1

@@ -178,18 +178,23 @@ Describe 'A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040
         if (-not $script:drive2) { Set-ItResult -Skipped -Because 'no free drive letter for subst'; return }
         $src = Join-Path $TestDrive 'cls-src'
         $chg = Join-Path $TestDrive 'cls-chg'
+        $made = Join-Path $TestDrive 'cls-bkp'
         $bkp = "$($script:drive2)\"
         New-Item -ItemType Directory -Path $src, $chg -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'ALPHA-CONTENT' -NoNewline
         Set-Content -LiteralPath (Join-Path $src 'b.txt') -Value ('BETA-' * 500) -NoNewline
 
         $cfg = Join-Path $TestDrive 'cls-cfg.xml'
+        # The backup is made beside its change root (a backup and change root on
+        # different volumes are refused, plan R8), then the finished store is
+        # copied to the volume root - the restorer is what this test is about.
         $set = [pscustomobject]@{
-            Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            Name = 'S'; SourcePath = $src; BackupPath = $made; ChangePath = $chg
             HashRecalcFreq = 'A'; CompressEnabled = $false
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
         & (Join-Path $repo 'FileBackup.ps1') -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
+        Get-ChildItem -LiteralPath $made -Force | Copy-Item -Destination $bkp -Recurse -Force
         Test-Path -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Should -BeTrue
 
         # Force the pool scan AND make it fail: blank the row's DataPath so the

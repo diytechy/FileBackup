@@ -334,198 +334,49 @@ Describe 'A legacy path-addressed store is refused by the restorer (SR-061)' -Fo
     }
 }
 
-Describe 'A transiently unreadable source file is retried, not lost (SR-067)' {
-    It 'a file whose content is UNIQUE is rescued when the lock clears (TC-140)' {
-        # Before SR-067 this file got exactly ONE attempt: the SR-060 candidate
-        # loop only falls back to other MEMBERS of a content group, and a unique
-        # file's group has one member.
-        #
-        # The lock is held IN-PROCESS (FileShare.None denies even this process's
-        # own other handles) and released from inside the LOG callback, the
-        # instant the retry line is emitted. Deterministic in both directions:
-        # there is no wall-clock race to lose, and the release CANNOT happen
-        # unless the retry path actually ran. The first version of this test
-        # raced a Start-Job and passed vacuously whenever the copy won.
-        $root = Join-Path $TestDrive 'retry-rescued'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
-        $victim = Join-Path $src 'locked.txt'
-        Set-Content -LiteralPath $victim -Value 'LOCKED-BUT-RECOVERABLE' -NoNewline
-
-        $group = [pscustomobject]@{
-            RelativePath = 'locked.txt'
-            Length       = (Get-Item -LiteralPath $victim).Length
-            xxH2Hash     = (Get-FileXxHash -FilePath $victim)
-            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
+Describe 'A source file the run cannot read is never faked (SR-067, plan R12)' {
+    # SR-067's in-copy retry budget is gone: the bounded run retries a failed
+    # file in a pass after the library loop (R12, BoundedRun.Tests.ps1 covers
+    # the lock-clears and stays-locked arms). What stays here is the manifest's
+    # truth: a file enumerated by the walk that vanishes before it is read gets
+    # no row, and the files around it are unaffected.
+    It 'omits a file that vanishes between the walk and its capture (TC-140)' {
+        $root = Join-Path $TestDrive 'vanish-midrun'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'a-keep.txt')   -Value ('KEEP '   * 500) -NoNewline
+        Set-Content -LiteralPath (Join-Path $src 'z-vanish.txt') -Value ('VANISH ' * 500) -NoNewline
+        $set = [pscustomobject]@{
+            Name = 'V'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            HashRecalcFreq = 'A'; CompressEnabled = $false; BrowseView = 'off'
         }
-
-        $holder = @{ Stream = [IO.File]::Open($victim, 'Open', 'Read', 'None') }
-        $map = @{}; $changed = 0; $ok = $true
-        $lines = New-Object System.Collections.Generic.List[string]
-        $log = {
-            param($m, $l = 'INFO')
-            $lines.Add("[$l] $m")
-            if ($m -match 'Retrying in' -and $holder.Stream) {
-                $holder.Stream.Dispose(); $holder.Stream = $null
+        $victim = Join-Path $src 'z-vanish.txt'
+        $sniped = [ref]$false
+        $hook = { param($stage, $ctx)
+            # After the first file is captured the walk has already listed the
+            # victim; deleting it now is exactly the walk-to-read window.
+            if ($stage -eq 'AfterFileCaptured' -and $ctx.RelativePath -eq 'a-keep.txt') {
+                Remove-Item -LiteralPath $victim -Force; $sniped.Value = $true
             }
         }.GetNewClosure()
+        $engine = Get-Module FileBackup.Engine
+        & $engine { param($h) $script:BackupRunTestHook = $h } $hook
         try {
-            Invoke-BackupFileGroup -Group @($group) -SrcPath $src -BkpPath $bkp `
-                -CompressEnabled $false -SevenZipPath $sevenZip `
-                -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
-                -Log $log -OverallSuccess ([ref]$ok)
+            $logs = New-Object System.Collections.Generic.List[string]
+            $code = Invoke-BackupSet -Set $set -Deps @{ '7z' = $null; ffprobe = $null } -LogPaths $logs -BackupTime ([datetime]'2024-01-01 00:00:01')
         } finally {
-            if ($holder.Stream) { $holder.Stream.Dispose() }
+            & $engine { $script:BackupRunTestHook = $null }
         }
-
-        ($lines -join "`n") | Should -Match 'Retrying in \d+ ms' -Because 'attempt 1 met a real lock'
-        $ok | Should -BeTrue -Because 'the lock cleared within the retry window'
-        $map.Keys | Should -HaveCount 1
-        # The bytes really landed, proven from disk rather than from the map.
-        $stored = Join-Path $bkp $map['locked.txt'].DataPath
-        Get-Content -LiteralPath $stored -Raw | Should -Be 'LOCKED-BUT-RECOVERABLE'
-    }
-
-    It 'a permanently unreadable file is failed loudly and gets NO manifest row (TC-140)' {
-        $root = Join-Path $TestDrive 'retry-exhausted'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
-        $victim = Join-Path $src 'gone.txt'
-        Set-Content -LiteralPath $victim -Value 'ABOUT-TO-VANISH' -NoNewline
-        $group = [pscustomobject]@{
-            RelativePath = 'gone.txt'
-            Length       = (Get-Item -LiteralPath $victim).Length
-            xxH2Hash     = (Get-FileXxHash -FilePath $victim)
-            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
-        }
-        Remove-Item -LiteralPath $victim -Force          # unreadable for good
-
-        $map = @{}; $changed = 0; $ok = $true
-        $lines = New-Object System.Collections.Generic.List[string]
-        $log = { param($m, $l = 'INFO') $lines.Add("[$l] $m") }
-        Invoke-BackupFileGroup -Group @($group) -SrcPath $src -BkpPath $bkp `
-            -CompressEnabled $false -SevenZipPath $sevenZip `
-            -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
-            -Log $log -OverallSuccess ([ref]$ok)
-
-        $ok | Should -BeFalse -Because 'a file that exists in source and not in the backup is a failed set'
-        $map.Keys | Should -HaveCount 0 -Because 'the manifest must never name content the store does not hold'
-        ($lines -join "`n") | Should -Match 'This file is NOT in the backup'
-        ($lines -join "`n") | Should -Match 'after 3 attempt\(s\)'
-    }
-
-    It 'END-TO-END: a file that vanishes between the walk and the copy is omitted, not faked (TC-140)' {
-        # The unit cases above build the group by hand. This one drives the real
-        # entry point and deletes the file inside the actual window, to prove the
-        # whole pipeline - not just the copy stage - handles a file that was
-        # enumerated and hashed and then disappeared before its bytes were read.
-        #
-        # The seam is Update-SourceManifest's source hash cache: it is written at
-        # the end of step 5 and strictly precedes step 10's copies. A SEPARATE
-        # process polls for it and deletes the victim the instant it appears - a
-        # separate process because the parent runspace is blocked on the backup
-        # child and cannot pump a FileSystemWatcher event until it returns (the
-        # first version of this test failed for exactly that reason and never
-        # entered the window at all).
-        #
-        # Ordering is guaranteed; callback LATENCY is not, so the test proves it
-        # entered the window before asserting anything, and SKIPS rather than
-        # failing if a loaded host starved the sniper. It can therefore never go
-        # falsely green: the assertions only run once the precondition holds.
-        $root  = Join-Path $TestDrive 'vanish-midrun'
-        $src   = Join-Path $root 'src';   $bkp   = Join-Path $root 'bkp'
-        $chg   = Join-Path $root 'chg';   $state = Join-Path $root 'state'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg, $state -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $src 'keep.txt')   -Value ('KEEP '   * 500) -NoNewline
-        Set-Content -LiteralPath (Join-Path $src 'vanish.txt') -Value ('VANISH ' * 500) -NoNewline
-
-        $victim = Join-Path $src 'vanish.txt'
-        $cache  = Join-Path $state 'MANIFEST.csv'
-        $stamp  = Join-Path $root 'sniped.at'
-        $sniperScript = Join-Path $root 'sniper.ps1'
-        @"
-`$deadline = (Get-Date).AddSeconds(60)
-while ((Get-Date) -lt `$deadline) {
-    if (Test-Path -LiteralPath '$cache') {
-        Remove-Item -LiteralPath '$victim' -Force -ErrorAction SilentlyContinue
-        if (-not (Test-Path -LiteralPath '$victim')) { Set-Content -LiteralPath '$stamp' -Value 'x' }
-        break
-    }
-    Start-Sleep -Milliseconds 1
-}
-"@ | Set-Content -LiteralPath $sniperScript -Encoding UTF8
-        $sniper = Start-Process -FilePath $pwshExe -ArgumentList @('-NoProfile', '-File', $sniperScript) `
-                                -PassThru -WindowStyle Hidden
-
-        $cfg = Join-Path $root 'cfg.xml'
-        $set = [pscustomobject]@{
-            Name = 'V'; SourcePath = $src; SourceStatePath = $state; BackupPath = $bkp
-            ChangePath = $chg; HashRecalcFreq = 'A'; CompressEnabled = $false
-        }
-        @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
-
-        & $pwshExe -NoProfile -File $entry -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
-        $code = $LASTEXITCODE
-        $sniper | Wait-Process -Timeout 70 -ErrorAction SilentlyContinue
-
-        # Precondition: the walk DID see the file (so it was hashed) and the
-        # sniper DID delete it before the copy stage reached it.
-        $walked = @(Import-Csv -LiteralPath $cache | Where-Object RelativePath -eq 'vanish.txt').Count
-        if (-not (Test-Path -LiteralPath $stamp) -or $walked -ne 1) {
-            Set-ItResult -Skipped -Because 'the sniper did not enter the walk-to-copy window on this host'
-        }
+        $sniped.Value | Should -BeTrue -Because 'the fixture is vacuous unless the file vanished inside the window'
 
         $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
-        @($rows | Where-Object RelativePath -eq 'vanish.txt').Count |
+        @($rows | Where-Object RelativePath -eq 'z-vanish.txt').Count |
             Should -Be 0 -Because 'the manifest must never name content the store does not hold'
-        @($rows | Where-Object RelativePath -eq 'keep.txt').Count |
+        @($rows | Where-Object RelativePath -eq 'a-keep.txt').Count |
             Should -Be 1 -Because 'one vanished file must not cost the healthy ones'
-        $code | Should -Be 1 -Because 'a file present at the walk and absent from the backup fails the set'
-        $log = Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw
-        $log | Should -Match 'This file is NOT in the backup'
-        $log | Should -Match 'after 3 attempt\(s\)'
-        # The stored object for the healthy file really exists on disk.
-        $keepRow = @($rows | Where-Object RelativePath -eq 'keep.txt')[0]
+        $code | Should -Be 0 -Because 'a file deleted from the source is a removal, not a file the run failed to capture'
+        $keepRow = @($rows | Where-Object RelativePath -eq 'a-keep.txt')[0]
         Test-Path -LiteralPath (Join-Path $bkp $keepRow.DataPath) | Should -BeTrue
-    }
-
-    It 'a deterministic failure is not retried at all, so the budget survives it (TC-140)' {
-        # A DIRECTORY occupying the destination cannot become a file by waiting.
-        Test-CopyFailureIsTransient -Message "destination 'x' is a directory; refusing to copy into it" |
-            Should -BeFalse
-        Test-CopyFailureIsTransient -Message 'The process cannot access the file because it is being used' |
-            Should -BeTrue
-        Get-CopyRetryDelayMs -Attempt 1 | Should -BeGreaterThan 0
-        Get-CopyRetryDelayMs -Attempt 3 | Should -BeNullOrEmpty -Because 'three attempts is the cap'
-    }
-
-    It 'a spent run budget stops the waiting and says so (TC-140)' {
-        $root = Join-Path $TestDrive 'retry-budget'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'
-        New-Item -ItemType Directory -Path $src, $bkp -Force | Out-Null
-        $victim = Join-Path $src 'gone.txt'
-        Set-Content -LiteralPath $victim -Value 'ABOUT-TO-VANISH' -NoNewline
-        $group = [pscustomobject]@{
-            RelativePath = 'gone.txt'
-            Length       = (Get-Item -LiteralPath $victim).Length
-            xxH2Hash     = (Get-FileXxHash -FilePath $victim)
-            LastWriteTime = [datetime]'2024-01-01'; Duplicate = 'No'; MediaMBPerSec = ''
-        }
-        Remove-Item -LiteralPath $victim -Force
-
-        $map = @{}; $changed = 0; $ok = $true; $budget = 0
-        $lines = New-Object System.Collections.Generic.List[string]
-        $log = { param($m, $l = 'INFO') $lines.Add("[$l] $m") }
-        $elapsed = Measure-Command {
-            Invoke-BackupFileGroup -Group @($group) -SrcPath $src -BkpPath $bkp `
-                -CompressEnabled $false -SevenZipPath $sevenZip `
-                -BackupDb @() -BackupMap ([ref]$map) -ChangedCount ([ref]$changed) `
-                -Log $log -OverallSuccess ([ref]$ok) -RetryBudgetMs ([ref]$budget)
-        }
-        ($lines -join "`n") | Should -Match "copy-retry budget is spent"
-        ($lines -join "`n") | Should -Match 'after 1 attempt\(s\)'
-        $elapsed.TotalMilliseconds | Should -BeLessThan 1000 -Because 'a spent budget must not sleep'
-        $map.Keys | Should -HaveCount 0
     }
 }
 

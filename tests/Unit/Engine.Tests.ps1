@@ -81,7 +81,7 @@ Describe 'The source walk and the retired source-side record (plan R3, C6)' {
         New-Item -ItemType Directory -Path $source | Out-Null
         Set-Content -LiteralPath (Join-Path $source 'sample.txt') -Value 'sample'
         Set-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Value 'user-owned data'
-        $walk = Get-SourceFileList -SourcePath $source -ExcludeRootInfrastructure $false
+        $walk = Get-SourceFileList -SourcePath $source -ExcludeOldSourceRecord $false
         @($walk.Files | ForEach-Object RelativePath) | Sort-Object | Should -Be @('MANIFEST.csv', 'sample.txt')
     }
 
@@ -90,7 +90,7 @@ Describe 'The source walk and the retired source-side record (plan R3, C6)' {
         New-Item -ItemType Directory -Path (Join-Path $source 'sub') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Value 'old record'
         Set-Content -LiteralPath (Join-Path $source 'sub\MANIFEST.csv') -Value 'user data'
-        $walk = Get-SourceFileList -SourcePath $source -ExcludeRootInfrastructure $true
+        $walk = Get-SourceFileList -SourcePath $source -ExcludeOldSourceRecord $true
         @($walk.Files | ForEach-Object RelativePath) | Should -Be @('sub\MANIFEST.csv')
     }
 

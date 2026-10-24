@@ -175,6 +175,7 @@ function Get-ClaimedRowViolations {
     param([string]$BackupRoot, [string]$ChangeRoot, [string]$SevenZipPath)
     if (-not $SevenZipPath) { $SevenZipPath = (Get-FileBackupDefaults).SevenZipDefaultPath }
     $folders    = Get-PoolFolderList -BackupRoot $BackupRoot -ChangeRoot $ChangeRoot
+    $verified   = $null
     $violations = @()
     foreach ($folder in $folders) {
         $manifest = Join-Path $folder 'MANIFEST.csv'
@@ -184,7 +185,15 @@ function Get-ClaimedRowViolations {
             if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
             $full = Join-Path $folder $row.DataPath
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
-                $violations += "'$($row.RelativePath)' in '$folder': DataPath '$($row.DataPath)' names no file"
+                # A DataPath goes stale when its object moves to another folder of
+                # the pool (bounded-run-loop plan R6: snapshots are write-once, and
+                # re-added content moves back to the latest state). Such a row
+                # resolves by content, like a blank one: it must have a
+                # byte-verified copy somewhere.
+                if ($null -eq $verified) { $verified = Get-PoolByteVerifiedHashes -Folders $folders -SevenZipPath $SevenZipPath }
+                if (-not $verified.ContainsKey("$($row.xxH2Hash)|$($row.Length)")) {
+                    $violations += "'$($row.RelativePath)' in '$folder': DataPath '$($row.DataPath)' names no file and no pool copy holds its content"
+                }
                 continue
             }
             $want = "$($row.xxH2Hash)|$($row.Length)"

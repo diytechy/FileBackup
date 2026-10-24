@@ -411,7 +411,7 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
             $manifest = Join-Path $bkp 'MANIFEST.csv'
             Test-Path -LiteralPath $manifest | Should -BeTrue -Because 'the run must salvage everything reachable'
             @(Import-Csv -LiteralPath $manifest | Where-Object RelativePath -eq 'good.txt').Count | Should -Be 1
-            (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) | Should -Match 'Cannot enumerate'
+            (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) | Should -Match 'Cannot list'
         } finally {
             icacls $denied /remove:d "${env:USERNAME}" | Out-Null
         }

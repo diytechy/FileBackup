@@ -348,7 +348,11 @@ Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-08
                                Windows = @(1.0, 1.0, 1.0); Ratio = 1.0 }
         }
         $fx = New-ProbeGroup -Label 'r10-case' -Name @('a.qqq') -Bytes (New-ProbeContent -Kind 'random')
-        { Invoke-ProbeGroup -Fixture $fx -Mode 'Always' } |
+        # Resolve-GroupStorageForm is the one place a mode meets the bytes; the
+        # run refuses a bad mode even earlier (the next case).
+        { InModuleScope FileBackup.Engine -Parameters @{ P = (Join-Path $fx.Src 'a.qqq') } {
+              Resolve-GroupStorageForm -CompressEnabled $true -Mode 'Always' -ListSaysCompress $true `
+                  -Length 1048576 -Candidate @($P) } } |
             Should -Throw -ExpectedMessage '*CompressProbe*'
         Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 0 -Exactly `
             -Because 'the vocabulary is checked before the probe, not after it'

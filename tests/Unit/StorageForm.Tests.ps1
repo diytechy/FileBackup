@@ -166,9 +166,8 @@ BeforeAll {
 
         .DESCRIPTION
             run1 -> a.txt + b.txt stored in $StartCompressed's form
-            run2 -> b.txt superseded => Snapshot_D1, whose a.txt row is blanked
-                    by Optimize (the root holds the same content) and keeps
-                    run1's Compressed value
+            run2 -> b.txt superseded => Snapshot_D1, whose a.txt row names the
+                    object in the root and keeps run1's Compressed value
             then -> the snapshot's blanked a.txt row is flipped to the OPPOSITE
                     Compressed claim, so it disagrees with the pool copy.
 
@@ -200,12 +199,16 @@ BeforeAll {
 
         # Make the snapshot's blanked a.txt row claim the form the pool copy does
         # NOT have (see .DESCRIPTION for why this is constructed rather than run).
+        # The row is blanked as well, the shape an older engine's change-folder
+        # dedupe wrote (the root holds the same content); the bounded run keeps
+        # snapshot DataPaths (plan C10), so this too is constructed.
         $snapRows = @(Import-Csv -LiteralPath (Join-Path $snap.FullName 'MANIFEST.csv'))
         $blanked = @($snapRows | Where-Object { $_.RelativePath -eq 'a.txt' })[0]
         if (-not $blanked) { throw "fixture: no a.txt row in $($snap.FullName)" }
-        if (-not [string]::IsNullOrWhiteSpace($blanked.DataPath)) {
-            throw "fixture: a.txt row in $($snap.FullName) is not blank (DataPath='$($blanked.DataPath)')"
+        if (Test-Path -LiteralPath (Join-Path $snap.FullName $blanked.DataPath) -PathType Leaf) {
+            throw "fixture: a.txt's object is in $($snap.FullName) itself (DataPath='$($blanked.DataPath)')"
         }
+        $blanked.DataPath = ''
         $blanked.Compressed = if ($StartCompressed) { 'No' } else { 'Yes' }
         Set-ManifestRows -Folder $snap.FullName -Rows $snapRows
 
@@ -224,36 +227,30 @@ Describe 'A backup run never re-forms stored data (SR-049, SR-061)' {
         $script:store = New-MalformedStore -Root (Join-Path $TestDrive 'tc091')
     }
 
-    It 'leaves every malformed row byte-identical and still reports the set successful (SR-049)' {
+    It 'stores again every row the index cannot place, and changes no data file (SR-061, SR-053)' {
         $before = Get-TreeFingerprint -Folder $store.Bkp
+        $dataBefore = @(Get-DataFile -Root $store.Bkp | ForEach-Object FullName)
         Invoke-FormBackup -Cfg $store.Cfg | Out-Null
-        # SR-061: nothing already stored is ever re-formed, so a malformed row
-        # is left exactly as it is for -Action Verify/-RepairStorage to judge.
-        # (Before WP9 this held for a different reason: the migration compared
-        # manifest metadata with configuration and never with the bytes.)
+        # The run places a row's object by its stored-object name (plan §2). None
+        # of the four bent DataPaths is one - three are hand-made names, one
+        # names nothing - so each content is stored again from the still-matching
+        # source (SR-053), under its hash name, with the Compressed column read
+        # from the object (SR-068). SR-061: nothing already stored is re-formed;
+        # the bent files stay byte-identical for -Action Verify to report (R9:
+        # nothing is deleted).
         $rows = @(Import-Csv -LiteralPath (Join-Path $store.Bkp 'MANIFEST.csv'))
-        ($rows | Where-Object RelativePath -eq 'a.txt').Compressed | Should -Be 'Yes'
-        ($rows | Where-Object RelativePath -eq 'b.txt').Compressed | Should -Be 'No'
-        ($rows | Where-Object RelativePath -eq 'c.txt').DataPath   | Should -Be 'c.txt.7z'
-        # WP7 (SR-053): the DANGLING shape is the exception to "untouched" — a
-        # row whose data file is missing is healed from the still-matching
-        # source by the run itself. Healing restores missing BYTES; it never
-        # rewrites the three FORM-malformed rows above (that is Verify/Repair's
-        # job, and the assertions below prove they stayed byte-identical).
-        # The healed copy is NAMED by the store (SR-061: a hash-size name), so
-        # it is identified from its own row rather than by assuming a path.
-        $healed = @($rows | Where-Object RelativePath -eq 'd.txt')[0]
-        $healed.DataPath | Should -Not -BeNullOrEmpty
-        $healedFull = Join-Path $store.Bkp $healed.DataPath
-        Test-Path -LiteralPath $healedFull | Should -BeTrue
-        # Infrastructure (manifest, witness, run state, kit) is rewritten by every
-        # run; the DATA files are what must be byte-identical. Get-DataFile applies
-        # exactly the SR-022 root-level-only rule the engine itself uses.
+        foreach ($rel in 'a.txt', 'b.txt', 'c.txt', 'd.txt') {
+            $row = @($rows | Where-Object RelativePath -eq $rel)[0]
+            ConvertFrom-HashSizeFileName -Name $row.DataPath | Should -Not -BeNullOrEmpty -Because "'$rel' now names a stored object"
+            Test-Path -LiteralPath (Join-Path $store.Bkp $row.DataPath) -PathType Leaf | Should -BeTrue
+            $row.Compressed | Should -Be 'No' -Because 'the plain store keeps raw objects'
+        }
         $after = Get-TreeFingerprint -Folder $store.Bkp
         foreach ($f in @(Get-DataFile -Root $store.Bkp)) {
-            if ($f.FullName -ieq $healedFull) { continue }   # healed above — deliberately not byte-identical
+            if (-not $before.ContainsKey($f.FullName)) { continue }   # stored by this run
             $after[$f.FullName] | Should -Be $before[$f.FullName] -Because "data file '$($f.Name)' must be untouched"
         }
+        foreach ($k in $dataBefore) { $after.ContainsKey($k) | Should -BeTrue -Because "data file '$k' must not be deleted" }
     }
 
     It 'reports one finding per malformed row with its class (SR-049)' {
@@ -385,8 +382,10 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
         # Test-StorageFormAgreement exemption).
         #
         # Repro recipe: an ordinary two-run timeline. Run 2 supersedes an
-        # UNRELATED file, so Optimize-ChangeFolders blanks the archive's row in
-        # the snapshot and its bytes survive only in the backup root.
+        # UNRELATED file, so the archive's bytes survive only in the backup
+        # root. The old engine then blanked the archive's row in the snapshot;
+        # the bounded run keeps it (plan C10), so the blank is made here to keep
+        # the hash-recovery path under test.
         $root = Join-Path $TestDrive 'tc098-realseven'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'c.xml'
@@ -404,8 +403,11 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
         Invoke-FormBackup -Cfg $cfg -At ([datetime]'2024-02-02 00:00:02') | Out-Null
 
         $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_')[0].FullName
-        $row  = @(Import-Csv -LiteralPath (Join-Path $snap 'MANIFEST.csv') | Where-Object RelativePath -eq 'real.7z')[0]
-        $row.DataPath | Should -BeNullOrEmpty -Because 'Optimize blanks a row whose bytes the pool already holds'
+        $snapRows = @(Read-Manifest -FolderPath $snap)
+        $row = @($snapRows | Where-Object RelativePath -eq 'real.7z')[0]
+        Test-Path -LiteralPath (Join-Path $snap $row.DataPath) | Should -BeFalse -Because 'the archive''s bytes are only in the backup root'
+        $row.DataPath = ''
+        Write-Manifest -FolderPath $snap -Records $snapRows
 
         # ...and the audit calls the store clean, which is why this had to be
         # caught in the restorer.
@@ -791,8 +793,10 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         Invoke-FormBackup -Cfg $s.Cfg | Out-Null
         & $rowText | Should -Be $second
 
-        # ...and the repaired store carries no storage-form finding at all.
-        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -BeNullOrEmpty
+        # ...and the store carries no storage-form finding beyond the files
+        # the repair named by hand, which the run stored again under hash names
+        # and left in place (nothing is deleted, R9).
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg | Where-Object Class -ne 'Unreferenced') | Should -BeNullOrEmpty
     }
 
     It 'is unreachable from a normal backup run, and never writes a manifest itself (SR-049)' {

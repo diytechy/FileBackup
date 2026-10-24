@@ -235,6 +235,29 @@ Describe 'Content moves by rename and is never deleted (R6, R9, SR-003, SR-059)'
         Format-State (Get-StateContent $s (Join-Path $s.Chg 'Snapshot_2026_01_02_10_00_00')) | Should -Be 'a.txt=alpha'
         Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;again\b2.txt=bravo'
     }
+    It 'uses re-added content where it is when its snapshot carries a kit older than revision 4' {
+        # Such a kit (an older engine's snapshot) finds a row's object only
+        # where the row names it, so moving the object out would break it.
+        $s = New-Store 'readd-oldkit'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-01-01T10:00:00' | Should -Be 0
+        Remove-Item -LiteralPath (Join-Path $s.Src 'b.txt')
+        Invoke-Run $s '2026-01-02T10:00:00' | Should -Be 0
+        $snap = Join-Path $s.Chg 'Snapshot_2026_01_01_10_00_00'
+        $kit = Join-Path $snap 'RECONSTRUCT.ps1'
+        [IO.File]::WriteAllText($kit, ([IO.File]::ReadAllText($kit) -replace '# KitRevision: \d+', '# KitRevision: 3'))
+        $pool = Get-PoolObject $s
+        $bravo = @($pool.Keys | Where-Object { $pool[$_][0] -like "$snap*" })
+        $bravo.Count | Should -Be 1
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-01-03T10:00:00' | Should -Be 0
+        $pool = Get-PoolObject $s
+        $pool[$bravo[0]].Count | Should -Be 1
+        $pool[$bravo[0]][0] | Should -BeLike "$snap*"
+        Format-State (Get-StateContent $s $snap) | Should -Be 'a.txt=alpha;b.txt=bravo'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo'
+    }
     It 'never deletes an object across a sequence of edits, removals and re-adds' {
         $s = New-Store 'nodelete'
         $seen = [System.Collections.Generic.HashSet[string]]::new()
@@ -259,7 +282,7 @@ Describe 'Content moves by rename and is never deleted (R6, R9, SR-003, SR-059)'
 
 Describe 'A kill at any stage leaves every state restorable, and the next run finishes the job (plan §3)' {
     It 'survives a kill at <Stage>' -ForEach @(
-        @{ Stage = 'AfterSnapshotPublished' }, @{ Stage = 'AfterFileCaptured' }, @{ Stage = 'BeforeFinalManifest' },
+        @{ Stage = 'BeforeSnapshotPublish' }, @{ Stage = 'AfterSnapshotPublished' }, @{ Stage = 'AfterFileCaptured' }, @{ Stage = 'BeforeFinalManifest' },
         @{ Stage = 'AfterFinalManifest' }, @{ Stage = 'BeforeSupersededMove' }
     ) {
         $s = New-Store "kill-$Stage"
@@ -283,7 +306,7 @@ Describe 'A kill at any stage leaves every state restorable, and the next run fi
         foreach ($snap in Get-SnapshotNames $s) { { Get-StateContent $s (Join-Path $s.Chg $snap) } | Should -Not -Throw }
         { Get-StateContent $s $s.Bkp } | Should -Not -Throw
         # The prior state is held by its snapshot from the moment it was published.
-        if ($Stage -ne 'AfterSnapshotPublished') {
+        if ($Stage -notin 'BeforeSnapshotPublish', 'AfterSnapshotPublished') {
             Format-State (Get-StateContent $s (Join-Path $s.Chg 'Snapshot_2026_03_01_10_00_00')) | Should -Be $prior
         }
 
@@ -411,6 +434,25 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         Format-State (Get-StateContent $s $snap) | Should -Be 'a.txt=alpha;b.txt=bravo'
         Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo-2'
     }
+    It 'reports a second copy in a folder whose kit is older than revision 4, but does not move it' {
+        $s = New-Store 'dups-oldkit'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-08-01T10:00:00' | Should -Be 0
+        Set-SourceFile $s 'b.txt' 'bravo-2'
+        Invoke-Run $s '2026-08-02T10:00:00' | Should -Be 0
+        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $snap = Join-Path $s.Chg 'Snapshot_2026_08_01_10_00_00'
+        Copy-Item -LiteralPath $alpha.FullName -Destination $snap
+        $kit = Join-Path $snap 'RECONSTRUCT.ps1'
+        [IO.File]::WriteAllText($kit, ([IO.File]::ReadAllText($kit) -replace '# KitRevision: \d+', '# KitRevision: 3'))
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        $found.Count | Should -Be 1
+        $found[0].Repairable | Should -BeFalse
+        $found[0].Observed | Should -Match 'RefreshKits'
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $snap $alpha.Name) | Should -BeTrue
+    }
     It 'keeps the good copy when the preferred one is damaged (-Deep)' {
         $s = New-Store 'damaged'
         Set-SourceFile $s 'a.txt' 'alpha'
@@ -428,6 +470,54 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         $found[0].Path | Should -Be $alpha.FullName
         Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 1
         Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo-2'
+    }
+}
+
+Describe 'Verify and prune work on what the bounded run writes (R6, SR-045, SR-049)' {
+    BeforeAll {
+        function New-ChurnedStore([string]$Name) {
+            # Edits, a removal and a re-add of content that by then lives only
+            # in a snapshot: the shapes that leave DataPaths stale.
+            $s = New-Store $Name
+            Set-SourceFile $s 'keep.txt' 'keep'
+            Set-SourceFile $s 'edit.txt' 'edit-1'
+            Set-SourceFile $s 'gone.txt' 'gone'
+            # Unchanged through two runs, then removed: its object ends up only
+            # in the NEWEST snapshot while the oldest still needs it, through a
+            # DataPath that went stale - pruning the newest must re-home it.
+            Set-SourceFile $s 'stable.txt' 'stable'
+            Invoke-Run $s '2026-09-01T10:00:00' | Should -Be 0
+            Set-SourceFile $s 'edit.txt' 'edit-2'
+            Remove-Item -LiteralPath (Join-Path $s.Src 'gone.txt')
+            Invoke-Run $s '2026-09-02T10:00:00' | Should -Be 0
+            Set-SourceFile $s 'back\gone-again.txt' 'gone'
+            Set-SourceFile $s 'edit.txt' 'edit-3'
+            Remove-Item -LiteralPath (Join-Path $s.Src 'stable.txt')
+            Invoke-Run $s '2026-09-03T10:00:00' | Should -Be 0
+            return $s
+        }
+    }
+    It 'verifies clean: no storage-form, pool or object finding' {
+        $s = New-ChurnedStore 'verify-clean'
+        @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -BeNullOrEmpty
+        @(Test-PoolResolves -BackupRoot $s.Bkp -ChangeRoot $s.Chg) | Should -BeNullOrEmpty
+        @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep) | Should -BeNullOrEmpty
+    }
+    It 'prunes the <Which> snapshot, and every remaining state still restores' -ForEach @(
+        @{ Which = 'oldest'; Index = 0 }, @{ Which = 'newest'; Index = 1 }
+    ) {
+        $s = New-ChurnedStore "prune-$Which"
+        $names = Get-SnapshotNames $s
+        $names.Count | Should -Be 2
+        $before = @{}
+        foreach ($n in $names) { $before[$n] = Format-State (Get-StateContent $s (Join-Path $s.Chg $n)) }
+        $latest = Format-State (Get-StateContent $s $s.Bkp)
+        $result = @(Remove-BackupSnapshot -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Name $names[$Index] -Confirm:$false)
+        "$($result[0].Status)/$($result[0].Code)" | Should -Be 'Pruned/0' -Because ($result | ConvertTo-Json -Depth 4)
+        foreach ($n in $names | Where-Object { $_ -ne $names[$Index] }) {
+            Format-State (Get-StateContent $s (Join-Path $s.Chg $n)) | Should -Be $before[$n]
+        }
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be $latest
     }
 }
 
