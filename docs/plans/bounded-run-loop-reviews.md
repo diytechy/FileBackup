@@ -11,6 +11,8 @@ fixes are commits `868adb2` and `870314a`.
 | 1 | Sol (codex `gpt-6.1-sol`, reasoning low), read-only sandbox | `7a332f8` | 2 | 2 (C22, C23) |
 | 2 | Opus (medium), fresh context | `7a332f8` | 6 + 5 questions | F1-F4 (C22-C24); F5, F6, Q1 left for the Owner |
 | 3 | Opus (medium), fresh context, the fix commit only | `868adb2` | 1 + 3 questions | F1 (C22 completed: a failed scratch write is Unverified, never Damaged); questions left for the Owner |
+| 4 | Sol (codex `gpt-6.1-sol`, low), the open-item batch | `5dfe366` | 1 + 1 question | 1 (bash searches skip dot-named folders; `cb17486`) |
+| 5 | Opus (medium), the open-item batch | `5dfe366` | 2 + 4 questions | 2 (C33, C34); question 2 as C35; the others answered in plan section 13 |
 
 ## The brief
 
@@ -474,3 +476,209 @@ No other findings met the bar.
    - Possible fixes: when a `.7z`'s length matches but the raw hash differs, try expanding it before calling it Damaged; or have the writer re-store such an archive as raw.
 2. **The scratch file is not where the docs say.** `Get-StoredObjectVerdict`'s help says the archive is expanded "beside the change root, on the backup volume and never in RAM (the C-12 lesson)". In fact `Expand-FileWithSevenZip` expands into the system temp first, which is tmpfs in the container. A large archive under `-Deep` in the container fills RAM-backed `/tmp`. The verdict then becomes `Unverified`, which is safe but not the C-12 promise, and it risks memory pressure. This predates the commit.
 3. **A source mount on Linux.** The source-gone check depends on `Directory.Exists(SrcPath)` being false. On Linux, a source whose mount drops can leave an empty mount-point directory. If the reads then show Gone rather than an I/O error, every file is recorded as removed and the run returns 0. Nothing is lost: the content moves into the snapshot and comes back on the next run. Is that acceptable for HomeHub, or should "every remaining file vanished" also stop the run with 4?
+
+## Review 4 — Sol (low), the open-item batch `554258c..5dfe366`
+
+Brief: the same scope rules applied to the open-item batch (calls C25-C32). The read-only
+sandbox could not write the file; this is its final message.
+
+#### 1. What was done
+
+Independently reviewed `git diff 554258c 5dfe366` on `BoundedRebuild`, reading the Owner’s C25–C32 rulings first. Traced the changed backup, repair, metrics, expansion and restore-discovery paths and compared them with the baseline.
+
+One finding meets the requested scope. This was a static review; no reproduction was executed.
+
+#### 2. Where the artifact is
+
+The full report is this response. The session’s read-only filesystem policy prevents writing the requested `review-sol-2.md`.
+
+#### 3. What was checked and found clean
+
+Within static-review limits:
+
+- **C28:** repair verifies each unverified keeper once per path; a failed or inconclusive verification leaves its duplicates in the pool. Deep verification marks only proven-good keepers as verified.
+- **C30:** new equal-length archives fall back to raw storage. Object verification tries expansion before condemning an existing equal-length archive. Prior compression metadata is preserved when the row names the same object.
+- **C31:** normal backup-audit and prune callers supply scratch locations on the store volume. Both restorers place candidate-expansion scratch on the restore target volume. Common extracts beside its destination and retains terminating move errors.
+- **C29:** the unchanged-file path adds counters and stopwatch work without introducing additional content reads or filesystem probes per file. Slow-file tracking retains at most five entries. HomeHub-scale overhead remains unmeasured.
+- **C25–C27:** the new refusal and stop branches are present with their intended backup return-code classifications.
+
+No other qualifying regression was established.
+
+#### 4. Findings, most severe first
+
+##### Medium — Bash latest-state discovery misses a hidden change folder
+
+**Location:** `bash/reconstruct.sh:1175`, the new C32 candidate loop.
+
+**Concrete steps from a tool-produced store:**
+
+1. Use a supported store with a change directory named `.changes`, containing an older snapshot whose bundled kit is below revision 4.
+2. Continue that store with the reviewed engine and reintroduce content held only in that snapshot. C19 deliberately leaves the object there; the engine writes a latest-state row referring to that object.
+3. Copy the complete store to another location or host. Its recorded absolute paths no longer apply.
+4. Run the copied backup root’s `reconstruct.sh --target-root <outside-directory>` without `--change-root`.
+
+The new discovery loop uses `"$origin"/*/` and `"$(dirname -- "$origin")"/*/`. Bash excludes dot-prefixed directories from those globs, and the script does not enable `dotglob`. Consequently, `.changes` is never considered. The snapshot object is omitted from the pool, so the latest-state restore cannot recover that row despite its bytes being present.
+
+**Why this is within scope:** `.changes` is an ordinary configurable directory name. Continuing an older store, retaining objects under C19, and restoring a copied store are explicitly supported operations. No hand-edited manifest, dishonest filename, concurrent run or failure chain is required.
+
+**Baseline comparison:** the baseline also lacked this discovery capability. This is an incomplete implementation of C32 rather than a newly introduced loss mechanism. The PowerShell implementation uses `-Force` and covers this layout; Bash does not.
+
+**Suggested fix:** include hidden directories when enumerating discovery candidates, preserving the caller’s shell options. Add a Bash restore test using `.changes` with a latest row whose object remains in a snapshot.
+
+#### 5. What was not done and why
+
+- No repository files were edited, created or deleted.
+- No Pester, `tests/Run-All.ps1`, module imports or backup runs were executed.
+- No temporary export, failure-injection reproduction or performance benchmark was created because this session permits file reads only.
+- The normal command runner failed during process setup. Read-only Git inspection was completed through the available Node runtime.
+- Therefore, findings and clean assessments above are based on source tracing, not runtime validation.
+
+#### 6. Open questions
+
+- What is the measured incremental cost of C29 on the 180,000-file unchanged nightly workload? Static inspection establishes bounded bookkeeping, but not its elapsed-time impact.
+
+## Review 5 — Opus (medium), the open-item batch `554258c..5dfe366`
+
+### Independent review: `git diff 554258c 5dfe366` (open-item fixes C25-C32)
+
+Reviewer: Claude Opus 5.5, read-only. Repo untouched. Pester / Run-All not run.
+
+#### 1. What was done
+
+- Read the C25-C32 table (docs/plans/bounded-run-loop.md section 13) and read every changed code hunk in
+  `Modules/FileBackup.Engine.psm1`, `Modules/FileBackup.Common.psm1`, `FileBackup.ps1`, `Reconstruct.ps1`,
+  `bash/reconstruct.sh`, plus the code around them (Get-StorageFormFinding, Get-StoredObjectVerdict,
+  Get-StoreObjectFinding, Invoke-LibraryCapture, Invoke-SourceFileCapture, Remove-BackupSnapshot,
+  Get-PruneCapacityRefusal, the restorers' root detection and content scan).
+- Exported `git archive 5dfe366` to `%TEMP%\fbrev3` and `git archive 554258c` to `%TEMP%\fbrev3-old`, then ran these repros
+  against stores the tool made itself:
+  - **Windows end to end (5dfe366):** compress on, two backups (0, 0); plain Verify, Verify -Deep, Verify -RepairStorage
+    (the C28 confirm read happened, the duplicate moved, the re-audit is clean with exit 0, `Verify/.expand` was removed);
+    a latest-state restore from the backup root's kit (exit 0, no `.fbexpand-*` left in the target).
+  - **C32:** the store copied elsewhere so the sidecar no longer applies, and the latest object of one row moved into
+    the snapshot. A latest restore resolved that row through the auto-detected change root in both Reconstruct.ps1
+    (Windows) and reconstruct.sh (WSL Ubuntu). Both exited 0 and all 3 files were verified.
+  - **Full backup volume (WSL Ubuntu, 8 MB tmpfs as the store volume, /usr/bin/7z):** Verify -Deep on both trees
+    (Finding 1).
+  - **C29 overhead:** 20,000 unchanged files, 3 unchanged runs per tree, run in-process. 554258c took 56.9, 61.2 and 47.5 s.
+    5dfe366 took 52.0, 41.8 and 32.8 s. No measurable slowdown. These numbers are noisy because a Pester run was going
+    on the machine at the same time.
+  - Linux `Join-Path $root "Verify\.expand"` gives `/…/Verify/.expand` (nested), so it is not a stray folder.
+
+#### 2. Where the artifact is
+
+This file: `C:\Users\Peter\AppData\Local\Temp\claude\c--Projects-FileBackup\205fe578-ebf3-4bbe-bc75-5e3f04be7021\scratchpad\review-opus-3.md`.
+Repro scripts are in `C:\Users\Peter\AppData\Local\Temp\fbrev3-tools\` (`e2e.ps1`, `c32.ps1`, `full.sh`, `bench.ps1`).
+
+#### 3. Checked and found clean
+
+- **C25/C26** (`Resolve-BackupSetPaths`, `Assert-StoreVolumePresent`):
+  - The drive is checked before the C26 snapshot probe, and `DriveNotFoundException` maps to 4 only in `Invoke-BackupSet`.
+  - The read-only actions are unchanged (2).
+  - A store the tool made always has a backup root before any `Snapshot_*` exists, so C26 cannot fire on a new store.
+- **C27:** `Gone` does not remove rows from `$working`, so a progress checkpoint written before the throw still holds
+  every prior row. The throw happens before the final rows are built, so the result is 4 with the latest state as it
+  was. A source that was already empty when the walk began still gives the C2 warning.
+- **C28:** the cost report and the move use the same filter (Repairable, Kept, not KeptVerified). The verdict is
+  cached per kept path. A Damaged or Unverified kept copy leaves the duplicate in place and the re-audit keeps the
+  exit code at 1. Under -Deep, `$keep` is always a Good copy, so `KeptVerified = $Deep` is sound. `Kept` and
+  `KeptVerified` are kept out of the JSON report.
+- **C29:**
+  - No helper writes to the pipeline: `$media` stays a string and `Add-RunMetric` emits nothing.
+  - `-f` and `+` precedence was checked for every new format line.
+  - `Item.File.Length` is cached from enumeration, so a file deleted mid-run does not throw in the slow-file check.
+  - Metrics in the catch path are wrapped in try. The per-file cost on the Kept path is one counter.
+- **C30:**
+  - The equal-length rule in `Publish-StagedObject` renames the object to the raw name before the dest-exists check.
+  - The verdict expands only a `.7z` whose form is Archive and whose raw hash mismatched.
+  - `PriorCompressed` is used only when the prior row named the same object.
+  - The restorers already decide the form from the bytes.
+- **C31:**
+  - Every engine expand lands under `<ChangeRoot>/Verify/.expand` or the prune staging folder, never a pool folder.
+  - The restorers expand beside the destination or in the target root. Both are created before use.
+  - Scratch is cleaned up afterwards.
+- **C32:** the sidecar and the explicit overrides still win. The new rule only fills `changeRoot` when nothing else
+  did. An ambiguous result (0 or 2+ candidates) falls back to the old null. The "target inside change root" refusal
+  now also applies to a found root, which is correct.
+- **Regressions vs 554258c:** none found apart from the two below.
+
+#### 4. Findings (most severe first)
+
+##### F1. Medium: on a full backup volume, Verify -Deep reports intact archives as `PayloadMismatch` ("other bytes")
+
+- **Where:** `Modules/FileBackup.Engine.psm1:1438-1446` (Get-StorageFormFinding: an expand failure ends in
+  `catch { $payloadOk = $false }`, which becomes `PayloadMismatch`). This is reached through the new scratch folder at
+  `:1594` (Test-BackupStorageForm, C31).
+- **Concrete steps** (repro run, `fbrev3-tools/full.sh`):
+  1. Put the store on a small volume, with `CompressEnabled` true and 7-Zip present, and run one backup (exit 0).
+  2. Verify -Deep reports `[]` and exits 0.
+  3. Fill the backup volume, which is what a backup that hit exit 4 "volume full" leaves behind.
+  4. Run Verify -Deep again.
+- **Result:**
+  - On 5dfe366, both objects are reported as `PayloadMismatch … observed other bytes` and also as `UnverifiedObject`.
+    The PayloadMismatch report covers even a 6-byte file. Exit 1.
+  - On 554258c, the same store and the same full volume give only the two correct `UnverifiedObject` findings
+    ("No space left on device").
+- **Why it is not an R1 corner:**
+  - It takes one plausible failure (a full backup volume) on a tool-made store.
+  - Verify -Deep is the natural next step after a full-disk run.
+  - The report states that intact bytes are damaged, which is the false damage statement C22 set out to remove
+    ("a failed expand is no evidence").
+  - On Windows, before C31 this audit expanded on the system drive, which usually has room. Now it is the volume most
+    likely to be full.
+  - Nothing is moved, because PayloadMismatch is not repairable, so no bytes are lost. A wrapper or person acting on
+    the report is misled.
+- **Suggested fix:** handle an expand failure in the form audit the way Get-StoredObjectVerdict does: record an
+  "unverified" (non-damage) finding, or no form finding at all because the object audit already reports
+  `UnverifiedObject`. Keep `PayloadMismatch` for a completed comparison only.
+
+##### F2. Low: prune re-homing now expands archives on the backup volume, but the capacity rail does not count those bytes
+
+- **Where:**
+  - `Modules/FileBackup.Engine.psm1:2563` (Copy-ReHomedDataFile: scratch in `-ScratchFolder`).
+  - `:2814` (Remove-BackupSnapshot passes `$staging` = `<ChangeRoot>\Temp`).
+  - `:2227` (Get-PruneCapacityRefusal sums only `Item.Bytes`, the archive length).
+- **Concrete steps** (from reading; not run):
+  1. A compressed store whose backup volume is nearly full, which is the usual reason to prune.
+  2. A snapshot to prune that has a row to re-home whose object is a highly compressible archive. Its expanded payload
+     is larger than the free space left after the re-homed copies.
+  3. The rail passes. The re-homed copy lands, then the verification expand fails on the full volume.
+  4. Copy-ReHomedDataFile throws, the prune aborts before the commit point with code 4 ("no data was lost"), and the
+     next attempt fails the same way.
+- **Before C31:** the scratch was in the system temp, usually the system drive on Windows, so the same prune
+  succeeded.
+- **Why it is not an R1 corner:**
+  - A nearly full volume plus a normal prune on a tool-made store.
+  - No data is lost: the transaction aborts cleanly and leftover `.fbprune.tmp` files are swept on the next prune.
+  - The cost is that the remedy for a full disk is blocked, and the error looks like a host problem with no hint
+    about the cause.
+- **Suggested fix:** do either of these:
+  - In the rail, add the largest payload length (`SourceRow.Length`) among the Compressed='Yes' items to the bytes
+    needed on that volume (the scratch is created and deleted per item).
+  - Or verify the re-homed archive with `7z t` plus a streamed hash and no scratch file.
+
+#### 5. Not done, and why
+
+- I did not run Pester or tests/Run-All.ps1, because the brief forbids it while a long run is active. No `check.ps1`.
+- Bash reconstruct.sh was exercised only for the C32 latest restore. The bash full-target expand paths were checked by
+  reading only.
+- F2 was not reproduced: building a nearly full volume with a re-homing prune plan takes more than a quick repro.
+- The restorer-side effect of C31 was checked by reading and judged out of scope. The 7-Zip self-test still runs in
+  the system temp while the content-scan expand now runs on the target, so on a full target a failed candidate expand
+  is read as "archive damaged". For a tool-made store the content scan is only reached when no object is named for the
+  row's content, which is a missing-content case anyway, or R1.
+- No HomeHub container run. Linux was tested in WSL Ubuntu with snap pwsh.
+
+#### 6. Open questions
+
+1. **C25/C26 on plain Linux with one mount for both roots:** when that mount is missing, both `BackupPath` and
+   `ChangePath` are missing. C26 cannot fire, and the run creates both on the root filesystem and makes a full
+   backup there. C25 says HomeHub's wrapper covers this. Is plain Linux outside the container a supported host?
+   CLAUDE.md says Windows only.
+2. **C25 with a mapped drive letter a scheduled task cannot see** (a classic configuration error): this is now 4
+   ("retry later") every night instead of 2. Is that the intended reading of "not attached"?
+3. **Kit revision:** the restore kit's behaviour changed (C31, C32) but `KitRevision` stays 14. That is harmless for
+   correctness, because `-RefreshKits` copies unconditionally and the latest kit is rewritten every run. Should a kit
+   that changes behaviour bump the revision so that a folder's kit can be told apart?
+4. **Verify JSON shape:** object findings now carry a new `FileLength` field. Does the HomeHub wrapper parse with a
+   closed schema?

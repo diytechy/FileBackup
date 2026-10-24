@@ -770,6 +770,54 @@ Describe 'Expanding an archive never needs the system temp folder (plan C31)' {
     }
 }
 
+Describe 'Checks on the backup volume when it is nearly full (plan C33, C34)' {
+    BeforeAll {
+        $script:sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+        function New-CompressedChurn([string]$Name) {
+            # Three runs: the third removes gone.txt, so the newest snapshot
+            # holds its compressed object and an older one still needs it.
+            $s = New-Store $Name
+            $s.Set.CompressEnabled = $true
+            $deps = @{ '7z' = $script:sevenZip; ffprobe = $null }
+            $logs = [System.Collections.Generic.List[string]]::new()
+            Set-SourceFile $s 'keep.txt' ('KEEP ' * 400)
+            Set-SourceFile $s 'super.txt' ('VERSION-ONE ' * 400)
+            Set-SourceFile $s 'gone.txt' ('DOOMED ' * 400)
+            Invoke-BackupSet -Set $s.Set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2026-11-01T10:00:00') | Should -Be 0
+            Set-SourceFile $s 'super.txt' ('VERSION-TWO ' * 400)
+            Invoke-BackupSet -Set $s.Set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2026-11-02T10:00:00') | Should -Be 0
+            Remove-Item -LiteralPath (Join-Path $s.Src 'gone.txt')
+            Invoke-BackupSet -Set $s.Set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2026-11-03T10:00:00') | Should -Be 0
+            return $s
+        }
+    }
+    It 'reports no payload mismatch when an expand cannot complete' {
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) { Set-ItResult -Skipped -Because '7-Zip not installed'; return }
+        $s = New-CompressedChurn 'deep-full'
+        Mock -ModuleName FileBackup.Engine Expand-FileWithSevenZip { throw 'No space left on device' }
+        $found = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $sevenZip)
+        @($found | Where-Object Class -eq 'PayloadMismatch').Count | Should -Be 0 -Because 'no comparison was made'
+    }
+    It 'counts the largest payload it must expand to verify in the prune space check' {
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) { Set-ItResult -Skipped -Because '7-Zip not installed'; return }
+        $s = New-CompressedChurn 'prune-room'
+        $newest = @(Get-SnapshotNames $s)[-1]
+        $plan = Get-SnapshotPrunePlan -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Name $newest
+        $compressed = @($plan.Items.ToArray() | Where-Object Compressed -eq 'Yes')
+        $compressed.Count | Should -BeGreaterThan 0 -Because 'the fixture needs a compressed object to re-home'
+        $copies = [long](@($plan.Items.ToArray() | Measure-Object -Property Bytes -Sum).Sum)
+        $largest = [long](@($compressed | ForEach-Object { [long]$_.SourceRow.Length } | Measure-Object -Maximum).Maximum)
+        Mock -ModuleName FileBackup.Engine Get-VolumeIdentity { 'VOL' }
+        $script:free = $copies + $largest - 1
+        Mock -ModuleName FileBackup.Engine Get-FreeSpaceBytes { [long]$script:free }
+        $refused = @(Assert-PrunePrecondition -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Plan $plan -SevenZipPath $sevenZip)
+        @($refused | Where-Object Kind -eq 'capacity').Count | Should -Be 1 -Because 'one byte short of the copies plus the largest expand'
+        $script:free = $copies + $largest
+        $refused = @(Assert-PrunePrecondition -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Plan $plan -SevenZipPath $sevenZip)
+        @($refused | Where-Object Kind -eq 'capacity').Count | Should -Be 0
+    }
+}
+
 Describe 'Verify and prune work on what the bounded run writes (R6, SR-045, SR-049)' {
     BeforeAll {
         function New-ChurnedStore([string]$Name) {

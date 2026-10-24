@@ -287,6 +287,16 @@ a check that slows the backup. They are built as these calls:
 | C30 | An archive that comes out exactly as long as its content is stored raw; Verify expands an equal-length `.7z` that hashes wrong before calling it damaged; the `Compressed` column of such an object keeps the prior row's answer (review 3 Q1). | Its listing cannot tell it from the user's own raw `.7z`, so Verify's length rule called it damaged and a repair would have hidden it; the restorers already decide it from the bytes (SR-068). |
 | C31 | 7-Zip expands beside the destination (a hidden `.fbexpand-*` folder), and every expand the engine or a restorer makes lands on the store's or the restore target's volume - never the system temp folder (review 3 Q2, option i). | In the container the system temp is a RAM tmpfs: a large archive would not fit, and `-Deep` reported it Unverified. |
 | C32 | A latest-state restore with no change root recorded or given uses the one folder inside or beside the backup root that holds `Snapshot_*` folders (Opus F5, option B). | A latest row can name an object still in a snapshot (a failed move back, C19). The folder is found, not assumed by name (B10), and every restored file is verified, so a wrong guess can supply no wrong bytes. |
+| C33 | In the storage-form audit under `-Deep`, an expand that does not complete is no `PayloadMismatch`; only a completed comparison is. The object audit reports that object as `UnverifiedObject`. | With C31 the expand runs on the backup volume, so a full volume made intact archives read as damaged (Opus review 3 of the batch, reproduced). |
+| C34 | The prune space check counts, besides the copies, the largest compressed payload the prune expands to verify, on the change root's volume. | With C31 that expand lands in the prune's staging folder; a nearly full volume otherwise refused every retry with 4 (same review). |
+| C35 | A missing Windows drive letter gets a hint: a mapped network drive is invisible to a scheduled task, use the UNC path. | That configuration mistake now reads as "retry later" (C25) every night, so the message names it (same review, question 2). |
+
+Answers to that review's other questions, recorded rather than built: FileBackup runs
+on Windows and in the container, so a plain-Linux store whose one mount is missing
+(C26 cannot fire) is outside what is supported; the restore kit keeps revision 14,
+because revision 14 never shipped outside this branch; and HomeHub's wrapper reads
+Verify's exit code and `[Class]` log lines, not the JSON fields, so the added
+`FileLength` field changes nothing for it.
 
 **Known costs, measured or read (follow-ups, not defects):**
 - **Kit name index:** each object name is decoded with Common's BigInteger

@@ -1442,7 +1442,11 @@ function Get-StorageFormFinding {
                         $payloadOk = ((Get-Item -LiteralPath $tmp).Length -eq [long]$row.Length -and
                                       (Get-FileXxHash -FilePath $tmp) -eq $row.xxH2Hash)
                     } catch {
-                        $payloadOk = $false
+                        # The expand did not complete (a corrupt archive, or a
+                        # full volume - 7-Zip cannot tell): no comparison was
+                        # made, so this is no PayloadMismatch. The object audit
+                        # reports the object as UnverifiedObject (plan C22, C33).
+                        $payloadOk = $null
                     } finally {
                         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
                     }
@@ -1451,7 +1455,7 @@ function Get-StorageFormFinding {
                 $payloadOk = ((Get-Item -LiteralPath $full).Length -eq [long]$row.Length -and
                               (Get-FileXxHash -FilePath $full) -eq $row.xxH2Hash)
             }
-            if (-not $payloadOk) {
+            if ($payloadOk -eq $false) {
                 & $add $row 'PayloadMismatch' 'other bytes' "(hash=$($row.xxH2Hash), length=$($row.Length))" $false
             }
         }
@@ -2323,7 +2327,17 @@ function Assert-PrunePrecondition {
     }
 
     $items = $Plan.Items.ToArray()
-    foreach ($refusal in (Get-PruneCapacityRefusal -Item $items -PlanName $Plan.Name)) { $refusals.Add($refusal) }
+    # Verifying a re-homed archive expands it, one at a time, into the prune's
+    # staging folder on the backup volume (plan C31): the largest such payload
+    # must fit there as well as the copies (C34).
+    $capacityItems = [System.Collections.Generic.List[object]]::new()
+    foreach ($i in $items) { $capacityItems.Add($i) }
+    if (-not $SkipContentVerify) {
+        $largest = [long]0
+        foreach ($i in $items) { if ($i.Compressed -eq 'Yes' -and [long]$i.SourceRow.Length -gt $largest) { $largest = [long]$i.SourceRow.Length } }
+        if ($largest -gt 0) { $capacityItems.Add([pscustomobject]@{ DestinationFolder = $ChangeRoot; Bytes = $largest }) }
+    }
+    foreach ($refusal in (Get-PruneCapacityRefusal -Item $capacityItems.ToArray() -PlanName $Plan.Name)) { $refusals.Add($refusal) }
 
     if (-not $SkipContentVerify -and @($items | Where-Object { $_.Compressed -eq 'Yes' }).Count -gt 0) {
         if (-not $SevenZipPath -or -not (Test-Path -LiteralPath $SevenZipPath -PathType Leaf)) {
@@ -3728,8 +3742,9 @@ function Assert-StoreVolumePresent {
     )
     $root = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($Path))
     if ($root -and -not [System.IO.Directory]::Exists($root)) {
+        $hint = if ($root -match '^[A-Za-z]:\\?$') { ' If it is a mapped network drive, a scheduled task cannot see it: use the UNC path (\\server\share\...) instead.' } else { '' }
         throw [System.IO.DriveNotFoundException]::new(
-            "The drive '$root' for set '$SetName' ('$Path') is not attached; nothing was written. The next run is the retry once it is back.")
+            "The drive '$root' for set '$SetName' ('$Path') is not attached; nothing was written. The next run is the retry once it is back.$hint")
     }
 }
 
