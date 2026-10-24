@@ -197,14 +197,21 @@
 
     Entry-point status codes (SR-043; container/entrypoint.sh passes -ExitCode):
 
-        0  Complete — every backup set succeeded.
-        1  One or more backup sets failed.
-        2  The configuration could not be loaded -- the file is missing or
-           unreadable, or it violates the SR-042 schema (missing/unrecognized
-           ConfigVersion, unknown key, wrong JSON type, Secrets.Credential in
-           JSON, etc.). Nothing was attempted and NOTHING was created: a
-           refused run makes no log directory and never truncates the previous
-           run's global log.
+        0  Every file of every backup set was captured.
+        1  A set completed, but some files were not captured (each is named
+           in that set's log; its earlier copy is kept).
+        2  Refused before anything changed: the configuration could not be
+           loaded -- the file is missing or unreadable, or it violates the
+           SR-042 schema (missing/unrecognized ConfigVersion, unknown key,
+           wrong JSON type, Secrets.Credential in JSON, etc.), in which case
+           NOTHING was created (no log directory, the previous run's global
+           log untouched) -- or a set was refused at its start (a missing
+           tool or source root, the one-mount check, a damaged latest
+           manifest).
+        4  A set was stopped by a host problem (a volume full or gone) or
+           another run holds its lock; every state stays restorable. Retry.
+
+        Across sets the worst code wins, in the order 2, 4, 1.
 
     Under -Action Prune / -Action Snapshots the status is the SR-040 restore
     table instead (README "Restore exit codes"): 0 pruned, 1 batch incomplete
@@ -212,9 +219,8 @@
     witness verification failed (nothing mutated), 4 host I/O, retriable and
     aborted before the commit point — precedence 2 > 3 > 4 > 1.
 
-    Without -ExitCode, a configuration failure is a terminating error (throw)
-    and a failed set still yields a non-zero exit via the normal PowerShell
-    unhandled-error path — unchanged from before SR-042/SR-043.
+    Without -ExitCode, a configuration failure is a terminating error (throw);
+    a backup run's set codes are the exit status either way.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]

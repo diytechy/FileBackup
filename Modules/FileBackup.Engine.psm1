@@ -4,18 +4,18 @@
 
 .DESCRIPTION
     Depends on FileBackup.Common.psm1 (restore-safe primitives). This module is
-    NOT deployed into backup folders; only Common is. It contains the source-walk,
-    diff, copy/dedup, storage-layout migration, change-folder finalization, the
-    reconstruct-script generator, and the per-set orchestrator Invoke-BackupSet.
+    NOT deployed into backup folders; only Common is. It contains the bounded
+    backup run (docs/plans/bounded-run-loop.md: the source walk, the object
+    index, the per-file capture and the snapshot publication), the retention
+    mechanism, the storage audit, the reconstruct-script generator, and the
+    per-set orchestrator Invoke-BackupSet.
 
     Bug fixes folded in (see CHANGELOG / README "Known issues"):
         B2  Test-HashRecalcDue treats DateTime.MinValue as "never run".
         B3  Last-hash-run is persisted in a state file, not inferred from mtimes.
         B4  The hash-recalc decision now actually drives a forced rehash.
         B6  Only the *root* MANIFEST.csv is skipped; nested ones are real files.
-        B7  Storage migration copies-new + writes manifest before deleting old.
         B8  Hash-group lookups are wrapped with @() before indexing.
-        B9  Removed-file eviction refcounts shared data files first.
 #>
 
 # Import Common without -Force so we don't disturb an outer-scope import that the
@@ -602,6 +602,68 @@ function Write-DirectorySidecar {
 
 # region Backup manifest integrity + storage-layout migration
 
+function Get-FolderFileSet {
+    <#
+    .SYNOPSIS
+        The names of a folder's top-level files, from ONE listing, as a set
+        compared the way the platform compares file names.
+
+    .DESCRIPTION
+        Asking the set replaces a Test-Path per manifest row - the stat storm of
+        the 2026-09-06 defect review. Since the bounded run keeps a snapshot's
+        DataPaths (most of them naming objects still in the backup root), a
+        per-row probe would cost a stat for nearly every row of every snapshot.
+
+    .PARAMETER Folder
+        The folder.
+
+    .OUTPUTS
+        [System.Collections.Generic.HashSet[string]] (empty when the folder is
+        absent or cannot be listed).
+    #>
+    # Implements: SR-064, LLR-062
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Folder)
+    $comparer = if ($IsWindows) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
+    $set = [System.Collections.Generic.HashSet[string]]::new($comparer)
+    try {
+        foreach ($f in [System.IO.DirectoryInfo]::new($Folder).EnumerateFiles()) { [void]$set.Add($f.Name) }
+    } catch {
+        Write-Verbose "Could not list '$Folder': $($_.Exception.Message)"
+    }
+    return , $set
+}
+
+function Test-FolderHoldsFile {
+    <#
+    .SYNOPSIS
+        True when a folder holds the named file: answered from its listing set
+        for a plain name, by a probe for a name with a path separator (only a
+        legacy path-addressed store has one).
+
+    .PARAMETER Files
+        Get-FolderFileSet's set for the folder, or $null to probe.
+
+    .PARAMETER Folder
+        The folder.
+
+    .PARAMETER Name
+        The DataPath.
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-064, LLR-062
+    [CmdletBinding()]
+    param(
+        [AllowNull()][object]$Files,
+        [Parameter(Mandatory)][string]$Folder,
+        [Parameter(Mandatory)][string]$Name
+    )
+    if ($null -ne $Files -and $Name.IndexOfAny([char[]]@([char]92, [char]47)) -lt 0) { return $Files.Contains($Name) }
+    return (Test-Path -LiteralPath (Join-Path $Folder $Name) -PathType Leaf)
+}
+
 function Get-BackupContentIndex {
     <#
     .SYNOPSIS
@@ -610,8 +672,8 @@ function Get-BackupContentIndex {
         holds those bytes, plus each folder's manifest.
 
     .DESCRIPTION
-        One scan, two consumers (LLR-047). Optimize-ChangeFolders uses it to
-        elect a keeper per key; the retention mechanism (SR-045/SR-047) uses it
+        One scan for the retention mechanism and the storage audit (LLR-047);
+        the backup run uses Get-StoreObjectIndex instead. Retention (SR-045/SR-047) uses it
         to find content whose only physical copy lives in the snapshot about to
         be removed. Blank DataPaths, blank hashes and rows whose file is not on
         disk are skipped: the index describes bytes that EXIST, so a blank row
@@ -637,6 +699,7 @@ function Get-BackupContentIndex {
         [pscustomobject] Map (hashtable key -> List of location records with
         LocationType/Folder/DataPath/FullPath/IsBackup/FolderOrder) and Folders
         (one record per indexed folder: Folder, Name, Order, IsBackup, DataPaths,
+        Files - the set of the folder's top-level file names, from one listing -
         plus Manifest only under -IncludeManifests).
     #>
     # Implements: SR-026, SR-045, SR-047, LLR-047
@@ -649,12 +712,12 @@ function Get-BackupContentIndex {
     $map = @{}   # "<hash>|<len>" -> list of location records
 
     $addToMap = {
-        param([string]$LocationType, [string]$Folder, [object]$Row, [int]$FolderOrder)
+        param([string]$LocationType, [string]$Folder, [object]$Row, [int]$FolderOrder, [object]$Files)
         if ([string]::IsNullOrWhiteSpace($Row.DataPath)) { return }
         if ([string]::IsNullOrWhiteSpace($Row.xxH2Hash)) { return }
         $key  = "$($Row.xxH2Hash)|$($Row.Length)"
         $full = Join-Path $Folder $Row.DataPath
-        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { return }
+        if (-not (Test-FolderHoldsFile -Files $Files -Folder $Folder -Name $Row.DataPath)) { return }
         if (-not $map.ContainsKey($key)) {
             $map[$key] = New-Object System.Collections.Generic.List[object]
         }
@@ -673,10 +736,10 @@ function Get-BackupContentIndex {
     # Reads one manifest into the map and returns its non-blank DataPaths as an
     # array. The manifest is then unreferenced unless -IncludeManifests keeps it.
     $indexFolder = {
-        param([string]$LocationType, [string]$Folder, [object[]]$Rows, [int]$FolderOrder)
+        param([string]$LocationType, [string]$Folder, [object[]]$Rows, [int]$FolderOrder, [object]$Files)
         $dps = New-Object System.Collections.Generic.List[string]
         foreach ($row in $Rows) {
-            & $addToMap $LocationType $Folder $row $FolderOrder
+            & $addToMap $LocationType $Folder $row $FolderOrder $Files
             if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $dps.Add([string]$row.DataPath) }
         }
         return ,($dps.ToArray())
@@ -684,16 +747,17 @@ function Get-BackupContentIndex {
 
     if (Test-Path -LiteralPath (Join-Path $BackupRoot $script:Def.DatabaseFilename) -PathType Leaf) {
         $backupManifest = Read-Manifest -FolderPath $BackupRoot
-        $backupDataPaths = & $indexFolder 'Backup' $BackupRoot $backupManifest -1
+        $backupFiles = Get-FolderFileSet -Folder $BackupRoot
+        $backupDataPaths = & $indexFolder 'Backup' $BackupRoot $backupManifest -1 $backupFiles
         if ($IncludeManifests) {
             $folders.Add([pscustomobject]@{
                 Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
-                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths; Manifest = $backupManifest
+                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths; Files = $backupFiles; Manifest = $backupManifest
             })
         } else {
             $folders.Add([pscustomobject]@{
                 Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
-                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths
+                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths; Files = $backupFiles
             })
         }
         $backupManifest = $null
@@ -705,16 +769,17 @@ function Get-BackupContentIndex {
     foreach ($dir in @($SnapshotFolder | Where-Object { $_ })) {
         $folderOrder++
         $manifest = Read-Manifest -FolderPath $dir
-        $dataPaths = & $indexFolder 'Change' $dir $manifest $folderOrder
+        $files = Get-FolderFileSet -Folder $dir
+        $dataPaths = & $indexFolder 'Change' $dir $manifest $folderOrder $files
         if ($IncludeManifests) {
             $folders.Add([pscustomobject]@{
                 Folder = $dir; Name = [IO.Path]::GetFileName($dir)
-                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths; Manifest = $manifest
+                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths; Files = $files; Manifest = $manifest
             })
         } else {
             $folders.Add([pscustomobject]@{
                 Folder = $dir; Name = [IO.Path]::GetFileName($dir)
-                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths
+                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths; Files = $files
             })
         }
         $manifest = $null
@@ -749,7 +814,7 @@ function Get-SnapshotDate {
     <#
     .SYNOPSIS
         Parses the point-in-time date out of a Snapshot_<date> folder name
-        (tolerating Complete-ChangeFolder's _NNN collision disambiguator).
+        (tolerating the _NNN collision disambiguator older builds appended).
         Returns $null when the name carries no parseable date.
     #>
     # Implements: SR-047, LLR-047
@@ -776,8 +841,8 @@ function Get-SnapshotPrunePlan {
         inside the target is ENDANGERED: exactly one file per endangered key is
         copied out before the folder dies.
 
-        The destination is where Optimize-ChangeFolders would have elected the
-        keeper had the target never existed — the backup root when it demands
+        The destination is where a keeper would be elected had the target
+        never existed — the backup root when it demands
         the key, else the newest surviving snapshot that demands it. That
         guarantees the destination already carries a manifest row for the
         content, so one row is edited (DataPath + the storage-form pair) and no
@@ -862,7 +927,7 @@ function Get-SnapshotPrunePlan {
         foreach ($row in $f.Manifest) {
             if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
             $resolvesByHash = [string]::IsNullOrWhiteSpace($row.DataPath) -or
-                -not (Test-Path -LiteralPath (Join-Path $f.Folder $row.DataPath) -PathType Leaf)
+                -not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)
             if (-not $resolvesByHash) { continue }
             $key = "$($row.xxH2Hash)|$($row.Length)"
             if (-not $demand.ContainsKey($key)) { $demand[$key] = New-Object System.Collections.Generic.List[object] }
@@ -896,7 +961,7 @@ function Get-SnapshotPrunePlan {
         # Get-ReHomedDataPathName synthesizer collapses to the source DataPath.
         # $sourceRow was selected BY that DataPath just above, so it is never
         # blank. This held only for hash-addressed rows, which is now all of
-        # them - Test-BackupManifest refuses a legacy store (SR-061) and both
+        # them - the backup run refuses a legacy store (SR-061) and both
         # restorers refuse to read one (kit revision 7).
         $destName   = $sourceRow.DataPath
         $destFull   = Join-Path $destFolder $destName
@@ -1046,7 +1111,7 @@ function Test-PoolResolves {
         foreach ($row in $f.Manifest) {
             if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) {
                 $full = Join-Path $f.Folder $row.DataPath
-                if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                if (-not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)) {
                     # BytesSurvive: whether the CONTENT still exists somewhere a
                     # revision-4+ kit's fallback can reach — Verify must not call
                     # a restorable row "no bytes anywhere in the pool" (WP7
@@ -1062,6 +1127,20 @@ function Test-PoolResolves {
                                 }
                             }
                         }
+                    }
+                    # A DataPath goes stale whenever its object moves to another
+                    # folder of the pool (bounded-run-loop plan R6: snapshots are
+                    # write-once, and re-added content moves back to the latest
+                    # state). From kit revision 4 a missing named file is
+                    # recovered by (hash, length), its form decided from the bytes,
+                    # so for such a folder the row resolves exactly like a blank
+                    # one and is no problem while its content survives. An older
+                    # kit cannot fall back, so for it the row stays broken.
+                    if ($bytesSurvive) {
+                        if (-not $kitRevisionOf.ContainsKey($f.Folder)) {
+                            $kitRevisionOf[$f.Folder] = Get-BackupKitRevision -Folder $f.Folder
+                        }
+                        if ($kitRevisionOf[$f.Folder] -ge 4) { continue }
                     }
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
                         Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = $row.DataPath
@@ -1268,6 +1347,11 @@ function Get-StorageFormFinding {
         $full     = Join-Path $Folder $row.DataPath
         $observed = Get-StoredFileForm -Path $full
         if ($observed -eq 'Missing') {
+            # A DataPath goes stale when its object moves to another folder of
+            # the pool (bounded-run-loop plan R6); while that content survives,
+            # every restore finds it by name, so the row is no finding.
+            $key = "$($row.xxH2Hash)|$($row.Length)"
+            if ($null -ne $Index -and -not [string]::IsNullOrWhiteSpace($row.xxH2Hash) -and $Index.Map.ContainsKey($key)) { continue }
             & $add $row 'DanglingDataPath' 'no file' "a file at '$($row.DataPath)'" $false
             continue
         }
@@ -1484,7 +1568,7 @@ function Test-BackupStorageForm {
         $manifest = Read-Manifest -FolderPath $folder
         # SR-061: rows in the legacy path-addressed form mark a store written
         # by a pre-content-addressed build. Backup REFUSES such a store
-        # (Test-BackupManifest); an audit that refused would be useless, so
+        # (Assert-CurrentStoreForm); an audit that refused would be useless, so
         # Verify reports it — one per-folder finding (exit 1), never a throw.
         # Added here, not in Get-StorageFormFinding, so the per-row form
         # classes keep their one-finding-per-row contract and -RepairStorage
@@ -1573,7 +1657,10 @@ function Get-StoreObjectFinding {
         -RepairStorage moves the findings into the change root's Verify folder
         through Move-StoreObjectToVerify. For each content the copy kept is the
         backup root's, else the newest snapshot's - unless -Deep finds that copy
-        damaged and another one good, in which case the good one is kept.
+        damaged and another one good, in which case the good one is kept. A
+        duplicate in a folder whose restore kit is older than revision 4 is
+        reported but not repairable: that kit finds a row's object only where
+        its DataPath names it (-RefreshKits upgrades it).
 
     .PARAMETER BackupRoot
         The backup root.
@@ -1606,6 +1693,7 @@ function Get-StoreObjectFinding {
     foreach ($entry in $index.Objects.Values) { $groups[$entry.Prefix] = [System.Collections.Generic.List[object]]::new(); $groups[$entry.Prefix].Add($entry) }
     foreach ($dup in $index.Duplicates) { $groups[$dup.Prefix].Add($dup) }
     $scratch = Join-Path $ChangeRoot "$($script:VerifyFolderName)\.expand"
+    $kitRevisionOf = @{}
     $newFinding = {
         param($Entry, [string]$Class, [string]$Observed, [string]$Expected)
         [pscustomobject]@{
@@ -1628,7 +1716,13 @@ function Get-StoreObjectFinding {
         }
         foreach ($other in @($copies | Where-Object { -not [object]::ReferenceEquals($_, $keep) })) {
             $where = if ($keep.Folder) { "'$($keep.Folder)'" } else { 'the latest state' }
-            $findings.Add((& $newFinding $other 'DuplicateObject' "a second copy of content also held in $where" 'one copy of each content in the pool (SR-003)'))
+            $finding = & $newFinding $other 'DuplicateObject' "a second copy of content also held in $where" 'one copy of each content in the pool (SR-003)'
+            if (-not $kitRevisionOf.ContainsKey($finding.Folder)) { $kitRevisionOf[$finding.Folder] = Get-BackupKitRevision -Folder $finding.Folder }
+            if ($kitRevisionOf[$finding.Folder] -lt 4) {
+                $finding.Repairable = $false
+                $finding.Observed += "; left in place: that folder's restore kit (revision $($kitRevisionOf[$finding.Folder])) finds an object only where its row names it - run -RefreshKits first"
+            }
+            $findings.Add($finding)
         }
     }
     return $findings.ToArray()
@@ -1669,7 +1763,7 @@ function Move-StoreObjectToVerify {
     )
     $moved = 0
     foreach ($f in $Finding) {
-        if ($f.Class -notin 'DuplicateObject', 'DamagedObject') { continue }
+        if ($f.Class -notin 'DuplicateObject', 'DamagedObject' -or -not $f.Repairable) { continue }
         $folder = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) $f.FolderName
         [void][System.IO.Directory]::CreateDirectory($folder)
         $dest = Join-Path $folder $f.DataPath
@@ -1857,7 +1951,7 @@ function Update-BackupSnapshotKit {
         Opt-in and NEVER default: it rewrites files inside immutable snapshot
         folders, which is a deliberate operator act.
 
-        Copies exactly the six kit artifacts Complete-ChangeFolder copies and
+        Copies exactly the six kit artifacts Publish-PriorStateSnapshot copies and
         NOTHING else. The manifest witness (MANIFEST.csv.meta) is emphatically
         NOT one of them: each snapshot witnesses its OWN manifest, and copying
         the root's over it is the single most dangerous mistake available here
@@ -2004,10 +2098,10 @@ function Assert-PrunePrecondition {
         every destination volume through Get-PruneCapacityRefusal (Common's
         cross-platform probes — an unmeasurable volume skips, never refuses);
         7-Zip when a compressed row must be verified;
-        and Test-ManifestWitness Verified for every manifest in the pool, with
-        Absent refused unless -AllowUnverifiedIndex (the deliberate inverse of
-        the restore default: restoring against an unverified index is
-        recoverable, deleting against one is not).
+        and no witness an older build left disagreeing with its manifest (no
+        witness is written any more, bounded-run-loop plan R5, so an absent one
+        is the normal case; a disagreeing one is evidence of damage, and
+        deleting is not recoverable).
 
     .PARAMETER Plan
         The Get-SnapshotPrunePlan result for the target snapshot.
@@ -2027,6 +2121,7 @@ function Assert-PrunePrecondition {
         [switch]$DiscardUnreferencedData
     )
     $refusals = New-Object System.Collections.Generic.List[object]
+    if ($AllowUnverifiedIndex) { Write-Verbose '-AllowUnverifiedIndex has no effect: no witness is written any more (plan R5).' }
     foreach ($problem in $Plan.Problems.ToArray()) { $refusals.Add($problem) }
     if (-not $Plan.Folder) { return $refusals.ToArray() }
 
@@ -2073,15 +2168,14 @@ function Assert-PrunePrecondition {
     }
 
     foreach ($f in $Plan.Index.Folders) {
+        # No witness is written any more (bounded-run-loop plan R5), so an absent
+        # one is the normal case. A witness an older build left must still agree
+        # with its manifest: a disagreement is evidence of damage, and deleting is
+        # not recoverable.
         $verdict = Test-ManifestWitness -FolderPath $f.Folder
         switch ($verdict.Status) {
             'Verified' { }
-            'Absent'   {
-                if (-not $AllowUnverifiedIndex) {
-                    $refusals.Add([pscustomobject]@{ Code = 3; Kind = 'witness-absent'
-                        Message = "'$($f.Name)' has no manifest witness, so its index cannot be proven intact. Deleting against an unverified index is not recoverable; pass -AllowUnverifiedIndex to accept that risk." })
-                }
-            }
+            'Absent'   { }
             default    {
                 $refusals.Add([pscustomobject]@{ Code = 3; Kind = 'witness-mismatch'
                     Message = "'$($f.Name)': $($verdict.Detail)" })
@@ -2151,7 +2245,7 @@ function Remove-CommittedPruneResidue {
         snapshot never touches another's.
 
         The folder is already outside the ^Snapshot_ namespace, so no restorer,
-        inventory or Optimize-ChangeFolders can see it and nothing referenced it
+        inventory or backup run can see it and nothing referenced it
         (the pool was proven redundant before the rename).
 
     .PARAMETER ChangeRoot
@@ -2357,7 +2451,7 @@ function Complete-PruneDeletion {
     .SYNOPSIS
         The commit point: renames the snapshot out of the ^Snapshot_ namespace
         to 'Pruning_<name>' — which fails the pattern Reconstruct.ps1,
-        reconstruct.sh AND Optimize-ChangeFolders all use, so one atomic rename
+        reconstruct.sh AND the backup run's object index all use, so one atomic rename
         removes it from every consumer's view — and then deletes it (SR-046).
 
     .PARAMETER SnapshotFolder
@@ -2424,8 +2518,8 @@ function Remove-BackupSnapshot {
         hashes to the row's (xxH2Hash, Length).
 
     .PARAMETER AllowUnverifiedIndex
-        Proceed when a pool manifest has no witness at all (a backup predating
-        SR-038). A witness that MISMATCHES still refuses.
+        Accepted for compatibility and has no effect: an absent witness never
+        refuses any more (plan R5). A witness that MISMATCHES still refuses.
 
     .PARAMETER DiscardUnreferencedData
         Accept data files in the target that its own manifest does not
@@ -2454,10 +2548,9 @@ function Remove-BackupSnapshot {
 
     # The staging OS lock (SR-085), the SAME lock every backup holds, taken
     # before anything -- the residue completion included -- and held for the
-    # whole batch. Without it the Temp-folder rail below excludes a backup only
-    # while that backup's Temp exists; a backup past its finalize rename (Temp
-    # gone, Optimize-ChangeFolders rewriting snapshot manifests) would be pruned
-    # under. A lock that cannot be taken is LIVE (SR-086): every name is refused
+    # whole batch: a backup moves objects between the backup root and the
+    # snapshots for its whole run, so a prune running beside it would plan on a
+    # pool that is changing under it. A lock that cannot be taken is LIVE (SR-086): every name is refused
     # as staging-busy (code 2) and nothing is touched. -WhatIf mutates nothing,
     # so it takes no lock.
     $osLock = $null
@@ -3286,10 +3379,9 @@ function Resolve-GroupStorageForm {
         (SR-081).
 
     .DESCRIPTION
-        Invoke-BackupFileGroup calls this ONCE per group, lazily, on first
-        entry to its write branch, and memoizes the answer (LLR-058) — so a
-        dedup hit or an in-run twin never reaches it, and a group whose first
-        member's copy fails does not re-probe or re-warn per failing member.
+        Publish-StagedObject calls this ONCE per new stored object, with the
+        staged copy as the only candidate (LLR-058) - so content already in the
+        store, and a twin seen later in the same run, never reach it.
 
         THE PROBE IS NOT OPENED unless rules 0/2/3/4 leave the measurement
         decisive: compression must be enabled, the mode must not be 'off', the
@@ -3414,7 +3506,7 @@ function Write-ProbeStatistic {
         logger.
 
     .PARAMETER Stats
-        A New-ProbeStatistic accumulator, filled by Invoke-BackupFileGroup.
+        A New-ProbeStatistic accumulator, filled by Publish-StagedObject.
 
     .PARAMETER Log
         The set's logging scriptblock.
@@ -3940,17 +4032,18 @@ function Get-SourceFileList {
     .DESCRIPTION
         The walk is the one the source-side record's walk always was (SR-057,
         SR-074): hidden, system and dot-named entries included, the volume-root
-        pseudo-folders dropped. With no SourceStatePath, or one equal to the
-        source, root-level infrastructure names are skipped, which keeps the
-        old source-side MANIFEST.csv out of the backup (plan C6); with a
-        separate SourceStatePath every source file is user data, as before.
+        pseudo-folders dropped. Nothing is written into the source any more
+        (plan R3); the only names still skipped are those of the record older
+        builds kept at the source root - MANIFEST.csv, its witness and their
+        temp files - and only when that record lived there, i.e. no separate
+        SourceStatePath was configured (plan C6). Everything else is user data.
         A name that is not portable is reported, not captured (SR-055).
 
     .PARAMETER SourcePath
         The resolved source root.
 
-    .PARAMETER ExcludeRootInfrastructure
-        Skip root-level infrastructure names (see .DESCRIPTION).
+    .PARAMETER ExcludeOldSourceRecord
+        Skip the old source-side record at the source root (see .DESCRIPTION).
 
     .OUTPUTS
         [pscustomobject] Files (a List of [pscustomobject] RelativePath, File),
@@ -3960,25 +4053,24 @@ function Get-SourceFileList {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourcePath,
-        [Parameter(Mandatory)][bool]$ExcludeRootInfrastructure
+        [Parameter(Mandatory)][bool]$ExcludeOldSourceRecord
     )
     $unreadable = [System.Collections.Generic.List[object]]::new()
     $unportable = [System.Collections.Generic.List[object]]::new()
     $files      = [System.Collections.Generic.List[object]]::new()
-    $walked = if ($ExcludeRootInfrastructure) {
-        Get-DataFile -Root $SourcePath -EnumerationErrorOut $unreadable
-    } else {
-        $enumErr = $null
-        Get-ChildItem -LiteralPath $SourcePath -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable enumErr |
-            Where-Object { -not (Test-IsVolumeRootPseudoPath -Root $SourcePath -FullPath $_.FullName) }
-        foreach ($e in @($enumErr)) {
-            $path = "$($e.TargetObject)"
-            if ($path -and (Test-IsVolumeRootPseudoPath -Root $SourcePath -FullPath $path)) { continue }
-            $unreadable.Add([pscustomobject]@{ Path = $path; Message = $e.Exception.Message })
-        }
+    $oldRecord  = @($script:Def.DatabaseFilename, $script:Def.WitnessFilename,
+                    $script:Def.DatabaseTempFilename, "$($script:Def.WitnessFilename).tmp")
+    $enumErr = $null
+    $walked = Get-ChildItem -LiteralPath $SourcePath -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable enumErr |
+        Where-Object { -not (Test-IsVolumeRootPseudoPath -Root $SourcePath -FullPath $_.FullName) }
+    foreach ($e in @($enumErr)) {
+        $path = "$($e.TargetObject)"
+        if ($path -and (Test-IsVolumeRootPseudoPath -Root $SourcePath -FullPath $path)) { continue }
+        $unreadable.Add([pscustomobject]@{ Path = $path; Message = $e.Exception.Message })
     }
     foreach ($f in $walked) {
         $rel = $f.FullName.Substring($SourcePath.Length).TrimStart('\', '/')
+        if ($ExcludeOldSourceRecord -and $rel.IndexOfAny([char[]]@([char]92, [char]47)) -lt 0 -and $oldRecord -contains $rel) { continue }
         $reason = Test-PortableRelativePath -RelativePath $rel
         if ($reason) {
             $unportable.Add([pscustomobject]@{ RelativePath = $rel; Reason = $reason })
@@ -4166,6 +4258,10 @@ function Publish-StagedObject {
     $windows = if ($null -ne $decision.Windows -and @($decision.Windows).Count -gt 0) {
         (@($decision.Windows) | ForEach-Object { [string][math]::Round($_, 3) }) -join ','
     } else { 'n/a' }
+    # One line per PHYSICAL write (SR-060): under content addressing a second
+    # write of the same content lands on the same name with the same bytes, so
+    # only this line can show that each content was written once.
+    & $Log "Stored object '$name' for hash=$Hash len=$Length from '$SourceName'." 'DEBUG'
     # One decision line per stored object (SR-081): why it took its form.
     & $Log "compress-decision: $SourceName $($decision.Reason) ratio=$ratio windows=$windows -> '$name'" 'DEBUG'
     return [pscustomobject]@{ Name = $name; Compressed = if ($compress) { 'Yes' } else { 'No' } }
@@ -4201,7 +4297,7 @@ function Invoke-SourceFileCapture {
         The prior manifest row for this path, or $null.
 
     .PARAMETER Context
-        The run context Invoke-BackupSet builds (roots, set, index, flags).
+        The run context New-BackupRunContext builds (roots, set, index, flags).
 
     .OUTPUTS
         [pscustomobject] Status ('Kept' | 'Captured' | 'Failed' | 'Gone'), Row
@@ -4340,6 +4436,11 @@ function Get-LatestObject {
         by name. When the move fails the object stays where it is and the
         caller's row still restores through that name; a warning says so.
 
+        An object in a folder whose restore kit is older than revision 4 is
+        used where it is, never moved: such a kit finds a row's object only in
+        the folder its DataPath names, so the move would break that snapshot.
+        The latest state's kit finds it there by name.
+
     .PARAMETER Prefix
         The content-key prefix.
 
@@ -4359,6 +4460,9 @@ function Get-LatestObject {
     $entry = $null
     if (-not $Context.Index.Objects.TryGetValue($Prefix, [ref]$entry)) { return $null }
     if ($entry.Folder -eq '') { return $entry }
+    $holder = [System.IO.Path]::GetDirectoryName($entry.Path)
+    if (-not $Context.KitRevisionOf.ContainsKey($holder)) { $Context.KitRevisionOf[$holder] = Get-BackupKitRevision -Folder $holder }
+    if ($Context.KitRevisionOf[$holder] -lt 4) { return $entry }
     $dest = Join-Path $Context.BackupRoot $entry.Name
     try {
         [System.IO.File]::Move($entry.Path, $dest)
@@ -4464,25 +4568,6 @@ function ConvertTo-FrozenRow {
     }
 }
 
-function Get-ManifestRowKey {
-    <#
-    .SYNOPSIS
-        The part of a row a saved state is defined by: path, length,
-        modification time and content (SR-005's supersession criterion).
-
-    .PARAMETER Row
-        A manifest row.
-
-    .OUTPUTS
-        [string]
-    #>
-    # Implements: SR-005, SR-100
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][object]$Row)
-    return ('{0}|{1}|{2}|{3}' -f $Row.RelativePath, $Row.Length,
-            ([datetime]$Row.LastWriteTime).ToString($script:Def.CSVDateFormat), $Row.xxH2Hash)
-}
-
 function Get-SortedManifestRow {
     <#
     .SYNOPSIS
@@ -4502,7 +4587,10 @@ function Get-SortedManifestRow {
     $keys = [string[]]::new($Rows.Count)
     for ($i = 0; $i -lt $Rows.Count; $i++) { $keys[$i] = [string]$Rows[$i].RelativePath }
     $sorted = [object[]]$Rows.Clone()
-    [System.Array]::Sort($keys, $sorted, [System.StringComparer]::Ordinal)
+    # The casts pick the non-generic Sort(keys, items, comparer): bound as the
+    # generic overload, PowerShell sorts a converted copy of the items, so
+    # only the keys move.
+    [System.Array]::Sort([System.Array]$keys, [System.Array]$sorted, [System.Collections.IComparer][System.StringComparer]::Ordinal)
     $owner = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     foreach ($row in $sorted) {
         $content = "$($row.xxH2Hash)|$($row.Length)"
@@ -4523,14 +4611,18 @@ function Publish-PriorStateSnapshot {
         anything (plan step 3), unless a snapshot of that name already exists.
 
     .DESCRIPTION
-        The prior manifest is copied with every DataPath blanked - at this
-        moment none of its objects is in the snapshot's own folder, and the
-        kit finds each by name (§7) - together with the prior directory
-        record and the current restore kit, into Building_<D>; one rename
-        then makes it Snapshot_<D>. It restores from the moment it appears,
-        because every object it needs is still in the backup root or an older
-        snapshot. It comes before the first progress checkpoint so that no
-        checkpoint can overwrite the prior state's only record.
+        The prior manifest is copied as it is - every DataPath still naming the
+        object as it is called in the backup root - together with the prior
+        directory record and the current restore kit, into Building_<D>; one
+        rename then makes it Snapshot_<D>. It restores from the moment it
+        appears, because every object it needs is still in the backup root or
+        an older snapshot, and a row whose object is not in the snapshot's own
+        folder is found by name (§7). The DataPaths are kept so that an object
+        Move-SupersededObject later moves into this folder - under the same
+        name - is named by this folder's own rows, which is what the retention
+        mechanism and the storage audit index the pool by. It comes before the
+        first progress checkpoint so that no checkpoint can overwrite the prior
+        state's only record.
 
         A snapshot named for D that already exists holds the state completed at
         D - an interrupted run published it - and is kept as it is; the
@@ -4572,14 +4664,7 @@ function Publish-PriorStateSnapshot {
     }
     $building = Join-Path $ChangeRoot "$($script:BuildingFolderPrefix)$label"
     [void][System.IO.Directory]::CreateDirectory($building)
-    $blank = foreach ($r in $PriorRows) {
-        [pscustomobject]@{
-            DataPath = ''; RelativePath = $r.RelativePath; Length = $r.Length; LastWriteTime = $r.LastWriteTime
-            xxH2Hash = $r.xxH2Hash; Compressed = $r.Compressed; StoredAsHashSize = $r.StoredAsHashSize
-            Duplicate = $r.Duplicate; MediaMBPerSec = $r.MediaMBPerSec
-        }
-    }
-    Write-Manifest -FolderPath $building -Records @($blank)
+    Write-Manifest -FolderPath $building -Records $PriorRows
     $priorSidecar = Join-Path $BackupRoot $script:Def.DirectorySidecarName
     if (Test-Path -LiteralPath $priorSidecar -PathType Leaf) { Copy-Item -LiteralPath $priorSidecar -Destination $building -Force }
     foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName, $script:Def.ReconstructCommandName,
@@ -4587,6 +4672,7 @@ function Publish-PriorStateSnapshot {
         $src = Join-Path $BackupRoot $artifact
         if (Test-Path -LiteralPath $src -PathType Leaf) { Copy-Item -LiteralPath $src -Destination $building -Force }
     }
+    Invoke-BackupRunTestHook -Stage 'BeforeSnapshotPublish' -Context $building
     [System.IO.Directory]::Move($building, $final)
     & $Log "Prior state published as snapshot '$name'." 'INFO'
     return [pscustomobject]@{ Path = $final; BuiltNow = $true }
@@ -4951,6 +5037,360 @@ function New-BrowseViewIndex {
     return [pscustomobject]@{ Regenerated = $true; Rows = $rows.Count; Pages = $pages }
 }
 
+function Read-PriorStateForRun {
+    <#
+    .SYNOPSIS
+        The refusals that need a person (plan step 2), then the latest
+        manifest's rows; throws, naming the reason, when the set must be
+        refused before anything changes (outcome 2).
+
+    .DESCRIPTION
+        Checks the CompressProbe vocabulary, that one rename crosses the
+        backup and change roots (R8), that the latest manifest is a FileBackup
+        manifest, and that the store is in the current form (SR-061).
+        Import-Csv reads any text as rows, so a damaged manifest is caught by
+        its header, as both restorers catch it. A 0-byte manifest is an empty
+        backup an older build wrote.
+
+    .PARAMETER Set
+        The backup set.
+
+    .PARAMETER Paths
+        The set's resolved paths (Resolve-BackupSetPaths).
+
+    .OUTPUTS
+        [object[]] the latest manifest's rows.
+    #>
+    # Implements: SR-042, SR-061, SR-081, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Set,
+        [Parameter(Mandatory)][pscustomobject]$Paths
+    )
+    # The loader materializes CompressProbe in exact lowercase; a set built by
+    # hand is held to the same vocabulary before anything is read (SR-042, R-10).
+    $probeMode = [string]$Set.CompressProbe
+    if (-not [string]::IsNullOrWhiteSpace($probeMode) -and $probeMode -cnotin @('off', 'excluded-extensions', 'always')) {
+        throw "Backup set '$($Set.Name)' has invalid CompressProbe '$probeMode'. Expected 'off', 'excluded-extensions' or 'always' (exact lowercase)."
+    }
+    Assert-SingleStoreMount -BackupRoot $Paths.BkpPath -ChangeRoot $Paths.ChgPath
+    $manifestPath = Join-Path $Paths.BkpPath $script:Def.DatabaseFilename
+    if ((Test-Path -LiteralPath $manifestPath -PathType Leaf) -and (Get-Item -LiteralPath $manifestPath).Length -gt 0) {
+        $header = ("$(Get-Content -LiteralPath $manifestPath -TotalCount 1)").TrimStart([char]0xFEFF)
+        if ($header -notmatch 'RelativePath' -or $header -notmatch 'xxH2Hash') {
+            throw "'$manifestPath' is not a FileBackup manifest (unexpected header). Move it aside to rebuild the latest state from the source; the snapshots are untouched."
+        }
+    }
+    $rows = [object[]]@(Read-Manifest -FolderPath $Paths.BkpPath)
+    Assert-CurrentStoreForm -BackupRoot $Paths.BkpPath -Rows $rows
+    return , $rows
+}
+
+function New-BackupRunContext {
+    <#
+    .SYNOPSIS
+        Builds what every capture of one run shares (plan step 4): the roots,
+        the tools, the object index, whether unchanged files are re-read this
+        run, and the two temp tiers.
+
+    .DESCRIPTION
+        The re-read decision follows HashRecalcFreq against LastHashRun (R11).
+        The change root's Incoming folder is the on-volume temp tier; a
+        per-run folder in the host or container temp is the local tier,
+        capped at LocalTempMaxBytes or half its free space (plan section 4,
+        C7). Without a local folder, files that are probably stored already
+        are hashed in place.
+
+    .PARAMETER Set
+        The backup set.
+
+    .PARAMETER Deps
+        Resolved dependencies (7z, ffprobe).
+
+    .PARAMETER Paths
+        The set's resolved paths.
+
+    .PARAMETER Index
+        The object index (Get-StoreObjectIndex).
+
+    .PARAMETER Log
+        The set logger.
+
+    .OUTPUTS
+        [pscustomobject] the run context Invoke-SourceFileCapture reads.
+    #>
+    # Implements: SR-011, SR-081, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Set,
+        [Parameter(Mandatory)][hashtable]$Deps,
+        [Parameter(Mandatory)][pscustomobject]$Paths,
+        [Parameter(Mandatory)][pscustomobject]$Index,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $lastHashRun = $null
+    try { $lastHashRun = Get-LastHashRun -BackupRoot $Paths.BkpPath } catch { & $Log "Could not read LastHashRun: $($_.Exception.Message)" 'WARN' }
+    $recalc = if ($lastHashRun) { Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq -LastHashRun $lastHashRun } else { Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq }
+    & $Log "HashRecalcFreq=$($Set.HashRecalcFreq), LastHashRun=$lastHashRun, Recalculate=$recalc"
+    $incoming = Join-Path $Paths.ChgPath $script:IncomingFolderName
+    [void][System.IO.Directory]::CreateDirectory($incoming)
+    $localTemp = $null
+    $localTempMax = 0
+    try {
+        $localTemp = Join-Path ([System.IO.Path]::GetTempPath()) ("FileBackup-" + [guid]::NewGuid().ToString('N'))
+        [void][System.IO.Directory]::CreateDirectory($localTemp)
+        $tempFree = Get-FreeSpaceBytes -Path $localTemp
+        $localTempMax = if ($null -eq $tempFree) { $script:LocalTempMaxBytes } else { [math]::Min([long]$script:LocalTempMaxBytes, [long]($tempFree / 2)) }
+    } catch {
+        & $Log "No local temp folder ($($_.Exception.Message)); files that are probably stored already are hashed in place." 'DEBUG'
+        $localTemp = $null
+        $localTempMax = 0
+    }
+    return [pscustomobject]@{
+        BackupRoot = $Paths.BkpPath; Incoming = $incoming; LocalTemp = $localTemp; LocalTempMax = [long]$localTempMax; Set = $Set
+        SevenZip = $Deps['7z']; Ffprobe = $Deps['ffprobe']; Index = $Index; Recalc = [bool]$recalc
+        ProbeStats = (New-ProbeStatistic); Log = $Log
+        Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }; KitRevisionOf = @{}
+    }
+}
+
+function Invoke-LibraryCapture {
+    <#
+    .SYNOPSIS
+        Walks the source and captures every file into the latest state (plan
+        steps 4-5), returning the final manifest rows.
+
+    .DESCRIPTION
+        The working rows start as the prior rows, so a progress checkpoint
+        (R13) never drops a file the loop has not reached. A file that fails
+        is retried in a pass after the loop, no sooner than the spacing after
+        its last attempt and up to the attempt limit (R12); one that still
+        fails keeps its prior row. Rows of files the walk cannot see - a name
+        that is not portable, a folder that cannot be listed - stay as they
+        were (SR-055, SR-057, SR-091); every other row the walk did not visit
+        is a removal. The local temp folder is removed however the capture
+        ends.
+
+    .PARAMETER Context
+        The run context (New-BackupRunContext).
+
+    .PARAMETER Paths
+        The set's resolved paths.
+
+    .PARAMETER PriorRows
+        The latest manifest's rows before this run.
+
+    .OUTPUTS
+        [pscustomobject] FinalRows (in manifest order), WalkPaths (every file
+        the walk listed), NotCaptured (files and folders not captured).
+    #>
+    # Implements: SR-001, SR-055, SR-057, SR-067, SR-089, SR-091, LLR-091
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Context,
+        [Parameter(Mandatory)][pscustomobject]$Paths,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$PriorRows
+    )
+    $log = $Context.Log
+    $priorMap = New-RelativePathMap
+    foreach ($r in $PriorRows) { $priorMap[$r.RelativePath] = $r }
+    if ($Paths.SrcStatePath -ne $Paths.SrcPath) {
+        & $log "SourceStatePath '$($Paths.SrcStatePath)' is no longer used: the latest backup manifest is the change-detection record. Its old MANIFEST.csv can be deleted." 'WARN'
+    } elseif (Test-Path -LiteralPath (Join-Path $Paths.SrcPath $script:Def.DatabaseFilename) -PathType Leaf) {
+        & $log "The source-side record '$(Join-Path $Paths.SrcPath $script:Def.DatabaseFilename)' is no longer used; it stays out of the backup and can be deleted." 'WARN'
+    }
+    try {
+        $walk = Get-SourceFileList -SourcePath $Paths.SrcPath -ExcludeOldSourceRecord ($Paths.SrcStatePath -eq $Paths.SrcPath)
+        $walkPaths = [string[]]@($walk.Files | ForEach-Object { $_.RelativePath })
+        $notCaptured = 0
+        # Rows of files this run cannot see stay as they were (SR-055, SR-057, SR-091).
+        $frozen = New-RelativePathMap
+        foreach ($u in $walk.Unportable) {
+            & $log "Not capturing '$($u.RelativePath)': $($u.Reason). Rename it at the source (SR-055)." 'WARN'
+            $frozen[$u.RelativePath] = $true
+            $notCaptured++
+        }
+        $unreadablePrefixes = [System.Collections.Generic.List[string]]::new()
+        foreach ($bad in $walk.Unreadable) {
+            & $log "Cannot list '$($bad.Path)': $($bad.Message). Files beneath it are not captured this run and keep their earlier copies (SR-057)." 'WARN'
+            $notCaptured++
+            if ("$($bad.Path)".StartsWith($Paths.SrcPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $prefix = "$($bad.Path)".Substring($Paths.SrcPath.Length).TrimStart('\', '/')
+                if ($prefix) { $unreadablePrefixes.Add($prefix + [System.IO.Path]::DirectorySeparatorChar) }
+            }
+        }
+        if ($walk.Files.Count -eq 0 -and $PriorRows.Count -gt 0 -and $walk.Unreadable.Count -eq 0) {
+            & $log "Source '$($Paths.SrcPath)' is empty while the latest state holds $($PriorRows.Count) file(s). Nothing is deleted: the files move into the snapshot and come back if the source returns (plan C2)." 'WARN'
+        }
+
+        # The working rows start as the prior rows, so a checkpoint never
+        # drops a file the loop has not reached yet.
+        $working = New-RelativePathMap
+        foreach ($r in $PriorRows) { $working[$r.RelativePath] = $r }
+        $visited = New-RelativePathMap
+        $pending = [System.Collections.Generic.List[object]]::new()
+        $dirty = $false
+        $nextCheckpoint = [datetime]::UtcNow.AddSeconds($script:CheckpointMinSeconds)
+        foreach ($item in $walk.Files) {
+            $visited[$item.RelativePath] = $true
+            $result = Invoke-SourceFileCapture -Item $item -PriorRow $priorMap[$item.RelativePath] -Context $Context
+            switch ($result.Status) {
+                'Kept'     { $working[$item.RelativePath] = $result.Row }
+                'Captured' { $working[$item.RelativePath] = $result.Row; $dirty = $true }
+                'Gone'     { $visited.Remove($item.RelativePath) }
+                'Failed'   { $pending.Add([pscustomobject]@{ Item = $item; Attempts = 1; LastAttempt = [datetime]::UtcNow; Message = $result.Message }) }
+            }
+            Invoke-BackupRunTestHook -Stage 'AfterFileCaptured' -Context $item
+            if ($dirty -and [datetime]::UtcNow -ge $nextCheckpoint) {
+                $watch = [System.Diagnostics.Stopwatch]::StartNew()
+                Write-Manifest -FolderPath $Paths.BkpPath -Records ([object[]]@($working.Values))
+                $watch.Stop()
+                $dirty = $false
+                $wait = [math]::Max($script:CheckpointMinSeconds, $script:CheckpointWriteFactor * $watch.Elapsed.TotalSeconds)
+                $nextCheckpoint = [datetime]::UtcNow.AddSeconds($wait)
+                & $log "Progress saved ($($working.Count) row(s), $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s)." 'DEBUG'
+            }
+        }
+
+        # 5. The retry pass (R12): each failed file again, no sooner than
+        #    the spacing after its last attempt, up to the attempt limit.
+        Invoke-BackupRunTestHook -Stage 'BeforeRetryPass' -Context $pending
+        while ($pending.Count -gt 0) {
+            $next = [System.Collections.Generic.List[object]]::new()
+            foreach ($p in ($pending | Sort-Object LastAttempt)) {
+                $due = $p.LastAttempt.AddSeconds($script:RetryMinSpacingSeconds)
+                $sleep = ($due - [datetime]::UtcNow).TotalMilliseconds
+                if ($sleep -gt 0) { Start-Sleep -Milliseconds ([int][math]::Ceiling($sleep)) }
+                $result = Invoke-SourceFileCapture -Item $p.Item -PriorRow $priorMap[$p.Item.RelativePath] -Context $Context
+                $p.Attempts++
+                $p.LastAttempt = [datetime]::UtcNow
+                switch ($result.Status) {
+                    { $_ -in 'Kept', 'Captured' } { $working[$p.Item.RelativePath] = $result.Row }
+                    'Gone' { $visited.Remove($p.Item.RelativePath) }
+                    'Failed' {
+                        $p.Message = $result.Message
+                        if ($p.Attempts -lt $script:RetryMaxAttempts) { $next.Add($p) } else {
+                            $kept = if ($priorMap.ContainsKey($p.Item.RelativePath)) { 'its earlier copy is kept' } else { 'it has no earlier copy' }
+                            & $log "Not capturing '$($p.Item.RelativePath)' after $($p.Attempts) attempt(s): $($p.Message); $kept (R12, SR-091)." 'WARN'
+                            $frozen[$p.Item.RelativePath] = $true
+                            $notCaptured++
+                        }
+                    }
+                }
+            }
+            $pending = $next
+        }
+
+        # The final rows: what the loop captured, plus the prior rows of
+        # files it could not see. Everything else was removed.
+        $final = [System.Collections.Generic.List[object]]::new()
+        foreach ($rel in $working.Keys) {
+            $row = $working[$rel]
+            if ($visited.ContainsKey($rel) -and -not $frozen.ContainsKey($rel)) { $final.Add($row); continue }
+            $isFrozen = $frozen.ContainsKey($rel)
+            if (-not $isFrozen) {
+                foreach ($prefix in $unreadablePrefixes) {
+                    if ($rel.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { $isFrozen = $true; break }
+                }
+            }
+            if ($isFrozen -and $priorMap.ContainsKey($rel)) { $final.Add((ConvertTo-FrozenRow -PriorRow $priorMap[$rel] -Context $Context)) }
+        }
+        $finalRows = Get-SortedManifestRow -Rows $final.ToArray()
+    } finally {
+        if ($Context.LocalTemp) { Remove-Item -LiteralPath $Context.LocalTemp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    return [pscustomobject]@{ FinalRows = $finalRows; WalkPaths = $walkPaths; NotCaptured = $notCaptured }
+}
+
+function Publish-LatestState {
+    <#
+    .SYNOPSIS
+        Finishes the latest state (plan step 6): the final manifest and the
+        directory record, then this run's dates.
+
+    .DESCRIPTION
+        LastBackupRun is written right after the manifest, before the
+        superseded move and the browse view, so a kill late in the run still
+        dates the state it finished (defect review M-4); a kill between the two
+        writes leaves that state unsnapshotted by the next run, losing no bytes
+        (plan C17). A directory record that cannot be written is a warning: the
+        files and manifest are unaffected. The Incoming temp folder goes last.
+
+    .PARAMETER Context
+        The run context.
+
+    .PARAMETER Paths
+        The set's resolved paths.
+
+    .PARAMETER FinalRows
+        The final manifest rows.
+
+    .PARAMETER WalkPaths
+        Every file the walk listed, for the directory record.
+
+    .PARAMETER When
+        This run's completion date.
+    #>
+    # Implements: SR-005, SR-011, SR-065, LLR-005
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Context,
+        [Parameter(Mandatory)][pscustomobject]$Paths,
+        [AllowNull()][AllowEmptyCollection()][object[]]$FinalRows,
+        [AllowNull()][AllowEmptyCollection()][string[]]$WalkPaths,
+        [Parameter(Mandatory)][datetime]$When
+    )
+    Invoke-BackupRunTestHook -Stage 'BeforeFinalManifest' -Context $FinalRows
+    Write-Manifest -FolderPath $Paths.BkpPath -Records $FinalRows
+    try {
+        $dirRows = Get-SourceDirectoryRecord -SourcePath $Paths.SrcPath -FileRelativePath $WalkPaths -Log $Context.Log
+        Write-DirectorySidecar -FolderPath $Paths.BkpPath -Records $dirRows
+    } catch {
+        & $Context.Log "Directory record not written: $($_.Exception.Message) (files and manifest are unaffected)." 'WARN'
+    }
+    if ($Context.Recalc) { Set-LastHashRun -BackupRoot $Paths.BkpPath -When $When }
+    Set-LastBackupRun -BackupRoot $Paths.BkpPath -When $When
+    Remove-Item -LiteralPath $Context.Incoming -Recurse -Force -ErrorAction SilentlyContinue
+    Invoke-BackupRunTestHook -Stage 'AfterFinalManifest' -Context $FinalRows
+}
+
+function Test-StateChanged {
+    <#
+    .SYNOPSIS
+        Whether a run changed the latest state (plan step 7, R7): a row was
+        added or removed, or a row's state key - path, length, time, content,
+        SR-005's supersession criterion - differs.
+
+    .PARAMETER PriorRows
+        The latest manifest's rows before the run.
+
+    .PARAMETER FinalRows
+        The final manifest rows.
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-005, SR-100, LLR-005
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$PriorRows,
+        [AllowNull()][AllowEmptyCollection()][object[]]$FinalRows
+    )
+    if ($null -eq $FinalRows) { $FinalRows = @() }
+    # The key is inlined, because it is built twice per row.
+    $dateFormat = $script:Def.CSVDateFormat
+    $priorKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($r in $PriorRows) {
+        [void]$priorKeys.Add("$($r.RelativePath)|$($r.Length)|$(([datetime]$r.LastWriteTime).ToString($dateFormat))|$($r.xxH2Hash)")
+    }
+    if ($priorKeys.Count -ne $FinalRows.Count) { return $true }
+    foreach ($r in $FinalRows) {
+        if (-not $priorKeys.Contains("$($r.RelativePath)|$($r.Length)|$(([datetime]$r.LastWriteTime).ToString($dateFormat))|$($r.xxH2Hash)")) { return $true }
+    }
+    return $false
+}
+
 function Invoke-BackupSet {
     <#
     .SYNOPSIS
@@ -5014,42 +5454,13 @@ function Invoke-BackupSet {
         & $log "----- Backup set '$($Set.Name)' starting -----"
         $thisBackupDate = if ($BackupTime) { [datetime]$BackupTime } else { Get-Date }
 
-        # 2. Refusals that need a person: one mount, a readable latest
-        #    manifest in the current form.
-        try {
-            # The loader materializes CompressProbe in exact lowercase; a set
-            # built by hand is held to the same vocabulary before anything is
-            # read (SR-042, R-10).
-            $probeMode = [string]$Set.CompressProbe
-            if (-not [string]::IsNullOrWhiteSpace($probeMode) -and $probeMode -cnotin @('off', 'excluded-extensions', 'always')) {
-                throw "Backup set '$($Set.Name)' has invalid CompressProbe '$probeMode'. Expected 'off', 'excluded-extensions' or 'always' (exact lowercase)."
-            }
-            Assert-SingleStoreMount -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
-            # Import-Csv reads any text as rows, so a damaged manifest is caught
-            # by its header, as both restorers catch it. A 0-byte manifest is an
-            # empty backup written by an older build.
-            $manifestPath = Join-Path $paths.BkpPath $script:Def.DatabaseFilename
-            if ((Test-Path -LiteralPath $manifestPath -PathType Leaf) -and (Get-Item -LiteralPath $manifestPath).Length -gt 0) {
-                $header = ("$(Get-Content -LiteralPath $manifestPath -TotalCount 1)").TrimStart([char]0xFEFF)
-                if ($header -notmatch 'RelativePath' -or $header -notmatch 'xxH2Hash') {
-                    throw "'$manifestPath' is not a FileBackup manifest (unexpected header). Move it aside to rebuild the latest state from the source; the snapshots are untouched."
-                }
-            }
-            $priorRows = [object[]]@(Read-Manifest -FolderPath $paths.BkpPath)
-            Assert-CurrentStoreForm -BackupRoot $paths.BkpPath -Rows $priorRows
-        } catch {
+        # 2. Refusals that need a person, then the latest state.
+        try { $priorRows = [object[]](Read-PriorStateForRun -Set $Set -Paths $paths) } catch {
             & $log "Refusing backup set '$($Set.Name)': $($_.Exception.Message)" 'ERROR'
             return 2
         }
         Clear-InterruptedRunResidue -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -Log $log
         $priorDate = Get-PriorBackupDate -BackupRoot $paths.BkpPath -PriorRowCount $priorRows.Count -Log $log
-        $priorMap = New-RelativePathMap
-        foreach ($r in $priorRows) { $priorMap[$r.RelativePath] = $r }
-        if ($paths.SrcStatePath -ne $paths.SrcPath) {
-            & $log "SourceStatePath '$($paths.SrcStatePath)' is no longer used: the latest backup manifest is the change-detection record. Its old MANIFEST.csv can be deleted." 'WARN'
-        } elseif (Test-Path -LiteralPath (Join-Path $paths.SrcPath $script:Def.DatabaseFilename) -PathType Leaf) {
-            & $log "The source-side record '$(Join-Path $paths.SrcPath $script:Def.DatabaseFilename)' is no longer used; it stays out of the backup and can be deleted." 'WARN'
-        }
 
         # 3. The index, the kit and the prior state's snapshot (plan steps 2-3).
         $index = Get-StoreObjectIndex -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
@@ -5062,154 +5473,16 @@ function Invoke-BackupSet {
         }
         Invoke-BackupRunTestHook -Stage 'AfterSnapshotPublished' -Context $snapshot
 
-        # 4. The library loop.
-        $lastHashRun = $null
-        try { $lastHashRun = Get-LastHashRun -BackupRoot $paths.BkpPath } catch { & $log "Could not read LastHashRun: $($_.Exception.Message)" 'WARN' }
-        $recalc = if ($lastHashRun) { Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq -LastHashRun $lastHashRun } else { Test-HashRecalcDue -FreqCode $Set.HashRecalcFreq }
-        & $log "HashRecalcFreq=$($Set.HashRecalcFreq), LastHashRun=$lastHashRun, Recalculate=$recalc"
-        $incoming = Join-Path $paths.ChgPath $script:IncomingFolderName
-        [void][System.IO.Directory]::CreateDirectory($incoming)
-        $localTemp = $null
-        try {
-            $localTemp = Join-Path ([System.IO.Path]::GetTempPath()) ("FileBackup-" + [guid]::NewGuid().ToString('N'))
-            [void][System.IO.Directory]::CreateDirectory($localTemp)
-            $tempFree = Get-FreeSpaceBytes -Path $localTemp
-            $localTempMax = if ($null -eq $tempFree) { $script:LocalTempMaxBytes } else { [math]::Min([long]$script:LocalTempMaxBytes, [long]($tempFree / 2)) }
-        } catch {
-            & $log "No local temp folder ($($_.Exception.Message)); files that are probably stored already are hashed in place." 'DEBUG'
-            $localTemp = $null
-            $localTempMax = 0
-        }
-        $context = [pscustomobject]@{
-            BackupRoot = $paths.BkpPath; Incoming = $incoming; LocalTemp = $localTemp; LocalTempMax = [long]$localTempMax; Set = $Set
-            SevenZip = $Deps['7z']; Ffprobe = $Deps['ffprobe']; Index = $index; Recalc = [bool]$recalc
-            ProbeStats = (New-ProbeStatistic); Log = $log
-            Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }
-        }
-
-        try {
-            $walk = Get-SourceFileList -SourcePath $paths.SrcPath -ExcludeRootInfrastructure ($paths.SrcStatePath -eq $paths.SrcPath)
-            $walkPaths = [string[]]@($walk.Files | ForEach-Object { $_.RelativePath })
-            $notCaptured = 0
-            # Rows of files this run cannot see stay as they were (SR-055, SR-057, SR-091).
-            $frozen = New-RelativePathMap
-            foreach ($u in $walk.Unportable) {
-                & $log "Not capturing '$($u.RelativePath)': $($u.Reason). Rename it at the source (SR-055)." 'WARN'
-                $frozen[$u.RelativePath] = $true
-                $notCaptured++
-            }
-            $unreadablePrefixes = [System.Collections.Generic.List[string]]::new()
-            foreach ($bad in $walk.Unreadable) {
-                & $log "Cannot list '$($bad.Path)': $($bad.Message). Files beneath it are not captured this run and keep their earlier copies (SR-057)." 'WARN'
-                $notCaptured++
-                if ("$($bad.Path)".StartsWith($paths.SrcPath, [System.StringComparison]::OrdinalIgnoreCase)) {
-                    $prefix = "$($bad.Path)".Substring($paths.SrcPath.Length).TrimStart('\', '/')
-                    if ($prefix) { $unreadablePrefixes.Add($prefix + [System.IO.Path]::DirectorySeparatorChar) }
-                }
-            }
-            if ($walk.Files.Count -eq 0 -and $priorRows.Count -gt 0 -and $walk.Unreadable.Count -eq 0) {
-                & $log "Source '$($paths.SrcPath)' is empty while the latest state holds $($priorRows.Count) file(s). Nothing is deleted: the files move into the snapshot and come back if the source returns (plan C2)." 'WARN'
-            }
-
-            # The working rows start as the prior rows, so a checkpoint never
-            # drops a file the loop has not reached yet.
-            $working = New-RelativePathMap
-            foreach ($r in $priorRows) { $working[$r.RelativePath] = $r }
-            $visited = New-RelativePathMap
-            $pending = [System.Collections.Generic.List[object]]::new()
-            $dirty = $false
-            $nextCheckpoint = [datetime]::UtcNow.AddSeconds($script:CheckpointMinSeconds)
-            foreach ($item in $walk.Files) {
-                $visited[$item.RelativePath] = $true
-                $result = Invoke-SourceFileCapture -Item $item -PriorRow $priorMap[$item.RelativePath] -Context $context
-                switch ($result.Status) {
-                    'Kept'     { $working[$item.RelativePath] = $result.Row }
-                    'Captured' { $working[$item.RelativePath] = $result.Row; $dirty = $true }
-                    'Gone'     { $visited.Remove($item.RelativePath) }
-                    'Failed'   { $pending.Add([pscustomobject]@{ Item = $item; Attempts = 1; LastAttempt = [datetime]::UtcNow; Message = $result.Message }) }
-                }
-                Invoke-BackupRunTestHook -Stage 'AfterFileCaptured' -Context $item
-                if ($dirty -and [datetime]::UtcNow -ge $nextCheckpoint) {
-                    $watch = [System.Diagnostics.Stopwatch]::StartNew()
-                    Write-Manifest -FolderPath $paths.BkpPath -Records ([object[]]@($working.Values))
-                    $watch.Stop()
-                    $dirty = $false
-                    $wait = [math]::Max($script:CheckpointMinSeconds, $script:CheckpointWriteFactor * $watch.Elapsed.TotalSeconds)
-                    $nextCheckpoint = [datetime]::UtcNow.AddSeconds($wait)
-                    & $log "Progress saved ($($working.Count) row(s), $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s)." 'DEBUG'
-                }
-            }
-
-            # 5. The retry pass (R12): each failed file again, no sooner than
-            #    the spacing after its last attempt, up to the attempt limit.
-            Invoke-BackupRunTestHook -Stage 'BeforeRetryPass' -Context $pending
-            while ($pending.Count -gt 0) {
-                $next = [System.Collections.Generic.List[object]]::new()
-                foreach ($p in ($pending | Sort-Object LastAttempt)) {
-                    $due = $p.LastAttempt.AddSeconds($script:RetryMinSpacingSeconds)
-                    $sleep = ($due - [datetime]::UtcNow).TotalMilliseconds
-                    if ($sleep -gt 0) { Start-Sleep -Milliseconds ([int][math]::Ceiling($sleep)) }
-                    $result = Invoke-SourceFileCapture -Item $p.Item -PriorRow $priorMap[$p.Item.RelativePath] -Context $context
-                    $p.Attempts++
-                    $p.LastAttempt = [datetime]::UtcNow
-                    switch ($result.Status) {
-                        { $_ -in 'Kept', 'Captured' } { $working[$p.Item.RelativePath] = $result.Row }
-                        'Gone' { $visited.Remove($p.Item.RelativePath) }
-                        'Failed' {
-                            $p.Message = $result.Message
-                            if ($p.Attempts -lt $script:RetryMaxAttempts) { $next.Add($p) } else {
-                                $kept = if ($priorMap.ContainsKey($p.Item.RelativePath)) { 'its earlier copy is kept' } else { 'it has no earlier copy' }
-                                & $log "Not capturing '$($p.Item.RelativePath)' after $($p.Attempts) attempt(s): $($p.Message); $kept (R12, SR-091)." 'WARN'
-                                $frozen[$p.Item.RelativePath] = $true
-                                $notCaptured++
-                            }
-                        }
-                    }
-                }
-                $pending = $next
-            }
-
-            # The final rows: what the loop captured, plus the prior rows of
-            # files it could not see. Everything else was removed.
-            $final = [System.Collections.Generic.List[object]]::new()
-            foreach ($rel in $working.Keys) {
-                $row = $working[$rel]
-                if ($visited.ContainsKey($rel) -and -not $frozen.ContainsKey($rel)) { $final.Add($row); continue }
-                $isFrozen = $frozen.ContainsKey($rel)
-                if (-not $isFrozen) {
-                    foreach ($prefix in $unreadablePrefixes) {
-                        if ($rel.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { $isFrozen = $true; break }
-                    }
-                }
-                if ($isFrozen -and $priorMap.ContainsKey($rel)) { $final.Add((ConvertTo-FrozenRow -PriorRow $priorMap[$rel] -Context $context)) }
-            }
-            $finalRows = Get-SortedManifestRow -Rows $final.ToArray()
-        } finally {
-            if ($localTemp) { Remove-Item -LiteralPath $localTemp -Recurse -Force -ErrorAction SilentlyContinue }
-        }
+        # 4-5. The library loop and the retry pass.
+        $context = New-BackupRunContext -Set $Set -Deps $Deps -Paths $paths -Index $index -Log $log
+        $capture = Invoke-LibraryCapture -Context $context -Paths $paths -PriorRows $priorRows
+        $finalRows = $capture.FinalRows
 
         # 6. Finish the latest state, then record this run's date.
-        Invoke-BackupRunTestHook -Stage 'BeforeFinalManifest' -Context $finalRows
-        Write-Manifest -FolderPath $paths.BkpPath -Records $finalRows
-        try {
-            $dirRows = Get-SourceDirectoryRecord -SourcePath $paths.SrcPath -FileRelativePath $walkPaths -Log $log
-            Write-DirectorySidecar -FolderPath $paths.BkpPath -Records $dirRows
-        } catch {
-            & $log "Directory record not written: $($_.Exception.Message) (files and manifest are unaffected)." 'WARN'
-        }
-        if ($recalc) { Set-LastHashRun -BackupRoot $paths.BkpPath -When $thisBackupDate }
-        Set-LastBackupRun -BackupRoot $paths.BkpPath -When $thisBackupDate
-        Remove-Item -LiteralPath $incoming -Recurse -Force -ErrorAction SilentlyContinue
-        Invoke-BackupRunTestHook -Stage 'AfterFinalManifest' -Context $finalRows
+        Publish-LatestState -Context $context -Paths $paths -FinalRows $finalRows -WalkPaths $capture.WalkPaths -When $thisBackupDate
 
         # 7. A run that changed no row keeps no snapshot it built itself (SR-100).
-        $priorKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-        foreach ($r in $priorRows) { [void]$priorKeys.Add((Get-ManifestRowKey -Row $r)) }
-        $changed = $priorKeys.Count -ne $finalRows.Count
-        if (-not $changed) {
-            foreach ($r in $finalRows) { if (-not $priorKeys.Contains((Get-ManifestRowKey -Row $r))) { $changed = $true; break } }
-        }
-        if (-not $changed -and $null -ne $snapshot -and $snapshot.BuiltNow) {
+        if ($null -ne $snapshot -and $snapshot.BuiltNow -and -not (Test-StateChanged -PriorRows $priorRows -FinalRows $finalRows)) {
             Remove-Item -LiteralPath $snapshot.Path -Recurse -Force
             & $log 'No file changed; no snapshot kept (the latest state is unchanged).'
             $snapshot = $null
@@ -5227,10 +5500,10 @@ function Invoke-BackupSet {
 
         Write-ProbeStatistic -Stats $context.ProbeStats -Log $log
         & $log ("Files: $($finalRows.Count) in the latest state, $($context.Stats.Stored) new object(s) stored, " +
-                "$($context.Stats.MovedBack) moved back from snapshots, $moved superseded moved into the snapshot, $notCaptured not captured.")
-        if ($notCaptured -gt 0) {
+                "$($context.Stats.MovedBack) moved back from snapshots, $moved superseded moved into the snapshot, $($capture.NotCaptured) not captured.")
+        if ($capture.NotCaptured -gt 0) {
             $code = 1
-            & $log "----- Backup set '$($Set.Name)' completed; $notCaptured file(s) or folder(s) not captured (see the warnings above) -----" 'WARN'
+            & $log "----- Backup set '$($Set.Name)' completed; $($capture.NotCaptured) file(s) or folder(s) not captured (see the warnings above) -----" 'WARN'
         } else {
             & $log "----- Backup set '$($Set.Name)' completed -----"
         }

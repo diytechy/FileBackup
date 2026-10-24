@@ -16,12 +16,18 @@ completion date — see §3) and drops a self-contained restore kit. `Reconstruc
 rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 (that point in time) alone.
 
+The backup run is the **bounded run loop** of
+[docs/plans/bounded-run-loop.md](docs/plans/bounded-run-loop.md) (the Owner's
+rulings R1–R14 and calls C1–C8): a corner case warns and the run carries on, the
+files on disk are the truth, and the next run repairs from them. Concurrent runs
+are unsupported; one OS lock refuses a second one.
+
 ## 2. Architecture & module map
 
 | File | Role | Bundled into backups? |
 |---|---|---|
 | `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: `Update-SourceManifest`, `Compare-SourceToBackup`, `Invoke-BackupFileGroup`, `Test-BackupManifest`, `Get-BackupContentIndex`, `Optimize-ChangeFolders`, `Move-RemovedFilesToStaging`, `New-ReconstructScript`, `Complete-ChangeFolder`, `Invoke-BackupSet`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Assert-BackupCapacity` (+ its two pure demand estimators), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`; and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: the **bounded backup run** — `Invoke-BackupSet`, `Get-SourceFileList`, `Get-StoreObjectIndex` (+ the prefix-only name reader `ConvertFrom-StoredObjectName`), `Invoke-SourceFileCapture`, `Copy-FileWithHash`, `Publish-StagedObject`, `Publish-PriorStateSnapshot`, `Move-SupersededObject`, `Assert-SingleStoreMount`, `Clear-InterruptedRunResidue`, the OS lock (`Enter-/Exit-StagingOsLock`) — and `New-ReconstructScript`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Get-BackupContentIndex` (read by retention and the audit), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`, and the object-level audit `Get-StoreObjectFinding` / `Move-StoreObjectToVerify` (plan R9, C4); and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
 | `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049) / `-Action View` (SR-062), dispatch the one configured set to the retention mechanism, the storage-form audit or a forced browse-view rebuild. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
@@ -30,74 +36,60 @@ rebuilds the tree byte-exact from the backup root (latest state) or any snapshot
 **The Common/Engine split is load-bearing.** `New-ReconstructScript` copies
 `Reconstruct.ps1`, `reconstruct.sh`, `FileBackup.Common.psm1`,
 `System.IO.Hashing.dll`, and a `RECONSTRUCT.paths.json` sidecar into each backup
-folder so a restore needs nothing else. A backup folder additionally holds
-`MANIFEST.csv.meta` — the SR-038 manifest witness — which is **not** a copied kit
-artifact: `Write-Manifest` stamps each folder's own (see §3).
+folder so a restore needs nothing else. No manifest witness is written any more
+(plan R5): a folder an older build wrote may still hold a `MANIFEST.csv.meta`,
+which `Write-Manifest` deletes when it rewrites that folder's manifest and which
+no kit from revision 14 reads (see §3).
 Therefore:
 
 - Anything `Reconstruct.ps1` calls **must live in Common**, not Engine.
 - **Common must never depend on Engine.**
 
 ### Backup pipeline (`Invoke-BackupSet`, per set, per run)
-1. Resolve `SourcePath`/`BackupPath`/`ChangePath` (+ `ViewPath` when the set asks
-   for a browse view — SR-062/SR-063 place it outside both roots, on the backup
-   volume).
-2.9 Take the staging OS lock, `<ChangePath>/Temp.lock` opened `FileShare.None`
-    (SR-085), BEFORE any read of store state. Held until the set is finished —
-    past the step-13 rename — and released only in the function's final
-    `finally` (or the early catches below). A refusal APPENDS one line to
-    `backup.log`, which belongs to the live holder.
-2.95 Read the prior state UNDER the lock: `LastBackupRun`, the
-    no-`LastBackupRun`-but-rows guard (SR-035), and the SR-038/SR-039
-    manifest-witness gate (refuse with exit 3 before any mutation). Read before
-    the lock, a run starting while another finished took itself for a first
-    backup and discarded a Temp holding superseded bytes.
-2. Open `backup.log` in the change root — only now, because `New-Logger`
-   truncates it.
-3. Guard against a stale `Temp` staging folder.
-4. Read persisted last-hash-run time; decide if a scheduled rehash is due.
-5. `Update-SourceManifest` — walk source, (re)hash new/changed/scheduled files.
-5.1 Portable-name guard (SR-055): a source name the restore side could not
-    reproduce FREEZES that row instead of storing it.
-5.2 Unreadable-directory guard (SR-057): rows under a directory the walk could
-    not enumerate freeze too, and the set fails loudly rather than silently
-    treating them as removed.
-6. `Test-BackupManifest` — sanitize the backup manifest: blank a missing
-   `DataPath` (SR-053's heal then re-copies it) and warn about unreferenced pool
-   files. **There is no layout migration** (SR-061) — nothing already stored is
-   ever re-formed, so this step needs no capacity preflight of its own, and this
-   is the store's ONLY orphan scan, linear in rows + pool files (SR-064).
-7. Snapshot the pre-run manifest into staging (the point-in-time index).
-8. `Compare-SourceToBackup` — pure diff (`NewOrChanged` + `RemovedFromSource`).
-9. Build the working backup map.
-9.4 `Assert-BackupCapacity` — the last point at which nothing has been written.
-    A refusal removes the staging folder and fails the SET (status 1), never
-    orphaning a `Temp` for the next run's SR-017 guard.
-10. `Invoke-BackupFileGroup` per `(hash,size)` — write ONE content-addressed
-    object per group (SR-058/SR-060): the group elects an owner whose extension
-    and compressibility decide the single physical form, the first member writes
-    it, and an in-process memo makes every later member of the same run adopt it.
-11. `Move-RemovedFilesToStaging` — evict removed files' data (refcount-aware).
-11.5 `Save-SupersededData` — preserve superseded prior bytes into staging. It runs
-    AFTER the copy/evict steps, because content addressing never overwrites an
-    existing object, and asks the exact question: does any row of the FINAL
-    manifest still claim the old object (SR-059/SR-051)? The pre-WP9
-    source-based approximation could not see a frozen row or a row whose copy
-    failed, and moved out bytes they still claimed — that was D-1's family.
-12. Write the final backup manifest, **canonically**: rows in ordinal
-    `RelativePath` order, every text column materialized as a string, so an
-    unchanged run rewrites byte-identical bytes (G7).
-13. `New-ReconstructScript` + `Complete-ChangeFolder` — finalize the staging into a
-    dated `Snapshot_<prior-backup-date>`, or discard it when nothing was superseded.
-    The kit is copied into staging BEFORE the publish rename, so a `Snapshot_*`
-    folder structurally cannot exist without its restore kit (F8).
-14. Persist `LastHashRun` (if a rehash ran) + `LastBackupRun` (this run's date).
-    This runs BEFORE the dedupe so a kill in step 15 cannot leave run state stale
-    (defect review M-4).
-15. `Optimize-ChangeFolders` — collapse data shared across snapshots.
-16. Browse view (SR-062), only when `BrowseView` is `index` and the `.viewstamp`
-    is stale. A failure here is a WARNING, never a set failure — the view is
-    cosmetic by construction and nothing in the engine or the restorers reads it.
+
+The bounded run loop (plan §3). Every step is ordered so that a kill at any
+point leaves every visible state restorable, and the next run repairs from the
+files; `BoundedRun.Tests.ps1` kills a run at each stage and proves it.
+
+1. **Lock and clean up.** Resolve the paths (a failure is 2). Take the OS lock,
+   `<ChangePath>/Temp.lock` opened `FileShare.None` (SR-085); held → 4, and the
+   refusal is APPENDED to `backup.log`, which belongs to the holder. Then refuse
+   with 2, changing nothing, a bad `CompressProbe`, a store a rename cannot
+   cross (`Assert-SingleStoreMount`, R8), a latest manifest with a foreign
+   header, or a store in a retired form (`Assert-CurrentStoreForm`, SR-061).
+   Delete what a killed run left (`Clear-InterruptedRunResidue`: `Incoming/`,
+   `Building_*`); an older engine's `Temp` is warned about and left alone.
+2. **Read and index.** The prior date D (`LastBackupRun`; a missing or unreadable
+   state file warns and falls back to the manifest file's time) and the latest
+   manifest, which is the only change-detection record (R3). One listing of the
+   backup root and every snapshot builds the object index by name
+   (`Get-StoreObjectIndex`); snapshot manifests are never read by a run.
+3. **Publish the prior state first** (`Publish-PriorStateSnapshot`): its manifest
+   with every DataPath blanked, its directory record and the current kit go into
+   `Building_<D>`, renamed to `Snapshot_<D>`. It restores at once, because every
+   object it needs is still in the pool. An existing `Snapshot_<D>` is kept.
+4. **Library loop** (`Invoke-SourceFileCapture`). A file whose size and time
+   match its row, with no re-read due, keeps its row. Any other is hashed while
+   it is copied (`Copy-FileWithHash`), staged by how likely it is new (plan §4),
+   then reused, moved back from a snapshot by rename, or stored
+   (`Publish-StagedObject`, which decides the form from the staged copy, SR-081).
+   Progress is checkpointed into `MANIFEST.csv` (R13). Unportable names (SR-055)
+   and unlistable folders (SR-057) are warned about and keep their rows.
+5. **Retry pass** (R12): a failed file again no sooner than 60 s after its last
+   attempt, 3 attempts in all; then a warning, its earlier row kept (SR-091).
+6. **Finish latest**: the canonical manifest (ordinal `RelativePath` order, every
+   text column a string, so an unchanged run rewrites identical bytes), the
+   directory sidecar, then `LastBackupRun` / `LastHashRun`.
+7. **Discard an unneeded snapshot**: no row changed and this run built it → it is
+   deleted (it holds no objects yet).
+8. **Move superseded content** (`Move-SupersededObject`): every object no row of
+   the FINAL manifest uses moves into `Snapshot_<D>` by rename. Nothing is ever
+   deleted (R9).
+9. **Browse view** (SR-062), then release the lock in the `finally`.
+
+The set returns **0** every file captured, **1** completed with files not
+captured, **2** refused before anything changed, **4** stopped by a host problem
+or a held lock; `FileBackup.ps1` folds the sets with precedence 2 > 4 > 1.
 
 ### Generated dependency diagram & function map
 
@@ -155,6 +147,7 @@ Imports (internal): _none_
 | `Get-StoredObjectForm` | yes | SR-068, LLR-068 |
 | `Get-VolumeIdentity` | yes | SR-052, LLR-052 |
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
+| `Initialize-ManifestRowWriter` | no | SR-025, LLR-025 |
 | `Initialize-XxHashLibrary` | yes | SR-002, SR-019, LLR-002 |
 | `New-Logger` | yes | — |
 | `New-RelativePathMap` | yes | SR-034, LLR-034 |
@@ -165,7 +158,7 @@ Imports (internal): _none_
 | `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-ManifestWitness` | yes | SR-039, LLR-039 |
 | `Test-ShouldCompress` | yes | SR-004, LLR-004 |
-| `Write-Manifest` | yes | SR-025, SR-038, SR-082, LLR-025, LLR-038, LLR-087 |
+| `Write-Manifest` | yes | SR-025, SR-082, LLR-025, LLR-087 |
 | `Write-ManifestWitness` | yes | SR-038, LLR-038 |
 
 ### `Modules/FileBackup.Engine.psm1`
@@ -175,71 +168,69 @@ Imports (internal): `Common`
 
 | Function | Exported | Implements |
 |---|:---:|---|
-| `Assert-BackupCapacity` | yes | SR-052, SR-013, SR-014, LLR-052 |
+| `Assert-CurrentStoreForm` | no | SR-061, LLR-060 |
 | `Assert-NoUnknownConfigKey` | no | SR-042, LLR-042 |
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
-| `Assert-StagingLockOwned` | no | SR-075, LLR-017, LLR-080 |
-| `Clear-ReclaimedStagingFolder` | no | SR-017, SR-075, LLR-017, LLR-080 |
-| `Compare-SourceToBackup` | yes | SR-001, SR-053, LLR-001, LLR-053 |
-| `Compare-StagingLockIdentity` | no | SR-075, LLR-017 |
-| `Complete-ChangeFolder` | yes | SR-005, SR-028, LLR-005, LLR-028 |
+| `Assert-SingleStoreMount` | yes | SR-059, LLR-150 |
+| `Clear-InterruptedRunResidue` | no | SR-017, SR-075 |
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
+| `ConvertFrom-StoredObjectName` | yes | SR-069, LLR-069 |
+| `ConvertTo-FrozenRow` | no | SR-091, SR-059 |
+| `Copy-FileWithHash` | yes | SR-002, SR-059, LLR-002 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
-| `Copy-SourceFileToBackup` | yes | SR-003, LLR-003 |
 | `Enter-StagingOsLock` | yes | SR-085, SR-086, SR-087, LLR-090 |
 | `Enter-StoreMutationLock` | no | SR-085, SR-086, LLR-094 |
 | `Exit-StagingOsLock` | yes | SR-085, SR-087, LLR-090, LLR-093 |
-| `Format-StagingAge` | no | SR-075, LLR-017 |
-| `Get-BackupCapacityDemand` | yes | SR-052, SR-013, LLR-052 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
 | `Get-BackupKitRevision` | yes | SR-049, LLR-049 |
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
-| `Get-CopyRetryDelayMs` | yes | SR-067, LLR-067 |
 | `Get-DataFile` | yes | SR-057, SR-074, LLR-057, LLR-078 |
+| `Get-FolderFileSet` | no | SR-064, LLR-062 |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
+| `Get-LatestObject` | no | SR-003, SR-053, SR-108 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
+| `Get-PriorBackupDate` | no | SR-005, SR-035, LLR-005, LLR-035 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |
 | `Get-PruneCapacityRefusal` | yes | SR-046, SR-052, LLR-046 |
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
+| `Get-SortedManifestRow` | yes | SR-024, SR-025 |
 | `Get-SourceDirectoryRecord` | yes | SR-065, LLR-065 |
-| `Get-StagingBootId` | yes | SR-075, LLR-080 |
-| `Get-StagingConfirmationWait` | no | SR-075, LLR-017 |
-| `Get-StagingContainerId` | yes | SR-075, LLR-080 |
-| `Get-StagingEvidenceSignature` | no | SR-075, LLR-017 |
-| `Get-StagingLockEvidence` | no | SR-017, SR-075, LLR-017, LLR-080 |
-| `Get-StagingLockIdentity` | no | SR-075, LLR-017 |
-| `Get-StagingLockState` | yes | SR-017, SR-075, LLR-080 |
-| `Get-StagingLockVerdict` | no | SR-017, SR-075, LLR-017 |
+| `Get-SourceFileList` | yes | SR-001, SR-055, SR-057, SR-074, LLR-001, LLR-055, LLR-057 |
 | `Get-StagingOsLockPath` | yes | SR-085, SR-087, LLR-090, LLR-093 |
-| `Get-StagingRefusalDetail` | no | SR-017, SR-075, LLR-017 |
 | `Get-StorageFormFinding` | yes | SR-049, LLR-049 |
 | `Get-StoredFileForm` | yes | SR-049, LLR-049 |
+| `Get-StoredObjectCompressedFlag` | no | SR-068, LLR-068 |
+| `Get-StoredObjectPrefix` | yes | SR-069, LLR-069 |
+| `Get-StoreObjectFinding` | yes | SR-003, SR-049, LLR-049 |
+| `Get-StoreObjectIndex` | yes | SR-003, SR-053, SR-108 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
-| `Initialize-StagingFolder` | yes | SR-005, SR-017, SR-075, LLR-005, LLR-017, LLR-080 |
-| `Initialize-StagingHeartbeatType` | yes | SR-075, LLR-080 |
-| `Invoke-BackupFileGroup` | yes | SR-003, SR-013, SR-053, SR-058, SR-060, LLR-003, LLR-053, LLR-058 |
-| `Invoke-BackupSet` | yes | SR-014, SR-017, SR-035, SR-036, SR-055, SR-075, SR-085, SR-086, LLR-014, LLR-017, LLR-035, LLR-036, LLR-055, LLR-091 |
+| `Invoke-BackupRunTestHook` | no | — |
+| `Invoke-BackupSet` | yes | SR-001, SR-005, SR-014, SR-036, SR-055, SR-057, SR-085, SR-086, SR-089, SR-091, SR-100, LLR-014, LLR-091 |
+| `Invoke-LibraryCapture` | no | SR-001, SR-055, SR-057, SR-067, SR-089, SR-091, LLR-091 |
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
-| `Invoke-StagingLockReclaim` | no | SR-017, SR-075, SR-086, LLR-017, LLR-080, LLR-091 |
+| `Invoke-SourceFileCapture` | yes | SR-001, SR-003, SR-011, SR-053, SR-059, SR-067, SR-091, SR-105, SR-108 |
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
-| `Move-RemovedFilesToStaging` | yes | SR-006, SR-041, LLR-006, LLR-041 |
+| `Move-StoreObjectToVerify` | yes | SR-049, SR-109, LLR-049 |
+| `Move-SupersededObject` | yes | SR-005, SR-041, SR-059, LLR-059, LLR-150 |
+| `New-BackupRunContext` | no | SR-011, SR-081, LLR-014 |
 | `New-BrowseViewIndex` | yes | SR-062, LLR-061 |
+| `New-CapturedRow` | no | SR-025, SR-024 |
 | `New-ProbeStatistic` | no | SR-081, LLR-086 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
-| `Optimize-ChangeFolders` | yes | SR-026, LLR-026 |
+| `Publish-LatestState` | no | SR-005, SR-011, SR-065, LLR-005 |
+| `Publish-PriorStateSnapshot` | yes | SR-005, SR-007, SR-010, SR-082, LLR-005, LLR-150 |
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
+| `Publish-StagedObject` | no | SR-003, SR-004, SR-058, SR-081, LLR-003, LLR-058, LLR-086 |
 | `Read-BackupState` | no | SR-011, SR-028, LLR-011, LLR-028 |
-| `Read-StagingMarkerText` | no | SR-075, LLR-080 |
-| `Read-StagingOwnerRecord` | yes | SR-075, LLR-080 |
+| `Read-PriorStateForRun` | no | SR-042, SR-061, SR-081, LLR-014 |
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
-| `Remove-OwnStagingFolder` | no | SR-017, SR-075, LLR-017, LLR-080 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
@@ -247,29 +238,25 @@ Imports (internal): `Common`
 | `Resolve-GroupStorageForm` | no | SR-081, LLR-058, LLR-086 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
 | `Resolve-ViewRootPath` | no | SR-063, LLR-063 |
-| `Save-SupersededData` | yes | SR-010, SR-028, SR-041, SR-059, LLR-010, LLR-028, LLR-041, LLR-059 |
 | `Set-BackupStateField` | no | — |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
-| `Start-StagingHeartbeat` | yes | SR-075, LLR-080 |
-| `Stop-StagingHeartbeat` | yes | SR-075, LLR-080 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
-| `Test-BackupManifest` | yes | SR-061, SR-064, LLR-060, LLR-062 |
+| `Test-BackupDiskFull` | no | SR-052, LLR-052 |
 | `Test-BackupStorageForm` | yes | SR-049, SR-038, SR-040, SR-061, LLR-049, LLR-060 |
 | `Test-ConfigValueJsonType` | no | SR-042, LLR-042 |
-| `Test-CopyFailureIsTransient` | yes | SR-067, LLR-067 |
+| `Test-FolderHoldsFile` | no | SR-064, LLR-062 |
 | `Test-HashRecalcDue` | yes | SR-011, LLR-011 |
 | `Test-IsInfrastructureFile` | yes | SR-022, SR-038, LLR-022, LLR-038 |
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |
 | `Test-PoolResolves` | yes | SR-046, SR-045, LLR-046 |
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
-| `Test-StagingLockLostError` | no | SR-075, LLR-017 |
+| `Test-StateChanged` | no | SR-005, SR-100, LLR-005 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
+| `Test-StoredObjectBytes` | yes | SR-049, SR-068, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
-| `Update-SourceManifest` | yes | SR-001, SR-024, SR-055, LLR-001, LLR-024, LLR-055 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
 | `Write-ProbeStatistic` | no | SR-081, LLR-086 |
-| `Write-StagingOwnerRecord` | yes | SR-075, LLR-080 |
 <!-- END GENERATED MODULE MAP -->
 
 ## 3. Invariants — do not break
@@ -295,10 +282,10 @@ Imports (internal): `Common`
   xxH2Hash, Compressed, StoredAsHashSize, Duplicate, MediaMBPerSec`. Round-trip only via
   `Read-Manifest`/`Write-Manifest`.
 - **Dedup key is `(xxH2Hash, Length)`** — one physical data file per key, across
-  runs *and within a single run* (SR-003/SR-060). Where a group's members
-  disagree about the stored form (different extensions, or one compressible and
-  one not), the group **elects an owner** — shortest `RelativePath`, ordinal
-  tie-break — and the owner's form is the one object every member references.
+  runs *and within a single run* (SR-003/SR-060). The first file in walk order
+  whose content is new decides that object's extension and form; every later
+  file with the same content adopts it. Content found only in a snapshot is
+  moved back into the backup root by rename rather than stored again.
 - **All storage is content-addressed** (SR-058): every data file is named
   `Get-HashSizeFileName(hash, length, ext)` — `"<hash16> <len10><ext>"` — flat at
   the backup root, and every row carries `StoredAsHashSize='Hash'` (SR-013).
@@ -308,12 +295,14 @@ Imports (internal): `Common`
   overwritten in place.**
 - **Stored objects are immutable and name-proven** (SR-059). No run changes the
   bytes at a `DataPath` any live manifest row still claims, and an object is only
-  ever created at a name its own bytes justify. The two steps that remove bytes
-  from the pool — `Move-RemovedFilesToStaging` and `Save-SupersededData` — both
-  decide by the same question: does any row of the **final** manifest still claim
-  this object (SR-051)? Testing survival against the *source walk* instead was
-  D-1: it could not see a frozen row (SR-055/SR-057) or a row whose replacement
-  copy had failed, and moved out bytes those rows still claimed.
+  ever created at a name its own bytes justify: `Copy-FileWithHash` hashes the
+  bytes it writes, and the object is named after THAT hash, never after an
+  earlier read. Exactly one step moves bytes out of the backup root,
+  `Move-SupersededObject`, and it asks of the **final** manifest whether any row
+  still claims the object — rows kept for unreadable or unportable files do, so
+  their bytes stay (testing against the source walk was D-1). **A backup run
+  never deletes an object** (R9): `-Action Verify -RepairStorage` moves duplicate
+  and damaged objects into `<ChangePath>/Verify/`, and a person empties it.
 - **Nothing already stored is ever re-formed** (SR-061). `CompressEnabled`
   governs only content written after the change; a mixed-form store is normal,
   because compression is per-file (SR-004) and every row's `Compressed` describes
@@ -344,16 +333,13 @@ Imports (internal): `Common`
   is the only test that separates an archive we made from an archive we were
   given, and `Get-StorageFormFinding` already used it on the audit side. The
   column stays in the schema, feeding the restore capacity ESTIMATE only.
-- **A copy failure is retried, then loud** (SR-067). The SR-060 candidate loop
-  only falls back to other MEMBERS of a content group, so a file whose content
-  is unique used to get exactly one attempt and a momentary lock cost it the
-  whole run. Each group's copy now runs in attempt rounds (250 ms, 1000 ms;
-  three attempts), skipping failures that cannot change by waiting, and bounded
-  by a retry budget the SET owns so a systemically unreadable tree cannot sleep
-  a scheduled run away. On exhaustion the file gets **no manifest row** - the
-  index must never name content the store does not hold - and the set is marked
-  failed. A row from an EARLIER run survives: those bytes are still in the
-  store, the same frozen-row treatment SR-055/SR-057 give an unreadable file.
+- **A failed file is retried, then warned about** (R12, SR-067, SR-091). A file
+  that cannot be read, or changes while it is read (size or time differ before
+  and after), is set aside and retried after the main loop no sooner than 60 s
+  after its last attempt, 3 attempts in all. Then it is named in the log, its
+  earlier row (if any) is kept, and the set reports 1. The manifest never names
+  content the store does not hold. A file that vanished during the run is simply
+  removed.
 - **Restore fidelity beyond bytes** (SR-065, SR-066, kit revision 7). The
   contract is still bytes at paths, with two additions. Every restored file is
   stamped with its OWN row's `LastWriteTimeStr` once that file passes its SR-056
@@ -375,16 +361,19 @@ Imports (internal): `Common`
   backup. It replaces the only real value Mirror had — and is *more* faithful,
   because Mirror omitted borrower paths entirely.
 - **Dated snapshots** (`Snapshot_<date>`, matching `^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}`):
-  one per *superseded* backup, named by that backup's completion date (persisted
-  in `FileBackupState.json` as `LastBackupRun`). The **latest state has no
-  snapshot** — the live backup root is it; a **no-op run creates none**. A snapshot
-  holds the full point-in-time manifest plus only the bytes superseded at the next
-  run (`Save-SupersededData` parks them there once no row of that run's final
-  manifest still claims them — see the immutability invariant above).
-  **Restore authority (SR-010):** reconstruct from a snapshot uses *that snapshot's
-  own manifest* as the sole authority and resolves bytes by `(hash,length)` from
-  the data pool (backup root + all snapshots) — it never overlays a newer manifest.
-  Clean cutover: no `Pre_*_Changes` reading/writing remains (SR-005/SR-010/SR-028).
+  one per superseded state, named by that state's completion date (persisted in
+  `FileBackupState.json` as `LastBackupRun`). A snapshot is kept whenever any
+  row changes — a rename, a time-only change and an added duplicate included
+  (R7, SR-005) — and none for a run that changes nothing (SR-100). The **latest
+  state has no snapshot**: the live backup root is it. **Snapshots are
+  write-once** (R6): `Publish-PriorStateSnapshot` writes the manifest (DataPaths
+  blank) before the run changes anything, and no backup run rewrites it after;
+  objects move in (superseded) and out (re-added content) by rename, and a stale
+  or blank DataPath is resolved by the kit through the object's name.
+  **Restore authority (SR-010):** reconstruct from a snapshot uses *that
+  snapshot's own manifest* as the sole authority and resolves bytes by
+  `(hash,length)` from the data pool (backup root + all snapshots) — it never
+  overlays a newer manifest.
 - **A `Snapshot_*` folder is removed only by `Remove-BackupSnapshot`** (SR-045/
   SR-046), never by deleting the directory — dedup means a snapshot can hold the
   only physical copy of content other snapshots recover by hash. The mechanism
@@ -409,47 +398,37 @@ Imports (internal): `Common`
   `-WhatIf`. The Temp lock is created **without `-Force`**, so creation is the
   atomic test and an existing folder is the staging-busy refusal.
   Retention *policy* is the caller's (IF-001) — the verb takes explicit names,
-  never wildcards.
-- **The staging OS lock is the only liveness signal between the `RUN.inprogress`
-  delete and the Temp → `Snapshot_*` rename** (SR-085..SR-087). Backup and prune
-  both hold `<ChangePath>/Temp.lock` (`FileShare.None`) for their whole mutation;
-  the OS releases it when the holder dies, however it dies. Three rules, each
-  pinned by a mutation-checked test in `tests/Unit/StagingOsLock.Tests.ps1`:
-  **never release it before the step-13 rename returns** (TC-244); **a lock
-  that cannot be opened, for ANY reason, is a live holder** and the caller
-  touches nothing (TC-249); and **a lock you acquired is NOT proof the Temp's
-  owner is dead** — an older FileBackup takes no lock, so the `RUN.inprogress`
-  rules still decide (TC-248). `-RepairStorage` and `-RefreshKits` take it too,
-  inside `Repair-BackupStorageForm` / `Update-BackupSnapshotKit` themselves
-  (`Enter-StoreMutationLock`, TC-251..254); a read-only Verify, `-Action
+  never wildcards. Prune (and `-RepairStorage`) are the only operations that
+  rewrite a snapshot manifest after it is published; `Write-Manifest` then drops
+  that folder's old witness, so an older kit warns instead of refusing.
+- **The OS lock is the only exclusion** (R2, SR-085, SR-086). Backup, prune,
+  `-RepairStorage` and `-RefreshKits` each hold `<ChangePath>/Temp.lock`
+  (`FileShare.None`) for their whole mutation; the OS releases it however the
+  holder dies, so there is no owner record, heartbeat, stale time or reclaim.
+  **A lock that cannot be opened, for ANY reason, is a live holder** and the
+  caller touches nothing (a backup returns 4). A read-only Verify, `-Action
   Snapshots`, `-Action View` and the restorers take none. **Any new code path
-  that writes the store must take it.** The file is never written and **never deleted**:
-  on Linux the lock is an advisory `flock` on an inode, and unlinking it lets two
-  processes each lock a different inode at the same path. It does not cross an
-  SMB/NFS client boundary reliably; see SR-085 for the per-platform guarantee.
-- **The manifest witness is written by `Write-Manifest` only** (SR-038). Every
-  `MANIFEST.csv` gets a `MANIFEST.csv.meta` beside it — `Version`, `Rows`,
-  `Bytes`, `XxH128`, `Written` as UTF-8/no-BOM/LF `Key=Value` lines, published by
-  atomic rename. **Since SR-082 (kit revision 13) the manifest is published the same
-  way: `Write-Manifest` writes `MANIFEST.csv.tmp` beside the destination and renames
-  it over `MANIFEST.csv` with `[System.IO.File]::Move(src, dst, $true)`, so a kill
-  leaves the complete old file or the complete new one — never a torn one** (see
-  §4's crash-window note: the resulting stale witness fails loud in the safe
-  direction). One writer means backup root, staging, dated snapshots, the
-  source hash cache, and every rewrite are covered and cannot drift, so **never
-  stamp a witness from a caller.** Each snapshot carries **its own** witness for
-  its own manifest — do **not** add the witness to `New-ReconstructScript`'s
-  kit-artifact copy list (`Complete-ChangeFolder`'s artifact loop copies from the
-  backup root and would overwrite each snapshot's witness with the root's; this
-  is the single most dangerous mistake available in this area, pinned by TC-067).
-  The witness is **root-level infrastructure** in `Test-IsInfrastructureFile` — a
-  nested `sub\MANIFEST.csv.meta` is user data like any other (B6). A test that
-  deliberately tampers with a manifest must re-stamp with `Write-ManifestWitness`
-  or it will observe exit 3 instead of the failure it meant to exercise.
+  that writes the store must take it.** The file is never written and **never
+  deleted**: on Linux the lock is an advisory `flock` on an inode, and unlinking
+  it lets two processes each lock a different inode at the same path. Two hosts
+  writing one store over SMB/NFS are unsupported (DA-03).
+- **No manifest witness is written** (R5). `Write-Manifest` publishes
+  `MANIFEST.csv` by writing `MANIFEST.csv.tmp` and renaming it over the
+  destination (`[System.IO.File]::Move(src, dst, $true)`, SR-082), so a kill
+  leaves the complete old file or the complete new one. Before that rename it
+  deletes any `MANIFEST.csv.meta` an older build left: every kit already in a
+  backup refuses a *mismatched* witness (exit 3) but restores beside a missing
+  one, so no write may leave a new manifest beside an old witness. A snapshot's
+  own witness stays valid because snapshots are write-once. `Test-ManifestWitness`
+  remains in Common only to read old witnesses (the engine's pre-WP12 refusal,
+  prune's rail); `Write-ManifestWitness` is used by tests alone. The bytes are
+  exactly what `Export-Csv -NoTypeInformation` writes; from 5,000 rows a lazily
+  compiled row writer does the loop, and an empty record set writes the header.
 - **Restore outcome is one shared exit-code table** (SR-040): 0 complete, 1
-  incomplete/content, 2 usage or precondition, 3 witness verification failed, 4
-  incomplete/host — precedence 2 > 3 > 4 > 1, identical in `Reconstruct.ps1` and
-  `bash/reconstruct.sh`. Normative copy lives in README "Restore exit codes".
+  incomplete/content, 2 usage or precondition, 4 incomplete/host — precedence
+  2 > 4 > 1, identical in `Reconstruct.ps1` and `bash/reconstruct.sh`. Code 3
+  (witness verification failed) is retired from kit revision 14; older kits
+  bundled in older snapshots can still return it. Normative copy lives in README "Restore exit codes".
   `Reconstruct.ps1` keeps throwing for in-process callers and only exits with a
   code under `-ExitCode`; do not make `exit` the default.
 - **Reconstruct stays standalone** — no repo, no NuGet install at restore time.
@@ -461,18 +440,24 @@ Imports (internal): `Common`
   base-57 **unpadded**, then the extension. The alphabet is the 62
   alphanumerics less `0 O I l 1`; `'2'` is its zero digit and its pad
   character. Encoding refuses rather than truncates, decoding refuses a field
-  `>= 2^128` (`57^22` is 128.324 bits), and **exactly one parser reads a name**
-  — `ConvertFrom-HashSizeFileName`, mirrored structurally by
-  `is_hash_size_name` in `bash/reconstruct.sh`. Never split on `_`: the
-  extension is opaque and may contain one.
+  `>= 2^128` (`57^22` is 128.324 bits). Three readers, pinned to agree: Common's
+  `ConvertFrom-HashSizeFileName` (the decoder the kit uses), the engine's
+  prefix-only `ConvertFrom-StoredObjectName` (no BigInteger: a run indexes every
+  object every run; agreement is a `BoundedRun.Tests.ps1` case), and
+  `decode_hash_size_names` in `bash/reconstruct.sh` (gawk; conformance corpus
+  `tests/fixtures/name-grammar/decode.tsv`). Never split on `_`: the extension
+  is opaque and may contain one.
 - **Content-addressed data filenames carry the storage extension**: `.7z` when
   compressed, so `Compressed` and the filename agree. The extension is the
   owner's source extension verbatim otherwise, is **not** constrained to the
   alphabet, and **may be empty** (SR-070) — `signed.foo bar` is a portable
   source name and yields `.foo bar`, and `README` yields none. Any guard that
   blacklists characters in an extension will refuse valid stores.
-- **A blank-DataPath row is resolved by the form of the file hash recovery
-  locates, never by the row's `Compressed`** (SR-050) — that column describes
+- **From kit revision 14 a blank or stale row resolves through the name index
+  first** — one listing of the pool, each object found by the key its name
+  carries, its form decided from its bytes (SR-068) — and only then by today's
+  content scan. **A row the content scan resolves is resolved by the form of the
+  file it locates, never by the row's `Compressed`** (SR-050) — that column describes
   only a file in the row's *own* folder, and a blank row has none. The locator
   has already PROVEN the located file's form (it expanded an archive candidate
   and matched its payload, or hashed a raw one), so `Find-DataFileByHash` /
@@ -541,6 +526,11 @@ Imports (internal): `Common`
   destination. Neither restorer calls `Write-Manifest`, so an older kit restores
   every store identically and **no existing store needs `-RefreshKits`** (E4);
   the marker moves only because the file is bundled.
+  **Revision 14 (2026-10-24, the bounded run loop): both restorers build a name
+  index of the pool once and resolve a blank or stale row through it before any
+  content scan, and the manifest witness is gone** — no `.meta` is read, no exit
+  3, no `-RequireWitness`/`--require-witness`; the header check stays. The
+  bundled Common's `Write-Manifest` writes no witness and deletes an old one.
   `-Action Verify -RefreshKits` is the only mechanism that retires an old kit
   from an existing snapshot, and it copies the seven kit artifacts and **never**
   `MANIFEST.csv.meta`.
@@ -571,33 +561,24 @@ Imports (internal): `Common`
   the generated map/flow's summary harvesting. Order: `<# .SYNOPSIS … #>` block
   first, then the `# Implements: SR-###, LLR-###` back-link line. Reference SR
   ids for input ranges instead of restating them (docs/process.md §3).
-- **The manifest-witness crash window is deliberate.** `Write-Manifest` writes
-  `MANIFEST.csv` *then* the witness. A crash between the two leaves a **stale**
-  witness that mismatches — i.e. it fails loud in the safe direction (a refused
-  restore, exit 3) rather than silently passing, and the next successful run
-  rewrites both. Do not "fix" this by writing the witness first. Since SR-082
-  **both files are published by atomic rename**: the manifest is written to
-  `MANIFEST.csv.tmp` and renamed over `MANIFEST.csv` (never `Move-Item -Force`;
-  PowerShell 7+ only, so `[System.IO.File]::Move(src, dst, $true)` always
-  exists), so no kill leaves a zero-length or truncated manifest. What is NOT
-  covered: the rename is not fsynced, so a power loss (as opposed to a process
-  kill) can still lose the newest write. `MANIFEST.csv.meta.tmp` and
-  `MANIFEST.csv.tmp` (crash leftovers from those renames) are on the root-level
-  infrastructure allowlist so neither is ever backed up as user data or warned
-  about as an orphan (SR-083); the Temp staging classifier ignores
-  `MANIFEST.csv.tmp` too, since it is an incomplete copy and never the only one.
+- **`Write-Manifest` deletes an older witness before its rename, on purpose.** A
+  kill between the two leaves the OLD manifest with no witness (restorable, an
+  older kit warns), never a new manifest beside a stale witness (which an older
+  kit refuses with 3). The rename is not fsynced, so a power loss (as opposed to
+  a process kill) can still lose the newest write; the next run sees the
+  mismatch with the files and repairs. `MANIFEST.csv.tmp` and
+  `MANIFEST.csv.meta.tmp` are on the root-level infrastructure allowlist so
+  neither is ever backed up as user data (SR-083).
 - **Restore verification happens before any mutation.** Both restorers check the
-  manifest header shape and the witness *before* creating the target folder or
-  their log, so a header or witness refusal (exit 3, and the early exit-2s)
-  leaves the target byte-for-byte as it was; the *late* code-2 preflights
+  manifest header shape *before* creating the target folder or their log, so a
+  header refusal (the early exit-2s) leaves the target byte-for-byte as it was; the *late* code-2 preflights
   (capacity, 7-Zip) run after target+log creation, identically in both
   restorers. `Reconstruct.ps1` buffers the pre-target log lines and flushes
   them once the log exists; do not move the verification below the target
   creation.
-- **The digest is authoritative** (`Test-ManifestWitness` / `verify_manifest_witness`).
-  Fields are checked `Bytes → Rows → XxH128`, but a **Rows-only** disagreement —
-  same byte length, same digest — is a counting-semantics divergence, not damage:
-  it warns and restores. Bytes or digest disagreement still refuses.
+- **Reading an old witness:** `Test-ManifestWitness` checks `Bytes → Rows → XxH128`
+  and treats a Rows-only disagreement as a warning (the digest is authoritative).
+  Only the engine's pre-WP12 refusal and prune's rail still read one.
 - `Write-Host` is fine (this is a CLI/automation tool) — excluded in lint settings.
 - **Linux restore tooling floor (`bash/reconstruct.sh`, phase `bash-v1`):** bash
   ≥ 4, GNU coreutils, **gawk** (FPAT-based RFC-4180 parsing — plain `awk`/mawk is
@@ -709,8 +690,9 @@ label not matching `FBTEST-*`, so it can't touch a production volume.
   PSScriptAnalyzer; `unit` → Pester (NUnit published); `integration-subst` → both
   compression modes, JUnit published. 7-Zip ships on the runner; `System.IO.Hashing` is installed + cached.
 - **GitHub `ubuntu-latest` (Docker)** — builds the container and verifies a compressed
-  two-file backup, complete eight-artifact restore kit (seven copied files plus the
-  SR-038 `MANIFEST.csv.meta` witness), and byte-exact containerized restore.
+  two-file backup through the one `/store` mount, the seven-file restore kit with no
+  `MANIFEST.csv.meta` witness beside the manifest (bounded-run-loop R5), the refusal
+  (exit 2) of the old two-mount layout, and byte-exact containerized restore.
 - **Self-hosted VHDX** — gated by repo var `HAS_SELF_HOSTED_HYPERV == 'true'` on a
   `[self-hosted, windows, hyper-v]` runner. `RunAllTests.bat VHDX`.
 - **Hardware (RealUSB) runbook** — `Setup-USB.bat` (wipes a USB, makes four GPT/NTFS
