@@ -1,13 +1,14 @@
 #!/usr/bin/env bats
 # TC-071 / SR-040 (with SR-031) — reconstruct.sh reports outcome through the one
-# documented exit-code table, returning the SAME five codes as Reconstruct.ps1
-# -ExitCode for the same five induced conditions (TC-070 is the PowerShell
-# twin). The pre-existing TC-055 expectations in fail_loudly.bats are unchanged
-# by design: only NEW conditions get 3 and 4.
+# documented exit-code table, returning the SAME codes as Reconstruct.ps1
+# -ExitCode for the same induced conditions (TC-070 is the PowerShell twin).
+# The pre-existing TC-055 expectations in fail_loudly.bats are unchanged by
+# design.
 #
 #   0 complete | 1 incomplete, content | 2 usage/precondition
-#   3 witness verification failed | 4 incomplete, host
-#   Precedence: 2 > 3 > 4 > 1.
+#   4 incomplete, host
+#   Precedence: 2 > 4 > 1. Code 3 (witness verification failed) is retired at
+#   kit revision 14: the kit no longer reads MANIFEST.csv.meta (witness.bats).
 
 setup() {
     load helpers
@@ -69,17 +70,23 @@ setup() {
     [ "$(cat "$blocked")" = "I am a file, not a folder" ]
 }
 
-@test "2 outranks 3: a bad target with a damaged index still reports the usage failure (SR-040)" {
-    # Precedence 2 > 3 — the invocation is wrong, so the index never gets a say.
-    truncate -s -40 "$MANIFEST"
+@test "2: a bad target with a stale witness still reports the usage failure (SR-040)" {
+    # The invocation is wrong, so nothing about the store gets a say.
+    printf 'garbage sidecar\n' > "$BK/MANIFEST.csv.meta"
     run bash "$RS" --target-root "$BK/inside" --from "$BK" --backup-root "$BK" --change-root "$CH"
     [ "$status" -eq 2 ]
 }
 
-@test "3: the manifest disagrees with its witness (SR-040)" {
-    truncate -s -40 "$MANIFEST"
+@test "3 is never returned: a manifest that disagrees with its witness restores (kit revision 14, SR-040)" {
+    # Until kit revision 13 a manifest edited after its witness was stamped was
+    # exit 3 and nothing was written. The witness is no longer read (R5).
+    gawk -v FPAT='("([^"]|"")*")|([^,]*)' -v OFS=',' \
+        'NR==1 { print; next } { $1="\"\""; print }' "$MANIFEST" > "$MANIFEST.tmp"
+    mv "$MANIFEST.tmp" "$MANIFEST"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t3" --from "$BK" --backup-root "$BK" --change-root "$CH"
-    [ "$status" -eq 3 ]
+    [ "$status" -eq 0 ] || { echo "expected 0, got $status"; echo "$output"; false; }
+    run verify_tree "$BATS_TEST_TMPDIR/t3" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
 @test "4: host class — hash recovery meets an archive candidate with no 7z (SR-040)" {
@@ -233,7 +240,9 @@ setup() {
 @test "the usage text documents the whole table (SR-040)" {
     run bash "$RS" --help
     [ "$status" -eq 0 ]
-    [[ "$output" == *"3 manifest-witness verification failed"* ]]
     [[ "$output" == *"4 incomplete"* ]]
-    [[ "$output" == *"2 > 3 > 4 > 1"* ]]
+    [[ "$output" == *"2 > 4 > 1"* ]]
+    # Code 3 is retired (kit revision 14), and the flag that produced it is gone.
+    [[ "$output" == *"3, the manifest-witness refusal, is retired"* ]]
+    [[ "$output" != *"--require-witness"* ]]
 }
