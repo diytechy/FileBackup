@@ -209,21 +209,24 @@ function Invoke-G4ExtensionMerge {
         if ($row.Compressed -eq 'Yes') { continue }
         $current = Join-Path $Env.BkpPath $row.DataPath
         if (-not (Test-Path -LiteralPath $current -PathType Leaf)) { continue }
-        $archive = "$current.7z"
-        Compress-FileWithSevenZip -SevenZipPath $sevenZip -SourceFile $current -Destination7z $archive
+        # Named as the engine names a compressed object: the content key with
+        # '.7z' in place of the source extension.
+        $archiveName = Get-HashSizeFileName -HashHex $row.xxH2Hash -Length ([long]$row.Length) -Extension '.7z'
+        Compress-FileWithSevenZip -SevenZipPath $sevenZip -SourceFile $current -Destination7z (Join-Path $Env.BkpPath $archiveName)
         Remove-Item -LiteralPath $current -Force
-        $row.DataPath   = "$($row.DataPath).7z"
+        $row.DataPath   = $archiveName
         $row.Compressed = 'Yes'
         $converted++
     }
     $rows | Export-Csv -LiteralPath (Join-Path $Env.BkpPath 'MANIFEST.csv') -NoTypeInformation
     Write-ManifestWitness -FolderPath $Env.BkpPath | Out-Null
 
-    # A snapshot's BLANK-DataPath row carries no bytes of its own: its Compressed
-    # column describes the copy hash recovery would locate, which is the pool
-    # copy just converted above. Leaving those rows saying 'No' would make the
-    # fixture describe a store that is NOT well-formed, and -Action Verify says
-    # so (BlankRowFormDisagreement). Before WP9 this went unnoticed: the layout
+    # A snapshot row whose object is not in its own folder (blank in an older
+    # engine's snapshot; naming the latest state's object since the bounded run,
+    # plan C10) carries no bytes of its own: its Compressed column describes the
+    # copy a restore would locate, which is the pool copy just converted above.
+    # Leaving those rows saying 'No' would make the fixture describe a store
+    # that is NOT well-formed. Before WP9 this went unnoticed: the layout
     # migration decompressed the root rows back to raw on the next run and
     # silently re-aligned the divergence the fixture had created. SR-061 deleted
     # that migration, so the fixture has to be honest about the state it builds.
@@ -232,7 +235,8 @@ function Invoke-G4ExtensionMerge {
         $snapRows = @(Import-Csv -LiteralPath (Join-Path $snapDir.FullName 'MANIFEST.csv'))
         $touched = 0
         foreach ($row in $snapRows) {
-            if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+            if (-not [string]::IsNullOrWhiteSpace($row.DataPath) -and
+                (Test-Path -LiteralPath (Join-Path $snapDir.FullName $row.DataPath) -PathType Leaf)) { continue }
             if ($merged -notcontains [IO.Path]::GetExtension($row.RelativePath).ToLowerInvariant()) { continue }
             $row.Compressed = 'Yes'
             $touched++
