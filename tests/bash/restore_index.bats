@@ -167,3 +167,19 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
         [ "$status" -eq 0 ] || { echo "$mode: $output"; false; }
     done
 }
+
+@test "the change-folder search sees a dot-named change folder (plan C32)" {
+    local mode obj snap
+    for mode in "${MODES[@]}"; do
+        copy_store "$mode"
+        mv -- "$CH" "$BK/.changes"
+        snap="$BK/.changes/Snapshot_2024_01_01_09_00_00"
+        obj="$(gawk -F'"' 'NR > 1 && $2 != "" { print $2; exit }' "$BK/MANIFEST.csv")"
+        mv -- "$BK/$obj" "$snap/$obj"
+
+        run bash "$RS" --target-root "$BATS_TEST_TMPDIR/td-$mode" --from "$BK"
+        [ "$status" -eq 0 ] || { echo "$mode: expected 0, got $status"; echo "$output"; false; }
+        run verify_tree "$BATS_TEST_TMPDIR/td-$mode" "$FIXTURES/bash-restore/$mode/expected/root.tsv"
+        [ "$status" -eq 0 ] || { echo "$mode: $output"; false; }
+    done
+}

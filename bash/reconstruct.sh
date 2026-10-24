@@ -1151,13 +1151,16 @@ main() {
         # it. When the parent holds no manifest, the one sibling that does is
         # the backup root (Reconstruct.ps1 applies the same rule).
         if [[ ! -f "$auto_backup/$MANIFEST_NAME" ]]; then
-            local sib found='' n=0
+            local sib found='' n=0 dotglob_was
+            # A folder may be dot-named ('.backup'); the glob must see it.
+            dotglob_was="$(shopt -p dotglob)"; shopt -s dotglob
             for sib in "$auto_backup"/*/; do
                 sib="${sib%/}"
                 [[ "$(basename -- "$sib")" == "$(basename -- "$auto_change")" ]] && continue
                 [[ -f "$sib/$MANIFEST_NAME" ]] || continue
                 found="$sib"; n=$((n + 1))
             done
+            eval "$dotglob_was"
             (( n == 1 )) && auto_backup="$found"
         fi
     else
@@ -1168,7 +1171,9 @@ main() {
         # that holds Snapshot_* folders is it (Reconstruct.ps1 applies the same
         # rule). Every restored file is verified, so a wrong guess can supply
         # no wrong bytes.
-        local cand sub chg_found='' chg_n=0
+        local cand sub chg_found='' chg_n=0 dotglob_was
+        # A change folder may be dot-named ('.changes'); the glob must see it.
+        dotglob_was="$(shopt -p dotglob)"; shopt -s dotglob
         for cand in "$origin"/*/ "$(dirname -- "$origin")"/*/; do
             cand="${cand%/}"
             [[ -d "$cand" && "$cand" != "$origin" ]] || continue
@@ -1176,6 +1181,7 @@ main() {
                 if [[ "$(basename -- "${sub%/}")" =~ $SNAPSHOT_RE ]]; then chg_found="$cand"; chg_n=$((chg_n + 1)); break; fi
             done
         done
+        eval "$dotglob_was"
         (( chg_n == 1 )) && auto_change="$chg_found"
     fi
 
