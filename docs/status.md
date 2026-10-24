@@ -34,9 +34,21 @@ last) — it is the record, not required reading for every pass.
   of this log). HomeHub's side is on its own
   branch, not merged. `DirectRebuild` is cited for its rulings only. The
   spine-restructure entry below is the shared starting point; its **Next**
-  describes the other branch. **Next here:** the Owner reviews C9–C35 and
-  decides the HomeHub branch; then the SR tier is rewritten as the plan's §10
-  lists. No pending agent action — do not reopen gates.
+  describes the other branch. **Resume here (next session):**
+  1. The Owner reviews C9–C35 (plan §13); the five independent reviews behind
+     them are verbatim in [plans/bounded-run-loop-reviews.md](plans/bounded-run-loop-reviews.md).
+  2. The Owner decides the HomeHub branch: worktree
+     `C:\Projects\MiniPC-Deployer-wt-filebackup`, branch
+     `filebackup-bounded-contract` (six commits on `IceDrive-DesktopDirection`,
+     not merged, nothing deployed; its own `status.md` lists its five
+     questions). It needs a FileBackup image built from this branch first.
+  3. Before any repair on HomeHub's continued store, run a plain
+     `-Action Verify` once: it reports the duplicates and what confirming their
+     kept copies would read (C28).
+  4. Then the SR tier is rewritten as the plan's §10 lists, and the TC rows of
+     the tests re-scoped in `f9702f1` are brought up to date (`trace.py
+     --strict` fails as it did before this work: SN=0 SR=0).
+  Nothing is pushed. No pending agent action — do not reopen gates.
 
 - **SPINE RESTRUCTURE IN PROGRESS — THIS BRANCH IS SPINE-ONLY (2026-10-17).**
   `SpineRestructure` rewrites the SN → SR → LLR → TC spine to the current

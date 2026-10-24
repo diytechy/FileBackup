@@ -13,20 +13,23 @@ GitHub and the VS Code preview — see process.md "Diagrams are text"):
 
 ```mermaid
 graph LR
-    src([source tree]) --> walk["Update-SourceManifest<br/>(Engine: hash + dedup)"]
-    walk --> diff["Compare-SourceToBackup<br/>(pure diff)"]
-    diff --> copy["Invoke-BackupFileGroup<br/>(copy/compress once)"]
-    copy --> out([MANIFEST.csv<br/>+ dated snapshot<br/>+ restore kit])
+    latest([latest MANIFEST.csv]) --> snap["Publish-PriorStateSnapshot<br/>(prior state, by rename)"]
+    src([source tree]) --> walk["Invoke-LibraryCapture<br/>(walk; hash while copying;<br/>reuse, move back or store)"]
+    snap --> walk
+    walk --> fin["Publish-LatestState<br/>(manifest, then dates)"]
+    fin --> sup["Move-SupersededObject<br/>(into the snapshot that names it)"]
+    sup --> out([latest state<br/>+ dated snapshot<br/>+ restore kit<br/>+ run metrics])
 ```
 
-See AGENTS.md §2 "Backup pipeline" for the full 15-step `Invoke-BackupSet`
-sequence and `Reconstruct.ps1`'s restore path.
+See AGENTS.md §2 "Backup pipeline" for the nine steps of the bounded run
+(`Invoke-BackupSet`, [plans/bounded-run-loop.md](plans/bounded-run-loop.md)) and
+`Reconstruct.ps1`'s restore path.
 
 ### Program flow (generated)
 
 The ordered internal calls of the `Invoke-BackupSet` orchestrator, generated
 from the AST by `scripts/gen_arch_map.ps1 -Flow Invoke-BackupSet` (the harness
-keeps it fresh). Read alongside the hand-written 15-step pipeline in AGENTS.md
+keeps it fresh). Read alongside the hand-written nine-step pipeline in AGENTS.md
 §2, which carries the control flow this list omits.
 
 <!-- BEGIN GENERATED FLOW -->
@@ -76,13 +79,14 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 | Module | Responsibility | Detail |
 |---|---|---|
 | `Modules/FileBackup.Common.psm1` | Restore-safe primitives (hashing, manifest I/O, compression, logging) — **bundled into every backup** | AGENTS.md §2 |
-| `Modules/FileBackup.Engine.psm1` | Backup-only orchestration (manifest update, diff, file-group copy, change-folder lifecycle) | AGENTS.md §2 |
+| `Modules/FileBackup.Engine.psm1` | Backup-only logic: the bounded run (capture, snapshots, superseded moves, run metrics), retention (prune), the storage-form and object audits (Verify), the browse view | AGENTS.md §2 |
 | `FileBackup.ps1` | Thin entry point (import, read config, loop `Invoke-BackupSet`, optional mail) | — |
 | `Reconstruct.ps1` | Standalone restore using only the bundled Common module + DLL | — |
 
 Design rules (enforced): **Common must never depend on Engine**; anything
 `Reconstruct.ps1` calls must live in Common; pure cores (e.g.
-`Compare-SourceToBackup`) are unit-tested, I/O shells are integration-tested; the
+`Test-StateChanged`, `Get-SortedManifestRow`, `ConvertFrom-StoredObjectName`) are
+unit-tested, I/O shells are integration-tested; the
 9-column manifest schema round-trips only via `Read-/Write-Manifest`.
 
 ## Module dependencies (generated)
