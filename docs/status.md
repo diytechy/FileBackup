@@ -24,15 +24,18 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **BOUNDED REBUILD — THIS BRANCH (2026-10-24).** `BoundedRebuild` rebuilds the
-  spine against an architecture the Owner fixes up front: the bounded backup run
-  in [plans/bounded-run-loop.md](plans/bounded-run-loop.md). Rulings R1–R14 were
-  recorded on 2026-10-24; calls C1–C8 (its §11) await the Owner. `DirectRebuild`
-  is cited for its rulings only, and none of its rows are adopted. The
-  spine-restructure entry below is the shared starting point, and its **Next**
-  describes the other branch, not this one. **Next here:** the Owner confirms
-  C1–C8; then the need tier is checked against R1–R14 and the SR tier is
-  rewritten as the plan's §10 lists.
+- **BOUNDED REBUILD — THIS BRANCH (2026-10-24): IMPLEMENTED, AWAITING THE
+  OWNER.** `BoundedRebuild` holds the bounded backup run of
+  [plans/bounded-run-loop.md](plans/bounded-run-loop.md): rulings R1–R14 and
+  calls C1–C8 (confirmed), implemented unattended at the Owner's request, with
+  the implementation's own calls C9–C24 and the open items in its §13. Lint,
+  865 unit tests, 274 integration tests, the container smoke and 120 bats tests
+  pass (entry of 2026-10-24 at the end of this log). HomeHub's side is on its own
+  branch, not merged. `DirectRebuild` is cited for its rulings only. The
+  spine-restructure entry below is the shared starting point; its **Next**
+  describes the other branch. **Next here:** the Owner reviews C9–C24 and the
+  open items, and decides the HomeHub branch; then the SR tier is rewritten as
+  the plan's §10 lists. No pending agent action — do not reopen gates.
 
 - **SPINE RESTRUCTURE IN PROGRESS — THIS BRANCH IS SPINE-ONLY (2026-10-17).**
   `SpineRestructure` rewrites the SN → SR → LLR → TC spine to the current
@@ -6223,3 +6226,93 @@ Evidence behind the plan:
 The plan changes IF-001: the `/state` mount goes, `/backup` and `/changes`
 become one mount, and a backup no longer returns 3. That needs HomeHub's
 agreement. Docs only: no code changed and no tests run.
+
+**2026-10-24 (later): the bounded run loop implemented, unattended (BoundedRebuild).**
+The Owner confirmed calls C1–C8, asked for the implementation, and was away for
+the rest of it; the decision dial is HIGH, so every call the implementation made
+is recorded as a row to flip in
+[plans/bounded-run-loop.md](plans/bounded-run-loop.md) §13 (C9–C24), not here. The three independent reviews are recorded verbatim in
+[plans/bounded-run-loop-reviews.md](plans/bounded-run-loop-reviews.md).
+
+What was built, by commit:
+- `71fe963` the run itself (plan steps 1–9), the witness dropped; `5415614`
+  restore kit revision 14 (a name index of the pool, no witness, exit 3
+  retired), from a worktree agent; `58b9f0f`, `818d2b2`, `0aad4a3` the container
+  contract — one `/store` mount, no `/state` — and its smoke test, from a second
+  worktree agent.
+- `e5707cf` fixes found while re-scoping the tests (the manifest rows were never
+  sorted — `[Array]::Sort` bound to an overload that sorted a copy; re-added
+  content is never moved out of a folder with a kit older than revision 4, C19),
+  and `Invoke-BackupSet` split into its named steps.
+- `b2de5c6` both restorers find a snapshot's backup root beside its change root
+  (C21; from the HomeHub contract review).
+- `f9702f1` the suites the run made stale, re-scoped; `7a332f8` IF-001,
+  README and the plan.
+- `868adb2` fixes from the two independent reviews (C22–C24): Verify no longer
+  moves an object it could not check (both reviews: on a host without 7-Zip,
+  `-Deep -RepairStorage` moved every healthy archive into `Verify/`); an object
+  a killed run stranded goes back to the snapshot that names it (both reviews:
+  retention could not see it); a source that disappears mid-run stops the set
+  with 4; the unneeded snapshot of an unchanged run is set aside by rename.
+- `870314a` the fix review's finding (a missing scratch file is Unverified;
+  `Expand-FileWithSevenZip` stops on a failed move whatever the caller's
+  preference); `4a26977` an integration fixture that hand-named objects.
+
+Incident, outside the repository: a test check of mine had Pester overwrite a
+session variable, and my `finally` then wrote Reconstruct.ps1's text over the
+installed Pester 5.7.1 module's `Pester.ps1`
+(`C:\Users\Peter\OneDrive\Documents\PowerShell\Modules\Pester\5.7.1`).
+Repaired: the same version from the PowerShell Gallery (`Save-Module`), its
+`Pester.ps1` signature Valid, every other file byte-identical to the install;
+afterwards all 18 module files match the Gallery package. Only my own runs used
+the damaged file, and those were discarded and re-run.
+
+Reviews (fresh context, read-only, told R1 puts contrived corners out of scope):
+Sol (codex `gpt-6.1-sol`, low) — 2 findings, both accepted and fixed; Opus
+(medium) — 6 findings plus 5 questions: F1–F4 accepted and fixed, F5, F6 and
+open question 1 are left for the Owner in plan §13; a third review (Opus,
+medium) of the fix commit `868adb2` found C22 incomplete (a failed scratch
+write from an interactive prompt still read as damage), fixed in `870314a`, and
+left three questions for the Owner (plan §13).
+
+Evidence (real runs this session, on the commits named):
+- lint (PSScriptAnalyzer, repo settings): PASS on `870314a`.
+- Pester unit suite (`tests/Unit`, Full-tagged excluded): 865 passed, 0 failed,
+  4 skipped, 1 not run, on `870314a`. `4a26977` changes one integration fixture
+  only.
+- integration sweep (`tests/Run-All.ps1 -Backend Subst -Modes Plain,Compress`):
+  274 passed, 0 failed, 2 skipped (G8.0, RealUSB backend only), on `4a26977`.
+  The run on `870314a` had failed G4.2 four times on a fixture that hand-named
+  objects `<name>.jar.7z`; `4a26977` fixed the fixture.
+- container smoke (`scripts/Invoke-Container.ps1 -Action BuildAndTest`, WSL
+  Ubuntu, real Docker): exit 0 on `870314a` — one-mount backup and byte-exact
+  restore, incremental snapshot restore, TC-102 Verify, TC-230 probe, and the
+  two-mount layout refused with 2.
+- bats (`tests/bash`, WSL Fedora): 120 of 120, and `shellcheck -S warning
+  bash/reconstruct.sh` clean, on `b2de5c6` (`reconstruct.sh` unchanged since).
+- `scripts/gen_arch_map.ps1 -Check`: current.
+- `trace.py --strict`: exit 1, SN=0 SR=0 LLR=83 TC=234 orphans=471 — the
+  spine restructure's known state, unchanged by this work.
+
+HomeHub: an agent prepared the counterparty side in a worktree,
+`C:\Projects\MiniPC-Deployer-wt-filebackup`, branch
+`filebackup-bounded-contract` (six commits on `IceDrive-DesktopDirection`
+`d1fe7d7`, NOT main, which lacks the backup wrapper): one `/store` mount, a
+`library-store-migrate.sh` that moves an existing store into the one-mount
+layout by two renames (refusing across filesystems), the exit table, and a
+published manifest copy replacing the retired `/state` record. Its hermetic
+runner: 867 pass, 0 fail. Nothing pushed, merged or deployed; the Owner's
+checkout is untouched. Its five questions for the Owner are in that branch's
+`status.md`.
+
+Known gaps (not defects, recorded so nothing is claimed): the SR/LLR/TC tiers
+were not rewritten (plan §10; `trace.py --strict` still fails with SN=0 SR=0
+exactly as before this work — the spine restructure's known state); test-case
+rows for retired tests (TC-073, TC-089, TC-132, TC-140 and others re-scoped in
+`f9702f1`) still describe the old behaviour; no run at HomeHub scale; no real
+HomeHub store migrated.
+
+Next: the Owner reviews C9–C24 and the open items in plan §13 ("Left for the
+Owner"), then
+decides the HomeHub branch (the image must be built from this branch first).
+No pending agent action.
