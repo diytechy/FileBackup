@@ -58,11 +58,11 @@
         },
         "SourceStatePath": {
           "type": "string",
-          "description": "Optional; defaults to SourcePath. Required in practice for a read-only container source."
+          "description": "Accepted for compatibility; no longer used. The latest backup MANIFEST.csv is the only change-detection record, so nothing is read from or written to this path, and a run that sets it logs a warning. Leave it out. Its one remaining effect: when it names a folder other than SourcePath, root-level source files that carry FileBackup's own names (MANIFEST.csv, backup.log and the like) are captured as data instead of skipped."
         },
         "AllowEmptySource": {
           "type": "boolean",
-          "description": "Optional; defaults to false. Set true only for an intentional delete-all."
+          "description": "Accepted for compatibility; ignored. An empty source no longer needs it: the run warns and deletes nothing (the files move into a snapshot by rename and come back if the source returns)."
         }
       }
     },

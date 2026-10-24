@@ -7,9 +7,8 @@
     {
       "Name": "HomeHub",
       "SourcePath": "/source",
-      "SourceStatePath": "/state",
-      "BackupPath": "/backup",
-      "ChangePath": "/changes",
+      "BackupPath": "/store/backup",
+      "ChangePath": "/store/changes",
       "HashRecalcFreq": "W",
       "CompressEnabled": true,
       "CompressProbe": "always"

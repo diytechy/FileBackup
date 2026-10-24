@@ -16,9 +16,11 @@ services:
     volumes:
       - ./container/FileBackup.example.json:/config/FileBackup.json:ro
       - ${FILEBACKUP_SOURCE:?set FILEBACKUP_SOURCE}:/source:ro
-      - ${FILEBACKUP_STATE:?set FILEBACKUP_STATE}:/state
-      - ${FILEBACKUP_DESTINATION:?set FILEBACKUP_DESTINATION}:/backup
-      - ${FILEBACKUP_CHANGES:?set FILEBACKUP_CHANGES}:/changes
+      # ONE writable mount holds both backup/ (BackupPath) and changes/
+      # (ChangePath): every move between them must be a rename, and a rename
+      # across two bind mounts fails even on one filesystem, so a set with
+      # separate mounts is refused with exit 2.
+      - ${FILEBACKUP_STORE:?set FILEBACKUP_STORE}:/store
       - ${FILEBACKUP_LOGS:?set FILEBACKUP_LOGS}:/logs
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev
