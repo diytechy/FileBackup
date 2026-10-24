@@ -583,6 +583,28 @@ Describe 'Verify moves nothing aside on missing evidence (R9, C4)' {
         Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 0
         Test-Path -LiteralPath $archive.FullName | Should -BeTrue
     }
+    It 'reports an intact archive as unverified when its expanded bytes cannot be written (a full volume)' -Skip:(-not $IsWindows) {
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) { Set-ItResult -Skipped -Because '7-Zip not installed'; return }
+        $s = New-Store 'deep-noscratch'
+        $s.Set.CompressEnabled = $true
+        Set-SourceFile $s 'big.txt' ('COMPRESSIBLE ' * 2000)
+        $logs = [System.Collections.Generic.List[string]]::new()
+        Invoke-BackupSet -Set $s.Set -Deps @{ '7z' = $sevenZip; ffprobe = $null } -LogPaths $logs -BackupTime ([datetime]'2026-09-04T10:00:00') | Should -Be 0
+        # The scratch folder refuses writes, as a full backup volume would; the
+        # caller's error preference is Continue, as at an interactive prompt.
+        $scratch = Join-Path $s.Chg 'Verify\.expand'
+        New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+        icacls $scratch /deny "${env:USERNAME}:(OI)(CI)(W)" | Out-Null
+        try {
+            $ErrorActionPreference = 'Continue'
+            $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $sevenZip 2>$null)
+        } finally {
+            icacls $scratch /remove:d "${env:USERNAME}" | Out-Null
+        }
+        $found.Count | Should -Be 1
+        $found[0].Class | Should -Be 'UnverifiedObject' -Because 'no comparison was completed, so nothing is evidence of damage'
+        $found[0].Repairable | Should -BeFalse
+    }
 }
 
 Describe 'Verify and prune work on what the bounded run writes (R6, SR-045, SR-049)' {

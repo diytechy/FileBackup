@@ -1601,9 +1601,10 @@ function Get-StoredObjectVerdict {
     .DESCRIPTION
         An object whose file length equals its content length is read raw (that
         includes the user's own '.7z' stored as is, SR-068); a '.7z' of another
-        length is expanded into a scratch file beside the change root, on the
-        backup volume and never in RAM (the C-12 lesson), hashed and deleted.
-        A raw object of the wrong length is damaged by its size alone.
+        length is expanded - through 7-Zip's own temp folder, Expand-FileWithSevenZip
+        - into a scratch file beside the change root, hashed from disk rather
+        than RAM (the C-12 lesson) and deleted. A raw object of the wrong length
+        is damaged by its size alone.
 
         'Unverified' is the answer whenever the bytes could not be judged: no
         7-Zip for an archive, a read or expand that failed. A failed expand can
@@ -1646,7 +1647,9 @@ function Get-StoredObjectVerdict {
         try {
             Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $Entry.Path -DestinationFile $scratch
             $file = [System.IO.FileInfo]::new($scratch)
-            if ($file.Exists -and $file.Length -eq $Entry.ContentLength -and (Get-FileXxHash -FilePath $scratch) -eq $want) {
+            # No file is no comparison: the expand did not complete here.
+            if (-not $file.Exists) { return (& $verdict 'Unverified' 'its expanded bytes never reached the scratch folder') }
+            if ($file.Length -eq $Entry.ContentLength -and (Get-FileXxHash -FilePath $scratch) -eq $want) {
                 return (& $verdict 'Good' '')
             }
             return (& $verdict 'Damaged' 'it expands to bytes that are not the content its name records')

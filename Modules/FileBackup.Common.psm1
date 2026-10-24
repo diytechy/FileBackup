@@ -841,8 +841,11 @@ function Expand-FileWithSevenZip {
         [Parameter(Mandatory)][string]$Archive,
         [Parameter(Mandatory)][string]$DestinationFile
     )
+    # Every step stops on failure (-ErrorAction Stop) whatever the caller's
+    # preference: a caller that sees no exception treats the destination as the
+    # payload, so a move that failed on a full volume must never pass silently.
     $tempDir = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
-    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $tempDir -Force -ErrorAction Stop | Out-Null
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName  = $SevenZipPath
@@ -868,9 +871,9 @@ function Expand-FileWithSevenZip {
 
         $destDir = [System.IO.Path]::GetDirectoryName($DestinationFile)
         if (-not (Test-Path -LiteralPath $destDir)) {
-            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            New-Item -ItemType Directory -Path $destDir -Force -ErrorAction Stop | Out-Null
         }
-        Move-Item -LiteralPath $extracted.FullName -Destination $DestinationFile -Force
+        Move-Item -LiteralPath $extracted.FullName -Destination $DestinationFile -Force -ErrorAction Stop
     } finally {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }

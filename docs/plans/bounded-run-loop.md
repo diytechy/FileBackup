@@ -249,7 +249,9 @@ The need tier still has to be checked against R1 to R14 before the SR rewrite.
 
 The Owner confirmed C1–C8 and asked for the implementation, then was away. What
 follows is what the implementation decided inside the rulings; each is a row to
-flip, not a re-ruling. Numbering continues from §11.
+flip, not a re-ruling. Numbering continues from §11. The independent reviews
+behind C22–C24 are recorded verbatim in
+[bounded-run-loop-reviews.md](bounded-run-loop-reviews.md).
 
 | # | Call | Why |
 |---|---|---|
@@ -266,7 +268,7 @@ flip, not a re-ruling. Numbering continues from §11.
 | C19 | An object in a folder whose restore kit is older than revision 4 is never moved: re-added content is used where it is (the latest state's kit finds it by name), and Verify reports a duplicate there as not repairable, naming `-RefreshKits`. | Such a kit finds a row's object only in the folder its DataPath names, so moving it out would break that old snapshot's restore. HomeHub's oldest snapshots may carry such kits; the check reads one kit marker per folder touched, only when a move is due. |
 | C20 | Every latest-state row is rebuilt from the object it names: its `Compressed` column is read from the object's listing (SR-068), so a column bent out of true is corrected by the next run, and a row whose `DataPath` is not a stored-object name (only hand-made stores have one) has its content stored again from the source. The bent file is left in place for Verify to report as unreferenced. | The run places objects by name (§2) and never re-forms bytes (SR-061, R9); copying a bent row forward verbatim would need a second path through the loop for shapes no supported operation produces. |
 | C21 | Both restorers auto-detect a snapshot's backup root as the change folder's parent when that holds a manifest (as before), else as the one sibling folder of the change folder that does. | The one-mount layout puts `backup/` beside `changes/`; restored on the host, a container store's path sidecar names `/store/...` and is ignored, and the old guess (`<store>`) left the latest state out of the name index, so every row naming a latest object fell to the content scan (rows × pool). Found from the HomeHub contract review. |
-| C22 | Verify's object audit judges a copy Good, Damaged or Unverified; only Damaged (a completed comparison) and duplicates of a Good copy are moved under `-RepairStorage`; an Unverified copy (a failed read or expand) is a finding that is never moved, and `-Deep` without 7-Zip is refused before anything is judged, as the storage-form audit refuses it. | Restorers ignore `Verify/`, so moving a copy that was never proven bad can hide the only good bytes. 7-Zip does not tell a corrupt archive from a full scratch volume, so a failed expand is no evidence. Found by both reviews (Sol, Opus F1). |
+| C22 | Verify's object audit judges a copy Good, Damaged or Unverified; only Damaged (a completed comparison) and duplicates of a Good copy are moved under `-RepairStorage`; an Unverified copy (a failed read or expand) is a finding that is never moved, and `-Deep` without 7-Zip is refused before anything is judged, as the storage-form audit refuses it. | Restorers ignore `Verify/`, so moving a copy that was never proven bad can hide the only good bytes. 7-Zip does not tell a corrupt archive from a full scratch volume, so a failed expand is no evidence. Found by both reviews (Sol, Opus F1); completed after the fix review: a scratch file that never arrived is Unverified, and `Expand-FileWithSevenZip` stops on a failed move whatever the caller's error preference. |
 | C23 | An unused object in the backup root goes to the newest snapshot whose own manifest names it, not always to this run's; older manifests are read only when such an object exists and this run keeps a snapshot. | A kill before step 8, or a move that failed, otherwise strands the object where no row of its folder names it: retention could not see it (prune refused every store, Verify reported loss). Found by both reviews (Sol, Opus F2). |
 | C24 | A source root that disappears during the run stops the set with 4 before the latest state is written; a source root that cannot be listed keeps every earlier row (1). The unneeded snapshot of an unchanged run is renamed back to `Building_<D>` before it is deleted, and a failure there is a warning, never a failed run. | A dropped share or unplugged drive otherwise recorded every file as deleted with exit 0; a scanner holding a just-written kit file otherwise failed a finished run with 4 and could leave a half-deleted snapshot the next run would keep. Opus F3, F4. |
 
@@ -283,6 +285,13 @@ flip, not a re-ruling. Numbering continues from §11.
 - *Opus open question 1 (R10, C14):* a repair without `-Deep` moves a duplicate
   without checking the copy it keeps. Hashing the kept copy first would cost one
   read per duplicate group.
+- *Fix review (review 3) questions:* a `.7z` the tool made whose file length
+  happens to equal its content length is treated as raw everywhere (pre-existing,
+  very rare); `-Deep` expands through the system temp folder first, which is
+  RAM-backed in some containers (a large archive is then Unverified, never
+  moved); a source mount that drops on Linux can leave an empty mount-point
+  directory, so files vanish while the root still exists - recorded as removals
+  (exit 0), as C2 rules for an empty source, and restored by the next run.
 
 **Known costs, measured or read (follow-ups, not defects):**
 - **Kit name index:** each object name is decoded with Common's BigInteger
