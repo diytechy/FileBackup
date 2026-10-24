@@ -168,12 +168,16 @@ Imports (internal): `Common`
 
 | Function | Exported | Implements |
 |---|:---:|---|
+| `Add-RunMetric` | no | SR-081, LLR-014 |
+| `Add-RunSlowFile` | no | SR-081, LLR-014 |
 | `Assert-CurrentStoreForm` | no | SR-061, LLR-060 |
 | `Assert-NoUnknownConfigKey` | no | SR-042, LLR-042 |
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
 | `Assert-SingleStoreMount` | yes | SR-059, LLR-150 |
+| `Assert-StoreVolumePresent` | no | SR-014, SR-040, LLR-014 |
 | `Clear-InterruptedRunResidue` | no | SR-017, SR-075 |
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
+| `Complete-RunStep` | yes | SR-081, LLR-014 |
 | `ConvertFrom-StoredObjectName` | yes | SR-069, LLR-069 |
 | `ConvertTo-FrozenRow` | no | SR-091, SR-059 |
 | `Copy-FileWithHash` | yes | SR-002, SR-059, LLR-002 |
@@ -181,6 +185,7 @@ Imports (internal): `Common`
 | `Enter-StagingOsLock` | yes | SR-085, SR-086, SR-087, LLR-090 |
 | `Enter-StoreMutationLock` | no | SR-085, SR-086, LLR-094 |
 | `Exit-StagingOsLock` | yes | SR-085, SR-087, LLR-090, LLR-093 |
+| `Format-RunByteCount` | yes | SR-081, LLR-014 |
 | `Get-BackupContentIndex` | yes | SR-026, SR-045, SR-047, LLR-047 |
 | `Get-BackupKitRevision` | yes | SR-049, LLR-049 |
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
@@ -216,6 +221,7 @@ Imports (internal): `Common`
 | `Invoke-PruneEntrySweep` | yes | SR-046, LLR-046 |
 | `Invoke-SourceFileCapture` | yes | SR-001, SR-003, SR-011, SR-053, SR-059, SR-067, SR-091, SR-105, SR-108 |
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
+| `Measure-DuplicateRepairCost` | yes | SR-049, SR-109, LLR-049 |
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
 | `Move-StoreObjectToVerify` | yes | SR-049, SR-109, LLR-049 |
 | `Move-SupersededObject` | yes | SR-005, SR-041, SR-059, LLR-059, LLR-150 |
@@ -224,6 +230,7 @@ Imports (internal): `Common`
 | `New-CapturedRow` | no | SR-025, SR-024 |
 | `New-ProbeStatistic` | no | SR-081, LLR-086 |
 | `New-ReconstructScript` | yes | SR-007, LLR-007 |
+| `New-RunMetric` | yes | SR-081, LLR-014 |
 | `Publish-LatestState` | no | SR-005, SR-011, SR-065, LLR-005 |
 | `Publish-PriorStateSnapshot` | yes | SR-005, SR-007, SR-010, SR-082, LLR-005, LLR-150 |
 | `Publish-PruneManifest` | yes | SR-045, SR-038, LLR-045 |
@@ -233,6 +240,7 @@ Imports (internal): `Common`
 | `Remove-BackupSnapshot` | yes | SR-045, SR-046, SR-040, SR-085, SR-086, LLR-045, LLR-046, LLR-092 |
 | `Remove-CommittedPruneResidue` | yes | SR-046, LLR-046 |
 | `Remove-UnchangedSnapshot` | no | SR-100, LLR-150 |
+| `Remove-VerifyScratch` | no | SR-103, LLR-049 |
 | `Repair-BackupStorageForm` | yes | SR-049, SR-024, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Resolve-BackupSetDefaults` | no | SR-042, LLR-042 |
 | `Resolve-BackupSetPaths` | yes | SR-014, SR-049, SR-063, LLR-014, LLR-063 |
@@ -258,6 +266,7 @@ Imports (internal): `Common`
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
 | `Write-ProbeStatistic` | no | SR-081, LLR-086 |
+| `Write-RunMetric` | yes | SR-081, LLR-014 |
 <!-- END GENERATED MODULE MAP -->
 
 ## 3. Invariants — do not break

@@ -510,27 +510,41 @@ function Invoke-VerifyAction {
             $kits = Update-BackupSnapshotKit -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -Log $Log
             & $Log "Refreshed the restore kit in $($kits.Refreshed) snapshot folder(s) to revision $($kits.Revision)." 'INFO'
         }
+        $metrics = New-RunMetric
         # Object-level audit (bounded-run-loop plan R9, R10, C4): duplicate
         # copies always, damaged objects under -Deep. -RepairStorage moves both
         # into <ChangePath>/Verify/ - nothing is deleted - and the audit runs
-        # again so the report is the state the caller is left in.
+        # again so the report is the state the caller is left in. A plain run
+        # says up front what a repair would cost: the kept copies it would read
+        # to confirm before any duplicate moves (plan C28).
         $objectFindings = @(Get-StoreObjectFinding -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                                 -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
+        Complete-RunStep -Metrics $metrics -Name 'object audit'
+        $cost = Measure-DuplicateRepairCost -Finding $objectFindings
+        if ($cost.Copies -gt 0) {
+            & $Log ("Found $($cost.Copies) duplicate cop(ies) of $($cost.Contents) content(s), $(Format-RunByteCount $cost.WastedBytes) in all; " +
+                    "setting them aside (-RepairStorage) first reads $($cost.ConfirmCount) kept cop(ies), $(Format-RunByteCount $cost.ConfirmBytes), to confirm them.") 'INFO'
+        }
         if ($Repair -and $objectFindings.Count -gt 0) {
-            $movedToVerify = Move-StoreObjectToVerify -Finding $objectFindings -ChangeRoot $paths.ChgPath -Log $Log
+            $movedToVerify = Move-StoreObjectToVerify -Finding $objectFindings -ChangeRoot $paths.ChgPath -SevenZipPath $Deps['7z'] -Metrics $metrics -Log $Log
             & $Log "Moved $movedToVerify object(s) into '$(Join-Path $paths.ChgPath 'Verify')'; delete that folder by hand once you no longer want them." 'INFO'
+            Complete-RunStep -Metrics $metrics -Name 'set aside duplicates and damage'
             $objectFindings = @(Get-StoreObjectFinding -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                                     -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
+            Complete-RunStep -Metrics $metrics -Name 'object audit again'
         }
         if ($Repair) {
             $result   = Repair-BackupStorageForm -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -BackupRootOnly:$RootOnly -Log $Log
             & $Log "Repaired $($result.Repaired) finding(s); $(@($result.Skipped).Count) reported only." 'INFO'
+            Complete-RunStep -Metrics $metrics -Name 'storage-form repair'
         }
         # Report the state the caller is left in: after a repair this is the
         # re-verification, so a clean exit 0 means the store is now coherent.
         $findings = @(Test-BackupStorageForm -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                         -BackupRootOnly:$RootOnly -Deep:$DeepCheck -SevenZipPath $Deps['7z'])
-        $findings += $objectFindings
+        Complete-RunStep -Metrics $metrics -Name 'storage-form audit'
+        # The copy kept rides along for the repair; it is not part of the report.
+        $findings += @($objectFindings | Select-Object -Property * -ExcludeProperty Kept, KeptVerified)
         # WP7 (SR-054): the form audit answers "do the bytes match the index's
         # CLAIMS"; the pool audit answers "does every row resolve to bytes AT
         # ALL" — the blind spot that let a store with permanently unrestorable
@@ -552,6 +566,8 @@ function Invoke-VerifyAction {
                     Expected = 'every manifest row resolves to real bytes' }
             })
         if ($stale -gt 0) { & $Log "$stale row(s) name a data file that has moved; their content is found elsewhere in the pool." 'INFO' }
+        Complete-RunStep -Metrics $metrics -Name 'pool audit'
+        Write-RunMetric -Metrics $metrics -Label 'Verify timings' -Log $Log -Extra @{ findings = $findings.Count; duplicates = $cost.Copies }
     } catch {
         & $Log "Storage-form verification could not run: $($_.Exception.Message)" 'ERROR'
         return 2

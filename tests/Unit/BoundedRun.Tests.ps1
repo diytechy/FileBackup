@@ -607,6 +607,169 @@ Describe 'Verify moves nothing aside on missing evidence (R9, C4)' {
     }
 }
 
+Describe 'A run says where its time went (plan C29)' {
+    It 'logs step timings, the work per kind of read, and one metrics JSON line' {
+        $s = New-Store 'metrics'
+        foreach ($i in 1..4) { Set-SourceFile $s "f$i.txt" "one-$i" }
+        Invoke-Run $s '2026-10-01T10:00:00' | Should -Be 0
+        Set-SourceFile $s 'f1.txt' 'two-1'
+        Invoke-Run $s '2026-10-02T10:00:00' | Should -Be 0
+        $log = Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log')
+        $timings = @($log | Where-Object { $_ -match '\[INFO\] Timings: ' })
+        $timings.Count | Should -Be 1
+        foreach ($step in 'read latest state', 'index the store', 'publish snapshot', 'walk source', 'capture files', 'finish latest state', 'move superseded') {
+            $timings[0] | Should -Match ([regex]::Escape($step))
+        }
+        @($log | Where-Object { $_ -match '\[INFO\] Work: unchanged, not read 3; copy while hashing \(new or changed\) 1' }).Count | Should -Be 1
+        $line = @($log | Where-Object { $_ -match '\[INFO\] metrics \{' })[0]
+        $doc = $line.Substring($line.IndexOf('metrics ') + 8) | ConvertFrom-Json
+        $doc.kept | Should -Be 3
+        $doc.files | Should -Be 4
+        $doc.steps.'capture files' | Should -BeGreaterOrEqual 0
+        $doc.ops.'copy while hashing (new or changed)'.count | Should -Be 1
+    }
+}
+
+Describe 'A store drive that is missing, or a store that lost its backup folder (plan C25, C26)' {
+    It 'returns 4 and writes nothing when the backup drive is not attached' -Skip:(-not $IsWindows) {
+        $letter = @([char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "$($_):\") })[0]
+        if (-not $letter) { Set-ItResult -Skipped -Because 'no free drive letter'; return }
+        $s = New-Store 'nodrive'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        $s.Set.BackupPath = "$($letter):\FileBackup\Backup"
+        $s.Set.ChangePath = "$($letter):\FileBackup\Changes"
+        Invoke-Run $s '2026-10-03T10:00:00' 3>$null | Should -Be 4
+        Test-Path -LiteralPath "$($letter):\" | Should -BeFalse
+    }
+    It 'refuses with 2, creating nothing, when the backup folder is gone but its snapshots are not' {
+        $s = New-Store 'lostbackup'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Invoke-Run $s '2026-10-04T10:00:00' | Should -Be 0
+        Set-SourceFile $s 'a.txt' 'alpha-2'
+        Invoke-Run $s '2026-10-05T10:00:00' | Should -Be 0
+        @(Get-SnapshotNames $s).Count | Should -Be 1
+        Rename-Item -LiteralPath $s.Bkp -NewName 'Backup-moved-away'
+        Invoke-Run $s '2026-10-06T10:00:00' 3>$null | Should -Be 2
+        Test-Path -LiteralPath $s.Bkp | Should -BeFalse -Because 'a fresh full backup must not start beside the old snapshots'
+    }
+}
+
+Describe 'A source that empties during the run stops it (plan C27)' {
+    It 'stops with 4 and keeps the latest state when every file vanishes but the root folder stays' {
+        $s = New-Store 'src-emptied'
+        foreach ($n in 'a', 'b', 'c') { Set-SourceFile $s "$n.txt" "one-$n" }
+        Set-SourceFile $s 'sub\d.txt' 'one-d'
+        Invoke-Run $s '2026-10-07T10:00:00' | Should -Be 0
+        foreach ($n in 'a', 'b', 'c') { Set-SourceFile $s "$n.txt" "two-$n" }
+        $src = $s.Src
+        # The mount drops after the first file: the mount point stays, empty.
+        Set-EngineVar 'BackupRunTestHook' ({ param($st, $ctx)
+            if ($st -eq 'AfterFileCaptured' -and @(Get-ChildItem -LiteralPath $src -Force).Count -gt 0) {
+                Get-ChildItem -LiteralPath $src -Force | Remove-Item -Recurse -Force
+            }
+        }.GetNewClosure())
+        Invoke-Run $s '2026-10-08T10:00:00' | Should -Be 4
+        Set-EngineVar 'BackupRunTestHook' $null
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=one-a;b.txt=one-b;c.txt=one-c;sub\d.txt=one-d'
+    }
+}
+
+Describe 'A repair confirms the copy it keeps before setting a duplicate aside (plan C28)' {
+    It 'reports the cost on a plain Verify, and leaves a duplicate in place when the kept copy is damaged' {
+        $s = New-Store 'dup-badkeeper'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-10-09T10:00:00' | Should -Be 0
+        Set-SourceFile $s 'b.txt' 'bravo-2'
+        Invoke-Run $s '2026-10-10T10:00:00' | Should -Be 0
+        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $snap = Join-Path $s.Chg 'Snapshot_2026_10_09_10_00_00'
+        Copy-Item -LiteralPath $alpha.FullName -Destination $snap
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        $cost = Measure-DuplicateRepairCost -Finding $found
+        "$($cost.Copies)|$($cost.Contents)|$($cost.ConfirmCount)|$($cost.ConfirmBytes)" | Should -Be "1|1|1|$($alpha.Length)"
+
+        # The copy kept rots (same length, wrong bytes): the duplicate is the
+        # only good copy left, and a restore heals from it - so it stays.
+        [IO.File]::WriteAllText($alpha.FullName, 'alphX')
+        $lines = [System.Collections.Generic.List[string]]::new()
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { param($m, $l) $lines.Add("[$l] $m") }.GetNewClosure() | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $snap $alpha.Name) | Should -BeTrue
+        ($lines -join "`n") | Should -Match 'left .* in place: the copy kept'
+        ($lines -join "`n") | Should -Match 'Confirmed 1 kept cop'
+    }
+}
+
+Describe 'An archive exactly as long as its content (plan C30)' {
+    It 'is stored raw instead, so its listing cannot be mistaken' {
+        $root = Join-Path $TestDrive 'eqlen-write'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $staged = Join-Path $root 'staged'
+        [IO.File]::WriteAllText($staged, 'EXACTLY-AS-LONG')
+        $len = (Get-Item -LiteralPath $staged).Length
+        $hash = Get-FileXxHash -FilePath $staged
+        $set = [pscustomobject]@{ Name = 'E'; CompressEnabled = $true; CompressProbe = 'off' }
+        $stored = InModuleScope FileBackup.Engine -Parameters @{ Staged = $staged; Len = $len; Hash = $hash; Root = $root; Set = $set } {
+            param($Staged, $Len, $Hash, $Root, $Set)
+            $Stats = New-ProbeStatistic
+            # An "archive" that comes out exactly as long as the content.
+            Mock Compress-FileWithSevenZip { param($SevenZipPath, $SourceFile, $Destination7z) [IO.File]::WriteAllBytes($Destination7z, [byte[]]::new((Get-Item -LiteralPath $SourceFile).Length)) }
+            Mock Resolve-GroupStorageForm { [pscustomobject]@{ Compress = $true; Reason = 'ListSaysCompress'; SampledBytes = 0; Ratio = $null; Windows = @() } }
+            Publish-StagedObject -StagedPath $Staged -SourceName 'note.txt' -Hash $Hash -Length $Len -BackupRoot $Root -Set $Set `
+                -SevenZipPath 'C:\fake\7z.exe' -ProbeStats $Stats -Metrics $null -Log { }
+        }
+        $stored.Compressed | Should -Be 'No'
+        $stored.Name | Should -BeLike '*.txt'
+        [IO.File]::ReadAllText((Join-Path $root $stored.Name)) | Should -Be 'EXACTLY-AS-LONG'
+    }
+    It 'is expanded by Verify before it is called damaged' {
+        $root = Join-Path $TestDrive 'eqlen-verify'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $content = Join-Path $root 'content.bin'
+        [IO.File]::WriteAllText($content, 'THE-REAL-CONTENT-OF-THIS-OBJECT')
+        $len = (Get-Item -LiteralPath $content).Length
+        $name = Get-HashSizeFileName -HashHex (Get-FileXxHash -FilePath $content) -Length $len -Extension '.7z'
+        # An archive-shaped object as long as its content: 7-Zip's signature,
+        # then padding. Expanding it (mocked) yields the real content.
+        $obj = Join-Path $root $name
+        $bytes = [byte[]]::new($len); ([byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C)).CopyTo($bytes, 0)
+        [IO.File]::WriteAllBytes($obj, $bytes)
+        $entry = [pscustomobject]@{ Name = $name; Path = $obj; FileLength = $len; ContentLength = $len; Extension = '.7z' }
+        $verdict = InModuleScope FileBackup.Engine -Parameters @{ Entry = $entry; Content = $content; Scratch = (Join-Path $root 'scratch') } {
+            param($Entry, $Content, $Scratch)
+            Mock Expand-FileWithSevenZip { param($SevenZipPath, $Archive, $DestinationFile) Copy-Item -LiteralPath $Content -Destination $DestinationFile }
+            Get-StoredObjectVerdict -Entry $Entry -ScratchFolder $Scratch -SevenZipPath 'C:\fake\7z.exe'
+        }
+        $verdict.Verdict | Should -Be 'Good'
+    }
+}
+
+Describe 'Expanding an archive never needs the system temp folder (plan C31)' {
+    It 'expands beside the destination even when the system temp cannot be written' -Skip:(-not $IsWindows) {
+        $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) { Set-ItResult -Skipped -Because '7-Zip not installed'; return }
+        $root = Join-Path $TestDrive 'expand-beside'
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $src = Join-Path $root 'in.txt'
+        [IO.File]::WriteAllText($src, ('PAYLOAD ' * 500))
+        $archive = Join-Path $root 'in.7z'
+        Compress-FileWithSevenZip -SevenZipPath $sevenZip -SourceFile $src -Destination7z $archive
+        # TMP and TEMP name a FILE, so nothing can be created under the system
+        # temp folder: an expand that used it would fail here.
+        $blocker = Join-Path $root 'not-a-folder'
+        [IO.File]::WriteAllText($blocker, 'x')
+        $saved = $env:TMP, $env:TEMP
+        try {
+            $env:TMP = $blocker; $env:TEMP = $blocker
+            Expand-FileWithSevenZip -SevenZipPath $sevenZip -Archive $archive -DestinationFile (Join-Path $root 'out\out.txt')
+        } finally {
+            $env:TMP, $env:TEMP = $saved
+        }
+        [IO.File]::ReadAllText((Join-Path $root 'out\out.txt')) | Should -Be ('PAYLOAD ' * 500)
+        @(Get-ChildItem -LiteralPath (Join-Path $root 'out') -Force).Count | Should -Be 1 -Because 'the hidden expand folder is removed'
+    }
+}
+
 Describe 'Verify and prune work on what the bounded run writes (R6, SR-045, SR-049)' {
     BeforeAll {
         function New-ChurnedStore([string]$Name) {

@@ -1298,6 +1298,11 @@ function Get-StorageFormFinding {
     .PARAMETER SevenZipPath
         7-Zip, required by -Deep when the folder holds archives.
 
+    .PARAMETER ScratchFolder
+        Where -Deep expands an archive: a folder on the backup volume, outside
+        every pool folder. The system temp folder is used only when none is
+        given (it is RAM in the container).
+
     .OUTPUTS
         [pscustomobject[]] Folder, FolderName, RelativePath, DataPath, Class,
         Observed, Expected, Repairable, KitRevision.
@@ -1309,7 +1314,8 @@ function Get-StorageFormFinding {
         [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$Manifest,
         [object]$Index,
         [switch]$Deep,
-        [string]$SevenZipPath
+        [string]$SevenZipPath,
+        [string]$ScratchFolder
     )
     $findings  = New-Object System.Collections.Generic.List[object]
     $name      = [IO.Path]::GetFileName($Folder)
@@ -1429,7 +1435,8 @@ function Get-StorageFormFinding {
                 if ($rawArchiveOk -eq $true) {
                     $payloadOk = $true
                 } else {
-                    $tmp = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                    $scratchBase = if ($ScratchFolder) { [void][System.IO.Directory]::CreateDirectory($ScratchFolder); $ScratchFolder } else { [IO.Path]::GetTempPath() }
+                    $tmp = Join-Path $scratchBase ([IO.Path]::GetRandomFileName())
                     try {
                         Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $full -DestinationFile $tmp
                         $payloadOk = ((Get-Item -LiteralPath $tmp).Length -eq [long]$row.Length -and
@@ -1584,10 +1591,12 @@ function Test-BackupStorageForm {
                 Repairable = $false; KitRevision = Get-BackupKitRevision -Folder $folder
             })
         }
-        foreach ($f in @(Get-StorageFormFinding -Folder $folder -Manifest $manifest -Index $index -Deep:$Deep -SevenZipPath $SevenZipPath)) {
+        $scratch = if ($ChangeRoot -and (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { Join-Path $ChangeRoot "$($script:VerifyFolderName)\.expand" } else { $null }
+        foreach ($f in @(Get-StorageFormFinding -Folder $folder -Manifest $manifest -Index $index -Deep:$Deep -SevenZipPath $SevenZipPath -ScratchFolder $scratch)) {
             $all.Add($f)
         }
     }
+    if ($ChangeRoot -and (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { Remove-VerifyScratch -ChangeRoot $ChangeRoot }
     return $all.ToArray()
 }
 
@@ -1601,9 +1610,9 @@ function Get-StoredObjectVerdict {
     .DESCRIPTION
         An object whose file length equals its content length is read raw (that
         includes the user's own '.7z' stored as is, SR-068); a '.7z' of another
-        length is expanded - through 7-Zip's own temp folder, Expand-FileWithSevenZip
-        - into a scratch file beside the change root, hashed from disk rather
-        than RAM (the C-12 lesson) and deleted. A raw object of the wrong length
+        length is expanded into a scratch file beside the change root - on the
+        backup volume, never the system temp folder (RAM in the container) -
+        hashed from disk rather than RAM (the C-12 lesson) and deleted. A raw object of the wrong length
         is damaged by its size alone.
 
         'Unverified' is the answer whenever the bytes could not be judged: no
@@ -1638,9 +1647,15 @@ function Get-StoredObjectVerdict {
     try {
         if ($Entry.FileLength -eq $Entry.ContentLength) {
             if ((Get-FileXxHash -FilePath $Entry.Path) -eq $want) { return (& $verdict 'Good' '') }
-            return (& $verdict 'Damaged' 'its bytes do not hash to the content its name records')
+            # An archive exactly as long as its content (an older build could
+            # write one) hashes wrong when read raw: expand it before calling it
+            # damaged, as the restorers do (SR-068).
+            if ($Entry.Extension -ine '.7z' -or (Get-StoredFileForm -Path $Entry.Path) -ne 'Archive') {
+                return (& $verdict 'Damaged' 'its bytes do not hash to the content its name records')
+            }
+        } elseif ($Entry.Extension -ine '.7z') {
+            return (& $verdict 'Damaged' 'its length is not the content length its name records')
         }
-        if ($Entry.Extension -ine '.7z') { return (& $verdict 'Damaged' 'its length is not the content length its name records') }
         if (-not $SevenZipPath) { return (& $verdict 'Unverified' 'an archive, and no 7-Zip to expand it') }
         [void][System.IO.Directory]::CreateDirectory($ScratchFolder)
         $scratch = Join-Path $ScratchFolder ([guid]::NewGuid().ToString('N'))
@@ -1674,7 +1689,9 @@ function Get-StoreObjectFinding {
         -RepairStorage moves the findings into the change root's Verify folder
         through Move-StoreObjectToVerify. For each content the copy kept is the
         backup root's, else the newest snapshot's - unless -Deep finds that copy
-        damaged and another one good, in which case the good one is kept. Under
+        damaged and another one good, in which case the good one is kept. Each
+        DuplicateObject finding carries the copy kept (Kept), and KeptVerified
+        says -Deep already proved it good. Under
         -Deep a copy that could not be checked is an 'UnverifiedObject' finding,
         never repairable, and -Deep without 7-Zip is refused up front, as the
         storage-form audit refuses it, so nothing is moved on missing evidence. A
@@ -1725,6 +1742,7 @@ function Get-StoreObjectFinding {
             FolderName = if ($Entry.Folder) { $Entry.Folder } else { [System.IO.Path]::GetFileName($BackupRoot.TrimEnd('\', '/')) }
             RelativePath = ''; DataPath = $Entry.Name; Path = $Entry.Path; Class = $Class
             Observed = $Observed; Expected = $Expected; Repairable = $true
+            FileLength = [long]$Entry.FileLength; Kept = $null; KeptVerified = $false
         }
     }
     foreach ($copies in $groups.Values) {
@@ -1750,6 +1768,10 @@ function Get-StoreObjectFinding {
         foreach ($other in @($copies | Where-Object { -not [object]::ReferenceEquals($_, $keep) })) {
             $where = if ($keep.Folder) { "'$($keep.Folder)'" } else { 'the latest state' }
             $finding = & $newFinding $other 'DuplicateObject' "a second copy of content also held in $where" 'one copy of each content in the pool (SR-003)'
+            # The copy kept, so a repair can confirm it before this one goes;
+            # under -Deep it is already proven good.
+            $finding.Kept = $keep
+            $finding.KeptVerified = [bool]$Deep
             if (-not $kitRevisionOf.ContainsKey($finding.Folder)) { $kitRevisionOf[$finding.Folder] = Get-BackupKitRevision -Folder $finding.Folder }
             if ($kitRevisionOf[$finding.Folder] -lt 4) {
                 $finding.Repairable = $false
@@ -1758,6 +1780,7 @@ function Get-StoreObjectFinding {
             $findings.Add($finding)
         }
     }
+    Remove-VerifyScratch -ChangeRoot $ChangeRoot
     return $findings.ToArray()
 }
 
@@ -1775,11 +1798,24 @@ function Move-StoreObjectToVerify {
         correct anyway; the next backup stores that content again while the
         source still holds it (SR-053).
 
+        A duplicate is real redundancy until then: a restore that finds the
+        kept copy damaged heals from another copy in the pool, and Verify/ is
+        not in the pool. So the copy kept is read and checked first (plan C28)
+        - once per content, and not at all when -Deep already proved it - and
+        a duplicate whose kept copy is not proven good stays where it is. The
+        work is timed and logged, with a progress line every minute.
+
     .PARAMETER Finding
         Get-StoreObjectFinding results.
 
     .PARAMETER ChangeRoot
         The change root.
+
+    .PARAMETER SevenZipPath
+        7-Zip, to confirm a kept copy that is an archive.
+
+    .PARAMETER Metrics
+        The run's metrics (New-RunMetric), or $null.
 
     .PARAMETER Log
         The logger.
@@ -1792,11 +1828,44 @@ function Move-StoreObjectToVerify {
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Finding,
         [Parameter(Mandatory)][string]$ChangeRoot,
+        [AllowNull()][string]$SevenZipPath,
+        [AllowNull()][hashtable]$Metrics,
         [Parameter(Mandatory)][scriptblock]$Log
     )
+    $scratch = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) '.expand'
+    $verdictOf = @{}
+    $cost = Measure-DuplicateRepairCost -Finding $Finding
+    if ($cost.ConfirmCount -gt 0) {
+        & $Log "Confirming $($cost.ConfirmCount) kept cop(ies) ($(Format-RunByteCount $cost.ConfirmBytes)) before their duplicates are set aside." 'INFO'
+    }
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
+    $confirmedBytes = [long]0
+    $leftAlone = 0
     $moved = 0
     foreach ($f in $Finding) {
         if ($f.Class -notin 'DuplicateObject', 'DamagedObject' -or -not $f.Repairable) { continue }
+        if ($f.Class -eq 'DuplicateObject' -and -not $f.KeptVerified -and $null -ne $f.Kept) {
+            $kept = $f.Kept
+            if (-not $verdictOf.ContainsKey($kept.Path)) {
+                $one = [System.Diagnostics.Stopwatch]::StartNew()
+                $verdictOf[$kept.Path] = Get-StoredObjectVerdict -Entry $kept -ScratchFolder $scratch -SevenZipPath $SevenZipPath
+                $confirmedBytes += [long]$kept.FileLength
+                if ($null -ne $Metrics) { Add-RunMetric -Metrics $Metrics -Name 'confirm kept copy' -Bytes ([long]$kept.FileLength) -Ticks $one.ElapsedTicks }
+                if ([datetime]::UtcNow -ge $nextProgress) {
+                    & $Log ("Confirming kept copies: $($verdictOf.Count) of $($cost.ConfirmCount), $(Format-RunByteCount $confirmedBytes) of " +
+                            "$(Format-RunByteCount $cost.ConfirmBytes), {0:N0} s." -f $watch.Elapsed.TotalSeconds) 'INFO'
+                    $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
+                }
+            }
+            $check = $verdictOf[$kept.Path]
+            if ($check.Verdict -ne 'Good') {
+                & $Log ("[DuplicateObject] left '$($f.Path)' in place: the copy kept, '$($kept.Path)', is $($check.Verdict.ToLowerInvariant()) " +
+                        "($($check.Reason)). Run -Action Verify -Deep to judge every copy.") 'WARN'
+                $leftAlone++
+                continue
+            }
+        }
         $folder = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) $f.FolderName
         [void][System.IO.Directory]::CreateDirectory($folder)
         $dest = Join-Path $folder $f.DataPath
@@ -1810,7 +1879,70 @@ function Move-StoreObjectToVerify {
             & $Log "[$($f.Class)] could not move '$($f.Path)': $($_.Exception.Message)" 'WARN'
         }
     }
+    if ($verdictOf.Count -gt 0) {
+        & $Log ("Confirmed $($verdictOf.Count) kept cop(ies) ($(Format-RunByteCount $confirmedBytes)) in {0:N1} s; " -f $watch.Elapsed.TotalSeconds +
+                "$leftAlone duplicate(s) left in place because the copy kept was not proven good.") 'INFO'
+    }
+    Remove-VerifyScratch -ChangeRoot $ChangeRoot
     return $moved
+}
+
+function Measure-DuplicateRepairCost {
+    <#
+    .SYNOPSIS
+        What setting a store's duplicates aside would cost and free: the
+        duplicates a repair would move, the bytes they waste, and the kept
+        copies it must first read to confirm (plan C28).
+
+    .PARAMETER Finding
+        Get-StoreObjectFinding results.
+
+    .OUTPUTS
+        [pscustomobject] Copies, Contents, WastedBytes, ConfirmCount, ConfirmBytes.
+    #>
+    # Implements: SR-049, SR-109, LLR-049
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Finding)
+    $kept = @{}
+    $toConfirm = @{}
+    $copies = 0
+    $wasted = [long]0
+    foreach ($f in $Finding) {
+        if ($f.Class -ne 'DuplicateObject' -or -not $f.Repairable) { continue }
+        $copies++
+        $wasted += [long]$f.FileLength
+        if ($null -eq $f.Kept) { continue }
+        $kept[$f.Kept.Path] = $true
+        if (-not $f.KeptVerified) { $toConfirm[$f.Kept.Path] = [long]$f.Kept.FileLength }
+    }
+    $confirmBytes = [long]0
+    foreach ($v in $toConfirm.Values) { $confirmBytes += $v }
+    return [pscustomobject]@{
+        Copies = $copies; Contents = $kept.Count; WastedBytes = $wasted
+        ConfirmCount = $toConfirm.Count; ConfirmBytes = $confirmBytes
+    }
+}
+
+function Remove-VerifyScratch {
+    <#
+    .SYNOPSIS
+        Removes Verify's scratch folder, and the Verify folder itself, when
+        they are empty, so a read-only Verify leaves nothing behind (SR-103).
+
+    .PARAMETER ChangeRoot
+        The change root.
+    #>
+    # Implements: SR-103, LLR-049
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ChangeRoot)
+    $verify = Join-Path $ChangeRoot $script:VerifyFolderName
+    foreach ($folder in (Join-Path $verify '.expand'), $verify) {
+        try {
+            if ([System.IO.Directory]::Exists($folder) -and @([System.IO.Directory]::EnumerateFileSystemEntries($folder) | Select-Object -First 1).Count -eq 0) {
+                [System.IO.Directory]::Delete($folder)
+            }
+        } catch { Write-Verbose "Could not remove '$folder': $($_.Exception.Message)" }
+    }
 }
 
 function Repair-BackupStorageForm {
@@ -2389,6 +2521,11 @@ function Copy-ReHomedDataFile {
     .PARAMETER Item
         One Get-SnapshotPrunePlan item.
 
+    .PARAMETER ScratchFolder
+        Where an archive is expanded to verify it: the prune's own transaction
+        folder, on the backup volume. The system temp folder (RAM in the
+        container) is used only when none is given.
+
     .OUTPUTS
         [string] the published destination path.
     #>
@@ -2397,6 +2534,7 @@ function Copy-ReHomedDataFile {
     param(
         [Parameter(Mandatory)][object]$Item,
         [string]$SevenZipPath,
+        [string]$ScratchFolder,
         [switch]$SkipContentVerify
     )
     $destFull = Join-Path $Item.DestinationFolder $Item.DestinationDataPath
@@ -2422,7 +2560,8 @@ function Copy-ReHomedDataFile {
         $scratch = $null
         try {
             if ($Item.Compressed -eq 'Yes') {
-                $scratch = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+                $scratchBase = if ($ScratchFolder) { $ScratchFolder } else { [IO.Path]::GetTempPath() }
+                $scratch = Join-Path $scratchBase ([IO.Path]::GetRandomFileName())
                 Expand-FileWithSevenZip -SevenZipPath $SevenZipPath -Archive $temp -DestinationFile $scratch
                 $payload = $scratch
             }
@@ -2672,7 +2811,7 @@ function Remove-BackupSnapshot {
                 Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
                 foreach ($item in $plan.Items.ToArray()) {
                     & $log "Re-homing '$($item.SourceRow.RelativePath)' from '$snapshotName' to '$($item.DestinationFolder)' as '$($item.DestinationDataPath)'." 'INFO'
-                    Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify | Out-Null
+                    Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -ScratchFolder $staging -SkipContentVerify:$SkipContentVerify | Out-Null
                 }
                 Publish-PruneManifest -Plan $plan -Log $log | Out-Null
 
@@ -3562,11 +3701,53 @@ function Write-ProbeStatistic {
 
 # region Per-set orchestration helpers
 
+function Assert-StoreVolumePresent {
+    <#
+    .SYNOPSIS
+        Throws System.IO.DriveNotFoundException when the drive or share a store
+        path lives on is not attached, so the caller can tell "the drive is not
+        there" (retry later, 4) from a path that cannot be created (2).
+
+    .DESCRIPTION
+        Decided by the path's root: a Windows drive letter or a UNC share. On
+        Linux the root is '/', which always exists; a mount that is not there
+        shows instead as a store that lost its backup folder (plan C26) or, on
+        HomeHub, is refused by the wrapper before the container starts.
+
+    .PARAMETER Path
+        A BackupPath or ChangePath that does not exist.
+
+    .PARAMETER SetName
+        The set, for the message.
+    #>
+    # Implements: SR-014, SR-040, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$SetName
+    )
+    $root = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($Path))
+    if ($root -and -not [System.IO.Directory]::Exists($root)) {
+        throw [System.IO.DriveNotFoundException]::new(
+            "The drive '$root' for set '$SetName' ('$Path') is not attached; nothing was written. The next run is the retry once it is back.")
+    }
+}
+
 function Resolve-BackupSetPaths {
     <#
     .SYNOPSIS
         Validates the set's SourcePath and resolves (creating if needed) the
         Backup/Change paths to absolute form.
+
+    .DESCRIPTION
+        A missing root is created only when that is safe:
+          * its drive or share is not attached (a Windows drive letter, a UNC
+            share): System.IO.DriveNotFoundException, which a backup reports as
+            4 - retry when the drive is back (plan C25);
+          * BackupPath is missing while ChangePath already holds snapshots: an
+            existing store that lost its backup folder (moved, renamed, or a
+            mount that is not there) - refused, never answered with a fresh
+            full backup (plan C26).
 
     .PARAMETER Set
         The backup set to resolve.
@@ -3619,12 +3800,22 @@ function Resolve-BackupSetPaths {
 
     $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath -ErrorAction SilentlyContinue).Path
     if (-not $bkpPath) {
+        Assert-StoreVolumePresent -Path $Set.BackupPath -SetName $Set.Name
+        $chgFull = [System.IO.Path]::GetFullPath([string]$Set.ChangePath)
+        if ([System.IO.Directory]::Exists($chgFull) -and
+            @(Get-ChildItem -LiteralPath $chgFull -Directory -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match $script:Def.ChangeFolderRegex } | Select-Object -First 1).Count -gt 0) {
+            throw ("Backup path '$($Set.BackupPath)' for set '$($Set.Name)' does not exist, but its change folder '$($Set.ChangePath)' holds snapshots: " +
+                   "the store has lost its backup folder (moved, renamed, or a mount that is not there). Refusing to start a new full backup; " +
+                   "put the folder back, or point BackupPath at it.")
+        }
         New-Item -ItemType Directory -Path $Set.BackupPath -Force | Out-Null
         $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath).Path
     }
 
     $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath -ErrorAction SilentlyContinue).Path
     if (-not $chgPath) {
+        Assert-StoreVolumePresent -Path $Set.ChangePath -SetName $Set.Name
         New-Item -ItemType Directory -Path $Set.ChangePath -Force | Out-Null
         $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath).Path
     }
@@ -3741,6 +3932,7 @@ function Resolve-ViewRootPath {
 $script:RetryMinSpacingSeconds = 60      # R12: a failed file waits this long since its last attempt
 $script:RetryMaxAttempts       = 3       # R12: attempts in all, then a warning
 $script:CheckpointMinSeconds   = 60      # R13: progress is saved at most this often...
+$script:ProgressIntervalSeconds = 60      # a progress line in long runs
 $script:CheckpointWriteFactor  = 10      # ...and never more often than ten times the last write took
 $script:LocalTempMaxBytes      = 256MB   # C7: largest file staged in the host or container temp
 $script:IncomingFolderName     = 'Incoming'    # temp copies on the backup volume, under ChangePath
@@ -3900,19 +4092,31 @@ function Get-StoredObjectCompressedFlag {
         Decided from the object itself, as the restorers decide its form
         (SR-068): only a '.7z'-named object whose file length differs from its
         content length is an archive we made. A '.7z' of the user's own stored
-        raw has the content's own length. The column only feeds the restore
-        capacity estimate; no restorer reads it for correctness.
+        raw has the content's own length. The one case the listing cannot
+        decide - a '.7z' as long as its content, which an older build could
+        write as an archive - keeps the prior row's answer for that same object.
+        The column only feeds the restore capacity estimate; no restorer reads
+        it for correctness.
 
     .PARAMETER Entry
         A Get-StoreObjectIndex entry.
+
+    .PARAMETER PriorCompressed
+        The prior row's Compressed value, when that row named this same object.
 
     .OUTPUTS
         [string] 'Yes' | 'No'
     #>
     # Implements: SR-068, LLR-068
     [CmdletBinding()]
-    param([Parameter(Mandatory)][object]$Entry)
-    if ($Entry.Extension -ieq '.7z' -and $Entry.FileLength -ne $Entry.ContentLength) { return 'Yes' }
+    param(
+        [Parameter(Mandatory)][object]$Entry,
+        [AllowNull()][AllowEmptyString()][string]$PriorCompressed
+    )
+    if ($Entry.Extension -ieq '.7z') {
+        if ($Entry.FileLength -ne $Entry.ContentLength) { return 'Yes' }
+        if ($PriorCompressed -in 'Yes', 'No') { return $PriorCompressed }
+    }
     return 'No'
 }
 
@@ -4239,6 +4443,9 @@ function Publish-StagedObject {
     .PARAMETER ProbeStats
         The set's SR-081 counters.
 
+    .PARAMETER Metrics
+        The run's metrics (New-RunMetric), or $null.
+
     .PARAMETER Log
         The set logger.
 
@@ -4256,13 +4463,16 @@ function Publish-StagedObject {
         [Parameter(Mandatory)][pscustomobject]$Set,
         [AllowNull()][string]$SevenZipPath,
         [Parameter(Mandatory)][hashtable]$ProbeStats,
+        [AllowNull()][hashtable]$Metrics,
         [Parameter(Mandatory)][scriptblock]$Log
     )
     $mode = if ([string]::IsNullOrWhiteSpace([string]$Set.CompressProbe)) { 'always' } else { [string]$Set.CompressProbe }
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
     $listSays = Test-ShouldCompress -FileName $SourceName -CompressEnabled $true
     $decision = Resolve-GroupStorageForm -CompressEnabled ([bool]$Set.CompressEnabled -and [bool]$SevenZipPath) -Mode $mode `
                     -ListSaysCompress $listSays -Length $Length -Candidate @($StagedPath)
     $ProbeStats.ReadBytes += [long]$decision.SampledBytes
+    if ($null -ne $Metrics -and [long]$decision.SampledBytes -gt 0) { Add-RunMetric -Metrics $Metrics -Name 'compressibility probe' -Bytes ([long]$decision.SampledBytes) -Ticks $watch.ElapsedTicks }
     $compress = [bool]$decision.Compress
     $ext  = if ($compress) { '.7z' } else { [System.IO.Path]::GetExtension($SourceName) }
     $name = Get-HashSizeFileName -HashHex $Hash -Length $Length -Extension $ext
@@ -4270,8 +4480,27 @@ function Publish-StagedObject {
     $from = $StagedPath
     if ($compress) {
         $from = "$StagedPath.7z"
+        $watch.Restart()
         Compress-FileWithSevenZip -SevenZipPath $SevenZipPath -SourceFile $StagedPath -Destination7z $from
-        Remove-Item -LiteralPath $StagedPath -Force
+        $archiveLength = ([System.IO.FileInfo]::new($from)).Length
+        if ($null -ne $Metrics) {
+            Add-RunMetric -Metrics $Metrics -Name 'compress' -Bytes $Length -Ticks $watch.ElapsedTicks
+            $Metrics.CompressedOut += $archiveLength
+        }
+        if ($archiveLength -eq $Length) {
+            # An archive exactly as long as its content saves nothing, and its
+            # listing could not tell it from the user's own '.7z' stored raw
+            # (Get-StoredObjectCompressedFlag): store the content raw instead.
+            Remove-Item -LiteralPath $from -Force
+            $from = $StagedPath
+            $compress = $false
+            $ext  = [System.IO.Path]::GetExtension($SourceName)
+            $name = Get-HashSizeFileName -HashHex $Hash -Length $Length -Extension $ext
+            $dest = Join-Path $BackupRoot $name
+            & $Log "The archive of '$SourceName' came out exactly as long as its content; stored raw as '$name'." 'DEBUG'
+        } else {
+            Remove-Item -LiteralPath $StagedPath -Force
+        }
     }
     if (Test-Path -LiteralPath $dest -PathType Leaf) {
         Remove-Item -LiteralPath $from -Force
@@ -4362,9 +4591,10 @@ function Invoke-SourceFileCapture {
         if ($unchangedLooking -and -not $Context.Recalc) {
             $entry = Get-LatestObject -Prefix $priorPrefix -Context $Context
             if ($null -ne $entry) {
+                $Context.Metrics.Kept++
                 return [pscustomobject]@{ Status = 'Kept'; Message = $null
                     Row = New-CapturedRow -Entry $entry -RelativePath $rel -Length $len -LastWriteTime $mtime `
-                              -Hash ([string]$PriorRow.xxH2Hash) -MediaMBPerSec ([string]$PriorRow.MediaMBPerSec) }
+                              -Hash ([string]$PriorRow.xxH2Hash) -MediaMBPerSec ([string]$PriorRow.MediaMBPerSec) -PriorRow $PriorRow }
             }
             & $Context.Log "Content of '$rel' is missing from the backup; storing it again (SR-053)." 'WARN'
         } elseif ($unchangedLooking) {
@@ -4375,18 +4605,26 @@ function Invoke-SourceFileCapture {
 
         $hash = $null
         $copyLength = $null
+        # The read is named by why it happened, so the summary shows which kind
+        # of read a slow run spends its time on.
+        $why = if ($unchangedLooking) { 'scheduled re-read' } elseif ($likelyNew) { 'new or changed' } else { 'likely already stored' }
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
         if ($likelyNew) {
             $staged = Join-Path $Context.Incoming ([guid]::NewGuid().ToString('N'))
             $copied = Copy-FileWithHash -SourcePath $full -DestinationPath $staged
             $hash = $copied.Hash; $copyLength = $copied.Length
+            Add-RunMetric -Metrics $Context.Metrics -Name "copy while hashing ($why)" -Bytes $len -Ticks $watch.ElapsedTicks
         } elseif ($null -ne $Context.LocalTemp -and $len -le $Context.LocalTempMax) {
             $staged = Join-Path $Context.LocalTemp ([guid]::NewGuid().ToString('N'))
             $copied = Copy-FileWithHash -SourcePath $full -DestinationPath $staged
             $hash = $copied.Hash; $copyLength = $copied.Length
+            Add-RunMetric -Metrics $Context.Metrics -Name "copy to local temp ($why)" -Bytes $len -Ticks $watch.ElapsedTicks
         } else {
             $hash = Get-FileXxHash -FilePath $full
             $copyLength = $len
+            Add-RunMetric -Metrics $Context.Metrics -Name "hash in place ($why)" -Bytes $len -Ticks $watch.ElapsedTicks
         }
+        $Context.Metrics.BytesRead += $len
         $after = [System.IO.FileInfo]::new($full)
         if (-not $after.Exists) {
             if ($staged) { Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue }
@@ -4402,20 +4640,26 @@ function Invoke-SourceFileCapture {
         }
         $prefix = if ($unchangedLooking -and $hash -eq [string]$PriorRow.xxH2Hash) { $priorPrefix } else { Get-StoredObjectPrefix -HashHex $hash -Length $len }
         $media = if ($null -ne $PriorRow -and $hash -eq [string]$PriorRow.xxH2Hash) { [string]$PriorRow.MediaMBPerSec } else {
-            [string](Get-MediaMBPerSec -FilePath $full -FfprobePath $Context.Ffprobe) }
+            $watch.Restart()
+            [string](Get-MediaMBPerSec -FilePath $full -FfprobePath $Context.Ffprobe)
+            if ($Context.Ffprobe) { Add-RunMetric -Metrics $Context.Metrics -Name 'media probe' -Ticks $watch.ElapsedTicks }
+        }
 
         $entry = Get-LatestObject -Prefix $prefix -Context $Context
         if ($null -ne $entry) {
             if ($staged) { Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue; $staged = $null }
             return [pscustomobject]@{ Status = 'Captured'; Message = $null
-                Row = New-CapturedRow -Entry $entry -RelativePath $rel -Length $len -LastWriteTime $mtime -Hash $hash -MediaMBPerSec $media }
+                Row = New-CapturedRow -Entry $entry -RelativePath $rel -Length $len -LastWriteTime $mtime -Hash $hash -MediaMBPerSec $media -PriorRow $PriorRow }
         }
 
         # New content. Stage it on the backup volume if it is not there yet.
         if ($null -eq $staged) {
             # Hashed in place: read again while copying, and keep what was copied.
             $staged = Join-Path $Context.Incoming ([guid]::NewGuid().ToString('N'))
+            $watch.Restart()
             $copied = Copy-FileWithHash -SourcePath $full -DestinationPath $staged
+            Add-RunMetric -Metrics $Context.Metrics -Name 'second read to store new content' -Bytes $len -Ticks $watch.ElapsedTicks
+            $Context.Metrics.BytesRead += $len
             $recheck = [System.IO.FileInfo]::new($full)
             if ($copied.Hash -ne $hash -or $copied.Length -ne $len -or -not $recheck.Exists -or
                 $recheck.Length -ne $len -or $recheck.LastWriteTime -ne $mtime) {
@@ -4425,12 +4669,14 @@ function Invoke-SourceFileCapture {
         } elseif (-not $staged.StartsWith($Context.Incoming, [System.StringComparison]::Ordinal)) {
             # Staged in the host or container temp: bring it onto the backup volume.
             $onVolume = Join-Path $Context.Incoming ([guid]::NewGuid().ToString('N'))
+            $watch.Restart()
             [System.IO.File]::Move($staged, $onVolume)
+            Add-RunMetric -Metrics $Context.Metrics -Name 'local temp to backup volume' -Bytes $len -Ticks $watch.ElapsedTicks
             $staged = $onVolume
         }
         $stored = Publish-StagedObject -StagedPath $staged -SourceName $Item.File.Name -Hash $hash -Length $len `
                       -BackupRoot $Context.BackupRoot -Set $Context.Set -SevenZipPath $Context.SevenZip `
-                      -ProbeStats $Context.ProbeStats -Log $Context.Log
+                      -ProbeStats $Context.ProbeStats -Metrics $Context.Metrics -Log $Context.Log
         $staged = $null
         $storedPath = Join-Path $Context.BackupRoot $stored.Name
         $newEntry = [pscustomobject]@{
@@ -4442,7 +4688,7 @@ function Invoke-SourceFileCapture {
         [void]$Context.Index.Lengths.Add($len)
         $Context.Stats.Stored++
         return [pscustomobject]@{ Status = 'Captured'; Message = $null
-            Row = New-CapturedRow -Entry $newEntry -RelativePath $rel -Length $len -LastWriteTime $mtime -Hash $hash -MediaMBPerSec $media }
+            Row = New-CapturedRow -Entry $newEntry -RelativePath $rel -Length $len -LastWriteTime $mtime -Hash $hash -MediaMBPerSec $media -PriorRow $PriorRow }
     } catch {
         if ($staged) { Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue }
         if (Test-BackupDiskFull -ErrorRecord $_) { throw }
@@ -4494,11 +4740,17 @@ function Get-LatestObject {
     if (-not $Context.Index.Objects.TryGetValue($Prefix, [ref]$entry)) { return $null }
     if ($entry.Folder -eq '') { return $entry }
     $holder = [System.IO.Path]::GetDirectoryName($entry.Path)
-    if (-not $Context.KitRevisionOf.ContainsKey($holder)) { $Context.KitRevisionOf[$holder] = Get-BackupKitRevision -Folder $holder }
+    if (-not $Context.KitRevisionOf.ContainsKey($holder)) {
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        $Context.KitRevisionOf[$holder] = Get-BackupKitRevision -Folder $holder
+        Add-RunMetric -Metrics $Context.Metrics -Name 'kit revision read' -Ticks $watch.ElapsedTicks
+    }
     if ($Context.KitRevisionOf[$holder] -lt 4) { return $entry }
     $dest = Join-Path $Context.BackupRoot $entry.Name
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         [System.IO.File]::Move($entry.Path, $dest)
+        Add-RunMetric -Metrics $Context.Metrics -Name 'move back from snapshot' -Ticks $watch.ElapsedTicks
         & $Context.Log "Moved '$($entry.Name)' back from '$($entry.Folder)' into the latest state." 'DEBUG'
         $entry.Path   = $dest
         $entry.Folder = ''
@@ -4533,6 +4785,10 @@ function New-CapturedRow {
     .PARAMETER MediaMBPerSec
         The media measure, or ''.
 
+    .PARAMETER PriorRow
+        The prior row for this path, or $null; its Compressed value is kept for
+        the one form the listing cannot decide (Get-StoredObjectCompressedFlag).
+
     .OUTPUTS
         [pscustomobject] a manifest row (Duplicate is set by the caller).
     #>
@@ -4544,15 +4800,17 @@ function New-CapturedRow {
         [Parameter(Mandatory)][long]$Length,
         [Parameter(Mandatory)][datetime]$LastWriteTime,
         [Parameter(Mandatory)][string]$Hash,
-        [AllowNull()][AllowEmptyString()][string]$MediaMBPerSec
+        [AllowNull()][AllowEmptyString()][string]$MediaMBPerSec,
+        [AllowNull()][object]$PriorRow
     )
+    $priorCompressed = if ($null -ne $PriorRow -and [string]$PriorRow.DataPath -eq [string]$Entry.Name) { [string]$PriorRow.Compressed } else { $null }
     [pscustomobject]@{
         DataPath         = [string]$Entry.Name
         RelativePath     = $RelativePath
         Length           = [string]$Length
         LastWriteTime    = $LastWriteTime
         xxH2Hash         = $Hash
-        Compressed       = Get-StoredObjectCompressedFlag -Entry $Entry
+        Compressed       = Get-StoredObjectCompressedFlag -Entry $Entry -PriorCompressed $priorCompressed
         StoredAsHashSize = 'Hash'
         Duplicate        = '0'
         MediaMBPerSec    = [string]$MediaMBPerSec
@@ -4594,7 +4852,10 @@ function ConvertTo-FrozenRow {
         Length           = [string]$PriorRow.Length
         LastWriteTime    = $PriorRow.LastWriteTime
         xxH2Hash         = [string]$PriorRow.xxH2Hash
-        Compressed       = if ($entry) { Get-StoredObjectCompressedFlag -Entry $entry } else { [string]$PriorRow.Compressed }
+        Compressed       = if ($entry) {
+                               $same = if ([string]$PriorRow.DataPath -eq [string]$entry.Name) { [string]$PriorRow.Compressed } else { $null }
+                               Get-StoredObjectCompressedFlag -Entry $entry -PriorCompressed $same
+                           } else { [string]$PriorRow.Compressed }
         StoredAsHashSize = 'Hash'
         Duplicate        = '0'
         MediaMBPerSec    = [string]$PriorRow.MediaMBPerSec
@@ -5176,6 +5437,226 @@ function New-BrowseViewIndex {
     return [pscustomobject]@{ Regenerated = $true; Rows = $rows.Count; Pages = $pages }
 }
 
+function New-RunMetric {
+    <#
+    .SYNOPSIS
+        A zeroed set of run metrics: step timings, per-operation counts, bytes
+        and time, and the slowest files - what Write-RunMetric reports, so a
+        check that slows a run can be found and iterated on.
+
+    .DESCRIPTION
+        Steps are marked in order with Complete-RunStep; operations are added
+        with Add-RunMetric. Kept counts the files skipped without a read, the
+        bulk of a nightly run, as a bare counter so it costs nothing per file.
+
+    .OUTPUTS
+        [hashtable]
+    #>
+    # Implements: SR-081, LLR-014
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    return @{
+        Watch     = [System.Diagnostics.Stopwatch]::StartNew()
+        Last      = [TimeSpan]::Zero
+        Steps     = [System.Collections.Generic.List[object]]::new()
+        Ops       = [ordered]@{}
+        Kept      = [long]0
+        BytesRead = [long]0
+        Slowest   = [System.Collections.Generic.List[object]]::new()
+        # Only a file that took half a second or more is worth naming.
+        SlowFloor = [long]([System.Diagnostics.Stopwatch]::Frequency / 2)
+        CompressedOut = [long]0
+    }
+}
+
+function Complete-RunStep {
+    <#
+    .SYNOPSIS
+        Records the time since the previous step mark under a step name.
+
+    .PARAMETER Metrics
+        New-RunMetric's set.
+
+    .PARAMETER Name
+        The step that just finished.
+    #>
+    # Implements: SR-081, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Metrics,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $now = $Metrics.Watch.Elapsed
+    $Metrics.Steps.Add([pscustomobject]@{ Name = $Name; Seconds = [math]::Round(($now - $Metrics.Last).TotalSeconds, 2) })
+    $Metrics.Last = $now
+}
+
+function Add-RunMetric {
+    <#
+    .SYNOPSIS
+        Adds one operation - its bytes and its stopwatch ticks - to a named
+        counter of the run's metrics.
+
+    .PARAMETER Metrics
+        New-RunMetric's set.
+
+    .PARAMETER Name
+        The operation, as the summary names it.
+
+    .PARAMETER Bytes
+        Bytes the operation moved or read.
+
+    .PARAMETER Ticks
+        Its duration in Stopwatch ticks.
+    #>
+    # Implements: SR-081, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Metrics,
+        [Parameter(Mandatory)][string]$Name,
+        [long]$Bytes = 0,
+        [long]$Ticks = 0
+    )
+    $op = $Metrics.Ops[$Name]
+    if ($null -eq $op) { $op = [long[]]::new(3); $Metrics.Ops[$Name] = $op }
+    $op[0]++
+    $op[1] += $Bytes
+    $op[2] += $Ticks
+}
+
+function Add-RunSlowFile {
+    <#
+    .SYNOPSIS
+        Keeps the five slowest file captures of a run.
+
+    .DESCRIPTION
+        Callers test Ticks against Metrics.SlowFloor first, so a fast file costs
+        no call at all.
+
+    .PARAMETER Metrics
+        New-RunMetric's set.
+
+    .PARAMETER RelativePath
+        The file.
+
+    .PARAMETER Bytes
+        Its length.
+
+    .PARAMETER Ticks
+        How long its capture took, in Stopwatch ticks.
+    #>
+    # Implements: SR-081, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Metrics,
+        [Parameter(Mandatory)][string]$RelativePath,
+        [long]$Bytes,
+        [long]$Ticks
+    )
+    $Metrics.Slowest.Add([pscustomobject]@{ RelativePath = $RelativePath; Bytes = $Bytes; Ticks = $Ticks })
+    if ($Metrics.Slowest.Count -gt 5) {
+        $min = 0
+        for ($i = 1; $i -lt $Metrics.Slowest.Count; $i++) { if ($Metrics.Slowest[$i].Ticks -lt $Metrics.Slowest[$min].Ticks) { $min = $i } }
+        $Metrics.Slowest.RemoveAt($min)
+    }
+    if ($Metrics.Slowest.Count -ge 5) {
+        $floor = [long]::MaxValue
+        foreach ($s in $Metrics.Slowest) { if ($s.Ticks -lt $floor) { $floor = $s.Ticks } }
+        $Metrics.SlowFloor = $floor
+    }
+}
+
+function Format-RunByteCount {
+    <#
+    .SYNOPSIS
+        A byte count as a short human figure (B, KB, MB, GB, TB).
+
+    .PARAMETER Bytes
+        The count.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-081, LLR-014
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([long]$Bytes)
+    $units = 'B', 'KB', 'MB', 'GB', 'TB'
+    $v = [double]$Bytes
+    $u = 0
+    while ($v -ge 1024 -and $u -lt $units.Count - 1) { $v /= 1024; $u++ }
+    if ($u -eq 0) { return "$Bytes B" }
+    return ('{0:N1} {1}' -f $v, $units[$u])
+}
+
+function Write-RunMetric {
+    <#
+    .SYNOPSIS
+        Writes a run's metrics to its log: step timings, the work done per
+        operation with its throughput, the slowest files, and one compact JSON
+        line ('metrics {...}') to compare runs by.
+
+    .PARAMETER Metrics
+        New-RunMetric's set.
+
+    .PARAMETER Extra
+        Counters to add to the JSON line (files, objects stored, ...).
+
+    .PARAMETER Label
+        What the timings are of ('Timings' for a backup run).
+
+    .PARAMETER Log
+        The logger.
+    #>
+    # Implements: SR-081, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Metrics,
+        [hashtable]$Extra = @{},
+        [string]$Label = 'Timings',
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $total = [math]::Round($Metrics.Watch.Elapsed.TotalSeconds, 2)
+    $steps = @($Metrics.Steps | ForEach-Object { '{0} {1:N1} s' -f $_.Name, $_.Seconds })
+    & $Log ("${Label}: " + ($steps -join ', ') + "; total {0:N1} s." -f $total)
+
+    $work = [System.Collections.Generic.List[string]]::new()
+    if ($Metrics.Kept -gt 0) { $work.Add("unchanged, not read $($Metrics.Kept)") }
+    $ops = [ordered]@{}
+    foreach ($name in $Metrics.Ops.Keys) {
+        $op = $Metrics.Ops[$name]
+        $secs = [double]$op[2] / [System.Diagnostics.Stopwatch]::Frequency
+        $line = "$name $($op[0])"
+        if ($op[1] -gt 0) {
+            $line += ", $(Format-RunByteCount $op[1])"
+            if ($secs -gt 0.05 -and $op[1] -ge 1MB) { $line += (", {0:N0} MB/s" -f (($op[1] / 1MB) / $secs)) }
+        }
+        if ($name -eq 'compress' -and $Metrics.CompressedOut -gt 0) { $line += " -> $(Format-RunByteCount $Metrics.CompressedOut)" }
+        $line += (", {0:N1} s" -f $secs)
+        $work.Add($line)
+        $ops[$name] = [ordered]@{ count = $op[0]; bytes = $op[1]; seconds = [math]::Round($secs, 2) }
+    }
+    if ($work.Count -gt 0) { & $Log ("Work: " + ($work -join '; ') + '.') }
+    if ($Metrics.Slowest.Count -gt 0) {
+        $slow = @($Metrics.Slowest | Sort-Object Ticks -Descending | ForEach-Object {
+            "'{0}' ({1}, {2:N1} s)" -f $_.RelativePath, (Format-RunByteCount $_.Bytes), ([double]$_.Ticks / [System.Diagnostics.Stopwatch]::Frequency) })
+        & $Log ("Slowest files: " + ($slow -join ', ') + '.')
+    }
+    $doc = [ordered]@{
+        of           = $Label
+        totalSeconds = $total
+        steps        = [ordered]@{}
+        kept         = $Metrics.Kept
+        bytesRead    = $Metrics.BytesRead
+        compressedOut = $Metrics.CompressedOut
+        ops          = $ops
+    }
+    foreach ($s in $Metrics.Steps) { $doc.steps[$s.Name] = $s.Seconds }
+    foreach ($k in $Extra.Keys) { $doc[$k] = $Extra[$k] }
+    & $Log ('metrics ' + ($doc | ConvertTo-Json -Compress -Depth 5))
+}
+
 function Read-PriorStateForRun {
     <#
     .SYNOPSIS
@@ -5252,6 +5733,9 @@ function New-BackupRunContext {
     .PARAMETER Index
         The object index (Get-StoreObjectIndex).
 
+    .PARAMETER Metrics
+        The run's metrics (New-RunMetric).
+
     .PARAMETER Log
         The set logger.
 
@@ -5265,6 +5749,7 @@ function New-BackupRunContext {
         [Parameter(Mandatory)][hashtable]$Deps,
         [Parameter(Mandatory)][pscustomobject]$Paths,
         [Parameter(Mandatory)][pscustomobject]$Index,
+        [Parameter(Mandatory)][hashtable]$Metrics,
         [Parameter(Mandatory)][scriptblock]$Log
     )
     $lastHashRun = $null
@@ -5289,7 +5774,7 @@ function New-BackupRunContext {
         BackupRoot = $Paths.BkpPath; Incoming = $incoming; LocalTemp = $localTemp; LocalTempMax = [long]$localTempMax; Set = $Set
         SevenZip = $Deps['7z']; Ffprobe = $Deps['ffprobe']; Index = $Index; Recalc = [bool]$recalc
         ProbeStats = (New-ProbeStatistic); Log = $Log
-        Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }; KitRevisionOf = @{}
+        Stats = [pscustomobject]@{ Stored = 0; MovedBack = 0 }; KitRevisionOf = @{}; Metrics = $Metrics
     }
 }
 
@@ -5307,10 +5792,10 @@ function Invoke-LibraryCapture {
         fails keeps its prior row. Rows of files the walk cannot see - a name
         that is not portable, a folder that cannot be listed - stay as they
         were (SR-055, SR-057, SR-091); every other row the walk did not visit
-        is a removal - unless the source root itself disappeared during the
-        run, which throws so the set stops (4) before a latest state that
-        lists nothing is written; a source root that cannot be listed keeps
-        every row. The local temp folder is removed however the capture ends.
+        is a removal - unless the source root itself disappeared, or emptied,
+        during the run, which throws so the set stops (4) before a latest state
+        that lists nothing is written; a source root that cannot be listed
+        keeps every row. The local temp folder is removed however the capture ends.
 
     .PARAMETER Context
         The run context (New-BackupRunContext).
@@ -5361,6 +5846,7 @@ function Invoke-LibraryCapture {
                 if ($prefix) { $unreadablePrefixes.Add($prefix + [System.IO.Path]::DirectorySeparatorChar) } else { $unreadablePrefixes.Add('') }
             }
         }
+        Complete-RunStep -Metrics $Context.Metrics -Name 'walk source'
         if ($walk.Files.Count -eq 0 -and $PriorRows.Count -gt 0 -and $walk.Unreadable.Count -eq 0) {
             & $log "Source '$($Paths.SrcPath)' is empty while the latest state holds $($PriorRows.Count) file(s). Nothing is deleted: the files move into the snapshot and come back if the source returns (plan C2)." 'WARN'
         }
@@ -5374,9 +5860,23 @@ function Invoke-LibraryCapture {
         $pending = [System.Collections.Generic.List[object]]::new()
         $dirty = $false
         $nextCheckpoint = [datetime]::UtcNow.AddSeconds($script:CheckpointMinSeconds)
+        $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
+        $done = 0
+        $metrics = $Context.Metrics
+        $fileWatch = [System.Diagnostics.Stopwatch]::new()
         foreach ($item in $walk.Files) {
             $visited[$item.RelativePath] = $true
+            $fileWatch.Restart()
             $result = Invoke-SourceFileCapture -Item $item -PriorRow $priorMap[$item.RelativePath] -Context $Context
+            if ($fileWatch.ElapsedTicks -gt $metrics.SlowFloor) {
+                Add-RunSlowFile -Metrics $metrics -RelativePath $item.RelativePath -Bytes $item.File.Length -Ticks $fileWatch.ElapsedTicks
+            }
+            $done++
+            if ([datetime]::UtcNow -ge $nextProgress) {
+                & $log ("Progress: $done of $($walk.Files.Count) file(s), $(Format-RunByteCount $metrics.BytesRead) read, " +
+                        "{0:N0} s." -f $metrics.Watch.Elapsed.TotalSeconds)
+                $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
+            }
             switch ($result.Status) {
                 'Kept'     { $working[$item.RelativePath] = $result.Row }
                 'Captured' { $working[$item.RelativePath] = $result.Row; $dirty = $true }
@@ -5388,12 +5888,15 @@ function Invoke-LibraryCapture {
                 $watch = [System.Diagnostics.Stopwatch]::StartNew()
                 Write-Manifest -FolderPath $Paths.BkpPath -Records ([object[]]@($working.Values))
                 $watch.Stop()
+                Add-RunMetric -Metrics $metrics -Name 'progress checkpoint' -Ticks $watch.ElapsedTicks
                 $dirty = $false
                 $wait = [math]::Max($script:CheckpointMinSeconds, $script:CheckpointWriteFactor * $watch.Elapsed.TotalSeconds)
                 $nextCheckpoint = [datetime]::UtcNow.AddSeconds($wait)
                 & $log "Progress saved ($($working.Count) row(s), $([math]::Round($watch.Elapsed.TotalSeconds, 1)) s)." 'DEBUG'
             }
         }
+
+        Complete-RunStep -Metrics $metrics -Name 'capture files'
 
         # 5. The retry pass (R12): each failed file again, no sooner than
         #    the spacing after its last attempt, up to the attempt limit.
@@ -5403,7 +5906,10 @@ function Invoke-LibraryCapture {
             foreach ($p in ($pending | Sort-Object LastAttempt)) {
                 $due = $p.LastAttempt.AddSeconds($script:RetryMinSpacingSeconds)
                 $sleep = ($due - [datetime]::UtcNow).TotalMilliseconds
-                if ($sleep -gt 0) { Start-Sleep -Milliseconds ([int][math]::Ceiling($sleep)) }
+                if ($sleep -gt 0) {
+                    Start-Sleep -Milliseconds ([int][math]::Ceiling($sleep))
+                    Add-RunMetric -Metrics $metrics -Name 'retry wait' -Ticks ([long]($sleep * [System.Diagnostics.Stopwatch]::Frequency / 1000))
+                }
                 $result = Invoke-SourceFileCapture -Item $p.Item -PriorRow $priorMap[$p.Item.RelativePath] -Context $Context
                 $p.Attempts++
                 $p.LastAttempt = [datetime]::UtcNow
@@ -5424,11 +5930,19 @@ function Invoke-LibraryCapture {
             $pending = $next
         }
 
+        Complete-RunStep -Metrics $metrics -Name 'retry pass'
+
         # Files that vanished are removals - unless the source itself went
         # away (a share dropped, a drive unplugged): then this is no state of
         # the source at all, and the set stops before it is written (4).
         if ($gone -gt 0 -and -not [System.IO.Directory]::Exists($Paths.SrcPath)) {
             throw "The source root '$($Paths.SrcPath)' disappeared during the run ($gone file(s) vanished); the latest state is left as it was."
+        }
+        # A mount that drops on Linux leaves its empty mount-point folder behind
+        # (plan C27): files vanished and the source is now empty. A source
+        # already empty when the walk began is C2's case and only warns.
+        if ($gone -gt 0 -and @([System.IO.Directory]::EnumerateFileSystemEntries($Paths.SrcPath) | Select-Object -First 1).Count -eq 0) {
+            throw "The source '$($Paths.SrcPath)' emptied during the run ($gone file(s) vanished) - a mount that dropped looks like this; the latest state is left as it was."
         }
 
         # The final rows: what the loop captured, plus the prior rows of
@@ -5579,9 +6093,12 @@ function Invoke-BackupSet {
         [AllowNull()][Nullable[datetime]]$BackupTime
     )
 
-    # 1. Paths; then the lock, before any store state is read (SR-085).
+    # 1. Paths; then the lock, before any store state is read (SR-085). A
+    #    store drive that is not attached is retry later (4, plan C25);
+    #    anything else here needs a person (2).
     try { $paths = Resolve-BackupSetPaths -Set $Set } catch {
         Write-Warning $_.Exception.Message
+        if ($_.Exception -is [System.IO.DriveNotFoundException]) { return 4 }
         return 2
     }
     $logPath = Join-Path $paths.ChgPath 'backup.log'
@@ -5598,6 +6115,7 @@ function Invoke-BackupSet {
     }
     $log = $null
     $code = 0
+    $metrics = New-RunMetric
     try {
         $log = New-Logger -LogFile $logPath
         $LogPaths.Add($logPath)
@@ -5609,48 +6127,61 @@ function Invoke-BackupSet {
             & $log "Refusing backup set '$($Set.Name)': $($_.Exception.Message)" 'ERROR'
             return 2
         }
+        Complete-RunStep -Metrics $metrics -Name 'read latest state'
         Clear-InterruptedRunResidue -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -Log $log
         $priorDate = Get-PriorBackupDate -BackupRoot $paths.BkpPath -PriorRowCount $priorRows.Count -Log $log
+        Complete-RunStep -Metrics $metrics -Name 'clear residue'
 
         # 3. The index, the kit and the prior state's snapshot (plan steps 2-3).
         $index = Get-StoreObjectIndex -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
         & $log "Indexed $($index.Objects.Count) stored object(s); $($index.Duplicates.Count) duplicate cop(ies) left for -Action Verify."
+        Complete-RunStep -Metrics $metrics -Name 'index the store'
         New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
+        Complete-RunStep -Metrics $metrics -Name 'restore kit'
         $snapshot = $null
         if ($null -ne $priorDate) {
             $snapshot = Publish-PriorStateSnapshot -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                             -PriorDate $priorDate -PriorRows $priorRows -Log $log
         }
         Invoke-BackupRunTestHook -Stage 'AfterSnapshotPublished' -Context $snapshot
+        Complete-RunStep -Metrics $metrics -Name 'publish snapshot'
 
-        # 4-5. The library loop and the retry pass.
-        $context = New-BackupRunContext -Set $Set -Deps $Deps -Paths $paths -Index $index -Log $log
+        # 4-5. The library loop and the retry pass (each marks its own steps).
+        $context = New-BackupRunContext -Set $Set -Deps $Deps -Paths $paths -Index $index -Metrics $metrics -Log $log
         $capture = Invoke-LibraryCapture -Context $context -Paths $paths -PriorRows $priorRows
         $finalRows = $capture.FinalRows
 
         # 6. Finish the latest state, then record this run's date.
         Publish-LatestState -Context $context -Paths $paths -FinalRows $finalRows -WalkPaths $capture.WalkPaths -When $thisBackupDate
+        Complete-RunStep -Metrics $metrics -Name 'finish latest state'
 
         # 7. A run that changed no row keeps no snapshot it built itself (SR-100).
         if ($null -ne $snapshot -and $snapshot.BuiltNow -and -not (Test-StateChanged -PriorRows $priorRows -FinalRows $finalRows)) {
             if (Remove-UnchangedSnapshot -SnapshotPath $snapshot.Path -ChangeRoot $paths.ChgPath -Log $log) { $snapshot = $null }
         }
+        Complete-RunStep -Metrics $metrics -Name 'drop unneeded snapshot'
 
         # 8. Superseded content into the snapshot.
         $snapshotPath = if ($null -ne $snapshot) { $snapshot.Path } else { $null }
         $snapshotRows = if ($null -ne $snapshot -and $snapshot.BuiltNow) { $priorRows } else { @() }
         $moved = Move-SupersededObject -Index $index -FinalRows $finalRows -SnapshotPath $snapshotPath `
                      -SnapshotRows $snapshotRows -ChangeRoot $paths.ChgPath -Log $log
+        Complete-RunStep -Metrics $metrics -Name 'move superseded'
 
         # 9. The browse view (SR-062), cosmetic: a failure is a warning.
         if ([string]$Set.BrowseView -eq 'index' -and $paths.ViewPath) {
             try { [void](New-BrowseViewIndex -BackupRoot $paths.BkpPath -ViewRoot $paths.ViewPath -Log $log) }
             catch { & $log "Browse view generation failed: $($_.Exception.Message) (the backup itself is unaffected; -Action View retries loudly)" 'WARN' }
+            Complete-RunStep -Metrics $metrics -Name 'browse view'
         }
 
         Write-ProbeStatistic -Stats $context.ProbeStats -Log $log
         & $log ("Files: $($finalRows.Count) in the latest state, $($context.Stats.Stored) new object(s) stored, " +
                 "$($context.Stats.MovedBack) moved back from snapshots, $moved superseded moved into the snapshot, $($capture.NotCaptured) not captured.")
+        Write-RunMetric -Metrics $metrics -Log $log -Extra @{
+            files = $finalRows.Count; stored = $context.Stats.Stored; movedBack = $context.Stats.MovedBack
+            supersededMoved = $moved; notCaptured = $capture.NotCaptured; kitRevisionReads = $context.KitRevisionOf.Count
+        }
         if ($capture.NotCaptured -gt 0) {
             $code = 1
             & $log "----- Backup set '$($Set.Name)' completed; $($capture.NotCaptured) file(s) or folder(s) not captured (see the warnings above) -----" 'WARN'
@@ -5660,7 +6191,12 @@ function Invoke-BackupSet {
     } catch {
         $why = if (Test-BackupDiskFull -ErrorRecord $_) { 'the backup volume is full' } else { 'it stopped' }
         $msg = "Backup set '$($Set.Name)' did not finish because ${why}: $($_.Exception.Message) Every state stays restorable; the next run carries on from the files."
-        if ($null -ne $log) { & $log $msg 'ERROR' } else { Write-Warning $msg }
+        if ($null -ne $log) {
+            & $log $msg 'ERROR'
+            # What the run spent its time on before it stopped (a slow step is
+            # often why a scheduled run was killed).
+            try { Write-RunMetric -Metrics $metrics -Log $log -Extra @{ stopped = $true } } catch { Write-Verbose "metrics not written: $($_.Exception.Message)" }
+        } else { Write-Warning $msg }
         $code = 4
     } finally {
         Exit-StagingOsLock -Lock $osLock -Log $log
@@ -6176,7 +6712,8 @@ Export-ModuleMember -Function @(
     'New-ReconstructScript',
     'Get-StagingOsLockPath', 'Enter-StagingOsLock', 'Exit-StagingOsLock',
     'Resolve-BackupSetPaths',
-    'Get-StoredObjectVerdict', 'Get-StoreObjectFinding', 'Move-StoreObjectToVerify',
+    'Get-StoredObjectVerdict', 'Get-StoreObjectFinding', 'Move-StoreObjectToVerify', 'Measure-DuplicateRepairCost',
+    'New-RunMetric', 'Complete-RunStep', 'Write-RunMetric', 'Format-RunByteCount',
     'Get-StoreObjectIndex', 'ConvertFrom-StoredObjectName', 'Get-StoredObjectPrefix', 'Assert-SingleStoreMount',
     'Copy-FileWithHash', 'Get-SourceFileList', 'Invoke-SourceFileCapture', 'Publish-PriorStateSnapshot',
     'Move-SupersededObject', 'Get-SortedManifestRow',
