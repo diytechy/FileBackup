@@ -79,12 +79,10 @@ function New-SmokeConfiguration {
             [ordered]@{
                 Name = 'ContainerSmoke'
                 SourcePath = '/source'
-                SourceStatePath = '/state'
-                BackupPath = '/backup'
-                ChangePath = '/changes'
+                BackupPath = '/store/backup'
+                ChangePath = '/store/changes'
                 HashRecalcFreq = 'N'
                 CompressEnabled = $true
-                AllowEmptySource = $false
             }
         )
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding UTF8
@@ -111,6 +109,9 @@ function Invoke-ContainerAction {
         reports findings as status 1, which is an expected outcome (SR-040).
     .PARAMETER Word
         The entrypoint's positional action word (backup, prune, snapshots, verify).
+    .PARAMETER Store
+        The ONE writable host folder mounted at /store, holding backup/ and
+        changes/ (bounded-run-loop plan R8).
     .PARAMETER Environment
         Extra 'NAME=value' pairs passed with -e.
     .OUTPUTS
@@ -122,9 +123,7 @@ function Invoke-ContainerAction {
         [Parameter(Mandatory)][string]$Word,
         [Parameter(Mandatory)][string]$ConfigPath,
         [Parameter(Mandatory)][string]$Source,
-        [Parameter(Mandatory)][string]$State,
-        [Parameter(Mandatory)][string]$Backup,
-        [Parameter(Mandatory)][string]$Changes,
+        [Parameter(Mandatory)][string]$Store,
         [Parameter(Mandatory)][string]$Logs,
         [string[]]$Environment = @()
     )
@@ -136,9 +135,7 @@ function Invoke-ContainerAction {
     foreach ($pair in $Environment) { $runArgs.Add('-e'); $runArgs.Add($pair) }
     Add-BindMountArguments -Arguments $runArgs -Source $ConfigPath -Target '/config/FileBackup.json' -ReadOnly
     Add-BindMountArguments -Arguments $runArgs -Source $Source  -Target '/source' -ReadOnly
-    Add-BindMountArguments -Arguments $runArgs -Source $State   -Target '/state'
-    Add-BindMountArguments -Arguments $runArgs -Source $Backup  -Target '/backup'
-    Add-BindMountArguments -Arguments $runArgs -Source $Changes -Target '/changes'
+    Add-BindMountArguments -Arguments $runArgs -Source $Store   -Target '/store'
     Add-BindMountArguments -Arguments $runArgs -Source $Logs    -Target '/logs'
     $runArgs.Add($Image)
     $runArgs.Add($Word)
@@ -163,13 +160,12 @@ function Test-ContainerStorageForm {
         [Parameter(Mandatory)][string]$Image,
         [Parameter(Mandatory)][string]$ConfigPath,
         [Parameter(Mandatory)][string]$Source,
-        [Parameter(Mandatory)][string]$State,
-        [Parameter(Mandatory)][string]$Backup,
-        [Parameter(Mandatory)][string]$Changes,
+        [Parameter(Mandatory)][string]$Store,
         [Parameter(Mandatory)][string]$Logs
     )
-    $common = @{ Image = $Image; ConfigPath = $ConfigPath; Source = $Source; State = $State
-                 Backup = $Backup; Changes = $Changes; Logs = $Logs }
+    $common = @{ Image = $Image; ConfigPath = $ConfigPath; Source = $Source; Store = $Store; Logs = $Logs }
+    $Backup  = Join-Path $Store 'backup'
+    $Changes = Join-Path $Store 'changes'
 
     # --- clean store: exit 0, parseable JSON, nothing modified ---
     $before = @{}
@@ -198,30 +194,28 @@ function Test-ContainerStorageForm {
 
     # --- seed one malformed row: Compressed=Yes over raw bytes ---
     # Selection reads on the HOST (world-readable); every WRITE runs INSIDE
-    # the image. Two first-real-CI lessons (runs 32661497480 / 32672263476):
-    # the host has no System.IO.Hashing (the witness stamp prompted
-    # interactively and aborted), and the store's files belong to the image's
-    # uid 65532 — a host-side WriteAllText onto a data file is access-denied
-    # on the runner. Write-Manifest also re-stamps the witness, so one
-    # in-container command does data file + manifest + witness together.
+    # the image. A first-real-CI lesson (runs 32661497480 / 32672263476): the
+    # store's files belong to the image's uid 65532, so a host-side
+    # WriteAllText onto a data file is access-denied on the runner. One
+    # in-container command therefore writes the data file and the manifest.
     $manifestPath = Join-Path $Backup 'MANIFEST.csv'
     $rows = @(Import-Csv -LiteralPath $manifestPath)
     $target = @($rows | Where-Object Compressed -eq 'No')[0]
     if (-not $target) { $target = $rows[0] }
     $seedArgs = [System.Collections.Generic.List[string]]::new()
     $seedArgs.AddRange([string[]]@('run', '--rm', '--entrypoint', 'pwsh'))
-    Add-BindMountArguments -Arguments $seedArgs -Source $Backup -Target '/backup'
+    Add-BindMountArguments -Arguments $seedArgs -Source $Store -Target '/store'
     $seedArgs.AddRange([string[]]@('--env', "FILEBACKUP_SEED_REL=$($target.RelativePath)"))
     $seedArgs.Add($Image)
     $seedArgs.AddRange([string[]]@('-NoProfile', '-Command', @'
 $ErrorActionPreference = 'Stop'
 Import-Module /opt/filebackup/Modules/FileBackup.Common.psm1
-$rows = @(Read-Manifest -FolderPath /backup)
+$rows = @(Read-Manifest -FolderPath /store/backup)
 $t = @($rows | Where-Object RelativePath -eq $env:FILEBACKUP_SEED_REL)[0]
-if (-not $t) { throw "seed target '$env:FILEBACKUP_SEED_REL' not found in /backup manifest" }
-[System.IO.File]::WriteAllText("/backup/$($t.DataPath)", 'raw bytes that are not an archive')
+if (-not $t) { throw "seed target '$env:FILEBACKUP_SEED_REL' not found in /store/backup manifest" }
+[System.IO.File]::WriteAllText("/store/backup/$($t.DataPath)", 'raw bytes that are not an archive')
 $t.Compressed = 'Yes'
-Write-Manifest -FolderPath /backup -Records $rows
+Write-Manifest -FolderPath /store/backup -Records $rows
 '@))
     Invoke-ContainerCommand -Arguments $seedArgs.ToArray()
 
@@ -322,12 +316,12 @@ function Test-ContainerCompressProbe {
     $probeRoot = Join-Path $Root 'probe'
     $source    = Join-Path $probeRoot 'source'
     $config    = Join-Path $probeRoot 'config'
-    $state     = Join-Path $probeRoot 'state'
-    $backup    = Join-Path $probeRoot 'backup'
-    $changes   = Join-Path $probeRoot 'changes'
+    $store     = Join-Path $probeRoot 'store'
+    $backup    = Join-Path $store 'backup'
+    $changes   = Join-Path $store 'changes'
     $logs      = Join-Path $probeRoot 'logs'
     $restore   = Join-Path $probeRoot 'restore'
-    $folders   = @($probeRoot,$source,$config,$state,$backup,$changes,$logs,$restore)
+    $folders   = @($probeRoot,$source,$config,$store,$backup,$changes,$logs,$restore)
     New-Item -ItemType Directory -Path $folders -Force | Out-Null
     if ($IsLinux -or $IsMacOS) {
         & chmod 0777 @folders
@@ -362,12 +356,10 @@ function Test-ContainerCompressProbe {
     $set = [ordered]@{
         Name = 'ContainerProbe'
         SourcePath = '/source'
-        SourceStatePath = '/state'
-        BackupPath = '/backup'
-        ChangePath = '/changes'
+        BackupPath = '/store/backup'
+        ChangePath = '/store/changes'
         HashRecalcFreq = 'N'
         CompressEnabled = $true
-        AllowEmptySource = $false
     }
     $configFile = Join-Path $config 'FileBackup.json'
     [ordered]@{ ConfigVersion = 2; Tools = [ordered]@{ SevenZipPath = '/usr/bin/7z' }; BackupSets = @($set) } |
@@ -399,7 +391,7 @@ function Test-ContainerCompressProbe {
     # --- the run itself, wall-clock timed: the operator's first-run cost ---
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $run = Invoke-ContainerAction -Image $Image -Word 'backup' -ConfigPath $configFile `
-        -Source $source -State $state -Backup $backup -Changes $changes -Logs $logs
+        -Source $source -Store $store -Logs $logs
     $stopwatch.Stop()
     if ($run.Code -ne 0) { throw "TC-230 backup exited $($run.Code); expected 0.`n$($run.Output)" }
 
@@ -495,11 +487,10 @@ function Test-ContainerCompressProbe {
         '--tmpfs','/tmp:rw,noexec,nosuid,nodev',
         '--entrypoint','pwsh'
     )
-    Add-BindMountArguments -Arguments $restoreArgs -Source $backup -Target '/backup' -ReadOnly
-    Add-BindMountArguments -Arguments $restoreArgs -Source $changes -Target '/changes' -ReadOnly
+    Add-BindMountArguments -Arguments $restoreArgs -Source $store -Target '/store' -ReadOnly
     Add-BindMountArguments -Arguments $restoreArgs -Source $restore -Target '/restore'
     $restoreArgs.Add($Image)
-    foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/backup/RECONSTRUCT.ps1','-TargetRoot','/restore','-BackupRootOverride','/backup','-ChangeRootOverride','/changes','-SevenZipPath','/usr/bin/7z') {
+    foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/backup/RECONSTRUCT.ps1','-TargetRoot','/restore','-BackupRootOverride','/store/backup','-ChangeRootOverride','/store/changes','-SevenZipPath','/usr/bin/7z') {
         $restoreArgs.Add($arg)
     }
     Invoke-ContainerCommand -Arguments $restoreArgs.ToArray()
@@ -532,12 +523,13 @@ function Invoke-ContainerSmokeTest {
     $smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("FileBackupContainerSmoke_" + [guid]::NewGuid().ToString('N'))
     $source = Join-Path $smokeRoot 'source'
     $config = Join-Path $smokeRoot 'config'
-    $state = Join-Path $smokeRoot 'state'
-    $backup = Join-Path $smokeRoot 'backup'
-    $changes = Join-Path $smokeRoot 'changes'
+    # ONE store mount holds both roots (bounded-run-loop plan R8).
+    $store = Join-Path $smokeRoot 'store'
+    $backup = Join-Path $store 'backup'
+    $changes = Join-Path $store 'changes'
     $logs = Join-Path $smokeRoot 'logs'
     $restore = Join-Path $smokeRoot 'restore'
-    $folders = @($source,$config,$state,$backup,$changes,$logs,$restore)
+    $folders = @($source,$config,$store,$backup,$changes,$logs,$restore)
 
     try {
         New-Item -ItemType Directory -Path $folders -Force | Out-Null
@@ -557,20 +549,21 @@ function Invoke-ContainerSmokeTest {
         )
         Add-BindMountArguments -Arguments $runArgs -Source (Join-Path $config 'FileBackup.json') -Target '/config/FileBackup.json' -ReadOnly
         Add-BindMountArguments -Arguments $runArgs -Source $source -Target '/source' -ReadOnly
-        Add-BindMountArguments -Arguments $runArgs -Source $state -Target '/state'
-        Add-BindMountArguments -Arguments $runArgs -Source $backup -Target '/backup'
-        Add-BindMountArguments -Arguments $runArgs -Source $changes -Target '/changes'
+        Add-BindMountArguments -Arguments $runArgs -Source $store -Target '/store'
         Add-BindMountArguments -Arguments $runArgs -Source $logs -Target '/logs'
         $runArgs.Add($Image)
         Invoke-ContainerCommand -Arguments $runArgs.ToArray()
 
-        # MANIFEST.csv.meta is the SR-038 witness, written beside every manifest by
-        # Write-Manifest — not a copied kit artifact, but it must be present in a
-        # backup the container produced, or a restore would report an unverified index.
-        foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.cmd','RECONSTRUCT.command','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
+        foreach ($artifact in 'MANIFEST.csv','RECONSTRUCT.cmd','RECONSTRUCT.command','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
             if (-not (Test-Path -LiteralPath (Join-Path $backup $artifact) -PathType Leaf)) {
                 throw "Container smoke test did not produce restore-kit artifact '$artifact'."
             }
+        }
+        # No witness any more (plan R5): a MANIFEST.csv.meta beside the latest
+        # manifest would go stale on the next write, and every older kit
+        # refuses a stale witness.
+        if (Test-Path -LiteralPath (Join-Path $backup 'MANIFEST.csv.meta')) {
+            throw 'Container smoke test found a MANIFEST.csv.meta witness beside the latest manifest; this build writes none.'
         }
         $rows = @(Import-Csv -LiteralPath (Join-Path $backup 'MANIFEST.csv'))
         if ($rows.Count -ne 2) { throw "Expected 2 manifest rows; found $($rows.Count)." }
@@ -584,11 +577,10 @@ function Invoke-ContainerSmokeTest {
             '--tmpfs','/tmp:rw,noexec,nosuid,nodev',
             '--entrypoint','pwsh'
         )
-        Add-BindMountArguments -Arguments $restoreArgs -Source $backup -Target '/backup' -ReadOnly
-        Add-BindMountArguments -Arguments $restoreArgs -Source $changes -Target '/changes' -ReadOnly
+        Add-BindMountArguments -Arguments $restoreArgs -Source $store -Target '/store' -ReadOnly
         Add-BindMountArguments -Arguments $restoreArgs -Source $restore -Target '/restore'
         $restoreArgs.Add($Image)
-        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/backup/RECONSTRUCT.ps1','-TargetRoot','/restore','-BackupRootOverride','/backup','-ChangeRootOverride','/changes','-SevenZipPath','/usr/bin/7z') {
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/backup/RECONSTRUCT.ps1','-TargetRoot','/restore','-BackupRootOverride','/store/backup','-ChangeRootOverride','/store/changes','-SevenZipPath','/usr/bin/7z') {
             $restoreArgs.Add($arg)
         }
         Invoke-ContainerCommand -Arguments $restoreArgs.ToArray()
@@ -638,25 +630,24 @@ function Invoke-ContainerSmokeTest {
         $snapshotPath = $snapshotDirs[0].FullName
 
         foreach ($kitRoot in @($backup, $snapshotPath)) {
-            foreach ($artifact in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.cmd','RECONSTRUCT.command','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
+            foreach ($artifact in 'MANIFEST.csv','RECONSTRUCT.cmd','RECONSTRUCT.command','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','RECONSTRUCT.paths.json') {
                 if (-not (Test-Path -LiteralPath (Join-Path $kitRoot $artifact) -PathType Leaf)) {
                     throw "Incremental smoke test did not produce restore-kit artifact '$artifact' under '$kitRoot'."
                 }
             }
         }
 
-        # Restore #1: latest state (/backup), compared against the mutated source.
+        # Restore #1: latest state (/store/backup), compared against the mutated source.
         $restoreLatestArgs = [System.Collections.Generic.List[string]]@(
             'run','--rm','--network','none','--read-only',
             '--security-opt','no-new-privileges','--cap-drop','ALL',
             '--tmpfs','/tmp:rw,noexec,nosuid,nodev',
             '--entrypoint','pwsh'
         )
-        Add-BindMountArguments -Arguments $restoreLatestArgs -Source $backup -Target '/backup' -ReadOnly
-        Add-BindMountArguments -Arguments $restoreLatestArgs -Source $changes -Target '/changes' -ReadOnly
+        Add-BindMountArguments -Arguments $restoreLatestArgs -Source $store -Target '/store' -ReadOnly
         Add-BindMountArguments -Arguments $restoreLatestArgs -Source $restoreLatest -Target '/restore-latest'
         $restoreLatestArgs.Add($Image)
-        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/backup/RECONSTRUCT.ps1','-TargetRoot','/restore-latest','-BackupRootOverride','/backup','-ChangeRootOverride','/changes','-SevenZipPath','/usr/bin/7z') {
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/backup/RECONSTRUCT.ps1','-TargetRoot','/restore-latest','-BackupRootOverride','/store/backup','-ChangeRootOverride','/store/changes','-SevenZipPath','/usr/bin/7z') {
             $restoreLatestArgs.Add($arg)
         }
         Invoke-ContainerCommand -Arguments $restoreLatestArgs.ToArray()
@@ -685,11 +676,10 @@ function Invoke-ContainerSmokeTest {
             '--tmpfs','/tmp:rw,noexec,nosuid,nodev',
             '--entrypoint','pwsh'
         )
-        Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $backup -Target '/backup' -ReadOnly
-        Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $changes -Target '/changes' -ReadOnly
+        Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $store -Target '/store' -ReadOnly
         Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $restoreSnapshot -Target '/restore-snapshot'
         $restoreSnapshotArgs.Add($Image)
-        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File',"/changes/$snapshotName/RECONSTRUCT.ps1",'-TargetRoot','/restore-snapshot','-BackupRootOverride','/backup','-ChangeRootOverride','/changes','-SevenZipPath','/usr/bin/7z') {
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File',"/store/changes/$snapshotName/RECONSTRUCT.ps1",'-TargetRoot','/restore-snapshot','-BackupRootOverride','/store/backup','-ChangeRootOverride','/store/changes','-SevenZipPath','/usr/bin/7z') {
             $restoreSnapshotArgs.Add($arg)
         }
         Invoke-ContainerCommand -Arguments $restoreSnapshotArgs.ToArray()
@@ -710,7 +700,7 @@ function Invoke-ContainerSmokeTest {
         }
 
         Test-ContainerStorageForm -Image $Image -ConfigPath (Join-Path $config 'FileBackup.json') `
-            -Source $source -State $state -Backup $backup -Changes $changes -Logs $logs
+            -Source $source -Store $store -Logs $logs
 
         Write-Host 'Container smoke test passed: incremental run produced a restorable dated snapshot alongside a byte-exact latest-state restore.'
 
