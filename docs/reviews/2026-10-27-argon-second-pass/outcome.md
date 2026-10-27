@@ -7,7 +7,16 @@ length`, no text, exit 0); the same session resumed with `--variant low` wrote
 the report, as on 2026-10-26.
 
 Each finding was checked against the code by the main session (Claude Opus 5.5).
-Nothing below has been changed yet; each needs the Owner.
+
+**Owner's rulings (same day): all three acted on.** 1 and 3 fixed as proposed.
+2: a held lock is transient (`Temp.lock` is never written, so a scanner holds it
+only for an instant; the other run ends), so it is 4 for every action, as it was
+for a backup. One function, `Get-StoreRefusalCode` (renamed from
+`Get-StorePathFailureCode`), now answers both an unplugged store drive and a
+held lock for the backup, Prune, Snapshots, Verify and View. Prune's lock
+refusal is now kind `lock-held`; its `Temp`-folder refusals stay
+`staging-busy` / 2, since a leftover `Temp` needs a person. The status.md entry
+of 2026-10-27 has the evidence.
 
 | # | Reviewer's claim | Verdict | Severity (ours) |
 |---|---|---|---|

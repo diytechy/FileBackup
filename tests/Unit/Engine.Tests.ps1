@@ -56,7 +56,7 @@ Describe 'Test-IsInfrastructureFile' {
         # filters through here, so prune's unreferenced-data rail, the SR-064
         # orphan audit and Optimize-ChangeFolders would all treat the sidecar as
         # a stray data file without it.
-        foreach ($n in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','DIRECTORIES.csv') {
+        foreach ($n in 'MANIFEST.csv','MANIFEST.csv.meta','RECONSTRUCT.ps1','reconstruct.sh','FileBackup.Common.psm1','System.IO.Hashing.dll','DIRECTORIES.csv','DIRECTORIES.csv.tmp') {
             $p = Join-Path $root $n; Set-Content -LiteralPath $p -Value 'x'
             Test-IsInfrastructureFile -Root $root -FullPath $p | Should -BeTrue
         }

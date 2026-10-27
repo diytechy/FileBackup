@@ -67,6 +67,26 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
         @(Read-Manifest -FolderPath $dir).Count | Should -Be 5
     }
 
+    It 'flushes DIRECTORIES.csv.tmp before renaming it over DIRECTORIES.csv (review 2026-10-27, argon 1)' {
+        $dir = New-Folder 'sidecar'
+        Write-DirectorySidecar -FolderPath $dir -Records @([pscustomobject]@{ RelativePath = 'old'; Attributes = '' })
+        $dest = Join-Path $dir 'DIRECTORIES.csv'
+        $oldHash = (Get-FileHash -LiteralPath $dest).Hash
+        $seen = [System.Collections.Generic.List[object]]::new()
+        Set-FileSyncHook ({
+            param($p)
+            $seen.Add([pscustomobject]@{ Path = $p; DestHash = (Get-FileHash -LiteralPath $dest).Hash })
+        }.GetNewClosure())
+        Write-DirectorySidecar -FolderPath $dir -Records @(
+            [pscustomobject]@{ RelativePath = 'empty'; Attributes = '' }
+            [pscustomobject]@{ RelativePath = 'hidden'; Attributes = 'Hidden' })
+        $seen.Count | Should -Be 1 -Because 'the sidecar is flushed once per write'
+        $seen[0].Path | Should -Be "$dest.tmp"
+        $seen[0].DestHash | Should -Be $oldHash -Because 'the flush comes before the rename over the old sidecar'
+        @(Import-Csv -LiteralPath $dest).RelativePath | Should -Be @('empty', 'hidden')
+        Test-Path -LiteralPath "$dest.tmp" | Should -BeFalse
+    }
+
     It 'flushes the run-state temp file before renaming it over FileBackupState.json (review 2026-10-26 A1)' {
         $dir = New-Folder 'state'
         Set-LastBackupRun -BackupRoot $dir -When ([datetime]'2026-01-01T10:00:00')

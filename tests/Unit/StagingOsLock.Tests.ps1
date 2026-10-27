@@ -411,10 +411,11 @@ Describe 'The lock is held across the whole run (TC-244, TC-245, SR-085, SR-086,
         $script:Window[$_].AfterBackupHash | Should -Be $script:Window[$_].Before
     }
 
-    It 'makes a concurrent PRUNE refuse on the OS lock with code 2 at <_> (TC-245, SR-086)' -ForEach @(
+    It 'makes a concurrent PRUNE refuse on the OS lock with code 4, as a backup does, at <_> (TC-245, SR-086)' -ForEach @(
         'AfterSnapshotPublished', 'BeforeSupersededMove') {
         $script:Window[$_].Prune[0].Message | Should -Match ([regex]::Escape($script:LockHeldToken))
-        "$($script:Window[$_].Prune[0].Status)/$($script:Window[$_].Prune[0].Code)" | Should -Be 'Refused/2'
+        "$($script:Window[$_].Prune[0].Status)/$($script:Window[$_].Prune[0].Code)" | Should -Be 'Refused/4'
+        $script:Window[$_].Prune[0].Refusals[0].Kind | Should -Be 'lock-held'
     }
 
     It 'leaves every byte unchanged by the refused prune at <_> (TC-245, SR-086)' -ForEach @(
@@ -493,8 +494,8 @@ Describe 'An open failure that is not a sharing violation is LIVE (TC-249, SR-08
         $script:OpenFail[$_].Log | Should -Match ([regex]::Escape($script:LockHeldToken))
     }
 
-    It 'refuses the prune with code 2 for <_> (TC-249, SR-086)' -ForEach @('directory-at-path', 'io-error', 'access-denied') {
-        "$($script:OpenFail[$_].Prune[0].Status)/$($script:OpenFail[$_].Prune[0].Code)" | Should -Be 'Refused/2'
+    It 'refuses the prune with code 4, as the backup, for <_> (TC-249, SR-086)' -ForEach @('directory-at-path', 'io-error', 'access-denied') {
+        "$($script:OpenFail[$_].Prune[0].Status)/$($script:OpenFail[$_].Prune[0].Code)" | Should -Be 'Refused/4'
     }
 
     It 'leaves every byte unchanged for <_> (TC-249, SR-086)' -ForEach @('directory-at-path', 'io-error', 'access-denied') {
@@ -764,16 +765,16 @@ Describe '-Action Verify through the entry point with the lock held (TC-253, SR-
         $script:VE.Plain.Code | Should -Be 0
     }
 
-    It 'refuses -RepairStorage with exit 2 (TC-253, SR-086, SR-040)' {
-        $script:VE.Repair.Code | Should -Be 2
+    It 'refuses -RepairStorage with exit 4, retry later (TC-253, SR-086, SR-040)' {
+        $script:VE.Repair.Code | Should -Be 4
     }
 
     It 'names the lock in the -RepairStorage refusal (TC-253, SR-086)' {
         $script:VE.Repair.Text | Should -Match ([regex]::Escape($script:LockHeldToken))
     }
 
-    It 'refuses -RefreshKits with exit 2 (TC-253, SR-086, SR-040)' {
-        $script:VE.Refresh.Code | Should -Be 2
+    It 'refuses -RefreshKits with exit 4, retry later (TC-253, SR-086, SR-040)' {
+        $script:VE.Refresh.Code | Should -Be 4
     }
 
     It 'names the lock in the -RefreshKits refusal (TC-253, SR-086)' {

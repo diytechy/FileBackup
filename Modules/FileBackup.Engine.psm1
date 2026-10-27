@@ -77,8 +77,9 @@ function Test-IsInfrastructureFile {
         # called MANIFEST.csv.tmp is data (B6).
         $script:Def.DatabaseTempFilename,
         # The directory sidecar (SR-065). Root-level only, like the rest: a
-        # nested user file called DIRECTORIES.csv is data (B6).
-        $script:Def.DirectorySidecarName,
+        # nested user file called DIRECTORIES.csv is data (B6). Its
+        # publish-by-rename staging file, which a kill can leave behind, likewise.
+        $script:Def.DirectorySidecarName, "$($script:Def.DirectorySidecarName).tmp",
         # New-ReconstructScript's publish-by-rename staging files ('<kit file>.tmp'):
         # a kill between the write and the rename leaves one behind, and it is
         # never data (review 2026-10-26 A4). Root-level only, like the rest.
@@ -706,7 +707,15 @@ function Write-DirectorySidecar {
     $out = foreach ($r in $Records) {
         [pscustomobject]@{ RelativePath = [string]$r.RelativePath; Attributes = [string]$r.Attributes }
     }
-    $out | Export-Csv -LiteralPath $path -NoTypeInformation
+    # Written aside, flushed, then renamed over (C36): written in place, a power
+    # loss could leave it short or NULs, and the next run copies it into a
+    # write-once snapshot (review 2026-10-27, argon finding 1).
+    # Absolute for .NET, which resolves against the PROCESS directory.
+    $dest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
+    $temp = "$dest.tmp"
+    $out | Export-Csv -LiteralPath $temp -NoTypeInformation
+    Sync-FileToDisk -LiteralPath $temp
+    [System.IO.File]::Move($temp, $dest, $true)
 }
 
 # endregion
@@ -1602,11 +1611,14 @@ function Get-StorageFormFinding {
 
     # Bytes in the folder that no row explains. Enumerated through Get-DataFile,
     # so root-level infrastructure is excluded and a NESTED file named like
-    # infrastructure is still data (B6 / SN-018).
+    # infrastructure is still data (B6 / SN-018). An unreferenced
+    # '*.fbprune.tmp' is a killed prune's staged copy, which the next prune
+    # removes; the prune plan, the object index and both restorers skip it too
+    # (review 2026-10-27, argon 3).
     $rootPrefix = (Resolve-Path -LiteralPath $Folder).Path
     foreach ($file in @(Get-DataFile -Root $Folder)) {
         $rel = $file.FullName.Substring($rootPrefix.Length).TrimStart('\', '/')
-        if ($referenced.ContainsKey($rel)) { continue }
+        if ($referenced.ContainsKey($rel) -or $rel -like '*.fbprune.tmp') { continue }
         $findings.Add([pscustomobject]@{
             Folder = $Folder; FolderName = $name
             RelativePath = ''; DataPath = $rel
@@ -3102,19 +3114,20 @@ function Remove-BackupSnapshot {
     # whole batch: a backup moves objects between the backup root and the
     # snapshots for its whole run, so a prune running beside it would plan on a
     # pool that is changing under it. A lock that cannot be taken is LIVE (SR-086): every name is refused
-    # as staging-busy (code 2) and nothing is touched. -WhatIf mutates nothing,
-    # so it takes no lock.
+    # as lock-held and nothing is touched - code 4, retry later, as a backup
+    # does: the other run ends. -WhatIf mutates nothing, so it takes no lock.
     $osLock = $null
     if (-not $WhatIfPreference) {
         try {
             $osLock = Enter-StagingOsLock -ChgPath $chg -Log $log
         } catch {
             $held = $_.Exception.Message
-            & $log "Refusing to prune [2/staging-busy]: $held" 'ERROR'
+            $code = Get-StoreRefusalCode -ErrorRecord $_
+            & $log "Refusing to prune [$code/lock-held]: $held" 'ERROR'
             foreach ($snapshotName in $Name) {
-                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 2
+                [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = $code
                     BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = @()
-                    Refusals = @([pscustomobject]@{ Code = 2; Kind = 'staging-busy'; Message = $held })
+                    Refusals = @([pscustomobject]@{ Code = $code; Kind = 'lock-held'; Message = $held })
                     Message = $held }
             }
             return
@@ -4183,30 +4196,35 @@ function Assert-StoreVolumePresent {
     }
 }
 
-function Get-StorePathFailureCode {
+function Get-StoreRefusalCode {
     <#
     .SYNOPSIS
-        The status code for a set whose store paths could not be resolved:
-        4 when the store's drive or share is not attached (retry later, plan
-        C25), else 2 (a person must fix what the message names).
+        The status code for a store action refused before it changed anything:
+        4 (retry later) when the store's drive or share is not attached (plan
+        C25) or another run holds the store's lock ('[SR-075/lock-held]');
+        else 2 (a person must fix what the message names).
 
     .DESCRIPTION
         The one place that decides it, so a backup and every store action
-        (Prune, Snapshots, Verify, View) answer an unplugged store drive the
-        same way.
+        (Prune, Snapshots, Verify, View) answer an unplugged drive and a held
+        lock the same way. Both clear on their own: the drive comes back, the
+        other run ends (Temp.lock is never written, so a scanner holds it only
+        for an instant).
 
     .PARAMETER ErrorRecord
-        The error Resolve-BackupSetPaths threw.
+        The error the path resolution or the lock threw.
 
     .OUTPUTS
         [int] 4 or 2.
     #>
-    # Implements: SR-040, LLR-014, LLR-048
+    # Implements: SR-040, SR-086, LLR-014, LLR-048
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][System.Management.Automation.ErrorRecord]$ErrorRecord
     )
     if ($ErrorRecord.Exception -is [System.IO.DriveNotFoundException]) { return 4 }
+    if ([string]$ErrorRecord.Exception.Message -and
+        $ErrorRecord.Exception.Message.Contains('[SR-075/lock-held]', [System.StringComparison]::Ordinal)) { return 4 }
     return 2
 }
 
@@ -4237,7 +4255,7 @@ function Resolve-BackupSetPaths {
         root that does not exist is a precondition failure the caller reports as
         code 2 (WP5 review, finding m2) - unless its drive or share is not
         attached, which throws DriveNotFoundException as a backup does, so
-        every caller answers it with 4 (Get-StorePathFailureCode).
+        every caller answers it with 4 (Get-StoreRefusalCode).
 
     .OUTPUTS
         [pscustomobject] SrcPath / SrcStatePath / BkpPath / ChgPath / ViewPath
@@ -6803,7 +6821,7 @@ function Invoke-BackupSet {
     #    anything else here needs a person (2).
     try { $paths = Resolve-BackupSetPaths -Set $Set } catch {
         Write-Warning $_.Exception.Message
-        return (Get-StorePathFailureCode -ErrorRecord $_)
+        return (Get-StoreRefusalCode -ErrorRecord $_)
     }
     $logPath = Join-Path $paths.ChgPath 'backup.log'
     try {
@@ -6815,7 +6833,7 @@ function Invoke-BackupSet {
         try { Add-Content -LiteralPath $logPath -Value $line } catch { Write-Warning "Could not append to '$logPath': $($_.Exception.Message)" }
         Write-Host $line
         $LogPaths.Add($logPath)
-        return 4
+        return (Get-StoreRefusalCode -ErrorRecord $_)
     }
     $log = $null
     $code = 0
@@ -7427,7 +7445,7 @@ Export-ModuleMember -Function @(
     'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
     'New-ReconstructScript',
     'Get-StagingOsLockPath', 'Enter-StagingOsLock', 'Exit-StagingOsLock',
-    'Resolve-BackupSetPaths', 'Get-StorePathFailureCode',
+    'Resolve-BackupSetPaths', 'Get-StoreRefusalCode',
     'Get-StoredObjectVerdict', 'Get-StoreObjectFinding', 'Move-StoreObjectToVerify', 'Measure-DuplicateRepairCost',
     'New-RunMetric', 'Complete-RunStep', 'Write-RunMetric', 'Format-RunByteCount',
     'Get-StoreObjectIndex', 'ConvertFrom-StoredObjectName', 'Get-StoredObjectPrefix', 'Assert-SingleStoreMount',

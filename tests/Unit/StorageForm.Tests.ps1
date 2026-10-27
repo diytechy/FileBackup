@@ -474,6 +474,28 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         Invoke-VerifyExitCode -Cfg $cfg | Should -Be 0
     }
 
+    It 'does not report a killed prune''s staged copy as Unreferenced (review 2026-10-27, argon 3)' {
+        # A prune killed while copying leaves '<object>.fbprune.tmp' beside the
+        # object; only the next prune removes it. Until then every Verify called
+        # it Unreferenced and exited 1, though nothing is wrong with the store.
+        $root = Join-Path $TestDrive 'argon3-fbprune'
+        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $false
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('ALPHA ' * 50))
+        Invoke-FormBackup -Cfg $cfg | Out-Null
+        $object = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))[0].DataPath
+        Copy-Item -LiteralPath (Join-Path $bkp $object) -Destination (Join-Path $bkp "$object.fbprune.tmp")
+
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
+        Invoke-VerifyExitCode -Cfg $cfg | Should -Be 0
+
+        # Not vacuous: any other file no row names is still reported.
+        [IO.File]::WriteAllText((Join-Path $bkp 'stray.dat'), 'NOT NAMED BY ANY ROW')
+        @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg).Class | Should -Be @('Unreferenced')
+    }
+
     It 'leaves an already-compressed source under a non-.7z name alone, in mode <Mode> (SR-049, SR-004)' -ForEach @(
         @{ Mode = 'Plain';    Compress = $false }
         @{ Mode = 'Compress'; Compress = $true  }

@@ -47,10 +47,7 @@ last) — it is the record, not required reading for every pass.
      `filebackup-bounded-contract` (worktree `C:\Projects\MiniPC-Deployer-wt-filebackup`).
      Its own `docs/status.md` lists the deploy preconditions and the Owner's
      questions.
-  4. Open for the Owner: the second argon pass's two confirmed Low findings
-     and its lock-held policy question
-     ([reviews/2026-10-27-argon-second-pass/outcome.md](reviews/2026-10-27-argon-second-pass/outcome.md));
-     whether HomeHub's id-reservation
+  4. Open for the Owner: whether HomeHub's id-reservation
      row goes onto its main now; ext4 or NTFS for HomeHub's backup drive at the
      clean start (both hub drives are USB NTFS through ntfs-3g, which journals
      none of its own writes; `homehub-backup.timer` is enabled, 03:00 nightly);
@@ -6556,3 +6553,37 @@ only, never file content; `-Action Verify` reports a killed prune's
 (a held lock is 2 for prune and Verify's repair by design, and IF-001 agrees; a
 policy question). Nothing changed yet. Brief, report and outcome:
 [reviews/2026-10-27-argon-second-pass/](reviews/2026-10-27-argon-second-pass/outcome.md).
+
+### DRIVER — the second argon pass acted on: a held lock is 4; two Low fixes — 2026-10-27
+
+The Owner ruled on all three items of
+[reviews/2026-10-27-argon-second-pass/outcome.md](reviews/2026-10-27-argon-second-pass/outcome.md).
+
+- **A held lock is 4 for every action.** It is transient: `Temp.lock` is never
+  written, so a scanner holds it only for an instant, and the other run ends.
+  `Get-StorePathFailureCode` is renamed `Get-StoreRefusalCode` and also maps
+  `[SR-075/lock-held]` to 4; the backup's own lock refusal, prune's (now kind
+  `lock-held`) and Verify's `-RepairStorage`/`-RefreshKits` all call it. Every
+  open failure of the lock file counts as held (SR-086), so prune now gives 4
+  for those too, as the backup always did (TC-249). Prune's `Temp`-folder
+  refusals stay `staging-busy` / 2: a leftover `Temp` needs a person. README,
+  IF-001 (table and CSV), LLR-092, TC-245, TC-249 and TC-253 updated.
+- **`DIRECTORIES.csv` is written aside, flushed and renamed over** (C36's
+  pattern); `DIRECTORIES.csv.tmp` is on the infrastructure list.
+- **Verify skips a killed prune's unreferenced `*.fbprune.tmp`**, as the prune
+  plan, the object index and both restorers already did.
+
+Evidence: StagingOsLock, Durability, Engine, StorageForm, BoundedRun and View
+test files 327 passed and 4 failed before the TC-249 expectation was updated;
+three of the four were TC-249 (2 -> 4, above); the fourth, BoundedRun's
+`Write-Manifest ... compiled path`, fails only when several files share one
+session (alone: BoundedRun **72/72**). After the update: StagingOsLock **72/72**;
+Coverage's retention, entry-point and refusal blocks **40/40**. Mutation check,
+all three fixes undone at once: 11 tests fail - TC-244 (the backup now goes
+through the shared function), TC-245, TC-249, TC-253, the new sidecar flush test
+and the new `.fbprune.tmp` test - and pass again once restored.
+PSScriptAnalyzer 0 findings on the changed files; architecture map regenerated,
+`-Check` OK. Then `scripts/check.ps1 -Tier Smoke` on the restored tree: lint,
+doc navigability, map freshness and performance budgets PASS; Pester unit **940
+passed, 0 failed, 1 skipped**; traceability fails as before (SN=0 SR=0, 471
+orphans, integrity 0).

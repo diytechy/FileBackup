@@ -291,8 +291,9 @@ It refuses rather than guesses. Removal reports the same status codes as a
 restore (see "Restore exit codes"): **0** removed, **1** a batch finished
 incomplete but **no data was lost**, **2** usage or precondition (nothing was
 mutated), **3** a witness an older version left does not match its manifest
-(nothing was mutated), **4** a host I/O problem, or the store's drive or share not
-attached, as for a backup — retriable, and always before the point of no return. Common refusals: data
+(nothing was mutated), **4** a host I/O problem, the store's drive or share not
+attached, or another run holding the store's lock, as for a backup — retriable, and
+always before the point of no return. Common refusals: data
 files in the snapshot its own manifest does not reference (`-DiscardUnreferencedData`
 to discard them deliberately), a backup that is running (prune and backup are
 mutually exclusive), or a pool that does not resolve as it stands.
@@ -384,7 +385,8 @@ copy is checked anyway, so nothing is read twice. Each Verify ends its log with
 Status follows the same table as a restore: **0** nothing to report, **1**
 findings (a statement about your data, not a usage error), **2** a precondition
 failed — no manifest to verify, or `-Deep` without 7-Zip, **4** the store's drive or
-share is not attached (retry later, as for a backup).
+share is not attached, or a repair or kit refresh found another run holding the store's
+lock (retry later, as for a backup).
 
 In the container: `verify` as the action word, and `FILEBACKUP_REPAIR=1` to
 repair.
@@ -1164,12 +1166,13 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   `Temp` left by an interrupted **prune** blocks further prunes the same way; the same
   steps apply.
 - **`Temp.lock` and the `[SR-075/lock-held]` refusal.** Every backup and every prune —
-  and `-Action Verify` when given `-RepairStorage` or `-RefreshKits` (exit 2 if refused),
+  and `-Action Verify` when given `-RepairStorage` or `-RefreshKits`,
   while it sets objects aside, repairs or refreshes kits —
   holds an exclusive lock on the empty file `Temp.lock` in `ChangePath` for as long as it runs;
   the operating system drops it the instant that process ends, however it ends. A run that
-  finds it held refuses straight away with `[SR-075/lock-held]` and touches nothing
-  (a backup exits 4): another backup or prune of this store is still alive. If none is,
+  finds it held refuses straight away with `[SR-075/lock-held]`, touches nothing and exits 4
+  (retry later; the next scheduled run is the retry): another backup or prune of this store
+  is still alive. If none is,
   something else has the file open (an antivirus scanner, a backup agent) — find it rather
   than deleting the file. **Leave `Temp.lock` where it is.** It is never written, it is not
   part of the backup, and deleting it while a run holds it can let a second run lock a fresh

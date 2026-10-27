@@ -453,7 +453,7 @@ function Invoke-RetentionAction {
         $paths = Resolve-BackupSetPaths -Set $Set -ReadOnly
     } catch {
         & $Log "-Action $Mode could not run: $($_.Exception.Message)" 'ERROR'
-        return (Get-StorePathFailureCode -ErrorRecord $_)
+        return (Get-StoreRefusalCode -ErrorRecord $_)
     }
 
     if ($Mode -eq 'Snapshots') {
@@ -514,8 +514,9 @@ function Invoke-VerifyAction {
         [int] per the SR-040 table: 0 clean, 1 findings (a content statement,
         not a usage error), 2 precondition — a backup root that does not exist,
         no manifest to verify, -Deep without 7-Zip, or any other failure to run
-        the audit at all; 4 the store's drive or share is not attached, retry
-        later, as for a backup (plan C25, Get-StorePathFailureCode).
+        the audit at all; 4 the store's drive or share is not attached, or
+        -RepairStorage/-RefreshKits found another run holding the store's lock:
+        retry later, as for a backup (plan C25, Get-StoreRefusalCode).
     #>
     # Implements: SR-049, SR-054, SR-040, SR-043, LLR-049, LLR-054
     param(
@@ -597,7 +598,7 @@ function Invoke-VerifyAction {
         Write-RunMetric -Metrics $metrics -Label 'Verify timings' -Log $Log -Extra @{ findings = $findings.Count; duplicates = $cost.Copies }
     } catch {
         & $Log "Storage-form verification could not run: $($_.Exception.Message)" 'ERROR'
-        return (Get-StorePathFailureCode -ErrorRecord $_)
+        return (Get-StoreRefusalCode -ErrorRecord $_)
     }
 
     # -InputObject, not the pipeline: piping ZERO objects into ConvertTo-Json
@@ -645,7 +646,7 @@ function Invoke-ViewAction {
         return 0
     } catch {
         & $Log "Browse view could not be produced: $($_.Exception.Message)" 'ERROR'
-        return (Get-StorePathFailureCode -ErrorRecord $_)
+        return (Get-StoreRefusalCode -ErrorRecord $_)
     }
 }
 
