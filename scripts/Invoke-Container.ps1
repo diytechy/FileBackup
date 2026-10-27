@@ -192,7 +192,12 @@ function Test-ContainerStorageForm {
         if ($before[$file.FullName] -ne $now) { throw "verify modified '$($file.FullName)'; it must mutate nothing." }
     }
 
-    # --- seed one malformed row: Compressed=Yes over raw bytes ---
+    # --- seed one malformed row: its Compressed column contradicts its object ---
+    # Only the COLUMN is bent; the object's bytes stay its content. Writing
+    # other bytes into the object (as this seed once did) is damage, not a
+    # malformed row: with plan C37 Verify reports such an object as
+    # DamagedObject, so "repair makes it clean" cannot hold for it - and the
+    # old check passed over an object that no longer held its content.
     # Selection reads on the HOST (world-readable); every WRITE runs INSIDE
     # the image. A first-real-CI lesson (runs 32661497480 / 32672263476): the
     # store's files belong to the image's uid 65532, so a host-side
@@ -200,8 +205,7 @@ function Test-ContainerStorageForm {
     # in-container command therefore writes the data file and the manifest.
     $manifestPath = Join-Path $Backup 'MANIFEST.csv'
     $rows = @(Import-Csv -LiteralPath $manifestPath)
-    $target = @($rows | Where-Object Compressed -eq 'No')[0]
-    if (-not $target) { $target = $rows[0] }
+    $target = $rows[0]
     $seedArgs = [System.Collections.Generic.List[string]]::new()
     $seedArgs.AddRange([string[]]@('run', '--rm', '--entrypoint', 'pwsh'))
     Add-BindMountArguments -Arguments $seedArgs -Source $Store -Target '/store'
@@ -213,8 +217,7 @@ Import-Module /opt/filebackup/Modules/FileBackup.Common.psm1
 $rows = @(Read-Manifest -FolderPath /store/backup)
 $t = @($rows | Where-Object RelativePath -eq $env:FILEBACKUP_SEED_REL)[0]
 if (-not $t) { throw "seed target '$env:FILEBACKUP_SEED_REL' not found in /store/backup manifest" }
-[System.IO.File]::WriteAllText("/store/backup/$($t.DataPath)", 'raw bytes that are not an archive')
-$t.Compressed = 'Yes'
+$t.Compressed = if ($t.Compressed -eq 'Yes') { 'No' } else { 'Yes' }
 Write-Manifest -FolderPath /store/backup -Records $rows
 '@))
     Invoke-ContainerCommand -Arguments $seedArgs.ToArray()
