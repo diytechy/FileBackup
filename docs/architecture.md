@@ -148,6 +148,7 @@ Imports (internal): _none_
 | `New-RelativePathMap` | yes | SR-034, LLR-034 |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
 | `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
+| `Sync-FileToDisk` | yes | SR-082, SR-101 |
 | `Test-HashSizeFileName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-IsVolumeRootPseudoPath` | yes | SR-074, LLR-078 |
 | `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
@@ -243,7 +244,7 @@ Imports (internal): `Common`
 | `Resolve-GroupStorageForm` | no | SR-081, LLR-058, LLR-086 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
 | `Resolve-ViewRootPath` | no | SR-063, LLR-063 |
-| `Set-BackupStateField` | no | — |
+| `Set-BackupStateField` | no | SR-005, SR-011, SR-082 |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
@@ -260,6 +261,7 @@ Imports (internal): `Common`
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
+| `Write-KitFile` | no | SR-007, SR-082, LLR-007 |
 | `Write-ProbeStatistic` | no | SR-081, LLR-086 |
 | `Write-RunMetric` | yes | SR-081, LLR-014 |
 <!-- END GENERATED MODULE MAP -->

@@ -37,6 +37,12 @@ $script:DatabaseTempFilename  = 'MANIFEST.csv.tmp'
 # can throw, or hold the process for an external kill, exactly where a real
 # kill would land. Costs a production write three null checks.
 $script:ManifestWriteTestHook = $null
+# Test seam (review 2026-10-26 A1): $null in production, installed only by the
+# suite. When set, Sync-FileToDisk calls it as `& $hook <full path>` just before
+# it flushes that file, so a test can see WHICH files reach the disk and that
+# each one does so before the rename or commit that relies on it. The engine's
+# flushes go through the same function, so one seam observes them all.
+$script:FileSyncTestHook = $null
 # Witness sidecar for the manifest (SR-038): row count + byte length + xxHash128 of
 # MANIFEST.csv exactly as written, so a restore can tell a truncated/replaced index
 # from a genuinely small job. Written only by Write-Manifest, so it cannot drift.
@@ -1290,6 +1296,62 @@ namespace FileBackup {
     return $script:ManifestRowWriterState
 }
 
+function Sync-FileToDisk {
+    <#
+    .SYNOPSIS
+        Forces a file's written bytes onto the disk, for a caller about to name,
+        rename or rely on that file (review 2026-10-26 A1).
+
+    .DESCRIPTION
+        Journaling filesystems make a rename or a deletion durable on their own
+        schedule, independently of the data. After a power loss or an OS crash,
+        ext4 (delayed allocation) can return a file renamed to a new name as 0
+        bytes, and NTFS can return it at full length reading as NULs, while the
+        rename - or a later deletion of the only other copy - survived. So a
+        file is flushed before the rename or commit that publishes it, never
+        after.
+
+        -Stream flushes a FileStream the caller is still writing: its buffer,
+        then the OS cache (FileStream.Flush($true): FlushFileBuffers on
+        Windows, fsync on Linux). A StreamWriter over it must be flushed first.
+        -LiteralPath opens a written and closed file for writing - the OS flush
+        needs write access on Windows - and flushes it the same way; a
+        read-only file is made writable for that and read-only again.
+
+        One call per file, so flushing another kind of file later (the stored
+        objects, which the Owner has not ruled on) is one line.
+
+    .PARAMETER Stream
+        A FileStream open for writing.
+
+    .PARAMETER LiteralPath
+        A written file, closed by its writer.
+    #>
+    # Implements: SR-082, SR-101
+    [CmdletBinding(DefaultParameterSetName = 'Path')]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Stream')][System.IO.FileStream]$Stream,
+        [Parameter(Mandatory, ParameterSetName = 'Path')][string]$LiteralPath
+    )
+    if ($PSCmdlet.ParameterSetName -eq 'Stream') {
+        if ($null -ne $script:FileSyncTestHook) { & $script:FileSyncTestHook $Stream.Name }
+        $Stream.Flush($true)
+        return
+    }
+    # Absolute for .NET, which resolves against the PROCESS directory.
+    $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LiteralPath)
+    if ($null -ne $script:FileSyncTestHook) { & $script:FileSyncTestHook $full }
+    $info = [System.IO.FileInfo]::new($full)
+    $readOnly = $info.Exists -and $info.IsReadOnly
+    if ($readOnly) { $info.IsReadOnly = $false }
+    try {
+        $fs = [System.IO.FileStream]::new($full, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        try { $fs.Flush($true) } finally { $fs.Dispose() }
+    } finally {
+        if ($readOnly) { $info.IsReadOnly = $true }
+    }
+}
+
 function Write-Manifest {
     <#
     .SYNOPSIS
@@ -1312,7 +1374,9 @@ function Write-Manifest {
         is not specified to be a single rename. PowerShell 7+ only (AGENTS.md
         section 4), so the .NET Core 3.0+ overload always exists; 5.1 is
         unsupported. A MANIFEST.csv.tmp left by a killed earlier write is
-        deleted before the new one is written and is never read.
+        deleted before the new one is written and is never read. The temp file
+        is flushed to the disk (Sync-FileToDisk) before the rename, so the
+        same holds across a power loss or an OS crash, not only a kill.
 
         The bytes are exactly what Export-Csv -NoTypeInformation writes (UTF-8
         without BOM, the platform newline, every field double-quoted with inner
@@ -1388,6 +1452,13 @@ function Write-Manifest {
                     $writer.Write($line.ToString())
                 }
             }
+            # On the disk before the rename (review 2026-10-26 A1): the rename
+            # can reach the disk before the data, and a power loss then leaves
+            # a MANIFEST.csv that is empty (ext4) or reads as NULs (NTFS) - for
+            # a snapshot, its only record. The writer's buffer first, then the
+            # file's.
+            $writer.Flush()
+            Sync-FileToDisk -Stream $writer.BaseStream
         } finally {
             $writer.Dispose()
         }
@@ -1774,6 +1845,7 @@ Export-ModuleMember -Function @(
     'Get-VolumeIdentity',
     'Read-Manifest',
     'Write-Manifest',
+    'Sync-FileToDisk',
     'Get-ManifestWitnessPath',
     'Write-ManifestWitness',
     'Test-ManifestWitness'

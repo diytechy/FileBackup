@@ -29,8 +29,8 @@ are unsupported; one OS lock refuses a second one.
 
 | File | Role | Bundled into backups? |
 |---|---|---|
-| `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: the **bounded backup run** — `Invoke-BackupSet` and its steps (`Read-PriorStateForRun`, `New-BackupRunContext`, `Invoke-LibraryCapture`, `Publish-LatestState`, `Test-StateChanged`, `Remove-UnchangedSnapshot`), `Resolve-BackupSetPaths` / `Assert-StoreVolumePresent`, `Get-SourceFileList`, `Get-StoreObjectIndex` (+ the prefix-only name reader `ConvertFrom-StoredObjectName`), `Invoke-SourceFileCapture`, `Get-LatestObject`, `Copy-FileWithHash`, `Publish-StagedObject`, `Publish-PriorStateSnapshot`, `Move-SupersededObject`, `Assert-SingleStoreMount`, `Clear-InterruptedRunResidue`, the OS lock (`Enter-/Exit-StagingOsLock`), the run metrics (`New-RunMetric`, `Complete-RunStep`, `Add-RunMetric`, `Add-RunSlowFile`, `Write-RunMetric`) — and `New-ReconstructScript`, `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Get-BackupContentIndex` (read by retention and the audit), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`, and the object-level audit `Get-StoreObjectFinding` / `Get-StoredObjectVerdict` / `Measure-DuplicateRepairCost` / `Move-StoreObjectToVerify` / `Remove-VerifyScratch` (plan R9, C4, C22, C28); and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
+| `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Sync-FileToDisk` (the one flush every rename-into-place goes through, §4), `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: the **bounded backup run** — `Invoke-BackupSet` and its steps (`Read-PriorStateForRun`, `New-BackupRunContext`, `Invoke-LibraryCapture`, `Publish-LatestState`, `Test-StateChanged`, `Remove-UnchangedSnapshot`), `Resolve-BackupSetPaths` / `Assert-StoreVolumePresent`, `Get-SourceFileList`, `Get-StoreObjectIndex` (+ the prefix-only name reader `ConvertFrom-StoredObjectName`), `Invoke-SourceFileCapture`, `Get-LatestObject`, `Copy-FileWithHash`, `Publish-StagedObject`, `Publish-PriorStateSnapshot`, `Move-SupersededObject`, `Assert-SingleStoreMount`, `Clear-InterruptedRunResidue`, the OS lock (`Enter-/Exit-StagingOsLock`), the run metrics (`New-RunMetric`, `Complete-RunStep`, `Add-RunMetric`, `Add-RunSlowFile`, `Write-RunMetric`) — and `New-ReconstructScript` (+ `Write-KitFile`, shared with `-RefreshKits`), `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Get-BackupContentIndex` (read by retention and the audit), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`, and the object-level audit `Get-StoreObjectFinding` / `Get-StoredObjectVerdict` / `Measure-DuplicateRepairCost` / `Move-StoreObjectToVerify` / `Remove-VerifyScratch` (plan R9, C4, C22, C28); and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
 | `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049) / `-Action View` (SR-062), dispatch the one configured set to the retention mechanism, the storage-form audit or a forced browse-view rebuild. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
@@ -177,6 +177,7 @@ Imports (internal): _none_
 | `New-RelativePathMap` | yes | SR-034, LLR-034 |
 | `Read-Manifest` | yes | SR-025, LLR-025 |
 | `Resolve-ExistingAncestor` | yes | SR-052, SR-023, LLR-052 |
+| `Sync-FileToDisk` | yes | SR-082, SR-101 |
 | `Test-HashSizeFileName` | yes | SR-061, SR-069, LLR-069 |
 | `Test-IsVolumeRootPseudoPath` | yes | SR-074, LLR-078 |
 | `Test-LegacyStoredObjectName` | yes | SR-061, SR-069, LLR-069 |
@@ -272,7 +273,7 @@ Imports (internal): `Common`
 | `Resolve-GroupStorageForm` | no | SR-081, LLR-058, LLR-086 |
 | `Resolve-OptionalTool` | yes | SR-020 (optional-dependency degradation), SR-016 (non-blocking) |
 | `Resolve-ViewRootPath` | no | SR-063, LLR-063 |
-| `Set-BackupStateField` | no | — |
+| `Set-BackupStateField` | no | SR-005, SR-011, SR-082 |
 | `Set-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Set-LastHashRun` | yes | SR-011, LLR-011 |
 | `Test-BackupConfigurationShape` | no | SR-042, LLR-042 |
@@ -289,6 +290,7 @@ Imports (internal): `Common`
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
 | `Write-DirectorySidecar` | yes | SR-065, LLR-065 |
+| `Write-KitFile` | no | SR-007, SR-082, LLR-007 |
 | `Write-ProbeStatistic` | no | SR-081, LLR-086 |
 | `Write-RunMetric` | yes | SR-081, LLR-014 |
 <!-- END GENERATED MODULE MAP -->
@@ -593,8 +595,10 @@ Imports (internal): `Common`
   DataPath keeps the content scan's host cause (exit 4, not 1), and a raw copy
   lands by rename like the expand (`.fbrestore-*` beside the destination), so
   neither a failed copy nor a failed expand leaves a partial file or touches
-  the destination. Bump to 15 for the next behaviour change after this branch
-  ships.
+  the destination; and the bundled Common's `Write-Manifest` flushes
+  `MANIFEST.csv.tmp` to the disk before its rename, through the new
+  `Sync-FileToDisk` (review 2026-10-26 A1; no restorer calls either). Bump to
+  15 for the next behaviour change after this branch ships.
 
 ## 4. Conventions & known gotchas
 
@@ -625,11 +629,25 @@ Imports (internal): `Common`
 - **`Write-Manifest` deletes an older witness before its rename, on purpose.** A
   kill between the two leaves the OLD manifest with no witness (restorable, an
   older kit warns), never a new manifest beside a stale witness (which an older
-  kit refuses with 3). The rename is not fsynced, so a power loss (as opposed to
-  a process kill) can still lose the newest write; the next run sees the
+  kit refuses with 3). `MANIFEST.csv.tmp` is flushed to the disk before the
+  rename (`Sync-FileToDisk`, review 2026-10-26 A1), because a journaling
+  filesystem can make the rename durable before the data: after a power loss
+  ext4 returns a file renamed to a new name as 0 bytes and NTFS one that reads
+  as NULs. The rename itself is not flushed, so a power loss can still lose the
+  newest write - the old manifest stays whole, and the next run sees the
   mismatch with the files and repairs. `MANIFEST.csv.tmp` and
   `MANIFEST.csv.meta.tmp` are on the root-level infrastructure allowlist so
   neither is ever backed up as user data (SR-083).
+- **Flush before the rename or commit that relies on a write** (review
+  2026-10-26 A1). Every write that is then renamed into place or relied on goes
+  through `Sync-FileToDisk` first: the manifest temp (`Write-Manifest`), the
+  run-state temp (`Set-BackupStateField`), each kit file (`Write-KitFile`, shared
+  by `New-ReconstructScript` and `-RefreshKits`), every file of `Building_<D>`
+  before it becomes `Snapshot_<D>`, and a prune's `.fbprune.tmp` copy before it
+  is renamed (the prune then deletes its source). Stored objects
+  (`Copy-FileWithHash`, `Publish-StagedObject`, the 7-Zip output) are **not**
+  flushed - the Owner has not ruled on that cost - so a power loss can still
+  leave one empty or torn.
 - **Restore verification happens before any mutation.** Both restorers check the
   manifest header shape *before* creating the target folder or their log, so a
   header refusal (the early exit-2s) leaves the target byte-for-byte as it was; the *late* code-2 preflights

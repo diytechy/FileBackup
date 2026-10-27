@@ -222,8 +222,28 @@ function Read-BackupState {
 }
 
 function Set-BackupStateField {
-    # Merges a single field into FileBackupState.json (so LastHashRun and
-    # LastBackupRun coexist instead of clobbering each other).
+    <#
+    .SYNOPSIS
+        Merges one field into FileBackupState.json, so LastHashRun and
+        LastBackupRun coexist instead of clobbering each other.
+
+    .DESCRIPTION
+        Published by rename: a crash mid-write must not leave a torn JSON that
+        Read-BackupState refuses forever, as the manifest is published. The
+        temp file is flushed to the disk first, so a power loss after the
+        rename cannot leave the state file empty or full of NULs (review
+        2026-10-26 A1).
+
+    .PARAMETER BackupRoot
+        The backup root holding the state file.
+
+    .PARAMETER Name
+        The field.
+
+    .PARAMETER Value
+        Its value.
+    #>
+    # Implements: SR-005, SR-011, SR-082
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
@@ -233,11 +253,9 @@ function Set-BackupStateField {
     $state = Read-BackupState -BackupRoot $BackupRoot
     $state[$Name] = $Value
     $statePath = Join-Path $BackupRoot 'FileBackupState.json'
-    # Publish by rename: a crash mid-write must not leave a torn JSON that
-    # Read-BackupState refuses forever (the manifest witness gets the same
-    # write-then-rename treatment).
     $tmpPath = "$statePath.tmp"
     $state | ConvertTo-Json | Set-Content -LiteralPath $tmpPath -Encoding UTF8
+    Sync-FileToDisk -LiteralPath $tmpPath
     Move-Item -LiteralPath $tmpPath -Destination $statePath -Force
 }
 
@@ -2174,11 +2192,17 @@ function Update-BackupSnapshotKit {
         Opt-in and NEVER default: it rewrites files inside immutable snapshot
         folders, which is a deliberate operator act.
 
-        Copies exactly the six kit artifacts Publish-PriorStateSnapshot copies and
+        Copies exactly the seven kit artifacts Publish-PriorStateSnapshot copies and
         NOTHING else. The manifest witness (MANIFEST.csv.meta) is emphatically
         NOT one of them: each snapshot witnesses its OWN manifest, and copying
         the root's over it is the single most dangerous mistake available here
         (AGENTS.md §3, pinned by TC-067).
+
+        Each file is written as the backup root's kit is (Write-KitFile): only
+        when it differs, through a temp file flushed to the disk and renamed
+        over it. Overwriting in place could leave a snapshot's only kit torn,
+        or empty after a power loss, and an old kit already current is not
+        touched at all (review 2026-10-26 A1).
 
     .PARAMETER BackupRoot
         The live backup root, whose kit is the current one.
@@ -2215,15 +2239,23 @@ function Update-BackupSnapshotKit {
                        $script:Def.CommonModuleName,
                        'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
         $refreshed = 0
+        # The root's kit is read once, not once per snapshot.
+        $kit = [ordered]@{}
         foreach ($snapshot in @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ })) {
             if (-not $PSCmdlet.ShouldProcess($snapshot.FullName, 'refresh the bundled restore kit')) { continue }
-            foreach ($artifact in $artifacts) {
-                $src = Join-Path $BackupRoot $artifact
-                if (Test-Path -LiteralPath $src -PathType Leaf) {
-                    Copy-Item -LiteralPath $src -Destination (Join-Path $snapshot.FullName $artifact) -Force
+            if ($kit.Count -eq 0) {
+                foreach ($artifact in $artifacts) {
+                    $src = Join-Path $BackupRoot $artifact
+                    if (Test-Path -LiteralPath $src -PathType Leaf) {
+                        $kit[$artifact] = [System.IO.File]::ReadAllBytes($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($src))
+                    }
                 }
             }
-            & $Log "Refreshed the restore kit in '$($snapshot.Name)' (the manifest witness was NOT copied)." 'INFO'
+            $written = 0
+            foreach ($artifact in $kit.Keys) {
+                if (Write-KitFile -Path (Join-Path $snapshot.FullName $artifact) -Bytes $kit[$artifact]) { $written++ }
+            }
+            & $Log "Refreshed the restore kit in '$($snapshot.Name)': $written file(s) rewritten (the manifest witness was NOT copied)." 'INFO'
             $refreshed++
         }
         return [pscustomobject]@{ Refreshed = $refreshed; Revision = (Get-BackupKitRevision -Folder $BackupRoot) }
@@ -2573,8 +2605,8 @@ function Copy-ReHomedDataFile {
     <#
     .SYNOPSIS
         Materializes one re-homed data file at its destination: copy to
-        '<destination>.fbprune.tmp' on the same volume, verify, then publish by
-        atomic rename (SR-045/SR-046 phase 1).
+        '<destination>.fbprune.tmp' on the same volume, flush it to the disk,
+        verify, then publish by atomic rename (SR-045/SR-046 phase 1).
 
     .DESCRIPTION
         Stored-form identity (length + xxHash128 of the copy against the source)
@@ -2613,6 +2645,11 @@ function Copy-ReHomedDataFile {
 
     $temp = "$destFull.fbprune.tmp"
     Copy-Item -LiteralPath $Item.SourceFullPath -Destination $temp -Force
+    # On the disk before the rename that publishes it (review 2026-10-26 A1):
+    # the prune then deletes the source snapshot, so this copy may be the only
+    # one, and without the flush a power loss can keep the rename and the
+    # deletion but not the bytes (an empty or NUL-filled object).
+    Sync-FileToDisk -LiteralPath $temp
 
     $sourceInfo = Get-Item -LiteralPath $Item.SourceFullPath
     $copyInfo   = Get-Item -LiteralPath $temp
@@ -2937,6 +2974,68 @@ function Get-PruneBatchExitCode {
 
 # region Reconstruct-script generator
 
+function Write-KitFile {
+    <#
+    .SYNOPSIS
+        Writes one restore-kit file only when its bytes differ from what it
+        should hold, through '<name>.tmp' beside it, flushed to the disk and
+        renamed over it.
+
+    .DESCRIPTION
+        Length first, then content: the common case is an identical file,
+        decided without a write, so an unchanged kit touches no file and a
+        restore holding the bundled DLL does not stop a backup (review
+        2026-10-26 A4). A kill leaves the old file or the new one; the flush
+        before the rename makes that true across a power loss too, which
+        otherwise can leave the renamed file empty or full of NULs (A1). A
+        read-only file being replaced is made writable first, as the copy
+        that wrote kits before did with -Force. A write that must happen and
+        fails throws, leaving the old file whole and no temp file.
+
+        The temp names are on the root-level infrastructure list
+        (Test-IsInfrastructureFile) and follow no SR-069 grammar, so a
+        leftover is neither data nor an object, in the backup root or in a
+        snapshot.
+
+    .PARAMETER Path
+        The kit file.
+
+    .PARAMETER Bytes
+        What it should hold.
+
+    .OUTPUTS
+        [bool] true when the file was written.
+    #>
+    # Implements: SR-007, SR-082, LLR-007
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes
+    )
+    # Absolute for .NET, which resolves against the PROCESS directory.
+    $dest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    $have = [System.IO.FileInfo]::new($dest)
+    if ($have.Exists -and $have.Length -eq $Bytes.Length -and
+        [System.Linq.Enumerable]::SequenceEqual([byte[]][System.IO.File]::ReadAllBytes($dest), $Bytes)) { return $false }
+    $temp = "$dest.tmp"
+    try {
+        $stream = [System.IO.FileStream]::new($temp, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try {
+            $stream.Write($Bytes, 0, $Bytes.Length)
+            Sync-FileToDisk -Stream $stream
+        } finally {
+            $stream.Dispose()
+        }
+        if ($have.Exists -and $have.IsReadOnly) { $have.IsReadOnly = $false }
+        [System.IO.File]::Move($temp, $dest, $true)
+    } catch {
+        try { [System.IO.File]::Delete($temp) } catch { Write-Verbose "Could not remove '$temp': $($_.Exception.Message)" }
+        throw
+    }
+    return $true
+}
+
 function New-ReconstructScript {
     <#
     .SYNOPSIS
@@ -2945,12 +3044,13 @@ function New-ReconstructScript {
         (FileBackup.Common.psm1 + System.IO.Hashing.dll) so a restore works from
         the backup folder alone.
     .DESCRIPTION
-        Each of the seven files is written only when its bytes differ from
-        what it should be, and then through '<name>.tmp' beside it, renamed
-        over it - so an unchanged kit (every run but the first after an
-        upgrade) touches no file, and a kill leaves the old file or the new
-        one, never a torn one. Overwriting in place made every backup stop
-        with 4 while a restore started from the backup root still had its
+        Each of the seven files is written by Write-KitFile: only when its
+        bytes differ from what it should be, and then through '<name>.tmp'
+        beside it, flushed to the disk and renamed over it - so an unchanged
+        kit (every run but the first after an upgrade) touches no file, and a
+        kill or a power loss leaves the old file or the new one, never a torn
+        one. Overwriting in place made every backup stop with 4 while a
+        restore started from the backup root still had its
         System.IO.Hashing.dll loaded (review 2026-10-26 A4). A write that
         must happen and fails still throws.
     .NOTES
@@ -2964,24 +3064,9 @@ function New-ReconstructScript {
         [Parameter(Mandatory)][string]$BackupRoot,
         [Parameter(Mandatory)][string]$ChangeRoot
     )
-    # Writes one kit file. Length first, then content: the common case is an
-    # identical file, decided without a write. The temp name is on the
-    # root-level infrastructure list (Test-IsInfrastructureFile) and follows no
-    # SR-069 grammar, so a leftover is neither data nor an object.
     $writeKitFile = {
         param([string]$Name, [byte[]]$Bytes)
-        $dest = Join-Path $BackupRoot $Name
-        $have = [System.IO.FileInfo]::new($dest)
-        if ($have.Exists -and $have.Length -eq $Bytes.Length -and
-            [System.Linq.Enumerable]::SequenceEqual([byte[]][System.IO.File]::ReadAllBytes($dest), $Bytes)) { return }
-        $temp = "$dest.tmp"
-        try {
-            [System.IO.File]::WriteAllBytes($temp, $Bytes)
-            [System.IO.File]::Move($temp, $dest, $true)
-        } catch {
-            try { [System.IO.File]::Delete($temp) } catch { Write-Verbose "Could not remove '$temp': $($_.Exception.Message)" }
-            throw
-        }
+        [void](Write-KitFile -Path (Join-Path $BackupRoot $Name) -Bytes $Bytes)
     }
 
     $templateRoot = Split-Path $PSScriptRoot -Parent
@@ -5017,8 +5102,9 @@ function Publish-PriorStateSnapshot {
     .DESCRIPTION
         The prior manifest is copied as it is - every DataPath still naming the
         object as it is called in the backup root - together with the prior
-        directory record and the current restore kit, into Building_<D>; one
-        rename then makes it Snapshot_<D>. It restores from the moment it
+        directory record and the current restore kit, into Building_<D>; each
+        file is flushed to the disk, and one rename then makes it
+        Snapshot_<D>. It restores from the moment it
         appears, because every object it needs is still in the backup root or
         an older snapshot, and a row whose object is not in the snapshot's own
         folder is found by name (§7). The DataPaths are kept so that an object
@@ -5068,14 +5154,23 @@ function Publish-PriorStateSnapshot {
     }
     $building = Join-Path $ChangeRoot "$($script:BuildingFolderPrefix)$label"
     [void][System.IO.Directory]::CreateDirectory($building)
+    # Write-Manifest flushes the manifest before its own rename. Every other
+    # file is flushed here, before the one rename that publishes the folder:
+    # that rename can reach the disk before the data, and a power loss would
+    # then leave a snapshot whose kit or directory record is empty or NULs
+    # (review 2026-10-26 A1).
     Write-Manifest -FolderPath $building -Records $PriorRows
-    $priorSidecar = Join-Path $BackupRoot $script:Def.DirectorySidecarName
-    if (Test-Path -LiteralPath $priorSidecar -PathType Leaf) { Copy-Item -LiteralPath $priorSidecar -Destination $building -Force }
-    foreach ($artifact in @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName, $script:Def.ReconstructCommandName,
-                            $script:Def.ReconstructShName, $script:Def.CommonModuleName, 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
+    $copies = [System.Collections.Generic.List[string]]::new()
+    foreach ($artifact in @($script:Def.DirectorySidecarName, $script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
+                            $script:Def.ReconstructCommandName, $script:Def.ReconstructShName, $script:Def.CommonModuleName,
+                            'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
         $src = Join-Path $BackupRoot $artifact
-        if (Test-Path -LiteralPath $src -PathType Leaf) { Copy-Item -LiteralPath $src -Destination $building -Force }
+        if (Test-Path -LiteralPath $src -PathType Leaf) {
+            Copy-Item -LiteralPath $src -Destination $building -Force
+            $copies.Add((Join-Path $building $artifact))
+        }
     }
+    foreach ($copy in $copies) { Sync-FileToDisk -LiteralPath $copy }
     Invoke-BackupRunTestHook -Stage 'BeforeSnapshotPublish' -Context $building
     [System.IO.Directory]::Move($building, $final)
     & $Log "Prior state published as snapshot '$name'." 'INFO'

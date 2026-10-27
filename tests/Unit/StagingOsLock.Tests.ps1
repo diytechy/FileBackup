@@ -845,7 +845,7 @@ Describe 'The maintenance lock edge cases and placement (TC-254, SR-085, SR-086,
 
     It 'takes the lock in <_> before any mutating command (TC-254, SR-085)' -ForEach @('Repair-BackupStorageForm', 'Update-BackupSnapshotKit') {
         $enter = @(& $script:EdgeCallLines $_ @('Enter-StoreMutationLock'))
-        $first = @(& $script:EdgeCallLines $_ @('Test-BackupStorageForm', 'Move-Item', 'Write-Manifest', 'Copy-Item', 'Get-PoolSnapshotFolder') | Sort-Object)
+        $first = @(& $script:EdgeCallLines $_ @('Test-BackupStorageForm', 'Move-Item', 'Write-Manifest', 'Copy-Item', 'Write-KitFile', 'Get-PoolSnapshotFolder') | Sort-Object)
         ($enter.Count -eq 1 -and $first.Count -gt 0 -and $enter[0] -lt $first[0]) | Should -BeTrue
     }
 }
