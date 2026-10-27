@@ -464,7 +464,9 @@ Three ways to restore an old snapshot with the current kit:
 * without the configuration at hand (a store moved to another machine), copy
   `RECONSTRUCT.ps1`, `FileBackup.Common.psm1` and `System.IO.Hashing.dll` from
   the **live backup root** into the snapshot folder, replacing the old copies,
-  and run it there: `pwsh RECONSTRUCT.ps1 -TargetRoot DIR`; or
+  and run it there: `pwsh RECONSTRUCT.ps1 -TargetRoot DIR`. Do this only while
+  no backup or prune of that store is running: unlike `-RefreshKits`, a copy
+  by hand takes no lock; or
 * with `bash` ([Restore on Linux](#restore-on-linux-no-powershell)), run the
   live backup root's `reconstruct.sh` and name the snapshot as the origin; this
   writes nothing into the store:
