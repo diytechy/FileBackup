@@ -185,6 +185,77 @@ Describe 'Generated launchers and the kit artifact list (SR-007, SR-072)' {
     }
 }
 
+Describe 'The kit is rewritten only when it changed, by temp file and rename (SR-007, review 2026-10-26 A4)' {
+    BeforeAll {
+        $script:kitFiles = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh',
+                             'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+        function New-KitFolder {
+            param([string]$Name)
+            $b = Join-Path $TestDrive "$Name\bkp"
+            $c = Join-Path $TestDrive "$Name\chg"
+            New-Item -ItemType Directory -Path $b, $c -Force | Out-Null
+            New-ReconstructScript -BackupRoot $b -ChangeRoot $c
+            return [pscustomobject]@{ Bkp = $b; Chg = $c }
+        }
+    }
+
+    It 'touches no kit file when the kit is unchanged, so a restore holding the bundled DLL does not stop a backup (review 2026-10-26 A4)' {
+        $k = New-KitFolder 'kit-unchanged'
+        $old = [datetime]::new(2020, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
+        foreach ($f in $kitFiles) { [System.IO.File]::SetLastWriteTimeUtc((Join-Path $k.Bkp $f), $old) }
+        # A loaded DLL denies writing and deleting it, as this handle does: what
+        # a RECONSTRUCT.ps1 run from the backup root leaves while its window is open.
+        $hold = [System.IO.File]::Open((Join-Path $k.Bkp 'System.IO.Hashing.dll'), 'Open', 'Read', 'Read')
+        try {
+            # -ErrorAction Stop: FileBackup.ps1 runs with $ErrorActionPreference
+            # 'Stop', so a failed write there stops the set with 4.
+            { New-ReconstructScript -BackupRoot $k.Bkp -ChangeRoot $k.Chg -ErrorAction Stop } | Should -Not -Throw
+        } finally { $hold.Dispose() }
+        foreach ($f in $kitFiles) {
+            [System.IO.File]::GetLastWriteTimeUtc((Join-Path $k.Bkp $f)) | Should -Be $old -Because "'$f' did not change, so it is not rewritten"
+        }
+    }
+
+    It 'rewrites a torn kit file whole and leaves no temp file (review 2026-10-26 A4)' {
+        $k = New-KitFolder 'kit-torn'
+        $ps1 = Join-Path $k.Bkp 'RECONSTRUCT.ps1'
+        $whole = [System.IO.File]::ReadAllBytes($ps1)
+        [System.IO.File]::WriteAllBytes($ps1, [byte[]]($whole[0..99]))
+        New-ReconstructScript -BackupRoot $k.Bkp -ChangeRoot $k.Chg
+        [System.Linq.Enumerable]::SequenceEqual([System.IO.File]::ReadAllBytes($ps1), $whole) | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $k.Bkp -File -Force | Where-Object Name -like '*.tmp').Count | Should -Be 0
+    }
+
+    It 'still throws when a kit file that must change cannot be replaced, and keeps the old file whole (review 2026-10-26 A4)' {
+        $k = New-KitFolder 'kit-held'
+        $ps1 = Join-Path $k.Bkp 'RECONSTRUCT.ps1'
+        [System.IO.File]::AppendAllText($ps1, "`n# an older kit`n")
+        $before = [System.IO.File]::ReadAllBytes($ps1)
+        $hold = [System.IO.File]::Open($ps1, 'Open', 'Read', 'Read')
+        try {
+            { New-ReconstructScript -BackupRoot $k.Bkp -ChangeRoot $k.Chg -ErrorAction Stop } | Should -Throw
+        } finally { $hold.Dispose() }
+        [System.Linq.Enumerable]::SequenceEqual([System.IO.File]::ReadAllBytes($ps1), $before) | Should -BeTrue
+        Test-Path -LiteralPath "$ps1.tmp" | Should -BeFalse
+    }
+
+    It 'names its temp files so a leftover is neither an object nor data (review 2026-10-26 A4)' {
+        $k = New-KitFolder 'kit-tempnames'
+        foreach ($f in $kitFiles) {
+            $temp = Join-Path $k.Bkp "$f.tmp"
+            [System.IO.File]::WriteAllText($temp, 'left by a kill')
+            ConvertFrom-StoredObjectName -Name "$f.tmp" | Should -BeNullOrEmpty
+            Test-IsInfrastructureFile -Root $k.Bkp -FullPath $temp | Should -BeTrue -Because "'$f.tmp' is the kit's own staging file"
+        }
+        @(Get-DataFile -Root $k.Bkp).Count | Should -Be 0
+        # Root-level only: a nested file of that name is the user's (B6).
+        $nested = Join-Path $k.Bkp 'sub\RECONSTRUCT.ps1.tmp'
+        New-Item -ItemType Directory -Path (Join-Path $k.Bkp 'sub') -Force | Out-Null
+        [System.IO.File]::WriteAllText($nested, 'mine')
+        Test-IsInfrastructureFile -Root $k.Bkp -FullPath $nested | Should -BeFalse
+    }
+}
+
 Describe 'A restored tree is ordinary writable files (SR-007, TC-174)' {
     It 'restores WRITABLE files from a READ-ONLY pool, through the real restorer' {
         # The previous version of this test performed the attribute clear ITSELF

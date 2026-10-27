@@ -78,7 +78,13 @@ function Test-IsInfrastructureFile {
         $script:Def.DatabaseTempFilename,
         # The directory sidecar (SR-065). Root-level only, like the rest: a
         # nested user file called DIRECTORIES.csv is data (B6).
-        $script:Def.DirectorySidecarName
+        $script:Def.DirectorySidecarName,
+        # New-ReconstructScript's publish-by-rename staging files ('<kit file>.tmp'):
+        # a kill between the write and the rename leaves one behind, and it is
+        # never data (review 2026-10-26 A4). Root-level only, like the rest.
+        "$($script:Def.ReconstructPs1Name).tmp", "$($script:Def.ReconstructCmdName).tmp",
+        "$($script:Def.ReconstructCommandName).tmp", "$($script:Def.ReconstructShName).tmp",
+        "$($script:Def.CommonModuleName).tmp", 'System.IO.Hashing.dll.tmp', 'RECONSTRUCT.paths.json.tmp'
     )
     return ($infra -contains $rel)
 }
@@ -2890,6 +2896,15 @@ function New-ReconstructScript {
         writes a path sidecar, and bundles the PowerShell runtime dependencies
         (FileBackup.Common.psm1 + System.IO.Hashing.dll) so a restore works from
         the backup folder alone.
+    .DESCRIPTION
+        Each of the seven files is written only when its bytes differ from
+        what it should be, and then through '<name>.tmp' beside it, renamed
+        over it - so an unchanged kit (every run but the first after an
+        upgrade) touches no file, and a kill leaves the old file or the new
+        one, never a torn one. Overwriting in place made every backup stop
+        with 4 while a restore started from the backup root still had its
+        System.IO.Hashing.dll loaded (review 2026-10-26 A4). A write that
+        must happen and fails still throws.
     .NOTES
         Earlier versions prepended "$BackupRootOverride = ..." lines ahead of the
         script's param() block, which is invalid PowerShell. Paths are now passed
@@ -2901,6 +2916,26 @@ function New-ReconstructScript {
         [Parameter(Mandatory)][string]$BackupRoot,
         [Parameter(Mandatory)][string]$ChangeRoot
     )
+    # Writes one kit file. Length first, then content: the common case is an
+    # identical file, decided without a write. The temp name is on the
+    # root-level infrastructure list (Test-IsInfrastructureFile) and follows no
+    # SR-069 grammar, so a leftover is neither data nor an object.
+    $writeKitFile = {
+        param([string]$Name, [byte[]]$Bytes)
+        $dest = Join-Path $BackupRoot $Name
+        $have = [System.IO.FileInfo]::new($dest)
+        if ($have.Exists -and $have.Length -eq $Bytes.Length -and
+            [System.Linq.Enumerable]::SequenceEqual([byte[]][System.IO.File]::ReadAllBytes($dest), $Bytes)) { return }
+        $temp = "$dest.tmp"
+        try {
+            [System.IO.File]::WriteAllBytes($temp, $Bytes)
+            [System.IO.File]::Move($temp, $dest, $true)
+        } catch {
+            try { [System.IO.File]::Delete($temp) } catch { Write-Verbose "Could not remove '$temp': $($_.Exception.Message)" }
+            throw
+        }
+    }
+
     $templateRoot = Split-Path $PSScriptRoot -Parent
     $templatePs1 = @($script:Def.ReconstructPs1Name, 'Reconstruct.ps1') |
         Select-Object -Unique |
@@ -2912,7 +2947,7 @@ function New-ReconstructScript {
     }
 
     # Copy the reconstruct script verbatim.
-    Copy-Item -LiteralPath $templatePs1 -Destination (Join-Path $BackupRoot $script:Def.ReconstructPs1Name) -Force
+    & $writeKitFile $script:Def.ReconstructPs1Name ([System.IO.File]::ReadAllBytes($templatePs1))
 
     # The bash restorer is deliberately self-contained and needs no PowerShell.
     # Deposit it beside the Windows kit so a copied backup remains recoverable on
@@ -2921,7 +2956,7 @@ function New-ReconstructScript {
     if (-not (Test-Path -LiteralPath $templateSh -PathType Leaf)) {
         throw "reconstruct.sh not found at '$templateSh'"
     }
-    Copy-Item -LiteralPath $templateSh -Destination (Join-Path $BackupRoot $script:Def.ReconstructShName) -Force
+    & $writeKitFile $script:Def.ReconstructShName ([System.IO.File]::ReadAllBytes($templateSh))
 
     # The macOS double-click launcher, beside its POSIX restorer. It delegates
     # to reconstruct.sh, so it adds an entry point without adding a third copy
@@ -2930,11 +2965,14 @@ function New-ReconstructScript {
     if (-not (Test-Path -LiteralPath $templateCommand -PathType Leaf)) {
         throw "reconstruct.command not found at '$templateCommand'"
     }
-    Copy-Item -LiteralPath $templateCommand -Destination (Join-Path $BackupRoot $script:Def.ReconstructCommandName) -Force
+    & $writeKitFile $script:Def.ReconstructCommandName ([System.IO.File]::ReadAllBytes($templateCommand))
 
     # Path bindings as a sidecar (read by Reconstruct.ps1 from $PSScriptRoot).
-    @{ BackupRoot = $BackupRoot; ChangeRoot = $ChangeRoot } |
-        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $BackupRoot 'RECONSTRUCT.paths.json') -Encoding UTF8
+    # [ordered]: a hashtable's key order varies from process to process, which
+    # would rewrite an unchanged sidecar on about every other run. The bytes are
+    # what Set-Content -Encoding UTF8 wrote: no BOM, a trailing newline.
+    $sidecar = [ordered]@{ BackupRoot = $BackupRoot; ChangeRoot = $ChangeRoot } | ConvertTo-Json
+    & $writeKitFile 'RECONSTRUCT.paths.json' ([System.Text.UTF8Encoding]::new($false).GetBytes($sidecar + [Environment]::NewLine))
 
     # The Windows double-click launcher. -ExitCode makes the process entry point
     # report the SR-040 exit-code table (0/1/2/3/4) instead of throwing;
@@ -2953,16 +2991,15 @@ function New-ReconstructScript {
     # this shape - they differ only in ERRORLEVEL handling around built-ins
     # none of this uses. CRLF and ASCII, as cmd.exe expects.
     $cmd = "@echo off`r`npwsh -NoProfile -ExecutionPolicy Bypass -File `"%~dp0$($script:Def.ReconstructPs1Name)`" -ExitCode %*"
-    Set-Content -LiteralPath (Join-Path $BackupRoot $script:Def.ReconstructCmdName) -Value $cmd -Encoding ASCII
+    & $writeKitFile $script:Def.ReconstructCmdName ([System.Text.Encoding]::ASCII.GetBytes($cmd + [Environment]::NewLine))
 
     # Bundle the shared module so the deployed reconstruct script is self-contained.
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $script:Def.CommonModuleName) `
-              -Destination (Join-Path $BackupRoot $script:Def.CommonModuleName) -Force
+    & $writeKitFile $script:Def.CommonModuleName ([System.IO.File]::ReadAllBytes((Join-Path $PSScriptRoot $script:Def.CommonModuleName)))
 
     # Bundle the xxHash DLL so hashing works on a machine without the NuGet package.
     $dll = Get-XxHashDllPath
     if ($dll) {
-        Copy-Item -LiteralPath $dll -Destination (Join-Path $BackupRoot 'System.IO.Hashing.dll') -Force
+        & $writeKitFile 'System.IO.Hashing.dll' ([System.IO.File]::ReadAllBytes($dll))
     }
 }
 
