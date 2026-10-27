@@ -788,6 +788,132 @@ Describe 'Setting objects aside holds the OS lock, and -WhatIf moves nothing (re
     }
 }
 
+Describe 'An object a power loss left damaged is set aside, never reused (review 2026-10-26 G1)' {
+    # A power loss after an object was renamed to its content name, before its
+    # bytes reached the disk, leaves it empty (ext4) or torn. The run used to
+    # index it by name and reuse it for every unchanged file, forever.
+    BeforeAll {
+        function Get-AlphaObject {
+            param($Store)
+            @(Get-ChildItem -LiteralPath $Store.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and
+                (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        }
+        function Get-RunLog { param($Store) Get-Content -LiteralPath (Join-Path $Store.Chg 'backup.log') }
+        function Get-RunMetricDoc {
+            param($Store)
+            $line = @(Get-RunLog $Store | Where-Object { $_ -match '\[INFO\] metrics \{' })[-1]
+            $line.Substring($line.IndexOf('metrics ') + 8) | ConvertFrom-Json
+        }
+    }
+    BeforeEach {
+        $script:s = New-Store "g1-$([guid]::NewGuid().ToString('N').Substring(0, 6))"
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-05-01T10:00:00' | Should -Be 0
+        $script:alpha = Get-AlphaObject $s
+        $alpha | Should -Not -BeNullOrEmpty
+        $script:aside = Join-Path $s.Chg "Verify\$([IO.Path]::GetFileName($s.Bkp))\$($alpha.Name)"
+    }
+
+    It 'sets a zero-length object aside into Verify and stores the content again (review 2026-10-26 G1)' {
+        [IO.File]::WriteAllBytes($alpha.FullName, [byte[]]@())
+        Invoke-Run $s '2026-05-02T10:00:00' | Should -Be 1 -Because 'a damaged object set aside must be seen'
+        (Get-Item -LiteralPath $aside).Length | Should -Be 0 -Because 'the damaged file is kept in Verify, never deleted (R9)'
+        [IO.File]::ReadAllText($alpha.FullName) | Should -Be 'alpha' -Because 'the unchanged source content is stored again under its name'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo'
+        $log = Get-RunLog $s
+        @($log | Where-Object { $_ -match '\[WARN\] \[DamagedObject\] ' -and $_ -match [regex]::Escape($alpha.Name) }).Count | Should -Be 1
+        @($log | Where-Object { $_ -match '\[WARN\] Set aside 1 of 1 damaged stored object' -and $_ -match 'reports 1' }).Count | Should -Be 1
+        (Get-RunMetricDoc $s).damagedSetAside | Should -Be 1
+        Invoke-Run $s '2026-05-03T10:00:00' | Should -Be 0 -Because 'the store is whole again'
+    }
+
+    It 'sets a truncated raw object aside and stores the content again (review 2026-10-26 G1)' {
+        [IO.File]::WriteAllText($alpha.FullName, 'alp')
+        Invoke-Run $s '2026-05-02T10:00:00' | Should -Be 1
+        [IO.File]::ReadAllText($aside) | Should -Be 'alp'
+        [IO.File]::ReadAllText($alpha.FullName) | Should -Be 'alpha'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo'
+    }
+
+    It 'leaves an older engine''s mislabelled archive alone (review 2026-10-26 G1)' {
+        # Archive bytes under a raw name, of another length than the content:
+        # the restorers read its form from its bytes (SR-068), so it is no damage.
+        $archive = [byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4, 1, 2, 3, 4, 5, 6, 7, 8)
+        [IO.File]::WriteAllBytes($alpha.FullName, $archive)
+        $index = Get-StoreObjectIndex -BackupRoot $s.Bkp -ChangeRoot $s.Chg
+        $index.Damaged.Count | Should -Be 0
+        $index.Objects[(ConvertFrom-StoredObjectName -Name $alpha.Name).Prefix].Path | Should -Be $alpha.FullName
+        Invoke-Run $s '2026-05-02T10:00:00' | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $s.Chg 'Verify') | Should -BeFalse
+        [System.Linq.Enumerable]::SequenceEqual([IO.File]::ReadAllBytes($alpha.FullName), $archive) | Should -BeTrue
+    }
+
+    It 'judges a .7z name by its length only when it is empty (review 2026-10-26 G1)' {
+        $prefix = Get-StoredObjectPrefix -HashHex ('AB' * 16) -Length 1000
+        $short = Join-Path $s.Bkp "$prefix.7z"
+        [IO.File]::WriteAllText($short, 'not 1000 bytes, and no archive signature either')
+        $emptyPrefix = Get-StoredObjectPrefix -HashHex ('CD' * 16) -Length 1000
+        $empty = Join-Path $s.Bkp "$emptyPrefix.7z"
+        [IO.File]::WriteAllBytes($empty, [byte[]]@())
+        $index = Get-StoreObjectIndex -BackupRoot $s.Bkp -ChangeRoot $s.Chg
+        $index.Objects[$prefix].Path | Should -Be $short -Because 'a .7z of nonzero length is never judged by its length'
+        @($index.Damaged | ForEach-Object Path) | Should -Be @($empty)
+        $index.Objects.ContainsKey($emptyPrefix) | Should -BeFalse
+    }
+
+    It 'gives changed content its own name and does not rewrite the damaged history (review 2026-10-26 G1)' {
+        [IO.File]::WriteAllBytes($alpha.FullName, [byte[]]@())
+        Set-SourceFile $s 'a.txt' 'alpha-2'
+        Invoke-Run $s '2026-05-02T10:00:00' | Should -Be 1
+        Test-Path -LiteralPath $aside | Should -BeTrue
+        (Get-PoolObject $s).ContainsKey($alpha.Name) | Should -BeFalse -Because 'only bytes that hash to a name ever land at it, and no source holds alpha any more'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha-2;b.txt=bravo'
+        $snapRow = @(Read-Manifest -FolderPath (Join-Path $s.Chg 'Snapshot_2026_05_01_10_00_00') | Where-Object RelativePath -eq 'a.txt')[0]
+        $snapRow.DataPath | Should -Be $alpha.Name -Because 'the snapshot keeps its record of the content it had'
+    }
+
+    It 'sets a damaged object in a snapshot aside into Verify/<snapshot> (review 2026-10-26 G1)' {
+        Set-SourceFile $s 'b.txt' 'bravo-2'
+        Invoke-Run $s '2026-05-02T10:00:00' | Should -Be 0
+        $snap = Join-Path $s.Chg 'Snapshot_2026_05_01_10_00_00'
+        $bravo = @(Get-ChildItem -LiteralPath $snap -File | Where-Object { ConvertFrom-StoredObjectName -Name $_.Name })[0]
+        [IO.File]::ReadAllText($bravo.FullName) | Should -Be 'bravo' -Because 'the fixture needs bravo''s only copy in the snapshot'
+        [IO.File]::WriteAllBytes($bravo.FullName, [byte[]]@())
+        Invoke-Run $s '2026-05-03T10:00:00' | Should -Be 1
+        Test-Path -LiteralPath (Join-Path $s.Chg "Verify\Snapshot_2026_05_01_10_00_00\$($bravo.Name)") | Should -BeTrue
+        Test-Path -LiteralPath $bravo.FullName | Should -BeFalse
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo-2'
+    }
+
+    It 'reports a zero-length object on a plain Verify, and -RepairStorage moves it (review 2026-10-26 G1)' {
+        [IO.File]::WriteAllBytes($alpha.FullName, [byte[]]@())
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        $found.Count | Should -Be 1
+        $found[0].Class | Should -Be 'DamagedObject'
+        $found[0].Path | Should -Be $alpha.FullName
+        $found[0].Observed | Should -Match 'empty'
+        $found[0].Repairable | Should -BeTrue
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 1
+        Test-Path -LiteralPath $aside | Should -BeTrue
+    }
+
+    It 'does not take a damaged object it could not set aside for the content it names (review 2026-10-26 G1)' -Skip:(-not $IsWindows) {
+        [IO.File]::WriteAllText($alpha.FullName, 'alp')
+        Set-EngineVar 'RetryMinSpacingSeconds' 0
+        # Open without delete sharing, so the object cannot be moved (Windows).
+        $hold = [IO.File]::Open($alpha.FullName, 'Open', 'Read', 'Read')
+        try {
+            Invoke-Run $s '2026-05-02T10:00:00' | Should -Be 1
+        } finally { $hold.Dispose() }
+        $log = Get-RunLog $s
+        @($log | Where-Object { $_ -match 'could not be moved into Verify' }).Count | Should -Be 1
+        @($log | Where-Object { $_ -match "\[WARN\] Not capturing 'a\.txt'" -and $_ -match 'is damaged' }).Count | Should -Be 1 `
+            -Because 'the good copy is not dropped in favour of the damaged one; the file is warned about instead'
+        [IO.File]::ReadAllText($alpha.FullName) | Should -Be 'alp'
+    }
+}
+
 Describe 'An archive exactly as long as its content (plan C30)' {
     It 'is stored raw instead, so its listing cannot be mistaken' {
         $root = Join-Path $TestDrive 'eqlen-write'

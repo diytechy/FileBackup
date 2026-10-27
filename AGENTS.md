@@ -30,7 +30,7 @@ are unsupported; one OS lock refuses a second one.
 | File | Role | Bundled into backups? |
 |---|---|---|
 | `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Sync-FileToDisk` (the one flush every rename-into-place goes through, §4), `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: the **bounded backup run** — `Invoke-BackupSet` and its steps (`Read-PriorStateForRun`, `New-BackupRunContext`, `Invoke-LibraryCapture`, `Publish-LatestState`, `Test-StateChanged`, `Remove-UnchangedSnapshot`), `Resolve-BackupSetPaths` / `Assert-StoreVolumePresent`, `Get-SourceFileList`, `Get-StoreObjectIndex` (+ the prefix-only name reader `ConvertFrom-StoredObjectName`), `Invoke-SourceFileCapture`, `Get-LatestObject`, `Copy-FileWithHash`, `Publish-StagedObject`, `Publish-PriorStateSnapshot`, `Move-SupersededObject`, `Assert-SingleStoreMount`, `Clear-InterruptedRunResidue`, the OS lock (`Enter-/Exit-StagingOsLock`), the run metrics (`New-RunMetric`, `Complete-RunStep`, `Add-RunMetric`, `Add-RunSlowFile`, `Write-RunMetric`) — and `New-ReconstructScript` (+ `Write-KitFile`, shared with `-RefreshKits`), `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Get-BackupContentIndex` (read by retention and the audit), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`, and the object-level audit `Get-StoreObjectFinding` / `Get-StoredObjectVerdict` / `Measure-DuplicateRepairCost` / `Move-StoreObjectToVerify` / `Remove-VerifyScratch` (plan R9, C4, C22, C28); and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: the **bounded backup run** — `Invoke-BackupSet` and its steps (`Read-PriorStateForRun`, `New-BackupRunContext`, `Invoke-LibraryCapture`, `Publish-LatestState`, `Test-StateChanged`, `Remove-UnchangedSnapshot`), `Resolve-BackupSetPaths` / `Assert-StoreVolumePresent`, `Get-SourceFileList`, `Get-StoreObjectIndex` (+ the prefix-only name reader `ConvertFrom-StoredObjectName`, the listing damage check `Get-ListedObjectDamage` and its set-aside step `Move-DamagedStoreObject`), `Invoke-SourceFileCapture`, `Get-LatestObject`, `Copy-FileWithHash`, `Publish-StagedObject`, `Publish-PriorStateSnapshot`, `Move-SupersededObject`, `Assert-SingleStoreMount`, `Clear-InterruptedRunResidue`, the OS lock (`Enter-/Exit-StagingOsLock`), the run metrics (`New-RunMetric`, `Complete-RunStep`, `Add-RunMetric`, `Add-RunSlowFile`, `Write-RunMetric`) — and `New-ReconstructScript` (+ `Write-KitFile`, shared with `-RefreshKits`), `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Get-BackupContentIndex` (read by retention and the audit), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`, and the object-level audit `Get-StoreObjectFinding` / `Get-StoredObjectVerdict` / `Measure-DuplicateRepairCost` / `Move-StoreObjectToVerify` / `Get-VerifyDestination` (Verify/'s one layout) / `Remove-VerifyScratch` (plan R9, C4, C22, C28); and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
 | `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049) / `-Action View` (SR-062), dispatch the one configured set to the retention mechanism, the storage-form audit or a forced browse-view rebuild. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
@@ -71,7 +71,12 @@ files; `BoundedRun.Tests.ps1` kills a run at each stage and proves it.
    manifest, which is the only change-detection record (R3). One listing of the
    backup root and every snapshot builds the object index by name
    (`Get-StoreObjectIndex`); snapshot manifests are not read by a run (step 8's
-   leftover case is the one exception).
+   leftover case is the one exception). An object of a length its name rules
+   out (`Get-ListedObjectDamage`: empty, or a raw object of another length with
+   no 7-Zip signature - what a power loss can leave) is not indexed;
+   `Move-DamagedStoreObject` moves it into `<ChangePath>/Verify/<folder>/`
+   before the library loop, with a WARN, and the set reports 1 (review
+   2026-10-26 G1).
 3. **Publish the prior state first** (`Publish-PriorStateSnapshot`): its manifest
    **with its DataPaths kept** (C10), its directory record and the current kit
    go into `Building_<D>`, renamed to `Snapshot_<D>`. It restores at once,
@@ -111,7 +116,7 @@ files; `BoundedRun.Tests.ps1` kills a run at each stage and proves it.
    release the lock in the `finally`.
 
 The set returns **0** every file captured, **1** completed with files not
-captured, **2** refused before anything changed, **4** stopped by a host problem
+captured or a damaged object set aside, **2** refused before anything changed, **4** stopped by a host problem
 (volume full or gone, store drive not attached, source gone or emptied mid-run)
 or a held lock; `FileBackup.ps1` folds the sets with precedence 2 > 4 > 1.
 
@@ -220,6 +225,7 @@ Imports (internal): `Common`
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-LatestObject` | no | SR-003, SR-053, SR-108 |
+| `Get-ListedObjectDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PriorBackupDate` | no | SR-005, SR-035, LLR-005, LLR-035 |
@@ -238,6 +244,7 @@ Imports (internal): `Common`
 | `Get-StoredObjectVerdict` | yes | SR-049, SR-068, LLR-049 |
 | `Get-StoreObjectFinding` | yes | SR-003, SR-049, LLR-049 |
 | `Get-StoreObjectIndex` | yes | SR-003, SR-053, SR-108 |
+| `Get-VerifyDestination` | no | SR-049, SR-109 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Invoke-BackupRunTestHook` | no | — |
@@ -248,6 +255,7 @@ Imports (internal): `Common`
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
 | `Measure-DuplicateRepairCost` | yes | SR-049, SR-109, LLR-049 |
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
+| `Move-DamagedStoreObject` | no | SR-049, SR-053, SR-059 |
 | `Move-StoreObjectToVerify` | yes | SR-049, SR-109, SR-085, SR-086, LLR-049 |
 | `Move-SupersededObject` | yes | SR-005, SR-041, SR-059, LLR-059, LLR-150 |
 | `New-BackupRunContext` | no | SR-011, SR-081, LLR-014 |
@@ -286,6 +294,7 @@ Imports (internal): `Common`
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |
 | `Test-PoolResolves` | yes | SR-046, SR-045, LLR-046 |
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
+| `Test-SevenZipSignature` | no | SR-049, SR-068 |
 | `Test-StateChanged` | no | SR-005, SR-100, LLR-005 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
@@ -338,7 +347,15 @@ Imports (internal): `Common`
   still claims the object — rows kept for unreadable or unportable files do, so
   their bytes stay (testing against the source walk was D-1). **A backup run
   never deletes an object** (R9): `-Action Verify -RepairStorage` moves duplicate
-  and damaged objects into `<ChangePath>/Verify/`, and a person empties it.
+  and damaged objects into `<ChangePath>/Verify/`, a backup run moves there an
+  object its listing shows damaged (G1, below), and a person empties it. **A
+  damaged object is never reused** (review 2026-10-26 G1): it is out of the
+  index, so its content is stored again only from a source file whose bytes
+  hash to it - identical content lands at that name again, changed content
+  gets its own, and the damaged history is not rewritten.
+  `Publish-StagedObject`'s "an object is already at that name" branch refuses
+  (the file is retried, then warned about) when that object is one the run
+  could not move aside.
 - **Nothing already stored is ever re-formed** (SR-061). `CompressEnabled`
   governs only content written after the change; a mixed-form store is normal,
   because compression is per-file (SR-004) and every row's `Compressed` describes
@@ -454,7 +471,15 @@ Imports (internal): `Common`
 - **Verify moves nothing aside without evidence** (C22, C28, C33). Restorers
   ignore `<ChangePath>/Verify/`, so an object moved there is out of every
   restore's reach. Only a completed comparison is damage (`Get-StoredObjectVerdict`
-  → Damaged); a read or expand that did not complete is Unverified, never moved,
+  → Damaged), or a length the object's own name rules out
+  (`Get-ListedObjectDamage`, review 2026-10-26 G1: empty while the name records
+  content, or a non-`.7z` name of another length whose first bytes are not the
+  7-Zip signature; a `.7z` of nonzero length is never judged by length, and
+  archive bytes under a raw name are an older engine's mislabelled object
+  (SR-068), not damage; the signature is read only for that rare mismatch, by
+  `Test-SevenZipSignature`, never by the audit's `Get-StoredFileForm`, which a
+  run must not reach). Plain Verify reports such an object as
+  `DamagedObject`; a read or expand that did not complete is Unverified, never moved,
   and never a `PayloadMismatch`; a duplicate moves only after the copy kept is
   proven good (a restore heals a damaged copy from another one, and Verify/ is
   not in the pool); `-Deep` without 7-Zip is refused before anything is judged.
@@ -647,7 +672,8 @@ Imports (internal): `Common`
   is renamed (the prune then deletes its source). Stored objects
   (`Copy-FileWithHash`, `Publish-StagedObject`, the 7-Zip output) are **not**
   flushed - the Owner has not ruled on that cost - so a power loss can still
-  leave one empty or torn.
+  leave one empty or torn; the listing catches the empty and torn-raw cases
+  (G1, §3), not NULs at full length, which only `-Action Verify -Deep` finds.
 - **Restore verification happens before any mutation.** Both restorers check the
   manifest header shape *before* creating the target folder or their log, so a
   header refusal (the early exit-2s) leaves the target byte-for-byte as it was; the *late* code-2 preflights

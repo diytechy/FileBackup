@@ -200,7 +200,8 @@
 
         0  Every file of every backup set was captured.
         1  A set completed, but some files were not captured (each is named
-           in that set's log; its earlier copy is kept).
+           in that set's log; its earlier copy is kept), or it set a damaged
+           stored object aside into <ChangePath>/Verify/ (also named there).
         2  Refused before anything changed: the configuration could not be
            loaded -- the file is missing or unreadable, or it violates the
            SR-042 schema (missing/unrecognized ConfigVersion, unknown key,
@@ -539,7 +540,8 @@ function Invoke-VerifyAction {
         }
         $metrics = New-RunMetric
         # Object-level audit (bounded-run-loop plan R9, R10, C4): duplicate
-        # copies always, damaged objects under -Deep. -RepairStorage moves both
+        # copies and objects of a length their name rules out always (review
+        # 2026-10-26 G1), damaged bytes under -Deep. -RepairStorage moves both
         # into <ChangePath>/Verify/ - nothing is deleted - and the audit runs
         # again so the report is the state the caller is left in. A plain run
         # says up front what a repair would cost: the kept copies it would read
@@ -699,7 +701,7 @@ if ($NoMail -or -not $haveMailConfig) {
     }
     $body = switch ($runCode) {
         0 { "All backup sets completed successfully.`r`n`r`nLogs:`r`n" + ($logPaths -join "`r`n") }
-        1 { "Every backup set completed, but some files were not captured; each is named in its set's log.`r`n`r`nLogs:`r`n" + ($logPaths -join "`r`n") }
+        1 { "Every backup set completed, but some files were not captured or a damaged stored object was set aside; each is named in its set's log.`r`n`r`nLogs:`r`n" + ($logPaths -join "`r`n") }
         default { "One or more backup sets did not run or did not finish.`r`n`r`nCheck logs:`r`n" + ($logPaths -join "`r`n") }
     }
 

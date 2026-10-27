@@ -1235,16 +1235,43 @@ function Get-StoredFileForm {
     param([Parameter(Mandatory)][string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'Missing' }
+    if (Test-SevenZipSignature -Path $Path) { return 'Archive' }
+    return 'Raw'
+}
+
+function Test-SevenZipSignature {
+    <#
+    .SYNOPSIS
+        True when a file begins with the 7-Zip signature 37 7A BC AF 27 1C:
+        six bytes read, no hashing and no 7-Zip.
+
+    .DESCRIPTION
+        The one byte test behind the storage audit's Get-StoredFileForm and
+        the backup run's damage check (Get-ListedObjectDamage). It stands
+        apart so a backup run reads these six bytes without reaching the
+        audit, which a backup never runs (SR-049). Throws when the file
+        cannot be opened.
+
+    .PARAMETER Path
+        Full path of the file.
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-049, SR-068
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
     $magic = [byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C)
     $head  = New-Object byte[] $magic.Length
     $read  = 0
     $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
     try { $read = $fs.Read($head, 0, $magic.Length) } finally { $fs.Dispose() }
-    if ($read -lt $magic.Length) { return 'Raw' }
+    if ($read -lt $magic.Length) { return $false }
     for ($i = 0; $i -lt $magic.Length; $i++) {
-        if ($head[$i] -ne $magic[$i]) { return 'Raw' }
+        if ($head[$i] -ne $magic[$i]) { return $false }
     }
-    return 'Archive'
+    return $true
 }
 
 function Get-StorageFormFinding {
@@ -1715,8 +1742,9 @@ function Get-StoreObjectFinding {
     <#
     .SYNOPSIS
         The object-level audit of -Action Verify: every second copy of one
-        content in the pool (always), and with -Deep every object whose bytes
-        do not match its name (plan R9, R10, C4). Mutates nothing.
+        content in the pool and every object whose listing shows it damaged
+        (always), and with -Deep every object whose bytes do not match its name
+        (plan R9, R10, C4; review 2026-10-26 G1). Mutates nothing.
 
     .DESCRIPTION
         A backup run no longer collapses duplicates and never deletes an object
@@ -1726,7 +1754,10 @@ function Get-StoreObjectFinding {
         backup root's, else the newest snapshot's - unless -Deep finds that copy
         damaged and another one good, in which case the good one is kept. Each
         DuplicateObject finding carries the copy kept (Kept), and KeptVerified
-        says -Deep already proved it good. Under
+        says -Deep already proved it good. An object of a length its name rules
+        out (Get-ListedObjectDamage: empty, or a raw object of the wrong length
+        that is no archive) is a DamagedObject finding without -Deep and is
+        never a copy kept. Under
         -Deep a copy that could not be checked is an 'UnverifiedObject' finding,
         never repairable, and -Deep without 7-Zip is refused up front, as the
         storage-form audit refuses it, so nothing is moved on missing evidence. A
@@ -1779,6 +1810,11 @@ function Get-StoreObjectFinding {
             Observed = $Observed; Expected = $Expected; Repairable = $true
             FileLength = [long]$Entry.FileLength; Kept = $null; KeptVerified = $false
         }
+    }
+    # Damage the listing already shows (Get-ListedObjectDamage) is reported
+    # without -Deep, and such a copy is never the one kept.
+    foreach ($d in $index.Damaged) {
+        $findings.Add((& $newFinding $d 'DamagedObject' $d.Reason 'every object''s length fits the content its name records (SR-049)'))
     }
     foreach ($copies in $groups.Values) {
         $keep = $copies[0]
@@ -1935,10 +1971,9 @@ function Move-StoreObjectToVerify {
                     continue
                 }
             }
-            $folder = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) $f.FolderName
-            $dest = Join-Path $folder $f.DataPath
-            $n = 1
-            while (Test-Path -LiteralPath $dest) { $dest = Join-Path $folder "$($f.DataPath).$n"; $n++ }
+            $target = Get-VerifyDestination -ChangeRoot $ChangeRoot -FolderName $f.FolderName -Name $f.DataPath
+            $folder = $target.Folder
+            $dest = $target.Path
             if (-not $PSCmdlet.ShouldProcess($f.Path, "move into '$folder'")) {
                 & $Log "[$($f.Class)] would move '$($f.Path)' to '$dest' (-WhatIf: nothing was moved)." 'INFO'
                 continue
@@ -1961,6 +1996,117 @@ function Move-StoreObjectToVerify {
     } finally {
         Exit-StagingOsLock -Lock $osLock -Log $Log
     }
+}
+
+function Get-VerifyDestination {
+    <#
+    .SYNOPSIS
+        Where an object set aside from a pool folder goes:
+        <ChangeRoot>/Verify/<folder>/<name>, with '.<n>' appended until the
+        name is free, so nothing already set aside is overwritten.
+
+    .DESCRIPTION
+        The one layout of Verify/, shared by -RepairStorage
+        (Move-StoreObjectToVerify) and the backup run's setting aside of
+        damaged objects (Move-DamagedStoreObject). Nothing is created here.
+
+    .PARAMETER ChangeRoot
+        The change root.
+
+    .PARAMETER FolderName
+        The pool folder the object is in: a snapshot's folder name, or the
+        backup root's.
+
+    .PARAMETER Name
+        The object's file name.
+
+    .OUTPUTS
+        [pscustomobject] Folder, Path.
+    #>
+    # Implements: SR-049, SR-109
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][string]$FolderName,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $folder = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) $FolderName
+    $dest = Join-Path $folder $Name
+    $n = 1
+    while (Test-Path -LiteralPath $dest) { $dest = Join-Path $folder "$Name.$n"; $n++ }
+    return [pscustomobject]@{ Folder = $folder; Path = $dest }
+}
+
+function Move-DamagedStoreObject {
+    <#
+    .SYNOPSIS
+        Sets aside every object the run's index found damaged by its listing,
+        moving each into <ChangeRoot>/Verify/<folder>/ (review 2026-10-26 G1).
+
+    .DESCRIPTION
+        Runs right after the index, before the library loop, under the run's
+        OS lock. A damaged object is never reused and nothing is deleted (R9):
+        it moves into Verify/ - which no restore and no run reads - laid out
+        as -RepairStorage lays it out (Get-VerifyDestination), so it is not
+        lost and a person can look at it. Its content is then stored again by
+        the loop only from a source file whose bytes hash to it (SR-053, SR-059):
+        identical content lands at that name again, changed content gets its
+        own, and the damaged history is not rewritten.
+
+        Each object gets a WARN, and one summary line says the set reports 1,
+        so the scheduler and HomeHub see it. A move that fails is a WARN too:
+        the object stays where it is, out of the index, and
+        Publish-StagedObject refuses to take it for the content it names.
+
+    .PARAMETER Damaged
+        Get-StoreObjectIndex's Damaged entries.
+
+    .PARAMETER BackupRoot
+        The backup root, whose folder name labels its objects in Verify/.
+
+    .PARAMETER ChangeRoot
+        The change root.
+
+    .PARAMETER Metrics
+        The run's metrics (New-RunMetric).
+
+    .PARAMETER Log
+        The set logger.
+
+    .OUTPUTS
+        [pscustomobject] Found, Moved.
+    #>
+    # Implements: SR-049, SR-053, SR-059
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Damaged,
+        [Parameter(Mandatory)][string]$BackupRoot,
+        [Parameter(Mandatory)][string]$ChangeRoot,
+        [Parameter(Mandatory)][hashtable]$Metrics,
+        [Parameter(Mandatory)][scriptblock]$Log
+    )
+    $moved = 0
+    foreach ($d in $Damaged) {
+        $folderName = if ($d.Folder) { $d.Folder } else { [System.IO.Path]::GetFileName($BackupRoot.TrimEnd('\', '/')) }
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            $target = Get-VerifyDestination -ChangeRoot $ChangeRoot -FolderName $folderName -Name $d.Name
+            [void][System.IO.Directory]::CreateDirectory($target.Folder)
+            [System.IO.File]::Move($d.Path, $target.Path)
+            Add-RunMetric -Metrics $Metrics -Name 'set aside damaged object' -Bytes ([long]$d.FileLength) -Ticks $watch.ElapsedTicks
+            & $Log "[DamagedObject] '$($d.Path)' is damaged ($($d.Reason)), as a power loss can leave it; moved it to '$($target.Path)' and it is not reused." 'WARN'
+            $moved++
+        } catch {
+            & $Log "[DamagedObject] '$($d.Path)' is damaged ($($d.Reason)) and could not be moved into Verify: $($_.Exception.Message). It is not reused." 'WARN'
+        }
+    }
+    if ($Damaged.Count -gt 0) {
+        & $Log ("Set aside $moved of $($Damaged.Count) damaged stored object(s) into '$(Join-Path $ChangeRoot $script:VerifyFolderName)'. " +
+                'Their content is stored again from the source where the source still holds it; a state whose content is gone ' +
+                'cannot be restored for those files. This set reports 1 so that it is seen.') 'WARN'
+        Complete-RunStep -Metrics $Metrics -Name 'set aside damaged objects'
+    }
+    return [pscustomobject]@{ Found = $Damaged.Count; Moved = $moved }
 }
 
 function Measure-DuplicateRepairCost {
@@ -4202,6 +4348,69 @@ function Get-StoredObjectPrefix {
     return (Get-HashSizeFileName -HashHex $HashHex -Length $Length -Extension '')
 }
 
+function Get-ListedObjectDamage {
+    <#
+    .SYNOPSIS
+        Says why a stored object is damaged by what its listing already shows -
+        a length its name rules out - or returns $null (review 2026-10-26 G1).
+
+    .DESCRIPTION
+        A power loss after an object was renamed to its content name, before
+        its bytes reached the disk, leaves it empty (ext4) or at full length
+        reading as NULs (NTFS). The empty case, and a torn raw object, show in
+        the listing; NULs at full length do not, and only -Action Verify -Deep
+        finds them. Damaged when either:
+
+          * it is empty and its name records content; or
+          * its name's extension is not '.7z', its length is not the content
+            length its name records, and its first bytes are not the 7-Zip
+            signature.
+
+        A '.7z' name of nonzero length is never judged by length: an archive is
+        legitimately shorter or longer than its content. A raw-named object
+        holding archive bytes is an older engine's mislabelled object, which
+        the restorers read from its bytes (SR-068): not damage. The bytes are
+        read only in that rare mismatched case, never for every object, and a
+        file that cannot be read is no evidence, so it is not called damaged
+        (C22).
+
+    .PARAMETER Path
+        The object file.
+
+    .PARAMETER FileLength
+        Its length on disk.
+
+    .PARAMETER ContentLength
+        The content length its name records.
+
+    .PARAMETER Extension
+        Its name's extension.
+
+    .OUTPUTS
+        [string] the reason, or $null when the listing shows no damage.
+    #>
+    # Implements: SR-049, SR-053, SR-059
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][long]$FileLength,
+        [Parameter(Mandatory)][long]$ContentLength,
+        [AllowEmptyString()][string]$Extension
+    )
+    if ($FileLength -eq 0 -and $ContentLength -gt 0) {
+        return "it is empty, but its name records $ContentLength byte(s) of content"
+    }
+    if ($FileLength -eq $ContentLength -or $Extension -ieq '.7z') { return $null }
+    try {
+        if (Test-SevenZipSignature -Path $Path) { return $null }
+    } catch {
+        Write-Verbose "Could not read the first bytes of '$Path': $($_.Exception.Message)"
+        return $null
+    }
+    return "it is $FileLength byte(s) long, but its name records $ContentLength byte(s) of raw content and it is no archive"
+}
+
 function Get-StoreObjectIndex {
     <#
     .SYNOPSIS
@@ -4218,6 +4427,13 @@ function Get-StoreObjectIndex {
         backup root wins, then the newest snapshot; the other copies are listed
         as Duplicates, which a run leaves for -Action Verify (R10).
 
+        An object whose listing shows it damaged (Get-ListedObjectDamage: what
+        a power loss can leave) is listed as Damaged instead, and is never an
+        object or a duplicate: a run must not reuse it, and an object named
+        after content is only ever created from bytes that were hashed as they
+        were written (SR-059), so the content is stored again, from the source,
+        only while the source still holds it (review 2026-10-26 G1).
+
     .PARAMETER BackupRoot
         The backup root (the latest state).
 
@@ -4228,7 +4444,8 @@ function Get-StoreObjectIndex {
         [pscustomobject] Objects (an ordinal Dictionary from name prefix to an
         entry: Name, Prefix, Path, Folder - '' for the backup root, else the
         snapshot's folder name - FileLength, ContentLength, Extension), Lengths
-        (a HashSet of every stored content length) and Duplicates.
+        (a HashSet of every stored content length), Duplicates, and Damaged
+        (entries of the same shape with a Reason).
     #>
     # Implements: SR-003, SR-053, SR-108
     [CmdletBinding()]
@@ -4239,6 +4456,7 @@ function Get-StoreObjectIndex {
     $objects = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $lengths = [System.Collections.Generic.HashSet[long]]::new()
     $dups    = [System.Collections.Generic.List[object]]::new()
+    $damaged = [System.Collections.Generic.List[object]]::new()
     $folders = [System.Collections.Generic.List[object]]::new()
     $folders.Add([pscustomobject]@{ Folder = ''; Path = $BackupRoot })
     $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot)
@@ -4269,12 +4487,23 @@ function Get-StoreObjectIndex {
                 ContentLength = $parsed.Length
                 Extension     = $parsed.Extension
             }
+            # Only a length the name rules out can be damage, and never for a
+            # '.7z' that is not empty, so the predicate is asked only then: a
+            # call per object costs seconds on a store of 180,000 objects.
+            if ($file.Length -ne $parsed.Length -and ($file.Length -eq 0 -or $parsed.Extension -ine '.7z')) {
+                $damage = Get-ListedObjectDamage -Path $file.FullName -FileLength $file.Length -ContentLength $parsed.Length -Extension $parsed.Extension
+                if ($null -ne $damage) {
+                    $entry | Add-Member -NotePropertyName Reason -NotePropertyValue $damage
+                    $damaged.Add($entry)
+                    continue
+                }
+            }
             if ($objects.ContainsKey($parsed.Prefix)) { $dups.Add($entry); continue }
             $objects[$parsed.Prefix] = $entry
             [void]$lengths.Add($parsed.Length)
         }
     }
-    return [pscustomobject]@{ Objects = $objects; Lengths = $lengths; Duplicates = $dups }
+    return [pscustomobject]@{ Objects = $objects; Lengths = $lengths; Duplicates = $dups; Damaged = $damaged }
 }
 
 function Get-StoredObjectCompressedFlag {
@@ -4611,7 +4840,11 @@ function Publish-StagedObject {
         and a sampled probe of the bytes. Compression reads the staged copy,
         never the source, so the archive holds the bytes that were hashed. The
         rename never overwrites: an object already at that name holds the same
-        content (SR-059), and the staged copy is simply dropped.
+        content (SR-059), and the staged copy is simply dropped - unless that
+        object's listing shows it damaged (Get-ListedObjectDamage), which only
+        happens when the run could not set it aside: then nothing is stored
+        and this throws, so the file is retried and then warned about (R12)
+        rather than recorded against damaged bytes (review 2026-10-26 G1).
 
     .PARAMETER StagedPath
         The staged copy, on the backup volume.
@@ -4697,8 +4930,16 @@ function Publish-StagedObject {
             Remove-Item -LiteralPath $StagedPath -Force
         }
     }
-    if (Test-Path -LiteralPath $dest -PathType Leaf) {
+    $existing = [System.IO.FileInfo]::new($dest)
+    if ($existing.Exists) {
+        # Same name, same content (SR-059) - unless it is a damaged object the
+        # run could not set aside (Move-DamagedStoreObject): dropping this good
+        # copy would then leave the row naming bytes that are not its content.
+        $damage = Get-ListedObjectDamage -Path $dest -FileLength $existing.Length -ContentLength $Length -Extension $ext
         Remove-Item -LiteralPath $from -Force
+        if ($null -ne $damage) {
+            throw "The stored object '$name' is damaged ($damage) and could not be set aside, so this content cannot be stored under its name this run."
+        }
     } else {
         [System.IO.File]::Move($from, $dest)
     }
@@ -6341,6 +6582,10 @@ function Invoke-BackupSet {
         $index = Get-StoreObjectIndex -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
         & $log "Indexed $($index.Objects.Count) stored object(s); $($index.Duplicates.Count) duplicate cop(ies) left for -Action Verify."
         Complete-RunStep -Metrics $metrics -Name 'index the store'
+        # Before the library loop, so no capture can find a damaged object at
+        # its content's name (review 2026-10-26 G1).
+        $damage = Move-DamagedStoreObject -Damaged $index.Damaged.ToArray() -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
+                      -Metrics $metrics -Log $log
         New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
         Complete-RunStep -Metrics $metrics -Name 'restore kit'
         $snapshot = $null
@@ -6382,14 +6627,19 @@ function Invoke-BackupSet {
 
         Write-ProbeStatistic -Stats $context.ProbeStats -Log $log
         & $log ("Files: $($finalRows.Count) in the latest state, $($context.Stats.Stored) new object(s) stored, " +
-                "$($context.Stats.MovedBack) moved back from snapshots, $moved superseded moved into the snapshot, $($capture.NotCaptured) not captured.")
+                "$($context.Stats.MovedBack) moved back from snapshots, $moved superseded moved into the snapshot, $($capture.NotCaptured) not captured, " +
+                "$($damage.Found) damaged object(s) set aside.")
         Write-RunMetric -Metrics $metrics -Log $log -Extra @{
             files = $finalRows.Count; stored = $context.Stats.Stored; movedBack = $context.Stats.MovedBack
             supersededMoved = $moved; notCaptured = $capture.NotCaptured; kitRevisionReads = $context.KitRevisionOf.Count
+            damagedFound = $damage.Found; damagedSetAside = $damage.Moved
         }
-        if ($capture.NotCaptured -gt 0) {
+        # A damaged object set aside reports 1, like a file not captured: the
+        # run completed, and the scheduler and HomeHub must still see it.
+        if ($capture.NotCaptured -gt 0 -or $damage.Found -gt 0) {
             $code = 1
-            & $log "----- Backup set '$($Set.Name)' completed; $($capture.NotCaptured) file(s) or folder(s) not captured (see the warnings above) -----" 'WARN'
+            & $log ("----- Backup set '$($Set.Name)' completed; $($capture.NotCaptured) file(s) or folder(s) not captured, " +
+                    "$($damage.Found) damaged stored object(s) set aside (see the warnings above) -----") 'WARN'
         } else {
             & $log "----- Backup set '$($Set.Name)' completed -----"
         }

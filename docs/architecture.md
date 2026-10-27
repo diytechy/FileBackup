@@ -51,27 +51,28 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 9. `Complete-RunStep` — Records the time since the previous step mark under a step name.
 10. `Get-StoreObjectIndex` — Indexes every stored object of a backup by name: one listing of the
 11. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-12. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
-13. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-14. `Publish-PriorStateSnapshot` — Publishes the prior state as Snapshot_<D> before the run changes
-15. `Invoke-BackupRunTestHook` — Calls the module's backup-run test seam, when one is set, with a stage
-16. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-17. `New-BackupRunContext` — Builds what every capture of one run shares (plan step 4): the roots,
-18. `Invoke-LibraryCapture` — Walks the source and captures every file into the latest state (plan
-19. `Publish-LatestState` — Finishes the latest state (plan step 6): the final manifest and the
-20. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-21. `Test-StateChanged` — Whether a run changed the latest state (plan step 7, R7): a row was
-22. `Remove-UnchangedSnapshot` — Removes the snapshot a run built when the run changed no row (plan
-23. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-24. `Move-SupersededObject` — Moves every object in the backup root that no row of the final manifest
-25. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-26. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
-27. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-28. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
-29. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
-30. `Test-BackupDiskFull` — True when an error record is the destination running out of space,
-31. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
-32. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
+12. `Move-DamagedStoreObject` — Sets aside every object the run's index found damaged by its listing,
+13. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+14. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+15. `Publish-PriorStateSnapshot` — Publishes the prior state as Snapshot_<D> before the run changes
+16. `Invoke-BackupRunTestHook` — Calls the module's backup-run test seam, when one is set, with a stage
+17. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+18. `New-BackupRunContext` — Builds what every capture of one run shares (plan step 4): the roots,
+19. `Invoke-LibraryCapture` — Walks the source and captures every file into the latest state (plan
+20. `Publish-LatestState` — Finishes the latest state (plan step 6): the final manifest and the
+21. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+22. `Test-StateChanged` — Whether a run changed the latest state (plan step 7, R7): a row was
+23. `Remove-UnchangedSnapshot` — Removes the snapshot a run built when the run changed no row (plan
+24. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+25. `Move-SupersededObject` — Moves every object in the backup root that no row of the final manifest
+26. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+27. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
+28. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+29. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
+30. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
+31. `Test-BackupDiskFull` — True when an error record is the destination running out of space,
+32. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
+33. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -191,6 +192,7 @@ Imports (internal): `Common`
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-LatestObject` | no | SR-003, SR-053, SR-108 |
+| `Get-ListedObjectDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PriorBackupDate` | no | SR-005, SR-035, LLR-005, LLR-035 |
@@ -209,6 +211,7 @@ Imports (internal): `Common`
 | `Get-StoredObjectVerdict` | yes | SR-049, SR-068, LLR-049 |
 | `Get-StoreObjectFinding` | yes | SR-003, SR-049, LLR-049 |
 | `Get-StoreObjectIndex` | yes | SR-003, SR-053, SR-108 |
+| `Get-VerifyDestination` | no | SR-049, SR-109 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |
 | `Invoke-BackupRunTestHook` | no | — |
@@ -219,6 +222,7 @@ Imports (internal): `Common`
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
 | `Measure-DuplicateRepairCost` | yes | SR-049, SR-109, LLR-049 |
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
+| `Move-DamagedStoreObject` | no | SR-049, SR-053, SR-059 |
 | `Move-StoreObjectToVerify` | yes | SR-049, SR-109, SR-085, SR-086, LLR-049 |
 | `Move-SupersededObject` | yes | SR-005, SR-041, SR-059, LLR-059, LLR-150 |
 | `New-BackupRunContext` | no | SR-011, SR-081, LLR-014 |
@@ -257,6 +261,7 @@ Imports (internal): `Common`
 | `Test-IsJsonNumber` | no | SR-042, LLR-042 |
 | `Test-PoolResolves` | yes | SR-046, SR-045, LLR-046 |
 | `Test-PortableRelativePath` | yes | SR-055, LLR-055 |
+| `Test-SevenZipSignature` | no | SR-049, SR-068 |
 | `Test-StateChanged` | no | SR-005, SR-100, LLR-005 |
 | `Test-StorageFormAgreement` | yes | SR-046, SR-049, LLR-046, LLR-049 |
 | `Update-BackupSnapshotKit` | yes | SR-049, SR-007, SR-038, SR-085, SR-086, LLR-049, LLR-094 |
