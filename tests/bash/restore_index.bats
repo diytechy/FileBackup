@@ -168,6 +168,32 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
     done
 }
 
+@test "skips a prune staged copy in the name index, whatever its case (review 2026-10-26 A3)" {
+    # Copy-ReHomedDataFile stages '<object>.fbprune.tmp' beside the
+    # destination; a prune killed mid-copy leaves a truncated one there. Its
+    # name still decodes (the extension is opaque), so the origin's residue was
+    # the key's first candidate, the partial archive failed to expand, and the
+    # restore exited 4 with the intact original in latest.
+    copy_store HashAddressed_Compress
+    local snap="$CH/Snapshot_2024_01_01_09_00_00" o1 o2 log
+    o1="$(gawk -F'"' '$4 == "README" { print $2 }' "$BK/MANIFEST.csv")"
+    o2="$(gawk -F'"' '$4 == "[b] (p).txt" { print $2 }' "$BK/MANIFEST.csv")"
+    [[ "$o1" == *.7z && "$o2" == *.7z ]] || { echo "objects must be archives: '$o1' '$o2'"; false; }
+    head -c "$(( $(stat -c '%s' "$BK/$o1") / 2 ))" "$BK/$o1" > "$snap/$o1.fbprune.tmp"
+    head -c "$(( $(stat -c '%s' "$BK/$o2") / 2 ))" "$BK/$o2" > "$snap/$o2.FBPrune.TMP"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tstaged" --from "$snap" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 0 ] || { echo "expected 0, got $status"; echo "$output"; false; }
+    run verify_tree "$BATS_TEST_TMPDIR/tstaged" "$FIXTURES/bash-restore/HashAddressed_Compress/expected/Snapshot_2024_01_01_09_00_00.tsv"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    log="$BATS_TEST_TMPDIR/tstaged/RECONSTRUCT.log"
+    grep -qF "No DataPath for 'README'; resolved by name index to '$BK/$o1'" "$log"
+    grep -qF "No DataPath for '[b] (p).txt'; resolved by name index to '$BK/$o2'" "$log"
+    [ "$(grep -ci 'fbprune' "$log")" -eq 0 ]
+    # Skipped, never deleted: the suffix alone proves nothing (AGENTS.md section 3).
+    [ -f "$snap/$o1.fbprune.tmp" ] && [ -f "$snap/$o2.FBPrune.TMP" ]
+}
+
 @test "a change root whose path holds '&' or '#' keeps every sibling snapshot in the pool (review 2026-10-26 A2)" {
     # The snapshot list was prefixed with sed "s#^#$change_root/#": '&' put the
     # match into the path and '#' ended the command, so every sibling snapshot

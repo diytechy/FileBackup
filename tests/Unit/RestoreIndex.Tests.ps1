@@ -160,6 +160,31 @@ Describe 'The name index (kit revision 14, SR-069)' {
         $local = New-StoredObjectNameIndex -Folders @((Join-Path $ix 'no-such-folder'), $older)
         @($local.Keys).Count | Should -Be 2
     }
+
+    It 'skips a prune staged copy in the name index, whatever its case (review 2026-10-26 A3)' {
+        # Copy-ReHomedDataFile stages '<object>.fbprune.tmp' beside the
+        # destination; a prune killed mid-copy leaves a partial one there. The
+        # name still parses (the extension is opaque), so it was indexed FIRST
+        # and the intact original later in the pool was never tried.
+        $stage  = Join-Path $ix 'staged'
+        $intact = Join-Path $ix 'intact'
+        New-Item -ItemType Directory -Path $stage, $intact -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $stage "$nameB.fbprune.tmp"), 'p')
+        [IO.File]::WriteAllText((Join-Path $stage "$nameA.FBPrune.TMP"), 'p')
+        [IO.File]::WriteAllText((Join-Path $intact $nameB), 'y')
+        # A genuine object whose own extension is '.tmp' is still an object.
+        $hashT = 'ABCDEF0123456789ABCDEF0123456789'
+        $nameT = Get-HashSizeFileName -HashHex $hashT -Length 3 -Extension '.tmp'
+        [IO.File]::WriteAllText((Join-Path $stage $nameT), 't')
+
+        $local = New-StoredObjectNameIndex -Folders @($stage, $intact)
+        Find-DataFileByName -Index $local -Hash $hashB -Length 7 | Should -Be (Join-Path $intact $nameB)
+        Find-DataFileByName -Index $local -Hash $hashA -Length 42 | Should -BeNullOrEmpty
+        Find-DataFileByName -Index $local -Hash $hashT -Length 3 | Should -Be (Join-Path $stage $nameT)
+        @($local.Values | ForEach-Object { $_ } | Where-Object { $_ -like '*.fbprune.tmp' }) | Should -BeNullOrEmpty
+        # Skipped, never deleted: the suffix alone proves nothing (AGENTS.md section 3).
+        Test-Path -LiteralPath (Join-Path $stage "$nameB.fbprune.tmp") | Should -BeTrue
+    }
 }
 
 Describe 'The bash decoder''s conformance corpus agrees with the PowerShell parser (kit revision 14, SR-069)' {
@@ -312,6 +337,29 @@ Describe 'A stale DataPath resolves through the name index (kit revision 14, R6)
         $r.Log | Should -Match 'No datapath for change\.txt; resolved by name index'
         $r.Log | Should -Match '\[ContentMismatch\]'
         $r.Log | Should -Match 'after a verify mismatch'
+    }
+}
+
+Describe 'A partial prune staged copy does not block the intact original (review 2026-10-26 A3)' {
+    It 'restores a snapshot past a truncated prune staged copy (.fbprune.tmp) in its own folder: exit 0, not 4 (Compress)' {
+        $root = Join-Path $TestDrive 'prune-residue'
+        $s = New-IndexStore -Root $root -Compress $true
+        # keep.txt's snapshot row names an object that lives in latest, so the
+        # snapshot (the origin) is the index's first folder for its key. A
+        # prune re-homing into this snapshot, killed mid-copy, leaves a
+        # truncated '<object>.fbprune.tmp' here: archive-shaped, unexpandable.
+        $row = @(Import-Csv -LiteralPath (Join-Path $s.Snap 'MANIFEST.csv') | Where-Object RelativePath -eq 'keep.txt')[0]
+        $row.DataPath | Should -Match '\.7z$' -Because 'the residue must be archive-shaped to block the row'
+        Test-Path -LiteralPath (Join-Path $s.Snap $row.DataPath) | Should -BeFalse
+        $bytes = [IO.File]::ReadAllBytes((Join-Path $s.Bkp $row.DataPath))
+        [IO.File]::WriteAllBytes((Join-Path $s.Snap "$($row.DataPath).fbprune.tmp"), $bytes[0..([int]($bytes.Length / 2))])
+
+        $t = Join-Path $root 'restored'
+        $r = Invoke-IndexRestore -Recon $s.SnapRecon -TargetRoot $t
+        $r.Code | Should -Be 0 -Because $r.Output
+        Assert-RestoredFromManifest -Manifest (Join-Path $s.Snap 'MANIFEST.csv') -TargetRoot $t
+        $r.Log | Should -Match ("resolved by name index to '" + [regex]::Escape((Join-Path $s.Bkp $row.DataPath)) + "'")
+        $r.Log | Should -Not -Match 'fbprune'
     }
 }
 

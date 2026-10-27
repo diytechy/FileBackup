@@ -865,11 +865,24 @@ decode_hash_size_names() {
 # A folder that is absent or cannot be listed contributes nothing: find_by_hash
 # is what reports an unreadable pool (StorageUnreadable, exit 4). Uses main()'s
 # NAME_INDEX / NAME_INDEX_BUILT, so it must run in main's shell.
+#
+# A name ending in '.fbprune.tmp' (ignoring case) is never indexed: it is a
+# prune's staged copy (Copy-ReHomedDataFile writes '<object>.fbprune.tmp' and
+# publishes it by rename), and a prune killed mid-copy leaves a PARTIAL one
+# beside the destination. Indexed, it was the first candidate of its key, a
+# partial archive failed to expand, and the restore exited 4 with the intact
+# original still in the pool (review 2026-10-26 A3). No object carries that
+# suffix (an object's extension is one GetExtension segment) and find_by_hash
+# still sees every file. Filtered HERE, not in decode_hash_size_names, whose
+# conformance corpus pins the grammar alone. Nothing is deleted by suffix.
+# Twin of New-StoredObjectNameIndex.
 build_name_index() {
-    local folder hash len path key
+    local folder hash len path key sfx
     for folder in "${INDEX_FOLDERS[@]}"; do
         [[ -d "$folder" && -r "$folder" && -x "$folder" ]] || continue
         while IFS=$'\037' read -r -d '' hash len path; do
+            sfx="${path: -12}"
+            [[ "${sfx,,}" == '.fbprune.tmp' ]] && continue
             key="$hash:$len"
             if [[ -n "${NAME_INDEX[$key]+set}" ]]; then NAME_INDEX[$key]+=$'\037'"$path"
             else NAME_INDEX[$key]="$path"; fi

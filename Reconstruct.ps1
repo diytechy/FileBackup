@@ -539,6 +539,17 @@ function New-StoredObjectNameIndex {
         exactly like a DataPath file: its form comes from its bytes (SR-068)
         and the written file is verified against the row (SR-056).
 
+        A name ending in '.fbprune.tmp' (compared ordinal, ignoring case) is
+        never indexed: it is a prune's staged copy (Copy-ReHomedDataFile
+        writes '<object>.fbprune.tmp' and publishes it by rename), and a prune
+        killed mid-copy leaves a PARTIAL one beside the destination. Indexed,
+        it was the first candidate of its key, a partial archive failed to
+        expand, and the restore exited 4 with the intact original still in
+        the pool (review 2026-10-26 A3). No object carries that suffix - an
+        object's extension is one GetExtension segment - and the content scan
+        still sees every file, so nothing is lost by skipping it. Nothing is
+        deleted here by suffix (AGENTS.md section 3).
+
     .PARAMETER Folders
         Pool folders in candidate order: the restore origin first, then the
         backup root, then snapshots newest first. Duplicates are the caller's
@@ -559,6 +570,8 @@ function New-StoredObjectNameIndex {
         # -Force (SR-057): a pool object carrying the Hidden attribute is still
         # an object. Top level only - objects never nest.
         foreach ($f in @(Get-ChildItem -LiteralPath $folder -File -Force -ErrorAction SilentlyContinue)) {
+            # A prune's staged copy, never an object (see .DESCRIPTION).
+            if ($f.Name.EndsWith('.fbprune.tmp', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
             $parsed = ConvertFrom-HashSizeFileName -Name $f.Name
             if ($null -eq $parsed) { continue }
             $key  = "$($parsed.HashHex):$($parsed.Length)"
