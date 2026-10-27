@@ -1326,8 +1326,12 @@ function Resolve-RowDataSource {
         Add-ReconstructLog "Hash-recovered $Rel from '$($found.Path)' (form: $($found.Form))"
         return [pscustomobject]@{ Path = $found.Path; LocatedForm = $found.Form; Cause = $null; Detail = $null }
     }
-    if ($blank) {
-        # One message per CAUSE, not one warning for all four (SR-040).
+    if ($blank -or $found.Cause -ne 'ContentMissing') {
+        # One message per CAUSE, not one warning for all four (SR-040). A row
+        # WITH a DataPath keeps a host cause too: since C10 nearly every row
+        # has one, and reporting an unreadable pool as a missing data file
+        # turned "fix this host and retry" (4) into "your bytes are gone" (1)
+        # (review 2026-10-26 A7). Only real absence stays MissingDataFile.
         return [pscustomobject]@{ Path = $null; LocatedForm = $null; Cause = $found.Cause; Detail = $found.Detail }
     }
     return [pscustomobject]@{ Path = $null; LocatedForm = $null; Cause = 'MissingDataFile'

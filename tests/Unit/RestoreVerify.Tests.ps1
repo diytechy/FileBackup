@@ -136,6 +136,32 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         } finally { $h.Dispose() }
     }
 
+    It 'a host problem on a row WITH a DataPath is StorageUnreadable / exit 4, not a missing data file (review 2026-10-26 A7)' {
+        # Since C10 nearly every row carries a DataPath. Only a blank row used
+        # to keep the scan's cause; this one was reported MissingDataFile, so
+        # an unreadable pool read as "your bytes are gone" (exit 1).
+        $root = Join-Path $TestDrive 'a7-nonblank'
+        $s = New-RVStore -Root $root
+        $a = @(Import-Csv -LiteralPath $s.Manifest | Where-Object RelativePath -eq 'a.txt')[0]
+        $a.DataPath | Should -Not -BeNullOrEmpty
+        # The row's object is gone from its own name (and from every name the
+        # index can see); the bytes survive in the pool, but this host cannot
+        # read them - held open with no sharing.
+        $parked = Join-Path $s.Bkp 'parked.bin'
+        Move-Item -LiteralPath (Join-Path $s.Bkp $a.DataPath) -Destination $parked
+        $h = [IO.File]::Open($parked, 'Open', 'Read', 'None')
+        try {
+            $t = Join-Path $root 't'
+            $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
+            $code | Should -Be 4
+            $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+            $log | Should -Match '\[StorageUnreadable\] a\.txt'
+            $log | Should -Not -Match '\[MissingDataFile\]'
+            (Get-Content -LiteralPath (Join-Path $root 'recon-out.txt') -Raw) |
+                Should -Match '0 content-missing, 1 host'
+        } finally { $h.Dispose() }
+    }
+
     It 'a no-7-Zip unreadable candidate records exactly ONE cause (TC-111, folded nit)' {
         $root = Join-Path $TestDrive 'd3-no7z'
         $s = New-RVStore -Root $root

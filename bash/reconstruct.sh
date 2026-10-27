@@ -1477,8 +1477,14 @@ main() {
                     log "Hash-recovered '$rel' from '$fpath' (form: $fdetail)"
                     src="$fpath"
                     located_form="$fdetail"
-                elif [[ -z "$own" ]]; then
+                elif [[ -z "$own" || "$fcause" != 'ContentMissing' ]]; then
                     # One message per CAUSE, not one warning for all four (SR-040).
+                    # A row WITH a DataPath keeps a host cause too: since C10
+                    # nearly every row has one, and reporting an unreadable pool
+                    # as a missing data file turned "fix this host and retry"
+                    # (4) into "your bytes are gone" (1) (review 2026-10-26 A7;
+                    # Resolve-RowDataSource is the twin). Only real absence
+                    # takes the missing-data-file branch below.
                     log "WARN: [$fcause] '$rel' — $fdetail"
                     case "$fcause" in
                         DependencyMissing|StorageUnreadable|CandidateError) unrestored_host+=("$rel") ;;

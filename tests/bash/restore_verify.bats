@@ -131,6 +131,26 @@ one_row_store() {
     [[ "$output" == *"could not be read"* ]]
 }
 
+@test "4: a host problem on a row WITH a DataPath is StorageUnreadable, not a missing data file (review 2026-10-26 A7)" {
+    # Since C10 nearly every row carries a DataPath. Only a blank row used to
+    # keep the scan's cause; this one took the missing-data-file branch, so an
+    # unreadable pool read as "your bytes are gone" (exit 1).
+    [[ $EUID -ne 0 ]] || skip "running as root reads through chmod 000"
+    local s="$BATS_TEST_TMPDIR/a7"
+    one_row_store "$s" 'NONBLANK-ROW-BYTES'
+    # The row keeps its DataPath; its object is gone from that name (and from
+    # every name the index can see), and the bytes that survive cannot be read.
+    mv "$s/$STORE_DATA" "$s/parked.bin"
+    chmod 000 "$s/parked.bin"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/ta7" --from "$s"
+    chmod 644 "$s/parked.bin"
+    [ "$status" -eq 4 ] || { echo "expected 4, got $status"; echo "$output"; false; }
+    [[ "$output" == *"[StorageUnreadable] 'restored.txt'"* ]]
+    [[ "$output" != *"missing data file"* ]]
+    [[ "$output" == *"0 content-missing, 1 host"* ]]
+}
+
 @test "4: an UNLISTABLE snapshot tree surfaces as StorageUnreadable, never a silently smaller pool (SR-040, Terra review T2)" {
     [[ $EUID -ne 0 ]] || skip "running as root lists through chmod 000"
     local s="$BATS_TEST_TMPDIR/badchg"
