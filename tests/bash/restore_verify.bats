@@ -95,10 +95,10 @@ one_row_store() {
     [ -f "$d/dest.bin" ]
 }
 
-@test "restore_one: a copy that fails part-way removes its partial file (rc=21) (review 2026-10-26 B, partial files)" {
-    # White-box, like the read-back case above: cp writes the destination in
-    # place, so a full target volume leaves a truncated file at the restored
-    # path unless restore_one removes it.
+@test "restore_one: a copy that fails part-way leaves no partial file (rc=21) (review 2026-10-26 B, partial files)" {
+    # White-box, like the read-back case above: a full target volume creates
+    # the file being written and fills part of it before cp fails. A copy
+    # straight onto the restored path left that truncated file there.
     source "$RS"
     cp() { printf 'GOOD' > "${@: -1}"; return 1; }
     local d="$BATS_TEST_TMPDIR/pcopy"
@@ -108,6 +108,22 @@ one_row_store() {
     restore_one "$d/src.bin" "$d/dest.bin" 0 'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' 10 || rc=$?
     [ "$rc" -eq 21 ]
     [ ! -e "$d/dest.bin" ]
+    [ -z "$(find "$d" -mindepth 1 -name '.fbrestore*')" ]
+}
+
+@test "restore_one: a copy that fails before writing anything leaves a file already at the destination untouched (rc=21) (review 2026-10-26 B)" {
+    # Re-running a restore into the same target, as the README advises after
+    # an exit 4, must not lose a row the first run restored and verified
+    # because its pool object cannot be read this time (here: it is gone).
+    source "$RS"
+    local d="$BATS_TEST_TMPDIR/nosrc"
+    mkdir -p "$d"
+    printf 'EARLIER-RESTORE' > "$d/dest.bin"
+    local rc=0
+    restore_one "$d/no-such-object.bin" "$d/dest.bin" 0 'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' 10 || rc=$?
+    [ "$rc" -eq 21 ]
+    [ "$(cat "$d/dest.bin")" = 'EARLIER-RESTORE' ]
+    [ -z "$(find "$d" -mindepth 1 -name '.fbrestore*')" ]
 }
 
 @test "restore_one: a failed expand leaves a file already at the destination untouched (rc=20) (review 2026-10-26 B, restorers F6)" {

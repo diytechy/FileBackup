@@ -359,13 +359,13 @@ Describe 'A failed write leaves no partial file and deletes nothing it did not w
         $script:wrRow = [pscustomobject]@{ xxH2Hash = 'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDD'; Length = '10' }
     }
 
-    It 'removes the partial file a copy that fails part-way leaves (review 2026-10-26 B, partial files)' {
+    It 'leaves no partial file when a copy fails part-way (review 2026-10-26 B, partial files)' {
         $d = Join-Path $TestDrive 'partial-copy'
         New-Item -ItemType Directory -Path $d -Force | Out-Null
         $src = Join-Path $d 'src.bin'; $dest = Join-Path $d 'dest.bin'
         [IO.File]::WriteAllText($src, 'GOOD-BYTES')
-        # What a full target volume does: the destination is created and part
-        # of it written before the copy throws.
+        # What a full target volume does: the file being written is created
+        # and part of it written before the copy throws.
         Mock Copy-Item { [IO.File]::WriteAllText($Destination, 'GOOD'); throw 'There is not enough space on the disk.' }
 
         $r = Restore-OneRow -SrcFull $src -DestFull $dest -NeedsExpand $false -Row $wrRow
@@ -374,6 +374,27 @@ Describe 'A failed write leaves no partial file and deletes nothing it did not w
         $r.Detail  | Should -Match 'not enough space'
         Should -Invoke Copy-Item -Times 1 -Exactly
         Test-Path -LiteralPath $dest | Should -BeFalse -Because 'a truncated file must not stay at the restored path'
+        @(Get-ChildItem -LiteralPath $d -Force | Where-Object Name -like '.fbrestore-*') | Should -BeNullOrEmpty
+    }
+
+    It 'keeps a file already at the destination when a copy fails before writing anything (review 2026-10-26 B)' {
+        # Re-running a restore into the same target, as the README advises
+        # after an exit 4, must not lose a row the first run restored and
+        # verified because its pool object cannot be read this time.
+        $ErrorActionPreference = 'Stop'   # as at the top of Reconstruct.ps1
+        $d = Join-Path $TestDrive 'unreadable-source'
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        $src = Join-Path $d 'src.bin'; $dest = Join-Path $d 'dest.bin'
+        [IO.File]::WriteAllText($src, 'GOOD-BYTES')
+        [IO.File]::WriteAllText($dest, 'EARLIER-RESTORE')
+        $lock = [IO.File]::Open($src, 'Open', 'Read', 'None')
+        try {
+            $r = Restore-OneRow -SrcFull $src -DestFull $dest -NeedsExpand $false -Row $wrRow
+        } finally { $lock.Dispose() }
+        $r.Outcome | Should -Be 'hostfail'
+        $r.Cause   | Should -Be 'CandidateError'
+        [IO.File]::ReadAllText($dest) | Should -Be 'EARLIER-RESTORE'
+        @(Get-ChildItem -LiteralPath $d -Force | Where-Object Name -like '.fbrestore-*') | Should -BeNullOrEmpty
     }
 
     It 'keeps a file already at the destination when an expand fails (parity with reconstruct.sh, restorers F6)' {

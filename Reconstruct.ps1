@@ -1410,8 +1410,8 @@ function Restore-OneRow {
           Outcome 'hostfail' — the write itself failed (extraction/copy/
                                read-back I/O); Cause/Detail ready for
                                Add-Unrestored, host class (SR-040). A failed
-                               copy's partial destination is deleted; a
-                               failed expand never touched the destination.
+                               copy or expand never touched the destination:
+                               both land by a rename only after succeeding.
     #>
     # Implements: SR-056, LLR-056
     param(
@@ -1428,17 +1428,22 @@ function Restore-OneRow {
                 Detail = "7-Zip extraction failed from '$SrcFull': $($_.Exception.Message)"; Got = $null }
         }
     } else {
+        # The copy lands the way Expand-FileWithSevenZip lands a payload:
+        # written under a hidden '.fbrestore-*' name beside the destination
+        # (same folder, so same volume) and renamed over it only once the copy
+        # succeeded. A copy that fails part-way (a full target volume) leaves
+        # no partial file at the restored path, and one that fails before
+        # writing anything (an unreadable source) leaves a file already there -
+        # a row an earlier run restored and verified - untouched (review
+        # 2026-10-26 B). On failure only the temp is removed, never the
+        # destination. copy_to_file in reconstruct.sh is the twin.
+        $temp = Join-Path ([System.IO.Path]::GetDirectoryName($DestFull)) ('.fbrestore-' + [IO.Path]::GetRandomFileName())
         try {
-            Copy-Item -LiteralPath $SrcFull -Destination $DestFull -Force
+            Copy-Item -LiteralPath $SrcFull -Destination $temp -Force -ErrorAction Stop
+            Move-Item -LiteralPath $temp -Destination $DestFull -Force -ErrorAction Stop
         } catch {
             $copyError = $_.Exception.Message
-            # Copy-Item writes the destination in place, so a copy that fails
-            # part-way (a full target volume) leaves a truncated file at the
-            # restored path. Incomplete bytes must not stay where good ones
-            # were asked for (review 2026-10-26 B; restore_one in
-            # reconstruct.sh does the same). A failed expand, above, never
-            # touched the destination, so it removes nothing.
-            Remove-Item -LiteralPath $DestFull -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{ Outcome = 'hostfail'; Cause = 'CandidateError'
                 Detail = "Copy from '$SrcFull' failed: $copyError"; Got = $null }
         }

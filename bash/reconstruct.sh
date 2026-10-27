@@ -208,10 +208,11 @@ iso_now() { date +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || date; }
 # explicit template is correct on both.
 make_tempdir() { mktemp -d "${TMPDIR:-/tmp}/reconstruct.XXXXXX" 2>/dev/null; }
 
-# make_tempdir_beside <path> : a private temp directory in <path>'s own folder,
-# so a payload extracted there reaches <path> by a rename on one volume. The
-# system temp is avoided because in the container it is RAM (a tmpfs).
-make_tempdir_beside() { mktemp -d "$(dirname -- "$1")/.fbexpand.XXXXXX" 2>/dev/null; }
+# make_tempdir_beside <path> [<name>] : a private temp directory '.<name>.*'
+# (default 'fbexpand') in <path>'s own folder, so a file written there reaches
+# <path> by a rename on one volume. The system temp is avoided because in the
+# container it is RAM (a tmpfs).
+make_tempdir_beside() { mktemp -d "$(dirname -- "$1")/.${2:-fbexpand}.XXXXXX" 2>/dev/null; }
 
 # make_scratchfile : a private temp FILE for testing a candidate archive, on
 # the restore target's volume once the target exists (SCRATCH_DIR), else in
@@ -290,6 +291,26 @@ sevenzip_to_file() {
     rm -rf "$tmpd"
 }
 
+# copy_to_file <src> <dest> : copies a raw object to <dest> the way
+# sevenzip_to_file lands a payload - written inside a private '.fbrestore.*'
+# folder beside <dest> (same folder, so same volume) and renamed over <dest>
+# only once the copy succeeded. A copy that fails part-way (a full target
+# volume) leaves no partial file at the restored path, and one that fails
+# before writing anything (an unreadable source) leaves a file already there -
+# a row an earlier run restored and verified - untouched (review 2026-10-26 B).
+# On failure only the temp folder is removed, never <dest>. A folder rather
+# than a mktemp FILE because cp gives a file it CREATES the source's mode bits
+# (less the umask), as the direct copy did, where a pre-made temp file would
+# keep mktemp's 0600. Twin of Restore-OneRow's '.fbrestore-*' copy.
+copy_to_file() {
+    local src="$1" dest="$2" tmpd
+    tmpd="$(make_tempdir_beside "$dest" fbrestore)" || return 1
+    [[ -n "$tmpd" && -d "$tmpd" ]] || return 1
+    if ! cp -f -- "$src" "$tmpd/payload" 2>/dev/null; then rm -rf "$tmpd"; return 1; fi
+    mv -f -- "$tmpd/payload" "$dest" 2>/dev/null || { rm -rf "$tmpd"; return 1; }
+    rm -rf "$tmpd"
+}
+
 # sevenzip_usable : proves this HOST can run 7z end-to-end (compress a tiny
 # probe, expand it back). Separates "7z ran and rejected that archive" (data
 # damage, ContentMissing/exit 1) from "7z cannot run or write here" (a HOST
@@ -335,10 +356,11 @@ sevenzip_usable() {
 # On a mismatch the bad destination file is DELETED before returning.
 #
 # Returns 0 ok; 10 mismatch (RESTORE_GOT carries "<hash>/<len>" written, the
-# bad destination is DELETED); 20 extraction failed (the destination is NOT
-# touched); 21 copy failed (the partial destination is DELETED); 22 the
-# written file could not be read back for verification (stat/hash failure —
-# a HOST condition; the file is KEPT, matching Restore-OneRow). Called
+# bad destination is DELETED); 20 extraction failed and 21 copy failed (in
+# both the destination is NOT touched: each lands by a rename only after it
+# succeeded); 22 the written file could not be read back for verification
+# (stat/hash failure — a HOST condition; the file is KEPT, matching
+# Restore-OneRow). Called
 # DIRECTLY (never via command substitution) so the RESTORE_GOT global
 # survives.
 # Implements: SR-056 (LLR-056)
@@ -354,11 +376,9 @@ restore_one() {
         # it too.
         sevenzip_to_file "$src" "$dest" || return 20
     else
-        # cp writes dest in place, so a copy that fails part-way (a full
-        # target volume) leaves a truncated file at the restored path.
-        # Incomplete bytes must not stay where good ones were asked for
-        # (SR-056; review 2026-10-26 B). Restore-OneRow does the same.
-        if ! cp -f -- "$src" "$dest" 2>/dev/null; then rm -f -- "$dest" 2>/dev/null; return 21; fi
+        # Lands by rename like the expand (copy_to_file): a failed copy leaves
+        # neither a partial file nor a missing one at dest.
+        copy_to_file "$src" "$dest" || return 21
     fi
     # A RESTORED TREE IS ORDINARY WRITABLE FILES (human ruling 2026-08-28).
     # `cp` gives a newly created destination the SOURCE's mode bits, so a
