@@ -24,14 +24,23 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **DATA-LOSS REVIEW OF `7532b86` (2026-10-26): RECORDED; FIXES IN PROGRESS.**
-  Four independent reviews (opencode argon, three Claude slices), focused on
-  permanent loss in normal scenarios including power loss, are in
+- **DATA-LOSS REVIEW OF `7532b86` (2026-10-26/27): FIRST FIXES MERGED; RULINGS
+  C36-C44 BEING BUILT.** Four independent reviews (opencode argon, three Claude
+  slices) are in
   [reviews/2026-10-26-data-loss/consolidated.md](reviews/2026-10-26-data-loss/consolidated.md),
-  each finding re-checked against the code. The Owner authorized the
-  straightforward fixes; the flush policy (A1), the root detection of a moved
-  store (A6) and the ruling questions (section C) await the Owner. The
-  resume list of the entry below still stands.
+  with an outcome per finding. The straightforward fixes are merged
+  (`9f259cf`..`c467489`). The Owner then ruled C36-C44
+  ([plans/bounded-run-loop.md](plans/bounded-run-loop.md) section 13): flush
+  before relying on any write, damaged objects set aside, an empty source stops
+  with 4, prune leftovers finished, case-only names unportable, leaner Verify,
+  and one store folder per set
+  ([plans/single-store-layout.md](plans/single-store-layout.md)), which follows
+  the current batches. HomeHub (found 2026-10-27): both drives are USB NTFS
+  through ntfs-3g, which journals none of its own writes, and
+  `homehub-backup.timer` is enabled (03:00 nightly). The Owner will set the old
+  HomeHub store aside and start a clean backup in the new layout, after a
+  second look at its residue. Open: prune with the store drive unplugged exits
+  2 (4 is the alternative). The resume list of the entry below still stands.
 
 - **BOUNDED REBUILD — THIS BRANCH (2026-10-24): IMPLEMENTED, AWAITING THE
   OWNER.** `BoundedRebuild` holds the bounded backup run of

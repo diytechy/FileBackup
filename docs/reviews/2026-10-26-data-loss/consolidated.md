@@ -1,7 +1,31 @@
 # Consolidated review — hidden data-loss defects, BoundedRebuild @ 7532b86 (2026-10-26)
 
-**Status (2026-10-26):** recorded for the trail; the straightforward fixes are being built, and the items in
-section C (and A1, A6) await the Owner's decisions. Move this folder to an archive once the fixes land.
+**Status (2026-10-27):** the straightforward fixes are merged on `BoundedRebuild`; the Owner has ruled on
+the rest (plan calls C36-C44 in [bounded-run-loop.md](../../plans/bounded-run-loop.md) section 13), and
+those are being built. Move this folder to an archive once the fixes land.
+
+## Outcome
+
+| Item | Outcome |
+|---|---|
+| A1 durability | Ruled C36 (flush before every rename/deletion relied on, objects included) and C37 (damaged objects set aside); being built. |
+| A2 bash `&`/`#` path | Fixed, `f620c32`. |
+| A3 `.fbprune.tmp` taken as an object | Fixed in both restorers `14c548e` and the engine `9f259cf`. |
+| A4 kit rewritten in place | Fixed, `ce2096a` (written only when changed, by temp file and rename). |
+| A5 `-RepairStorage` without the lock / under `-WhatIf` | Fixed, `ce068bc`. |
+| A6 moved store, two sets under one parent | Superseded by C44: one store folder per set ([single-store-layout.md](../../plans/single-store-layout.md)). |
+| A7 host problem reported as content missing | Fixed, `4fb7689`. |
+| A8 README old-snapshot recipe | Fixed, `c2381af`, `912aa57`. |
+| B prune leftover after commit | Ruled C41; being built. |
+| B partial file on a failed restore copy | Fixed, `b7477bd` then `db155a5` (the copy lands by rename). |
+| B `$RECYCLE.BIN` in `DIRECTORIES.csv` | Fixed, `601272e`. |
+| B case-only names on a Windows restore | Ruled C42 (unportable at backup time); being built. |
+| B dependency exit code; prune needing the source | Fixed, `3756974`. Open: prune with the store drive unplugged now exits 2; 4 is the alternative. |
+| C1 fsync policy | Ruled C36. |
+| C2 empty source exits 0 | Ruled C39 (stop with 4). |
+| C3 damaged archive not healed | Ruled C40 (C18 stands). |
+| C4 Verify memory on HomeHub | Ruled C43; HomeHub's store gets a second look before anything runs there. |
+| C5 older-engine mislabelled objects | HomeHub's store gets a second look; C37 leaves such objects alone. |
 
 Four independent reviews against one brief ([brief.md](brief.md)), all of commit `7532b86`:
 
