@@ -2626,6 +2626,22 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         Assert-StoreUnchanged -Before $before -Folder @($tl.Chg)
     }
 
+    It 'returns 4, as a backup does, when -Action <_> finds the store drive not attached (plan C25)' -ForEach @('Snapshots', 'Prune') -Skip:(-not $IsWindows) {
+        $letter = @([char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "$($_):\") })[0]
+        if (-not $letter) { Set-ItResult -Skipped -Because 'no free drive letter'; return }
+        $root = Join-Path $TestDrive "retention-nodrive-$_"; $src = Join-Path $root 'src'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        $cfg = Join-Path $root 'c.xml'
+        New-FBConfig -Path $cfg -Src $src -Bkp "$($letter):\FileBackup\Backup" -Chg "$($letter):\FileBackup\Changes"
+
+        $arguments = @('-Action', $_)
+        if ($_ -eq 'Prune') { $arguments += @('-Snapshot', 'Snapshot_2026_01_01_00_00_00') }
+        $run = Invoke-FBAction -Cfg $cfg -Arguments $arguments
+        $run.Code | Should -Be 4 -Because "Run output: $($run.Output)"
+        $run.Output | Should -Match 'is not attached'
+        Test-Path -LiteralPath "$($letter):\" | Should -BeFalse
+    }
+
     It 'refuses -Action Prune with 2, creating nothing, when the change folder is missing (review 2026-10-26 B)' {
         $root = Join-Path $TestDrive 'retention-nochg'
         $tl   = New-PruneTimeline -Root $root

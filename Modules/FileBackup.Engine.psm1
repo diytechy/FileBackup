@@ -4183,6 +4183,33 @@ function Assert-StoreVolumePresent {
     }
 }
 
+function Get-StorePathFailureCode {
+    <#
+    .SYNOPSIS
+        The status code for a set whose store paths could not be resolved:
+        4 when the store's drive or share is not attached (retry later, plan
+        C25), else 2 (a person must fix what the message names).
+
+    .DESCRIPTION
+        The one place that decides it, so a backup, a prune and the snapshot
+        inventory answer an unplugged store drive the same way. Verify and View
+        report 2 for it (WP5 review, finding m2).
+
+    .PARAMETER ErrorRecord
+        The error Resolve-BackupSetPaths threw.
+
+    .OUTPUTS
+        [int] 4 or 2.
+    #>
+    # Implements: SR-040, LLR-014, LLR-048
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+    if ($ErrorRecord.Exception -is [System.IO.DriveNotFoundException]) { return 4 }
+    return 2
+}
+
 function Resolve-BackupSetPaths {
     <#
     .SYNOPSIS
@@ -4208,7 +4235,9 @@ function Resolve-BackupSetPaths {
         are about the STORE — the source may legitimately be offline, and an
         action that mutates nothing must not conjure a backup root. A backup
         root that does not exist is a precondition failure the caller reports as
-        code 2 (WP5 review, finding m2).
+        code 2 (WP5 review, finding m2) - unless its drive or share is not
+        attached, which throws DriveNotFoundException as a backup does, so
+        Prune and Snapshots answer it with 4 (Get-StorePathFailureCode).
 
     .OUTPUTS
         [pscustomobject] SrcPath / SrcStatePath / BkpPath / ChgPath / ViewPath
@@ -4228,10 +4257,15 @@ function Resolve-BackupSetPaths {
     if ($ReadOnly) {
         $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath -ErrorAction SilentlyContinue).Path
         if (-not $bkpPath) {
+            Assert-StoreVolumePresent -Path $Set.BackupPath -SetName $Set.Name
             throw "Backup path '$($Set.BackupPath)' for set '$($Set.Name)' does not exist; there is nothing to read there."
         }
         $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath -ErrorAction SilentlyContinue).Path
-        if (-not $chgPath) { $chgPath = [IO.Path]::GetFullPath([string]$Set.ChangePath) }
+        if (-not $chgPath) {
+            # A missing change folder means no snapshots; a missing drive does not.
+            Assert-StoreVolumePresent -Path $Set.ChangePath -SetName $Set.Name
+            $chgPath = [IO.Path]::GetFullPath([string]$Set.ChangePath)
+        }
         $srcPath = (Resolve-Path -LiteralPath $Set.SourcePath -ErrorAction SilentlyContinue).Path
         return [pscustomobject]@{
             SrcPath = $srcPath
@@ -6769,8 +6803,7 @@ function Invoke-BackupSet {
     #    anything else here needs a person (2).
     try { $paths = Resolve-BackupSetPaths -Set $Set } catch {
         Write-Warning $_.Exception.Message
-        if ($_.Exception -is [System.IO.DriveNotFoundException]) { return 4 }
-        return 2
+        return (Get-StorePathFailureCode -ErrorRecord $_)
     }
     $logPath = Join-Path $paths.ChgPath 'backup.log'
     try {
@@ -7394,7 +7427,7 @@ Export-ModuleMember -Function @(
     'Complete-PruneDeletion', 'Remove-BackupSnapshot', 'Get-PruneBatchExitCode',
     'New-ReconstructScript',
     'Get-StagingOsLockPath', 'Enter-StagingOsLock', 'Exit-StagingOsLock',
-    'Resolve-BackupSetPaths',
+    'Resolve-BackupSetPaths', 'Get-StorePathFailureCode',
     'Get-StoredObjectVerdict', 'Get-StoreObjectFinding', 'Move-StoreObjectToVerify', 'Measure-DuplicateRepairCost',
     'New-RunMetric', 'Complete-RunStep', 'Write-RunMetric', 'Format-RunByteCount',
     'Get-StoreObjectIndex', 'ConvertFrom-StoredObjectName', 'Get-StoredObjectPrefix', 'Assert-SingleStoreMount',

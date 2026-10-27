@@ -41,39 +41,40 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 **`Invoke-BackupSet`** — Runs one backup set (plan §3) and returns its outcome code: 0 every
 
 1. `Resolve-BackupSetPaths` — Validates the set's SourcePath and resolves (creating if needed) the
-2. `Enter-StagingOsLock` — Takes the change root's staging OS lock -- Temp.lock opened with
-3. `New-RunMetric` — A zeroed set of run metrics: step timings, per-operation counts, bytes
-4. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
-5. `Read-PriorStateForRun` — The refusals that need a person (plan step 2), then the latest
-6. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-7. `Assert-SourceNotEmpty` — Stops the run (throws, so the set returns 4) when the source root lists
-8. `Clear-InterruptedRunResidue` — Deletes what a killed run leaves behind: the Incoming temp copies, any
-9. `Get-PriorBackupDate` — The prior state's completion date: LastBackupRun, or - when the state
-10. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-11. `Get-StoreObjectIndex` — Indexes every stored object of a backup by name: one listing of the
-12. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-13. `Move-DamagedStoreObject` — Sets aside every object the run's index found damaged by its listing,
-14. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
-15. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-16. `Publish-PriorStateSnapshot` — Publishes the prior state as Snapshot_<D> before the run changes
-17. `Invoke-BackupRunTestHook` — Calls the module's backup-run test seam, when one is set, with a stage
-18. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-19. `New-BackupRunContext` — Builds what every capture of one run shares (plan step 4): the roots,
-20. `Invoke-LibraryCapture` — Walks the source and captures every file into the latest state (plan
-21. `Publish-LatestState` — Finishes the latest state (plan step 6): the final manifest and the
-22. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-23. `Test-StateChanged` — Whether a run changed the latest state (plan step 7, R7): a row was
-24. `Remove-UnchangedSnapshot` — Removes the snapshot a run built when the run changed no row (plan
-25. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-26. `Move-SupersededObject` — Moves every object in the backup root that no row of the final manifest
-27. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-28. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
-29. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-30. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
-31. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
-32. `Test-BackupDiskFull` — True when an error record is the destination running out of space,
-33. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
-34. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
+2. `Get-StorePathFailureCode` — The status code for a set whose store paths could not be resolved:
+3. `Enter-StagingOsLock` — Takes the change root's staging OS lock -- Temp.lock opened with
+4. `New-RunMetric` — A zeroed set of run metrics: step timings, per-operation counts, bytes
+5. `New-Logger` — Returns a scriptblock logger that appends "<ts> [LEVEL] <msg>" to a file
+6. `Read-PriorStateForRun` — The refusals that need a person (plan step 2), then the latest
+7. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+8. `Assert-SourceNotEmpty` — Stops the run (throws, so the set returns 4) when the source root lists
+9. `Clear-InterruptedRunResidue` — Deletes what a killed run leaves behind: the Incoming temp copies, any
+10. `Get-PriorBackupDate` — The prior state's completion date: LastBackupRun, or - when the state
+11. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+12. `Get-StoreObjectIndex` — Indexes every stored object of a backup by name: one listing of the
+13. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+14. `Move-DamagedStoreObject` — Sets aside every object the run's index found damaged by its listing,
+15. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+16. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+17. `Publish-PriorStateSnapshot` — Publishes the prior state as Snapshot_<D> before the run changes
+18. `Invoke-BackupRunTestHook` — Calls the module's backup-run test seam, when one is set, with a stage
+19. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+20. `New-BackupRunContext` — Builds what every capture of one run shares (plan step 4): the roots,
+21. `Invoke-LibraryCapture` — Walks the source and captures every file into the latest state (plan
+22. `Publish-LatestState` — Finishes the latest state (plan step 6): the final manifest and the
+23. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+24. `Test-StateChanged` — Whether a run changed the latest state (plan step 7, R7): a row was
+25. `Remove-UnchangedSnapshot` — Removes the snapshot a run built when the run changed no row (plan
+26. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+27. `Move-SupersededObject` — Moves every object in the backup root that no row of the final manifest
+28. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+29. `New-BrowseViewIndex` — Generates the manifest-derived browse view (SR-062): INDEX.tsv always,
+30. `Complete-RunStep` — Records the time since the previous step mark under a step name.
+31. `Write-ProbeStatistic` — Emits the three SR-081 per-set summary counter lines through the set's
+32. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
+33. `Test-BackupDiskFull` — True when an error record is the destination running out of space,
+34. `Write-RunMetric` — Writes a run's metrics to its log: step timings, the work done per
+35. `Exit-StagingOsLock` — Releases a staging OS lock taken by Enter-StagingOsLock. Idempotent,
 <!-- END GENERATED FLOW -->
 
 ## Module responsibilities
@@ -215,6 +216,7 @@ Imports (internal): `Common`
 | `Get-StoredObjectVerdict` | yes | SR-049, SR-068, LLR-049 |
 | `Get-StoreObjectFinding` | yes | SR-003, SR-049, LLR-049 |
 | `Get-StoreObjectIndex` | yes | SR-003, SR-053, SR-108 |
+| `Get-StorePathFailureCode` | yes | SR-040, LLR-014, LLR-048 |
 | `Get-VerifyDestination` | no | SR-049, SR-109 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |

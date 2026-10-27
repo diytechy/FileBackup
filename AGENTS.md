@@ -257,6 +257,7 @@ Imports (internal): `Common`
 | `Get-StoredObjectVerdict` | yes | SR-049, SR-068, LLR-049 |
 | `Get-StoreObjectFinding` | yes | SR-003, SR-049, LLR-049 |
 | `Get-StoreObjectIndex` | yes | SR-003, SR-053, SR-108 |
+| `Get-StorePathFailureCode` | yes | SR-040, LLR-014, LLR-048 |
 | `Get-VerifyDestination` | no | SR-049, SR-109 |
 | `Import-BackupConfiguration` | yes | SR-042, LLR-042 |
 | `Initialize-Dependencies` | yes | SR-019 (required dep), SR-020 (optional deps), SR-016 (non-blocking) |

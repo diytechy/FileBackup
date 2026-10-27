@@ -447,12 +447,13 @@ function Invoke-RetentionAction {
     # an offline source is no reason to refuse (the backup resolver required
     # it, and every prune with the library drive away did nothing and exited
     # 1), and nothing is created - a backup root that is not there is a
-    # precondition (2), never a fresh empty one (review 2026-10-26 B).
+    # precondition (2), never a fresh empty one (review 2026-10-26 B). A
+    # store drive that is not attached is 4, as for a backup.
     try {
         $paths = Resolve-BackupSetPaths -Set $Set -ReadOnly
     } catch {
         & $Log "-Action $Mode could not run: $($_.Exception.Message)" 'ERROR'
-        return 2
+        return (Get-StorePathFailureCode -ErrorRecord $_)
     }
 
     if ($Mode -eq 'Snapshots') {

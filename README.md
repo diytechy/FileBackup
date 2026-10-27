@@ -265,7 +265,9 @@ then moves and repairs nothing. It binds on every action (pruning needs
 it), but a backup run does not honor it, so `-Action Backup -WhatIf` is refused
 up front with status **2** rather than performing part of a run.
 
-`-Action Snapshots` prints JSON, one object per snapshot:
+`-Action Snapshots` prints JSON, one object per snapshot, and exits 0; it exits
+**4** when the store's drive or share is not attached and **2** when the backup
+folder is missing:
 
 | Field | Meaning |
 |---|---|
@@ -289,8 +291,8 @@ It refuses rather than guesses. Removal reports the same status codes as a
 restore (see "Restore exit codes"): **0** removed, **1** a batch finished
 incomplete but **no data was lost**, **2** usage or precondition (nothing was
 mutated), **3** a witness an older version left does not match its manifest
-(nothing was mutated), **4** a host I/O problem — retriable, and always before the
-point of no return. Common refusals: data
+(nothing was mutated), **4** a host I/O problem, or the store's drive or share not
+attached, as for a backup — retriable, and always before the point of no return. Common refusals: data
 files in the snapshot its own manifest does not reference (`-DiscardUnreferencedData`
 to discard them deliberately), a backup that is running (prune and backup are
 mutually exclusive), or a pool that does not resolve as it stands.
