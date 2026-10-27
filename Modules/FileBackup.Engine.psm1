@@ -1815,6 +1815,16 @@ function Move-StoreObjectToVerify {
         a duplicate whose kept copy is not proven good stays where it is. The
         work is timed and logged, with a progress line every minute.
 
+        Moving an object out of the pool writes the store, so it holds the
+        staging OS lock for its whole run, as the repair and the kit refresh do
+        (SR-085, SR-086): taken first, so a held lock refuses (throws) before
+        anything moves, and released in a finally. The audit that produced the
+        findings ran before the lock, so each finding is checked again under
+        it: an object, or the copy kept for it, that is no longer where the
+        finding says - a prune or a backup ran in between - is left alone with
+        a warning (review 2026-10-26 A5). -WhatIf takes no lock and moves
+        nothing; it says what it would move.
+
     .PARAMETER Finding
         Get-StoreObjectFinding results.
 
@@ -1831,10 +1841,10 @@ function Move-StoreObjectToVerify {
         The logger.
 
     .OUTPUTS
-        [int]
+        [int] how many objects moved (0 under -WhatIf).
     #>
-    # Implements: SR-049, SR-109, LLR-049
-    [CmdletBinding()]
+    # Implements: SR-049, SR-109, SR-085, SR-086, LLR-049
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Finding,
         [Parameter(Mandatory)][string]$ChangeRoot,
@@ -1842,59 +1852,90 @@ function Move-StoreObjectToVerify {
         [AllowNull()][hashtable]$Metrics,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $scratch = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) '.expand'
-    $verdictOf = @{}
-    $cost = Measure-DuplicateRepairCost -Finding $Finding
-    if ($cost.ConfirmCount -gt 0) {
-        & $Log "Confirming $($cost.ConfirmCount) kept cop(ies) ($(Format-RunByteCount $cost.ConfirmBytes)) before their duplicates are set aside." 'INFO'
+    # The staging OS lock first (SR-085, SR-086): a move takes an object out of
+    # the pool, so it must not race a backup or a prune, and a lock that cannot
+    # be taken refuses (throws) before anything moves. -WhatIf moves nothing and
+    # takes no lock.
+    $osLock = $null
+    if (-not $WhatIfPreference) {
+        $osLock = Enter-StoreMutationLock -ChangeRoot $ChangeRoot -Activity 'set objects aside into Verify' -Log $Log
     }
-    $watch = [System.Diagnostics.Stopwatch]::StartNew()
-    $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
-    $confirmedBytes = [long]0
-    $leftAlone = 0
-    $moved = 0
-    foreach ($f in $Finding) {
-        if ($f.Class -notin 'DuplicateObject', 'DamagedObject' -or -not $f.Repairable) { continue }
-        if ($f.Class -eq 'DuplicateObject' -and -not $f.KeptVerified -and $null -ne $f.Kept) {
-            $kept = $f.Kept
-            if (-not $verdictOf.ContainsKey($kept.Path)) {
-                $one = [System.Diagnostics.Stopwatch]::StartNew()
-                $verdictOf[$kept.Path] = Get-StoredObjectVerdict -Entry $kept -ScratchFolder $scratch -SevenZipPath $SevenZipPath
-                $confirmedBytes += [long]$kept.FileLength
-                if ($null -ne $Metrics) { Add-RunMetric -Metrics $Metrics -Name 'confirm kept copy' -Bytes ([long]$kept.FileLength) -Ticks $one.ElapsedTicks }
-                if ([datetime]::UtcNow -ge $nextProgress) {
-                    & $Log ("Confirming kept copies: $($verdictOf.Count) of $($cost.ConfirmCount), $(Format-RunByteCount $confirmedBytes) of " +
-                            "$(Format-RunByteCount $cost.ConfirmBytes), {0:N0} s." -f $watch.Elapsed.TotalSeconds) 'INFO'
-                    $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
-                }
+    try {
+        $scratch = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) '.expand'
+        $verdictOf = @{}
+        $cost = Measure-DuplicateRepairCost -Finding $Finding
+        if ($cost.ConfirmCount -gt 0) {
+            & $Log "Confirming $($cost.ConfirmCount) kept cop(ies) ($(Format-RunByteCount $cost.ConfirmBytes)) before their duplicates are set aside." 'INFO'
+        }
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
+        $confirmedBytes = [long]0
+        $leftAlone = 0
+        $moved = 0
+        foreach ($f in $Finding) {
+            if ($f.Class -notin 'DuplicateObject', 'DamagedObject' -or -not $f.Repairable) { continue }
+            # The findings predate the lock. Under it nothing else moves either
+            # file from here to the move, so check once: the object is still
+            # there, and for a duplicate so is the copy kept for it - a prune
+            # that deleted that copy since the audit made this one the last.
+            $gone = $null
+            if (-not [System.IO.File]::Exists($f.Path)) { $gone = $f.Path }
+            elseif ($f.Class -eq 'DuplicateObject') {
+                if ($null -eq $f.Kept) { $gone = 'the copy kept for it' }
+                elseif (-not [System.IO.File]::Exists($f.Kept.Path)) { $gone = $f.Kept.Path }
             }
-            $check = $verdictOf[$kept.Path]
-            if ($check.Verdict -ne 'Good') {
-                & $Log ("[DuplicateObject] left '$($f.Path)' in place: the copy kept, '$($kept.Path)', is $($check.Verdict.ToLowerInvariant()) " +
-                        "($($check.Reason)). Run -Action Verify -Deep to judge every copy.") 'WARN'
-                $leftAlone++
+            if ($null -ne $gone) {
+                & $Log ("[$($f.Class)] left '$($f.Path)' alone: '$gone' is no longer where the audit found it " +
+                        '(the store changed since). Run -Action Verify again.') 'WARN'
                 continue
             }
+            if ($f.Class -eq 'DuplicateObject' -and -not $f.KeptVerified) {
+                $kept = $f.Kept
+                if (-not $verdictOf.ContainsKey($kept.Path)) {
+                    $one = [System.Diagnostics.Stopwatch]::StartNew()
+                    $verdictOf[$kept.Path] = Get-StoredObjectVerdict -Entry $kept -ScratchFolder $scratch -SevenZipPath $SevenZipPath
+                    $confirmedBytes += [long]$kept.FileLength
+                    if ($null -ne $Metrics) { Add-RunMetric -Metrics $Metrics -Name 'confirm kept copy' -Bytes ([long]$kept.FileLength) -Ticks $one.ElapsedTicks }
+                    if ([datetime]::UtcNow -ge $nextProgress) {
+                        & $Log ("Confirming kept copies: $($verdictOf.Count) of $($cost.ConfirmCount), $(Format-RunByteCount $confirmedBytes) of " +
+                                "$(Format-RunByteCount $cost.ConfirmBytes), {0:N0} s." -f $watch.Elapsed.TotalSeconds) 'INFO'
+                        $nextProgress = [datetime]::UtcNow.AddSeconds($script:ProgressIntervalSeconds)
+                    }
+                }
+                $check = $verdictOf[$kept.Path]
+                if ($check.Verdict -ne 'Good') {
+                    & $Log ("[DuplicateObject] left '$($f.Path)' in place: the copy kept, '$($kept.Path)', is $($check.Verdict.ToLowerInvariant()) " +
+                            "($($check.Reason)). Run -Action Verify -Deep to judge every copy.") 'WARN'
+                    $leftAlone++
+                    continue
+                }
+            }
+            $folder = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) $f.FolderName
+            $dest = Join-Path $folder $f.DataPath
+            $n = 1
+            while (Test-Path -LiteralPath $dest) { $dest = Join-Path $folder "$($f.DataPath).$n"; $n++ }
+            if (-not $PSCmdlet.ShouldProcess($f.Path, "move into '$folder'")) {
+                & $Log "[$($f.Class)] would move '$($f.Path)' to '$dest' (-WhatIf: nothing was moved)." 'INFO'
+                continue
+            }
+            [void][System.IO.Directory]::CreateDirectory($folder)
+            try {
+                [System.IO.File]::Move($f.Path, $dest)
+                & $Log "[$($f.Class)] moved '$($f.Path)' to '$dest'." 'INFO'
+                $moved++
+            } catch {
+                & $Log "[$($f.Class)] could not move '$($f.Path)': $($_.Exception.Message)" 'WARN'
+            }
         }
-        $folder = Join-Path (Join-Path $ChangeRoot $script:VerifyFolderName) $f.FolderName
-        [void][System.IO.Directory]::CreateDirectory($folder)
-        $dest = Join-Path $folder $f.DataPath
-        $n = 1
-        while (Test-Path -LiteralPath $dest) { $dest = Join-Path $folder "$($f.DataPath).$n"; $n++ }
-        try {
-            [System.IO.File]::Move($f.Path, $dest)
-            & $Log "[$($f.Class)] moved '$($f.Path)' to '$dest'." 'INFO'
-            $moved++
-        } catch {
-            & $Log "[$($f.Class)] could not move '$($f.Path)': $($_.Exception.Message)" 'WARN'
+        if ($verdictOf.Count -gt 0) {
+            & $Log ("Confirmed $($verdictOf.Count) kept cop(ies) ($(Format-RunByteCount $confirmedBytes)) in {0:N1} s; " -f $watch.Elapsed.TotalSeconds +
+                    "$leftAlone duplicate(s) left in place because the copy kept was not proven good.") 'INFO'
         }
+        Remove-VerifyScratch -ChangeRoot $ChangeRoot
+        return $moved
+    } finally {
+        Exit-StagingOsLock -Lock $osLock -Log $Log
     }
-    if ($verdictOf.Count -gt 0) {
-        & $Log ("Confirmed $($verdictOf.Count) kept cop(ies) ($(Format-RunByteCount $confirmedBytes)) in {0:N1} s; " -f $watch.Elapsed.TotalSeconds +
-                "$leftAlone duplicate(s) left in place because the copy kept was not proven good.") 'INFO'
-    }
-    Remove-VerifyScratch -ChangeRoot $ChangeRoot
-    return $moved
 }
 
 function Measure-DuplicateRepairCost {

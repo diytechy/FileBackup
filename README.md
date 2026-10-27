@@ -260,7 +260,8 @@ pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Prune `
      -Snapshot Snapshot_2024_01_01_09_00_00
 ```
 
-`-WhatIf` is for `-Action Prune` only. It binds on every action (pruning needs
+`-WhatIf` is for `-Action Prune`, and for `-Action Verify -RepairStorage`, which
+then moves and repairs nothing. It binds on every action (pruning needs
 it), but a backup run does not honor it, so `-Action Backup -WhatIf` is refused
 up front with status **2** rather than performing part of a run.
 
@@ -1141,7 +1142,8 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   `Temp` left by an interrupted **prune** blocks further prunes the same way; the same
   steps apply.
 - **`Temp.lock` and the `[SR-075/lock-held]` refusal.** Every backup and every prune —
-  and `-Action Verify` when given `-RepairStorage` or `-RefreshKits` (exit 2 if refused) —
+  and `-Action Verify` when given `-RepairStorage` or `-RefreshKits` (exit 2 if refused),
+  while it sets objects aside, repairs or refreshes kits —
   holds an exclusive lock on the empty file `Temp.lock` in `ChangePath` for as long as it runs;
   the operating system drops it the instant that process ends, however it ends. A run that
   finds it held refuses straight away with `[SR-075/lock-held]` and touches nothing

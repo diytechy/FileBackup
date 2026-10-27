@@ -735,6 +735,59 @@ Describe 'A repair confirms the copy it keeps before setting a duplicate aside (
     }
 }
 
+Describe 'Setting objects aside holds the OS lock, and -WhatIf moves nothing (review 2026-10-26 A5)' {
+    # The same content in two folders, as an older engine could leave it: the
+    # backup root's copy is kept, the snapshot's is the duplicate.
+    BeforeEach {
+        $script:s = New-Store "aside-$([guid]::NewGuid().ToString('N').Substring(0, 6))"
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-04-01T10:00:00' | Should -Be 0
+        Set-SourceFile $s 'b.txt' 'bravo-2'
+        Invoke-Run $s '2026-04-02T10:00:00' | Should -Be 0
+        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        Copy-Item -LiteralPath $alpha.FullName -Destination (Join-Path $s.Chg 'Snapshot_2026_04_01_10_00_00')
+        $script:dup = Join-Path $s.Chg "Snapshot_2026_04_01_10_00_00\$($alpha.Name)"
+    }
+    It 'refuses before anything moves while another holder has the lock (review 2026-10-26 A5)' {
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        $found.Count | Should -Be 1
+        $holder = Enter-StagingOsLock -ChgPath $s.Chg -Log $null
+        try {
+            { Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } } | Should -Throw -ExpectedMessage '*lock-held*'
+        } finally { Exit-StagingOsLock -Lock $holder -Log $null }
+        Test-Path -LiteralPath $dup | Should -BeTrue -Because 'nothing may move while a backup or prune holds the lock'
+        Test-Path -LiteralPath (Join-Path $s.Chg 'Verify') | Should -BeFalse
+    }
+    It 'moves nothing under -WhatIf, takes no lock, and says what it would move (review 2026-10-26 A5)' {
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        $lines = [System.Collections.Generic.List[string]]::new()
+        $holder = Enter-StagingOsLock -ChgPath $s.Chg -Log $null
+        try {
+            Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { param($m, $l) $lines.Add("[$l] $m") }.GetNewClosure() -WhatIf |
+                Should -Be 0
+        } finally { Exit-StagingOsLock -Lock $holder -Log $null }
+        Test-Path -LiteralPath $dup | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $s.Chg 'Verify') | Should -BeFalse
+        ($lines -join "`n") | Should -Match ([regex]::Escape("would move '$dup'"))
+    }
+    It 'leaves a duplicate in place when the copy kept is gone by the time it holds the lock (review 2026-10-26 A5)' {
+        $sevenZip = (Get-FileBackupDefaults).SevenZipDefaultPath
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) { Set-ItResult -Skipped -Because '-Deep needs 7-Zip'; return }
+        # -Deep proved the copy kept during the audit, so the repair does not
+        # read it again; a prune that ran after the audit then deleted it.
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $sevenZip)
+        $found.Count | Should -Be 1
+        $found[0].KeptVerified | Should -BeTrue
+        Remove-Item -LiteralPath $found[0].Kept.Path
+        $lines = [System.Collections.Generic.List[string]]::new()
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -SevenZipPath $sevenZip -Log { param($m, $l) $lines.Add("[$l] $m") }.GetNewClosure() |
+            Should -Be 0
+        Test-Path -LiteralPath $dup | Should -BeTrue -Because 'it is now the only copy of that content'
+        ($lines -join "`n") | Should -Match 'is no longer where the audit found it'
+    }
+}
+
 Describe 'An archive exactly as long as its content (plan C30)' {
     It 'is stored raw instead, so its listing cannot be mistaken' {
         $root = Join-Path $TestDrive 'eqlen-write'

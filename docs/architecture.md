@@ -218,7 +218,7 @@ Imports (internal): `Common`
 | `Invoke-StagingTestHook` | no | SR-075, LLR-017 |
 | `Measure-DuplicateRepairCost` | yes | SR-049, SR-109, LLR-049 |
 | `Measure-SampleCompressibility` | no | SR-081, LLR-086 |
-| `Move-StoreObjectToVerify` | yes | SR-049, SR-109, LLR-049 |
+| `Move-StoreObjectToVerify` | yes | SR-049, SR-109, SR-085, SR-086, LLR-049 |
 | `Move-SupersededObject` | yes | SR-005, SR-041, SR-059, LLR-059, LLR-150 |
 | `New-BackupRunContext` | no | SR-011, SR-081, LLR-014 |
 | `New-BrowseViewIndex` | yes | SR-062, LLR-061 |

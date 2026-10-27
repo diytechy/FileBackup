@@ -122,7 +122,8 @@
                      surviving pool first. Add -WhatIf for a dry run that
                      reports exactly what the real run would achieve.
 
-    -WhatIf applies to -Action Prune ONLY. It binds on every action because
+    -WhatIf applies to -Action Prune, and to -Action Verify -RepairStorage,
+    which then moves and repairs nothing. It binds on every action because
     Prune needs SupportsShouldProcess, but the backup pipeline does not honor
     it, so -Action Backup -WhatIf is refused up front (status 2 under
     -ExitCode, a terminating error otherwise) rather than producing a half-run.
