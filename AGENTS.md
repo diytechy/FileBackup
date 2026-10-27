@@ -586,8 +586,13 @@ Imports (internal): `Common`
   never shipped outside `BoundedRebuild`: a snapshot's backup root found beside
   its change folder (C21), a latest restore's change folder found inside or
   beside the backup root (C32; both restorers, dot-named folders included), and
-  every expand on the destination's volume (C31). Bump to 15 for the next
-  behaviour change after this branch ships.
+  every expand on the destination's volume (C31). So do the 2026-10-26 review
+  fixes: `reconstruct.sh` joins snapshot paths in its read loop instead of a
+  sed program (a change root holding `&` or `#` lost every sibling snapshot),
+  both name indexes skip a prune's `*.fbprune.tmp` staged copy, a row with a
+  DataPath keeps the content scan's host cause (exit 4, not 1), and a failed
+  copy removes its partial file while a failed expand leaves the destination
+  untouched. Bump to 15 for the next behaviour change after this branch ships.
 
 ## 4. Conventions & known gotchas
 
