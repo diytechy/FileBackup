@@ -383,7 +383,8 @@ copy is checked anyway, so nothing is read twice. Each Verify ends its log with
 
 Status follows the same table as a restore: **0** nothing to report, **1**
 findings (a statement about your data, not a usage error), **2** a precondition
-failed — no manifest to verify, or `-Deep` without 7-Zip.
+failed — no manifest to verify, or `-Deep` without 7-Zip, **4** the store's drive or
+share is not attached (retry later, as for a backup).
 
 In the container: `verify` as the action word, and `FILEBACKUP_REPAIR=1` to
 repair.
@@ -508,6 +509,9 @@ which defaults to `<BackupPath>_View`.
 # rebuild the view on demand (a normal backup run refreshes it automatically)
 pwsh -File FileBackup.ps1 -ConfigPath config.json -Action View
 ```
+
+`-Action View` exits 0 when the view was rebuilt, 2 when it could not be, and 4
+when the store's drive or share is not attached.
 
 You get `INDEX.tsv` — one row per logical path with its `DataPath`, `Length`,
 `xxH2Hash` and `Compressed` — plus one `INDEX.html` page per folder, so a 500,000-file library

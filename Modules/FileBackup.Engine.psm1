@@ -4191,9 +4191,9 @@ function Get-StorePathFailureCode {
         C25), else 2 (a person must fix what the message names).
 
     .DESCRIPTION
-        The one place that decides it, so a backup, a prune and the snapshot
-        inventory answer an unplugged store drive the same way. Verify and View
-        report 2 for it (WP5 review, finding m2).
+        The one place that decides it, so a backup and every store action
+        (Prune, Snapshots, Verify, View) answer an unplugged store drive the
+        same way.
 
     .PARAMETER ErrorRecord
         The error Resolve-BackupSetPaths threw.
@@ -4237,7 +4237,7 @@ function Resolve-BackupSetPaths {
         root that does not exist is a precondition failure the caller reports as
         code 2 (WP5 review, finding m2) - unless its drive or share is not
         attached, which throws DriveNotFoundException as a backup does, so
-        Prune and Snapshots answer it with 4 (Get-StorePathFailureCode).
+        every caller answers it with 4 (Get-StorePathFailureCode).
 
     .OUTPUTS
         [pscustomobject] SrcPath / SrcStatePath / BkpPath / ChgPath / ViewPath

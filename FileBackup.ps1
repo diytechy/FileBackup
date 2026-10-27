@@ -232,7 +232,7 @@ param(
     # to the wrapper (IF-001) -- this entry point only takes explicit names.
     # View (SR-062) forces a rebuild of the browse view for a BrowseView=index
     # set: 0 rebuilt, 2 could not (no view configured, rails refused, or
-    # generation failed).
+    # generation failed), 4 the store's drive is not attached.
     [ValidateSet('Backup', 'Prune', 'Snapshots', 'Verify', 'View')][string]$Action = 'Backup',
     # -Action Verify (SR-049). -VerifyStorage is kept as an alias so the
     # disposition wording and the code resolve to the same one dispatch.
@@ -514,9 +514,8 @@ function Invoke-VerifyAction {
         [int] per the SR-040 table: 0 clean, 1 findings (a content statement,
         not a usage error), 2 precondition — a backup root that does not exist,
         no manifest to verify, -Deep without 7-Zip, or any other failure to run
-        the audit at all. Code 4 is not produced here: verification reads, so a
-        host problem stops it before it can classify anything, which is the
-        same "nothing was attempted" class as 2 (WP5 review, finding m2).
+        the audit at all; 4 the store's drive or share is not attached, retry
+        later, as for a backup (plan C25, Get-StorePathFailureCode).
     #>
     # Implements: SR-049, SR-054, SR-040, SR-043, LLR-049, LLR-054
     param(
@@ -598,7 +597,7 @@ function Invoke-VerifyAction {
         Write-RunMetric -Metrics $metrics -Label 'Verify timings' -Log $Log -Extra @{ findings = $findings.Count; duplicates = $cost.Copies }
     } catch {
         & $Log "Storage-form verification could not run: $($_.Exception.Message)" 'ERROR'
-        return 2
+        return (Get-StorePathFailureCode -ErrorRecord $_)
     }
 
     # -InputObject, not the pipeline: piping ZERO objects into ConvertTo-Json
@@ -627,7 +626,8 @@ function Invoke-ViewAction {
         [int] 0 the view was rebuilt; 2 it could not be (the set has no view
         configured, the ViewPath rails refused, or generation failed —
         "nothing was attempted / nothing usable was produced", the same class
-        Verify reports as 2).
+        Verify reports as 2); 4 the store's drive or share is not attached,
+        retry later (plan C25).
     #>
     # Implements: SR-062, SR-040, LLR-064
     param(
@@ -645,7 +645,7 @@ function Invoke-ViewAction {
         return 0
     } catch {
         & $Log "Browse view could not be produced: $($_.Exception.Message)" 'ERROR'
-        return 2
+        return (Get-StorePathFailureCode -ErrorRecord $_)
     }
 }
 

@@ -47,10 +47,7 @@ last) — it is the record, not required reading for every pass.
      `filebackup-bounded-contract` (worktree `C:\Projects\MiniPC-Deployer-wt-filebackup`).
      Its own `docs/status.md` lists the deploy preconditions and the Owner's
      questions.
-  4. Open for the Owner: whether `-Action Verify` and `-Action View` should
-     also return 4 for an unplugged store drive (they return 2, per WP5 review
-     m2; prune and `-Action Snapshots` now return 4, entry of 2026-10-27
-     below); whether HomeHub's id-reservation
+  4. Open for the Owner: whether HomeHub's id-reservation
      row goes onto its main now; ext4 or NTFS for HomeHub's backup drive at the
      clean start (both hub drives are USB NTFS through ntfs-3g, which journals
      none of its own writes; `homehub-backup.timer` is enabled, 03:00 nightly);
@@ -6524,3 +6521,20 @@ recorded paths (`RelativePath` in `MANIFEST.csv` and `DIRECTORIES.csv`) use `/`
 whatever the host. Checked first: `main` records the writer's own separator,
 as this branch does. Built inside C44, because its L2 (no migration) means
 nothing has to read both forms.
+
+**Follow-up, same day: Verify and View too.** The Owner asked why Verify should
+never return 4. Nothing ruled it: WP5 review m2 was about Verify creating a
+missing backup root and requiring `SourcePath`; its fix dropped a code-4 claim
+from the help because Verify never produced 4, and the help rationalized that
+afterwards ("nothing was attempted, the same class as 2"). The later C25 ruling
+makes an unattached drive 4 for a backup, which attempts nothing either, and
+IF-001's table already lists 4 for verify. Ruled: `-Action Verify` and
+`-Action View` call `Get-StorePathFailureCode` too, so every action answers an
+unplugged store drive with 4. README, both help blocks and IF-001's verify
+clause updated.
+
+Evidence: the retention, entry-point, C25/C26 and `-Action View` Pester blocks,
+**32 passed, 0 failed, 0 skipped**; the drive test now covers all four actions.
+Mutation check: Verify and View put back to `return 2` fail their two cases
+(`Expected 4`); restored. PSScriptAnalyzer: 0 findings on the changed files;
+`gen_arch_map.ps1 -Check` OK.

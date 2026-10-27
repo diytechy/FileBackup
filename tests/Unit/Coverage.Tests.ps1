@@ -2626,13 +2626,18 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         Assert-StoreUnchanged -Before $before -Folder @($tl.Chg)
     }
 
-    It 'returns 4, as a backup does, when -Action <_> finds the store drive not attached (plan C25)' -ForEach @('Snapshots', 'Prune') -Skip:(-not $IsWindows) {
+    It 'returns 4, as a backup does, when -Action <_> finds the store drive not attached (plan C25)' -ForEach @('Snapshots', 'Prune', 'Verify', 'View') -Skip:(-not $IsWindows) {
         $letter = @([char[]](90..68) | Where-Object { -not (Test-Path -LiteralPath "$($_):\") })[0]
         if (-not $letter) { Set-ItResult -Skipped -Because 'no free drive letter'; return }
         $root = Join-Path $TestDrive "retention-nodrive-$_"; $src = Join-Path $root 'src'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         $cfg = Join-Path $root 'c.xml'
-        New-FBConfig -Path $cfg -Src $src -Bkp "$($letter):\FileBackup\Backup" -Chg "$($letter):\FileBackup\Changes"
+        $set = [pscustomobject]@{
+            Name = 'S'; SourcePath = $src; HashRecalcFreq = 'A'; CompressEnabled = $false
+            BackupPath = "$($letter):\FileBackup\Backup"; ChangePath = "$($letter):\FileBackup\Changes"
+            BrowseView = 'index'    # -Action View refuses a set without one before it resolves anything
+        }
+        @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
 
         $arguments = @('-Action', $_)
         if ($_ -eq 'Prune') { $arguments += @('-Snapshot', 'Snapshot_2026_01_01_00_00_00') }
