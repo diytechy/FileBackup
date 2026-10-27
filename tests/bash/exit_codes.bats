@@ -166,6 +166,78 @@ setup() {
     [[ "$output" == *"1 content-missing, 1 host"* ]]
 }
 
+# Tear a manifest the way NTFS leaves one after a power loss: its size reached
+# the disk but its data did not, so everything from byte <keep> on reads as NUL.
+tear_manifest() {  # <manifest> <keep-bytes>
+    local m="$1" keep="$2" size
+    size="$(stat -c '%s' -- "$m")"
+    { head -c "$keep" -- "$m"; head -c "$(( size - keep ))" /dev/zero; } > "$m.torn"
+    mv -f -- "$m.torn" "$m"
+}
+
+@test "1: a manifest torn into NULs restores the rows before the damage and never exits 0 (review 2026-10-26 A1)" {
+    # The reviewer's repro restored 4 of 13 files and exited 0. Keep the header
+    # and three rows whole, tear the fourth in the middle.
+    local whole t="$BATS_TEST_TMPDIR/tnul"
+    whole="$(head -n 4 -- "$MANIFEST" | wc -c)"
+    tear_manifest "$MANIFEST" "$(( whole + 20 ))"
+
+    run bash "$RS" --target-root "$t" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
+    [[ "$output" == *"[ManifestDamaged] the manifest '$MANIFEST' is damaged: it holds NUL bytes from line 5 on"* ]]
+    [[ "$output" == *"3 row(s) before the damage were read and are restored"* ]]
+    grep -qF '[ManifestDamaged]' "$t/RECONSTRUCT.log"
+    # Exactly the three whole rows, byte-exact; the torn fourth is not guessed at.
+    [ "$(find "$t" -type f ! -name RECONSTRUCT.log | wc -l)" -eq 3 ]
+    local rel want n=0
+    while IFS=$'\t' read -r rel want; do
+        [ "$(hash_upper "$t/$rel")" = "$want" ] || { echo "HASH-DIFF: $rel"; false; }
+        n=$(( n + 1 ))
+    done < <(gawk -F'"' 'NR >= 2 && NR <= 4 { print $4 "\t" $10 }' "$FIXTURES/bash-restore/HashAddressed/backup/MANIFEST.csv")
+    [ "$n" -eq 3 ]
+}
+
+@test "1: a manifest whose NULs start exactly at a row boundary still reports the damage (review 2026-10-26 A1)" {
+    local whole t="$BATS_TEST_TMPDIR/tnulb"
+    whole="$(head -n 4 -- "$MANIFEST" | wc -c)"
+    tear_manifest "$MANIFEST" "$whole"
+    run bash "$RS" --target-root "$t" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
+    [[ "$output" == *"from line 5 on"* ]]
+    [[ "$output" == *"3 row(s) before the damage"* ]]
+}
+
+@test "2: a manifest that is NUL from byte 0 is still refused by the header check, writing nothing (review 2026-10-26 A1)" {
+    tear_manifest "$MANIFEST" 0
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tnul0" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unexpected header"* ]]
+    [ ! -e "$BATS_TEST_TMPDIR/tnul0" ]
+}
+
+@test "4 outranks a torn manifest's 1: a host failure in the rows read still reports 4 (review 2026-10-26 A1, SR-040)" {
+    local bad="$BATS_TEST_TMPDIR/torn-host"
+    mkdir -p "$bad"
+    printf 'payload-bytes\n' > "$bad/orig.txt"
+    local h len
+    h="$(hash_upper "$bad/orig.txt")"; len="$(stat -c '%s' "$bad/orig.txt")"
+    {
+      printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
+      # host class: blank DataPath, the only candidate an archive, no 7z
+      printf '"","payload.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
+      printf '"","lost-in-the-tear.txt","5","d","00112233445566778899AABBCCDDEEFF","No","Hash","0",""\r\n'
+    } > "$bad/MANIFEST.csv"
+    rm -f "$bad/orig.txt"
+    printf 'other-bytes-entirely\n' > "$bad/candidate.7z"
+    tear_manifest "$bad/MANIFEST.csv" "$(( $(head -n 2 -- "$bad/MANIFEST.csv" | wc -c) + 10 ))"
+
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/ttornhost" --from "$bad" --seven-zip "$BATS_TEST_TMPDIR/no-such-7z"
+    [ "$status" -eq 4 ] || { echo "expected 4, got $status"; echo "$output"; false; }
+    [[ "$output" == *"[ManifestDamaged]"* ]]
+    [[ "$output" == *"1 row(s) before the damage"* ]]
+    [[ "$output" == *"0 content-missing, 1 host"* ]]
+}
+
 @test "1: an unrelated unexpandable .7z in the pool is data damage, not a host problem (kit rev 6, SR-040 / TC-112)" {
     # D-3: with 7z PRESENT, a garbage archive candidate met during hash recovery
     # used to flip "your bytes are gone" (1) into "fix this host" (4). No

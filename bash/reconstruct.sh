@@ -55,7 +55,9 @@
 #   0  complete — every manifest row restored.
 #   1  INCOMPLETE, CONTENT — the remaining rows' bytes are not in the data
 #      pool, or nothing in the pool reproduces them (ContentMismatch: the
-#      written file disagreed with the row's Length/xxH2Hash — SR-056).
+#      written file disagreed with the row's Length/xxH2Hash — SR-056), or
+#      the manifest reads as NUL bytes from some line on (ManifestDamaged: a
+#      write cut short by a power loss; the rows before it are restored).
 #   2  usage or precondition failure (bad args, missing or unrecognizable
 #      manifest, target inside backup, missing tool, insufficient capacity).
 #   3  retired at kit revision 14; never returned. It was "manifest-witness
@@ -413,11 +415,13 @@ restore_one() {
 # so `read` preserves an EMPTY leading DataPath field (a tab would be trimmed as
 # IFS-whitespace, shifting every column). Quoted fields (which may contain commas
 # or ""-escaped quotes) are unquoted; a trailing CR (CRLF manifests) and a leading
-# UTF-8 BOM are tolerated. Filenames never contain \x1f or a newline.
+# UTF-8 BOM are tolerated. Filenames never contain \x1f or a newline. An
+# optional second argument reads only that many lines (header included) - the
+# complete lines before a NUL byte, from manifest_intact_lines.
 # Implements: SR-032, LLR-032
 parse_manifest() {
-    local manifest="$1"
-    gawk '
+    local manifest="$1" max_lines="${2:-}"
+    gawk -v max_lines="$max_lines" '
         function unq(s,   n) {
             # Strip a UTF-8 BOM if present on the very first byte.
             sub(/^\xef\xbb\xbf/, "", s)
@@ -429,12 +433,38 @@ parse_manifest() {
         }
         BEGIN { FPAT = "([^,]*)|(\"([^\"]|\"\")*\")" }
         {
+            if (max_lines != "" && NR > max_lines + 0) exit
             sub(/\r$/, "")            # tolerate CRLF (re-splits under FPAT)
             if (NR == 1) next          # header row
             if (NF == 0) next
             printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\n", unq($1), unq($2), unq($3), unq($4), unq($5), unq($6), unq($7)
         }
     ' "$manifest"
+}
+
+# ---------------------------------------------------------------------------
+# A torn manifest (review 2026-10-26 A1 / restorers Q1)
+# ---------------------------------------------------------------------------
+# manifest_intact_lines <manifest> : prints nothing when the file holds no NUL
+# byte, else the number of COMPLETE lines (header included) before the first
+# one. Write-Manifest never writes a NUL: every field is CSV text and every row
+# ends with a newline. A file whose size reached the disk before its data (NTFS
+# after a power loss) reads as NULs from some byte on, and restoring the rows
+# before them with exit 0 turned a damaged state into a silently partial one.
+# bash cannot hold a NUL in a variable, so tr counts them: one streaming pass
+# over an intact manifest (LC_ALL=C keeps a BSD tr byte-wise). Only a damaged
+# one is read again: NUL becomes the line end and each newline a \001 (a \001
+# already there becomes 'x' first, so it is not counted), which makes the first
+# "line" everything before the first NUL, and its \001s the newlines in it.
+# Get-ManifestNulDamage in Reconstruct.ps1 draws the same line; they must agree.
+# Implements: SR-040 (LLR-040)
+manifest_intact_lines() {
+    local manifest="$1" nuls lines
+    nuls="$(LC_ALL=C tr -d -c '\000' <"$manifest" | wc -c)"
+    nuls="${nuls//[[:space:]]/}"
+    if [[ ! "$nuls" =~ ^[0-9]+$ ]] || (( nuls == 0 )); then return 0; fi
+    lines="$(LC_ALL=C tr '\001\n\000' 'x\001\n' <"$manifest" | head -n 1 | LC_ALL=C tr -d -c '\001' | wc -c)"
+    printf '%s\n' "${lines//[[:space:]]/}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1310,16 +1340,28 @@ main() {
     log "Reconstruction starting (origin=$origin, snapshot=$is_snapshot, backupRoot=$backup_root, changeRoot=${change_root:-<none>})"
 
     # --- Read the authoritative manifest into parallel arrays ---
+    # A manifest torn by a power loss reads as NULs from some byte on. Only the
+    # complete lines before the first NUL are read - the rows a write left
+    # whole - and the outcome is at least 1 (review 2026-10-26 A1). Empty when
+    # the manifest holds no NUL.
+    local intact_lines
+    intact_lines="$(manifest_intact_lines "$authority")"
     local -a d_data=() d_rel=() d_len=() d_lwt=() d_hash=() d_comp=() d_form=()
     local dp rp ln lw hh cp sf
     while IFS=$'\037' read -r dp rp ln lw hh cp sf; do
         [[ -n "$rp" ]] || continue
         d_data+=("$dp"); d_rel+=("$rp"); d_len+=("$ln"); d_lwt+=("$lw")
         d_hash+=("$hh"); d_comp+=("$cp"); d_form+=("$sf")
-    done < <(parse_manifest "$authority")
+    done < <(parse_manifest "$authority" "$intact_lines")
 
     local nrows=${#d_rel[@]}
     log "Manifest rows: $nrows"
+    # Worded exactly as Reconstruct.ps1 words it.
+    local damage_note=''
+    if [[ -n "$intact_lines" ]]; then
+        damage_note="the manifest '$authority' is damaged: it holds NUL bytes from line $(( intact_lines + 1 )) on (a write cut short by a power loss or crash reads back like this). $nrows row(s) before the damage were read and are restored; any rows after it cannot be read."
+        log "ERROR: [ManifestDamaged] $damage_note"
+    fi
 
     # A store this kit cannot read is refused, not restored (SR-061 / SR-069).
     # Writing to a path-addressed store went at WP9; kit revision 7 withdrew
@@ -1615,10 +1657,17 @@ main() {
     if (( n_all > 0 )); then
         # ${a[@]+...} guards the empty-array expansion under `set -u` on bash 4.3.
         local all=(${unrestored[@]+"${unrestored[@]}"} ${unrestored_host[@]+"${unrestored_host[@]}"})
-        log "ERROR: Reconstruction INCOMPLETE: $n_all file(s) could not be restored ($n_content content-missing, $n_host host): ${all[*]}"
+        log "ERROR: Reconstruction INCOMPLETE: $n_all file(s) could not be restored ($n_content content-missing, $n_host host): ${all[*]}${damage_note:+. Also, $damage_note}"
         printf 'Reconstruction INCOMPLETE: %d file(s) could not be restored (%d content-missing, %d host).\n' \
             "$n_all" "$n_content" "$n_host" >&2
         if (( n_host > 0 )); then exit 4; fi
+        exit 1
+    fi
+    if [[ -n "$damage_note" ]]; then
+        # Content class (1): the missing rows' state is damaged in the backup
+        # itself, and no retry on this host brings it back.
+        log "ERROR: Reconstruction INCOMPLETE: $damage_note"
+        printf 'Reconstruction INCOMPLETE: the manifest is damaged; %d row(s) before the damage were restored.\n' "$nrows" >&2
         exit 1
     fi
     log "Reconstruction complete: $nrows file(s)."

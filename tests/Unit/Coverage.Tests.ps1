@@ -1110,6 +1110,101 @@ Describe 'Restore exit-code table (SR-040)' {
     }
 }
 
+Describe 'A manifest torn into NULs is damage, never a clean restore (review 2026-10-26 A1)' {
+    # NTFS keeps a file's size on a power loss but not data still in the
+    # cache, which reads back as NULs: a snapshot manifest written just before
+    # the crash restored the rows before them with exit 0 (4 of 13 files).
+    # reconstruct.sh's twins are in tests/bash/exit_codes.bats.
+    BeforeAll {
+        $script:pwshPath = (Get-Process -Id $PID).Path
+        function Invoke-TornRestore {
+            param([string]$Script, [string[]]$Arguments)
+            $out = & $script:pwshPath -NoProfile -File $Script -ExitCode @Arguments *>&1 | Out-String
+            return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $out }
+        }
+        function New-TornOrigin {
+            param([string]$Root, [string[]]$Names)
+            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $cfg = Join-Path $Root 'c.xml'
+            New-Item -ItemType Directory -Path $src -Force | Out-Null
+            New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+            foreach ($n in $Names) { [IO.File]::WriteAllText((Join-Path $src $n), "content of $n") }
+            Invoke-FB $cfg
+            return $bkp
+        }
+        function Set-ManifestTorn {
+            # Everything from <Into> bytes past the end of line <WholeLines> on reads as NUL.
+            param([string]$Path, [int]$WholeLines, [int]$Into = 0)
+            $bytes = [IO.File]::ReadAllBytes($Path)
+            $at = 0
+            for ($seen = 0; $seen -lt $WholeLines; $seen++) { $at = [Array]::IndexOf($bytes, [byte]10, $at) + 1 }
+            for ($i = $at + $Into; $i -lt $bytes.Length; $i++) { $bytes[$i] = 0 }
+            [IO.File]::WriteAllBytes($Path, $bytes)
+        }
+    }
+
+    It 'returns 1, restoring the whole rows before the damage, when the manifest reads as NULs from some line on (review 2026-10-26 A1)' {
+        $root = Join-Path $TestDrive 'torn'
+        $bkp = New-TornOrigin -Root $root -Names 'a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt'
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+        # The header and three rows stay whole; the fourth is torn mid-row.
+        Set-ManifestTorn -Path $manifest -WholeLines 4 -Into 20
+        $t = Join-Path $root 'r'
+        $r = Invoke-TornRestore (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $t)
+        $r.Code | Should -Be 1 -Because $r.Output
+        foreach ($n in 'a.txt', 'b.txt', 'c.txt') { [IO.File]::ReadAllText((Join-Path $t $n)) | Should -Be "content of $n" }
+        @(Get-ChildItem -LiteralPath $t -File | Where-Object Name -ne 'RECONSTRUCT.log').Count | Should -Be 3 -Because 'the torn row is not guessed at'
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -BeLike "*ERROR: ``[ManifestDamaged``] the manifest '$manifest' is damaged: it holds NUL bytes from line 5 on*"
+        $log | Should -BeLike '*3 row(s) before the damage were read and are restored*'
+        $r.Output | Should -BeLike '*Reconstruction INCOMPLETE: the manifest*is damaged*'
+
+        # In-process callers get the terminating error, never a quiet success.
+        { & (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot (Join-Path $root 'r2') } |
+            Should -Throw -ExpectedMessage '*INCOMPLETE: the manifest*is damaged*'
+    }
+
+    It 'returns 1 when the NULs start exactly at a row boundary (review 2026-10-26 A1)' {
+        $root = Join-Path $TestDrive 'torn-boundary'
+        $bkp = New-TornOrigin -Root $root -Names 'a.txt', 'b.txt', 'c.txt'
+        Set-ManifestTorn -Path (Join-Path $bkp 'MANIFEST.csv') -WholeLines 3
+        $t = Join-Path $root 'r'
+        $r = Invoke-TornRestore (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $t)
+        $r.Code | Should -Be 1 -Because $r.Output
+        (Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw) | Should -BeLike '*from line 4 on*2 row(s) before the damage*'
+    }
+
+    It 'still refuses with 2, creating nothing, a manifest that is NUL from byte 0 (review 2026-10-26 A1)' {
+        $root = Join-Path $TestDrive 'torn-zero'
+        $bkp = New-TornOrigin -Root $root -Names 'a.txt'
+        Set-ManifestTorn -Path (Join-Path $bkp 'MANIFEST.csv') -WholeLines 0
+        $t = Join-Path $root 'r'
+        $r = Invoke-TornRestore (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $t)
+        $r.Code | Should -Be 2 -Because $r.Output
+        Test-Path -LiteralPath $t | Should -BeFalse
+    }
+
+    It 'returns 4, not 1, for a host failure in the rows read before the damage (review 2026-10-26 A1, SR-040)' {
+        $root = Join-Path $TestDrive 'torn-host'
+        $bkp = New-TornOrigin -Root $root -Names 'a.txt', 'b.txt'
+        $manifest = Join-Path $bkp 'MANIFEST.csv'
+        # a.txt must be found by hash, and the only candidate is an archive this
+        # host cannot open (no 7-Zip): host class. b.txt's row is torn.
+        $rows = @(Import-Csv -LiteralPath $manifest)
+        Remove-Item -LiteralPath (Join-Path $bkp $rows[0].DataPath) -Force
+        $rows[0].DataPath = ''
+        $rows | Export-Csv -LiteralPath $manifest -NoTypeInformation
+        [IO.File]::WriteAllText((Join-Path $bkp 'a.7z'), 'OTHER BYTES ENTIRELY')
+        Set-ManifestTorn -Path $manifest -WholeLines 2 -Into 10
+        $t = Join-Path $root 'r'
+        $r = Invoke-TornRestore (Join-Path $bkp 'RECONSTRUCT.ps1') @('-TargetRoot', $t, '-SevenZipPath', (Join-Path $root 'no-7z.exe'))
+        $r.Code | Should -Be 4 -Because $r.Output
+        $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
+        $log | Should -BeLike '*`[ManifestDamaged`]*1 row(s) before the damage*'
+        $log | Should -BeLike '*0 content-missing, 1 host*'
+    }
+}
+
 Describe 'A superseded object that will not move only warns (SR-041, plan R1)' {
     # TC-073, re-scoped by the bounded run loop. One failed move must not cost
     # the user this backup or the next: step 8 moves each object no row of the

@@ -29,7 +29,9 @@
         0  Complete — every manifest row restored.
         1  Incomplete, CONTENT — the remaining rows' bytes are not in the pool,
            or nothing in the pool reproduces them (ContentMismatch: the written
-           file disagreed with the row's Length/xxH2Hash — SR-056).
+           file disagreed with the row's Length/xxH2Hash — SR-056), or the
+           manifest reads as NUL bytes from some line on (ManifestDamaged: a
+           write cut short by a power loss; the rows before it are restored).
         2  Precondition / usage — nothing attempted (bad arguments, missing or
            unrecognizable manifest, target inside the backup, an unusable target
            path, missing required tool, insufficient capacity). Any terminating
@@ -1086,7 +1088,72 @@ function Read-RawManifest {
         Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "'$path' is not a FileBackup manifest (unexpected header). Corrupt or wrong file."
     }
 
-    Import-Csv -LiteralPath $path
+    # A manifest torn by a power loss reads as NULs from some byte on. Only
+    # the complete lines before the first NUL are read - the rows a write
+    # left whole - and the restore reports the damage (review 2026-10-26 A1).
+    $script:manifestDamage = Get-ManifestNulDamage -Path $path
+    if ($null -eq $script:manifestDamage) { return Import-Csv -LiteralPath $path }
+    $rows = $script:manifestDamage.IntactLines - 1      # the first line is the header
+    if ($rows -gt 0) { Import-Csv -LiteralPath $path | Select-Object -First $rows }
+}
+
+function Get-ManifestNulDamage {
+    <#
+    .SYNOPSIS
+        Finds the first NUL byte in a manifest, returning $null when it holds
+        none, else the number of complete lines before that byte.
+
+    .DESCRIPTION
+        Write-Manifest never writes a NUL: every field is CSV text and every
+        row ends with a newline. NTFS keeps a file's size on a power loss but
+        not data still in the cache, which then reads back as NULs, so a
+        snapshot manifest written just before the crash can lose its tail
+        while its rename stands. Restoring the rows before it and reporting
+        success turned a damaged state into a silently partial one (exit 0
+        with 4 of 13 files, review 2026-10-26 A1 / restorers Q1).
+
+        The scan streams the file in 1 MiB blocks through Array.IndexOf, which
+        .NET vectorizes for a byte array, so an intact 26 MB manifest costs a
+        few milliseconds; only a damaged one is read a second time, to count
+        the newlines before the NUL. A newline byte never occurs inside a
+        UTF-8 multi-byte character, so counting it in the raw bytes is exact.
+        reconstruct.sh draws the same line with tr; the two must agree.
+
+    .PARAMETER Path
+        The manifest file.
+
+    .OUTPUTS
+        $null, or [pscustomobject] IntactLines: the complete lines (header
+        included) before the first NUL byte.
+    #>
+    # Implements: SR-040, LLR-040
+    param([Parameter(Mandatory)][string]$Path)
+    $buffer = [byte[]]::new(1MB)
+    # Shared for write and delete, so a backup renaming a new latest manifest
+    # over this one is never blocked by the scan.
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]'ReadWrite, Delete')
+    try {
+        $offset = [long]-1
+        $read = 0L
+        while (($n = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $at = [Array]::IndexOf($buffer, [byte]0, 0, $n)
+            if ($at -ge 0) { $offset = $read + $at; break }
+            $read += $n
+        }
+        if ($offset -lt 0) { return $null }
+
+        [void]$stream.Seek(0, [System.IO.SeekOrigin]::Begin)
+        $lines = 0L
+        $left = $offset
+        while ($left -gt 0 -and ($n = $stream.Read($buffer, 0, [int][math]::Min($buffer.Length, $left))) -gt 0) {
+            $at = 0
+            while ($at -lt $n -and ($at = [Array]::IndexOf($buffer, [byte]10, $at, $n - $at)) -ge 0) { $lines++; $at++ }
+            $left -= $n
+        }
+        return [pscustomobject]@{ IntactLines = $lines }
+    } finally {
+        $stream.Dispose()
+    }
 }
 
 # ---- Build main dictionary (SR-010 authority rule) ----
@@ -1100,10 +1167,21 @@ $main = New-RelativePathMap
 $haveSnapshotTree = $changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container)
 $authorityFolder  = if ($isChangeFolder) { $here } else { $backupRoot }
 
+$manifestDamage = $null
 foreach ($row in (Read-RawManifest -Folder $authorityFolder)) {
     if (-not $row.RelativePath) { continue }
     $row | Add-Member -NotePropertyName SourceFolder -NotePropertyValue $authorityFolder -Force
     $main[$row.RelativePath] = $row
+}
+# A torn manifest (review 2026-10-26 A1): the rows before the damage are
+# restored, and the outcome is at least 1 - never 0 - because the rows after
+# it are gone from this restore. Worded exactly as reconstruct.sh words it.
+$damageNote = $null
+if ($manifestDamage) {
+    $damageNote = ("the manifest '$(Join-Path $authorityFolder $DatabaseFilename)' is damaged: it holds NUL bytes from line " +
+                   "$($manifestDamage.IntactLines + 1) on (a write cut short by a power loss or crash reads back like this). " +
+                   "$($main.Count) row(s) before the damage were read and are restored; any rows after it cannot be read.")
+    Add-ReconstructLog "ERROR: [ManifestDamaged] $damageNote"
 }
 
 # ---- Pre-WP12 store: refused, not restored (SR-061 / SR-069) ----
@@ -1716,8 +1794,14 @@ if ($unrestored.Count -gt 0) {
     $contentRows = @($unrestored | Where-Object { $_.Cause -notin $hostCauses })
     $code = if ($hostRows.Count -gt 0) { $EXIT_HOST } else { $EXIT_CONTENT }
     $names = ($unrestored | ForEach-Object { $_.RelativePath }) -join ', '
+    $also = if ($damageNote) { " Also, $damageNote" } else { '' }
     Exit-Reconstruct -Code $code -Message ("Reconstruction INCOMPLETE: $($unrestored.Count) file(s) could not be restored " +
-        "($($contentRows.Count) content-missing, $($hostRows.Count) host): $names. See log: $logPath")
+        "($($contentRows.Count) content-missing, $($hostRows.Count) host): $names.$also See log: $logPath")
+}
+if ($damageNote) {
+    # Content class (1): the missing rows' state is damaged in the backup
+    # itself, and no retry on this host brings it back.
+    Exit-Reconstruct -Code $EXIT_CONTENT -Message "Reconstruction INCOMPLETE: $damageNote See log: $logPath"
 }
 "$(Get-Date -Format 'O') - Reconstruction complete" | Out-File -LiteralPath $logPath -Append
 Write-Host "Reconstruction finished. See log: $logPath"

@@ -632,10 +632,16 @@ Imports (internal): `Common`
   DataPath keeps the content scan's host cause (exit 4, not 1), and a raw copy
   lands by rename like the expand (`.fbrestore-*` beside the destination), so
   neither a failed copy nor a failed expand leaves a partial file or touches
-  the destination; and the bundled Common's `Write-Manifest` flushes
+  the destination; the bundled Common's `Write-Manifest` flushes
   `MANIFEST.csv.tmp` to the disk before its rename, through the new
-  `Sync-FileToDisk` (review 2026-10-26 A1; no restorer calls either). Bump to
-  15 for the next behaviour change after this branch ships.
+  `Sync-FileToDisk` (review 2026-10-26 A1; no restorer calls either); and both
+  restorers read a manifest that holds a NUL byte - a write cut short by a
+  power loss reads back like that - only up to the last complete line before
+  it, log `[ManifestDamaged]` naming the manifest and the rows read, restore
+  those rows and end with at least 1, never 0 (`Get-ManifestNulDamage` /
+  `manifest_intact_lines`, review 2026-10-26 G2); a manifest that is NUL from
+  byte 0 still fails the header check (2). Bump to 15 for the next behaviour
+  change after this branch ships.
 
 ## 4. Conventions & known gotchas
 

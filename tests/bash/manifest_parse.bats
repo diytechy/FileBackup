@@ -89,3 +89,36 @@ write_csv() { { printf '%s\r\n' "$HDR"; for r in "$@"; do printf '%s\r\n' "$r"; 
         [ "$rows" -eq "$want" ] || { echo "$m: bash parsed $rows rows, engine recorded $want"; false; }
     done
 }
+
+@test "manifest_intact_lines is silent for a manifest with no NUL byte (review 2026-10-26 A1)" {
+    write_csv '"a.txt","a.txt","5","d","HASHA","No","Hash","0",""'
+    run manifest_intact_lines "$CSV"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "manifest_intact_lines counts the complete lines before the first NUL byte (review 2026-10-26 A1)" {
+    # A torn row, NULs starting exactly at a line end, a NUL hole with whole
+    # rows after it (only the lines BEFORE the first NUL count), a torn header,
+    # and a \001 byte in a name, which the counter must not take for a newline.
+    write_csv '"a.txt","a.txt","5","d","HASHA","No","Hash","0",""' '"b.txt","b'$'\001''.txt","5","d","HASHB","No","Hash","0",""'
+    cp -- "$CSV" "$CSV.base"
+    { cat -- "$CSV.base"; printf '"c.txt","c.t\0\0\0\0'; } > "$CSV"
+    [ "$(manifest_intact_lines "$CSV")" = "3" ]
+    { cat -- "$CSV.base"; printf '\0\0\0\0'; } > "$CSV"
+    [ "$(manifest_intact_lines "$CSV")" = "3" ]
+    { head -n 2 -- "$CSV.base"; printf '\0\0\r\n'; printf '"z.txt","z.txt","5","d","HASHZ","No","Hash","0",""\r\n'; } > "$CSV"
+    [ "$(manifest_intact_lines "$CSV")" = "2" ]
+    printf '"DataPath","Rel\0\0' > "$CSV"
+    [ "$(manifest_intact_lines "$CSV")" = "0" ]
+}
+
+@test "parse_manifest reads only the lines it is given, so a torn row is never parsed (review 2026-10-26 A1)" {
+    write_csv '"a.txt","a.txt","5","d","HASHA","No","Hash","0",""' '"b.txt","b.txt","5","d","HASHB","No","Hash","0",""'
+    run parse_manifest "$CSV" 2
+    [ "$output" = "a.txt${US}a.txt${US}5${US}d${US}HASHA${US}No${US}Hash" ]
+    run parse_manifest "$CSV" 0
+    [ -z "$output" ]
+    run parse_manifest "$CSV" ''
+    [ "${#lines[@]}" -eq 2 ]
+}

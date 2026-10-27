@@ -178,7 +178,7 @@ error unless you pass `-ExitCode` (which `RECONSTRUCT.cmd` does for you).
 | Code | Class | Meaning | What to do |
 |---|---|---|---|
 | **0** | Complete | Every manifest row restored. | Nothing. |
-| **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool. | Real data loss: check an older backup. |
+| **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool, or the manifest itself is damaged (it reads as NUL bytes from some line on, as a write cut short by a power loss can: the rows before that line are restored, and the log names the manifest and how many rows were read). | Real data loss: check an older backup. |
 | **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, a legacy path-addressed store (see `StoredAsHashSize` below), target inside the backup, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
 | **3** | *Retired* | Never returned from kit revision 14. A kit an older version bundled into an older snapshot can still return it when that snapshot's witness disagrees with its manifest. | Restore that snapshot with a current kit (`-Action Verify -RefreshKits`), or from another copy. |
 | **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error on an **archive-shaped** object. | **Retriable** — fix the host and run again. |
