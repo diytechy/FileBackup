@@ -1387,6 +1387,26 @@ Describe 'Entry-point status codes (SR-043)' {
         (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 2
     }
 
+    It 'returns 2, not 1, when a required dependency cannot be loaded, under -ExitCode (review 2026-10-26 B)' {
+        $root = Join-Path $TestDrive 'dep-missing'; $src = Join-Path $root 'src'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'never read')
+        $cfg = Join-Path $root 'config.json'
+        # A set that compresses, and 7-Zip nowhere: the dependency check
+        # refuses before any set runs.
+        [ordered]@{
+            ConfigVersion = 2
+            Tools         = [ordered]@{ SevenZipPath = (Join-Path $root 'no-7zip\7z.exe') }
+            BackupSets    = @([ordered]@{
+                    Name = 'S'; SourcePath = $src; BackupPath = (Join-Path $root 'bkp'); ChangePath = (Join-Path $root 'chg')
+                    HashRecalcFreq = 'A'; CompressEnabled = $true })
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cfg -Encoding UTF8
+
+        (Invoke-FBChild -Cfg $cfg -WithExitCode) | Should -Be 2
+        Test-Path -LiteralPath (Join-Path $root 'bkp') | Should -BeFalse -Because 'no set ran'
+        Get-Content -LiteralPath (Join-Path $root 'Backup_Global.log') -Raw | Should -Match 'required dependency could not be loaded'
+    }
+
     It 'returns 0 for a clean single-set run under -ExitCode' {
         $root = Join-Path $TestDrive 'tc078-clean'; $src = Join-Path $root 'src'
         $cfg = Join-Path $root 'config.json'
@@ -2386,6 +2406,44 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
         $run = Invoke-FBAction -Cfg $env.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', 'Snapshot_1999_09_09_09_09_09')
         $run.Code | Should -Be 2 -Because "Run output: $($run.Output)"
         Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, $env.Chg)
+    }
+
+    It 'lists and prunes snapshots while the source is offline (review 2026-10-26 B)' {
+        $root = Join-Path $TestDrive 'retention-offline'
+        $tl   = New-PruneTimeline -Root $root
+        Rename-Item -LiteralPath $tl.Src -NewName 'src-offline'    # the library drive is not attached
+
+        $list = Invoke-FBAction -Cfg $tl.Cfg -Arguments @('-Action', 'Snapshots')
+        $list.Code | Should -Be 0 -Because "Run output: $($list.Output)"
+        $list.Output | Should -Match ([regex]::Escape($tl.Newest))
+        $run = Invoke-FBAction -Cfg $tl.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $tl.Newest)
+        $run.Code | Should -Be 0 -Because "Run output: $($run.Output)"
+        Test-Path -LiteralPath (Join-Path $tl.Chg $tl.Newest) | Should -BeFalse
+        Test-Path -LiteralPath $tl.Src | Should -BeFalse -Because 'retention creates no source folder'
+    }
+
+    It 'refuses -Action <_> with 2, creating nothing, when the backup folder is missing (review 2026-10-26 B)' -ForEach @('Snapshots', 'Prune') {
+        $root = Join-Path $TestDrive "retention-nobkp-$_"
+        $tl   = New-PruneTimeline -Root $root
+        Rename-Item -LiteralPath $tl.Bkp -NewName 'bkp-moved'
+        $before = Get-StoreFingerprint -Folder @($tl.Chg)
+
+        $arguments = @('-Action', $_)
+        if ($_ -eq 'Prune') { $arguments += @('-Snapshot', $tl.Newest) }
+        $run = Invoke-FBAction -Cfg $tl.Cfg -Arguments $arguments
+        $run.Code | Should -Be 2 -Because "Run output: $($run.Output)"
+        Test-Path -LiteralPath $tl.Bkp | Should -BeFalse -Because 'a missing backup root is refused, never created'
+        Assert-StoreUnchanged -Before $before -Folder @($tl.Chg)
+    }
+
+    It 'refuses -Action Prune with 2, creating nothing, when the change folder is missing (review 2026-10-26 B)' {
+        $root = Join-Path $TestDrive 'retention-nochg'
+        $tl   = New-PruneTimeline -Root $root
+        Rename-Item -LiteralPath $tl.Chg -NewName 'chg-moved'
+
+        $run = Invoke-FBAction -Cfg $tl.Cfg -Arguments @('-Action', 'Prune', '-Snapshot', $tl.Newest)
+        $run.Code | Should -Be 2 -Because "Run output: $($run.Output)"
+        Test-Path -LiteralPath $tl.Chg | Should -BeFalse
     }
 
     It 'exits 2 when -Action Prune is given no -Snapshot (policy belongs to the caller)' {

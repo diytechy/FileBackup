@@ -304,7 +304,8 @@ function Exit-ConfigFailure {
         Covers every way the configuration can be unusable -- the file being
         missing (the likeliest container misconfiguration) as well as an
         SR-042 schema violation -- and the usage preconditions in the same
-        class, such as -WhatIf on -Action Backup (SR-048). Writes the failure to stderr, then either
+        class, such as -WhatIf on -Action Backup (SR-048) or a required
+        dependency that cannot be loaded. Writes the failure to stderr, then either
         exits the process with 2 (SR-043's usage/precondition class, so
         NagLight can tell "retrying will not help" from "the backup failed")
         when -ExitCode was passed, or rethrows -- preserving the
@@ -406,7 +407,16 @@ if ($cfgResult.Tools -and $null -ne $cfgResult.Tools.SevenZipPath) {
 if ($cfgResult.Tools -and $null -ne $cfgResult.Tools.FfprobePath) {
     $dependencyParams['FfprobePath'] = [string]$cfgResult.Tools.FfprobePath
 }
-$deps = Initialize-Dependencies @dependencyParams
+# A required dependency that cannot be loaded (the hashing package, or 7-Zip
+# when a set compresses) is a precondition, like a bad configuration: nothing
+# has run and retrying will not help, so it is 2 through the same path - not an
+# unhandled error, which pwsh reports as 1, "files not captured" (review
+# 2026-10-26 B).
+try {
+    $deps = Initialize-Dependencies @dependencyParams
+} catch {
+    Exit-ConfigFailure -Message "A required dependency could not be loaded: $($_.Exception.Message)"
+}
 
 function Invoke-RetentionAction {
     <#
@@ -434,7 +444,17 @@ function Invoke-RetentionAction {
         [Parameter(Mandatory)][scriptblock]$Log,
         [switch]$DryRun
     )
-    $paths = Resolve-BackupSetPaths -Set $Set
+    # -ReadOnly, as -Action Verify resolves: retention is about the STORE, so
+    # an offline source is no reason to refuse (the backup resolver required
+    # it, and every prune with the library drive away did nothing and exited
+    # 1), and nothing is created - a backup root that is not there is a
+    # precondition (2), never a fresh empty one (review 2026-10-26 B).
+    try {
+        $paths = Resolve-BackupSetPaths -Set $Set -ReadOnly
+    } catch {
+        & $Log "-Action $Mode could not run: $($_.Exception.Message)" 'ERROR'
+        return 2
+    }
 
     if ($Mode -eq 'Snapshots') {
         # Straight to the console stream, NOT down the pipeline: this function's
@@ -455,6 +475,12 @@ function Invoke-RetentionAction {
                ForEach-Object { $_.Trim() } | Where-Object { $_ })
     if ($names.Count -eq 0) {
         & $Log '-Action Prune requires -Snapshot <name>[,<name>] (retention policy belongs to the caller; this entry point takes explicit names only).' 'ERROR'
+        return 2
+    }
+    # -ReadOnly no longer creates a missing change folder, and with none there
+    # is no snapshot to name: the same refusal (2) an unknown name gets.
+    if (-not (Test-Path -LiteralPath $paths.ChgPath -PathType Container)) {
+        & $Log "-Action Prune: the change folder '$($paths.ChgPath)' does not exist, so it holds no snapshot to remove." 'ERROR'
         return 2
     }
 
