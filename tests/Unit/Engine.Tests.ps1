@@ -263,7 +263,7 @@ Describe 'Configuration loader fails loudly and names the key (SR-042)' {
         { Import-BackupConfiguration -Path $path } | Should -Throw -ExpectedMessage $Message
     }
 
-    It 'refuses a quoted "false" for AllowEmptySource rather than coercing it TRUE and disarming the SR-036 delete-all refusal (SR-042)' {
+    It 'refuses a quoted "false" for AllowEmptySource rather than coercing it TRUE (SR-042)' {
         # The reviewer's reproduction: [bool]'false' is $true in PowerShell, so
         # before this check the run silently emptied the backup root and exited 0.
         $path = New-DefectiveConfig -Json '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"AllowEmptySource":"false"}]}'

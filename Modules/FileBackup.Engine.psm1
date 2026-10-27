@@ -7058,9 +7058,8 @@ function Test-BackupConfigurationShape {
         JSON only. Additionally type-checks EVERY schema-defined value against
         its JSON type before any coercion runs, so none of PowerShell's silent
         conversions can change the meaning of the document: [bool]'false' is
-        $true (a quoted "false" for CompressEnabled/AllowEmptySource would
-        enable the feature the operator disabled — and for AllowEmptySource
-        that disarms the SR-036 delete-all refusal), and
+        $true (a quoted "false" for CompressEnabled would enable the feature
+        the operator disabled), and
         [string]@('x','y') is 'x y' (an array where a path belongs would become
         a literal two-word path). Covers every set string, the three set
         booleans, the optional Tools/Secrets strings, Secrets.SmtpPort as an
@@ -7133,8 +7132,8 @@ function Test-BackupConfigurationShape {
             if ($set.PSObject.Properties.Name -contains 'SourceStatePath') {
                 Assert-ConfigValueType -Value $set.SourceStatePath -JsonType 'string' -JsonPath "$setPath.SourceStatePath"
             }
-            # The dangerous one: "AllowEmptySource": "false" would coerce true
-            # and disarm the SR-036 delete-all refusal.
+            # Ignored since plan C39 (an empty source stops the run whatever it
+            # says), but still type-checked: the schema keeps it a boolean.
             if ($set.PSObject.Properties.Name -contains 'AllowEmptySource') {
                 Assert-ConfigValueType -Value $set.AllowEmptySource -JsonType 'boolean' -JsonPath "$setPath.AllowEmptySource"
             }

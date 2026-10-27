@@ -537,8 +537,8 @@ it doesn't recognize (a typo like `AllowEmptySources`) aborts the run before
 anything is touched, naming the offending key and its JSON path — and
 **every** value must have the JSON type the schema gives it. Booleans are real
 JSON booleans (a quoted `"false"` is rejected, never silently coerced to
-`true` — PowerShell's `[bool]'false'` *is* `$true`, so for `AllowEmptySource`
-that coercion would disarm the delete-all refusal), paths are real JSON
+`true` — PowerShell's `[bool]'false'` *is* `$true`, so a quoted `"false"`
+would silently mean the opposite of what was written), paths are real JSON
 strings (`["x","y"]` is rejected rather than flattened to the literal path
 `x y`), and `Secrets.SmtpPort` is a number. JSON has a single number type, so
 an integral-valued number *is* that integer: `"ConfigVersion": 1.0` is the
