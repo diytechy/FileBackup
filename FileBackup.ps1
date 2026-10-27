@@ -338,7 +338,7 @@ function Exit-ConfigFailure {
 # before anything is read or created (WP4 review, finding L1).
 if ($Action -eq 'Backup' -and $VerifyStorageAlias) { $Action = 'Verify' }
 if ($Action -eq 'Backup' -and $WhatIfPreference) {
-    Exit-ConfigFailure -Message '-WhatIf is not supported for -Action Backup: a dry run is only available for -Action Prune. Re-run without -WhatIf.'
+    Exit-ConfigFailure -Message '-WhatIf is not supported for -Action Backup: a dry run is only available for -Action Prune and -Action Verify -RepairStorage. Re-run without -WhatIf.'
 }
 
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
