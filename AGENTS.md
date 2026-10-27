@@ -737,6 +737,17 @@ Imports (internal): `Common`
   wrote the file elsewhere (2026-10-24, it hit the installed `Pester.ps1`);
   `WriteAllText` also drops a BOM. Do it in a child `pwsh`, or restore with
   `git checkout -- <file>`.
+- **Parallel agents (2026-10-27).** A subagent given an isolated git worktree gets
+  one cut from `main`, not from the branch you are on: have it `git reset --hard
+  <your branch head>` and confirm before any work, or it fixes the old engine.
+  Never two Pester runs at once (a timing-sensitive test flakes under contention):
+  agents share a lock directory (`mkdir <scratch>/pester.lock` until it succeeds,
+  run, `rmdir`), and nothing runs Pester while a gate is running.
+- **A test must not depend on the session's error preference.** Pester runs every
+  file in one session, and an earlier file can leave `$ErrorActionPreference` at
+  `'Stop'`: a probe that passed only because a non-terminating error went by then
+  fails the full suite and passes alone (TC-087's witness probe, `14ad7ea`).
+  Check for a file's existence instead of asking `Get-Item` for an absent one.
 - **Linux restore tooling floor (`bash/reconstruct.sh`, phase `bash-v1`):** bash
   ≥ 4, GNU coreutils, **gawk** (FPAT-based RFC-4180 parsing — plain `awk`/mawk is
   not enough), **xxhsum** (xxHash ≥ 0.8, provides `xxh128sum`), and **7z**
@@ -804,11 +815,14 @@ elsewhere, restore, byte-compare" check is part of the hardware runbook.
 ² Linux CI builds the pinned image and drives a real compressed backup plus restore through
 `scripts/Invoke-Container.ps1`; local execution requires Docker Desktop/Engine.
 
-**Current automated total** (2026-10-24, `BoundedRebuild` at `91aa3fc`, the
-bounded run loop): **274 integration assertions / 0 FAIL / 2 SKIP** over the
-2-mode matrix (G8 SKIPs under Subst) + **876 Pester unit tests** (Full-tagged
-excluded; 4 skipped) + **122 bats tests** on Linux (`tests/bash`, run under WSL);
-lint and `shellcheck` clean; the container smoke passes. `BoundedRun.Tests.ps1`
+**Current automated total** (2026-10-27, `BoundedRebuild` after the 2026-10-26
+data-loss review's fixes): **274 integration assertions / 0 FAIL / 2 SKIP** over
+the 2-mode matrix (G8 SKIPs under Subst) + **935 Pester unit tests passed, 1
+skipped** (the Full tier, Full-tagged TC-236 included) + **135 bats tests** on
+Linux (`tests/bash`, run under WSL); lint and `shellcheck` clean; the container
+smoke passes. `Durability.Tests.ps1` holds the flush-before-rename cases
+(plan C36). Before that (2026-10-24, `91aa3fc`): 274 integration + 876 Pester
+(Full-tagged excluded) + 122 bats. `BoundedRun.Tests.ps1`
 holds the run's own cases (kill at every stage, checkpoints, retries, the
 outcome codes, Verify's evidence rules, the metrics).
 

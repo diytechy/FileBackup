@@ -1,14 +1,16 @@
 # Consolidated review — hidden data-loss defects, BoundedRebuild @ 7532b86 (2026-10-26)
 
-**Status (2026-10-27):** the straightforward fixes are merged on `BoundedRebuild`; the Owner has ruled on
-the rest (plan calls C36-C44 in [bounded-run-loop.md](../../plans/bounded-run-loop.md) section 13), and
-those are being built. Move this folder to an archive once the fixes land.
+**Status (2026-10-27):** every fix and every ruling except C43's second half and C44 is built and merged on
+`BoundedRebuild` (plan calls C36-C44 in [bounded-run-loop.md](../../plans/bounded-run-loop.md) section 13).
+Open: C43's prune and pool-resolve rework, and C44 (the single-store layout work package). Move this folder
+to an archive once those land.
 
 ## Outcome
 
 | Item | Outcome |
 |---|---|
-| A1 durability | Ruled C36 (flush before every rename/deletion relied on, objects included) and C37 (damaged objects set aside); being built. |
+| A1 durability | Ruled C36, built `8ec15a1` (manifests, state, kit, snapshot files, prune copies) and `3a5f5ac` (every stored object, O1); C37 (damaged objects set aside), built `7228c0b`. |
+| A1 torn manifest (review G2) | Ruled C38, built `5b0a986` (both restorers: `[ManifestDamaged]`, at least 1). |
 | A2 bash `&`/`#` path | Fixed, `f620c32`. |
 | A3 `.fbprune.tmp` taken as an object | Fixed in both restorers `14c548e` and the engine `9f259cf`. |
 | A4 kit rewritten in place | Fixed, `ce2096a` (written only when changed, by temp file and rename). |
@@ -16,15 +18,15 @@ those are being built. Move this folder to an archive once the fixes land.
 | A6 moved store, two sets under one parent | Superseded by C44: one store folder per set ([single-store-layout.md](../../plans/single-store-layout.md)). |
 | A7 host problem reported as content missing | Fixed, `4fb7689`. |
 | A8 README old-snapshot recipe | Fixed, `c2381af`, `912aa57`. |
-| B prune leftover after commit | Ruled C41; being built. |
+| B prune leftover after commit | Ruled C41, built `f74d80a`, `25d7a2d`. |
 | B partial file on a failed restore copy | Fixed, `b7477bd` then `db155a5` (the copy lands by rename). |
 | B `$RECYCLE.BIN` in `DIRECTORIES.csv` | Fixed, `601272e`. |
-| B case-only names on a Windows restore | Ruled C42 (unportable at backup time); being built. |
+| B case-only names on a Windows restore | Ruled C42 (unportable at backup time), built `677b711`. |
 | B dependency exit code; prune needing the source | Fixed, `3756974`. Open: prune with the store drive unplugged now exits 2; 4 is the alternative. |
-| C1 fsync policy | Ruled C36. |
-| C2 empty source exits 0 | Ruled C39 (stop with 4). |
+| C1 fsync policy | Ruled C36 (built, see A1). |
+| C2 empty source exits 0 | Ruled C39 (stop with 4), built `88dc7e1`, `72a39cb`. |
 | C3 damaged archive not healed | Ruled C40 (C18 stands). |
-| C4 Verify memory on HomeHub | Ruled C43; HomeHub's store gets a second look before anything runs there. |
+| C4 Verify memory on HomeHub | Ruled C43: the storage-form audit no longer holds whole manifests (`8ab9375`); prune and the pool-resolve check are the open follow-up. HomeHub's store gets a second look before anything runs there. |
 | C5 older-engine mislabelled objects | HomeHub's store gets a second look; C37 leaves such objects alone. |
 
 Four independent reviews against one brief ([brief.md](brief.md)), all of commit `7532b86`:
@@ -141,3 +143,6 @@ the pool. Fix the recipe (copy the kit into the snapshot, `-RefreshKits`, or bas
 - argon F4 / retention F5 as defects: need an older-engine mislabelled object plus a kill mid-repair → question C5.
 - Compiled manifest writer throwing on a row with no `LastWriteTime`: `ParseExact` refuses such a row first (loud 2).
 - Case-insensitive collision of base-57 object names: ~110 effective bits; negligible.
+
+The first full gate on the merged fixes surfaced two order-dependent test faults, fixed in `5d8bf00` and `14ad7ea`.
+The HomeHub side of the contract is prepared, unmerged, on HomeHub branch `filebackup-review-contract`.

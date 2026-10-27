@@ -24,23 +24,48 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **DATA-LOSS REVIEW OF `7532b86` (2026-10-26/27): FIRST FIXES MERGED; RULINGS
-  C36-C44 BEING BUILT.** Four independent reviews (opencode argon, three Claude
-  slices) are in
-  [reviews/2026-10-26-data-loss/consolidated.md](reviews/2026-10-26-data-loss/consolidated.md),
-  with an outcome per finding. The straightforward fixes are merged
-  (`9f259cf`..`c467489`). The Owner then ruled C36-C44
-  ([plans/bounded-run-loop.md](plans/bounded-run-loop.md) section 13): flush
-  before relying on any write, damaged objects set aside, an empty source stops
-  with 4, prune leftovers finished, case-only names unportable, leaner Verify,
-  and one store folder per set
-  ([plans/single-store-layout.md](plans/single-store-layout.md)), which follows
-  the current batches. HomeHub (found 2026-10-27): both drives are USB NTFS
-  through ntfs-3g, which journals none of its own writes, and
-  `homehub-backup.timer` is enabled (03:00 nightly). The Owner will set the old
-  HomeHub store aside and start a clean backup in the new layout, after a
-  second look at its residue. Open: prune with the store drive unplugged exits
-  2 (4 is the alternative). The resume list of the entry below still stands.
+- **DATA-LOSS REVIEW OF `7532b86` (2026-10-26/27): BUILT AND MERGED, EXCEPT
+  C43's SECOND HALF AND C44.** Four independent reviews (opencode argon, three
+  Claude slices), with an outcome per finding, are in
+  [reviews/2026-10-26-data-loss/consolidated.md](reviews/2026-10-26-data-loss/consolidated.md).
+  `BoundedRebuild` now holds the straightforward fixes and the Owner's rulings
+  C36-C42 and C43's first half ([plans/bounded-run-loop.md](plans/bounded-run-loop.md)
+  section 13); the evidence is the 2026-10-27 entry at the end of this log.
+  **Resume here (next session):**
+  1. C43's second half: prune and the pool-resolve check must read one manifest
+     at a time (they still hold every one, ~420 MB per HomeHub manifest). It
+     must land before any Verify or prune runs on HomeHub's store. Fold in:
+     retention's supply should ignore a file the C37 listing rule calls damaged.
+  2. C44, the single-store layout ([plans/single-store-layout.md](plans/single-store-layout.md)),
+     as one work package with an independent review (L6).
+  3. HomeHub: branch `filebackup-review-contract`, worktree
+     `C:\Projects\MiniPC-Deployer-wt-filebackup-review`, rebuilt on
+     `IceDrive-DesktopDirection` `6318772` (13 commits, unmerged; FileBackup ids
+     renumbered to SR-128, LLR-1356..1360, TC-1541..1547; Part 1 ends at
+     `7e86b77`, Part 2 is marked "[needs a C44 image]"). It supersedes
+     `filebackup-bounded-contract` (worktree `C:\Projects\MiniPC-Deployer-wt-filebackup`).
+     Its own `docs/status.md` lists the deploy preconditions and the Owner's
+     questions.
+  4. Open for the Owner: prune and `-Action Snapshots` with the store drive
+     unplugged exit 2 (4 is the alternative); whether HomeHub's id-reservation
+     row goes onto its main now; ext4 or NTFS for HomeHub's backup drive at the
+     clean start (both hub drives are USB NTFS through ntfs-3g, which journals
+     none of its own writes; `homehub-backup.timer` is enabled, 03:00 nightly);
+     the second look at HomeHub's residue before the clean start.
+  5. Registry debts for the SR rewrite (the entry below, item 4): SR-055 and a
+     TC row for case-only names (C42); SR-036, LLR-036 and TC-062 still
+     describe the retired `AllowEmptySource` refusal; TC rows for the review's
+     new tests; `trace.py` reads `system-requirements.csv` while the SRs live
+     in `system-requirements.toml`, hence SR=0.
+  6. Small follow-ups: Verify's storage-form repair renames a `.7z`-named object
+     that holds no archive and has the wrong length to a raw name, and the
+     object audit flags that damage only on the next Verify (a Verify-side
+     rule - no 7-Zip signature and the wrong length, any extension - would
+     catch it in one pass); `FileBackupState.json.tmp` is not on the
+     infrastructure list; an empty `.7z` under a `Compressed=Yes` row is
+     reported twice (`DamagedObject` and `FlagOverRaw`).
+  The resume list of the entry below still stands, except that its item 3 (a
+  plain Verify on HomeHub's store) waits for item 1 here.
 
 - **BOUNDED REBUILD — THIS BRANCH (2026-10-24): IMPLEMENTED, AWAITING THE
   OWNER.** `BoundedRebuild` holds the bounded backup run of
@@ -6415,3 +6440,54 @@ The Owner ruled: record the reviews in git now (archive once the fixes land),
 build the straightforward fixes now, and lay out the rest one at a time. Nothing
 was run under Pester for the review itself; the reviewers ran repros against
 stores under `%TEMP%` and WSL `/tmp`.
+
+### 2026-10-27 — the data-loss review's fixes built and merged; evidence
+
+Built on `BoundedRebuild` over `af6ca1d`..HEAD, by fix agents in isolated
+worktrees, each change re-read and merged here, with every new test shown to
+fail without its fix:
+- the straightforward findings: bash's `&`/`#` change-root paths, a prune's
+  staged copy taken for an object (restorers and engine), the kit rewritten in
+  place, `-RepairStorage` without the lock or under `-WhatIf`, host problems
+  reported as content missing, the old-snapshot README recipe, partial files on
+  a failed restore copy (the copy now lands by rename), `$RECYCLE.BIN` in
+  `DIRECTORIES.csv`, the dependency and retention exit codes;
+- the Owner's rulings (plan section 13): C36 flush before every rename or
+  deletion relied on, objects included; C37 damaged objects set aside; C38 a
+  torn manifest is never a clean restore; C39 an empty source stops with 4
+  before anything is written; C41 prune leftovers finished before any rail
+  (refining "inside its transaction", as recorded there); C42 case-only names
+  unportable; C43's first half (the storage-form audit's lean index). C40 needed
+  no code. C43's second half and C44 are open (see the Current State entry).
+
+The first full gate on the merged fixes (`c467489`) failed two unit tests that
+were order-dependent or too broad; both tests were fixed (`5d8bf00`,
+`14ad7ea`), each shown to fail and then pass. The container smoke then caught
+its own TC-102 seed writing foreign bytes into an object and calling the
+result "clean"; under C37 that is damage, so the seed now bends only the
+`Compressed` column, as TC-102 says it tests.
+
+Evidence (real runs):
+- `scripts/check.ps1 -Tier Full` on `ac49e83`: lint PASS; Pester unit **935
+  passed, 0 failed, 1 skipped**; integration (`Run-All.ps1 -Backend Subst
+  -Modes Plain,Compress`) **274 PASS / 0 FAIL / 2 SKIP**; doc navigability,
+  architecture-map freshness and performance budgets PASS; traceability FAIL as
+  before this work (SN=0 SR=0, 471 orphans: the SR rewrite is pending).
+- After it, comment, help-text and test-title edits only, plus the smoke seed:
+  PSScriptAnalyzer clean on every changed file, the generated maps current,
+  `Engine.Tests.ps1` 83 passed; bats **135/135** and `shellcheck` clean in WSL
+  Fedora (LF only); container smoke (`Invoke-Container.ps1 -Action
+  BuildAndTest`, WSL Ubuntu Docker 29.6.1) passes all five checks.
+- HomeHub branch `filebackup-review-contract`: hermetic shell suites 859 PASS /
+  0 FAIL across 19 suites, `check.py --tier smoke` PASS, `trace.py
+  --strict-integrity` integrity 0 (its agent's runs).
+
+Cleaned up: the fix agents' worktrees and branches (every change is on
+`BoundedRebuild`; `git cherry` and `git range-diff` showed the remaining
+differences are only the hand-merged `AGENTS.md` and regenerated docs), this
+session's test stores in `%TEMP%` and WSL `/tmp`, and three stale `subst`
+drive mappings left by a killed 2026-10-24 test run. Not removed: older test
+stores from 2026-10-24 (`%TEMP%\fbrev*`) and August (WSL `/tmp/fb3`,
+`/tmp/fbexp*`).
+
+Next: the Current State entry's resume list.
