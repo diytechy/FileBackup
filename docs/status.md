@@ -24,6 +24,15 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **DATA-LOSS REVIEW OF `7532b86` (2026-10-26): RECORDED; FIXES IN PROGRESS.**
+  Four independent reviews (opencode argon, three Claude slices), focused on
+  permanent loss in normal scenarios including power loss, are in
+  [reviews/2026-10-26-data-loss/consolidated.md](reviews/2026-10-26-data-loss/consolidated.md),
+  each finding re-checked against the code. The Owner authorized the
+  straightforward fixes; the flush policy (A1), the root detection of a moved
+  store (A6) and the ruling questions (section C) await the Owner. The
+  resume list of the entry below still stands.
+
 - **BOUNDED REBUILD — THIS BRANCH (2026-10-24): IMPLEMENTED, AWAITING THE
   OWNER.** `BoundedRebuild` holds the bounded backup run of
   [plans/bounded-run-loop.md](plans/bounded-run-loop.md): rulings R1–R14 and
@@ -6374,3 +6383,26 @@ Evidence (real runs this session):
 
 Next: unchanged — the Owner reviews C9–C35 and decides the HomeHub branch. No
 pending agent action.
+
+### 2026-10-26 — data-loss review of `7532b86` (four independent reviewers)
+
+The Owner asked for an independent review run in parallel with opencode
+(`opencode-go/gemini-4-argon`), aimed at hidden defects that lose data in a
+normal scenario such as a power loss, and not at contrived cases or accepted
+limitations. One brief, four reviewers: argon over the whole repository, and
+three Claude slices (the backup run, the restorers, retention and Verify).
+Reports, repro scripts and the consolidated, re-verified list are in
+[reviews/2026-10-26-data-loss/](reviews/2026-10-26-data-loss/consolidated.md).
+
+The main result: nothing is flushed to disk before it is named or relied on.
+All four reviewers found it independently. After a power loss an object, a
+snapshot manifest or a prune's re-homed last copy can be 0 bytes or NULs while
+its name or the deletion of its source survived. The run trusts names, so the
+damage persists silently. Measured cost of flushing each new object: NVMe
++1.4 ms, SATA HDD +49 ms. Seven further defects, five Low, five ruling
+questions, three rejected candidates.
+
+The Owner ruled: record the reviews in git now (archive once the fixes land),
+build the straightforward fixes now, and lay out the rest one at a time. Nothing
+was run under Pester for the review itself; the reviewers ran repros against
+stores under `%TEMP%` and WSL `/tmp`.
