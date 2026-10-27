@@ -697,6 +697,8 @@ Describe 'A source that is empty, or empties during the run, stops it (plan C27,
         [Convert]::ToBase64String([IO.File]::ReadAllBytes($manifest)) | Should -Be $manifestBefore -Because 'the latest state is left as it was'
         [IO.File]::ReadAllText($state) | Should -Be $stateBefore -Because 'LastBackupRun still dates the latest state'
         & $listObjects | Should -Be $objectsBefore -Because 'no object moves out of the backup root'
+        @(Get-ChildItem -LiteralPath $s.Chg -Directory | Where-Object { $_.Name -like 'Snapshot_*' -or $_.Name -like 'Building_*' }) |
+            Should -BeNullOrEmpty -Because 'the run stops before step 3 publishes a snapshot of a state that did not change'
         $log = Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log') -Raw
         $log | Should -Match 'is empty while the latest state holds 2 file\(s\) - a missing mount or a failed drive looks like this; the latest state is left as it was'
         $log | Should -Match 'remove the set from the configuration'
@@ -709,6 +711,30 @@ Describe 'A source that is empty, or empties during the run, stops it (plan C27,
         foreach ($name in Get-SnapshotNames $s) {
             Format-State (Get-StateContent $s (Join-Path $s.Chg $name)) | Should -Be 'a.txt=alpha;sub\b.txt=bravo'
         }
+    }
+    It 'stops with 4 through the walk''s backstop when the source holds only empty folders (review 2026-10-26 C2)' {
+        $s = New-Store 'src-only-folders'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Invoke-Run $s '2026-10-16T10:00:00' | Should -Be 0
+        $manifest = Join-Path $s.Bkp 'MANIFEST.csv'
+        $manifestBefore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($manifest))
+        Remove-Item -LiteralPath (Join-Path $s.Src 'a.txt')
+        New-Item -ItemType Directory -Path (Join-Path $s.Src 'empty\deeper') -Force | Out-Null
+
+        Invoke-Run $s '2026-10-17T10:00:00' | Should -Be 4
+        [Convert]::ToBase64String([IO.File]::ReadAllBytes($manifest)) | Should -Be $manifestBefore -Because 'the latest state is left as it was'
+        Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log') -Raw | Should -Match 'is empty while the latest state holds 1 file\(s\) - a missing mount or a failed drive looks like this'
+    }
+    It 'ignores the volume-root pseudo-folders before step 3 exactly as the walk does (review 2026-10-26 C2, SR-074)' {
+        $src = Join-Path $TestDrive 'pseudo-root'
+        New-Item -ItemType Directory -Path (Join-Path $src 'System Volume Information') -Force | Out-Null
+        # Only a genuine volume root has such folders; the mock stands in for one.
+        Mock -ModuleName FileBackup.Engine Test-IsVolumeRootPseudoPath { $FullPath -like '*System Volume Information' }
+        { & $script:engine { param($p) Assert-SourceNotEmpty -SourcePath $p -PriorRowCount 3 } $src } |
+            Should -Throw -ExpectedMessage '*is empty while the latest state holds 3 file(s)*'
+        { & $script:engine { param($p) Assert-SourceNotEmpty -SourcePath $p -PriorRowCount 0 } $src } | Should -Not -Throw
+        [IO.File]::WriteAllText((Join-Path $src 'real.txt'), 'x')
+        { & $script:engine { param($p) Assert-SourceNotEmpty -SourcePath $p -PriorRowCount 3 } $src } | Should -Not -Throw
     }
     It 'backs up an empty source the first time, and again while the latest state is empty (review 2026-10-26 C2)' {
         $s = New-Store 'src-empty-first'

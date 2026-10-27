@@ -6271,6 +6271,72 @@ function New-BackupRunContext {
     }
 }
 
+function Get-EmptySourceMessage {
+    <#
+    .SYNOPSIS
+        The one message a run stops with when its source is empty while the
+        latest state holds rows (review 2026-10-26 C2), whichever check finds it.
+
+    .PARAMETER SourcePath
+        The set's source root.
+
+    .PARAMETER RowCount
+        The rows the latest state holds.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-036, LLR-036
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][int]$RowCount
+    )
+    return ("The source '$SourcePath' is empty while the latest state holds $RowCount file(s) - a missing mount or a failed drive looks like this; the latest state is left as it was. " +
+            'If this source really is meant to be empty, remove the set from the configuration.')
+}
+
+function Assert-SourceNotEmpty {
+    <#
+    .SYNOPSIS
+        Stops the run (throws, so the set returns 4) when the source root lists
+        no entry at all while the latest state holds rows (review 2026-10-26 C2).
+
+    .DESCRIPTION
+        Runs before plan step 3, so the common case - an unmounted or failed
+        source drive is an empty folder - stops before a snapshot of a state
+        that did not change is published. The volume-root pseudo-folders are
+        ignored exactly as the walk ignores them (SR-074), so a drive root that
+        holds only them is empty here too. A root that cannot be listed passes:
+        that is the walk's unlistable-root case (C24), which keeps every row.
+        A source holding only empty folders passes as well; the walk's own
+        check in Invoke-LibraryCapture stops that one.
+
+    .PARAMETER SourcePath
+        The set's source root.
+
+    .PARAMETER PriorRowCount
+        The rows the latest state holds; with none there is nothing to lose.
+    #>
+    # Implements: SR-036, LLR-036
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][int]$PriorRowCount
+    )
+    if ($PriorRowCount -eq 0) { return }
+    try {
+        # The .NET enumeration lists hidden and system entries, as the walk's -Force does.
+        foreach ($entry in [System.IO.Directory]::EnumerateFileSystemEntries($SourcePath)) {
+            if (-not (Test-IsVolumeRootPseudoPath -Root $SourcePath -FullPath $entry)) { return }
+        }
+    } catch {
+        return
+    }
+    throw (Get-EmptySourceMessage -SourcePath $SourcePath -RowCount $PriorRowCount)
+}
+
 function Invoke-LibraryCapture {
     <#
     .SYNOPSIS
@@ -6438,12 +6504,13 @@ function Invoke-LibraryCapture {
         # The same stop for a source that was already empty when the walk began
         # (review 2026-10-26 C2, the Owner's option C): in the container an
         # unmounted or failed source drive is an empty folder, and carrying on
-        # recorded the whole library as deleted with exit 0. A source the walk
-        # saw anything in - an unportable name, an unlistable folder (C24) - is
-        # not empty, and a first backup (no prior rows) has nothing to lose.
+        # recorded the whole library as deleted with exit 0. Assert-SourceNotEmpty
+        # stops a root that lists nothing before step 3; this is the backstop
+        # for one that lists only empty folders. A source the walk saw anything
+        # in - an unportable name, an unlistable folder (C24) - is not empty,
+        # and a first backup (no prior rows) has nothing to lose.
         if ($walk.Files.Count -eq 0 -and $walk.Unportable.Count -eq 0 -and $walk.Unreadable.Count -eq 0 -and $PriorRows.Count -gt 0) {
-            throw ("The source '$($Paths.SrcPath)' is empty while the latest state holds $($PriorRows.Count) file(s) - a missing mount or a failed drive looks like this; the latest state is left as it was. " +
-                   "If this source really is meant to be empty, remove the set from the configuration.")
+            throw (Get-EmptySourceMessage -SourcePath $Paths.SrcPath -RowCount $PriorRows.Count)
         }
 
         # The final rows: what the loop captured, plus the prior rows of
@@ -6629,6 +6696,10 @@ function Invoke-BackupSet {
             return 2
         }
         Complete-RunStep -Metrics $metrics -Name 'read latest state'
+        # A source root that lists nothing while the latest state holds rows is
+        # a missing mount or a failed drive: stop (4) before step 3 publishes a
+        # snapshot of a state that did not change (review 2026-10-26 C2).
+        Assert-SourceNotEmpty -SourcePath $paths.SrcPath -PriorRowCount $priorRows.Count
         Clear-InterruptedRunResidue -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath -Log $log
         $priorDate = Get-PriorBackupDate -BackupRoot $paths.BkpPath -PriorRowCount $priorRows.Count -Log $log
         Complete-RunStep -Metrics $metrics -Name 'clear residue'

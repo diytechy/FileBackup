@@ -30,7 +30,7 @@ are unsupported; one OS lock refuses a second one.
 | File | Role | Bundled into backups? |
 |---|---|---|
 | `Modules/FileBackup.Common.psm1` | **Restore-safe primitives**: `Get-FileXxHash`, `Initialize-XxHashLibrary`, `Get-XxHashDllPath`, `Read-/Write-Manifest`, `Compress-/Expand-FileWithSevenZip`, `Test-ShouldCompress`, short-name encoding, `New-Logger`, `Sync-FileToDisk` (the one flush every rename-into-place goes through, §4), `Get-FileBackupDefaults`, `Get-FreeSpaceBytes`/`Get-VolumeIdentity` (SR-052 — both restorer and engine measure capacity through these). | **Yes** |
-| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: the **bounded backup run** — `Invoke-BackupSet` and its steps (`Read-PriorStateForRun`, `New-BackupRunContext`, `Invoke-LibraryCapture`, `Publish-LatestState`, `Test-StateChanged`, `Remove-UnchangedSnapshot`), `Resolve-BackupSetPaths` / `Assert-StoreVolumePresent`, `Get-SourceFileList`, `Get-StoreObjectIndex` (+ the prefix-only name reader `ConvertFrom-StoredObjectName`, the listing damage check `Get-ListedObjectDamage` and its set-aside step `Move-DamagedStoreObject`), `Invoke-SourceFileCapture`, `Get-LatestObject`, `Copy-FileWithHash`, `Publish-StagedObject`, `Publish-PriorStateSnapshot`, `Move-SupersededObject`, `Assert-SingleStoreMount`, `Clear-InterruptedRunResidue`, the OS lock (`Enter-/Exit-StagingOsLock`), the run metrics (`New-RunMetric`, `Complete-RunStep`, `Add-RunMetric`, `Add-RunSlowFile`, `Write-RunMetric`) — and `New-ReconstructScript` (+ `Write-KitFile`, shared with `-RefreshKits`), `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Get-BackupContentIndex` (read by retention and the audit), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`, and the object-level audit `Get-StoreObjectFinding` / `Get-StoredObjectVerdict` / `Measure-DuplicateRepairCost` / `Move-StoreObjectToVerify` / `Get-VerifyDestination` (Verify/'s one layout) / `Remove-VerifyScratch` (plan R9, C4, C22, C28); and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
+| `Modules/FileBackup.Engine.psm1` | **Backup-only logic**: the **bounded backup run** — `Invoke-BackupSet` and its steps (`Read-PriorStateForRun`, `Assert-SourceNotEmpty`, `New-BackupRunContext`, `Invoke-LibraryCapture`, `Publish-LatestState`, `Test-StateChanged`, `Remove-UnchangedSnapshot`), `Resolve-BackupSetPaths` / `Assert-StoreVolumePresent`, `Get-SourceFileList`, `Get-StoreObjectIndex` (+ the prefix-only name reader `ConvertFrom-StoredObjectName`, the listing damage check `Get-ListedObjectDamage` and its set-aside step `Move-DamagedStoreObject`), `Invoke-SourceFileCapture`, `Get-LatestObject`, `Copy-FileWithHash`, `Publish-StagedObject`, `Publish-PriorStateSnapshot`, `Move-SupersededObject`, `Assert-SingleStoreMount`, `Clear-InterruptedRunResidue`, the OS lock (`Enter-/Exit-StagingOsLock`), the run metrics (`New-RunMetric`, `Complete-RunStep`, `Add-RunMetric`, `Add-RunSlowFile`, `Write-RunMetric`) — and `New-ReconstructScript` (+ `Write-KitFile`, shared with `-RefreshKits`), `Test-HashRecalcDue`, `Test-IsInfrastructureFile`, `Get-BackupContentIndex` (read by retention and the audit), … plus the **retention mechanism** (SR-045..047): `Get-SnapshotPrunePlan`, `Get-BackupSnapshot`, `Assert-PrunePrecondition`, `Get-PruneCapacityRefusal`, `Test-PoolResolves`, `Copy-ReHomedDataFile`, `Publish-PruneManifest`, `Remove-CommittedPruneResidue`, `Invoke-PruneEntrySweep`, `Complete-PruneDeletion`, `Remove-BackupSnapshot`; and the **storage-form audit** (SR-049): `Get-StoredFileForm`, `Test-StorageFormAgreement`, `Get-StorageFormFinding`, `Get-BackupKitRevision`, `Test-BackupStorageForm`, `Repair-BackupStorageForm`, `Update-BackupSnapshotKit`, and the object-level audit `Get-StoreObjectFinding` / `Get-StoredObjectVerdict` / `Measure-DuplicateRepairCost` / `Move-StoreObjectToVerify` / `Get-VerifyDestination` (Verify/'s one layout) / `Remove-VerifyScratch` (plan R9, C4, C22, C28); and the **browse view** (SR-062): `New-BrowseViewIndex`. | No |
 | `FileBackup.ps1` | Thin entry point: import modules, read config, then either loop `Invoke-BackupSet` (+ optional mail) or, under `-Action Prune`/`-Action Snapshots` (SR-048) / `-Action Verify` (SR-049) / `-Action View` (SR-062), dispatch the one configured set to the retention mechanism, the storage-form audit or a forced browse-view rebuild. | n/a |
 | `Reconstruct.ps1` | Standalone restore; imports the **bundled** Common module. | itself |
 | `bash/reconstruct.sh` | **Linux/bash standalone restore** (phase `bash-v1`): one self-contained POSIX-shell file (bash 4+, gawk, xxhsum, 7z) that restores byte-exact from a backup folder on a host with no PowerShell, mirroring `Reconstruct.ps1`'s semantics against the *same* MANIFEST.csv contract. It is **not** in the generated map below (that map is PowerShell-AST-only); its internal functions (`hash_file`, `parse_manifest`, `to_posix`) are unit-tested by sourcing it under bats. See §4 for the tooling floor and README "Restore on Linux". | **Yes** |
@@ -63,7 +63,12 @@ files; `BoundedRun.Tests.ps1` kills a run at each stage and proves it.
    (`Read-PriorStateForRun`) refuse with 2, changing nothing, a bad
    `CompressProbe`, a store a rename cannot cross (`Assert-SingleStoreMount`,
    R8), a latest manifest with a foreign header, or a store in a retired form
-   (`Assert-CurrentStoreForm`, SR-061). Delete what a killed run left
+   (`Assert-CurrentStoreForm`, SR-061). A source root that lists no entry at
+   all (the volume-root pseudo-folders aside, as in the walk) while the latest
+   manifest holds rows stops the set with 4 here, before step 3 could publish
+   a snapshot of a state that did not change (`Assert-SourceNotEmpty`, review
+   2026-10-26 C2: a missing mount or a failed drive looks like that; a set
+   meant to be empty is removed from the configuration). Delete what a killed run left
    (`Clear-InterruptedRunResidue`: `Incoming/`, `Building_*`); an older engine's
    `Temp` is warned about and left alone.
 2. **Read and index.** The prior date D (`LastBackupRun`; a missing or unreadable
@@ -97,12 +102,11 @@ files; `BoundedRun.Tests.ps1` kills a run at each stage and proves it.
    attempt, 3 attempts in all; then a warning, its earlier row kept (SR-091).
    Files that vanished are removals — unless the source root disappeared or
    emptied during the run, which stops the set with 4 before anything is
-   written (C24, C27). A source already empty when the walk began, while the
-   latest state holds rows, stops the same way (review 2026-10-26 C2: a missing
-   mount or a failed drive looks like that; a set meant to be empty is removed
-   from the configuration). A first backup of an empty source is unaffected,
-   and a walk that saw anything (an unportable name, an unlistable folder) is
-   no empty source.
+   written (C24, C27). A walk that found nothing at all while the latest state
+   holds rows — a source of only empty folders, which step 1's check lets
+   through — stops the same way, with the same message (review 2026-10-26 C2).
+   A first backup of an empty source is unaffected, and a walk that saw
+   anything (an unportable name, an unlistable folder) is no empty source.
 6. **Finish latest** (`Publish-LatestState`): the canonical manifest (ordinal
    `RelativePath` order, every text column a string, so an unchanged run
    rewrites identical bytes), the directory sidecar, then `LastBackupRun` /
@@ -210,6 +214,7 @@ Imports (internal): `Common`
 | `Assert-NoUnknownConfigKey` | no | SR-042, LLR-042 |
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
 | `Assert-SingleStoreMount` | yes | SR-059, LLR-150 |
+| `Assert-SourceNotEmpty` | no | SR-036, LLR-036 |
 | `Assert-StoreVolumePresent` | no | SR-014, SR-040, LLR-014 |
 | `Clear-InterruptedRunResidue` | no | SR-017, SR-075 |
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
@@ -227,6 +232,7 @@ Imports (internal): `Common`
 | `Get-BackupSnapshot` | yes | SR-047, LLR-047 |
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-DataFile` | yes | SR-057, SR-074, LLR-057, LLR-078 |
+| `Get-EmptySourceMessage` | no | SR-036, LLR-036 |
 | `Get-FolderFileSet` | no | SR-064, LLR-062 |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
