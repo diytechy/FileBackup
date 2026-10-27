@@ -6514,7 +6514,10 @@ Evidence: the retention, entry-point and C25/C26 Pester blocks, **29 passed,
 0 failed, 0 skipped**, including two new tests
 (`returns 4, as a backup does, when -Action <_> finds the store drive not
 attached`). Mutation check: with the prune site put back to `return 2`, both
-new tests fail (`Expected 4 ... but got 2`); restored.
+new tests fail (`Expected 4 ... but got 2`); restored. `scripts/check.ps1
+-Tier Smoke`: Pester unit **936 passed, 0 failed, 1 skipped**; the
+architecture map was stale (the new export) and was regenerated, `-Check` OK;
+traceability fails as before (SN=0 SR=0, 471 orphans, integrity 0).
 
 **Separator ruling (L7 in [plans/single-store-layout.md](plans/single-store-layout.md)):**
 recorded paths (`RelativePath` in `MANIFEST.csv` and `DIRECTORIES.csv`) use `/`
