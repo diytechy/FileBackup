@@ -2643,45 +2643,58 @@ function Get-BackupSnapshot {
 function Remove-CommittedPruneResidue {
     <#
     .SYNOPSIS
-        Finishes a prior, already-COMMITTED deletion of one named snapshot: a
-        leftover 'Pruning_<name>' folder is past the commit point, invisible to
-        every consumer, and only its deletion remains (SR-046).
+        Finishes every snapshot deletion an earlier prune COMMITTED but did not
+        complete: each 'Pruning_<snapshot name>' folder in the change root is
+        past its own commit point, invisible to every consumer, and only its
+        deletion remains (SR-046).
 
     .DESCRIPTION
-        Scoped to the name being pruned, deliberately. It runs before that name
-        is planned — the plan cannot be computed while the folder still occupies
-        the name, and finishing the caller's OWN previous instruction for THIS
-        name is the only mutation any prune performs outside the transaction.
-        Residue for any other name is left alone, so a refused prune of one
-        snapshot never touches another's.
+        Runs INSIDE a prune's transaction - after the rails have passed, while
+        the OS lock and the Temp lock are held, beside the staged-copy sweep -
+        so a refused prune, and -WhatIf, delete nothing (review 2026-10-26 B).
+        Before that it ran before the rails and finished only
+        'Pruning_<the name being pruned>'; a caller that takes its names from
+        -Action Snapshots never names a committed snapshot again, so a delete
+        that failed after the commit leaked its space for good.
 
-        The folder is already outside the ^Snapshot_ namespace, so no restorer,
-        inventory or backup run can see it and nothing referenced it
-        (the pool was proven redundant before the rename).
+        Only Complete-PruneDeletion's commit rename makes such a folder, and
+        only after the pool was proven to resolve without it, so nothing any
+        state needs is inside. A 'Pruning_' folder whose remainder is not a
+        snapshot name was not made by that rename and is left alone.
+
+        A folder that cannot be deleted is a warning, not a failed prune: it
+        holds nothing any state needs, and the next prune tries again. Left
+        under the name being pruned, it makes that prune's commit rename fail
+        before the commit point (4, nothing lost).
 
     .PARAMETER ChangeRoot
         The change root holding the snapshot folders.
 
-    .PARAMETER Name
-        The snapshot name whose committed deletion should be completed.
-
     .OUTPUTS
-        [int] 1 when a residue folder was deleted, otherwise 0.
+        [int] the number of residue folders deleted.
     #>
     # Implements: SR-046, LLR-046
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$ChangeRoot,
-        [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][scriptblock]$Log
     )
     if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { return 0 }
-    $residue = Join-Path $ChangeRoot ('Pruning_' + $Name)
-    if (-not (Test-Path -LiteralPath $residue -PathType Container)) { return 0 }
-
-    & $Log "Completing an interrupted prune: removing 'Pruning_$Name' (already past the commit point)." 'WARN'
-    Remove-Item -LiteralPath $residue -Recurse -Force
-    return 1
+    $removed = 0
+    # -Force (SR-057): a hidden leftover would otherwise never be finished.
+    $residue = @(Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force |
+                 Where-Object { $_.Name.StartsWith('Pruning_', [System.StringComparison]::Ordinal) -and
+                                $_.Name.Substring(8) -match $script:Def.ChangeFolderRegex })
+    foreach ($folder in $residue) {
+        & $Log "Completing an earlier prune: removing '$($folder.Name)' (already past its commit point)." 'WARN'
+        try {
+            Remove-Item -LiteralPath $folder.FullName -Recurse -Force -ErrorAction Stop
+            $removed++
+        } catch {
+            & $Log "Could not finish removing '$($folder.FullName)': $($_.Exception.Message) It holds nothing any state needs; the next prune tries again." 'WARN'
+        }
+    }
+    return $removed
 }
 
 function Invoke-PruneEntrySweep {
@@ -2877,11 +2890,21 @@ function Complete-PruneDeletion {
         reconstruct.sh AND the backup run's object index all use, so one atomic rename
         removes it from every consumer's view — and then deletes it (SR-046).
 
+    .DESCRIPTION
+        The rename is the commit. A rename that fails throws, and nothing is
+        committed. A delete that fails after it is a warning naming the
+        leftover folder, never a failure: the snapshot is already gone from
+        every consumer's view and the pool was proven not to need it, so its
+        prune succeeded, and the next prune of any name finishes the folder
+        (Remove-CommittedPruneResidue). It used to throw, and the prune was
+        reported as failed before the commit point (review 2026-10-26 B).
+
     .PARAMETER SnapshotFolder
         Full path of the snapshot folder to remove.
 
     .OUTPUTS
-        None.
+        [bool] $true when the folder is gone; $false when the leftover
+        'Pruning_<name>' folder stays for the next prune.
     #>
     # Implements: SR-046, LLR-046
     [CmdletBinding()]
@@ -2889,11 +2912,19 @@ function Complete-PruneDeletion {
         [Parameter(Mandatory)][string]$SnapshotFolder,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $parent      = [System.IO.Path]::GetDirectoryName($SnapshotFolder)
-    $pruningName = 'Pruning_' + [System.IO.Path]::GetFileName($SnapshotFolder)
-    Rename-Item -LiteralPath $SnapshotFolder -NewName $pruningName
-    & $Log "Commit point passed: '$([System.IO.Path]::GetFileName($SnapshotFolder))' is no longer visible to any restorer." 'INFO'
-    Remove-Item -LiteralPath (Join-Path $parent $pruningName) -Recurse -Force
+    $name     = [System.IO.Path]::GetFileName($SnapshotFolder)
+    $leftover = Join-Path ([System.IO.Path]::GetDirectoryName($SnapshotFolder)) ('Pruning_' + $name)
+    Rename-Item -LiteralPath $SnapshotFolder -NewName ('Pruning_' + $name) -ErrorAction Stop
+    # Out-Null: the caller reads this function's output as the outcome.
+    & $Log "Commit point passed: '$name' is no longer visible to any restorer." 'INFO' | Out-Null
+    try {
+        Remove-Item -LiteralPath $leftover -Recurse -Force -ErrorAction Stop
+        return $true
+    } catch {
+        & $Log ("'$name' is pruned, but its folder could not be deleted yet: '$leftover' is left behind ($($_.Exception.Message)). " +
+                'It is invisible to every restore and holds nothing any state needs; the next prune finishes it.') 'WARN' | Out-Null
+        return $false
+    }
 }
 
 function Remove-BackupSnapshot {
@@ -2910,22 +2941,21 @@ function Remove-BackupSnapshot {
         is the worst code by the SR-040 precedence 2 > 3 > 4 > 1.
 
         Ordering (the invariant is that the pool goes redundant, then the
-        snapshot disappears — never deficient): complete a prior COMMITTED
-        deletion of this same name if one is outstanding; plan; check every
-        rail; take the Temp lock; sweep any staged copies an interrupted run
-        left; materialize each re-homed file; publish the destination manifests;
+        snapshot disappears — never deficient): plan; check every rail; take
+        the Temp lock; sweep any staged copies an interrupted run left and
+        finish every committed 'Pruning_*' deletion an earlier prune left;
+        materialize each re-homed file; publish the destination manifests;
         prove every surviving row resolves with the target excluded; only then
         commit and delete.
 
-        Exactly one thing happens before the rails, and only for the name being
-        pruned: Remove-CommittedPruneResidue finishes an outstanding
-        'Pruning_<name>' deletion, which is past the point of no return and
-        already invisible to every consumer (the plan cannot even be computed
-        while it holds the name). Everything else — the staged-copy sweep
-        included (WP4 review, findings H2/M1) — happens inside the transaction,
-        so a refusal (code 2/3) genuinely mutates nothing and a host failure in
-        the sweep classifies as the retriable code 4 rather than escaping
-        unclassified.
+        Nothing happens before the rails: the residue handling - the
+        staged-copy sweep (WP4 review, findings H2/M1) and the committed
+        'Pruning_*' folders (review 2026-10-26 B) - happens inside the
+        transaction, so a refusal (code 2/3) genuinely mutates nothing and a
+        host failure in the sweep classifies as the retriable code 4 rather
+        than escaping unclassified. The rename to 'Pruning_<name>' is the
+        commit: a delete that fails after it is a warning naming the leftover
+        folder and the name is reported Pruned (0); the next prune finishes it.
 
         -WhatIf runs the full preflight and reports the classification and the
         reclaim figures the real run would achieve, mutating nothing at all:
@@ -2995,22 +3025,6 @@ function Remove-BackupSnapshot {
 
     try {
         foreach ($snapshotName in $Name) {
-            # The one pre-rail action, scoped to THIS name: finish its own committed
-            # deletion if one is outstanding. A host failure here is retriable (4),
-            # not an unclassified throw out of the cmdlet.
-            if (-not $WhatIfPreference) {
-                try {
-                    Remove-CommittedPruneResidue -ChangeRoot $chg -Name $snapshotName -Log $log | Out-Null
-                } catch {
-                    & $log "Could not complete the outstanding deletion of 'Pruning_$snapshotName': $($_.Exception.Message)" 'ERROR'
-                    [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4
-                        BytesReclaimed = 0; BytesReHomed = 0; ReHomeDestinations = @()
-                        Refusals = @([pscustomobject]@{ Code = 4; Kind = 'host-io'; Message = $_.Exception.Message })
-                        Message = "The outstanding deletion of 'Pruning_$snapshotName' could not be completed; nothing else was attempted. $($_.Exception.Message)" }
-                    continue
-                }
-            }
-
             $plan     = Get-SnapshotPrunePlan -BackupRoot $bkp -ChangeRoot $chg -Name $snapshotName
             $refusals = @(Assert-PrunePrecondition -BackupRoot $bkp -ChangeRoot $chg -Plan $plan `
                             -SevenZipPath $SevenZipPath -SkipContentVerify:$SkipContentVerify `
@@ -3058,8 +3072,11 @@ function Remove-BackupSnapshot {
                 # Test seam: park a live prune inside its transaction (TC-246).
                 Invoke-StagingTestHook -Hook $script:PruneTestHook_InTransaction -Context $staging
                 # Inside the transaction: staged copies are residue, and clearing
-                # them is host I/O like any other (code 4 if it fails).
+                # them is host I/O like any other (code 4 if it fails). So is a
+                # 'Pruning_*' folder an earlier prune committed but could not
+                # delete; one that still cannot be deleted is only a warning.
                 Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
+                Remove-CommittedPruneResidue -ChangeRoot $chg -Log $log | Out-Null
                 foreach ($item in $plan.Items.ToArray()) {
                     & $log "Re-homing '$($item.SourceRow.RelativePath)' from '$snapshotName' to '$($item.DestinationFolder)' as '$($item.DestinationDataPath)'." 'INFO'
                     Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -ScratchFolder $staging -SkipContentVerify:$SkipContentVerify | Out-Null
@@ -3072,12 +3089,14 @@ function Remove-BackupSnapshot {
                     throw "The surviving pool would not resolve without '$snapshotName' ($($unresolved.Count) row(s)); nothing was deleted."
                 }
 
-                Complete-PruneDeletion -SnapshotFolder $plan.Folder -Log $log
+                $deleted = Complete-PruneDeletion -SnapshotFolder $plan.Folder -Log $log
                 & $log "Removed '$snapshotName': reclaimed $($plan.BytesReclaimed) byte(s), re-homed $($plan.BytesReHomed)." 'INFO'
+                $done = if ($deleted) { "Removed '$snapshotName'." } else {
+                    "Removed '$snapshotName'; its folder 'Pruning_$snapshotName' could not be deleted yet, and the next prune finishes it." }
                 [pscustomobject]@{ Name = $snapshotName; Status = 'Pruned'; Code = 0
                     BytesReclaimed = $plan.BytesReclaimed; BytesReHomed = $plan.BytesReHomed
                     ReHomeDestinations = $destinations; Refusals = @()
-                    Message = "Removed '$snapshotName'." }
+                    Message = $done }
             } catch {
                 & $log "Removal of '$snapshotName' failed before the commit point; NO DATA WAS LOST: $($_.Exception.Message)" 'ERROR'
                 [pscustomobject]@{ Name = $snapshotName; Status = 'Refused'; Code = 4

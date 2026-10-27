@@ -280,7 +280,10 @@ into the surviving pool (the backup root, or the newest surviving snapshot that
 needs it), rewrites that destination's manifest, proves that **every** surviving manifest row still resolves, and only then
 deletes the folder. The last step out of the `Snapshot_` namespace is a single
 rename, so no restore ever sees a half-removed snapshot. Nothing is deleted
-until the pool is provably redundant.
+until the pool is provably redundant. If the folder cannot be fully deleted
+after that rename (a scanner holding one of its files, say), the removal still
+counts as done, with a warning naming what is left: a `Pruning_<name>` folder
+no restore can see, which the next prune of any snapshot finishes.
 
 It refuses rather than guesses. Removal reports the same status codes as a
 restore (see "Restore exit codes"): **0** removed, **1** a batch finished

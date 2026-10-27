@@ -2095,13 +2095,14 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-manifest-done'
     }
 
-    It 'interrupted after the commit rename: the folder is invisible to every consumer, and the next run sweeps it' {
+    It 'interrupted after the commit rename: the folder is invisible to every consumer, and the next prune of any name finishes it (review 2026-10-26 B)' {
         $root = Join-Path $TestDrive 'tc083-commit'
         $env  = New-PruneTimeline -Root $root
         $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
         foreach ($item in $plan.Items.ToArray()) { Copy-ReHomedDataFile -Item $item | Out-Null }
         Publish-PruneManifest -Plan $plan -Log { param($m, $l) } | Out-Null
         Rename-Item -LiteralPath $plan.Folder -NewName ('Pruning_' + $env.Newest)   # the commit point
+        $leftover = Join-Path $env.Chg ('Pruning_' + $env.Newest)
 
         # Invisible to the inventory, to Optimize, and to both restorers'
         # ^Snapshot_ pattern — one atomic rename removed it from every view.
@@ -2110,12 +2111,43 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
         @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg).Count | Should -Be 1
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-commit'
 
-        # Any subsequent invocation sweeps it, with no journal to consult.
+        # Naming it again is refused (it is genuinely gone now), and a refusal
+        # mutates nothing: the leftover waits for the next prune that runs.
         $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
-        $result[0].Code | Should -Be 2                       # it is genuinely gone now
+        $result[0].Code | Should -Be 2
+        Test-Path -LiteralPath $leftover -PathType Container | Should -BeTrue
+
+        # The next prune of ANY name finishes it inside its own transaction,
+        # with no journal to consult.
+        $lines = New-Object System.Collections.Generic.List[string]
+        $next = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Oldest -Log { param($m, $l) $lines.Add("[$l] $m") })
+        $next[0].Status | Should -Be 'Pruned'
         @(Get-ChildItem -LiteralPath $env.Chg -Directory | Where-Object { $_.Name -like 'Pruning_*' }) |
             Should -BeNullOrEmpty
+        @($lines | Where-Object { $_.Contains("removing 'Pruning_$($env.Newest)'") }).Count | Should -Be 1
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-commit-done'
+    }
+
+    It 'reports a prune whose delete fails after the commit as Pruned (0), warning about the leftover folder (review 2026-10-26 B)' {
+        $root = Join-Path $TestDrive 'b-leftover'
+        $env  = New-PruneTimeline -Root $root
+        $leftover = Join-Path $env.Chg ('Pruning_' + $env.Newest)
+        # A scanner holding a file inside the folder is the real-world cause;
+        # the mock makes the delete after the commit rename fail every time.
+        Mock -ModuleName FileBackup.Engine Remove-Item { throw 'The process cannot access the file because it is being used by another process.' } `
+            -ParameterFilter { "$LiteralPath" -like '*Pruning_*' }
+        $lines = New-Object System.Collections.Generic.List[string]
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -Log { param($m, $l) $lines.Add("[$l] $m") })
+
+        $result[0].Status | Should -Be 'Pruned'
+        $result[0].Code   | Should -Be 0
+        $result[0].Message | Should -BeLike "*'Pruning_$($env.Newest)' could not be deleted yet*"
+        (Get-PruneBatchExitCode -Result $result) | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
+        Test-Path -LiteralPath $leftover -PathType Container | Should -BeTrue
+        @($lines | Where-Object { $_.StartsWith('[WARN]') -and $_.Contains("'$leftover' is left behind") }).Count | Should -Be 1 -Because 'the warning names the leftover folder'
+        @($lines | Where-Object { $_.Contains('before the commit point') }) | Should -BeNullOrEmpty
+        Assert-EveryStateRestores -Env $env -Root $root -Tag 'leftover'
     }
 }
 
@@ -2240,7 +2272,7 @@ Describe 'Prune mutates only inside the transaction (SR-046)' {
         @($lines | Where-Object { $_ -match 'staged copy|past the commit point' }) | Should -BeNullOrEmpty
     }
 
-    It 'classifies an undeletable committed residue as the retriable code 4, not an unclassified throw' {
+    It 'refuses with the retriable code 4, losing nothing, when a leftover under the same name cannot be finished (review 2026-10-26 B)' {
         $root = Join-Path $TestDrive 'h2-locked'
         $env  = New-PruneTimeline -Root $root
         $pruning = Join-Path $env.Chg ('Pruning_' + $env.Newest)
@@ -2249,28 +2281,45 @@ Describe 'Prune mutates only inside the transaction (SR-046)' {
         # A held handle inside the folder is the real-world cause; the mock
         # reproduces its effect deterministically (Windows' behavior for a
         # locked file under Remove-Item -Recurse is not stable enough to pin).
-        Mock -ModuleName FileBackup.Engine Remove-CommittedPruneResidue {
-            throw "The process cannot access the file because it is being used by another process."
-        }
-        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        # Finishing the leftover is only a warning; the commit rename onto it
+        # then fails, before the commit point.
+        Mock -ModuleName FileBackup.Engine Remove-Item { throw 'The process cannot access the file because it is being used by another process.' } `
+            -ParameterFilter { "$LiteralPath" -like '*Pruning_*' }
+        $lines = New-Object System.Collections.Generic.List[string]
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -Log { param($m, $l) $lines.Add("[$l] $m") })
 
         $result[0].Status | Should -Be 'Refused'
         $result[0].Code   | Should -Be 4
+        $result[0].Message | Should -Match 'no data was lost'
         (Get-PruneBatchExitCode -Result $result) | Should -Be 4
         Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
+        Test-Path -LiteralPath $pruning -PathType Container | Should -BeTrue
+        @($lines | Where-Object { $_.StartsWith('[WARN]') -and $_.Contains("Could not finish removing '$pruning'") }).Count | Should -Be 1
     }
 
-    It 'completes the outstanding deletion of the SAME name only, and no other' {
+    It 'finishes every committed Pruning_* folder inside its transaction, and nothing else (review 2026-10-26 B)' {
         $root = Join-Path $TestDrive 'h2-scoped'
         $env  = New-PruneTimeline -Root $root
-        $mine    = Join-Path $env.Chg ('Pruning_' + $env.Newest)
-        $someone = Join-Path $env.Chg ('Pruning_' + $env.Oldest)
-        New-Item -ItemType Directory -Path $mine, $someone -Force | Out-Null
+        $mine    = Join-Path $env.Chg ('Pruning_' + $env.Newest)   # the name being pruned
+        $someone = Join-Path $env.Chg ('Pruning_' + $env.Oldest)   # another name's leftover
+        $hidden  = Join-Path $env.Chg 'Pruning_Snapshot_2023_12_31_00_00_00'
+        $foreign = Join-Path $env.Chg 'Pruning_notes'              # no commit rename made this
+        New-Item -ItemType Directory -Path $mine, $someone, $hidden, $foreign -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $someone 'leftover.bin'), 'past its commit point')
+        [IO.File]::WriteAllText((Join-Path $foreign 'keep.txt'), 'not ours')
+        if ($IsWindows) { (Get-Item -LiteralPath $hidden -Force).Attributes = 'Directory, Hidden' }
 
-        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $lines = New-Object System.Collections.Generic.List[string]
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -Log { param($m, $l) $lines.Add("[$l] $m") })
         $result[0].Status | Should -Be 'Pruned'
+        $result[0].Code   | Should -Be 0
         Test-Path -LiteralPath $mine    | Should -BeFalse
-        Test-Path -LiteralPath $someone | Should -BeTrue
+        Test-Path -LiteralPath $someone | Should -BeFalse
+        Test-Path -LiteralPath $hidden  | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $foreign 'keep.txt') | Should -BeTrue
+        foreach ($name in ('Pruning_' + $env.Newest), ('Pruning_' + $env.Oldest), 'Pruning_Snapshot_2023_12_31_00_00_00') {
+            @($lines | Where-Object { $_.Contains("removing '$name'") }).Count | Should -Be 1 -Because "each leftover is logged ('$name')"
+        }
     }
 
     It 'takes the Temp lock by CREATING it, so a folder appearing after the rails refuses with staging-busy (2)' {

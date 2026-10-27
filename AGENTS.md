@@ -447,12 +447,18 @@ Imports (internal): `Common`
   `Pruning_<name>` (which fails `^Snapshot_` for *both* restorers and Optimize,
   so one atomic rename removes it from every consumer's view) and deleting.
   Only `DataPath`/`Compressed`/`StoredAsHashSize` are ever edited, and only in
-  planned rows. Resume is "run it again": no journal. Residue handling is split
-  so a refusal never mutates — `Remove-CommittedPruneResidue` finishes only
-  `Pruning_<the name being pruned>` before that name is planned (it is past the
-  commit point and holds the name), while `Invoke-PruneEntrySweep` clears
-  `*.fbprune.tmp` staged copies **inside** the transaction, once the rails have
-  passed and the Temp lock is held. **The sweep identifies residue by the
+  planned rows. Resume is "run it again": no journal. All residue handling runs
+  **inside** the transaction, once the rails have passed and the OS and Temp
+  locks are held, so a refusal never mutates: `Invoke-PruneEntrySweep` clears
+  `*.fbprune.tmp` staged copies, and `Remove-CommittedPruneResidue` finishes
+  every `Pruning_<snapshot name>` folder in the change root — each is past its
+  own commit point, and one that still cannot be deleted is a warning. The
+  rename is the commit: a delete that fails after it is a warning naming the
+  leftover folder, and that name is reported pruned (0). Until review
+  2026-10-26 B it was reported as failed before the commit point (4), and only
+  a later prune of the same name — which a caller driven by
+  `-Action Snapshots` never sends — finished the folder.
+  **The sweep identifies residue by the
   destination manifest, never by the suffix** — a user file called
   `notes.fbprune.tmp` has a manifest row and is content; a staged copy is
   unreferenced by construction. Deleting by bare suffix destroyed real data
