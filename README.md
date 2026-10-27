@@ -448,21 +448,32 @@ revision is the `# KitRevision:` line near the top
 of a folder's `RECONSTRUCT.ps1` / `reconstruct.sh`; `-Action Verify` reports it
 alongside every `BlankRowFormDisagreement` finding.)
 
-Two ways to be safe:
+Three ways to restore an old snapshot with the current kit:
 
-* restore an old snapshot with the **live backup root's** current
-  `RECONSTRUCT.ps1`, pointing it at the snapshot
-  (`-BackupRootOverride` / `-ChangeRootOverride`); or
-* refresh the kits in place, once:
+* refresh the kits in place, once, then restore the snapshot with its own
+  (now current) kit as usual:
 
-```powershell
-pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Verify -RefreshKits
-```
+  ```powershell
+  pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Verify -RefreshKits
+  ```
 
-`-RefreshKits` re-copies the current restore scripts into every snapshot folder.
-It is opt-in and never automatic — it writes inside folders that are otherwise
-immutable. It copies only the kit files; each snapshot keeps its **own** manifest
-and its own witness.
+  `-RefreshKits` re-copies the current restore scripts into every snapshot
+  folder. It is opt-in and never automatic — it writes inside folders that are
+  otherwise immutable. It copies only the kit files; each snapshot keeps its
+  **own** manifest and its own witness.
+* without the configuration at hand (a store moved to another machine), copy
+  `RECONSTRUCT.ps1`, `FileBackup.Common.psm1` and `System.IO.Hashing.dll` from
+  the **live backup root** into the snapshot folder, replacing the old copies,
+  and run it there: `pwsh RECONSTRUCT.ps1 -TargetRoot DIR`; or
+* with `bash` ([Restore on Linux](#restore-on-linux-no-powershell)), run the
+  live backup root's `reconstruct.sh` and name the snapshot as the origin; this
+  writes nothing into the store:
+  `bash <backup root>/reconstruct.sh --target-root DIR --from <snapshot folder>`.
+
+Do **not** point the live root's `RECONSTRUCT.ps1` at a snapshot with
+`-BackupRootOverride`: the snapshot then stands in for the backup root, the real
+backup root drops out of the data pool, and the restore reports files as lost
+(exit 1) that the backup still holds.
 
 ---
 
