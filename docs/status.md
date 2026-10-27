@@ -47,7 +47,10 @@ last) — it is the record, not required reading for every pass.
      `filebackup-bounded-contract` (worktree `C:\Projects\MiniPC-Deployer-wt-filebackup`).
      Its own `docs/status.md` lists the deploy preconditions and the Owner's
      questions.
-  4. Open for the Owner: whether HomeHub's id-reservation
+  4. Open for the Owner: the second argon pass's two confirmed Low findings
+     and its lock-held policy question
+     ([reviews/2026-10-27-argon-second-pass/outcome.md](reviews/2026-10-27-argon-second-pass/outcome.md));
+     whether HomeHub's id-reservation
      row goes onto its main now; ext4 or NTFS for HomeHub's backup drive at the
      clean start (both hub drives are USB NTFS through ntfs-3g, which journals
      none of its own writes; `homehub-backup.timer` is enabled, 03:00 nightly);
@@ -6538,3 +6541,18 @@ Evidence: the retention, entry-point, C25/C26 and `-Action View` Pester blocks,
 Mutation check: Verify and View put back to `return 2` fail their two cases
 (`Expected 4`); restored. PSScriptAnalyzer: 0 findings on the changed files;
 `gen_arch_map.ps1 -Check` OK.
+
+### DRIVER — second whole-repository pass, opencode argon — 2026-10-27
+
+At the Owner's request, opencode `opencode-go/gemini-4-argon` reviewed `df830ee`
+(plan agent, detached worktree) against a brief that excluded everything the
+2026-10-26 review adjudicated and the known open items. Its first run spent its
+output budget thinking and wrote nothing; resumed with `--variant low`, it
+reported three findings. Checked against the code: two confirmed, both Low
+(`DIRECTORIES.csv` written in place with no flush, so a power loss can carry a
+damaged sidecar into a write-once snapshot - directories and folder attributes
+only, never file content; `-Action Verify` reports a killed prune's
+`*.fbprune.tmp` as `Unreferenced` until the next prune), and one not a defect
+(a held lock is 2 for prune and Verify's repair by design, and IF-001 agrees; a
+policy question). Nothing changed yet. Brief, report and outcome:
+[reviews/2026-10-27-argon-second-pass/](reviews/2026-10-27-argon-second-pass/outcome.md).
