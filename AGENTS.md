@@ -447,16 +447,23 @@ Imports (internal): `Common`
   `Pruning_<name>` (which fails `^Snapshot_` for *both* restorers and Optimize,
   so one atomic rename removes it from every consumer's view) and deleting.
   Only `DataPath`/`Compressed`/`StoredAsHashSize` are ever edited, and only in
-  planned rows. Resume is "run it again": no journal. All residue handling runs
-  **inside** the transaction, once the rails have passed and the OS and Temp
-  locks are held, so a refusal never mutates: `Invoke-PruneEntrySweep` clears
-  `*.fbprune.tmp` staged copies, and `Remove-CommittedPruneResidue` finishes
-  every `Pruning_<snapshot name>` folder in the change root — each is past its
-  own commit point, and one that still cannot be deleted is a warning. The
-  rename is the commit: a delete that fails after it is a warning naming the
-  leftover folder, and that name is reported pruned (0). Until review
-  2026-10-26 B it was reported as failed before the commit point (4), and only
-  a later prune of the same name — which a caller driven by
+  planned rows. Resume is "run it again": no journal. Residue handling is split
+  so a refusal never mutates anything a state uses.
+  `Remove-CommittedPruneResidue` finishes every `Pruning_<snapshot name>`
+  folder in the change root right after the OS lock is taken, before any plan
+  or rail — the capacity rail included: each is past its own commit point and
+  read by no restorer, run or prune, so finishing it completes an earlier
+  committed operation, and freeing its space first is what lets a nearly full
+  volume's capacity rail pass (inside the transaction, a leftover holding that
+  space was never cleared, because every prune was refused first). It never
+  refuses — one that cannot be deleted is a warning — and a re-prune of an
+  already-committed name finishes that name's folder before it is refused as
+  gone (2). `Invoke-PruneEntrySweep` clears `*.fbprune.tmp` staged copies
+  **inside** the transaction, once the rails have passed and the Temp lock is
+  held. The rename is the commit: a delete that fails after it is a warning
+  naming the leftover folder, and that name is reported pruned (0). Until
+  review 2026-10-26 B it was reported as failed before the commit point (4),
+  and only a later prune of the same name — which a caller driven by
   `-Action Snapshots` never sends — finished the folder.
   **The sweep identifies residue by the
   destination manifest, never by the suffix** — a user file called

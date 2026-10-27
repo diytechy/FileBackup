@@ -2649,23 +2649,27 @@ function Remove-CommittedPruneResidue {
         deletion remains (SR-046).
 
     .DESCRIPTION
-        Runs INSIDE a prune's transaction - after the rails have passed, while
-        the OS lock and the Temp lock are held, beside the staged-copy sweep -
-        so a refused prune, and -WhatIf, delete nothing (review 2026-10-26 B).
-        Before that it ran before the rails and finished only
-        'Pruning_<the name being pruned>'; a caller that takes its names from
-        -Action Snapshots never names a committed snapshot again, so a delete
-        that failed after the commit leaked its space for good.
+        Remove-BackupSnapshot runs it once per batch, right after it takes the
+        OS lock and before any plan or rail - the capacity rail included - and
+        never under -WhatIf (review 2026-10-26 B). Such a folder is read by no
+        restorer, run or prune, so finishing it completes an earlier committed
+        operation rather than making a refusal mutate anything; and freeing its
+        space first is what lets a nearly full volume's capacity rail pass. Run
+        inside the transaction instead, a leftover holding the space a re-home
+        needed was never cleared, because every prune was refused before it.
+        Before that, only 'Pruning_<the name being pruned>' was finished; a
+        caller that takes its names from -Action Snapshots never names a
+        committed snapshot again, so its space leaked for good.
 
         Only Complete-PruneDeletion's commit rename makes such a folder, and
         only after the pool was proven to resolve without it, so nothing any
         state needs is inside. A 'Pruning_' folder whose remainder is not a
         snapshot name was not made by that rename and is left alone.
 
-        A folder that cannot be deleted is a warning, not a failed prune: it
-        holds nothing any state needs, and the next prune tries again. Left
-        under the name being pruned, it makes that prune's commit rename fail
-        before the commit point (4, nothing lost).
+        Nothing here refuses: a change root that cannot be listed, or a folder
+        that cannot be deleted, is a warning, and the next prune tries again.
+        A leftover under the name being pruned that stays makes that prune's
+        commit rename fail before the commit point (4, nothing lost).
 
     .PARAMETER ChangeRoot
         The change root holding the snapshot folders.
@@ -2681,10 +2685,15 @@ function Remove-CommittedPruneResidue {
     )
     if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { return 0 }
     $removed = 0
-    # -Force (SR-057): a hidden leftover would otherwise never be finished.
-    $residue = @(Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force |
-                 Where-Object { $_.Name.StartsWith('Pruning_', [System.StringComparison]::Ordinal) -and
-                                $_.Name.Substring(8) -match $script:Def.ChangeFolderRegex })
+    try {
+        # -Force (SR-057): a hidden leftover would otherwise never be finished.
+        $residue = @(Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force -ErrorAction Stop |
+                     Where-Object { $_.Name.StartsWith('Pruning_', [System.StringComparison]::Ordinal) -and
+                                    $_.Name.Substring(8) -match $script:Def.ChangeFolderRegex })
+    } catch {
+        & $Log "Could not look for earlier prunes' leftover folders in '$ChangeRoot': $($_.Exception.Message) The next prune tries again." 'WARN'
+        return 0
+    }
     foreach ($folder in $residue) {
         & $Log "Completing an earlier prune: removing '$($folder.Name)' (already past its commit point)." 'WARN'
         try {
@@ -2941,21 +2950,25 @@ function Remove-BackupSnapshot {
         is the worst code by the SR-040 precedence 2 > 3 > 4 > 1.
 
         Ordering (the invariant is that the pool goes redundant, then the
-        snapshot disappears — never deficient): plan; check every rail; take
-        the Temp lock; sweep any staged copies an interrupted run left and
-        finish every committed 'Pruning_*' deletion an earlier prune left;
-        materialize each re-homed file; publish the destination manifests;
-        prove every surviving row resolves with the target excluded; only then
-        commit and delete.
+        snapshot disappears — never deficient): take the OS lock; finish every
+        committed 'Pruning_*' deletion an earlier prune left; then per name:
+        plan; check every rail; take the Temp lock; sweep any staged copies an
+        interrupted run left; materialize each re-homed file; publish the
+        destination manifests; prove every surviving row resolves with the
+        target excluded; only then commit and delete.
 
-        Nothing happens before the rails: the residue handling - the
-        staged-copy sweep (WP4 review, findings H2/M1) and the committed
-        'Pruning_*' folders (review 2026-10-26 B) - happens inside the
-        transaction, so a refusal (code 2/3) genuinely mutates nothing and a
-        host failure in the sweep classifies as the retriable code 4 rather
-        than escaping unclassified. The rename to 'Pruning_<name>' is the
-        commit: a delete that fails after it is a warning naming the leftover
-        folder and the name is reported Pruned (0); the next prune finishes it.
+        Exactly one thing happens before the rails: Remove-CommittedPruneResidue
+        finishes the 'Pruning_<snapshot name>' folders, each past its own
+        commit point and read by no restorer, run or prune - completing an
+        earlier committed operation, never refusing, and freeing the space a
+        nearly full volume's capacity rail needs (review 2026-10-26 B).
+        Everything else - the staged-copy sweep included (WP4 review, findings
+        H2/M1) - happens inside the transaction, so a refusal (code 2/3)
+        mutates nothing the store's states use and a host failure in the sweep
+        classifies as the retriable code 4 rather than escaping unclassified.
+        The rename to 'Pruning_<name>' is the commit: a delete that fails after
+        it is a warning naming the leftover folder and the name is reported
+        Pruned (0); the next prune finishes it.
 
         -WhatIf runs the full preflight and reports the classification and the
         reclaim figures the real run would achieve, mutating nothing at all:
@@ -3024,6 +3037,11 @@ function Remove-BackupSnapshot {
     }
 
     try {
+        # Before any plan or rail, under the OS lock, never under -WhatIf: finish
+        # every deletion an earlier prune committed (review 2026-10-26 B). It
+        # never refuses, and the space it frees counts for the capacity rail.
+        if (-not $WhatIfPreference) { Remove-CommittedPruneResidue -ChangeRoot $chg -Log $log | Out-Null }
+
         foreach ($snapshotName in $Name) {
             $plan     = Get-SnapshotPrunePlan -BackupRoot $bkp -ChangeRoot $chg -Name $snapshotName
             $refusals = @(Assert-PrunePrecondition -BackupRoot $bkp -ChangeRoot $chg -Plan $plan `
@@ -3072,11 +3090,8 @@ function Remove-BackupSnapshot {
                 # Test seam: park a live prune inside its transaction (TC-246).
                 Invoke-StagingTestHook -Hook $script:PruneTestHook_InTransaction -Context $staging
                 # Inside the transaction: staged copies are residue, and clearing
-                # them is host I/O like any other (code 4 if it fails). So is a
-                # 'Pruning_*' folder an earlier prune committed but could not
-                # delete; one that still cannot be deleted is only a warning.
+                # them is host I/O like any other (code 4 if it fails).
                 Invoke-PruneEntrySweep -BackupRoot $bkp -ChangeRoot $chg -Log $log | Out-Null
-                Remove-CommittedPruneResidue -ChangeRoot $chg -Log $log | Out-Null
                 foreach ($item in $plan.Items.ToArray()) {
                     & $log "Re-homing '$($item.SourceRow.RelativePath)' from '$snapshotName' to '$($item.DestinationFolder)' as '$($item.DestinationDataPath)'." 'INFO'
                     Copy-ReHomedDataFile -Item $item -SevenZipPath $SevenZipPath -ScratchFolder $staging -SkipContentVerify:$SkipContentVerify | Out-Null

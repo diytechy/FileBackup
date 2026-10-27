@@ -2190,7 +2190,7 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-manifest-done'
     }
 
-    It 'interrupted after the commit rename: the folder is invisible to every consumer, and the next prune of any name finishes it (review 2026-10-26 B)' {
+    It 'interrupted after the commit rename: the folder is invisible to every consumer, and naming it again finishes it before refusing it as gone (review 2026-10-26 B)' {
         $root = Join-Path $TestDrive 'tc083-commit'
         $env  = New-PruneTimeline -Root $root
         $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
@@ -2206,17 +2206,12 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
         @(Get-PoolSnapshotFolder -ChangeRoot $env.Chg).Count | Should -Be 1
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-commit'
 
-        # Naming it again is refused (it is genuinely gone now), and a refusal
-        # mutates nothing: the leftover waits for the next prune that runs.
-        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
-        $result[0].Code | Should -Be 2
-        Test-Path -LiteralPath $leftover -PathType Container | Should -BeTrue
-
-        # The next prune of ANY name finishes it inside its own transaction,
-        # with no journal to consult.
+        # Naming it again finishes the committed deletion first, with no
+        # journal to consult, and is then refused: it is genuinely gone now.
         $lines = New-Object System.Collections.Generic.List[string]
-        $next = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Oldest -Log { param($m, $l) $lines.Add("[$l] $m") })
-        $next[0].Status | Should -Be 'Pruned'
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -Log { param($m, $l) $lines.Add("[$l] $m") })
+        $result[0].Code | Should -Be 2
+        Test-Path -LiteralPath $leftover | Should -BeFalse
         @(Get-ChildItem -LiteralPath $env.Chg -Directory | Where-Object { $_.Name -like 'Pruning_*' }) |
             Should -BeNullOrEmpty
         @($lines | Where-Object { $_.Contains("removing 'Pruning_$($env.Newest)'") }).Count | Should -Be 1
@@ -2326,12 +2321,15 @@ Describe 'The entry sweep removes residue only, never user content (SR-046)' {
     }
 }
 
-Describe 'Prune mutates only inside the transaction (SR-046)' {
+Describe 'Prune mutates only inside the transaction, beyond finishing committed deletions (SR-046)' {
     # Review findings H2/M1: the sweep ran before the rails, so a refusal
     # (code 2/3) had already deleted things, -WhatIf logged and counted removals
     # it never performed, and an undeletable residue escaped unclassified as a
-    # process exit 1 instead of the retriable code 4.
-    It 'a refused prune leaves an interrupted run''s residue exactly where it was' {
+    # process exit 1 instead of the retriable code 4. A committed Pruning_*
+    # folder is the one exception: it is finished under the OS lock before any
+    # rail (review 2026-10-26 B), because nothing reads it and its space may be
+    # what the capacity rail needs.
+    It 'a refused prune leaves an interrupted run''s staged copy where it was, and finishes only committed Pruning_* folders (review 2026-10-26 B)' {
         $root = Join-Path $TestDrive 'h2-refused'
         $env  = New-PruneTimeline -Root $root
         $keepData = @(Import-Csv -LiteralPath (Join-Path $env.Bkp 'MANIFEST.csv') |
@@ -2340,12 +2338,16 @@ Describe 'Prune mutates only inside the transaction (SR-046)' {
         Copy-Item -LiteralPath (Join-Path $env.Bkp $keepData) -Destination $staged
         $pruning = Join-Path $env.Chg ('Pruning_' + $env.Oldest + '_other')
         New-Item -ItemType Directory -Path $pruning -Force | Out-Null
+        $before = Get-StoreFingerprint -Folder @($env.Bkp, (Join-Path $env.Chg $env.Oldest), (Join-Path $env.Chg $env.Newest))
 
         $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name 'Snapshot_1999_09_09_09_09_09')
         $result[0].Status | Should -Be 'Refused'
         $result[0].Code | Should -Be 2
         Test-Path -LiteralPath $staged  | Should -BeTrue
-        Test-Path -LiteralPath $pruning | Should -BeTrue
+        # Past its own commit point and read by nothing: finishing it completes
+        # an earlier committed operation, before any rail could refuse.
+        Test-Path -LiteralPath $pruning | Should -BeFalse
+        Assert-StoreUnchanged -Before $before -Folder @($env.Bkp, (Join-Path $env.Chg $env.Oldest), (Join-Path $env.Chg $env.Newest))
     }
 
     It '-WhatIf sweeps nothing and reports nothing it did not do' {
@@ -2392,7 +2394,7 @@ Describe 'Prune mutates only inside the transaction (SR-046)' {
         @($lines | Where-Object { $_.StartsWith('[WARN]') -and $_.Contains("Could not finish removing '$pruning'") }).Count | Should -Be 1
     }
 
-    It 'finishes every committed Pruning_* folder inside its transaction, and nothing else (review 2026-10-26 B)' {
+    It 'finishes every committed Pruning_* folder once it holds the OS lock, and nothing else (review 2026-10-26 B)' {
         $root = Join-Path $TestDrive 'h2-scoped'
         $env  = New-PruneTimeline -Root $root
         $mine    = Join-Path $env.Chg ('Pruning_' + $env.Newest)   # the name being pruned
@@ -2415,6 +2417,43 @@ Describe 'Prune mutates only inside the transaction (SR-046)' {
         foreach ($name in ('Pruning_' + $env.Newest), ('Pruning_' + $env.Oldest), 'Pruning_Snapshot_2023_12_31_00_00_00') {
             @($lines | Where-Object { $_.Contains("removing '$name'") }).Count | Should -Be 1 -Because "each leftover is logged ('$name')"
         }
+    }
+
+    It 'clears a committed leftover even when the prune is then refused for space (review 2026-10-26 B)' {
+        $root = Join-Path $TestDrive 'b-capacity-refused'
+        $env  = New-PruneTimeline -Root $root
+        $leftover = Join-Path $env.Chg 'Pruning_Snapshot_2023_12_31_00_00_00'
+        New-Item -ItemType Directory -Path $leftover -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $leftover 'leftover.bin'), 'x' * 4096)
+        Mock -ModuleName FileBackup.Engine Get-FreeSpaceBytes { [long]1 }
+
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $result[0].Status | Should -Be 'Refused'
+        @($result[0].Refusals | Where-Object Kind -eq 'capacity').Count | Should -Be 1
+        Test-Path -LiteralPath $leftover | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) -PathType Container | Should -BeTrue
+    }
+
+    It 'frees a committed leftover''s space before the capacity rail, so a nearly full volume can prune (review 2026-10-26 B)' {
+        # The volume has room only once the leftover is gone. Run inside the
+        # transaction, the leftover was never cleared: every prune was refused
+        # for space before it.
+        $root = Join-Path $TestDrive 'b-capacity-freed'
+        $env  = New-PruneTimeline -Root $root
+        $leftover = Join-Path $env.Chg 'Pruning_Snapshot_2023_12_31_00_00_00'
+        New-Item -ItemType Directory -Path $leftover -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $leftover 'leftover.bin'), 'x' * 4096)
+        # The mock body runs in module scope, so the path travels by environment.
+        $env:FB_TEST_PRUNE_LEFTOVER = $leftover
+        Mock -ModuleName FileBackup.Engine Get-FreeSpaceBytes {
+            if (Test-Path -LiteralPath $env:FB_TEST_PRUNE_LEFTOVER) { [long]1 } else { [long]1TB }
+        }
+        try {
+            $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        } finally { $env:FB_TEST_PRUNE_LEFTOVER = $null }
+        $result[0].Status | Should -Be 'Pruned' -Because "$($result[0].Message)"
+        Test-Path -LiteralPath $leftover | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $env.Chg $env.Newest) | Should -BeFalse
     }
 
     It 'takes the Temp lock by CREATING it, so a folder appearing after the rails refuses with staging-busy (2)' {
