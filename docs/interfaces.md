@@ -92,9 +92,10 @@ from the line that is exactly `[` through the line that is exactly `]`. (The
 repo's own harness does exactly this — `scripts/Invoke-Container.ps1`.) `verify` (optionally with
 `FILEBACKUP_REPAIR=1`) audits storage form across the live backup and every
 snapshot without mutating anything unless repair is requested; it also reports
-duplicate objects (`DuplicateObject`) and, under `-Deep`, damaged ones
-(`DamagedObject`; one it could not check is `UnverifiedObject` and is never
-moved), which repair MOVES into `/store/changes/Verify/` — nothing is
+duplicate objects (`DuplicateObject`) and damaged ones (`DamagedObject`: always
+for an object its listing shows empty or the wrong length, and under `-Deep` for
+one whose bytes do not reproduce its name; one it could not check is
+`UnverifiedObject` and is never moved), which repair MOVES into `/store/changes/Verify/` — nothing is
 deleted.
 
 **Exit-code table** — one vocabulary for backup, restore (`RECONSTRUCT.cmd` /
@@ -103,7 +104,7 @@ deleted.
 | Code | Backup | Restore / prune / verify | NagLight translation |
 |---|---|---|---|
 | 0 | Every file captured | Complete / nothing to report | ok |
-| 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
+| 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept), or a damaged stored object was set aside into `Verify/` (`[DamagedObject]` in the set log; its content stored again when the source still holds it) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
 | 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a `BackupPath` gone while its `ChangePath` holds snapshots) | Usage or precondition error; nothing mutated | error — do not retry |
 | 3 | — never | Restore: retired from kit revision 14 (an older kit bundled in an older snapshot can still return it). Prune: a witness an older build left disagrees with its manifest; nothing mutated | error — **escalate** |
 | 4 | Stopped by a host problem (volume full or gone, the store's drive not attached, the source gone, or empty at the start or mid-run while the backup holds files) or another run holds the lock; every state stays restorable | Host/dependency I/O failure | warn — retry |
