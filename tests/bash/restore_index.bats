@@ -168,6 +168,38 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
     done
 }
 
+@test "a change root whose path holds '&' or '#' keeps every sibling snapshot in the pool (review 2026-10-26 A2)" {
+    # The snapshot list was prefixed with sed "s#^#$change_root/#": '&' put the
+    # match into the path and '#' ended the command, so every sibling snapshot
+    # dropped out of the pool. Restoring an older snapshot normally needs an
+    # object a newer one holds (C23), and it reported content missing (exit 1)
+    # or an unreadable pool (exit 4). The one-mount layout keeps the change
+    # folder OUTSIDE the backup root, so no recursive scan of the backup root
+    # reaches the snapshots by another route.
+    local mode name store older newer obj
+    for mode in "${MODES[@]}"; do
+        for name in 'Backups & Archive' 'Backup #2'; do
+            store="$BATS_TEST_TMPDIR/$name-$mode"
+            mkdir -p "$store"
+            cp -r "$FIXTURES/bash-restore/$mode/backup" "$store/backup"
+            mv "$store/backup/changes" "$store/changes"
+            older="$store/changes/Snapshot_2024_01_01_09_00_00"
+            newer="$store/changes/Snapshot_2024_01_02_09_00_00"
+            obj="$(gawk -F'"' '$4 == "hello.txt" { print $2 }' "$older/MANIFEST.csv")"
+            [ -f "$older/$obj" ] || { echo "$mode: no object '$obj' in the older snapshot"; false; }
+            mv -- "$older/$obj" "$newer/$obj"
+            blank_datapaths "$older/MANIFEST.csv"
+
+            run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t-$name-$mode" --from "$older"
+            [ "$status" -eq 0 ] || { echo "$mode '$name': expected 0, got $status"; echo "$output"; false; }
+            run verify_tree "$BATS_TEST_TMPDIR/t-$name-$mode" "$FIXTURES/bash-restore/$mode/expected/Snapshot_2024_01_01_09_00_00.tsv"
+            [ "$status" -eq 0 ] || { echo "$mode '$name': $output"; false; }
+            grep -qF "resolved by name index to '$newer/$obj'" "$BATS_TEST_TMPDIR/t-$name-$mode/RECONSTRUCT.log" \
+                || { echo "$mode '$name':"; cat "$BATS_TEST_TMPDIR/t-$name-$mode/RECONSTRUCT.log"; false; }
+        done
+    done
+}
+
 @test "the change-folder search sees a dot-named change folder (plan C32)" {
     local mode obj snap
     for mode in "${MODES[@]}"; do

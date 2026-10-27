@@ -1361,11 +1361,15 @@ main() {
     local -a snapshots=()
     if [[ -n "$change_root" && -d "$change_root" ]]; then
         if [[ -r "$change_root" && -x "$change_root" ]]; then
+            # The path is joined HERE, never spliced into a sed program: as a
+            # replacement, '&' inserts the match and '#' ends the command, so a
+            # change root like 'Backups & Archive' or 'Backup #2' silently lost
+            # every sibling snapshot from the pool (review 2026-10-26 A2).
             while IFS= read -r sn; do
-                [[ -n "$sn" ]] && snapshots+=("$sn")
+                [[ -n "$sn" ]] && snapshots+=("$change_root/$sn")
             done < <(find "$change_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
                         | sed 's#.*/##' \
-                        | grep -E "$SNAPSHOT_RE" | sort -r | sed "s#^#$change_root/#")
+                        | grep -E "$SNAPSHOT_RE" | sort -r)
             SEARCH_FOLDERS+=(${snapshots[@]+"${snapshots[@]}"})
         else
             # The snapshot tree exists but cannot be LISTED: silently shrinking
