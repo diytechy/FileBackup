@@ -590,9 +590,11 @@ Imports (internal): `Common`
   fixes: `reconstruct.sh` joins snapshot paths in its read loop instead of a
   sed program (a change root holding `&` or `#` lost every sibling snapshot),
   both name indexes skip a prune's `*.fbprune.tmp` staged copy, a row with a
-  DataPath keeps the content scan's host cause (exit 4, not 1), and a failed
-  copy removes its partial file while a failed expand leaves the destination
-  untouched. Bump to 15 for the next behaviour change after this branch ships.
+  DataPath keeps the content scan's host cause (exit 4, not 1), and a raw copy
+  lands by rename like the expand (`.fbrestore-*` beside the destination), so
+  neither a failed copy nor a failed expand leaves a partial file or touches
+  the destination. Bump to 15 for the next behaviour change after this branch
+  ships.
 
 ## 4. Conventions & known gotchas
 
