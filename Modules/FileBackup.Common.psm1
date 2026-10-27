@@ -1318,8 +1318,9 @@ function Sync-FileToDisk {
         needs write access on Windows - and flushes it the same way; a
         read-only file is made writable for that and read-only again.
 
-        One call per file, so flushing another kind of file later (the stored
-        objects, which the Owner has not ruled on) is one line.
+        One call per file, at each point a write is published: the manifest,
+        the run-state file, the kit, a snapshot's files, a prune's re-homed
+        copy, and every new stored object (Publish-StagedObject).
 
     .PARAMETER Stream
         A FileStream open for writing.

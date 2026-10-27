@@ -668,12 +668,18 @@ Imports (internal): `Common`
   through `Sync-FileToDisk` first: the manifest temp (`Write-Manifest`), the
   run-state temp (`Set-BackupStateField`), each kit file (`Write-KitFile`, shared
   by `New-ReconstructScript` and `-RefreshKits`), every file of `Building_<D>`
-  before it becomes `Snapshot_<D>`, and a prune's `.fbprune.tmp` copy before it
-  is renamed (the prune then deletes its source). Stored objects
-  (`Copy-FileWithHash`, `Publish-StagedObject`, the 7-Zip output) are **not**
-  flushed - the Owner has not ruled on that cost - so a power loss can still
-  leave one empty or torn; the listing catches the empty and torn-raw cases
-  (G1, §3), not NULs at full length, which only `-Action Verify -Deep` finds.
+  before it becomes `Snapshot_<D>`, a prune's `.fbprune.tmp` copy before it
+  is renamed (the prune then deletes its source), and every new stored object
+  in `Publish-StagedObject` before the rename that names it (review 2026-10-26
+  O1) - the one point every new object passes through: the Incoming copy, a
+  copy brought over from the local temp tier, and the 7-Zip archive. Objects
+  that are only renamed (moved back, superseded, repaired) need none. That
+  flush costs per new object, measured: NVMe +1.4 ms, HomeHub's USB NTFS drive
+  (ntfs-3g) +1.9 ms, a laptop SATA HDD +49 ms (about 25 s per 500 new files,
+  hours on a large initial backup to an HDD). An object written before this
+  - or by a disk that ignores flushes - can still be empty or torn; the
+  listing catches the empty and torn-raw cases (G1, §3), not NULs at full
+  length, which only `-Action Verify -Deep` finds.
 - **Restore verification happens before any mutation.** Both restorers check the
   manifest header shape *before* creating the target folder or their log, so a
   header refusal (the early exit-2s) leaves the target byte-for-byte as it was; the *late* code-2 preflights

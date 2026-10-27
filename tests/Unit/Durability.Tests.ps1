@@ -181,6 +181,61 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
         Get-FileXxHash -FilePath $dest | Should -Be $hash
     }
 
+    It 'flushes a new raw object before renaming it to its content name (review 2026-10-26 O1)' {
+        $root = New-Folder 'object-raw'
+        $staged = Join-Path $root 'staged'
+        [IO.File]::WriteAllText($staged, 'NEW CONTENT, STORED RAW')
+        $len  = (Get-Item -LiteralPath $staged).Length
+        $hash = Get-FileXxHash -FilePath $staged
+        $dest = Join-Path $root (Get-HashSizeFileName -HashHex $hash -Length $len -Extension '.txt')
+        $seen = [System.Collections.Generic.List[object]]::new()
+        Set-FileSyncHook ({
+            param($p)
+            $seen.Add([pscustomobject]@{ Path = $p; Length = (Get-Item -LiteralPath $p).Length; Named = (Test-Path -LiteralPath $dest) })
+        }.GetNewClosure())
+        $set = [pscustomobject]@{ Name = 'O'; CompressEnabled = $false; CompressProbe = 'off' }
+        $stored = InModuleScope FileBackup.Engine -Parameters @{ Staged = $staged; Len = $len; Hash = $hash; Root = $root; Set = $set } {
+            param($Staged, $Len, $Hash, $Root, $Set)
+            Publish-StagedObject -StagedPath $Staged -SourceName 'note.txt' -Hash $Hash -Length $Len -BackupRoot $Root -Set $Set `
+                -SevenZipPath $null -ProbeStats (New-ProbeStatistic) -Metrics $null -Log { }
+        }
+        $stored.Compressed | Should -Be 'No'
+        $seen.Count | Should -Be 1
+        $seen[0].Path | Should -Be $staged -Because 'the staged copy itself becomes the object'
+        $seen[0].Length | Should -Be $len
+        $seen[0].Named | Should -BeFalse -Because 'the flush comes before the rename that names the object'
+        [IO.File]::ReadAllText($dest) | Should -Be 'NEW CONTENT, STORED RAW'
+    }
+
+    It 'flushes a new archive object before renaming it to its content name (review 2026-10-26 O1)' {
+        $root = New-Folder 'object-7z'
+        $staged = Join-Path $root 'staged'
+        [IO.File]::WriteAllText($staged, 'NEW CONTENT, STORED AS AN ARCHIVE ' * 20)
+        $len  = (Get-Item -LiteralPath $staged).Length
+        $hash = Get-FileXxHash -FilePath $staged
+        $dest = Join-Path $root (Get-HashSizeFileName -HashHex $hash -Length $len -Extension '.7z')
+        $seen = [System.Collections.Generic.List[object]]::new()
+        Set-FileSyncHook ({
+            param($p)
+            $seen.Add([pscustomobject]@{ Path = $p; Named = (Test-Path -LiteralPath $dest) })
+        }.GetNewClosure())
+        $set = [pscustomobject]@{ Name = 'O'; CompressEnabled = $true; CompressProbe = 'off' }
+        $stored = InModuleScope FileBackup.Engine -Parameters @{ Staged = $staged; Len = $len; Hash = $hash; Root = $root; Set = $set } {
+            param($Staged, $Len, $Hash, $Root, $Set)
+            # A stand-in archive, shorter than its content, as 7-Zip writes one.
+            Mock Compress-FileWithSevenZip { param($SevenZipPath, $SourceFile, $Destination7z)
+                [IO.File]::WriteAllBytes($Destination7z, [byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 1, 2, 3, 4)) }
+            Mock Resolve-GroupStorageForm { [pscustomobject]@{ Compress = $true; Reason = 'ListSaysCompress'; SampledBytes = 0; Ratio = $null; Windows = @() } }
+            Publish-StagedObject -StagedPath $Staged -SourceName 'note.txt' -Hash $Hash -Length $Len -BackupRoot $Root -Set $Set `
+                -SevenZipPath 'C:\fake\7z.exe' -ProbeStats (New-ProbeStatistic) -Metrics $null -Log { }
+        }
+        $stored.Compressed | Should -Be 'Yes'
+        $seen.Count | Should -Be 1
+        $seen[0].Path | Should -Be "$staged.7z" -Because 'the archive is what becomes the object'
+        $seen[0].Named | Should -BeFalse -Because 'the flush comes before the rename that names the object'
+        (Get-Item -LiteralPath $dest).Length | Should -Be 10
+    }
+
     It 'flushes a read-only file and leaves it read-only (review 2026-10-26 A1)' {
         $file = Join-Path (New-Folder 'readonly') 'kit.ps1'
         [IO.File]::WriteAllText($file, 'copied with its read-only attribute')

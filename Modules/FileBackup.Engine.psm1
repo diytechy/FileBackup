@@ -4846,6 +4846,10 @@ function Publish-StagedObject {
         and this throws, so the file is retried and then warned about (R12)
         rather than recorded against damaged bytes (review 2026-10-26 G1).
 
+        A new object is flushed to the disk before the rename that names it
+        (review 2026-10-26 O1), so a power loss cannot leave its name over
+        bytes that never arrived.
+
     .PARAMETER StagedPath
         The staged copy, on the backup volume.
 
@@ -4941,6 +4945,15 @@ function Publish-StagedObject {
             throw "The stored object '$name' is damaged ($damage) and could not be set aside, so this content cannot be stored under its name this run."
         }
     } else {
+        # On the disk before the rename that names it (review 2026-10-26 O1):
+        # that rename can reach the disk first, and a power loss then leaves
+        # an object empty (ext4) or reading as NULs (NTFS) under its content
+        # name - damage no later run can repair once the source has changed.
+        # This one point covers every new object: the Incoming copy, a copy
+        # brought over from the local temp tier, and the 7-Zip archive.
+        # Measured per object: NVMe +1.4 ms, HomeHub's USB NTFS drive
+        # (ntfs-3g) +1.9 ms, a laptop SATA HDD +49 ms.
+        Sync-FileToDisk -LiteralPath $from
         [System.IO.File]::Move($from, $dest)
     }
     if ($decision.Reason -ceq 'ProbeIncompressible') {
