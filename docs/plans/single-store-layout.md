@@ -40,6 +40,7 @@ is part of the pool.
 | L4 | The one-mount check stays (a cheap directory rename): `Latest` and the snapshots must still be on one mount, and a Linux bind mount could split them. |
 | L5 | HomeHub: the container uses `StorePath=/store`. IF-001 and HomeHub's branch change to match. The Owner sets the existing HomeHub backup aside and starts a clean one. |
 | L6 | Built as one work package after the review's fix batches merge, with an independent review before it lands. |
+| L7 | (2026-10-27) Paths recorded in the store use `/` as the separator, whatever host writes them: `RelativePath` in `MANIFEST.csv` and in `DIRECTORIES.csv`. Today each records the writer's own separator (`\` on Windows, `/` in the container), on `main` as on this branch. The change is lossless: no Windows name holds `/`, and SR-055 already refuses a Linux name holding `\` as unportable. It rides on this package because L2 means no store has to be migrated, so nothing reads both forms. |
 
 ## Scope (what changes)
 
@@ -55,6 +56,12 @@ is part of the pool.
   the path sidecar (`RECONSTRUCT.paths.json`) and the sibling and child guesses
   (C21, C32) are removed; the override parameters are reduced to one store
   override. `-RefreshKits` refuses an old-layout store (L2).
+- **Separator (L7):** the source walk, `Get-SourceDirectoryRecord`, every
+  comparison of a walked path against a manifest row (change detection, the
+  frozen-prefix and unreadable-prefix checks, infrastructure names, C42's
+  case-only check), retention, Verify and the browse view; both restorers turn
+  `/` into the host's separator only for filesystem calls (`to_posix` and
+  `ConvertTo-LocalRelativePath` become the reverse or go away).
 - **Container:** `container/entrypoint.sh`, `compose.example.yaml`, the image
   smoke test, `scripts/Invoke-Container.ps1`.
 - **Docs:** README, AGENTS.md sections 1-4, the generated maps,
@@ -65,10 +72,16 @@ is part of the pool.
 
 - How the kit recognizes an old-layout store in order to refuse it cleanly.
 - Whether any restorer override besides the store override is still needed.
+- Whether the new kit refuses a `RelativePath` holding `\` or still maps it
+  (only an old-layout manifest can carry one, and L2 refuses those).
+- Where the engine converts to `/`: once at the walk, so every later comparison
+  sees one form, is the expected shape.
 
 ## Done when
 
 Lint clean; the full unit suite, the integration sweep, bats and shellcheck,
-and the container smoke test pass on the merged tree; an independent review of
+and the container smoke test pass on the merged tree; a store written on
+Windows and one written in the container hold byte-identical `RelativePath`
+values for the same tree, and each restores on the other platform; an independent review of
 the package has reported and its findings are adjudicated; AGENTS.md, README and
 IF-001 describe the new layout; HomeHub's side is ready for a clean backup.

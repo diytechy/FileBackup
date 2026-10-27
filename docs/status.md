@@ -37,7 +37,8 @@ last) — it is the record, not required reading for every pass.
      must land before any Verify or prune runs on HomeHub's store. Fold in:
      retention's supply should ignore a file the C37 listing rule calls damaged.
   2. C44, the single-store layout ([plans/single-store-layout.md](plans/single-store-layout.md)),
-     as one work package with an independent review (L6).
+     as one work package with an independent review (L6). It now includes L7:
+     `/` as the only separator in recorded paths.
   3. HomeHub: branch `filebackup-review-contract`, worktree
      `C:\Projects\MiniPC-Deployer-wt-filebackup-review`, rebuilt on
      `IceDrive-DesktopDirection` `6318772` (13 commits, unmerged; FileBackup ids
@@ -46,8 +47,10 @@ last) — it is the record, not required reading for every pass.
      `filebackup-bounded-contract` (worktree `C:\Projects\MiniPC-Deployer-wt-filebackup`).
      Its own `docs/status.md` lists the deploy preconditions and the Owner's
      questions.
-  4. Open for the Owner: prune and `-Action Snapshots` with the store drive
-     unplugged exit 2 (4 is the alternative); whether HomeHub's id-reservation
+  4. Open for the Owner: whether `-Action Verify` and `-Action View` should
+     also return 4 for an unplugged store drive (they return 2, per WP5 review
+     m2; prune and `-Action Snapshots` now return 4, entry of 2026-10-27
+     below); whether HomeHub's id-reservation
      row goes onto its main now; ext4 or NTFS for HomeHub's backup drive at the
      clean start (both hub drives are USB NTFS through ntfs-3g, which journals
      none of its own writes; `homehub-backup.timer` is enabled, 03:00 nightly);
@@ -6491,3 +6494,30 @@ stores from 2026-10-24 (`%TEMP%\fbrev*`) and August (WSL `/tmp/fb3`,
 `/tmp/fbexp*`).
 
 Next: the Current State entry's resume list.
+
+### DRIVER — an unplugged store drive under Prune and Snapshots; separator ruling — 2026-10-27
+
+The Owner ruled on two open questions.
+
+**Prune and `-Action Snapshots` with the store drive unplugged now exit 4**, as
+a backup does (plan C25), and through the same code: `Resolve-BackupSetPaths
+-ReadOnly` runs `Assert-StoreVolumePresent` before it refuses a missing
+`BackupPath` (and before it accepts a missing `ChangePath` as "no snapshots"),
+and the new `Get-StorePathFailureCode` maps a resolution failure to 4 (drive or
+share not attached) or 2 (anything else). The backup run and retention both
+call it. Verify and View still return 2 (WP5 review m2 says Verify never
+returns 4); whether they follow is put to the Owner (Current State, item 4).
+LLR-048 and README updated. On Linux the check never fires (the root is `/`),
+so HomeHub sees no change.
+
+Evidence: the retention, entry-point and C25/C26 Pester blocks, **29 passed,
+0 failed, 0 skipped**, including two new tests
+(`returns 4, as a backup does, when -Action <_> finds the store drive not
+attached`). Mutation check: with the prune site put back to `return 2`, both
+new tests fail (`Expected 4 ... but got 2`); restored.
+
+**Separator ruling (L7 in [plans/single-store-layout.md](plans/single-store-layout.md)):**
+recorded paths (`RelativePath` in `MANIFEST.csv` and `DIRECTORIES.csv`) use `/`
+whatever the host. Checked first: `main` records the writer's own separator,
+as this branch does. Built inside C44, because its L2 (no migration) means
+nothing has to read both forms.
