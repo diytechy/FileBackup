@@ -85,7 +85,7 @@
                     CompressEnabled    = $true
                     CompressProbe      = 'always' # 'always' (default) | 'excluded-extensions' | 'off'
                     BrowseView         = 'index'  # 'off' (default) | 'index' browsable view
-                    AllowEmptySource   = $false   # opt in to an intentional delete-all
+                    AllowEmptySource   = $false   # ignored; accepted so older configurations still load
                 }
             )
         } | Export-Clixml -LiteralPath "$HOME\BackupConfig.xml"
