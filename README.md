@@ -99,7 +99,7 @@ that file's earlier copy, and names it in the set's log. Its exit code says what
 | **0** | Every file was captured. | Nothing. |
 | **1** | The run completed, but one or more files were not captured (locked after three tries 60 s apart, unreadable, or named in a way Windows or Linux cannot restore). Each is named in `backup.log`; their earlier copies are kept. Also when the run found a stored object damaged — empty, or a raw object of the wrong length, as a power cut can leave it — and set it aside into `<ChangePath>\Verify\` (`[DamagedObject]` in the log): it is never reused, and its content is stored again from the source while the source still holds it. | Read the log; usually nothing — the next run tries again. |
 | **2** | Refused before changing anything: a bad configuration, a missing tool, a missing source folder, a `BackupPath`/`ChangePath` pair on different volumes, a damaged latest manifest, or a `BackupPath` that is gone while its `ChangePath` still holds snapshots (moved, renamed, or a mount that is not there — a fresh full backup is never started beside old snapshots). | Fix what the message names. |
-| **4** | Stopped by a host problem, or not started: the backup drive is not attached (a Windows drive letter or a network share), the backup volume filled up or went away, the source disappeared or emptied during the run (a dropped mount looks like that), or another run of this store holds its lock. Every state stays restorable. | Retry later — the next scheduled run is the retry. |
+| **4** | Stopped by a host problem, or not started: the backup drive is not attached (a Windows drive letter or a network share), the backup volume filled up or went away, the source disappeared, or was empty while the backup holds files, at the start of the run or during it (a missing or dropped mount, or a failed drive, looks like that), or another run of this store holds its lock. Every state stays restorable. | Retry later — the next scheduled run is the retry. |
 
 ### Where a run's time goes
 
@@ -624,7 +624,7 @@ value is refused by name before a compression-enabled backup creates anything
 | `SourceStatePath` | Ignored; accepted so older configurations still load. Nothing is written into the source any more: the latest backup manifest is the change-detection record. A `MANIFEST.csv` an older version left at the source root stays out of the backup and can be deleted. |
 | `CompressEnabled` | `$true`/`true` allows data files to be re-packed as `.7z`; `false` stores everything verbatim and probes nothing. Which allowed files are actually compressed is decided per object — see "How the stored form is chosen". JSON must use a real boolean, not a quoted string. |
 | `CompressProbe` | Optional; `off` \| `excluded-extensions` \| `always` (default `always`), exact lowercase. How the stored form is decided when `CompressEnabled` is on: `off` trusts the already-compressed extension list alone; `excluded-extensions` keeps the list's exemptions and measures everything it would otherwise compress; `always` measures a sample of the bytes of every file at or above 256 KiB, the list serving only the smaller files. |
-| `AllowEmptySource` | Ignored; accepted so older configurations still load. A source that is suddenly empty is a warning, not a refusal: nothing is deleted, every file moves into that run's snapshot, and it all moves back when the source returns. |
+| `AllowEmptySource` | Ignored; accepted so older configurations still load. It does not let an empty source through: a source that is empty while the backup holds files stops the set with status **4** and leaves the backup as it was (see "Unexpected empty source"). A set whose source really is meant to be empty is removed from the configuration. |
 | `BrowseView` | `off` (default) or `index`: generate a browsable, manifest-derived `INDEX.tsv` + per-folder HTML view of the backup, outside the backup root. `link` is reserved and refused by name. |
 | `ViewPath` | Where the view is written. Defaults to `<BackupPath>_View`; must lie outside the backup and change roots and on the backup volume. |
 
@@ -1174,10 +1174,14 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   orchestrator's sink: configuration, dependency checks, cross-set failure summaries and
   mail. It is legitimately near-empty while a set is running, so read `ChangePath\backup.log`
   when you want to know what a run is doing or why it refused.
-- **Unexpected empty source.** A previously populated set whose source becomes empty (often
-  an unavailable share) warns and carries on: nothing is deleted — every file moves into that
-  run's snapshot by rename, and moves back when the source returns. A source folder that
-  does not exist at all is refused (exit 2).
+- **Unexpected empty source.** A set whose source is empty while its backup holds files stops
+  with exit **4** and leaves the latest backup exactly as it was, whether the source was empty
+  when the run started or emptied during it. A missing mount or a failed drive looks exactly
+  like this (in a container, an unmounted source is an empty folder), so the run does not
+  record the whole library as deleted; the first run after the source returns carries on. A
+  set whose source really is meant to be empty should be removed from the configuration. The
+  first backup of an empty source is not affected, and a source folder that does not exist at
+  all is refused (exit 2).
 - **Never delete or "clean up" files inside the backup root or snapshot folders.** The
   backup root is a managed pool of content-addressed objects: deduplication means one file
   there can be the only physical copy that other rows and older snapshots recover by

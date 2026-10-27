@@ -97,7 +97,12 @@ files; `BoundedRun.Tests.ps1` kills a run at each stage and proves it.
    attempt, 3 attempts in all; then a warning, its earlier row kept (SR-091).
    Files that vanished are removals — unless the source root disappeared or
    emptied during the run, which stops the set with 4 before anything is
-   written (C24, C27).
+   written (C24, C27). A source already empty when the walk began, while the
+   latest state holds rows, stops the same way (review 2026-10-26 C2: a missing
+   mount or a failed drive looks like that; a set meant to be empty is removed
+   from the configuration). A first backup of an empty source is unaffected,
+   and a walk that saw anything (an unportable name, an unlistable folder) is
+   no empty source.
 6. **Finish latest** (`Publish-LatestState`): the canonical manifest (ordinal
    `RelativePath` order, every text column a string, so an unchanged run
    rewrites identical bytes), the directory sidecar, then `LastBackupRun` /
@@ -117,8 +122,9 @@ files; `BoundedRun.Tests.ps1` kills a run at each stage and proves it.
 
 The set returns **0** every file captured, **1** completed with files not
 captured or a damaged object set aside, **2** refused before anything changed, **4** stopped by a host problem
-(volume full or gone, store drive not attached, source gone or emptied mid-run)
-or a held lock; `FileBackup.ps1` folds the sets with precedence 2 > 4 > 1.
+(volume full or gone, store drive not attached, source gone, or empty at the
+start or mid-run while the latest state holds rows) or a held lock;
+`FileBackup.ps1` folds the sets with precedence 2 > 4 > 1.
 
 ### Generated dependency diagram & function map
 

@@ -62,7 +62,7 @@
         },
         "AllowEmptySource": {
           "type": "boolean",
-          "description": "Accepted for compatibility; ignored. An empty source no longer needs it: the run warns and deletes nothing (the files move into a snapshot by rename and come back if the source returns)."
+          "description": "Accepted for compatibility; ignored. It does not let an empty source through: a source that is empty while the backup holds files stops the run with 4, leaving the latest state as it was (a missing mount looks like that). A set whose source really is meant to be empty is removed from the configuration."
         }
       }
     },

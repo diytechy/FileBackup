@@ -44,8 +44,9 @@ is refused with a named removal diagnostic); optional `BrowseView`
 (`off`|`index`, default `off` — note a containerized run cannot satisfy the
 view's same-volume rule, so `index` is native-host functionality until IF-001
 rules otherwise) and `ViewPath`; `SourceStatePath` and `AllowEmptySource`,
-both still accepted and both ignored (R3; an empty source now warns and deletes
-nothing); no
+both still accepted and both ignored (R3; an empty source while the backup
+holds files stops the run with 4, writing no latest state, and a set meant to
+be empty is removed from the configuration); no
 `Secrets.Credential` (JSON can't carry a `PSCredential` — containerized runs are
 always `-NoMail`). CLIXML remains the unversioned legacy native-Windows form;
 JSON is the only form this contract covers.
@@ -105,7 +106,7 @@ deleted.
 | 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
 | 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a `BackupPath` gone while its `ChangePath` holds snapshots) | Usage or precondition error; nothing mutated | error — do not retry |
 | 3 | — never | Restore: retired from kit revision 14 (an older kit bundled in an older snapshot can still return it). Prune: a witness an older build left disagrees with its manifest; nothing mutated | error — **escalate** |
-| 4 | Stopped by a host problem (volume full or gone, the store's drive not attached, the source gone or emptied mid-run) or another run holds the lock; every state stays restorable | Host/dependency I/O failure | warn — retry |
+| 4 | Stopped by a host problem (volume full or gone, the store's drive not attached, the source gone, or empty at the start or mid-run while the backup holds files) or another run holds the lock; every state stays restorable | Host/dependency I/O failure | warn — retry |
 
 Precedence across sets or batch items is `2 > 3 > 4 > 1`. A backup no longer
 estimates the space it needs before it starts (plan C3): a write that fails for

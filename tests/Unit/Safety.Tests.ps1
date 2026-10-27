@@ -55,7 +55,7 @@ BeforeAll {
     }
 }
 
-Describe 'Backup history safety: corner cases warn, and the prior state stays restorable (SR-035, SR-036, plan R1, C2)' {
+Describe 'Backup history safety: corner cases warn, and the prior state stays restorable (SR-035, SR-036, plan R1, review 2026-10-26 C2)' {
     It 'dates the prior state by the manifest file when LastBackupRun is missing, and keeps it as a snapshot (SR-035)' {
         $root = Join-Path $TestDrive 'missing-state'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
@@ -94,21 +94,21 @@ Describe 'Backup history safety: corner cases warn, and the prior state stays re
         (Get-SnapshotText -Snapshot $snap[0].FullName -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
     }
 
-    It 'moves everything into the snapshot when the source is empty, deleting nothing (SR-036, C2)' {
+    It 'stops with 4 when the source is empty at the start of a run, leaving the latest state as it was (SR-036, review 2026-10-26 C2)' {
         $root = Join-Path $TestDrive 'empty-source'
         $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
         $cfg = Join-Path $root 'config.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        New-SafetyConfig -Path $cfg -Source $src -Backup $bkp -Changes $chg
+        # AllowEmptySource is accepted and ignored: it does not let an empty
+        # source through (a set meant to be empty is removed from the config).
+        New-SafetyConfig -Path $cfg -Source $src -Backup $bkp -Changes $chg -AllowEmptySource $true
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'KEEP')
         (Invoke-SafetyBackup $cfg) | Should -Be 0
 
         Remove-Item -LiteralPath (Join-Path $src 'f.txt') -Force
-        (Invoke-SafetyBackup $cfg) | Should -Be 0
-        @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Count | Should -Be 0
-        $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_')
-        $snap.Count | Should -Be 1
-        (Get-SnapshotText -Snapshot $snap[0].FullName -Backup $bkp -RelativePath 'f.txt') | Should -Be 'KEEP'
-        Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw | Should -Match 'Nothing is deleted'
+        (Invoke-SafetyBackup $cfg) | Should -Be 4
+        @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv')).Count | Should -Be 1 -Because 'the latest state still lists the file'
+        (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'KEEP'
+        Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw | Should -Match 'remove the set from the configuration'
     }
 }

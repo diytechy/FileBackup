@@ -424,20 +424,7 @@ Describe 'A locked file is retried, then warned about (R12, SR-091)' {
     }
 }
 
-Describe 'Corner cases warn and the run carries on (R1, C2)' {
-    It 'moves everything into the snapshot when the source is empty, and back when it returns' {
-        $s = New-Store 'empty'
-        Set-SourceFile $s 'a.txt' 'alpha'
-        Invoke-Run $s '2026-06-01T10:00:00' | Should -Be 0
-        Move-Item -LiteralPath (Join-Path $s.Src 'a.txt') -Destination (Join-Path $s.Root 'aside.txt')
-        Invoke-Run $s '2026-06-02T10:00:00' | Should -Be 0
-        Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log') -Raw | Should -Match 'is empty while the latest state holds 1 file'
-        @(Read-Manifest -FolderPath $s.Bkp).Count | Should -Be 0
-        Move-Item -LiteralPath (Join-Path $s.Root 'aside.txt') -Destination (Join-Path $s.Src 'a.txt')
-        Invoke-Run $s '2026-06-03T10:00:00' | Should -Be 0
-        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha'
-        (Get-PoolObject $s).Count | Should -Be 1
-    }
+Describe 'Corner cases warn and the run carries on (R1)' {
     It 'dates the prior state by the manifest file when the run-state file is missing' {
         $s = New-Store 'nostate'
         Set-SourceFile $s 'a.txt' 'alpha'
@@ -689,7 +676,61 @@ Describe 'A store drive that is missing, or a store that lost its backup folder 
     }
 }
 
-Describe 'A source that empties during the run stops it (plan C27)' {
+Describe 'A source that is empty, or empties during the run, stops it (plan C27, review 2026-10-26 C2)' {
+    It 'stops with 4, leaving the latest state as it was, when the source is empty at the start of a run (review 2026-10-26 C2)' {
+        $s = New-Store 'src-empty-at-start'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'sub\b.txt' 'bravo'
+        Invoke-Run $s '2026-10-09T10:00:00' | Should -Be 0
+        $manifest = Join-Path $s.Bkp 'MANIFEST.csv'
+        $state    = Join-Path $s.Bkp 'FileBackupState.json'
+        $listObjects = { @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { $null -ne (ConvertFrom-StoredObjectName -Name $_.Name) } | ForEach-Object Name | Sort-Object) -join '|' }
+        $manifestBefore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($manifest))
+        $stateBefore    = [IO.File]::ReadAllText($state)
+        $objectsBefore  = & $listObjects
+        # An unmounted or failed source drive: the source folder is there, empty.
+        $aside = Join-Path $s.Root 'src-aside'
+        Move-Item -LiteralPath $s.Src -Destination $aside
+        New-Item -ItemType Directory -Path $s.Src | Out-Null
+
+        Invoke-Run $s '2026-10-10T10:00:00' | Should -Be 4
+        [Convert]::ToBase64String([IO.File]::ReadAllBytes($manifest)) | Should -Be $manifestBefore -Because 'the latest state is left as it was'
+        [IO.File]::ReadAllText($state) | Should -Be $stateBefore -Because 'LastBackupRun still dates the latest state'
+        & $listObjects | Should -Be $objectsBefore -Because 'no object moves out of the backup root'
+        $log = Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log') -Raw
+        $log | Should -Match 'is empty while the latest state holds 2 file\(s\) - a missing mount or a failed drive looks like this; the latest state is left as it was'
+        $log | Should -Match 'remove the set from the configuration'
+
+        # The source comes back: the next run carries on, and every state restores.
+        Remove-Item -LiteralPath $s.Src -Recurse -Force
+        Move-Item -LiteralPath $aside -Destination $s.Src
+        Invoke-Run $s '2026-10-11T10:00:00' | Should -Be 0
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;sub\b.txt=bravo'
+        foreach ($name in Get-SnapshotNames $s) {
+            Format-State (Get-StateContent $s (Join-Path $s.Chg $name)) | Should -Be 'a.txt=alpha;sub\b.txt=bravo'
+        }
+    }
+    It 'backs up an empty source the first time, and again while the latest state is empty (review 2026-10-26 C2)' {
+        $s = New-Store 'src-empty-first'
+        Invoke-Run $s '2026-10-12T10:00:00' | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') -PathType Leaf | Should -BeTrue
+        @(Read-Manifest -FolderPath $s.Bkp).Count | Should -Be 0
+        Invoke-Run $s '2026-10-13T10:00:00' | Should -Be 0
+    }
+    It 'does not stop for a source whose only file has an unportable name: that file is warned about, 1 (review 2026-10-26 C2)' -Skip:(-not $IsWindows) {
+        $s = New-Store 'src-only-unportable'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Invoke-Run $s '2026-10-14T10:00:00' | Should -Be 0
+        Remove-Item -LiteralPath (Join-Path $s.Src 'a.txt')
+        # The trailing-dot shape is the unportable name Windows can host (\\?\).
+        [IO.File]::WriteAllText("\\?\$($s.Src)\bad.", 'bravo')
+        Invoke-Run $s '2026-10-15T10:00:00' | Should -Be 1
+        $log = Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log') -Raw
+        $log | Should -Match "Not capturing 'bad\.'"
+        $log | Should -Not -Match 'is empty while the latest state holds'
+        [IO.File]::Delete("\\?\$($s.Src)\bad.")
+    }
+
     It 'stops with 4 and keeps the latest state when every file vanishes but the root folder stays' {
         $s = New-Store 'src-emptied'
         foreach ($n in 'a', 'b', 'c') { Set-SourceFile $s "$n.txt" "one-$n" }

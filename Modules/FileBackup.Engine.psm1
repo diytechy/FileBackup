@@ -6252,9 +6252,11 @@ function Invoke-LibraryCapture {
         that is not portable, a folder that cannot be listed - stay as they
         were (SR-055, SR-057, SR-091); every other row the walk did not visit
         is a removal - unless the source root itself disappeared, or emptied,
-        during the run, which throws so the set stops (4) before a latest state
-        that lists nothing is written; a source root that cannot be listed
-        keeps every row. The local temp folder is removed however the capture ends.
+        during the run, or was already empty when the walk began while the
+        prior rows hold files, which throws so the set stops (4) before a
+        latest state that lists nothing is written; a source root that cannot
+        be listed keeps every row. The local temp folder is removed however the
+        capture ends.
 
     .PARAMETER Context
         The run context (New-BackupRunContext).
@@ -6306,9 +6308,6 @@ function Invoke-LibraryCapture {
             }
         }
         Complete-RunStep -Metrics $Context.Metrics -Name 'walk source'
-        if ($walk.Files.Count -eq 0 -and $PriorRows.Count -gt 0 -and $walk.Unreadable.Count -eq 0) {
-            & $log "Source '$($Paths.SrcPath)' is empty while the latest state holds $($PriorRows.Count) file(s). Nothing is deleted: the files move into the snapshot and come back if the source returns (plan C2)." 'WARN'
-        }
 
         # The working rows start as the prior rows, so a checkpoint never
         # drops a file the loop has not reached yet.
@@ -6398,10 +6397,19 @@ function Invoke-LibraryCapture {
             throw "The source root '$($Paths.SrcPath)' disappeared during the run ($gone file(s) vanished); the latest state is left as it was."
         }
         # A mount that drops on Linux leaves its empty mount-point folder behind
-        # (plan C27): files vanished and the source is now empty. A source
-        # already empty when the walk began is C2's case and only warns.
+        # (plan C27): files vanished and the source is now empty.
         if ($gone -gt 0 -and @([System.IO.Directory]::EnumerateFileSystemEntries($Paths.SrcPath) | Select-Object -First 1).Count -eq 0) {
             throw "The source '$($Paths.SrcPath)' emptied during the run ($gone file(s) vanished) - a mount that dropped looks like this; the latest state is left as it was."
+        }
+        # The same stop for a source that was already empty when the walk began
+        # (review 2026-10-26 C2, the Owner's option C): in the container an
+        # unmounted or failed source drive is an empty folder, and carrying on
+        # recorded the whole library as deleted with exit 0. A source the walk
+        # saw anything in - an unportable name, an unlistable folder (C24) - is
+        # not empty, and a first backup (no prior rows) has nothing to lose.
+        if ($walk.Files.Count -eq 0 -and $walk.Unportable.Count -eq 0 -and $walk.Unreadable.Count -eq 0 -and $PriorRows.Count -gt 0) {
+            throw ("The source '$($Paths.SrcPath)' is empty while the latest state holds $($PriorRows.Count) file(s) - a missing mount or a failed drive looks like this; the latest state is left as it was. " +
+                   "If this source really is meant to be empty, remove the set from the configuration.")
         }
 
         # The final rows: what the loop captured, plus the prior rows of
