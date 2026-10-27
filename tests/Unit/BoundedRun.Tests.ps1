@@ -280,6 +280,41 @@ Describe 'Content moves by rename and is never deleted (R6, R9, SR-003, SR-059)'
     }
 }
 
+Describe 'A prune''s staged copy is never taken for an object (review 2026-10-26 A3)' {
+    # A prune killed while re-homing content into the backup root leaves
+    # '<object>.fbprune.tmp' there (Copy-ReHomedDataFile), possibly partial,
+    # and the SR-069 grammar accepts '.txt.fbprune.tmp' as an extension.
+    BeforeEach {
+        $script:s = New-Store "residue-$([guid]::NewGuid().ToString('N').Substring(0, 6))"
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-03-01T10:00:00' | Should -Be 0
+        Remove-Item -LiteralPath (Join-Path $s.Src 'b.txt')
+        Invoke-Run $s '2026-03-02T10:00:00' | Should -Be 0
+        $snap = Join-Path $s.Chg 'Snapshot_2026_03_01_10_00_00'
+        $script:bravo = @(Get-ChildItem -LiteralPath $snap -File | Where-Object { ConvertFrom-StoredObjectName -Name $_.Name })[0]
+        $bravo | Should -Not -BeNullOrEmpty -Because 'the fixture needs bravo''s only copy in the snapshot'
+        # The half-written copy a kill leaves: the first bytes only.
+        $script:residue = Join-Path $s.Bkp "$($bravo.Name).fbprune.tmp"
+        [IO.File]::WriteAllText($residue, 'bra')
+    }
+    It 'does not index a prune staged copy as an object (review 2026-10-26 A3)' {
+        $index = Get-StoreObjectIndex -BackupRoot $s.Bkp -ChangeRoot $s.Chg
+        $prefix = (ConvertFrom-StoredObjectName -Name $bravo.Name).Prefix
+        $index.Objects[$prefix].Path | Should -Be $bravo.FullName
+        @(@($index.Objects.Values) + @($index.Duplicates) | Where-Object Name -like '*.fbprune.tmp').Count | Should -Be 0
+        @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg).Count | Should -Be 0 -Because 'the staged copy is no second copy of anything'
+        Test-Path -LiteralPath $residue | Should -BeTrue -Because 'residue is left for the prune sweep, never deleted by its suffix'
+    }
+    It 'records re-added content against the object, not a prune staged copy (review 2026-10-26 A3)' {
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-03-03T10:00:00' | Should -Be 0
+        $row = @(Read-Manifest -FolderPath $s.Bkp | Where-Object RelativePath -eq 'b.txt')[0]
+        $row.DataPath | Should -Be $bravo.Name
+        Get-FileXxHash -FilePath (Join-Path $s.Bkp $row.DataPath) | Should -Be $row.xxH2Hash
+    }
+}
+
 Describe 'A kill at any stage leaves every state restorable, and the next run finishes the job (plan §3)' {
     It 'survives a kill at <Stage>' -ForEach @(
         @{ Stage = 'BeforeSnapshotPublish' }, @{ Stage = 'AfterSnapshotPublished' }, @{ Stage = 'AfterFileCaptured' }, @{ Stage = 'BeforeFinalManifest' },

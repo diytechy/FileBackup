@@ -4043,9 +4043,10 @@ function Get-StoreObjectIndex {
         alone say what is stored and where (plan step 2). Snapshot manifests
         are never read by a backup run: holding them all was the 6.6 GB OOM of
         the 2026-10-05 defect review. Only top-level files named by the grammar
-        count. When one key is found in more than one folder the backup root
-        wins, then the newest snapshot; the other copies are listed as
-        Duplicates, which a run leaves for -Action Verify (R10).
+        count, less a prune's staged copy ('<object>.fbprune.tmp'), which the
+        grammar would accept. When one key is found in more than one folder the
+        backup root wins, then the newest snapshot; the other copies are listed
+        as Duplicates, which a run leaves for -Action Verify (R10).
 
     .PARAMETER BackupRoot
         The backup root (the latest state).
@@ -4078,6 +4079,15 @@ function Get-StoreObjectIndex {
         # DirectoryInfo enumeration includes hidden, system and dot-named files
         # (SR-057): an object name can begin with any alphabet digit.
         foreach ($file in [System.IO.DirectoryInfo]::new($folder.Path).EnumerateFiles()) {
+            # A prune killed while copying leaves '<object>.fbprune.tmp' beside
+            # the destination (Copy-ReHomedDataFile), possibly partial. The
+            # grammar takes '.7z.fbprune.tmp' as an extension, so the staged copy
+            # would be indexed as the object - and a run would reuse it, name it
+            # in a row, or move it (review 2026-10-26 A3). No object is named so:
+            # its extension is its source's last one or '.7z', and a repair only
+            # adds or strips '.7z'. Skipped here, never deleted by the suffix -
+            # Invoke-PruneEntrySweep removes it, judged by the manifest.
+            if ($file.Name.EndsWith('.fbprune.tmp', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
             $parsed = ConvertFrom-StoredObjectName -Name $file.Name
             if ($null -eq $parsed) { continue }
             $entry = [pscustomobject]@{
