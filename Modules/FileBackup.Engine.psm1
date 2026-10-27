@@ -143,6 +143,79 @@ function Test-PortableRelativePath {
     return $null
 }
 
+function Get-CaseOnlyCollision {
+    <#
+    .SYNOPSIS
+        Finds the relative paths that differ from another one only in letter
+        case, and gives each a reason naming the paths it collides with
+        (SR-055).
+
+    .DESCRIPTION
+        Two such paths are two files on a case-sensitive source (Linux, the
+        container, a case-sensitive NTFS folder), but a Windows restore can
+        hold only one of them: the second overwrites the first and the restore
+        still reports success (review 2026-10-26, restorers F5). So, by the
+        Owner's ruling on that review's item 7, every member of such a group
+        is as unportable as a name Windows cannot hold at all.
+
+        Whole relative paths are compared, so a collision at any level is
+        found ('Docs\a.txt' and 'docs\a.txt'), while two different files under
+        folders that differ only in case ('Docs\a.txt', 'docs\b.txt') are not
+        a collision: both restore, into one folder. The comparison is
+        OrdinalIgnoreCase, the one the restorer's case-insensitive path map
+        collapses by. On a Windows source it normally finds nothing.
+
+        A library counts its paths in the hundreds of thousands, so the
+        comparison is made by .NET set operations, not by a PowerShell loop:
+        on the development PC a loop over 180,000 paths took 2 to 10 s, the
+        sets 0.1 s (0.2 s when some collide). Only the members of a collision
+        are ever looped over.
+
+    .PARAMETER RelativePath
+        The relative paths to compare, as the walk produced them.
+
+    .OUTPUTS
+        [hashtable] keyed case-sensitively: each colliding path -> the reason,
+        naming the others. Empty when nothing collides.
+    #>
+    # Implements: SR-055, LLR-055
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseLiteralInitializerForHashtable', '',
+        Justification = 'The Ordinal comparer IS the point: a literal hashtable is case-insensitive, and the members of a group differ only in case.')]
+    param(
+        [AllowNull()][AllowEmptyCollection()][string[]]$RelativePath
+    )
+    $reasons = [hashtable]::new(0, [System.StringComparer]::Ordinal)
+    if ($null -eq $RelativePath -or $RelativePath.Count -lt 2) { return $reasons }
+    # A case-insensitive set keeps the first spelling of each path. When it
+    # is as large as the exact set, no two paths differ only in case.
+    $exact  = [System.Collections.Generic.HashSet[string]]::new($RelativePath, [System.StringComparer]::Ordinal)
+    $folded = [System.Collections.Generic.HashSet[string]]::new($RelativePath, [System.StringComparer]::OrdinalIgnoreCase)
+    if ($folded.Count -eq $exact.Count) { return $reasons }
+    # The later spellings (the exact set less the first ones), then the first
+    # spellings they collide with: together, every member of every group.
+    $later = $exact
+    $later.ExceptWith($folded)
+    $firsts = [System.Collections.Generic.HashSet[string]]::new($folded, [System.StringComparer]::OrdinalIgnoreCase)
+    $firsts.IntersectWith($later)
+    $groups = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[string]]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in @($firsts) + @($later)) {
+        if (-not $groups.ContainsKey($path)) { $groups[$path] = [System.Collections.Generic.List[string]]::new() }
+        $groups[$path].Add($path)
+    }
+    foreach ($group in $groups.Values) {
+        # Ordinal order, so the reason reads the same on every run.
+        $members = $group.ToArray()
+        [System.Array]::Sort([System.Array]$members, [System.Collections.IComparer][System.StringComparer]::Ordinal)
+        foreach ($member in $members) {
+            $others = @($members | Where-Object { $_ -cne $member } | ForEach-Object { "'$_'" }) -join ', '
+            $reasons[$member] = "its path differs only in letter case from $others, and a Windows restore can hold only one of them"
+        }
+    }
+    return $reasons
+}
+
 function Get-DataFile {
     <#
     .SYNOPSIS
@@ -504,7 +577,9 @@ function Get-SourceDirectoryRecord {
 
         Non-portable directory names (SR-055) are skipped with a warning rather
         than failing the set again - the files beneath such a name have already
-        failed it, and a directory row is advisory.
+        failed it, and a directory row is advisory. So are directories whose
+        paths differ from another's only in letter case: a Windows restore
+        makes one folder of them (Get-CaseOnlyCollision).
 
         The volume-root pseudo-folders ($RECYCLE.BIN, System Volume Information)
         are skipped exactly as the source walk skips their files (SR-074):
@@ -525,7 +600,7 @@ function Get-SourceDirectoryRecord {
         same state write byte-identical sidecars (the canonical-bytes rule the
         manifest follows).
     #>
-    # Implements: SR-065, SR-074, LLR-065
+    # Implements: SR-065, SR-074, SR-055, LLR-065
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourcePath,
@@ -556,6 +631,7 @@ function Get-SourceDirectoryRecord {
         $target = "$($e.TargetObject)"
         if ($target) { $unreadable.Add($target) }
     }
+    $caseCollision = Get-CaseOnlyCollision -RelativePath ([string[]]@(foreach ($d in $dirs) { $d.FullName.Substring($root.Length).TrimStart('\', '/') }))
 
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($d in $dirs) {
@@ -574,6 +650,10 @@ function Get-SourceDirectoryRecord {
         $reason = Test-PortableRelativePath -RelativePath $rel
         if ($reason) {
             if ($Log) { & $Log "Directory '$rel' is not recorded in the directory sidecar: $reason (SR-055/SR-065)." 'WARN' }
+            continue
+        }
+        if ($caseCollision.ContainsKey($rel)) {
+            if ($Log) { & $Log "Directory '$rel' is not recorded in the directory sidecar: $($caseCollision[$rel]) (SR-055/SR-065)." 'WARN' }
             continue
         }
 
@@ -4732,7 +4812,9 @@ function Get-SourceFileList {
         builds kept at the source root - MANIFEST.csv, its witness and their
         temp files - and only when that record lived there, i.e. no separate
         SourceStatePath was configured (plan C6). Everything else is user data.
-        A name that is not portable is reported, not captured (SR-055).
+        A name that is not portable is reported, not captured (SR-055), and so
+        is every path that differs from another only in letter case: a Windows
+        restore holds one file for the group (Get-CaseOnlyCollision).
 
     .PARAMETER SourcePath
         The resolved source root.
@@ -4753,6 +4835,7 @@ function Get-SourceFileList {
     $unreadable = [System.Collections.Generic.List[object]]::new()
     $unportable = [System.Collections.Generic.List[object]]::new()
     $files      = [System.Collections.Generic.List[object]]::new()
+    $filePaths  = [System.Collections.Generic.List[string]]::new()
     $oldRecord  = @($script:Def.DatabaseFilename, $script:Def.WitnessFilename,
                     $script:Def.DatabaseTempFilename, "$($script:Def.WitnessFilename).tmp")
     $enumErr = $null
@@ -4772,6 +4855,21 @@ function Get-SourceFileList {
             continue
         }
         $files.Add([pscustomobject]@{ RelativePath = $rel; File = $f })
+        $filePaths.Add($rel)
+    }
+    # Checked over the portable files only: every SR-055 rule ignores letter
+    # case, so the members of a case group are all portable or all not.
+    $collisions = Get-CaseOnlyCollision -RelativePath $filePaths.ToArray()
+    if ($collisions.Count -gt 0) {
+        $kept = [System.Collections.Generic.List[object]]::new()
+        foreach ($item in $files) {
+            if ($collisions.ContainsKey($item.RelativePath)) {
+                $unportable.Add([pscustomobject]@{ RelativePath = $item.RelativePath; Reason = $collisions[$item.RelativePath] })
+            } else {
+                $kept.Add($item)
+            }
+        }
+        $files = $kept
     }
     return [pscustomobject]@{ Files = $files; Unportable = $unportable; Unreadable = $unreadable }
 }
@@ -7276,7 +7374,7 @@ function Import-BackupConfiguration {
 # endregion
 
 Export-ModuleMember -Function @(
-    'Test-IsInfrastructureFile', 'Test-PortableRelativePath', 'Get-DataFile',
+    'Test-IsInfrastructureFile', 'Test-PortableRelativePath', 'Get-CaseOnlyCollision', 'Get-DataFile',
     'Get-LastHashRun', 'Set-LastHashRun',
     'Get-LastBackupRun', 'Set-LastBackupRun',
     'Resolve-OptionalTool', 'Initialize-Dependencies', 'Get-MediaMBPerSec',

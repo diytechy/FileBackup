@@ -460,6 +460,129 @@ Describe 'Corner cases warn and the run carries on (R1)' {
     }
 }
 
+Describe 'Paths that differ only in letter case are not captured (SR-055, review 2026-10-26 item 7)' {
+    # Two such paths are two files on a case-sensitive source and one file on
+    # a Windows restore, which keeps the second silently. By the Owner's
+    # ruling each member is treated as an unportable name: warned about, not
+    # captured, its earlier row kept, and the set reports 1.
+    BeforeAll {
+        $script:sep = [IO.Path]::DirectorySeparatorChar
+
+        function Enable-CaseSensitiveSource {
+            # True when the store's source folder can hold two names that
+            # differ only in case: natively on Linux; on Windows through NTFS
+            # per-folder case sensitivity (fsutil, on an empty folder; folders
+            # made inside it inherit it). Proven with two probe files rather
+            # than read from fsutil's exit code.
+            param($Store)
+            if ($IsWindows) { & fsutil.exe file setCaseSensitiveInfo $Store.Src enable 2>&1 | Out-Null }
+            $upper = Join-Path $Store.Src 'CASEPROBE'
+            $lower = Join-Path $Store.Src 'caseprobe'
+            try {
+                [IO.File]::WriteAllText($upper, 'U')
+                [IO.File]::WriteAllText($lower, 'l')
+                return (@([IO.Directory]::GetFiles($Store.Src)).Count -eq 2)
+            } catch {
+                return $false
+            } finally {
+                [IO.File]::Delete($upper)
+                [IO.File]::Delete($lower)
+            }
+        }
+    }
+
+    It 'names every member of a case group, at any level, and nothing else (review 2026-10-26 item 7)' {
+        $found = Get-CaseOnlyCollision -RelativePath @(
+            "Docs${sep}a.txt", "docs${sep}a.txt",       # a collision one level up
+            "Docs${sep}b.txt", "docs${sep}c.txt",       # case-different folders, different files: both restore
+            'Img.JPG', 'img.jpg', 'IMG.jpg',            # a group of three
+            'notes.txt', 'notes.txt.bak', 'Notes2.txt'  # ordinary names
+        )
+        # Joined and compared exactly: Should -Be on an array ignores case.
+        $keys = [string[]]@($found.Keys)
+        [System.Array]::Sort([System.Array]$keys, [System.Collections.IComparer][System.StringComparer]::Ordinal)
+        $keys -join '|' | Should -BeExactly "Docs${sep}a.txt|IMG.jpg|Img.JPG|docs${sep}a.txt|img.jpg"
+        $found["Docs${sep}a.txt"] | Should -BeExactly "its path differs only in letter case from 'docs${sep}a.txt', and a Windows restore can hold only one of them"
+        $found['img.jpg'] | Should -BeExactly "its path differs only in letter case from 'IMG.jpg', 'Img.JPG', and a Windows restore can hold only one of them"
+        # The same name in another folder, a longer name, the same path twice.
+        (Get-CaseOnlyCollision -RelativePath @('a.txt', "sub${sep}A.txt", 'b.TXT', 'B.txt.old', 'c.txt', 'c.txt')).Count | Should -Be 0
+        (Get-CaseOnlyCollision -RelativePath @()).Count | Should -Be 0
+    }
+
+    It 'reports case twins from the source walk as unportable and lists the rest (review 2026-10-26 item 7)' {
+        # The walk injected, so this runs on any volume: the files are never
+        # opened, only named.
+        $src = Join-Path $TestDrive 'case-walk'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        $script:caseWalk = @(foreach ($rel in "Docs${sep}a.txt", "docs${sep}a.txt", "docs${sep}c.txt", 'keep.txt', 'Readme.md', 'README.md') {
+            [IO.FileInfo]::new((Join-Path $src $rel))
+        })
+        Mock -ModuleName FileBackup.Engine Get-ChildItem { $script:caseWalk } -ParameterFilter { $File }
+        $walk = Get-SourceFileList -SourcePath $src -ExcludeOldSourceRecord $true
+        @($walk.Files | ForEach-Object RelativePath) -join '|' | Should -BeExactly "docs${sep}c.txt|keep.txt"
+        @($walk.Unportable | ForEach-Object RelativePath) -join '|' | Should -BeExactly "Docs${sep}a.txt|docs${sep}a.txt|Readme.md|README.md"
+        @($walk.Unportable | Where-Object RelativePath -CEQ 'README.md')[0].Reason |
+            Should -BeExactly "its path differs only in letter case from 'Readme.md', and a Windows restore can hold only one of them"
+    }
+
+    It 'does not capture paths that differ only in case, keeps the earlier row, and reports 1 (review 2026-10-26 item 7)' {
+        $s = New-Store 'case-twins'
+        if (-not (Enable-CaseSensitiveSource $s)) { Set-ItResult -Skipped -Because 'this volume cannot hold two names that differ only in case'; return }
+        Set-SourceFile $s "Docs${sep}a.txt" 'first'
+        Set-SourceFile $s "Docs${sep}b.txt" 'bravo'
+        Set-SourceFile $s 'keep.txt' 'keep'
+        Invoke-Run $s '2026-10-01T10:00:00' | Should -Be 0
+
+        Set-SourceFile $s "Docs${sep}a.txt" 'first, edited'   # changed, but its twin keeps it from being captured
+        Set-SourceFile $s "docs${sep}a.txt" 'twin'            # a twin one level up
+        Set-SourceFile $s "docs${sep}c.txt" 'charlie'         # under the twin folder, but no twin of its own
+        Set-SourceFile $s 'Readme.md' 'one'                   # twins with no earlier row
+        Set-SourceFile $s 'README.md' 'two'
+        Set-SourceFile $s 'new.txt' 'new'
+        Invoke-Run $s '2026-10-02T10:00:00' | Should -Be 1 -Because 'a file not captured makes the set report 1'
+
+        $log = Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log') -Raw
+        foreach ($pair in @(@("Docs${sep}a.txt", "docs${sep}a.txt"), @("docs${sep}a.txt", "Docs${sep}a.txt"),
+                            @('README.md', 'Readme.md'), @('Readme.md', 'README.md'))) {
+            $log | Should -MatchExactly ([regex]::Escape("Not capturing '$($pair[0])': its path differs only in letter case from '$($pair[1])'"))
+        }
+        $log | Should -MatchExactly ([regex]::Escape("Directory 'docs' is not recorded in the directory sidecar: its path differs only in letter case from 'Docs'"))
+
+        $paths = [string[]]@(Read-Manifest -FolderPath $s.Bkp | ForEach-Object RelativePath)
+        foreach ($rel in "docs${sep}a.txt", 'Readme.md', 'README.md') {
+            $paths -ccontains $rel | Should -BeFalse -Because "'$rel' differs only in case from another source path"
+        }
+        $paths.Count | Should -Be 5 -Because 'the rest of the source is captured'
+        $state = Get-StateContent $s $s.Bkp
+        $state["Docs${sep}a.txt"] | Should -Be 'first' -Because 'its earlier row is kept, as for any name that is not captured'
+        $state["docs${sep}c.txt"] | Should -Be 'charlie'
+        $state['new.txt'] | Should -Be 'new'
+
+        # Renamed at the source, both are captured and the set reports 0.
+        [IO.File]::Move((Join-Path $s.Src "docs${sep}a.txt"), (Join-Path $s.Src "docs${sep}a2.txt"))
+        [IO.File]::Delete((Join-Path $s.Src 'README.md'))
+        Invoke-Run $s '2026-10-03T10:00:00' | Should -Be 0
+        $state = Get-StateContent $s $s.Bkp
+        $state["Docs${sep}a.txt"] | Should -Be 'first, edited'
+        $state["docs${sep}a2.txt"] | Should -Be 'twin'
+        $state['Readme.md'] | Should -Be 'one'
+    }
+
+    It 'captures every file of a case-sensitive source whose paths do not collide, and reports 0 (review 2026-10-26 item 7)' {
+        $s = New-Store 'case-distinct'
+        if (-not (Enable-CaseSensitiveSource $s)) { Set-ItResult -Skipped -Because 'this volume cannot hold two names that differ only in case'; return }
+        Set-SourceFile $s "Docs${sep}b.txt" 'bravo'
+        Set-SourceFile $s "docs${sep}c.txt" 'charlie'
+        Set-SourceFile $s 'Notes.txt' 'notes'
+        Set-SourceFile $s "archive${sep}notes.txt" 'archived notes'
+        Set-SourceFile $s 'notes.txt.bak' 'older notes'
+        Invoke-Run $s '2026-10-01T10:00:00' | Should -Be 0
+        Get-Content -LiteralPath (Join-Path $s.Chg 'backup.log') -Raw | Should -Not -Match 'Not capturing'
+        Format-State (Get-StateContent $s $s.Bkp) |
+            Should -BeExactly "archive${sep}notes.txt=archived notes;Docs${sep}b.txt=bravo;docs${sep}c.txt=charlie;Notes.txt=notes;notes.txt.bak=older notes"
+    }
+}
+
 Describe 'A source that goes away is no state of the source (plan section 6)' {
     It 'stops with 4 and keeps the latest state when the source root disappears mid-run' {
         $s = New-Store 'src-vanish'
