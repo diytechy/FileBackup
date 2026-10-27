@@ -641,6 +641,51 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         Test-Path -LiteralPath $chg | Should -BeFalse
     }
 
+    It 'holds no whole manifest in the index it builds, and its findings are unchanged (SR-049, defect review 2026-10-05 M-1)' {
+        # The audit reads each folder's manifest itself, one at a time, and
+        # asks the index only for its Map; an index holding every manifest of
+        # the pool (~420 MB per 182k-row manifest) is memory for no reader.
+        $root = Join-Path $TestDrive 'm1-audit'
+        $t = New-FormDivergedTimeline -Root $root -StartCompressed $false
+        [IO.File]::WriteAllText((Join-Path $t.Src 'b.txt'), 'v3')
+        Invoke-FormBackup -Cfg (Join-Path $root 'a.xml') -At ([datetime]'2024-03-03 00:00:03') | Out-Null
+        $snaps = @(Get-PoolSnapshotFolder -ChangeRoot $t.Chg | Where-Object { $_ } | ForEach-Object { $_.FullName })
+        $snaps.Count | Should -Be 2 -Because 'the store needs several snapshots'
+        # A finding in each folder: the first snapshot's blank-row disagreement
+        # (the fixture), a flag over raw bytes in the backup root, a stray file
+        # in the second snapshot.
+        $rows = @(Import-Csv -LiteralPath (Join-Path $t.Bkp 'MANIFEST.csv'))
+        @($rows | Where-Object RelativePath -eq 'b.txt')[0].Compressed = 'Yes'
+        Set-ManifestRows -Folder $t.Bkp -Rows $rows
+        [IO.File]::WriteAllText((Join-Path $snaps[1] 'stray.bin'), 'no row names me')
+
+        # What the audit reported when its index held every manifest.
+        $whole = Get-BackupContentIndex -BackupRoot $t.Bkp -SnapshotFolder $snaps -IncludeManifests
+        $expected = @(foreach ($folder in @($t.Bkp) + $snaps) {
+            Get-StorageFormFinding -Folder $folder -Manifest @(Read-Manifest -FolderPath $folder) -Index $whole
+        })
+
+        # The index the audit builds, seen through the real function.
+        $script:auditIndexes = [System.Collections.Generic.List[object]]::new()
+        $script:realContentIndex = Get-Command -Name Get-BackupContentIndex -Module FileBackup.Engine
+        Mock -ModuleName FileBackup.Engine Get-BackupContentIndex {
+            $built = & $script:realContentIndex @PesterBoundParameters
+            $script:auditIndexes.Add($built)
+            $built
+        }
+        $actual = @(Test-BackupStorageForm -BackupRoot $t.Bkp -ChangeRoot $t.Chg)
+
+        $script:auditIndexes.Count | Should -Be 1
+        $script:auditIndexes[0].Folders.Count | Should -Be 3
+        foreach ($rec in $script:auditIndexes[0].Folders) {
+            $rec.PSObject.Properties['Manifest'] | Should -BeNullOrEmpty -Because "the audit reads '$($rec.Name)' itself"
+        }
+        @($expected | ForEach-Object Class | Sort-Object -Unique) -join ',' |
+            Should -Be 'BlankRowFormDisagreement,FlagOverRaw,Unreferenced' -Because 'the comparison must not be vacuous'
+        @($actual | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join "`n" |
+            Should -BeExactly (@($expected | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join "`n")
+    }
+
     It 'reports a payload that does not reproduce the row under -Deep (SR-049)' {
         $s = New-MalformedStore -Root (Join-Path $TestDrive 'tc093-deep')
         # c.txt is a NameLies row; repair it first so -Deep reaches the payload

@@ -804,7 +804,8 @@ function Get-BackupContentIndex {
         Retain each folder's whole manifest in Folders[].Manifest. Off by default
         (M-1, defect review 2026-10-05): a retained manifest costs ~2.3 KB per row,
         so the lean default keeps only DataPaths. Callers that read whole rows
-        (prune, pool-resolve, the Verify/Rollback paths) pass it.
+        from the index (prune, pool-resolve, the G9 Rollback suite) pass it;
+        the storage-form audit reads only Map and does not.
 
     .OUTPUTS
         [pscustomobject] Map (hashtable key -> List of location records with
@@ -1710,7 +1711,11 @@ function Test-BackupStorageForm {
         # $null iteration, and @($null) casts to [string[]] as @('') (AGENTS.md §4).
         @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot | Where-Object { $_ } | ForEach-Object { $_.FullName })
     } else { @() }
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder $poolSnapshots -IncludeManifests
+    # The lean index: Get-StorageFormFinding reads only its Map, and each
+    # folder's manifest is read below, one at a time. -IncludeManifests would
+    # hold every manifest of the pool at once (~420 MB per 182k-row manifest,
+    # defect review 2026-10-05 M-1) for no reader.
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder $poolSnapshots
 
     $all = New-Object System.Collections.Generic.List[object]
     foreach ($folder in @($BackupRoot) + $snapshots) {
