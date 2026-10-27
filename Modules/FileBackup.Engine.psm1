@@ -488,6 +488,10 @@ function Get-SourceDirectoryRecord {
         than failing the set again - the files beneath such a name have already
         failed it, and a directory row is advisory.
 
+        The volume-root pseudo-folders ($RECYCLE.BIN, System Volume Information)
+        are skipped exactly as the source walk skips their files (SR-074):
+        recorded, every restore of a volume-root backup recreated them.
+
     .PARAMETER SourcePath
         The source root being backed up.
 
@@ -503,7 +507,7 @@ function Get-SourceDirectoryRecord {
         same state write byte-identical sidecars (the canonical-bytes rule the
         manifest follows).
     #>
-    # Implements: SR-065, LLR-065
+    # Implements: SR-065, SR-074, LLR-065
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourcePath,
@@ -539,6 +543,9 @@ function Get-SourceDirectoryRecord {
     foreach ($d in $dirs) {
         $rel = $d.FullName.Substring($root.Length).TrimStart('\', '/')
         if (-not $rel) { continue }
+        # Not the user's folders, only at a volume root's top level (SR-074,
+        # review 2026-10-26): Get-SourceFileList drops their files the same way.
+        if (Test-IsVolumeRootPseudoPath -Root $root -FullPath $d.FullName) { continue }
 
         $isUnreadable = $false
         foreach ($bad in $unreadable) {

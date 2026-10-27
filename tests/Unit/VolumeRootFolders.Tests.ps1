@@ -33,7 +33,9 @@ BeforeAll {
         #>
         param([Parameter(Mandatory)][string]$BackingPath)
         $used = @([System.IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0,1).ToUpper() })
-        foreach ($letter in [char[]]('X','Y','W','V','U','T')) {
+        # More letters than one run needs: mapped drives and subst mappings an
+        # earlier, killed run left can take the first few.
+        foreach ($letter in [char[]]('X','Y','W','V','U','T','R','O','N','M','K','J','I','H')) {
             if ($used -contains "$letter") { continue }
             & subst "${letter}:" $BackingPath 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) { return "${letter}:" }
@@ -147,6 +149,43 @@ Describe 'Source enumeration at a REAL volume root (SR-074, TC-176/TC-177)' {
         } finally {
             icacls $svi /remove:d "${env:USERNAME}" | Out-Null
         }
+    }
+}
+
+Describe 'The directory sidecar at a REAL volume root (SR-074, SR-065, review 2026-10-26)' {
+    BeforeAll {
+        $script:backing3 = Join-Path $TestDrive 'vol3'
+        New-Item -ItemType Directory -Path $backing3 -Force | Out-Null
+        $script:drive3 = New-SubstVolume -BackingPath $backing3
+    }
+    AfterAll { Remove-SubstVolume -Drive $script:drive3 }
+
+    It 'does not record the volume pseudo-folders, so no restore recreates them (review 2026-10-26)' {
+        if (-not $script:drive3) { Set-ItResult -Skipped -Because 'no free drive letter for subst'; return }
+        $root = "$($script:drive3)\"
+        Set-Content -LiteralPath (Join-Path $root 'real.txt') -Value 'keep me' -Encoding ASCII
+        # What Windows leaves at a volume root: a recycle bin with a per-user
+        # folder and an empty System Volume Information. Neither holds a file
+        # the walk captures, so each would read as an empty directory.
+        New-Item -ItemType Directory -Path (Join-Path $root '$RECYCLE.BIN\S-1-5-21-1-2-3-1001') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $root 'System Volume Information') -Force | Out-Null
+        # The user's own empty folders, one of them nested under a pseudo-name (B6).
+        New-Item -ItemType Directory -Path (Join-Path $root 'empty') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $root 'docs\System Volume Information') -Force | Out-Null
+
+        $rows = @(Get-SourceDirectoryRecord -SourcePath $root -FileRelativePath @('real.txt') | ForEach-Object RelativePath)
+        @($rows | Where-Object { $_ -like '$RECYCLE.BIN*' -or $_ -like 'System Volume Information*' }) |
+            Should -BeNullOrEmpty -Because 'they are the volume''s, not the user''s'
+        $rows | Should -Contain 'empty'
+        $rows | Should -Contain 'docs\System Volume Information' -Because 'a NESTED folder of that name is user data'
+    }
+
+    It 'still records a folder of that name at an ORDINARY root (SR-074 T2)' {
+        $src = Join-Path $TestDrive 'ordinary-dirs'
+        New-Item -ItemType Directory -Path (Join-Path $src '$RECYCLE.BIN') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'real.txt') -Value 'keep me' -Encoding ASCII
+        @(Get-SourceDirectoryRecord -SourcePath $src -FileRelativePath @('real.txt') | ForEach-Object RelativePath) |
+            Should -Contain '$RECYCLE.BIN'
     }
 }
 

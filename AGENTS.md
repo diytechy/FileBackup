@@ -227,7 +227,7 @@ Imports (internal): `Common`
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
 | `Get-SortedManifestRow` | yes | SR-024, SR-025 |
-| `Get-SourceDirectoryRecord` | yes | SR-065, LLR-065 |
+| `Get-SourceDirectoryRecord` | yes | SR-065, SR-074, LLR-065 |
 | `Get-SourceFileList` | yes | SR-001, SR-055, SR-057, SR-074, LLR-001, LLR-055, LLR-057 |
 | `Get-StagingOsLockPath` | yes | SR-085, SR-087, LLR-090, LLR-093 |
 | `Get-StorageFormFinding` | yes | SR-049, LLR-049 |
