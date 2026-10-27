@@ -149,8 +149,11 @@ setup() {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
       # row 1: host class (archive candidate, no 7z)
       printf '"","payload.txt","%s","d","%s","No","Hash","0",""\r\n' "$len" "$h"
-      # row 2: content class (a DataPath that simply is not there)
-      printf '"%s","gone.txt","4","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","No","Hash","0",""\r\n' \
+      # row 2: content class (a DataPath that is not there, and no key to
+      # recover it by). Since review 2026-10-26 A7 a missing DataPath WITH a
+      # key keeps the content scan's cause, and in this pool every scan meets
+      # an archive it cannot test without 7z (DependencyMissing, host class).
+      printf '"%s","gone.txt","4","d","","No","Hash","0",""\r\n' \
         "$(hash_size_name 'DEADBEEFDEADBEEFDEADBEEFDEADBEEF' 4 '.bin')"
     } > "$bad/MANIFEST.csv"
     # Non-matching bytes, for the same kit-revision-5 reason as the test above.
