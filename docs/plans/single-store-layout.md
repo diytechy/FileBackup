@@ -34,7 +34,7 @@ is part of the pool.
 
 | # | Ruling |
 |---|---|
-| L1 | Configuration: one key, `StorePath`, replaces `BackupPath` and `ChangePath` (ConfigVersion 3). A configuration that still names them is refused before anything is touched, with a message saying how to convert it. |
+| L1 | Configuration: one key, `StorePath`, replaces `BackupPath` and `ChangePath` (ConfigVersion 3). The latest state's folder is named exactly `Latest`. A configuration that still names them is refused before anything is touched, with a message saying how to convert it. |
 | L2 | No migration. A store in the old layout is set aside and keeps restoring with the kits already inside it. The new kit knows only the new layout; `-Action Verify -RefreshKits` refuses an old-layout store rather than give it a kit that cannot read it. |
 | L3 | The browse view's default location is `<StorePath>/View`, so everything of one set lives in one folder. Neither the engine nor a restorer reads it. |
 | L4 | The one-mount check stays (a cheap directory rename): `Latest` and the snapshots must still be on one mount, and a Linux bind mount could split them. |
@@ -63,8 +63,7 @@ is part of the pool.
 
 ## Left to the implementer, to settle and report
 
-- The exact name and case of `Latest`, and how the kit recognizes an old-layout
-  store in order to refuse it cleanly.
+- How the kit recognizes an old-layout store in order to refuse it cleanly.
 - Whether any restorer override besides the store override is still needed.
 
 ## Done when
