@@ -2110,9 +2110,16 @@ Describe 'Reported reclaim equals measured reclaim (SR-047)' {
         # delta explicitly rather than pretending it does not exist.
         $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
         $destFolders = @($plan.Items.ToArray() | ForEach-Object { $_.DestinationFolder } | Select-Object -Unique)
+        # No witness is written any more (plan R5), so a folder normally has
+        # none: count one only where it exists. Asking Get-Item for the absent
+        # file passed only while the session's error preference let the error
+        # through, and failed the full suite whenever an earlier file left it
+        # at 'Stop' (2026-10-27 gate).
         $indexBytes = {
             [long](@($destFolders | ForEach-Object {
-                Get-Item -LiteralPath (Join-Path $_ 'MANIFEST.csv'), (Get-ManifestWitnessPath -FolderPath $_)
+                Get-Item -LiteralPath (Join-Path $_ 'MANIFEST.csv')
+                $witness = Get-ManifestWitnessPath -FolderPath $_
+                if (Test-Path -LiteralPath $witness -PathType Leaf) { Get-Item -LiteralPath $witness }
             } | Measure-Object -Property Length -Sum).Sum)
         }
         $indexBefore = & $indexBytes
