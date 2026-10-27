@@ -2514,7 +2514,11 @@ Describe 'Retention at the entry point and the container boundary (SR-048)' {
 
     It 'there is no prune in bash: reconstruct.sh carries no snapshot-removal path' {
         $sh = Get-Content -LiteralPath (Join-Path $repo 'bash\reconstruct.sh') -Raw
-        $sh | Should -Not -Match '(?i)prune'
+        # The CODE carries no prune: comment lines may explain one, and the
+        # name index skips a prune's staged copy by its '.fbprune.tmp' suffix
+        # (review 2026-10-26 A3) - reading past a prune's residue, not pruning.
+        $code = (($sh -split "`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+        ($code -replace "'\.fbprune\.tmp'", '') | Should -Not -Match '(?i)prune'
         $sh | Should -Not -Match 'Pruning_'
         # No line deletes a snapshot folder or a manifest.
         foreach ($line in ($sh -split "`n")) {
