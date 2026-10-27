@@ -344,6 +344,51 @@ Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
     }
 }
 
+Describe 'A failed write leaves no partial file and deletes nothing it did not write (review 2026-10-26 B)' {
+    # White-box: Restore-OneRow is lifted out of Reconstruct.ps1's AST (it is a
+    # script, and dot-sourcing it would start a restore), so the write can be
+    # made to fail part-way. reconstruct.sh's restore_one is the bats twin
+    # (tests/bash/restore_verify.bats).
+    BeforeAll {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $repo 'Reconstruct.ps1'), [ref]$null, [ref]$null)
+        $fn = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                             $n.Name -eq 'Restore-OneRow' }, $true) | Select-Object -First 1
+        if (-not $fn) { throw 'Reconstruct.ps1 no longer defines Restore-OneRow' }
+        . ([scriptblock]::Create($fn.Extent.Text))
+        $script:wrRow = [pscustomobject]@{ xxH2Hash = 'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDD'; Length = '10' }
+    }
+
+    It 'removes the partial file a copy that fails part-way leaves (review 2026-10-26 B, partial files)' {
+        $d = Join-Path $TestDrive 'partial-copy'
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        $src = Join-Path $d 'src.bin'; $dest = Join-Path $d 'dest.bin'
+        [IO.File]::WriteAllText($src, 'GOOD-BYTES')
+        # What a full target volume does: the destination is created and part
+        # of it written before the copy throws.
+        Mock Copy-Item { [IO.File]::WriteAllText($Destination, 'GOOD'); throw 'There is not enough space on the disk.' }
+
+        $r = Restore-OneRow -SrcFull $src -DestFull $dest -NeedsExpand $false -Row $wrRow
+        $r.Outcome | Should -Be 'hostfail'
+        $r.Cause   | Should -Be 'CandidateError'
+        $r.Detail  | Should -Match 'not enough space'
+        Should -Invoke Copy-Item -Times 1 -Exactly
+        Test-Path -LiteralPath $dest | Should -BeFalse -Because 'a truncated file must not stay at the restored path'
+    }
+
+    It 'keeps a file already at the destination when an expand fails (parity with reconstruct.sh, restorers F6)' {
+        $d = Join-Path $TestDrive 'failed-expand'
+        New-Item -ItemType Directory -Path $d -Force | Out-Null
+        $dest = Join-Path $d 'dest.bin'
+        [IO.File]::WriteAllText($dest, 'EARLIER-RESTORE')
+        Mock Expand-FileWithSevenZip { throw '7-Zip extraction failed' }
+
+        $r = Restore-OneRow -SrcFull (Join-Path $d 'obj.7z') -DestFull $dest -NeedsExpand $true -Row $wrRow
+        $r.Outcome | Should -Be 'hostfail'
+        [IO.File]::ReadAllText($dest) | Should -Be 'EARLIER-RESTORE'
+    }
+}
+
 Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-114)' {
     # Site-specific probes for the D-4 -Force sweep; the end-to-end capture
     # across all four modes is suite case G5.8 (TC-113).

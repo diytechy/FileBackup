@@ -95,6 +95,36 @@ one_row_store() {
     [ -f "$d/dest.bin" ]
 }
 
+@test "restore_one: a copy that fails part-way removes its partial file (rc=21) (review 2026-10-26 B, partial files)" {
+    # White-box, like the read-back case above: cp writes the destination in
+    # place, so a full target volume leaves a truncated file at the restored
+    # path unless restore_one removes it.
+    source "$RS"
+    cp() { printf 'GOOD' > "${@: -1}"; return 1; }
+    local d="$BATS_TEST_TMPDIR/pcopy"
+    mkdir -p "$d"
+    printf 'GOOD-BYTES' > "$d/src.bin"
+    local rc=0
+    restore_one "$d/src.bin" "$d/dest.bin" 0 'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' 10 || rc=$?
+    [ "$rc" -eq 21 ]
+    [ ! -e "$d/dest.bin" ]
+}
+
+@test "restore_one: a failed expand leaves a file already at the destination untouched (rc=20) (review 2026-10-26 B, restorers F6)" {
+    # sevenzip_to_file moves its payload into place only as its last step, so
+    # a failed expand never wrote dest: the file there is one an earlier run
+    # restored and verified, and deleting it lost that row on a re-run.
+    source "$RS"
+    sevenzip_to_file() { return 1; }
+    local d="$BATS_TEST_TMPDIR/pexpand"
+    mkdir -p "$d"
+    printf 'EARLIER-RESTORE' > "$d/dest.bin"
+    local rc=0
+    restore_one "$d/obj.7z" "$d/dest.bin" 1 'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' 10 || rc=$?
+    [ "$rc" -eq 20 ]
+    [ "$(cat "$d/dest.bin")" = 'EARLIER-RESTORE' ]
+}
+
 @test "2: a non-numeric Length is refused as a PRECONDITION before anything is written (review minor 7)" {
     # Parity: RECONSTRUCT.ps1's casts refuse the same index shape as class 2;
     # restoring such a row unverified would silently disable SR-056 for it.

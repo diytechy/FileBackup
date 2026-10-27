@@ -1409,7 +1409,9 @@ function Restore-OneRow {
                                written, for the ContentMismatch log line.
           Outcome 'hostfail' — the write itself failed (extraction/copy/
                                read-back I/O); Cause/Detail ready for
-                               Add-Unrestored, host class (SR-040).
+                               Add-Unrestored, host class (SR-040). A failed
+                               copy's partial destination is deleted; a
+                               failed expand never touched the destination.
     #>
     # Implements: SR-056, LLR-056
     param(
@@ -1429,8 +1431,16 @@ function Restore-OneRow {
         try {
             Copy-Item -LiteralPath $SrcFull -Destination $DestFull -Force
         } catch {
+            $copyError = $_.Exception.Message
+            # Copy-Item writes the destination in place, so a copy that fails
+            # part-way (a full target volume) leaves a truncated file at the
+            # restored path. Incomplete bytes must not stay where good ones
+            # were asked for (review 2026-10-26 B; restore_one in
+            # reconstruct.sh does the same). A failed expand, above, never
+            # touched the destination, so it removes nothing.
+            Remove-Item -LiteralPath $DestFull -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{ Outcome = 'hostfail'; Cause = 'CandidateError'
-                Detail = "Copy from '$SrcFull' failed: $($_.Exception.Message)"; Got = $null }
+                Detail = "Copy from '$SrcFull' failed: $copyError"; Got = $null }
         }
     }
     # A RESTORED TREE IS ORDINARY WRITABLE FILES (human ruling 2026-08-28).

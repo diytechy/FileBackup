@@ -335,7 +335,8 @@ sevenzip_usable() {
 # On a mismatch the bad destination file is DELETED before returning.
 #
 # Returns 0 ok; 10 mismatch (RESTORE_GOT carries "<hash>/<len>" written, the
-# bad destination is DELETED); 20 extraction failed; 21 copy failed; 22 the
+# bad destination is DELETED); 20 extraction failed (the destination is NOT
+# touched); 21 copy failed (the partial destination is DELETED); 22 the
 # written file could not be read back for verification (stat/hash failure —
 # a HOST condition; the file is KEPT, matching Restore-OneRow). Called
 # DIRECTLY (never via command substitution) so the RESTORE_GOT global
@@ -346,9 +347,18 @@ restore_one() {
     local src="$1" dest="$2" needs_expand="$3" want_hash="$4" want_len="$5" sz h
     RESTORE_GOT=''
     if (( needs_expand )); then
-        if ! sevenzip_to_file "$src" "$dest"; then rm -f -- "$dest" 2>/dev/null; return 20; fi
+        # sevenzip_to_file moves its payload into dest only as its last step,
+        # so a failed expand wrote nothing there. Removing dest here could only
+        # delete a file that was there before - a row an earlier run restored
+        # and verified (review 2026-10-26, restorers F6). Restore-OneRow keeps
+        # it too.
+        sevenzip_to_file "$src" "$dest" || return 20
     else
-        cp -f -- "$src" "$dest" 2>/dev/null || return 21
+        # cp writes dest in place, so a copy that fails part-way (a full
+        # target volume) leaves a truncated file at the restored path.
+        # Incomplete bytes must not stay where good ones were asked for
+        # (SR-056; review 2026-10-26 B). Restore-OneRow does the same.
+        if ! cp -f -- "$src" "$dest" 2>/dev/null; then rm -f -- "$dest" 2>/dev/null; return 21; fi
     fi
     # A RESTORED TREE IS ORDINARY WRITABLE FILES (human ruling 2026-08-28).
     # `cp` gives a newly created destination the SOURCE's mode bits, so a
