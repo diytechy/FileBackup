@@ -2032,6 +2032,44 @@ Describe 'Prune and the pool check read one manifest at a time (SR-045, SR-046, 
         Get-FileXxHash -FilePath $manifest | Should -Be $before
     }
 
+    It 'the plan reads the target''s manifest after every other one, so it holds no target rows while they are read (C43 review, finding 1)' {
+        $env = New-PruneTimeline -Root (Join-Path $TestDrive 'c43-order')
+        $script:c43Order = [System.Collections.Generic.List[string]]::new()
+        $script:realReadManifestO = Get-Command -Name Read-Manifest -Module FileBackup.Common
+        Mock -ModuleName FileBackup.Engine Read-Manifest {
+            $script:c43Order.Add([string]$FolderPath)
+            & $script:realReadManifestO @PesterBoundParameters
+        }
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $plan.Items.Count | Should -BeGreaterThan 0
+        $target = $plan.Folder
+        # The index reads every folder once; the plan then reads the others, and
+        # the target last.
+        $planReads = @($script:c43Order | Select-Object -Skip ($script:c43Order.Count - 3))
+        $planReads[-1] | Should -Be $target
+        @($planReads | Select-Object -SkipLast 1 | Where-Object { $_ -eq $target }).Count | Should -Be 0
+    }
+
+    It 'publishing checks every destination before it writes any: a changed second destination leaves the first unwritten (C43 review, finding 2)' {
+        $env = New-PruneTimeline -Root (Join-Path $TestDrive 'c43-twofolders')
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $first = $plan.Items.ToArray()[0]
+        # A second item for another folder whose planned row no longer matches.
+        $other = if ($first.DestinationFolder -eq $env.Bkp) { Join-Path $env.Chg $env.Oldest } else { $env.Bkp }
+        $plan.Items.Add([pscustomobject]@{
+            Key = $first.Key; SourceFullPath = $first.SourceFullPath; SourceDataPath = $first.SourceDataPath
+            SourceRow = $first.SourceRow; DestinationFolder = $other; DestinationDataPath = $first.DestinationDataPath
+            DestinationFullPath = (Join-Path $other $first.DestinationDataPath)
+            DestinationRowIndex = 0; DestinationRelativePath = 'not-the-planned-row.txt'
+            Compressed = $first.Compressed; StoredAsHashSize = $first.StoredAsHashSize; Bytes = $first.Bytes
+        })
+        $firstManifest = Join-Path $first.DestinationFolder 'MANIFEST.csv'
+        $before = Get-FileXxHash -FilePath $firstManifest
+
+        { Publish-PruneManifest -Plan $plan -Log { param($m, $l) } } | Should -Throw '*changed after the prune was planned*'
+        Get-FileXxHash -FilePath $firstManifest | Should -Be $before -Because 'no destination is written until every one is checked'
+    }
+
     It 'a damaged copy is no supply: the good copy in the target is not deleted beside it (C43, C37)' {
         # The destination row names the object by a DataPath that went stale
         # when the object moved into the newer snapshot. An empty file of that

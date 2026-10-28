@@ -1021,13 +1021,39 @@ function Get-SnapshotPrunePlan {
         $endangered[$key] = $locations[0]
     }
 
-    # The target's manifest, read once: its row count, the DataPaths it
-    # references, and the first row naming each endangered copy (Ordinal: two
-    # object names may differ only in case).
+    # Demand: rows OUTSIDE the target that resolve by (hash,length) and claim an
+    # endangered key, read one manifest at a time. A claim keeps the row's
+    # position, not the row.
+    $demand = @{}
+    if ($endangered.Count -gt 0) {
+        foreach ($f in $index.Folders) {
+            if ($f.Folder -eq $targetFolder) { continue }
+            $position = -1
+            foreach ($row in (Read-Manifest -FolderPath $f.Folder)) {
+                $position++
+                if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
+                $key = "$($row.xxH2Hash)|$($row.Length)"
+                if (-not $endangered.ContainsKey($key)) { continue }
+                $resolvesByHash = [string]::IsNullOrWhiteSpace($row.DataPath) -or
+                    -not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)
+                if (-not $resolvesByHash) { continue }
+                if (-not $demand.ContainsKey($key)) { $demand[$key] = New-Object System.Collections.Generic.List[object] }
+                $demand[$key].Add([pscustomobject]@{ FolderRecord = $f; RowIndex = $position; RelativePath = [string]$row.RelativePath })
+            }
+        }
+    }
+
+    # The target's manifest, read once and only now: its row count, the
+    # DataPaths it references, and the first row naming each endangered copy
+    # some other row demands (Ordinal: two object names may differ only in
+    # case). Read after the demand, so it holds source rows only for those -
+    # most of a snapshot's own objects simply go with it, and keeping a row for
+    # each would hold close to a second manifest while the others are read
+    # (independent review of C43, finding 1).
     $ownReferenced = @{}
     $sourceRowOf = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $wanted = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    foreach ($location in $endangered.Values) { [void]$wanted.Add($location.DataPath) }
+    foreach ($key in $demand.Keys) { [void]$wanted.Add($endangered[$key].DataPath) }
     $rowCount = 0
     foreach ($row in (Read-Manifest -FolderPath $targetFolder)) {
         $rowCount++
@@ -1053,28 +1079,6 @@ function Get-SnapshotPrunePlan {
     }
     $plan.UnreferencedData = @($unreferenced)
     $ownReferenced = $null
-
-    # Demand: rows OUTSIDE the target that resolve by (hash,length) and claim an
-    # endangered key, read one manifest at a time. A claim keeps the row's
-    # position, not the row.
-    $demand = @{}
-    if ($endangered.Count -gt 0) {
-        foreach ($f in $index.Folders) {
-            if ($f.Folder -eq $targetFolder) { continue }
-            $position = -1
-            foreach ($row in (Read-Manifest -FolderPath $f.Folder)) {
-                $position++
-                if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
-                $key = "$($row.xxH2Hash)|$($row.Length)"
-                if (-not $endangered.ContainsKey($key)) { continue }
-                $resolvesByHash = [string]::IsNullOrWhiteSpace($row.DataPath) -or
-                    -not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)
-                if (-not $resolvesByHash) { continue }
-                if (-not $demand.ContainsKey($key)) { $demand[$key] = New-Object System.Collections.Generic.List[object] }
-                $demand[$key].Add([pscustomobject]@{ FolderRecord = $f; RowIndex = $position; RelativePath = [string]$row.RelativePath })
-            }
-        }
-    }
 
     foreach ($key in $demand.Keys) {
         $source    = $endangered[$key]
@@ -2983,9 +2987,9 @@ function Publish-PruneManifest {
         The plan holds no manifest (C43), so each touched manifest is read here,
         one at a time, and each planned row is found by its position. A row
         there that no longer carries the planned RelativePath and content key
-        means the manifest changed since the plan: that throws before the
-        manifest is written, which the caller reports as 4 before the commit
-        point, nothing lost.
+        means the manifest changed since the plan: every destination is checked
+        before any is written, so that throws with every manifest as it was,
+        which the caller reports as 4 before the commit point, nothing lost.
 
     .PARAMETER Plan
         The Get-SnapshotPrunePlan result whose items have been materialized.
@@ -3004,16 +3008,31 @@ function Publish-PruneManifest {
         if (-not $byFolder.Contains($item.DestinationFolder)) { $byFolder[$item.DestinationFolder] = New-Object System.Collections.Generic.List[object] }
         $byFolder[$item.DestinationFolder].Add($item)
     }
+    # The planned row of each item, checked in its manifest as it is now.
+    $assertPlanned = {
+        param([object[]]$Rows, [string]$Folder, [object]$Item)
+        $i = [int]$Item.DestinationRowIndex
+        $row = if ($i -ge 0 -and $i -lt $Rows.Count) { $Rows[$i] } else { $null }
+        if ($null -eq $row -or [string]$row.RelativePath -cne $Item.DestinationRelativePath -or
+            "$($row.xxH2Hash)|$($row.Length)" -ne $Item.Key) {
+            throw ("The manifest in '$Folder' changed after the prune was planned: row $i is no longer " +
+                   "'$($Item.DestinationRelativePath)' with content $($Item.Key). Nothing was published; run the prune again.")
+        }
+        return $row
+    }
+    # Every destination is checked before any is written, one manifest at a
+    # time, so a refusal leaves every manifest as it was (independent review of
+    # C43, finding 2). The prune holds the store's lock, so nothing changes
+    # them between the two passes.
+    foreach ($folder in $byFolder.Keys) {
+        $rows = @(Read-Manifest -FolderPath $folder)
+        foreach ($item in $byFolder[$folder]) { [void](& $assertPlanned $rows $folder $item) }
+        $rows = $null
+    }
     foreach ($folder in $byFolder.Keys) {
         $rows = @(Read-Manifest -FolderPath $folder)
         foreach ($item in $byFolder[$folder]) {
-            $i = [int]$item.DestinationRowIndex
-            $row = if ($i -ge 0 -and $i -lt $rows.Count) { $rows[$i] } else { $null }
-            if ($null -eq $row -or [string]$row.RelativePath -cne $item.DestinationRelativePath -or
-                "$($row.xxH2Hash)|$($row.Length)" -ne $item.Key) {
-                throw ("The manifest in '$folder' changed after the prune was planned: row $i is no longer " +
-                       "'$($item.DestinationRelativePath)' with content $($item.Key). Nothing was published; run the prune again.")
-            }
+            $row = & $assertPlanned $rows $folder $item
             $row.DataPath         = $item.DestinationDataPath
             $row.Compressed       = $item.Compressed
             $row.StoredAsHashSize = $item.StoredAsHashSize
