@@ -6608,7 +6608,9 @@ minutes to open the flat backup root. Findings of the review:
 
 Owner's ruling: fold it into C44 as **L8** - fixed two-character lowercase
 prefix, no configuration key, `Latest` only (the snapshots stay flat; the
-Owner leaned that way). Written into
+Owner leaned that way). The Owner confirmed the fixed length after the
+alternative was laid out: a length chosen at store creation, recorded in the
+store, refused if later changed, read by both restorers. Written into
 [plans/single-store-layout.md](plans/single-store-layout.md): the layout, L8,
 its scope, a left-to-the-implementer item for a misplaced object, and a
 done-when test of an `l` folder. Nothing built; docs only.
