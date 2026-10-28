@@ -1987,10 +1987,15 @@ function Get-StoreObjectFinding {
         $findings.Add((& $newFinding $d 'DamagedObject' $d.Reason 'every object''s length fits the content its name records (SR-049)'))
     }
     # An object of the latest state outside its own shard folder is in no
-    # path's way and so not in the pool (C44, L8); it is set aside like a
-    # duplicate, and the next run stores its content where it belongs.
+    # path's way and so not in the pool (C44, L8). It may be the only copy of
+    # content a snapshot needs, so -RepairStorage puts it back where its name
+    # belongs once its bytes prove the name (Move-StoreObjectToVerify); it is
+    # set aside only when that place already holds a good copy or its bytes
+    # are not its name's (C44 review, finding 1).
     foreach ($m in (Get-MisplacedStoreObject -BackupRoot $BackupRoot)) {
-        $findings.Add((& $newFinding $m 'MisplacedObject' "it is outside its shard folder '$($m.Expected)'" 'every object of the latest state in the folder its name starts with (plan C44)'))
+        $misplaced = & $newFinding $m 'MisplacedObject' "it is outside its shard folder '$($m.Expected)'" 'every object of the latest state in the folder its name starts with (plan C44)'
+        $misplaced | Add-Member -NotePropertyName Entry -NotePropertyValue $m
+        $findings.Add($misplaced)
     }
     foreach ($copies in $groups.Values) {
         $keep = $copies[0]
@@ -2145,6 +2150,48 @@ function Move-StoreObjectToVerify {
                             "($($check.Reason)). Run -Action Verify -Deep to judge every copy.") 'WARN'
                     $leftAlone++
                     continue
+                }
+            }
+            if ($f.Class -eq 'MisplacedObject') {
+                # It may be the only copy of content a snapshot needs: put it
+                # back in its shard folder when its bytes prove its name and
+                # that place is free; set it aside only when that place holds a
+                # good copy already, or its bytes are not its name's. Anything
+                # less proven leaves it where it is (C44 review, finding 1).
+                $own = Get-StoredObjectVerdict -Entry $f.Entry -ScratchFolder $scratch -SevenZipPath $SevenZipPath
+                $ownPlace = Get-StoredObjectPath -Folder $f.Folder -Name $f.DataPath -Sharded
+                if ($own.Verdict -eq 'Unverified') {
+                    & $Log "[MisplacedObject] left '$($f.Path)' in place: its bytes could not be checked ($($own.Reason))." 'WARN'
+                    $leftAlone++
+                    continue
+                }
+                if ($own.Verdict -eq 'Good') {
+                    if (-not [System.IO.File]::Exists($ownPlace)) {
+                        if (-not $PSCmdlet.ShouldProcess($f.Path, "move into its shard folder as '$ownPlace'")) {
+                            & $Log "[MisplacedObject] would move '$($f.Path)' to '$ownPlace' (-WhatIf: nothing was moved)." 'INFO'
+                            continue
+                        }
+                        try {
+                            [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($ownPlace))
+                            [System.IO.File]::Move($f.Path, $ownPlace)
+                            & $Log "[MisplacedObject] moved '$($f.Path)' back to '$ownPlace', where its name belongs." 'INFO'
+                            $moved++
+                        } catch {
+                            & $Log "[MisplacedObject] could not move '$($f.Path)' to '$ownPlace': $($_.Exception.Message)" 'WARN'
+                        }
+                        continue
+                    }
+                    $parsed = ConvertFrom-StoredObjectName -Name ([System.IO.Path]::GetFileName($ownPlace))
+                    $info = [System.IO.FileInfo]::new($ownPlace)
+                    $there = Get-StoredObjectVerdict -ScratchFolder $scratch -SevenZipPath $SevenZipPath -Entry ([pscustomobject]@{
+                        Name = $info.Name; Prefix = $parsed.Prefix; Path = $ownPlace; Folder = ''
+                        FileLength = $info.Length; ContentLength = $parsed.Length; Extension = $parsed.Extension })
+                    if ($there.Verdict -ne 'Good') {
+                        & $Log ("[MisplacedObject] left '$($f.Path)' in place: '$ownPlace' already holds a copy that is " +
+                                "$($there.Verdict.ToLowerInvariant()) ($($there.Reason)). Run -Action Verify -Deep.") 'WARN'
+                        $leftAlone++
+                        continue
+                    }
                 }
             }
             $target = Get-VerifyDestination -ChangeRoot $ChangeRoot -FolderName $f.FolderName -Name $f.DataPath
@@ -4387,6 +4434,25 @@ function Assert-StoreLayout {
         if (Test-Path -LiteralPath (Join-Path $dir.FullName $script:Def.DatabaseFilename) -PathType Leaf) {
             throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a folder with a $($script:Def.DatabaseFilename): an old-layout backup folder. $convert"
         }
+        # An old change folder beside an old backup root named Latest. A
+        # folder that cannot be listed (System Volume Information, when the
+        # store is a drive root) is no evidence either way.
+        $children = try { @([System.IO.Directory]::GetDirectories($dir.FullName)) } catch { @() }
+        if (@($children | Where-Object { [System.IO.Path]::GetFileName($_) -match $script:Def.ChangeFolderRegex } | Select-Object -First 1).Count -gt 0) {
+            throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a folder of Snapshot_<date> folders: an old-layout change folder. $convert"
+        }
+    }
+    # An old backup root that happened to be named Latest (C44 review,
+    # finding 2): only an engine before kit revision 15 wrote a path sidecar
+    # or a kit older than 15 into it. Adopted, its objects would sit flat and
+    # out of the pool. A Latest with no kit yet (a first run cut short) is new.
+    $latest = Join-Path $StoreRoot $script:Def.LatestFolderName
+    if (Test-Path -LiteralPath (Join-Path $latest 'RECONSTRUCT.paths.json') -PathType Leaf) {
+        throw "StorePath '$StoreRoot' for set '$SetName' holds a '$($script:Def.LatestFolderName)' folder with a RECONSTRUCT.paths.json, which only an older FileBackup wrote: an old-layout backup folder. $convert"
+    }
+    $revision = Get-BackupKitRevision -Folder $latest
+    if ($revision -ge 1 -and $revision -lt 15) {
+        throw "StorePath '$StoreRoot' for set '$SetName' holds a '$($script:Def.LatestFolderName)' folder whose restore kit is revision $revision, older than this layout (15): an old-layout backup folder. $convert"
     }
 }
 

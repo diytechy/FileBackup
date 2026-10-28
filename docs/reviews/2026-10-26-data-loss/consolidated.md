@@ -1,9 +1,8 @@
 # Consolidated review — hidden data-loss defects, BoundedRebuild @ 7532b86 (2026-10-26)
 
-**Status (2026-10-27):** every fix and every ruling except C43's second half and C44 is built and merged on
-`BoundedRebuild` (plan calls C36-C44 in [bounded-run-loop.md](../../plans/bounded-run-loop.md) section 13).
-Open: C43's prune and pool-resolve rework, and C44 (the single-store layout work package). Move this folder
-to an archive once those land.
+**Status (2026-10-28):** every fix and every ruling is built on `BoundedRebuild` (plan calls C36-C45 in
+[bounded-run-loop.md](../../plans/bounded-run-loop.md) section 13): C43's second half as `15ed359` + `8512ed2`,
+C44 (the single-store layout) as `14564ba`. This folder can move to an archive.
 
 ## Outcome
 
@@ -15,7 +14,7 @@ to an archive once those land.
 | A3 `.fbprune.tmp` taken as an object | Fixed in both restorers `14c548e` and the engine `9f259cf`. |
 | A4 kit rewritten in place | Fixed, `ce2096a` (written only when changed, by temp file and rename). |
 | A5 `-RepairStorage` without the lock / under `-WhatIf` | Fixed, `ce068bc`. |
-| A6 moved store, two sets under one parent | Superseded by C44: one store folder per set ([single-store-layout.md](../../plans/single-store-layout.md)). |
+| A6 moved store, two sets under one parent | Superseded by C44: one store folder per set ([single-store-layout.md](../../plans/single-store-layout.md)), built `14564ba`. |
 | A7 host problem reported as content missing | Fixed, `4fb7689`. |
 | A8 README old-snapshot recipe | Fixed, `c2381af`, `912aa57`. |
 | B prune leftover after commit | Ruled C41, built `f74d80a`, `25d7a2d`. |
@@ -26,7 +25,7 @@ to an archive once those land.
 | C1 fsync policy | Ruled C36 (built, see A1). |
 | C2 empty source exits 0 | Ruled C39 (stop with 4), built `88dc7e1`, `72a39cb`. |
 | C3 damaged archive not healed | Ruled C40 (C18 stands). |
-| C4 Verify memory on HomeHub | Ruled C43: the storage-form audit no longer holds whole manifests (`8ab9375`); prune and the pool-resolve check are the open follow-up. HomeHub's store gets a second look before anything runs there. |
+| C4 Verify memory on HomeHub | Ruled C43: the storage-form audit no longer holds whole manifests (`8ab9375`); prune and the pool-resolve check read one manifest at a time (`15ed359`, review fixes `8512ed2`). HomeHub's store gets a second look before anything runs there. |
 | C5 older-engine mislabelled objects | HomeHub's store gets a second look; C37 leaves such objects alone. |
 
 Four independent reviews against one brief ([brief.md](brief.md)), all of commit `7532b86`:

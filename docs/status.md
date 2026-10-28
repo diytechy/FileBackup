@@ -24,49 +24,55 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **DATA-LOSS REVIEW OF `7532b86` (2026-10-26/27): BUILT AND MERGED, EXCEPT
-  C43's SECOND HALF AND C44.** Four independent reviews (opencode argon, three
-  Claude slices), with an outcome per finding, are in
-  [reviews/2026-10-26-data-loss/consolidated.md](reviews/2026-10-26-data-loss/consolidated.md).
-  `BoundedRebuild` now holds the straightforward fixes and the Owner's rulings
-  C36-C42 and C43's first half ([plans/bounded-run-loop.md](plans/bounded-run-loop.md)
-  section 13); the evidence is the 2026-10-27 entry at the end of this log.
-  **Resume here (next session):**
-  1. C43's second half: prune and the pool-resolve check must read one manifest
-     at a time (they still hold every one, ~420 MB per HomeHub manifest). It
-     must land before any Verify or prune runs on HomeHub's store. Fold in:
-     retention's supply should ignore a file the C37 listing rule calls damaged.
-  2. C44, the single-store layout ([plans/single-store-layout.md](plans/single-store-layout.md)),
-     as one work package with an independent review (L6). It now includes L7:
-     `/` as the only separator in recorded paths, and L8: `Latest`'s objects in
-     two-character shard folders, snapshots flat.
-  3. HomeHub: branch `filebackup-review-contract`, worktree
+- **C43 AND C44 BUILT, INDEPENDENTLY REVIEWED, FIXED (2026-10-28).** The
+  data-loss review of `7532b86` is now fully built on `BoundedRebuild`
+  ([reviews/2026-10-26-data-loss/consolidated.md](reviews/2026-10-26-data-loss/consolidated.md)):
+  C43's second half (`15ed359`, review fixes `8512ed2`) and C44, the
+  single-store layout with L7 and L8 (`14564ba`, review fixes in the commit
+  after it). Both had an independent Opus review; findings and outcomes in
+  [reviews/2026-10-28-c43-c44/outcome.md](reviews/2026-10-28-c43-c44/outcome.md).
+  The implementer's calls are S1-S9 in
+  [plans/single-store-layout.md](plans/single-store-layout.md) and C45 in
+  [plans/bounded-run-loop.md](plans/bounded-run-loop.md). Evidence: the
+  2026-10-28 entry at the end of this log. **Nothing is merged to `main` or
+  pushed.** **Resume here (next session):**
+  1. For the Owner: review C44's implementer's calls S1-S9 (two touch
+     behaviour you may want to rule on: S6, the kit still maps a `\` in a
+     recorded path on POSIX; and the C44 review's finding 4, a kit run with
+     `-StoreRootOverride` from a folder holding a manifest restores THAT
+     manifest, as `reconstruct.sh --from` does), then merge `BoundedRebuild`.
+  2. HomeHub: branch `filebackup-review-contract`, worktree
      `C:\Projects\MiniPC-Deployer-wt-filebackup-review`, rebuilt on
      `IceDrive-DesktopDirection` `6318772` (13 commits, unmerged; FileBackup ids
      renumbered to SR-128, LLR-1356..1360, TC-1541..1547; Part 1 ends at
-     `7e86b77`, Part 2 is marked "[needs a C44 image]"). It supersedes
-     `filebackup-bounded-contract` (worktree `C:\Projects\MiniPC-Deployer-wt-filebackup`).
-     Its own `docs/status.md` lists the deploy preconditions and the Owner's
-     questions.
-  4. Open for the Owner: whether HomeHub's id-reservation
-     row goes onto its main now; ext4 or NTFS for HomeHub's backup drive at the
-     clean start (both hub drives are USB NTFS through ntfs-3g, which journals
-     none of its own writes; `homehub-backup.timer` is enabled, 03:00 nightly);
-     the second look at HomeHub's residue before the clean start.
-  5. Registry debts for the SR rewrite (the entry below, item 4): SR-055 and a
-     TC row for case-only names (C42); SR-036, LLR-036 and TC-062 still
-     describe the retired `AllowEmptySource` refusal; TC rows for the review's
-     new tests; `trace.py` reads `system-requirements.csv` while the SRs live
-     in `system-requirements.toml`, hence SR=0.
-  6. Small follow-ups: Verify's storage-form repair renames a `.7z`-named object
+     `7e86b77`, Part 2 is marked "[needs a C44 image]" - that image can now be
+     built from `BoundedRebuild`: `StorePath=/store`, ConfigVersion 3, IF-001
+     updated here). It supersedes `filebackup-bounded-contract` (worktree
+     `C:\Projects\MiniPC-Deployer-wt-filebackup`). Its own `docs/status.md`
+     lists the deploy preconditions and the Owner's questions. The existing
+     HomeHub backup is set aside and a clean one started (L2, L5).
+  3. Open for the Owner: whether HomeHub's id-reservation row goes onto its main
+     now; ext4 or NTFS for HomeHub's backup drive at the clean start (both hub
+     drives are USB NTFS through ntfs-3g, which journals none of its own writes;
+     `homehub-backup.timer` is enabled, 03:00 nightly); the second look at
+     HomeHub's residue before the clean start.
+  4. Registry debts: SR-055 and a TC row for case-only names (C42); SR-036,
+     LLR-036 and TC-062 still describe the retired `AllowEmptySource` refusal;
+     the C44 SRs (SR-014, SR-042, SR-063, SR-069, SR-007) are not yet rewritten
+     for the new layout - LLR-095..098 and TC-256..260 carry it; `trace.py`
+     reads `system-requirements.csv` while the SRs live in
+     `system-requirements.toml`, hence SR=0 and the strict trace failing.
+  5. Small follow-ups: Verify's storage-form repair renames a `.7z`-named object
      that holds no archive and has the wrong length to a raw name, and the
-     object audit flags that damage only on the next Verify (a Verify-side
-     rule - no 7-Zip signature and the wrong length, any extension - would
-     catch it in one pass); `FileBackupState.json.tmp` is not on the
-     infrastructure list; an empty `.7z` under a `Compressed=Yes` row is
-     reported twice (`DamagedObject` and `FlagOverRaw`).
-  The resume list of the entry below still stands, except that its item 3 (a
-  plain Verify on HomeHub's store) waits for item 1 here.
+     object audit flags that damage only on the next Verify;
+     `FileBackupState.json.tmp` is not on the infrastructure list; an empty
+     `.7z` under a `Compressed=Yes` row is reported twice (`DamagedObject` and
+     `FlagOverRaw`); since C44 no pool folder is a volume root, so the content
+     scan's volume-root filter never fires (TC-180 rewritten, still passes);
+     a configuration refused at the view check leaves an empty
+     `<store>/Latest` (not new); Verify calls a row whose only copy is a
+     misplaced object `PoolUnresolvable` although the restore finds it by
+     content scan (`-RepairStorage` puts the object back).
 
 - **BOUNDED REBUILD — THIS BRANCH (2026-10-24): IMPLEMENTED, AWAITING THE
   OWNER.** `BoundedRebuild` holds the bounded backup run of
@@ -6614,3 +6620,52 @@ store, refused if later changed, read by both restorers. Written into
 [plans/single-store-layout.md](plans/single-store-layout.md): the layout, L8,
 its scope, a left-to-the-implementer item for a misplaced object, and a
 done-when test of an `l` folder. Nothing built; docs only.
+
+### DRIVER — C43's second half and C44 built, reviewed, fixed — 2026-10-27/28
+
+The Owner asked for C43 and C44 to run to completion with an independent Opus
+review (opencode and Codex unavailable), and for every doc to be brought up to
+date so the session can close without losing detail.
+
+**C43 (second half).** `15ed359`: `Get-BackupContentIndex` keeps no manifest and
+no per-row list; the prune plan finds endangered keys from the lean index and
+keeps only rows claiming them; items name their destination row by position and
+`Publish-PruneManifest` re-reads and checks it; `Test-PoolResolves` reads one
+manifest at a time. Folded in: a file the C37 listing rule calls damaged is no
+supply (`Get-ListedFileDamage`), so prune can no longer delete the only good copy
+beside a damaged one (C45: such a row counts as unresolved, as a missing one
+does). Review: ship with fixes; two fixed in `8512ed2`. Evidence: Smoke tier on
+`15ed359` - Pester unit 943 passed, 0 failed, 1 skipped; lint, docs, map, perf
+PASS; traceability fails as before. The damage tests fail with the filter
+mutated out. After `8512ed2`: the C43 Describe 6/6.
+
+**C44.** `14564ba` plus the review-fix commit after it. Configuration v3
+(`StorePath`; `BackupPath`/`ChangePath` refused by name; v2 too old);
+`<StorePath>/Latest` beside every `Snapshot_<date>`; old-layout stores refused
+(`Assert-StoreLayout`); view at `<StorePath>/View`; L7 `/` separator
+(`ConvertTo-RecordedPath`); L8 shard folders (`Get-StoredObjectShard/-Path/-File`
+in Common, used by every engine path and both restorers); misplaced objects
+reported (`MisplacedObject`) and, after the review, put back when they are the
+only copy; kit revision 15 (store = parent of `Latest`/`Snapshot_*`, no sidecar,
+no guessing, `-StoreRootOverride`/`--store-root`, target refused inside the store
+or the origin); container scripts, the fixture generator, the damage-interop
+maker, `CredSetEx.ps1`, README, AGENTS.md, IF-001, LLR-095..098, TC-256..260.
+Work split: unit tests, bats and docs were converted by three fresh-context
+agents against the implemented code; the unit agent found two product bugs
+(leftover `Building_*`/`Pruning_*` folders refused as old layout - a kill would
+wedge the store; a store on an unattached drive gave 2 instead of 4), both fixed
+before the commit. Evidence on `14564ba`: Smoke tier - Pester unit 970 passed,
+0 failed, 1 skipped; lint, docs, map, perf PASS; traceability fails as before
+(SN=0 SR=0, integrity 0). Integration sweep `tests/Run-All.ps1 -Backend Subst`
+G1-G10 x Plain/Compress: 274 PASS, 0 FAIL. `bats tests/bash` 152/152 and
+shellcheck clean (WSL Fedora). Container (WSL Ubuntu, docker 29.6.1):
+`Invoke-Container.ps1 -Action BuildAndTest` - smoke, storage-form, incremental,
+probe and the new split-mount check (a `Latest` mounted apart from its store
+refused with 2) all passed. Interop: fresh fixture + `make_damaged_interop.ps1`
+(heal 0, gone 1) and `verify_damage_interop.sh` parity on both shapes. Review:
+ship with fixes - one High (`-RepairStorage` could set aside the only copy of a
+snapshot's content: fixed, mutation-checked), one Medium (an old store whose
+backup folder was named `Latest` was adopted: fixed), two Low (case of `Latest`
+on Windows; the two restorers' override semantics: both fixed), one Low left as
+is (not new). Regression tests for each; the run of the Smoke tier after the
+fixes is recorded in the commit that carries them.

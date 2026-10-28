@@ -658,7 +658,9 @@ function Find-DataFileByName {
 # store's layout, or a kit copied out of its store - it refuses (2) unless the
 # store is named, before anything is written.
 $isChangeFolder = $folderName -match $ChangeFolderPattern
-$isLatestFolder = $folderName -ceq $Def.LatestFolderName
+# Compared as the host's file system compares names: on Windows a path typed
+# as ...\latest\ names the Latest folder (C44 review, finding 3).
+$isLatestFolder = if ($IsWindows) { $folderName -eq $Def.LatestFolderName } else { $folderName -ceq $Def.LatestFolderName }
 if ($StoreRootOverride) {
     $storeRoot = [System.IO.Path]::GetFullPath($StoreRootOverride)
 } elseif ($isChangeFolder -or $isLatestFolder) {
@@ -1147,7 +1149,14 @@ function Get-ManifestNulDamage {
 # manifest rows are distinct ordinary files (SR-034).
 $main = New-RelativePathMap
 $haveSnapshotTree = $changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container)
-$authorityFolder  = if ($isChangeFolder) { $here } else { $backupRoot }
+# The manifest restored is the origin's own: a snapshot's, or with
+# -StoreRootOverride the manifest beside this kit when it runs from a folder of
+# its own (a copy of a state folder), as reconstruct.sh's --from does; else the
+# store's Latest (C44 review, finding 4). The store always supplies the pool.
+$authorityFolder  = if ($isChangeFolder) { $here }
+                    elseif ($StoreRootOverride -and -not $isLatestFolder -and
+                            (Test-Path -LiteralPath (Join-Path $here $DatabaseFilename) -PathType Leaf)) { $here }
+                    else { $backupRoot }
 
 $manifestDamage = $null
 foreach ($row in (Read-RawManifest -Folder $authorityFolder)) {

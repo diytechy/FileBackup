@@ -137,8 +137,10 @@ where the store was, so a store moved to another drive letter, copied whole, or
 attached to a Linux machine restores as it is, with no arguments. Run from any other
 folder — a kit copied out of its store, say — it refuses with exit 2 unless you name
 the store: `-StoreRootOverride DIR` (`--store-root DIR` for `reconstruct.sh`), where
-`DIR` is the store folder that holds `Latest`. The restore target must be **outside**
-the store.
+`DIR` is the store folder that holds `Latest`. Then the manifest beside the kit (or
+`--from`'s) is the state restored, if there is one, else the store's `Latest`; the
+store supplies the bytes. The restore target must be **outside** the store and
+outside the folder the restore runs from.
 
 Backups written before kit revision 10 carry `RECONSTRUCT.bat` instead of
 `RECONSTRUCT.cmd`; it still works, and it is still recognised as part of the kit rather

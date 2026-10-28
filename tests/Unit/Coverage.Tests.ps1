@@ -3301,6 +3301,20 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         Test-Path -LiteralPath (Join-Path $loose 'inside') | Should -BeFalse
     }
 
+    It 'restores from a Latest kit reached by a path typed in another case, on Windows (C44 review, finding 3)' {
+        if (-not $IsWindows) { Set-ItResult -Skipped -Because 'only Windows folds the case of a folder name'; return }
+        $root = Join-Path $TestDrive 'wg-case'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'CASE')
+        Invoke-FB $cfg
+        $target = Join-Path $root 'restored'
+        & (Join-Path (Join-Path $chg 'latest') 'RECONSTRUCT.ps1') -TargetRoot $target *>&1 | Out-Null
+        [IO.File]::ReadAllText((Join-Path $target 'a.txt')) | Should -Be 'CASE'
+    }
+
     It 'keys no RelativePath map off a literal case-insensitive hashtable (SR-034)' {
         # Independent review of 83cc5f1, required change 1: the F3 conversion
         # missed Save-SupersededData, so on Linux a case-differing pair could

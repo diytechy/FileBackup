@@ -708,6 +708,42 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg).Count | Should -Be 0
         Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo'
     }
+    It 'puts a misplaced object that is the only copy back in its shard folder instead of setting it aside (C44 review, finding 1)' {
+        $s = New-Store 'misplaced-only'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'd.txt' 'delta to delete later'
+        Invoke-Run $s '2026-08-11T10:00:00' | Should -Be 0
+        $delta = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -eq 'delta to delete later' })[0]
+        $top = Join-Path $s.Bkp $delta.Name
+        Move-Item -LiteralPath $delta.FullName -Destination $top
+        # The source no longer holds it: the misplaced file is the only copy
+        # the snapshot of the first state needs.
+        Remove-Item -LiteralPath (Join-Path $s.Src 'd.txt') -Force
+        Invoke-Run $s '2026-08-12T10:00:00' | Should -Be 0
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        @($found | Where-Object Class -eq 'MisplacedObject').Count | Should -Be 1
+
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 1
+        Test-Path -LiteralPath $delta.FullName -PathType Leaf | Should -BeTrue -Because 'it is back where its name belongs'
+        Test-Path -LiteralPath (Join-Path $s.Chg "Verify\Latest\$($delta.Name)") | Should -BeFalse
+        @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg).Count | Should -Be 0
+        $snap = @(Get-PoolSnapshotFolder -ChangeRoot $s.Chg)[0].FullName
+        Format-State (Get-StateContent $s $snap) | Should -Be 'a.txt=alpha;d.txt=delta to delete later'
+    }
+    It 'leaves a misplaced object whose name its bytes do not prove where it is unless they are proven damaged (C44 review, finding 1)' {
+        $s = New-Store 'misplaced-bad'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Invoke-Run $s '2026-08-11T10:00:00' | Should -Be 0
+        $alpha = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded))[0]
+        $top = Join-Path $s.Bkp $alpha.Name
+        Move-Item -LiteralPath $alpha.FullName -Destination $top
+        [IO.File]::WriteAllText($top, 'omega')     # same length, other bytes
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 1
+        # Proven not its name's content: set aside, never put where the name points.
+        Test-Path -LiteralPath $alpha.FullName | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $s.Chg "Verify\Latest\$($alpha.Name)") | Should -BeTrue
+    }
     It 'reports a second copy in a folder whose kit is older than revision 4, but does not move it' {
         $s = New-Store 'dups-oldkit'
         Set-SourceFile $s 'a.txt' 'alpha'

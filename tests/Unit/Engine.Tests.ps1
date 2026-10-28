@@ -142,6 +142,25 @@ Describe 'The store-layout check refuses an old backup, not the engine''s own fo
         { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Throw -ExpectedMessage '*old-layout*'
     }
 
+    It 'refuses an old store whose backup folder was named Latest: a <Marker> (C44 review, finding 2)' -ForEach @(
+        @{ Marker = 'path sidecar in Latest' }
+        @{ Marker = 'kit older than revision 15 in Latest' }
+        @{ Marker = 'change folder of snapshots beside Latest' }
+    ) {
+        $root = Join-Path $TestDrive ('old-latest-' + ($Marker -replace '\W', ''))
+        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'; $latest = Join-Path $store 'Latest'
+        New-Item -ItemType Directory -Path $src, $latest -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
+        switch -Wildcard ($Marker) {
+            'path sidecar*' { Set-Content -LiteralPath (Join-Path $latest 'RECONSTRUCT.paths.json') -Value '{}' }
+            'kit older*'    { Set-Content -LiteralPath (Join-Path $latest 'RECONSTRUCT.ps1') -Value '# KitRevision: 14' }
+            'change folder*' { New-Item -ItemType Directory -Path (Join-Path $store 'changes\Snapshot_2026_01_01_10_00_00') -Force | Out-Null }
+        }
+        $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage '*old-layout*'
+        { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Throw -ExpectedMessage '*old-layout*'
+    }
+
     It 'refuses a StorePath that is itself an old backup folder, and one with snapshots but no Latest (plan C44, S2, C26)' {
         $root = Join-Path $TestDrive 'old-self'
         $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
