@@ -6667,5 +6667,8 @@ ship with fixes - one High (`-RepairStorage` could set aside the only copy of a
 snapshot's content: fixed, mutation-checked), one Medium (an old store whose
 backup folder was named `Latest` was adopted: fixed), two Low (case of `Latest`
 on Windows; the two restorers' override semantics: both fixed), one Low left as
-is (not new). Regression tests for each; the run of the Smoke tier after the
-fixes is recorded in the commit that carries them.
+is (not new). Regression tests for each. On the final commit `e28e49d`: Smoke
+tier - Pester unit 976 passed, 0 failed, 1 skipped (lint, docs, map, perf PASS;
+traceability as before); integration sweep G1-G10 x Plain/Compress 274 PASS,
+0 FAIL. The review worktree was removed; the tree is clean except the
+untracked `session-ses_e804.md` (the Owner's opencode transcript, not ours).
