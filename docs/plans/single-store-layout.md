@@ -19,8 +19,10 @@ finishes at scale (review item A6). One folder per set removes the guess.
 
 ```
 <StorePath>/                     one folder per backup set (container: /store)
-├── Latest/                      the latest state: MANIFEST.csv, every object in use, the kit
-├── Snapshot_<date>/             one per superseded state, as today
+├── Latest/                      the latest state: MANIFEST.csv, the kit, and
+│   ├── 2a/ … zz/                every object in use, one folder down (L8)
+│   └── …
+├── Snapshot_<date>/             one per superseded state, as today (objects flat)
 ├── Snapshot_<date>/
 ├── View/                        the browse view (SR-062), when turned on
 └── Temp.lock, backup.log, Incoming/, Building_*/, Verify/   run files
@@ -41,6 +43,7 @@ is part of the pool.
 | L5 | HomeHub: the container uses `StorePath=/store`. IF-001 and HomeHub's branch change to match. The Owner sets the existing HomeHub backup aside and starts a clean one. |
 | L6 | Built as one work package after the review's fix batches merge, with an independent review before it lands. |
 | L7 | (2026-10-27) Paths recorded in the store use `/` as the separator, whatever host writes them: `RelativePath` in `MANIFEST.csv` and in `DIRECTORIES.csv`. Today each records the writer's own separator (`\` on Windows, `/` in the container), on `main` as on this branch. The change is lossless: no Windows name holds `/`, and SR-055 already refuses a Linux name holding `\` as unportable. It rides on this package because L2 means no store has to be migrated, so nothing reads both forms. |
+| L8 | (2026-10-27) An object in `Latest` lives one folder down, in a folder named by the first two characters of its name, lowercased: `Latest/ab/aB…_<len><ext>`. Fixed: no configuration key, no other length. The snapshots stay flat. Why: a Linux file manager over FUSE (ntfs-3g) takes more than two minutes to open a flat `Latest`, while a snapshot holds only superseded objects, usually few. `DataPath` stays the bare name (both restorers refuse a separator in it); the folder is a pure function of the name and of which state folder holds the object, so nothing searches for it. Lowercase because Windows treats `Ab` and `aB` as one folder and Linux as two. A shard folder's name matches `^[2-9a-z]{2}$`, **`l` included**: `L` is in the alphabet, so lowercasing produces it (a first proposal left `l` out and would have hidden about 4% of objects from every listing). Folders fill unevenly, by up to about 2x: the first character only reaches the first 46 digits (`2`..`o`, since 2^128 / 57^21 is about 45.6) and lowercasing pairs some of them. Accepted, because a person looking for an object by name looks in the folder its name starts with. It rides on this package for L7's reason: no store has to read both layouts. Independent review of an opencode argon proposal: a per-set `ShardPrefixLength` (0..4) was rejected, because a kit that must work without the configuration would have to try every length. |
 
 ## Scope (what changes)
 
@@ -62,6 +65,22 @@ is part of the pool.
   case-only check), retention, Verify and the browse view; both restorers turn
   `/` into the host's separator only for filesystem calls (`to_posix` and
   `ConvertTo-LocalRelativePath` become the reverse or go away).
+- **Shard folders (L8):** one function in Common, so the kit carries it, gives
+  an object's path from its state folder and name; every place that builds an
+  object's path in `Latest` or lists `Latest`'s objects uses it:
+  `Publish-StagedObject` (creates the shard folder before the rename),
+  `Move-SupersededObject` and the rename of re-added content back out of a
+  snapshot, prune's re-homing into `Latest`, the object index and its listing
+  damage check (`Get-StoreObjectIndex`, `Get-ListedObjectDamage`,
+  `Move-DamagedStoreObject`), `Get-BackupContentIndex` / `Get-FolderFileSet` /
+  `Test-FolderHoldsFile`, the storage-form audit and its repair (a misnamed
+  object is renamed inside its own shard folder), Verify's object audit and its
+  set-aside (`Verify/<folder>/<name>` stays flat), the browse view's links, and
+  both restorers' row lookup and name index (`New-StoredObjectNameIndex`,
+  `build_name_index`). Both content scans already recurse. Nothing may take a
+  state folder from an object's directory any more (that is now a shard
+  folder), e.g. where `Get-BackupKitRevision` finds the kit. An emptied shard
+  folder is left in place.
 - **Container:** `container/entrypoint.sh`, `compose.example.yaml`, the image
   smoke test, `scripts/Invoke-Container.ps1`.
 - **Docs:** README, AGENTS.md sections 1-4, the generated maps,
@@ -76,12 +95,18 @@ is part of the pool.
   (only an old-layout manifest can carry one, and L2 refuses those).
 - Where the engine converts to `/`: once at the walk, so every later comparison
   sees one form, is the expected shape.
+- What happens to a misplaced object in `Latest` (at its top level, or in
+  another name's shard folder). Expected: it is not part of the pool, so a run
+  stores that content again in its right place; Verify reports it, and
+  `-RepairStorage` moves it into `Verify/` like any other duplicate.
 
 ## Done when
 
 Lint clean; the full unit suite, the integration sweep, bats and shellcheck,
 and the container smoke test pass on the merged tree; a store written on
 Windows and one written in the container hold byte-identical `RelativePath`
-values for the same tree, and each restores on the other platform; an independent review of
+values for the same tree, and each restores on the other platform; tests index,
+restore, prune and Verify sharded objects, one of them in an `l` folder (a name
+starting or continuing with `L`); an independent review of
 the package has reported and its findings are adjudicated; AGENTS.md, README and
 IF-001 describe the new layout; HomeHub's side is ready for a clean backup.

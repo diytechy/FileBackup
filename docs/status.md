@@ -38,7 +38,8 @@ last) — it is the record, not required reading for every pass.
      retention's supply should ignore a file the C37 listing rule calls damaged.
   2. C44, the single-store layout ([plans/single-store-layout.md](plans/single-store-layout.md)),
      as one work package with an independent review (L6). It now includes L7:
-     `/` as the only separator in recorded paths.
+     `/` as the only separator in recorded paths, and L8: `Latest`'s objects in
+     two-character shard folders, snapshots flat.
   3. HomeHub: branch `filebackup-review-contract`, worktree
      `C:\Projects\MiniPC-Deployer-wt-filebackup-review`, rebuilt on
      `IceDrive-DesktopDirection` `6318772` (13 commits, unmerged; FileBackup ids
@@ -6587,3 +6588,27 @@ PSScriptAnalyzer 0 findings on the changed files; architecture map regenerated,
 doc navigability, map freshness and performance budgets PASS; Pester unit **940
 passed, 0 failed, 1 skipped**; traceability fails as before (SN=0 SR=0, 471
 orphans, integrity 0).
+
+### DRIVER — C44 gains L8: shard folders in `Latest` — 2026-10-27
+
+The Owner asked for a review of an opencode argon plan that put objects in
+hash-prefix subfolders, with a per-set `ShardPrefixLength` (0..4, default 2).
+Reason given: a Linux file manager over FUSE (ntfs-3g) takes more than two
+minutes to open the flat backup root. Findings of the review:
+
+- **Blocking:** its shard-folder pattern `^[2-9a-km-z]{1,4}$` left out `l`, but
+  `L` is in the base-57 alphabet and the plan lowercases, so about 4% of
+  objects (first or second character `L`) would have sat in folders no index,
+  restorer or audit lists.
+- **A configurable length** forces the kit, which runs without the
+  configuration, to try every length - the guessing C44 removes - and lets a
+  pool hold mixed layouts. Built apart from C44, revision-14 kits in existing
+  snapshots (top-level name indexes) would fall to the full content scan for
+  every sharded object.
+
+Owner's ruling: fold it into C44 as **L8** - fixed two-character lowercase
+prefix, no configuration key, `Latest` only (the snapshots stay flat; the
+Owner leaned that way). Written into
+[plans/single-store-layout.md](plans/single-store-layout.md): the layout, L8,
+its scope, a left-to-the-implementer item for a misplaced object, and a
+done-when test of an `l` folder. Nothing built; docs only.
