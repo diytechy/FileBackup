@@ -20,7 +20,7 @@ BeforeAll {
     function New-FidelityConfig {
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg, [bool]$Compress = $false)
         $set = [pscustomobject]@{
-            Name = 'F'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+            Name = 'F'; SourcePath = $Src; StorePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
@@ -36,7 +36,7 @@ BeforeAll {
             ordinary populated folder that must NOT be recorded.
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
 
         # Large and repetitive so a Compress-mode store really stores a .7z.
@@ -131,7 +131,9 @@ Describe 'Directory sidecar (SR-065)' {
         $rows = @(Import-Csv -LiteralPath $s.Sidecar)
         @($rows).Count | Should -Be 3
         @($rows | Where-Object RelativePath -eq 'empty-dir')[0].Attributes              | Should -BeNullOrEmpty
-        @($rows | Where-Object RelativePath -eq 'empty-dir\nested-empty')[0].Attributes | Should -BeNullOrEmpty
+        # '/'-separated on every host (plan C44, L7).
+        @($rows | Where-Object RelativePath -ceq 'empty-dir/nested-empty').Count       | Should -Be 1
+        @($rows | Where-Object RelativePath -eq 'empty-dir/nested-empty')[0].Attributes | Should -BeNullOrEmpty
         @($rows | Where-Object RelativePath -eq 'hidden-dir')[0].Attributes             | Should -Be 'Hidden,System'
         # An ordinary populated folder needs no row: its files recreate it.
         @($rows | Where-Object RelativePath -eq 'plain-dir').Count | Should -Be 0
@@ -154,7 +156,7 @@ Describe 'Directory sidecar (SR-065)' {
 
     It 'writes NO sidecar for a tree with no empty or attributed directory (TC-137)' {
         $root = Join-Path $TestDrive 'dirs-none'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub'), $bkp, $chg -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'sub\f.txt') -Value 'X' -NoNewline
         $cfg = Join-Path $root 'cfg.xml'
@@ -254,7 +256,7 @@ Describe 'The stored form is decided by the bytes, not the Compressed column (SR
             Set-ItResult -Skipped -Because '7-Zip is not available on this host'
         }
         $root = Join-Path $TestDrive ('form-source7z-' + $Mode)
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
         # A GENUINE archive in the source. '.7z' is on the non-compressible list,
         # so SR-004 stores it raw - which is exactly the shape that makes a
@@ -299,7 +301,7 @@ Describe 'The stored form is decided by the bytes, not the Compressed column (SR
         $s = New-FidelityStore -Root $root -Compress $Compress
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $victim = @($rows | Where-Object RelativePath -eq 'uniq.txt')[0]
-        [IO.File]::WriteAllText((Join-Path $s.Bkp $victim.DataPath), 'NEITHER RAW CONTENT NOR AN ARCHIVE')
+        [IO.File]::WriteAllText((Get-StoredObjectPath -Folder $s.Bkp -Name $victim.DataPath -Sharded), 'NEITHER RAW CONTENT NOR AN ARCHIVE')
 
         $t = Join-Path $root 'restored'
         $r = Invoke-FidelityRestore -Recon $s.Recon -TargetRoot $t
@@ -342,12 +344,12 @@ Describe 'A source file the run cannot read is never faked (SR-067, plan R12)' {
     # no row, and the files around it are unaffected.
     It 'omits a file that vanishes between the walk and its capture (TC-140)' {
         $root = Join-Path $TestDrive 'vanish-midrun'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'a-keep.txt')   -Value ('KEEP '   * 500) -NoNewline
         Set-Content -LiteralPath (Join-Path $src 'z-vanish.txt') -Value ('VANISH ' * 500) -NoNewline
         $set = [pscustomobject]@{
-            Name = 'V'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            Name = 'V'; SourcePath = $src; StorePath = $chg
             HashRecalcFreq = 'A'; CompressEnabled = $false; BrowseView = 'off'
         }
         $victim = Join-Path $src 'z-vanish.txt'
@@ -376,7 +378,7 @@ Describe 'A source file the run cannot read is never faked (SR-067, plan R12)' {
             Should -Be 1 -Because 'one vanished file must not cost the healthy ones'
         $code | Should -Be 0 -Because 'a file deleted from the source is a removal, not a file the run failed to capture'
         $keepRow = @($rows | Where-Object RelativePath -eq 'a-keep.txt')[0]
-        Test-Path -LiteralPath (Join-Path $bkp $keepRow.DataPath) | Should -BeTrue
+        Test-Path -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $keepRow.DataPath -Sharded) | Should -BeTrue
     }
 }
 

@@ -12,20 +12,22 @@
 
 setup() {
     load helpers
+    # A writable copy of the fixture STORE; the origin is its Latest folder
+    # and the store is found as Latest's parent (kit revision 15).
     WORK="$BATS_TEST_TMPDIR/work"
-    cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$WORK"
-    BK="$WORK"; CH="$WORK/changes"
+    cp -r "$(store_for HashAddressed)" "$WORK"
+    BK="$WORK/Latest"
     MANIFEST="$BK/MANIFEST.csv"
 }
 
 @test "0: a clean restore (SR-040)" {
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t0" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t0" --from "$BK"
     [ "$status" -eq 0 ]
 }
 
 @test "1: content class — a row's only data source is gone (SR-040)" {
     rm -f -- "$(pool_file_by_hash "$BK" "$(expected_hash HashAddressed 'hello.txt')")"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t1" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t1" --from "$BK"
     [ "$status" -eq 1 ]
     [[ "$output" == *"INCOMPLETE"* ]]
     [[ "$output" == *"content-missing"* ]]
@@ -47,14 +49,17 @@ setup() {
 }
 
 @test "2: precondition — no manifest in the origin (SR-040)" {
-    local empty="$BATS_TEST_TMPDIR/empty"
+    # Named Latest, so the refusal is the missing manifest, not the origin
+    # name rule (kit revision 15; restore.bats pins that one).
+    local empty="$BATS_TEST_TMPDIR/empty/Latest"
     mkdir -p "$empty"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t2b" --from "$empty"
     [ "$status" -eq 2 ]
+    [[ "$output" == *"no MANIFEST.csv in origin"* ]]
 }
 
-@test "2: precondition — target inside the backup root (SR-040)" {
-    run bash "$RS" --target-root "$BK/inside" --from "$BK" --backup-root "$BK" --change-root "$CH"
+@test "2: precondition — target inside the store (SR-040)" {
+    run bash "$RS" --target-root "$BK/inside" --from "$BK"
     [ "$status" -eq 2 ]
 }
 
@@ -64,7 +69,7 @@ setup() {
     # Nothing is attempted in this case, so both restorers report 2.
     local blocked="$BATS_TEST_TMPDIR/t2-file"
     printf 'I am a file, not a folder\n' > "$blocked"
-    run bash "$RS" --target-root "$blocked" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$blocked" --from "$BK"
     [ "$status" -eq 2 ]
     [[ "$output" == *"cannot create target"* ]]
     [ "$(cat "$blocked")" = "I am a file, not a folder" ]
@@ -73,7 +78,7 @@ setup() {
 @test "2: a bad target with a stale witness still reports the usage failure (SR-040)" {
     # The invocation is wrong, so nothing about the store gets a say.
     printf 'garbage sidecar\n' > "$BK/MANIFEST.csv.meta"
-    run bash "$RS" --target-root "$BK/inside" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BK/inside" --from "$BK"
     [ "$status" -eq 2 ]
 }
 
@@ -83,7 +88,7 @@ setup() {
     gawk -v FPAT='("([^"]|"")*")|([^,]*)' -v OFS=',' \
         'NR==1 { print; next } { $1="\"\""; print }' "$MANIFEST" > "$MANIFEST.tmp"
     mv "$MANIFEST.tmp" "$MANIFEST"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t3" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t3" --from "$BK"
     [ "$status" -eq 0 ] || { echo "expected 0, got $status"; echo "$output"; false; }
     run verify_tree "$BATS_TEST_TMPDIR/t3" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
@@ -93,7 +98,7 @@ setup() {
     # The row itself stays Compressed=No, so the up-front 7z precondition (exit
     # 2) does not fire: the missing dependency is discovered DURING recovery,
     # which is a host problem (retriable), not lost data.
-    local bad="$BATS_TEST_TMPDIR/hostcase"
+    local bad="$BATS_TEST_TMPDIR/hostcase/Latest"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -121,7 +126,7 @@ setup() {
     # A raw file parked under a '.7z' name — a genuine .7z source stored
     # verbatim is the common shape — needs no 7z to test: its own bytes are
     # hashed directly, so the restore succeeds instead of exiting 4.
-    local pool="$BATS_TEST_TMPDIR/rawcase"
+    local pool="$BATS_TEST_TMPDIR/rawcase/Latest"
     mkdir -p "$pool"
     printf 'raw-payload\n' > "$pool/orig.txt"
     local h len
@@ -140,7 +145,7 @@ setup() {
 
 @test "4 outranks 1: a host failure alongside a content failure reports the actionable one (SR-040)" {
     # A wrapper should retry rather than alarm the user about lost data.
-    local bad="$BATS_TEST_TMPDIR/mixed"
+    local bad="$BATS_TEST_TMPDIR/mixed/Latest"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -182,7 +187,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     whole="$(head -n 4 -- "$MANIFEST" | wc -c)"
     tear_manifest "$MANIFEST" "$(( whole + 20 ))"
 
-    run bash "$RS" --target-root "$t" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$t" --from "$BK"
     [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
     [[ "$output" == *"[ManifestDamaged] the manifest '$MANIFEST' is damaged: it holds NUL bytes from line 5 on"* ]]
     [[ "$output" == *"3 row(s) before the damage were read and are restored"* ]]
@@ -193,7 +198,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     while IFS=$'\t' read -r rel want; do
         [ "$(hash_upper "$t/$rel")" = "$want" ] || { echo "HASH-DIFF: $rel"; false; }
         n=$(( n + 1 ))
-    done < <(gawk -F'"' 'NR >= 2 && NR <= 4 { print $4 "\t" $10 }' "$FIXTURES/bash-restore/HashAddressed/backup/MANIFEST.csv")
+    done < <(gawk -F'"' 'NR >= 2 && NR <= 4 { print $4 "\t" $10 }' "$(origin_for HashAddressed root)/MANIFEST.csv")
     [ "$n" -eq 3 ]
 }
 
@@ -201,7 +206,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     local whole t="$BATS_TEST_TMPDIR/tnulb"
     whole="$(head -n 4 -- "$MANIFEST" | wc -c)"
     tear_manifest "$MANIFEST" "$whole"
-    run bash "$RS" --target-root "$t" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$t" --from "$BK"
     [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
     [[ "$output" == *"from line 5 on"* ]]
     [[ "$output" == *"3 row(s) before the damage"* ]]
@@ -209,14 +214,14 @@ tear_manifest() {  # <manifest> <keep-bytes>
 
 @test "2: a manifest that is NUL from byte 0 is still refused by the header check, writing nothing (review 2026-10-26 A1)" {
     tear_manifest "$MANIFEST" 0
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tnul0" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tnul0" --from "$BK"
     [ "$status" -eq 2 ]
     [[ "$output" == *"unexpected header"* ]]
     [ ! -e "$BATS_TEST_TMPDIR/tnul0" ]
 }
 
 @test "4 outranks a torn manifest's 1: a host failure in the rows read still reports 4 (review 2026-10-26 A1, SR-040)" {
-    local bad="$BATS_TEST_TMPDIR/torn-host"
+    local bad="$BATS_TEST_TMPDIR/torn-host/Latest"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -244,7 +249,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     # candidate the locator inspects is the row's own file, so an unexpandable
     # archive there is damaged data: ContentMissing, exit 1, candidate named.
     command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
-    local bad="$BATS_TEST_TMPDIR/d3content"
+    local bad="$BATS_TEST_TMPDIR/d3content/Latest"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -269,7 +274,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     # The restore loop's CandidateError is untouched by D-3: the row resolves
     # through its own DataPath, so extraction failure is about THIS host.
     command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
-    local bad="$BATS_TEST_TMPDIR/d3own"
+    local bad="$BATS_TEST_TMPDIR/d3own/Latest"
     mkdir -p "$bad"
     # A REAL archive, then truncated: keeps the 7-Zip signature and destroys
     # the archive, which is the interrupted-write shape and, since kit
@@ -279,7 +284,9 @@ tear_manifest() {  # <manifest> <keep-bytes>
     printf 'payload-for-a-real-archive\n' > "$bad/p.txt"
     ( cd "$bad" && 7z a -bso0 -bsp0 own.7z p.txt >/dev/null 2>&1 )
     rm -f "$bad/p.txt"
-    truncate -s 24 "$bad/own.7z"
+    # The row's own object lives in its shard folder (L8).
+    mv "$bad/own.7z" "$(latest_object "$bad" own.7z)"
+    truncate -s 24 "$(latest_object "$bad" own.7z)"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
       printf '"own.7z","payload.txt","999","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","Yes","HashSize","0",""\r\n'
@@ -297,10 +304,10 @@ tear_manifest() {  # <manifest> <keep-bytes>
     # this host is wrong and no retry can help: exit 1, not 4. Before SR-068
     # the Compressed column sent this down the expand path and 7-Zip took the
     # blame, telling wrappers to retry corruption forever.
-    local bad="$BATS_TEST_TMPDIR/d3raw"
+    local bad="$BATS_TEST_TMPDIR/d3raw/Latest"
     mkdir -p "$bad"
     local own; own="$(hash_size_name 'DEADBEEFDEADBEEFDEADBEEFDEADBEEF' 999 '.7z')"
-    printf 'garbage-with-no-signature\n' > "$bad/$own"
+    printf 'garbage-with-no-signature\n' > "$(latest_object "$bad" "$own")"
     {
       printf '"DataPath","RelativePath","Length","LastWriteTimeStr","xxH2Hash","Compressed","StoredAsHashSize","Duplicate","MediaMBPerSec"\r\n'
       printf '"%s","payload.txt","999","d","DEADBEEFDEADBEEFDEADBEEFDEADBEEF","Yes","Hash","0",""\r\n' "$own"

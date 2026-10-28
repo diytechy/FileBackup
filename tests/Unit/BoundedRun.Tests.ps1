@@ -26,12 +26,13 @@ BeforeAll {
         $s = [pscustomobject]@{
             Root = $root
             Src  = Join-Path $root 'src'
-            Bkp  = Join-Path $root 'store\Backup'
-            Chg  = Join-Path $root 'store\Changes'
+            # One store folder per set (plan C44): Chg is the store, Bkp its Latest.
+            Bkp  = Join-Path $root 'store\Latest'
+            Chg  = Join-Path $root 'store'
         }
         New-Item -ItemType Directory -Path $s.Src, $s.Bkp, $s.Chg -Force | Out-Null
         $s | Add-Member -NotePropertyName Set -NotePropertyValue ([pscustomobject]@{
-            Name = $Name; SourcePath = $s.Src; BackupPath = $s.Bkp; ChangePath = $s.Chg
+            Name = $Name; SourcePath = $s.Src; StorePath = $s.Chg
             HashRecalcFreq = 'N'; CompressEnabled = $false; CompressProbe = 'always'; BrowseView = 'off'
         })
         return $s
@@ -61,7 +62,7 @@ BeforeAll {
         $map = @{}
         $folders = @($Store.Bkp) + @(Get-ChildItem -LiteralPath $Store.Chg -Directory | Where-Object Name -like 'Snapshot_*' | ForEach-Object FullName)
         foreach ($f in $folders) {
-            foreach ($file in Get-ChildItem -LiteralPath $f -File -Force) {
+            foreach ($file in (Get-StoredObjectFile -Folder $f -Sharded:($f -eq $Store.Bkp))) {
                 if ($null -eq (ConvertFrom-StoredObjectName -Name $file.Name)) { continue }
                 if (-not $map.ContainsKey($file.Name)) { $map[$file.Name] = [System.Collections.Generic.List[string]]::new() }
                 $map[$file.Name].Add($file.FullName)
@@ -78,7 +79,7 @@ BeforeAll {
         $byPrefix = @{}
         $folders = @($Store.Bkp) + @(Get-ChildItem -LiteralPath $Store.Chg -Directory | Where-Object Name -like 'Snapshot_*' | ForEach-Object FullName)
         foreach ($f in $folders) {
-            foreach ($file in Get-ChildItem -LiteralPath $f -File -Force) {
+            foreach ($file in (Get-StoredObjectFile -Folder $f -Sharded:($f -eq $Store.Bkp))) {
                 $p = ConvertFrom-StoredObjectName -Name $file.Name
                 if ($p -and -not $byPrefix.ContainsKey($p.Prefix)) { $byPrefix[$p.Prefix] = $file.FullName }
             }
@@ -86,8 +87,9 @@ BeforeAll {
         $out = @{}
         foreach ($row in @(Read-Manifest -FolderPath $Folder)) {
             $path = $null
-            if ($row.DataPath -and (Test-Path -LiteralPath (Join-Path $Folder $row.DataPath) -PathType Leaf)) {
-                $path = Join-Path $Folder $row.DataPath
+            $own = if ($row.DataPath) { Get-StoredObjectPath -Folder $Folder -Name $row.DataPath -Sharded:($Folder -eq $Store.Bkp) }
+            if ($own -and (Test-Path -LiteralPath $own -PathType Leaf)) {
+                $path = $own
             } else {
                 $prefix = Get-StoredObjectPrefix -HashHex $row.xxH2Hash -Length ([long]$row.Length)
                 $path = $byPrefix[$prefix]
@@ -233,7 +235,7 @@ Describe 'Content moves by rename and is never deleted (R6, R9, SR-003, SR-059)'
         $pool[$bravo[0]][0] | Should -BeLike "$($s.Bkp)*"
         Format-State (Get-StateContent $s (Join-Path $s.Chg 'Snapshot_2026_01_01_10_00_00')) | Should -Be 'a.txt=alpha;b.txt=bravo'
         Format-State (Get-StateContent $s (Join-Path $s.Chg 'Snapshot_2026_01_02_10_00_00')) | Should -Be 'a.txt=alpha'
-        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;again\b2.txt=bravo'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;again/b2.txt=bravo'
     }
     It 'uses re-added content where it is when its snapshot carries a kit older than revision 4' {
         # Such a kit (an older engine's snapshot) finds a row's object only
@@ -295,7 +297,9 @@ Describe 'A prune''s staged copy is never taken for an object (review 2026-10-26
         $script:bravo = @(Get-ChildItem -LiteralPath $snap -File | Where-Object { ConvertFrom-StoredObjectName -Name $_.Name })[0]
         $bravo | Should -Not -BeNullOrEmpty -Because 'the fixture needs bravo''s only copy in the snapshot'
         # The half-written copy a kill leaves: the first bytes only.
-        $script:residue = Join-Path $s.Bkp "$($bravo.Name).fbprune.tmp"
+        # In bravo's own shard folder of Latest, where a prune stages it (C44, L8).
+        $script:residue = (Get-StoredObjectPath -Folder $s.Bkp -Name $bravo.Name -Sharded) + '.fbprune.tmp'
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($residue)) -Force | Out-Null
         [IO.File]::WriteAllText($residue, 'bra')
     }
     It 'does not index a prune staged copy as an object (review 2026-10-26 A3)' {
@@ -311,7 +315,7 @@ Describe 'A prune''s staged copy is never taken for an object (review 2026-10-26
         Invoke-Run $s '2026-03-03T10:00:00' | Should -Be 0
         $row = @(Read-Manifest -FolderPath $s.Bkp | Where-Object RelativePath -eq 'b.txt')[0]
         $row.DataPath | Should -Be $bravo.Name
-        Get-FileXxHash -FilePath (Join-Path $s.Bkp $row.DataPath) | Should -Be $row.xxH2Hash
+        Get-FileXxHash -FilePath (Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded) | Should -Be $row.xxH2Hash
     }
 }
 
@@ -466,7 +470,10 @@ Describe 'Paths that differ only in letter case are not captured (SR-055, review
     # ruling each member is treated as an unportable name: warned about, not
     # captured, its earlier row kept, and the set reports 1.
     BeforeAll {
-        $script:sep = [IO.Path]::DirectorySeparatorChar
+        # A recorded RelativePath is '/'-separated on every host (plan C44,
+        # L7); '/' also separates the source paths these tests write, on
+        # Windows as on Linux.
+        $script:sep = '/'
 
         function Enable-CaseSensitiveSource {
             # True when the store's source folder can hold two names that
@@ -611,7 +618,7 @@ Describe 'A source that goes away is no state of the source (plan section 6)' {
         } finally {
             icacls $s.Src /remove:d "${env:USERNAME}" | Out-Null
         }
-        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;sub\b.txt=bravo'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;sub/b.txt=bravo'
     }
 }
 
@@ -647,7 +654,7 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         Set-SourceFile $s 'b.txt' 'bravo-2'
         Invoke-Run $s '2026-08-02T10:00:00' | Should -Be 0
         # An older engine could leave the same content in two folders.
-        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $alpha = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
         $snap = Join-Path $s.Chg 'Snapshot_2026_08_01_10_00_00'
         Copy-Item -LiteralPath $alpha.FullName -Destination $snap
         $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
@@ -660,6 +667,47 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         Format-State (Get-StateContent $s $snap) | Should -Be 'a.txt=alpha;b.txt=bravo'
         Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo-2'
     }
+    It 'reports an object of Latest outside its shard folder as misplaced, stores its content again, and -RepairStorage moves it into Verify (plan C44, L8)' {
+        $s = New-Store 'misplaced'
+        Set-SourceFile $s 'a.txt' 'alpha'
+        Set-SourceFile $s 'b.txt' 'bravo'
+        Invoke-Run $s '2026-08-11T10:00:00' | Should -Be 0
+        $objects = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { ConvertFrom-StoredObjectName -Name $_.Name })
+        $alpha = @($objects | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $bravo = @($objects | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -eq 'bravo' })[0]
+        # One at Latest's top level, one in another name's shard folder.
+        $top = Join-Path $s.Bkp $alpha.Name
+        Move-Item -LiteralPath $alpha.FullName -Destination $top
+        $wrongShard = if ((Get-StoredObjectShard -Name $bravo.Name) -ceq 'zz') { 'yy' } else { 'zz' }
+        New-Item -ItemType Directory -Path (Join-Path $s.Bkp $wrongShard) -Force | Out-Null
+        $wrong = Join-Path (Join-Path $s.Bkp $wrongShard) $bravo.Name
+        Move-Item -LiteralPath $bravo.FullName -Destination $wrong
+
+        # Neither is in the pool: no path leads to it.
+        $index = Get-StoreObjectIndex -BackupRoot $s.Bkp -ChangeRoot $s.Chg
+        $index.Objects.ContainsKey((ConvertFrom-StoredObjectName -Name $alpha.Name).Prefix) | Should -BeFalse
+        $index.Objects.ContainsKey((ConvertFrom-StoredObjectName -Name $bravo.Name).Prefix) | Should -BeFalse
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        @($found | Where-Object Class -eq 'MisplacedObject' | ForEach-Object Path | Sort-Object) | Should -Be @(@($top, $wrong) | Sort-Object)
+
+        # The next run stores each content again where its name puts it, and
+        # deletes nothing (R9).
+        Invoke-Run $s '2026-08-12T10:00:00' | Should -Be 0
+        [IO.File]::ReadAllText($alpha.FullName) | Should -Be 'alpha'
+        [IO.File]::ReadAllText($bravo.FullName) | Should -Be 'bravo'
+        Test-Path -LiteralPath $top | Should -BeTrue
+        Test-Path -LiteralPath $wrong | Should -BeTrue
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo'
+
+        # -RepairStorage sets both aside into Verify/Latest, as a duplicate is.
+        $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
+        @($found | Where-Object Class -eq 'MisplacedObject').Count | Should -Be 2
+        Move-StoreObjectToVerify -Finding $found -ChangeRoot $s.Chg -Log { } | Should -Be 2
+        Test-Path -LiteralPath (Join-Path $s.Chg "Verify\Latest\$($alpha.Name)") | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $s.Chg "Verify\Latest\$($bravo.Name)") | Should -BeTrue
+        @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg).Count | Should -Be 0
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;b.txt=bravo'
+    }
     It 'reports a second copy in a folder whose kit is older than revision 4, but does not move it' {
         $s = New-Store 'dups-oldkit'
         Set-SourceFile $s 'a.txt' 'alpha'
@@ -667,7 +715,7 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         Invoke-Run $s '2026-08-01T10:00:00' | Should -Be 0
         Set-SourceFile $s 'b.txt' 'bravo-2'
         Invoke-Run $s '2026-08-02T10:00:00' | Should -Be 0
-        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $alpha = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
         $snap = Join-Path $s.Chg 'Snapshot_2026_08_01_10_00_00'
         Copy-Item -LiteralPath $alpha.FullName -Destination $snap
         $kit = Join-Path $snap 'RECONSTRUCT.ps1'
@@ -687,7 +735,7 @@ Describe 'Verify sets duplicates and damaged objects aside, deleting nothing (R9
         Invoke-Run $s '2026-08-01T10:00:00' | Should -Be 0
         Set-SourceFile $s 'b.txt' 'bravo-2'
         Invoke-Run $s '2026-08-02T10:00:00' | Should -Be 0
-        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $alpha = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
         $snap = Join-Path $s.Chg 'Snapshot_2026_08_01_10_00_00'
         Copy-Item -LiteralPath $alpha.FullName -Destination $snap
         [IO.File]::WriteAllText($alpha.FullName, 'alphX')       # same length, wrong bytes
@@ -715,7 +763,7 @@ Describe 'Verify moves nothing aside on missing evidence (R9, C4)' {
         Set-SourceFile $s 'big.txt' ('COMPRESSIBLE ' * 2000)
         $logs = [System.Collections.Generic.List[string]]::new()
         Invoke-BackupSet -Set $s.Set -Deps @{ '7z' = $sevenZip; ffprobe = $null } -LogPaths $logs -BackupTime ([datetime]'2026-09-02T10:00:00') | Should -Be 0
-        $archive = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object Name -like '*.7z')[0]
+        $archive = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object Name -like '*.7z')[0]
         $archive | Should -Not -BeNullOrEmpty -Because 'the fixture needs a stored archive'
         # Bytes 7-Zip cannot open, at the archive's own length: as a corrupt
         # archive or a full scratch volume looks from here.
@@ -781,8 +829,7 @@ Describe 'A store drive that is missing, or a store that lost its backup folder 
         if (-not $letter) { Set-ItResult -Skipped -Because 'no free drive letter'; return }
         $s = New-Store 'nodrive'
         Set-SourceFile $s 'a.txt' 'alpha'
-        $s.Set.BackupPath = "$($letter):\FileBackup\Backup"
-        $s.Set.ChangePath = "$($letter):\FileBackup\Changes"
+        $s.Set.StorePath = "$($letter):\FileBackup"
         Invoke-Run $s '2026-10-03T10:00:00' 3>$null | Should -Be 4
         Test-Path -LiteralPath "$($letter):\" | Should -BeFalse
     }
@@ -793,7 +840,9 @@ Describe 'A store drive that is missing, or a store that lost its backup folder 
         Set-SourceFile $s 'a.txt' 'alpha-2'
         Invoke-Run $s '2026-10-05T10:00:00' | Should -Be 0
         @(Get-SnapshotNames $s).Count | Should -Be 1
-        Rename-Item -LiteralPath $s.Bkp -NewName 'Backup-moved-away'
+        # Out of the store: a Latest renamed in place would be refused as an
+        # old-layout folder beside it instead (Assert-StoreLayout).
+        Move-Item -LiteralPath $s.Bkp -Destination (Join-Path $s.Root 'Latest-moved-away')
         Invoke-Run $s '2026-10-06T10:00:00' 3>$null | Should -Be 2
         Test-Path -LiteralPath $s.Bkp | Should -BeFalse -Because 'a fresh full backup must not start beside the old snapshots'
     }
@@ -807,7 +856,7 @@ Describe 'A source that is empty, or empties during the run, stops it (plan C27,
         Invoke-Run $s '2026-10-09T10:00:00' | Should -Be 0
         $manifest = Join-Path $s.Bkp 'MANIFEST.csv'
         $state    = Join-Path $s.Bkp 'FileBackupState.json'
-        $listObjects = { @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { $null -ne (ConvertFrom-StoredObjectName -Name $_.Name) } | ForEach-Object Name | Sort-Object) -join '|' }
+        $listObjects = { @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { $null -ne (ConvertFrom-StoredObjectName -Name $_.Name) } | ForEach-Object Name | Sort-Object) -join '|' }
         $manifestBefore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($manifest))
         $stateBefore    = [IO.File]::ReadAllText($state)
         $objectsBefore  = & $listObjects
@@ -830,9 +879,9 @@ Describe 'A source that is empty, or empties during the run, stops it (plan C27,
         Remove-Item -LiteralPath $s.Src -Recurse -Force
         Move-Item -LiteralPath $aside -Destination $s.Src
         Invoke-Run $s '2026-10-11T10:00:00' | Should -Be 0
-        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;sub\b.txt=bravo'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=alpha;sub/b.txt=bravo'
         foreach ($name in Get-SnapshotNames $s) {
-            Format-State (Get-StateContent $s (Join-Path $s.Chg $name)) | Should -Be 'a.txt=alpha;sub\b.txt=bravo'
+            Format-State (Get-StateContent $s (Join-Path $s.Chg $name)) | Should -Be 'a.txt=alpha;sub/b.txt=bravo'
         }
     }
     It 'stops with 4 through the walk''s backstop when the source holds only empty folders (review 2026-10-26 C2)' {
@@ -895,7 +944,7 @@ Describe 'A source that is empty, or empties during the run, stops it (plan C27,
         }.GetNewClosure())
         Invoke-Run $s '2026-10-08T10:00:00' | Should -Be 4
         Set-EngineVar 'BackupRunTestHook' $null
-        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=one-a;b.txt=one-b;c.txt=one-c;sub\d.txt=one-d'
+        Format-State (Get-StateContent $s $s.Bkp) | Should -Be 'a.txt=one-a;b.txt=one-b;c.txt=one-c;sub/d.txt=one-d'
     }
 }
 
@@ -907,7 +956,7 @@ Describe 'A repair confirms the copy it keeps before setting a duplicate aside (
         Invoke-Run $s '2026-10-09T10:00:00' | Should -Be 0
         Set-SourceFile $s 'b.txt' 'bravo-2'
         Invoke-Run $s '2026-10-10T10:00:00' | Should -Be 0
-        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $alpha = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
         $snap = Join-Path $s.Chg 'Snapshot_2026_10_09_10_00_00'
         Copy-Item -LiteralPath $alpha.FullName -Destination $snap
         $found = @(Get-StoreObjectFinding -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
@@ -935,7 +984,7 @@ Describe 'Setting objects aside holds the OS lock, and -WhatIf moves nothing (re
         Invoke-Run $s '2026-04-01T10:00:00' | Should -Be 0
         Set-SourceFile $s 'b.txt' 'bravo-2'
         Invoke-Run $s '2026-04-02T10:00:00' | Should -Be 0
-        $alpha = @(Get-ChildItem -LiteralPath $s.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
+        $alpha = @((Get-StoredObjectFile -Folder $s.Bkp -Sharded) | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
         Copy-Item -LiteralPath $alpha.FullName -Destination (Join-Path $s.Chg 'Snapshot_2026_04_01_10_00_00')
         $script:dup = Join-Path $s.Chg "Snapshot_2026_04_01_10_00_00\$($alpha.Name)"
     }
@@ -985,7 +1034,7 @@ Describe 'An object a power loss left damaged is set aside, never reused (review
     BeforeAll {
         function Get-AlphaObject {
             param($Store)
-            @(Get-ChildItem -LiteralPath $Store.Bkp -File | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and
+            @((Get-StoredObjectFile -Folder $Store.Bkp -Sharded) | Where-Object { (ConvertFrom-StoredObjectName -Name $_.Name) -and
                 (Get-Content -LiteralPath $_.FullName -Raw) -eq 'alpha' })[0]
         }
         function Get-RunLog { param($Store) Get-Content -LiteralPath (Join-Path $Store.Chg 'backup.log') }
@@ -1041,10 +1090,12 @@ Describe 'An object a power loss left damaged is set aside, never reused (review
 
     It 'judges a .7z name by its length only when it is empty (review 2026-10-26 G1)' {
         $prefix = Get-StoredObjectPrefix -HashHex ('AB' * 16) -Length 1000
-        $short = Join-Path $s.Bkp "$prefix.7z"
+        $short = Get-StoredObjectPath -Folder $s.Bkp -Name "$prefix.7z" -Sharded
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($short)) -Force | Out-Null
         [IO.File]::WriteAllText($short, 'not 1000 bytes, and no archive signature either')
         $emptyPrefix = Get-StoredObjectPrefix -HashHex ('CD' * 16) -Length 1000
-        $empty = Join-Path $s.Bkp "$emptyPrefix.7z"
+        $empty = Get-StoredObjectPath -Folder $s.Bkp -Name "$emptyPrefix.7z" -Sharded
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($empty)) -Force | Out-Null
         [IO.File]::WriteAllBytes($empty, [byte[]]@())
         $index = Get-StoreObjectIndex -BackupRoot $s.Bkp -ChangeRoot $s.Chg
         $index.Objects[$prefix].Path | Should -Be $short -Because 'a .7z of nonzero length is never judged by its length'
@@ -1124,7 +1175,7 @@ Describe 'An archive exactly as long as its content (plan C30)' {
         }
         $stored.Compressed | Should -Be 'No'
         $stored.Name | Should -BeLike '*.txt'
-        [IO.File]::ReadAllText((Join-Path $root $stored.Name)) | Should -Be 'EXACTLY-AS-LONG'
+        [IO.File]::ReadAllText((Get-StoredObjectPath -Folder $root -Name $stored.Name -Sharded)) | Should -Be 'EXACTLY-AS-LONG'
     }
     It 'is expanded by Verify before it is called damaged' {
         $root = Join-Path $TestDrive 'eqlen-verify'

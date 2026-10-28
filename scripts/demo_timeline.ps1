@@ -38,14 +38,15 @@ Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
 
 $work = Join-Path ([IO.Path]::GetTempPath()) ("FileBackupDemo\" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
 $src  = Join-Path $work 'source'
-$bkp  = Join-Path $work 'backup'
-$chg  = Join-Path $work 'changes'
+# One store per set (plan C44): Latest inside it, snapshots beside it.
+$chg  = Join-Path $work 'store'
+$bkp  = Join-Path $chg 'Latest'
 $cfg  = Join-Path $work 'config.xml'
 New-Item -ItemType Directory -Path $src -Force | Out-Null
 if (-not $ReportPath) { $ReportPath = Join-Path $work 'TimelineReport.md' }
 
 $set = [pscustomobject]@{
-    Name = 'Demo'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+    Name = 'Demo'; SourcePath = $src; StorePath = $chg
     HashRecalcFreq = 'A'; CompressEnabled = [bool]$Compress
 }
 @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg

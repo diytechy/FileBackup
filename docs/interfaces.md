@@ -21,29 +21,46 @@ action and exits. HomeHub owns scheduling, mount-identity preflight, retention
 *mechanism*, and its own exit-code contract.
 
 **Mounts.** Read-only `source` + `config`; writable `store` and `log`. The store
-is **one** mount (`/store`) holding `backup/` and `changes/` (config
-`BackupPath=/store/backup`, `ChangePath=/store/changes`): since the bounded run
-loop (2026-10-24, [plans/bounded-run-loop.md](plans/bounded-run-loop.md) R8)
-content moves between the two by rename, Linux cannot rename across two bind
-mounts even of one disk, and a set whose two paths a rename cannot cross is
-refused with exit 2. There is no source-state mount any more: nothing is written
-into the source (R3).
+is **one** mount, `/store`, and the set's config names it as its one store
+folder: `StorePath=/store` (ConfigVersion 3,
+[plans/single-store-layout.md](plans/single-store-layout.md) L1/L5). FileBackup
+lays it out itself: `/store/Latest/` is the latest state (its manifest, the
+restore kit, and every object in use, in two-character shard folders), each
+`/store/Snapshot_<date>/` sits beside it, and the run's lock, log and working
+folders live in `/store`. Content moves between `Latest` and the snapshots by
+rename (bounded run loop R8), Linux cannot rename across two bind mounts even of
+one disk, and a `Latest` mounted apart from its store (a second bind mount at
+`/store/Latest`) is refused with exit 2 (L4). There is no conversion from the
+old two-folder layout (`/store/backup` + `/store/changes`): a store still in it
+is refused with exit 2 and keeps restoring with the kits inside it, and HomeHub
+sets it aside and starts a clean store (L2, L5). There is no source-state mount
+any more: nothing is written into the source (R3).
+
+**Restore.** The kit (revision 15) runs from `<store>/Latest` or a
+`<store>/Snapshot_<date>` folder and takes the store to be that folder's
+parent, so it needs no path arguments wherever the store is mounted or copied —
+in a container (`pwsh -File /store/Latest/RECONSTRUCT.ps1 -TargetRoot /restore`,
+the store mount may be read-only) or on the host. Run from anywhere else it
+exits 2 unless `-StoreRootOverride DIR` / `--store-root DIR` names the store;
+the target must be outside the store. A store written in the old layout
+restores only with the older kits inside it.
 
 **One BackupSet per container invocation** (ruled 2026-08-21). HomeHub runs one
 service/invocation per directory rather than one multi-set config; a JSON config
 with more than one `BackupSets` entry is accepted for native-Windows use but is
 outside this contract when run in the container.
 
-**Config schema v2** (`SR-042`/`SR-063`, published as
+**Config schema v3** (`SR-042`/`SR-063`, published as
 [`container/FileBackup.schema.json`](../container/FileBackup.schema.json)):
-a required integer `ConfigVersion` (currently **2**; version 1 is refused as
-too old); a **closed** schema — any unrecognized key aborts the run, naming
-the key; a JSON boolean `CompressEnabled` (`PreserveFolderTree` was removed at
+a required integer `ConfigVersion` (currently **3**; versions 1 and 2 are
+refused as too old); a **closed** schema — any unrecognized key aborts the run,
+naming the key; a required `StorePath` (the one store folder; `BackupPath` and
+`ChangePath`, version 2's two folders, are refused by name with a message saying
+how to convert); a JSON boolean `CompressEnabled` (`PreserveFolderTree` was removed at
 WP9 — storage is always content-addressed, and a config still carrying the key
 is refused with a named removal diagnostic); optional `BrowseView`
-(`off`|`index`, default `off` — note a containerized run cannot satisfy the
-view's same-volume rule, so `index` is native-host functionality until IF-001
-rules otherwise) and `ViewPath`; `SourceStatePath` and `AllowEmptySource`,
+(`off`|`index`, default `off` — `index` stays native-host functionality until
+IF-001 rules on it, see below) and `ViewPath` (default `<StorePath>/View`); `SourceStatePath` and `AllowEmptySource`,
 both still accepted and both ignored (R3; an empty source while the backup
 holds files stops the run with 4, writing no latest state, and a set meant to
 be empty is removed from the configuration); no
@@ -57,14 +74,16 @@ argument starting with `-` passes through to `FileBackup.ps1` unchanged. `prune`
 also reads `FILEBACKUP_SNAPSHOT` / `-Snapshot` (required) and
 `FILEBACKUP_DRY_RUN` / `-WhatIf`; `verify` reads `FILEBACKUP_REPAIR=1` for its
 opt-in repair mode. `view` (SR-062) is deliberately **not** one of them: the
-browse view must be written outside both roots and on the backup volume. With
-the single `/store` mount a view at `/store/view` would satisfy that, but no
-IF-001 revision has ruled on it yet, so it stays native-host functionality.
+browse view must be written outside `Latest` and the snapshots and on the
+store's volume. Its default, `<StorePath>/View` (`/store/View` in the
+container), would satisfy that, but no IF-001 revision has ruled on it yet, so
+it stays native-host functionality.
 
 **Environment overrides.** Beside the tool paths (`FILEBACKUP_7ZIP_PATH`,
 `FILEBACKUP_FFPROBE_PATH`), `FILEBACKUP_7Z_LEVEL` (added 2026-09-01) selects
 7-Zip's `-mx` effort level as a single digit `0`–`9`, default `9`; it is
-deliberately **not** a configuration key, so `ConfigVersion` stays `2`. It
+deliberately **not** a configuration key, so it needed no `ConfigVersion` bump
+(it was added at version 2; the current version, 3, is the store layout's). It
 changes only how hard 7-Zip tries — never *whether* content is compressed, and
 never the restore contract: the restorers read no *policy* from the variable and
 restore correctness is level-independent, every level's archive being read back
@@ -95,8 +114,9 @@ snapshot without mutating anything unless repair is requested; it also reports
 duplicate objects (`DuplicateObject`) and damaged ones (`DamagedObject`: always
 for an object its listing shows empty or the wrong length, and under `-Deep` for
 one whose bytes do not reproduce its name; one it could not check is
-`UnverifiedObject` and is never moved), which repair MOVES into `/store/changes/Verify/` — nothing is
-deleted.
+`UnverifiedObject` and is never moved) and misplaced ones (`MisplacedObject`: an
+object of `Latest` outside its own shard folder, which is no part of the pool),
+which repair MOVES into `/store/Verify/` — nothing is deleted.
 
 **Exit-code table** — one vocabulary for backup, restore (`RECONSTRUCT.cmd` /
 `reconstruct.sh`), prune, and verify:
@@ -105,7 +125,7 @@ deleted.
 |---|---|---|---|
 | 0 | Every file captured | Complete / nothing to report | ok |
 | 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept), or a damaged stored object was set aside into `Verify/` (`[DamagedObject]` in the set log; its content stored again when the source still holds it) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
-| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a `BackupPath` gone while its `ChangePath` holds snapshots) | Usage or precondition error; nothing mutated | error — do not retry |
+| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a store in the old two-folder layout, a store whose `Latest` is gone while it holds snapshots) | Usage or precondition error (for a restore: also a kit run from outside a store's `Latest` or `Snapshot_<date>` folder without the store override); nothing mutated | error — do not retry |
 | 3 | — never | Restore: retired from kit revision 14 (an older kit bundled in an older snapshot can still return it). Prune: a witness an older build left disagrees with its manifest; nothing mutated | error — **escalate** |
 | 4 | Stopped by a host problem (volume full or gone, the store's drive not attached, the source gone, or empty at the start or mid-run while the backup holds files) or another run holds the lock; every state stays restorable | Host/dependency I/O failure; prune, or Verify's repair or kit refresh, finding another run holding the lock | warn — retry |
 

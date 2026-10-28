@@ -2,9 +2,9 @@
 .SYNOPSIS
     Backend abstraction: every backend returns a [pscustomobject] with the same shape:
         @{ SrcPath; BkpPath; ChgPath; ReconPath; Dispose=<scriptblock> }
-    so the suites are backend-agnostic. BkpPath and ChgPath are two folders on
-    ONE volume (Backup and Changes): the engine moves content between them by
-    rename and refuses a pair a rename cannot cross (bounded-run-loop plan R8).
+    so the suites are backend-agnostic. ChgPath is the store (one folder per
+    backup set, plan C44) and BkpPath its Latest folder: <store>\Latest beside
+    every Snapshot_<date>. The config names only the store (StorePath).
 
     Backends:
         Subst      - subst-mapped letters over %TEMP%; default; no admin.
@@ -64,12 +64,12 @@ function New-SubstEnv {
         Backend   = 'Subst'
         Root      = $Root
         SrcPath   = "$($letters.Src):\"
-        BkpPath   = "$($letters.Store):\Backup"
-        ChgPath   = "$($letters.Store):\Changes"
+        BkpPath   = "$($letters.Store):\Store\Latest"
+        ChgPath   = "$($letters.Store):\Store"
         ReconPath = "$($letters.Recon):\"
         PhysSrc   = $phys.Src
-        PhysBkp   = Join-Path $phys.Store 'Backup'
-        PhysChg   = Join-Path $phys.Store 'Changes'
+        PhysBkp   = Join-Path $phys.Store 'Store\Latest'
+        PhysChg   = Join-Path $phys.Store 'Store'
         PhysRecon = $phys.Recon
         UsedLetters = @($letters.Src, $letters.Store, $letters.Recon)
         Dispose   = {
@@ -116,8 +116,8 @@ function New-VhdxEnv {
         Backend   = 'VHDX'
         Root      = $Root
         SrcPath   = "$($byLabel['FBTEST-SRC'].Letter):\"
-        BkpPath   = "$($byLabel['FBTEST-BKP'].Letter):\Backup"
-        ChgPath   = "$($byLabel['FBTEST-BKP'].Letter):\Changes"
+        BkpPath   = "$($byLabel['FBTEST-BKP'].Letter):\Store\Latest"
+        ChgPath   = "$($byLabel['FBTEST-BKP'].Letter):\Store"
         ReconPath = "$($byLabel['FBTEST-RCN'].Letter):\"
         Mounted   = $mounted
         Dispose   = {
@@ -156,13 +156,13 @@ function New-RealUsbEnv {
     foreach ($p in @($src,$bkp,$rcn)) {
         Get-ChildItem -LiteralPath $p -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
-    New-Item -ItemType Directory -Path (Join-Path $bkp 'Backup'), (Join-Path $bkp 'Changes') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $bkp 'Store') -Force | Out-Null
 
     [pscustomobject]@{
         Backend   = 'RealUSB'
         SrcPath   = $src
-        BkpPath   = (Join-Path $bkp 'Backup')
-        ChgPath   = (Join-Path $bkp 'Changes')
+        BkpPath   = (Join-Path $bkp 'Store\Latest')
+        ChgPath   = (Join-Path $bkp 'Store')
         ReconPath = $rcn
         Dispose   = { }
     }

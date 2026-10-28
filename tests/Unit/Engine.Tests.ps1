@@ -91,7 +91,8 @@ Describe 'The source walk and the retired source-side record (plan R3, C6)' {
         Set-Content -LiteralPath (Join-Path $source 'MANIFEST.csv') -Value 'old record'
         Set-Content -LiteralPath (Join-Path $source 'sub\MANIFEST.csv') -Value 'user data'
         $walk = Get-SourceFileList -SourcePath $source -ExcludeOldSourceRecord $true
-        @($walk.Files | ForEach-Object RelativePath) | Should -Be @('sub\MANIFEST.csv')
+        # '/'-separated on every host (plan C44, L7).
+        @($walk.Files | ForEach-Object RelativePath) | Should -Be @('sub/MANIFEST.csv')
     }
 
     It 'neither creates nor refuses a SourceStatePath, which is no longer written' {
@@ -99,11 +100,62 @@ Describe 'The source walk and the retired source-side record (plan R3, C6)' {
         New-Item -ItemType Directory -Path $source | Out-Null
         $set = [pscustomobject]@{
             Name = 'OldState'; SourcePath = $source; SourceStatePath = (Join-Path $source '.state')
-            BackupPath = (Join-Path $TestDrive 'nested-state-backup'); ChangePath = (Join-Path $TestDrive 'nested-state-changes')
+            StorePath = (Join-Path $TestDrive 'nested-state-store')
         }
         $paths = Resolve-BackupSetPaths -Set $set
         $paths.SrcStatePath | Should -Be (Join-Path $source '.state')
         Test-Path -LiteralPath (Join-Path $source '.state') | Should -BeFalse
+    }
+}
+
+Describe 'The store-layout check refuses an old backup, not the engine''s own folders (SR-014, plan C44 S2)' {
+    BeforeAll {
+        function New-LayoutStore {
+            param([string]$Name, [string]$Child)
+            $root = Join-Path $TestDrive $Name
+            $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
+            New-Item -ItemType Directory -Path $src, (Join-Path $store 'Latest'), (Join-Path $store $Child) -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
+            Set-Content -LiteralPath (Join-Path (Join-Path $store $Child) 'MANIFEST.csv') -Value '"DataPath","RelativePath"'
+            return [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
+        }
+    }
+
+    It 'accepts a store holding a leftover <Child> with a MANIFEST.csv, for a run and read-only (plan C44, S2)' -ForEach @(
+        @{ Child = 'Building_2026_01_01_10_00_00' }
+        @{ Child = 'Pruning_Snapshot_2026_01_01_10_00_00' }
+    ) {
+        # A run killed before the snapshot rename leaves Building_<date>; a
+        # prune whose delete failed leaves Pruning_<name>. Each holds the
+        # manifest it was given, and the next run or prune must finish it.
+        $set = New-LayoutStore -Name ('ok-' + $Child) -Child $Child
+        { Resolve-BackupSetPaths -Set $set } | Should -Not -Throw
+        { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Not -Throw
+    }
+
+    It 'still refuses a store holding an old-layout backup folder (a <Child> with a MANIFEST.csv) (plan C44, L2, S2)' -ForEach @(
+        @{ Child = 'backup' }
+        @{ Child = 'Backup_2026' }
+    ) {
+        $set = New-LayoutStore -Name ('old-' + $Child) -Child $Child
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage "*holds '$Child', a folder with a MANIFEST.csv*old-layout*"
+        { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Throw -ExpectedMessage '*old-layout*'
+    }
+
+    It 'refuses a StorePath that is itself an old backup folder, and one with snapshots but no Latest (plan C44, S2, C26)' {
+        $root = Join-Path $TestDrive 'old-self'
+        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
+        New-Item -ItemType Directory -Path $src, $store -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
+        Set-Content -LiteralPath (Join-Path $store 'MANIFEST.csv') -Value '"DataPath","RelativePath"'
+        $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage '*holds a MANIFEST.csv of its own*'
+
+        $lost = Join-Path $root 'lost'
+        New-Item -ItemType Directory -Path (Join-Path $lost 'Snapshot_2026_01_01_10_00_00') -Force | Out-Null
+        $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $lost }
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage "*holds snapshots but no 'Latest' folder*"
+        Test-Path -LiteralPath (Join-Path $lost 'Latest') | Should -BeFalse -Because 'no fresh full backup starts beside the snapshots'
     }
 }
 
@@ -134,16 +186,16 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
     It 'accepts the JSON configuration format used by the container' {
         $entry = Join-Path $repo 'FileBackup.ps1'
         $source = Join-Path $TestDrive 'json-source'
-        $backup = Join-Path $TestDrive 'json-backup'
-        $changes = Join-Path $TestDrive 'json-changes'
+        $changes = Join-Path $TestDrive 'json-store'
+        $backup = Join-Path $changes 'Latest'
         $config = Join-Path $TestDrive 'FileBackup.json'
         $log = Join-Path $TestDrive 'logs\global.log'
         New-Item -ItemType Directory -Path $source | Out-Null
         Set-Content -LiteralPath (Join-Path $source 'sample.txt') -Value 'container config'
         @{
-            ConfigVersion = 2
+            ConfigVersion = 3
             BackupSets = @(@{
-                Name = 'JSON'; SourcePath = $source; BackupPath = $backup; ChangePath = $changes
+                Name = 'JSON'; SourcePath = $source; StorePath = $changes
                 HashRecalcFreq = 'N'; CompressEnabled = $false
             })
         } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $config -Encoding UTF8
@@ -157,7 +209,7 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
     It 'rejects a JSON configuration with no backup sets' {
         $entry = Join-Path $repo 'FileBackup.ps1'
         $config = Join-Path $TestDrive 'empty.json'
-        '{"ConfigVersion":2}' | Set-Content -LiteralPath $config -Encoding UTF8
+        '{"ConfigVersion":3}' | Set-Content -LiteralPath $config -Encoding UTF8
 
         { & $entry -ConfigPath $config -NoMail -NonInteractive } |
             Should -Throw -ExpectedMessage '*at least one BackupSets entry*'
@@ -188,36 +240,36 @@ Describe 'Configuration loader accepts the documented contract (SR-042)' {
         # satisfying the contract it demonstrates, this fails -- which is the
         # whole point of the fixture.
         $result = Import-BackupConfiguration -Path (Join-Path $repo 'container\FileBackup.example.json')
-        $result.ConfigVersion | Should -Be 2
+        $result.ConfigVersion | Should -Be 3
         $result.Sets.Count | Should -Be 1
     }
 
     It 'accepts shared-corpus fixture <Name> (SR-042)' -ForEach $configCorpus.Accepted {
         $path = New-FixtureConfig -Json $Json
         $result = Import-BackupConfiguration -Path $path
-        $result.ConfigVersion | Should -Be 2
+        $result.ConfigVersion | Should -Be 3
         $result.Sets.Count | Should -BeGreaterThan 0
     }
 
     It 'wraps a single bare BackupSets object, as the published schema''s anyOf allows (SR-042)' {
-        $path = New-FixtureConfig -Json '{"ConfigVersion":2,"BackupSets":{"Name":"bare","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false}}'
+        $path = New-FixtureConfig -Json '{"ConfigVersion":3,"BackupSets":{"Name":"bare","SourcePath":"s","StorePath":"st","HashRecalcFreq":"N","CompressEnabled":false}}'
         $result = Import-BackupConfiguration -Path $path
         $result.Sets.Count | Should -Be 1
         $result.Sets[0].Name | Should -Be 'bare'
     }
 
-    It 'accepts an integral-valued ConfigVersion number (JSON has one number type: 2.0 IS 2) (SR-042)' {
-        $path = New-FixtureConfig -Json '{"ConfigVersion":2.0,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false}]}'
-        (Import-BackupConfiguration -Path $path).ConfigVersion | Should -Be 2
+    It 'accepts an integral-valued ConfigVersion number (JSON has one number type: 3.0 IS 3) (SR-042)' {
+        $path = New-FixtureConfig -Json '{"ConfigVersion":3.0,"BackupSets":[{"Name":"a","SourcePath":"s","StorePath":"st","HashRecalcFreq":"N","CompressEnabled":false}]}'
+        (Import-BackupConfiguration -Path $path).ConfigVersion | Should -Be 3
     }
 
     It 'materializes SourceStatePath and AllowEmptySource defaults, and upper-cases HashRecalcFreq, when omitted (SR-042)' {
         $path = Join-Path $TestDrive 'minimal.json'
         [ordered]@{
-            ConfigVersion = 2
+            ConfigVersion = 3
             BackupSets    = @(
                 [ordered]@{
-                    Name = 'S'; SourcePath = 'C:\src'; BackupPath = 'C:\bkp'; ChangePath = 'C:\chg'
+                    Name = 'S'; SourcePath = 'C:\src'; StorePath = 'C:\store'
                     HashRecalcFreq = 'n'; CompressEnabled = $true
                 }
             )
@@ -232,7 +284,7 @@ Describe 'Configuration loader accepts the documented contract (SR-042)' {
     It 'loads a CLIXML config the same shape as tests/Common/Harness.ps1 writes, unversioned (SR-042)' {
         $path = Join-Path $TestDrive 'clixml-config.xml'
         $set = [pscustomobject]@{
-            Name = 'TestSet'; SourcePath = 'C:\src'; BackupPath = 'C:\bkp'; ChangePath = 'C:\chg'
+            Name = 'TestSet'; SourcePath = 'C:\src'; StorePath = 'C:\store'
             HashRecalcFreq = 'A'; CompressEnabled = $true
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $path
@@ -243,6 +295,25 @@ Describe 'Configuration loader accepts the documented contract (SR-042)' {
         $result.Sets[0].Name | Should -Be 'TestSet'
         $result.Sets[0].SourceStatePath | Should -Be 'C:\src'
         $result.Sets[0].AllowEmptySource | Should -BeFalse
+        # The two roots every engine step takes are derived from the one key
+        # (plan C44, S1): the latest state, and the store itself.
+        $result.Sets[0].StorePath  | Should -Be 'C:\store'
+        $result.Sets[0].BackupPath | Should -Be 'C:\store\Latest'
+        $result.Sets[0].ChangePath | Should -Be 'C:\store'
+    }
+
+    It 'refuses a CLIXML set that still names BackupPath or ChangePath, by name, as JSON does (plan C44, L1)' {
+        foreach ($retired in @(
+                [ordered]@{ BackupPath = 'C:\bkp'; ChangePath = 'C:\chg' },
+                [ordered]@{ StorePath = 'C:\store'; BackupPath = 'C:\bkp' },
+                [ordered]@{ StorePath = 'C:\store'; ChangePath = 'C:\chg' })) {
+            $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.xml')
+            $set = [ordered]@{ Name = 'Old'; SourcePath = 'C:\src'; HashRecalcFreq = 'A'; CompressEnabled = $false }
+            foreach ($k in $retired.Keys) { $set[$k] = $retired[$k] }
+            @{ Secrets = $null; BackupSets = @([pscustomobject]$set) } | Export-Clixml -LiteralPath $path
+            { Import-BackupConfiguration -Path $path } |
+                Should -Throw -ExpectedMessage '*BackupPath and ChangePath were replaced in ConfigVersion 3 by StorePath*new, empty folder*'
+        }
     }
 }
 
@@ -266,7 +337,7 @@ Describe 'Configuration loader fails loudly and names the key (SR-042)' {
     It 'refuses a quoted "false" for AllowEmptySource rather than coercing it TRUE (SR-042)' {
         # The reviewer's reproduction: [bool]'false' is $true in PowerShell, so
         # before this check the run silently emptied the backup root and exited 0.
-        $path = New-DefectiveConfig -Json '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"AllowEmptySource":"false"}]}'
+        $path = New-DefectiveConfig -Json '{"ConfigVersion":3,"BackupSets":[{"Name":"a","SourcePath":"s","StorePath":"st","HashRecalcFreq":"N","CompressEnabled":false,"AllowEmptySource":"false"}]}'
         # -Match (regex), not -ExpectedMessage (wildcard): [0] is a character
         # class to a wildcard pattern, so it would not pin the JSON path.
         $err = { Import-BackupConfiguration -Path $path } | Should -Throw -PassThru
@@ -274,9 +345,9 @@ Describe 'Configuration loader fails loudly and names the key (SR-042)' {
     }
 
     It 'names the offending set by its real index, not a literal [?] (SR-042)' {
-        $good = '{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":true}'
-        $bad  = '{"Name":"b","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":"false"}'
-        $path = New-DefectiveConfig -Json "{`"ConfigVersion`":2,`"BackupSets`":[$good,$bad]}"
+        $good = '{"Name":"a","SourcePath":"s","StorePath":"st","HashRecalcFreq":"N","CompressEnabled":true}'
+        $bad  = '{"Name":"b","SourcePath":"s","StorePath":"st2","HashRecalcFreq":"N","CompressEnabled":"false"}'
+        $path = New-DefectiveConfig -Json "{`"ConfigVersion`":3,`"BackupSets`":[$good,$bad]}"
         $err = { Import-BackupConfiguration -Path $path } | Should -Throw -PassThru
         $err.Exception.Message | Should -Match '\$\.BackupSets\[1\]\.CompressEnabled'
     }
@@ -293,7 +364,7 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
         function New-V2Clixml {
             param([hashtable]$SetOverrides = @{})
             $set = [ordered]@{
-                Name = 'S'; SourcePath = 'C:\src'; BackupPath = 'C:\bkp'; ChangePath = 'C:\chg'
+                Name = 'S'; SourcePath = 'C:\src'; StorePath = 'C:\store'
                 HashRecalcFreq = 'A'; CompressEnabled = $false
             }
             foreach ($k in $SetOverrides.Keys) { $set[$k] = $SetOverrides[$k] }
@@ -306,11 +377,17 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
     It 'refuses ConfigVersion 1 as TOO OLD, naming the v2 change (SR-063, TC-126)' {
         $path = New-V2Json -Json '{"ConfigVersion":1,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false}]}'
         { Import-BackupConfiguration -Path $path } |
-            Should -Throw -ExpectedMessage '*declares version 1*too old*PreserveFolderTree*ConfigVersion to 2*'
+            Should -Throw -ExpectedMessage '*declares version 1*too old*PreserveFolderTree*ConfigVersion to 3*'
+    }
+
+    It 'refuses ConfigVersion 2 as TOO OLD, naming the StorePath change (SR-063, plan C44 L1)' {
+        $path = New-V2Json -Json '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false}]}'
+        { Import-BackupConfiguration -Path $path } |
+            Should -Throw -ExpectedMessage '*declares version 2*too old*BackupPath and ChangePath with StorePath*ConfigVersion to 3*'
     }
 
     It 'refuses a JSON PreserveFolderTree with the NAMED removal diagnostic, not the generic unknown-key message (SR-063, TC-125)' {
-        $path = New-V2Json -Json '{"ConfigVersion":2,"BackupSets":[{"Name":"a","SourcePath":"s","BackupPath":"b","ChangePath":"c","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false}]}'
+        $path = New-V2Json -Json '{"ConfigVersion":3,"BackupSets":[{"Name":"a","SourcePath":"s","StorePath":"st","HashRecalcFreq":"N","CompressEnabled":false,"PreserveFolderTree":false}]}'
         $err = { Import-BackupConfiguration -Path $path } | Should -Throw -PassThru
         $err.Exception.Message | Should -Match 'PreserveFolderTree was removed in ConfigVersion 2: storage is always content-addressed'
         $err.Exception.Message | Should -Not -Match 'unrecognized key'
@@ -325,10 +402,10 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
             Should -Throw -ExpectedMessage '*PreserveFolderTree was removed in ConfigVersion 2*'
     }
 
-    It 'accepts BrowseView off/index, defaults it OFF, and defaults ViewPath beside the backup root (SR-063, TC-127)' {
+    It 'accepts BrowseView off/index, defaults it OFF, and defaults ViewPath to <StorePath>/View (SR-063, TC-127, plan C44 L3)' {
         $result = Import-BackupConfiguration -Path (New-V2Clixml)
         $result.Sets[0].BrowseView | Should -Be 'off'
-        $result.Sets[0].ViewPath   | Should -Be 'C:\bkp_View'
+        $result.Sets[0].ViewPath   | Should -Be 'C:\store\View'
 
         $result = Import-BackupConfiguration -Path (New-V2Clixml -SetOverrides @{ BrowseView = 'index'; ViewPath = 'C:\elsewhere\view' })
         $result.Sets[0].BrowseView | Should -Be 'index'
@@ -342,17 +419,29 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
             Should -Throw -ExpectedMessage '*invalid BrowseView*'
     }
 
-    It 'refuses a ViewPath inside BackupPath or ChangePath at path resolution (SR-063, TC-128)' {
+    It 'refuses a ViewPath inside the store, except at exactly <StorePath>/View, at path resolution (SR-063, TC-128, plan C44 L3)' {
         $root = Join-Path $TestDrive 'tc128-contain'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
         $mk = { param($vp) [pscustomobject]@{
-            Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            Name = 'S'; SourcePath = $src; StorePath = $chg
             SourceStatePath = ''; BrowseView = 'index'; ViewPath = $vp } }
+        # Inside Latest, or Latest itself.
         { Resolve-BackupSetPaths -Set (& $mk (Join-Path $bkp 'view')) } |
-            Should -Throw -ExpectedMessage '*must lie outside backup/change storage*'
-        { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'view')) } |
-            Should -Throw -ExpectedMessage '*must lie outside backup/change storage*'
+            Should -Throw -ExpectedMessage '*must lie outside the store*'
+        { Resolve-BackupSetPaths -Set (& $mk $bkp) } |
+            Should -Throw -ExpectedMessage '*IS the store*'
+        # Inside the store anywhere but its one View folder: a snapshot, a run
+        # folder, or a folder of another name.
+        { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'elsewhere')) } |
+            Should -Throw -ExpectedMessage '*must lie outside the store*'
+        { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'Snapshot_2026_01_01_00_00_00')) } |
+            Should -Throw -ExpectedMessage '*must lie outside the store*'
+        { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'View\deeper')) } |
+            Should -Throw -ExpectedMessage '*must lie outside the store*'
+        # Exactly <StorePath>/View is the store's own view folder, and accepted.
+        (Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'View'))).ViewPath |
+            Should -Be ([IO.Path]::GetFullPath((Join-Path $chg 'View')))
         # BrowseView off validates nothing: the same contained path is inert.
         $offSet = & $mk (Join-Path $bkp 'view'); $offSet.BrowseView = 'off'
         { Resolve-BackupSetPaths -Set $offSet } | Should -Not -Throw
@@ -367,16 +456,19 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
         # success. Both reproduced on 2026-08-25 before this arm existed.
         $root = Join-Path $TestDrive 'tc128-ancestor'
         $store = Join-Path $root 'store'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $store 'bkp'; $chg = Join-Path $store 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $store 'chg'; $bkp = Join-Path $chg 'Latest'
         $state = Join-Path $root 'state'
         New-Item -ItemType Directory -Path $src, $bkp, $chg, $state -Force | Out-Null
         $mk = { param($vp) [pscustomobject]@{
-            Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            Name = 'S'; SourcePath = $src; StorePath = $chg
             SourceStatePath = $state; BrowseView = 'index'; ViewPath = $vp } }
 
-        # ancestor of BOTH storage roots
+        # ancestor of the store (and so of Latest)
         { Resolve-BackupSetPaths -Set (& $mk $store) } |
-            Should -Throw -ExpectedMessage '*CONTAINS backup/change storage*'
+            Should -Throw -ExpectedMessage '*CONTAINS the store*'
+        # the store itself
+        { Resolve-BackupSetPaths -Set (& $mk $chg) } |
+            Should -Throw -ExpectedMessage '*the store*WIPED*'
         # ancestor of everything, storage and source alike
         { Resolve-BackupSetPaths -Set (& $mk $root) } |
             Should -Throw -ExpectedMessage '*CONTAINS*'
@@ -394,20 +486,20 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
             Should -Be ([IO.Path]::GetFullPath((Join-Path $root 'view')))
     }
 
-    It 'refuses a ViewPath on a different volume; the default beside the backup root resolves (SR-063, TC-128)' {
+    It 'refuses a ViewPath on a different volume; the default <StorePath>/View resolves (SR-063, TC-128)' {
         $free = @('X', 'Y', 'W', 'V', 'U') |
                 Where-Object { $_ -notin (Get-PSDrive -PSProvider FileSystem).Name } |
                 Select-Object -First 1
         if (-not $free) { Set-ItResult -Skipped -Because 'no free drive letter for subst'; return }
         $root = Join-Path $TestDrive 'tc128-volume'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $other = Join-Path $root 'othervol'
         New-Item -ItemType Directory -Path $src, $bkp, $chg, $other -Force | Out-Null
         $substOut = & cmd.exe /c "subst ${free}: `"$other`"" 2>&1
         if ($LASTEXITCODE -ne 0) { Set-ItResult -Skipped -Because "subst failed: $substOut"; return }
         try {
             $set = [pscustomobject]@{
-                Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+                Name = 'S'; SourcePath = $src; StorePath = $chg
                 SourceStatePath = ''; BrowseView = 'index'; ViewPath = "${free}:\view"
             }
             { Resolve-BackupSetPaths -Set $set } |
@@ -416,11 +508,12 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
             & cmd.exe /c "subst ${free}: /D" 2>&1 | Out-Null
         }
 
-        # The materialized default is always legal: beside the root, same volume.
+        # The materialized default is always legal: <StorePath>/View, inside
+        # the store on its volume (plan C44, L3).
         $set = [pscustomobject]@{
-            Name = 'S'; SourcePath = $src; BackupPath = $bkp; ChangePath = $chg
+            Name = 'S'; SourcePath = $src; StorePath = $chg
             SourceStatePath = ''; BrowseView = 'index'; ViewPath = ''
         }
-        (Resolve-BackupSetPaths -Set $set).ViewPath | Should -Be ((Resolve-Path -LiteralPath $bkp).Path + '_View')
+        (Resolve-BackupSetPaths -Set $set).ViewPath | Should -Be (Join-Path (Resolve-Path -LiteralPath $chg).Path 'View')
     }
 }

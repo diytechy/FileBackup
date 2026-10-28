@@ -18,7 +18,7 @@ BeforeAll {
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg,
               [bool]$Compress = $false)
         $set = [pscustomobject]@{
-            Name = 'S'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+            Name = 'S'; SourcePath = $Src; StorePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
@@ -33,7 +33,7 @@ BeforeAll {
             the repo at backup time).
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
         # b.txt is large and repetitive so a Compress-mode store reliably stores
         # it as a .7z archive (the compression decision is per-file).
@@ -59,7 +59,7 @@ BeforeAll {
         param([string]$Bkp, [string]$RelativePath)
         $row = @(Import-Csv -LiteralPath (Join-Path $Bkp 'MANIFEST.csv') |
                     Where-Object RelativePath -eq $RelativePath)[0]
-        return (Join-Path $Bkp $row.DataPath)
+        return (Get-StoredObjectPath -Folder $Bkp -Name $row.DataPath -Sharded)
     }
 
     function Set-ManifestRows {
@@ -96,7 +96,7 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
         $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
+        Remove-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $aData -Sharded) -Force
         [IO.File]::WriteAllBytes((Join-Path $s.Bkp 'noise.7z'), [byte[]](1..64))
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
@@ -119,7 +119,7 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
         $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
+        Remove-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $aData -Sharded) -Force
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
         # A same-length candidate the locator must hash — held open with no
         # sharing, so the read throws (I/O/lock class, not data damage).
@@ -148,7 +148,7 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         # index can see); the bytes survive in the pool, but this host cannot
         # read them - held open with no sharing.
         $parked = Join-Path $s.Bkp 'parked.bin'
-        Move-Item -LiteralPath (Join-Path $s.Bkp $a.DataPath) -Destination $parked
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $a.DataPath -Sharded) -Destination $parked
         $h = [IO.File]::Open($parked, 'Open', 'Read', 'None')
         try {
             $t = Join-Path $root 't'
@@ -169,7 +169,7 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
         $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
+        Remove-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $aData -Sharded) -Force
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
         # A same-length .7z-named candidate, locked: with no 7-Zip the raw test
         # throws — 7-Zip could not have helped read a file that cannot be read,
@@ -199,7 +199,7 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $b.DataPath | Should -Match '\.7z$'
         # Archive-SHAPED but unopenable (SR-068): the bytes say archive, so an
         # extraction IS attempted, and failing it is about this host's 7-Zip.
-        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath),
+        [IO.File]::WriteAllBytes((Get-StoredObjectPath -Folder $s.Bkp -Name $b.DataPath -Sharded),
             ([byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C) + [byte[]](5..99)))
         Write-ManifestWitness -FolderPath $s.Bkp | Out-Null
 
@@ -221,7 +221,7 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         $s = New-RVStore -Root $root -Compress $true
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $b = $rows | Where-Object RelativePath -eq 'b.txt'
-        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath), [byte[]](5..99))
+        [IO.File]::WriteAllBytes((Get-StoredObjectPath -Folder $s.Bkp -Name $b.DataPath -Sharded), [byte[]](5..99))
         Write-ManifestWitness -FolderPath $s.Bkp | Out-Null
 
         $t = Join-Path $root 't'
@@ -243,11 +243,11 @@ Describe 'Locator exit-code honesty — a bad pool candidate is data damage, not
         # backup writes no snapshot, so the backup root is the whole pool).
         $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
+        Remove-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $aData -Sharded) -Force
         # b.txt: host class — its own archive is garbage.
         $b.DataPath | Should -Match '\.7z$'
         # Archive-shaped, so the extraction attempt still makes it host class.
-        [IO.File]::WriteAllBytes((Join-Path $s.Bkp $b.DataPath),
+        [IO.File]::WriteAllBytes((Get-StoredObjectPath -Folder $s.Bkp -Name $b.DataPath -Sharded),
             ([byte[]](0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C) + [byte[]](5..99)))
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
@@ -327,13 +327,13 @@ Describe 'Restore verifies the bytes it wrote (SR-056, D-2)' {
         # Keep a good pool copy under an unrelated name, then repack the row's
         # own archive with DIFFERENT bytes — a corrupt container exits 4, so
         # the wrong-payload arm needs a genuinely valid archive (plan §6.1).
-        Copy-Item -LiteralPath (Join-Path $s.Bkp $b.DataPath) -Destination (Join-Path $s.Bkp 'spare.7z')
+        Copy-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $b.DataPath -Sharded) -Destination (Join-Path $s.Bkp 'spare.7z')
         $work = Join-Path $root 'repack'
         New-Item -ItemType Directory -Path $work | Out-Null
         [IO.File]::WriteAllText((Join-Path $work 'b.txt'), ('OTHER-PAYLOAD-' * 4000))
         Compress-FileWithSevenZip -SevenZipPath (Get-FileBackupDefaults).SevenZipDefaultPath `
             -SourceFile (Join-Path $work 'b.txt') -Destination7z (Join-Path $work 'wrong.7z')
-        Move-Item -LiteralPath (Join-Path $work 'wrong.7z') -Destination (Join-Path $s.Bkp $b.DataPath) -Force
+        Move-Item -LiteralPath (Join-Path $work 'wrong.7z') -Destination (Get-StoredObjectPath -Folder $s.Bkp -Name $b.DataPath -Sharded) -Force
 
         $t = Join-Path $root 't'
         $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
@@ -440,7 +440,7 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
         $aData = $a.DataPath
         $a.DataPath = ''
-        Move-Item -LiteralPath (Join-Path $s.Bkp $aData) -Destination (Join-Path $s.Bkp '.pool-copy.bin')
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $aData -Sharded) -Destination (Join-Path $s.Bkp '.pool-copy.bin')
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
         $t = Join-Path $root 't'
@@ -457,7 +457,7 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         $aData = $a.DataPath
         $a.DataPath = ''
         $pool = Join-Path $s.Bkp 'pool-copy.bin'
-        Move-Item -LiteralPath (Join-Path $s.Bkp $aData) -Destination $pool
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $aData -Sharded) -Destination $pool
         (Get-Item -LiteralPath $pool -Force).Attributes = ((Get-Item -LiteralPath $pool -Force).Attributes -bor [IO.FileAttributes]::Hidden)
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
 
@@ -488,7 +488,7 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         # -Force made 'System Volume Information'-shaped directories visible;
         # before this fix one of them aborted the whole run with NO manifest.
         $root = Join-Path $TestDrive 'b1-denied'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'good.txt') -Value 'REACHABLE' -NoNewline
         $denied = Join-Path $src 'DeniedDir'
@@ -519,7 +519,7 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
         $aData = $a.DataPath
         $a.DataPath = ''
-        Remove-Item -LiteralPath (Join-Path $s.Bkp $aData) -Force
+        Remove-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $aData -Sharded) -Force
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
         # An archive-named candidate forces the expand attempt; the "7-Zip" is
         # an existing file that cannot execute, so expand AND self-test fail.
@@ -545,7 +545,7 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         New-Item -ItemType Directory -Path $snap -Force | Out-Null
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
-        Move-Item -LiteralPath (Join-Path $s.Bkp $a.DataPath) -Destination (Join-Path $snap 'moved.bin')
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $a.DataPath -Sharded) -Destination (Join-Path $snap 'moved.bin')
         $a.DataPath = ''
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
         icacls $s.Chg /deny "${env:USERNAME}:(R)" | Out-Null

@@ -75,7 +75,7 @@ BeforeAll {
         #>
         param([string]$Label, [string[]]$Name, [byte[]]$Bytes)
         $root = Join-Path $TestDrive ($Label + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
         foreach ($n in $Name) { [IO.File]::WriteAllBytes((Join-Path $src $n), $Bytes) }
         [pscustomobject]@{ Root = $root; Src = $src; Bkp = $bkp; Chg = $chg; Names = @($Name) }
@@ -116,7 +116,7 @@ BeforeAll {
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg,
               [bool]$Compress = $true, [hashtable]$Extra = @{})
         $set = [ordered]@{
-            Name = 'S'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+            Name = 'S'; SourcePath = $Src; StorePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
         }
         foreach ($k in $Extra.Keys) { $set[$k] = $Extra[$k] }
@@ -129,12 +129,11 @@ BeforeAll {
         $probe = if ($PSBoundParameters.ContainsKey('ProbeLiteral')) { ",`n    `"CompressProbe`": $ProbeLiteral" } else { '' }
         $json = @"
 {
-  "ConfigVersion": 2,
+  "ConfigVersion": 3,
   "BackupSets": [{
     "Name": "S",
     "SourcePath": $($Src | ConvertTo-Json),
-    "BackupPath": $($Bkp | ConvertTo-Json),
-    "ChangePath": $($Chg | ConvertTo-Json),
+    "StorePath": $($Chg | ConvertTo-Json),
     "HashRecalcFreq": "A",
     "CompressEnabled": $($Compress.ToString().ToLowerInvariant())$probe
   }]
@@ -177,7 +176,7 @@ Describe 'Q7: the bytes decide, not the name (SR-004, SR-081, TC-224)' {
         $script:tc224 = @{}
         foreach ($mode in 'always', 'off') {
             $root = Join-Path $TestDrive "tc224-$mode"
-            $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+            $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
             New-Item -ItemType Directory -Path $src -Force | Out-Null
             # Distinct seeds: identical bytes would dedup into ONE content group
             # and take one owner's storage form, which would prove nothing.
@@ -289,7 +288,7 @@ Describe 'Mode always measures every name above the floor (SR-081, TC-225)' {
         # I-1, through the repo's own predicate.
         Test-StorageFormAgreement -Compressed $row.Compressed -RelativePath $row.RelativePath -DataPath $row.DataPath |
             Should -BeTrue
-        Test-Path -LiteralPath (Join-Path $fx.Bkp $row.DataPath) | Should -BeTrue
+        Test-Path -LiteralPath (Get-StoredObjectPath -Folder $fx.Bkp -Name $row.DataPath -Sharded) | Should -BeTrue
     }
 
     It 'NEGATIVE CONTROL: with the probe bypassed the random .qqq compresses again (TC-225)' {
@@ -321,7 +320,9 @@ Describe 'The probe is lazy: content already stored is never probed (SR-081, LLR
         $fx = New-ProbeGroup -Label 'tc226-hit' -Name @('a.qqq') -Bytes $bytes
         $hash = Get-FileXxHash -FilePath (Join-Path $fx.Src 'a.qqq')
         $already = Get-HashSizeFileName -HashHex $hash -Length $bytes.LongLength -Extension '.qqq'
-        [IO.File]::WriteAllBytes((Join-Path $fx.Bkp $already), $bytes)
+        $alreadyPath = Get-StoredObjectPath -Folder $fx.Bkp -Name $already -Sharded
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($alreadyPath)) -Force | Out-Null
+        [IO.File]::WriteAllBytes($alreadyPath, $bytes)
         $r = Invoke-ProbeGroup -Fixture $fx -Mode 'always'
         $r.Map['a.qqq'].DataPath | Should -Be $already
         # I-3: an object already stored is adopted without the probe ever being
@@ -369,11 +370,11 @@ Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-08
                                Windows = @(1.0, 1.0, 1.0); Ratio = 1.0 }
         }
         $root = Join-Path $TestDrive 'r10-set'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         [IO.File]::WriteAllBytes((Join-Path $src 'a.qqq'), (New-ProbeContent -Kind 'text'))
         $set = [pscustomobject]@{
-            Name = 'R10'; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp; ChangePath = $chg
+            Name = 'R10'; SourcePath = $src; SourceStatePath = ''; StorePath = $chg
             HashRecalcFreq = 'A'; CompressEnabled = $true; AllowEmptySource = $false
             BrowseView = 'off'; ViewPath = ''; CompressProbe = 'Always'
         }
@@ -383,7 +384,7 @@ Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-08
         Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw |
             Should -Match "Backup set 'R10' has invalid CompressProbe 'Always'"
         Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 0 -Exactly
-        @(Get-ChildItem -LiteralPath $bkp -File -ErrorAction SilentlyContinue |
+        @(Get-ChildItem -LiteralPath $bkp -File -Recurse -ErrorAction SilentlyContinue |
           Where-Object { $_.Name -like '*.qqq' -or $_.Name -like '*.7z' }) |
             Should -BeNullOrEmpty -Because 'nothing is written before the mode is checked'
     }
@@ -534,7 +535,7 @@ Describe 'The CompressProbe configuration key (SR-042, SR-063, SR-081, TC-227)' 
 
     It 'refuses a bad CompressProbe at the process boundary with status 2 and creates nothing (SR-043, TC-227)' {
         $root = Join-Path $TestDrive 'tc227-exit2'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'x')
         $json = Join-Path $root 'c.json'
@@ -573,7 +574,7 @@ Describe 'CompressEnabled=false dominates every mode and every name (SR-004, SR-
         $row = $r.Map[$Name]
         $row.Compressed | Should -Be 'No'
         [IO.Path]::GetExtension($row.DataPath) | Should -Be ([IO.Path]::GetExtension($Name))
-        @(Get-ChildItem -LiteralPath $fx.Bkp -Filter '*.7z') | Should -BeNullOrEmpty
+        @(Get-ChildItem -LiteralPath $fx.Bkp -Filter '*.7z' -Recurse) | Should -BeNullOrEmpty
         Should -Invoke Measure-SampleCompressibility -ModuleName FileBackup.Engine -Times 0 -Exactly
     }
 }
@@ -596,7 +597,7 @@ Describe 'Per-set probe telemetry (SR-081, LLR-086)' {
 
     It 'reports the three counter lines in the set summary of a real run' {
         $root = Join-Path $TestDrive 'probe-summary'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         [IO.File]::WriteAllBytes((Join-Path $src 'a.qqq'), (New-ProbeContent -Kind 'random'))
         $cfg = Join-Path $root 'c.xml'

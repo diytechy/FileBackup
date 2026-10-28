@@ -40,7 +40,7 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 
 **`Invoke-BackupSet`** — Runs one backup set (plan §3) and returns its outcome code: 0 every
 
-1. `Resolve-BackupSetPaths` — Validates the set's SourcePath and resolves (creating if needed) the
+1. `Resolve-BackupSetPaths` — Validates the set's SourcePath and resolves (creating if needed) its
 2. `Get-StoreRefusalCode` — The status code for a store action refused before it changed anything:
 3. `Enter-StagingOsLock` — Takes the change root's staging OS lock -- Temp.lock opened with
 4. `Get-StoreRefusalCode` — The status code for a store action refused before it changed anything:
@@ -55,7 +55,7 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 13. `Get-StoreObjectIndex` — Indexes every stored object of a backup by name: one listing of the
 14. `Complete-RunStep` — Records the time since the previous step mark under a step name.
 15. `Move-DamagedStoreObject` — Sets aside every object the run's index found damaged by its listing,
-16. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root,
+16. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root
 17. `Complete-RunStep` — Records the time since the previous step mark under a step name.
 18. `Publish-PriorStateSnapshot` — Publishes the prior state as Snapshot_<D> before the run changes
 19. `Invoke-BackupRunTestHook` — Calls the module's backup-run test seam, when one is set, with a stage
@@ -143,7 +143,10 @@ Imports (internal): _none_
 | `Get-FreeSpaceBytes` | yes | SR-052, SR-023, LLR-052, LLR-023 |
 | `Get-HashSizeFileName` | yes | SR-003, SR-021, SR-069, SR-070, LLR-003, LLR-021, LLR-069, LLR-070 |
 | `Get-ManifestWitnessPath` | yes | SR-038, LLR-038 |
+| `Get-StoredObjectFile` | yes | SR-057, SR-069, LLR-069 |
 | `Get-StoredObjectForm` | yes | SR-068, LLR-068 |
+| `Get-StoredObjectPath` | yes | SR-069, LLR-069 |
+| `Get-StoredObjectShard` | yes | SR-069, LLR-069 |
 | `Get-VolumeIdentity` | yes | SR-052, LLR-052 |
 | `Get-XxHashDllPath` | yes | SR-007, LLR-007 |
 | `Initialize-ManifestRowWriter` | no | SR-025, LLR-025 |
@@ -175,12 +178,14 @@ Imports (internal): `Common`
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
 | `Assert-SingleStoreMount` | yes | SR-059, LLR-150 |
 | `Assert-SourceNotEmpty` | no | SR-036, LLR-036 |
+| `Assert-StoreLayout` | no | SR-014, LLR-014 |
 | `Assert-StoreVolumePresent` | no | SR-014, SR-040, LLR-014 |
 | `Clear-InterruptedRunResidue` | no | SR-017, SR-075 |
 | `Complete-PruneDeletion` | yes | SR-046, LLR-046 |
 | `Complete-RunStep` | yes | SR-081, LLR-014 |
 | `ConvertFrom-StoredObjectName` | yes | SR-069, LLR-069 |
 | `ConvertTo-FrozenRow` | no | SR-091, SR-059 |
+| `ConvertTo-RecordedPath` | no | SR-055, LLR-055 |
 | `Copy-FileWithHash` | yes | SR-002, SR-059, LLR-002 |
 | `Copy-ReHomedDataFile` | yes | SR-045, LLR-045 |
 | `Enter-StagingOsLock` | yes | SR-085, SR-086, SR-087, LLR-090 |
@@ -201,6 +206,7 @@ Imports (internal): `Common`
 | `Get-ListedFileDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-ListedObjectDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
+| `Get-MisplacedStoreObject` | no | SR-049, SR-069 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
 | `Get-PriorBackupDate` | no | SR-005, SR-035, LLR-005, LLR-035 |
 | `Get-PruneBatchExitCode` | yes | SR-040, SR-046, SR-048, LLR-046, LLR-048 |

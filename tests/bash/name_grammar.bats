@@ -91,6 +91,101 @@ setup() {
     [ "$out" = "BE20CA004CC2993A396345E0D52DF013|42|/pool dir/bqCY8RX7mwkoaQybcV4qdG_k.a_b" ]
 }
 
+# --- Sharded mode (kit revision 15, plan C44 L8) ------------------------------
+# In the latest state an object lives at <Latest>/<xx>/<name>, xx being the
+# first two characters of the name lowercased. decode_hash_size_names' second
+# argument 1 reads records in that shape; with no second argument it must
+# behave exactly as above (the corpus cases pin that).
+
+# sharded_decode <record>... : decode NUL-joined records in sharded mode under
+# the prefix '/pool/', printing "<HASH>|<len>|<record>" lines.
+sharded_decode() {
+    local r
+    for r in "$@"; do printf '%s\0' "/pool/$r"; done | decode_hash_size_names '/pool/' 1 | tr '\0\037' '\n|'
+}
+
+@test "sharded mode decodes every corpus name in its own shard folder exactly as the flat mode does (kit revision 15, L8, SR-069)" {
+    [ -f "$DECODE" ]
+    local -A flat=() shard=()
+    local h l rec name s n=0
+    while IFS=$'\037' read -r -d '' h l name; do flat["$name"]="$h"$'\t'"$l"; done \
+        < <(tail -n +2 "$DECODE" | cut -f1 | tr '\n' '\0' | decode_hash_size_names)
+    while IFS=$'\037' read -r -d '' h l rec; do
+        name="${rec#/pool/}"; name="${name#*/}"
+        shard["$name"]="$h"$'\t'"$l"
+    done < <(tail -n +2 "$DECODE" | cut -f1 | while IFS= read -r name; do
+                 [[ -n "$name" ]] || continue
+                 s="${name:0:2}"; printf '/pool/%s/%s\0' "${s,,}" "$name"
+             done | decode_hash_size_names '/pool/' 1)
+    local fail=0
+    while IFS=$'\t' read -r name _; do
+        [[ "$name" == "Name" || -z "$name" ]] && continue
+        n=$((n+1))
+        [[ "${flat[$name]-}" == "${shard[$name]-}" ]] ||
+            { echo "'$name': flat='${flat[$name]-<rejected>}' sharded='${shard[$name]-<rejected>}'"; fail=$((fail+1)); }
+    done < "$DECODE"
+    echo "checked $n names"
+    [ "${#shard[@]}" -ge 100 ]
+    [ "$fail" -eq 0 ]
+}
+
+@test "sharded mode accepts '<xx>/<name>' and keeps the full path as the record (kit revision 15, L8)" {
+    run sharded_decode 'bq/bqCY8RX7mwkoaQybcV4qdG_k.a_b'
+    [ "$status" -eq 0 ]
+    [ "$output" = "BE20CA004CC2993A396345E0D52DF013|42|/pool/bq/bqCY8RX7mwkoaQybcV4qdG_k.a_b" ]
+}
+
+@test "sharded mode refuses an object at the top level, in another name's shard, or nested deeper (kit revision 15, L8)" {
+    local name='bqCY8RX7mwkoaQybcV4qdG_k.a_b' r
+    for r in "$name" "zz/$name" "bc/$name" "qb/$name" "b/$name" "bq/sub/$name" "bq//$name" "bq/"; do
+        run sharded_decode "$r"
+        [ "$status" -eq 0 ]
+        [ -z "$output" ] || { echo "'$r' was accepted: $output"; false; }
+    done
+}
+
+@test "sharded mode refuses an UPPERCASE shard folder, even one that matches the name's case (kit revision 15, L8)" {
+    # The folder is always lowercase: Windows treats 'Ab' and 'aB' as one
+    # folder and Linux as two, so only the lowercase spelling is an object.
+    local name='Ug4jP3X3WtDNYqgzL4N4Ma_2.bin' r
+    for r in "UG/$name" "Ug/$name" "uG/$name"; do
+        run sharded_decode "$r"
+        [ -z "$output" ] || { echo "'$r' was accepted: $output"; false; }
+    done
+    # ...and the lowercase folder is the one that is accepted.
+    run sharded_decode "ug/$name"
+    [ -n "$output" ]
+    [[ "$output" == *"|/pool/ug/$name" ]]
+}
+
+@test "a name starting with 'L' lives in an 'l?' shard folder, though 'l' is no base-57 digit (kit revision 15, L8)" {
+    # Only an uppercase 'L' produces the shard letter 'l': the lowercase
+    # alphabet has no 'l'. Its folder must still be accepted, and its name
+    # decodes to the same key as the bare name in flat mode.
+    local name="L$(printf '2%.0s' {1..21})_2.bin" flat
+    flat="$(printf '%s\0' "$name" | decode_hash_size_names | tr '\0\037' '\n|')"
+    [ -n "$flat" ]
+    run sharded_decode "l2/$name"
+    [ "$output" = "${flat%|*}|/pool/l2/$name" ]
+    # The uppercase folder of the same name is not its shard.
+    run sharded_decode "L2/$name"
+    [ -z "$output" ]
+    # 'La...' (a lowercase second letter) lives in 'la' the same way.
+    run sharded_decode "la/La$(printf '2%.0s' {1..20})_2.bin"
+    [ -n "$output" ]
+}
+
+@test "flat mode (no second argument) does not reach into shard folders (kit revision 15, SR-069)" {
+    # Unchanged default: the remainder after the prefix is the whole name, and
+    # '<xx>/<name>' is no name, so a snapshot (flat) never indexes a subfolder.
+    run bash -c 'source "$1"; printf "/pool/bq/bqCY8RX7mwkoaQybcV4qdG_k.a_b\0" | decode_hash_size_names /pool/ | tr "\0" "\n"' _ "$RS"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    # An explicit second argument other than 1 is flat mode too.
+    run bash -c 'source "$1"; printf "/pool/bqCY8RX7mwkoaQybcV4qdG_k.a_b\0" | decode_hash_size_names /pool/ 0 | tr "\0\037" "\n|"' _ "$RS"
+    [ "$output" = "BE20CA004CC2993A396345E0D52DF013|42|/pool/bqCY8RX7mwkoaQybcV4qdG_k.a_b" ]
+}
+
 @test "is_legacy_stored_name matches the PowerShell oracle for every case (TC-151, SR-061)" {
     [ -f "$CASES" ]
     local fail=0 n=0 name want_cur want_leg got_leg
@@ -172,9 +267,11 @@ setup() {
     # The engine must never emit a name its own restore gate would refuse —
     # checked here by the OTHER implementation, against fixtures the real
     # PowerShell engine produced.
-    local mode f base n=0 bad=0
+    local mode f base n=0 bad=0 store
     for mode in "${MODES[@]}"; do
-        for f in "$FIXTURES/bash-restore/$mode/backup"/*; do
+        store="$(store_for "$mode")"
+        # Latest keeps its objects in shard folders (L8); snapshots are flat.
+        for f in "$store/Latest"/*/* "$store"/Snapshot_*/*; do
             [[ -f "$f" ]] || continue
             base="${f##*/}"
             # Root-level infrastructure is not a data object (SR-022).
@@ -219,15 +316,17 @@ setup() {
     # below is the worst case the gap admits — every object renamed into the
     # RETIRED base-85 grammar, every DataPath blanked, no witness — and it must
     # still come back byte-exact rather than half-restored or misread.
-    local work="$BATS_TEST_TMPDIR/blank" i=0
-    cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$work"
-    rm -rf "$work/changes"
+    local store="$BATS_TEST_TMPDIR/blank" i=0
+    cp -r "$(store_for HashAddressed)" "$store"
+    rm -rf "$store"/Snapshot_*
+    local work="$store/Latest"
     rm -f "$work/MANIFEST.csv.meta"
 
     # Rename every pool object into the old grammar. Names become meaningless;
     # only the bytes can answer now.
+    # Each lands at Latest's top level, where no name can make it an object.
     local f base
-    for f in "$work"/*; do
+    for f in "$work"/* "$work"/*/*; do
         [[ -f "$f" ]] || continue
         base="${f##*/}"
         [[ "$base" =~ ^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState|reconstruct\.sh) ]] && continue

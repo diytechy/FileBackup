@@ -90,6 +90,32 @@ function Test-IsInfrastructureFile {
     return ($infra -contains $rel)
 }
 
+function ConvertTo-RecordedPath {
+    <#
+    .SYNOPSIS
+        A path below a root as the store records it: '/' as the only separator,
+        whatever host walked it (plan C44, L7).
+
+    .DESCRIPTION
+        On Windows '\' and '/' both separate and no name holds either, so '\'
+        becomes '/'. On Linux only '/' separates; a '\' there is part of a
+        name, kept as it is, and Test-PortableRelativePath refuses such a name
+        (SR-055), so it is never recorded.
+
+    .PARAMETER Path
+        The relative path as the walk produced it.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-055, LLR-055
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    if ($IsWindows) { return $Path.Replace([char]92, [char]47) }
+    return $Path
+}
+
 function Test-PortableRelativePath {
     <#
     .SYNOPSIS
@@ -590,8 +616,8 @@ function Get-SourceDirectoryRecord {
         The source root being backed up.
 
     .PARAMETER FileRelativePath
-        Every file RelativePath the source walk produced. Ancestors of these are
-        the populated directories.
+        Every file RelativePath the source walk produced ('/'-separated, plan
+        C44 L7). Ancestors of these are the populated directories.
 
     .PARAMETER Log
         Optional logger for skipped names.
@@ -617,8 +643,11 @@ function Get-SourceDirectoryRecord {
         if ([string]::IsNullOrWhiteSpace($rel)) { continue }
         $parent = $rel
         while ($true) {
-            $parent = [IO.Path]::GetDirectoryName($parent)
-            if ([string]::IsNullOrEmpty($parent)) { break }
+            # By '/', not GetDirectoryName, which turns '/' into '\' on Windows:
+            # the walk's paths are '/'-separated (L7).
+            $cut = $parent.LastIndexOf('/')
+            if ($cut -le 0) { break }
+            $parent = $parent.Substring(0, $cut)
             if ($populated.ContainsKey($parent)) { break }   # ancestors already marked
             $populated[$parent] = $true
         }
@@ -632,11 +661,11 @@ function Get-SourceDirectoryRecord {
         $target = "$($e.TargetObject)"
         if ($target) { $unreadable.Add($target) }
     }
-    $caseCollision = Get-CaseOnlyCollision -RelativePath ([string[]]@(foreach ($d in $dirs) { $d.FullName.Substring($root.Length).TrimStart('\', '/') }))
+    $caseCollision = Get-CaseOnlyCollision -RelativePath ([string[]]@(foreach ($d in $dirs) { ConvertTo-RecordedPath -Path $d.FullName.Substring($root.Length).TrimStart('\', '/') }))
 
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($d in $dirs) {
-        $rel = $d.FullName.Substring($root.Length).TrimStart('\', '/')
+        $rel = ConvertTo-RecordedPath -Path $d.FullName.Substring($root.Length).TrimStart('\', '/')
         if (-not $rel) { continue }
         # Not the user's folders, only at a volume root's top level (SR-074,
         # review 2026-10-26): Get-SourceFileList drops their files the same way.
@@ -742,17 +771,24 @@ function Get-FolderFileSet {
     .PARAMETER Folder
         The folder.
 
+    .PARAMETER Sharded
+        The folder is the latest state: its objects are listed from its shard
+        folders (plan C44, L8), by their bare names.
+
     .OUTPUTS
         [System.Collections.Generic.HashSet[string]] (empty when the folder is
         absent or cannot be listed).
     #>
     # Implements: SR-064, SR-045, LLR-062
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Folder)
+    param(
+        [Parameter(Mandatory)][string]$Folder,
+        [switch]$Sharded
+    )
     $comparer = if ($IsWindows) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
     $set = [System.Collections.Generic.HashSet[string]]::new($comparer)
     try {
-        foreach ($f in [System.IO.DirectoryInfo]::new($Folder).EnumerateFiles()) {
+        foreach ($f in (Get-StoredObjectFile -Folder $Folder -Sharded:$Sharded)) {
             $parsed = ConvertFrom-StoredObjectName -Name $f.Name
             if ($null -ne $parsed -and $null -ne (Get-ListedFileDamage -File $f -Parsed $parsed)) { continue }
             [void]$set.Add($f.Name)
@@ -779,6 +815,9 @@ function Test-FolderHoldsFile {
     .PARAMETER Name
         The DataPath.
 
+    .PARAMETER Sharded
+        The folder is the latest state (plan C44, L8).
+
     .OUTPUTS
         [bool]
     #>
@@ -787,10 +826,11 @@ function Test-FolderHoldsFile {
     param(
         [AllowNull()][object]$Files,
         [Parameter(Mandatory)][string]$Folder,
-        [Parameter(Mandatory)][string]$Name
+        [Parameter(Mandatory)][string]$Name,
+        [switch]$Sharded
     )
     if ($null -ne $Files -and $Name.IndexOfAny([char[]]@([char]92, [char]47)) -lt 0) { return $Files.Contains($Name) }
-    return (Test-Path -LiteralPath (Join-Path $Folder $Name) -PathType Leaf)
+    return (Test-Path -LiteralPath (Get-StoredObjectPath -Folder $Folder -Name $Name -Sharded:$Sharded) -PathType Leaf)
 }
 
 function Get-BackupContentIndex {
@@ -843,8 +883,9 @@ function Get-BackupContentIndex {
         if ([string]::IsNullOrWhiteSpace($Row.DataPath)) { return }
         if ([string]::IsNullOrWhiteSpace($Row.xxH2Hash)) { return }
         $key  = "$($Row.xxH2Hash)|$($Row.Length)"
-        $full = Join-Path $Folder $Row.DataPath
-        if (-not (Test-FolderHoldsFile -Files $Files -Folder $Folder -Name $Row.DataPath)) { return }
+        $isBackup = ($LocationType -eq 'Backup')
+        $full = Get-StoredObjectPath -Folder $Folder -Name $Row.DataPath -Sharded:$isBackup
+        if (-not (Test-FolderHoldsFile -Files $Files -Folder $Folder -Name $Row.DataPath -Sharded:$isBackup)) { return }
         if (-not $map.ContainsKey($key)) {
             $map[$key] = New-Object System.Collections.Generic.List[object]
         }
@@ -864,7 +905,7 @@ function Get-BackupContentIndex {
     # next is read.
     $indexFolder = {
         param([string]$LocationType, [string]$Folder, [int]$FolderOrder)
-        $files = Get-FolderFileSet -Folder $Folder
+        $files = Get-FolderFileSet -Folder $Folder -Sharded:($LocationType -eq 'Backup')
         foreach ($row in (Read-Manifest -FolderPath $Folder)) {
             & $addToMap $LocationType $Folder $row $FolderOrder $files
         }
@@ -1035,7 +1076,7 @@ function Get-SnapshotPrunePlan {
                 $key = "$($row.xxH2Hash)|$($row.Length)"
                 if (-not $endangered.ContainsKey($key)) { continue }
                 $resolvesByHash = [string]::IsNullOrWhiteSpace($row.DataPath) -or
-                    -not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)
+                    -not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath -Sharded:$f.IsBackup)
                 if (-not $resolvesByHash) { continue }
                 if (-not $demand.ContainsKey($key)) { $demand[$key] = New-Object System.Collections.Generic.List[object] }
                 $demand[$key].Add([pscustomobject]@{ FolderRecord = $f; RowIndex = $position; RelativePath = [string]$row.RelativePath })
@@ -1101,7 +1142,7 @@ function Get-SnapshotPrunePlan {
         # them - the backup run refuses a legacy store (SR-061) and both
         # restorers refuse to read one (kit revision 7).
         $destName   = $sourceRow.DataPath
-        $destFull   = Join-Path $destFolder $destName
+        $destFull   = Get-StoredObjectPath -Folder $destFolder -Name $destName -Sharded:$winner.FolderRecord.IsBackup
 
         if (Test-IsInfrastructureFile -Root $destFolder -FullPath ([IO.Path]::GetFullPath($destFull))) {
             $problems.Add([pscustomobject]@{ Code = 2; Kind = 'infrastructure-name'
@@ -1129,6 +1170,7 @@ function Get-SnapshotPrunePlan {
             SourceRow           = $sourceRow
             DestinationFolder   = $destFolder
             DestinationDataPath = $destName
+            DestinationFullPath = $destFull
             DestinationRowIndex     = $winner.RowIndex
             DestinationRelativePath = $winner.RelativePath
             Compressed          = $sourceRow.Compressed
@@ -1250,8 +1292,8 @@ function Test-PoolResolves {
         if ($f.Folder -eq $ExcludeFolder) { continue }
         foreach ($row in (Read-Manifest -FolderPath $f.Folder)) {
             if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) {
-                $full = Join-Path $f.Folder $row.DataPath
-                if (-not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)) {
+                $full = Get-StoredObjectPath -Folder $f.Folder -Name $row.DataPath -Sharded:$f.IsBackup
+                if (-not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath -Sharded:$f.IsBackup)) {
                     # BytesSurvive: whether the CONTENT still exists somewhere a
                     # revision-4+ kit's fallback can reach — Verify must not call
                     # a restorable row "no bytes anywhere in the pool" (WP7
@@ -1473,6 +1515,10 @@ function Get-StorageFormFinding {
         every pool folder. The system temp folder is used only when none is
         given (it is RAM in the container).
 
+    .PARAMETER Sharded
+        The folder is the latest state: its objects sit in shard folders (plan
+        C44, L8).
+
     .OUTPUTS
         [pscustomobject[]] Folder, FolderName, RelativePath, DataPath, Class,
         Observed, Expected, Repairable, KitRevision.
@@ -1485,7 +1531,8 @@ function Get-StorageFormFinding {
         [object]$Index,
         [switch]$Deep,
         [string]$SevenZipPath,
-        [string]$ScratchFolder
+        [string]$ScratchFolder,
+        [switch]$Sharded
     )
     $findings  = New-Object System.Collections.Generic.List[object]
     $name      = [IO.Path]::GetFileName($Folder)
@@ -1519,8 +1566,10 @@ function Get-StorageFormFinding {
             continue
         }
 
-        $referenced[$row.DataPath] = $true
-        $full     = Join-Path $Folder $row.DataPath
+        # Keyed as the file's path below the folder, '/'-separated: in the latest
+        # state that is '<shard>/<DataPath>' (C44, L8).
+        $referenced[$(if ($Sharded) { (Get-StoredObjectShard -Name $row.DataPath) + '/' + $row.DataPath } else { $row.DataPath -replace '\\', '/' })] = $true
+        $full     = Get-StoredObjectPath -Folder $Folder -Name $row.DataPath -Sharded:$Sharded
         $observed = Get-StoredFileForm -Path $full
         if ($observed -eq 'Missing') {
             # A DataPath goes stale when its object moves to another folder of
@@ -1639,7 +1688,7 @@ function Get-StorageFormFinding {
     # (review 2026-10-27, argon 3).
     $rootPrefix = (Resolve-Path -LiteralPath $Folder).Path
     foreach ($file in @(Get-DataFile -Root $Folder)) {
-        $rel = $file.FullName.Substring($rootPrefix.Length).TrimStart('\', '/')
+        $rel = $file.FullName.Substring($rootPrefix.Length).TrimStart('\', '/') -replace '\\', '/'
         if ($referenced.ContainsKey($rel) -or $rel -like '*.fbprune.tmp') { continue }
         $findings.Add([pscustomobject]@{
             Folder = $Folder; FolderName = $name
@@ -1768,12 +1817,12 @@ function Test-BackupStorageForm {
                 RelativePath = $legacyRows[0].RelativePath; DataPath = $legacyRows[0].DataPath
                 Class = 'LegacyStoredForm'
                 Observed = "$($legacyRows.Count) row(s) stored in the legacy path-addressed form (StoredAsHashSize='Original')"
-                Expected = "every row content-addressed ('Hash'); this store was written by a pre-content-addressed build — back up to a fresh BackupPath (SR-061)"
+                Expected = "every row content-addressed ('Hash'); this store was written by a pre-content-addressed build — back up to a fresh StorePath (SR-061)"
                 Repairable = $false; KitRevision = Get-BackupKitRevision -Folder $folder
             })
         }
         $scratch = if ($ChangeRoot -and (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { Join-Path $ChangeRoot "$($script:VerifyFolderName)\.expand" } else { $null }
-        foreach ($f in @(Get-StorageFormFinding -Folder $folder -Manifest $manifest -Index $index -Deep:$Deep -SevenZipPath $SevenZipPath -ScratchFolder $scratch)) {
+        foreach ($f in @(Get-StorageFormFinding -Folder $folder -Manifest $manifest -Index $index -Deep:$Deep -SevenZipPath $SevenZipPath -ScratchFolder $scratch -Sharded:($folder -eq $BackupRoot))) {
             $all.Add($f)
         }
     }
@@ -1898,7 +1947,7 @@ function Get-StoreObjectFinding {
 
     .OUTPUTS
         [pscustomobject[]] findings with Class 'DuplicateObject',
-        'DamagedObject' or 'UnverifiedObject', the object's Path, Folder,
+        'DamagedObject', 'MisplacedObject' or 'UnverifiedObject', the object's Path, Folder,
         FolderName and DataPath.
     #>
     # Implements: SR-003, SR-049, LLR-049
@@ -1922,8 +1971,10 @@ function Get-StoreObjectFinding {
     $kitRevisionOf = @{}
     $newFinding = {
         param($Entry, [string]$Class, [string]$Observed, [string]$Expected)
+        # The state folder, not the object's directory: in the latest state that
+        # is a shard folder (C44, L8), and the kit revision is read from here.
         [pscustomobject]@{
-            Folder = [System.IO.Path]::GetDirectoryName($Entry.Path)
+            Folder = if ($Entry.Folder) { Join-Path $ChangeRoot $Entry.Folder } else { $BackupRoot }
             FolderName = if ($Entry.Folder) { $Entry.Folder } else { [System.IO.Path]::GetFileName($BackupRoot.TrimEnd('\', '/')) }
             RelativePath = ''; DataPath = $Entry.Name; Path = $Entry.Path; Class = $Class
             Observed = $Observed; Expected = $Expected; Repairable = $true
@@ -1934,6 +1985,12 @@ function Get-StoreObjectFinding {
     # without -Deep, and such a copy is never the one kept.
     foreach ($d in $index.Damaged) {
         $findings.Add((& $newFinding $d 'DamagedObject' $d.Reason 'every object''s length fits the content its name records (SR-049)'))
+    }
+    # An object of the latest state outside its own shard folder is in no
+    # path's way and so not in the pool (C44, L8); it is set aside like a
+    # duplicate, and the next run stores its content where it belongs.
+    foreach ($m in (Get-MisplacedStoreObject -BackupRoot $BackupRoot)) {
+        $findings.Add((& $newFinding $m 'MisplacedObject' "it is outside its shard folder '$($m.Expected)'" 'every object of the latest state in the folder its name starts with (plan C44)'))
     }
     foreach ($copies in $groups.Values) {
         $keep = $copies[0]
@@ -1977,7 +2034,7 @@ function Get-StoreObjectFinding {
 function Move-StoreObjectToVerify {
     <#
     .SYNOPSIS
-        Moves the objects of DuplicateObject and DamagedObject findings into
+        Moves the objects of DuplicateObject, DamagedObject and MisplacedObject findings into
         <ChangeRoot>/Verify/<folder>/, so nothing is deleted (R9); the Owner
         empties that folder by hand. Returns how many moved.
 
@@ -2053,7 +2110,7 @@ function Move-StoreObjectToVerify {
         $leftAlone = 0
         $moved = 0
         foreach ($f in $Finding) {
-            if ($f.Class -notin 'DuplicateObject', 'DamagedObject' -or -not $f.Repairable) { continue }
+            if ($f.Class -notin 'DuplicateObject', 'DamagedObject', 'MisplacedObject' -or -not $f.Repairable) { continue }
             # The findings predate the lock. Under it nothing else moves either
             # file from here to the move, so check once: the object is still
             # there, and for a duplicate so is the copy kept for it - a prune
@@ -2362,6 +2419,9 @@ function Repair-BackupStorageForm {
             $folder   = $group.Name
             $manifest = @(Read-Manifest -FolderPath $folder)
             $dirty    = $false
+            # The latest state keeps its objects in shard folders (C44, L8); a
+            # rename changes only the extension, so it stays in the same one.
+            $isLatest = ($folder -eq $BackupRoot)
 
             # ONE physical file per group: the rename is done once and every row
             # naming that file adopts the result (finding H1).
@@ -2377,7 +2437,7 @@ function Repair-BackupStorageForm {
                 $rows = @($manifest | Where-Object { $_.DataPath -eq $dataPath })
                 if ($rows.Count -eq 0) { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
 
-                $full     = Join-Path $folder $dataPath
+                $full     = Get-StoredObjectPath -Folder $folder -Name $dataPath -Sharded:$isLatest
                 $observed = Get-StoredFileForm -Path $full
                 if ($observed -eq 'Missing') { foreach ($f in $repairable) { $skipped.Add($f) }; continue }
 
@@ -2400,7 +2460,7 @@ function Repair-BackupStorageForm {
                 if ($observed -eq 'Raw'     -and $nameIsArchive)      { $newDataPath = $dataPath.Substring(0, $dataPath.Length - 3) }
 
                 if ($newDataPath -ne $dataPath) {
-                    $target = Join-Path $folder $newDataPath
+                    $target = Get-StoredObjectPath -Folder $folder -Name $newDataPath -Sharded:$isLatest
                     if (Test-IsInfrastructureFile -Root $folder -FullPath ([IO.Path]::GetFullPath($target))) {
                         & $Log "Refusing to rename '$dataPath' to the root-level infrastructure name '$newDataPath' (SR-022)." 'WARN'
                         foreach ($f in $repairable) { $skipped.Add($f) }; continue
@@ -2457,7 +2517,7 @@ function Update-BackupSnapshotKit {
         Opt-in and NEVER default: it rewrites files inside immutable snapshot
         folders, which is a deliberate operator act.
 
-        Copies exactly the seven kit artifacts Publish-PriorStateSnapshot copies and
+        Copies exactly the six kit artifacts Publish-PriorStateSnapshot copies and
         NOTHING else. The manifest witness (MANIFEST.csv.meta) is emphatically
         NOT one of them: each snapshot witnesses its OWN manifest, and copying
         the root's over it is the single most dangerous mistake available here
@@ -2502,7 +2562,7 @@ function Update-BackupSnapshotKit {
         $artifacts = @($script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
                        $script:Def.ReconstructCommandName, $script:Def.ReconstructShName,
                        $script:Def.CommonModuleName,
-                       'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+                       'System.IO.Hashing.dll')
         $refreshed = 0
         # The root's kit is read once, not once per snapshot.
         $kit = [ordered]@{}
@@ -2872,8 +2932,13 @@ function Invoke-PruneEntrySweep {
     foreach ($folder in $folders) {
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
         $referenced = @{}
+        $isLatest = ($folder -eq $BackupRoot)
         foreach ($row in @(Read-Manifest -FolderPath $folder)) {
-            if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $referenced[(& $normalize $row.DataPath)] = $true }
+            if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+            # In the latest state an object sits in its shard folder (C44, L8),
+            # so a user file named '*.fbprune.tmp' is referenced at that path.
+            $rel = if ($isLatest) { (Get-StoredObjectShard -Name $row.DataPath) + '/' + $row.DataPath } else { $row.DataPath }
+            $referenced[(& $normalize $rel)] = $true
         }
         $prefix = (Resolve-Path -LiteralPath $folder).Path
         # -Force (SR-057): hidden residue would otherwise never be swept.
@@ -2924,7 +2989,7 @@ function Copy-ReHomedDataFile {
         [string]$ScratchFolder,
         [switch]$SkipContentVerify
     )
-    $destFull = Join-Path $Item.DestinationFolder $Item.DestinationDataPath
+    $destFull = $Item.DestinationFullPath
     if (Test-Path -LiteralPath $destFull -PathType Leaf) { return $destFull }
 
     $destDir = [System.IO.Path]::GetDirectoryName($destFull)
@@ -3373,12 +3438,12 @@ function Write-KitFile {
 function New-ReconstructScript {
     <#
     .SYNOPSIS
-        Copies the Windows and POSIX restore entry points into the backup root,
-        writes a path sidecar, and bundles the PowerShell runtime dependencies
+        Copies the Windows and POSIX restore entry points into the backup root
+        and bundles the PowerShell runtime dependencies
         (FileBackup.Common.psm1 + System.IO.Hashing.dll) so a restore works from
         the backup folder alone.
     .DESCRIPTION
-        Each of the seven files is written by Write-KitFile: only when its
+        Each of the six files is written by Write-KitFile: only when its
         bytes differ from what it should be, and then through '<name>.tmp'
         beside it, flushed to the disk and renamed over it - so an unchanged
         kit (every run but the first after an upgrade) touches no file, and a
@@ -3388,15 +3453,13 @@ function New-ReconstructScript {
         System.IO.Hashing.dll loaded (review 2026-10-26 A4). A write that
         must happen and fails still throws.
     .NOTES
-        Earlier versions prepended "$BackupRootOverride = ..." lines ahead of the
-        script's param() block, which is invalid PowerShell. Paths are now passed
-        via a JSON sidecar that Reconstruct.ps1 reads from its own folder.
+        Before the single-store layout (plan C44) a JSON sidecar carried the
+        roots' absolute paths; a restorer now derives them from its own folder.
     #>
     # Implements: SR-007, LLR-007
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$BackupRoot,
-        [Parameter(Mandatory)][string]$ChangeRoot
+        [Parameter(Mandatory)][string]$BackupRoot
     )
     $writeKitFile = {
         param([string]$Name, [byte[]]$Bytes)
@@ -3434,12 +3497,10 @@ function New-ReconstructScript {
     }
     & $writeKitFile $script:Def.ReconstructCommandName ([System.IO.File]::ReadAllBytes($templateCommand))
 
-    # Path bindings as a sidecar (read by Reconstruct.ps1 from $PSScriptRoot).
-    # [ordered]: a hashtable's key order varies from process to process, which
-    # would rewrite an unchanged sidecar on about every other run. The bytes are
-    # what Set-Content -Encoding UTF8 wrote: no BOM, a trailing newline.
-    $sidecar = [ordered]@{ BackupRoot = $BackupRoot; ChangeRoot = $ChangeRoot } | ConvertTo-Json
-    & $writeKitFile 'RECONSTRUCT.paths.json' ([System.Text.UTF8Encoding]::new($false).GetBytes($sidecar + [Environment]::NewLine))
+    # No path sidecar (plan C44, S3): a restorer finds the store by going up
+    # one level from its own folder, so a moved or copied store needs nothing
+    # rewritten. RECONSTRUCT.paths.json stays on the infrastructure list only
+    # because older stores hold one.
 
     # The Windows double-click launcher. -ExitCode makes the process entry point
     # report the SR-040 exit-code table (0/1/2/3/4) instead of throwing;
@@ -4284,21 +4345,70 @@ function Get-StoreRefusalCode {
     return 2
 }
 
+function Assert-StoreLayout {
+    <#
+    .SYNOPSIS
+        Refuses a StorePath that holds an old-layout backup (plan C44, L2, S2):
+        a MANIFEST.csv of its own (an old backup folder named directly), or a
+        folder beside Latest that holds one (an old backup root beside its
+        change folder, the R8 layout).
+
+    .DESCRIPTION
+        No store is converted: an old store is set aside and keeps restoring
+        with the kits inside it. Refusing here, before anything is written,
+        keeps a run from starting a full backup inside the old one.
+
+    .PARAMETER StoreRoot
+        The resolved store folder.
+
+    .PARAMETER SetName
+        The set, for the message.
+    #>
+    # Implements: SR-014, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$SetName
+    )
+    $convert = 'It is not converted (ConfigVersion 3): set the old store aside - it keeps restoring with the kits inside it - and point StorePath at a new, empty folder.'
+    if (Test-Path -LiteralPath (Join-Path $StoreRoot $script:Def.DatabaseFilename) -PathType Leaf) {
+        throw "StorePath '$StoreRoot' for set '$SetName' holds a $($script:Def.DatabaseFilename) of its own: it is an old-layout backup folder (a BackupPath before ConfigVersion 3). $convert"
+    }
+    foreach ($dir in [System.IO.DirectoryInfo]::new($StoreRoot).EnumerateDirectories()) {
+        # The store's own folders. A Building_<date> (a killed run) and a
+        # Pruning_<name> (a prune whose delete failed) both hold a manifest
+        # and are finished by the next run or prune; refusing them would keep
+        # the store from ever healing (C44 unit review, bug 1).
+        if ($dir.Name -ceq $script:Def.LatestFolderName -or $dir.Name -match $script:Def.ChangeFolderRegex -or
+            $dir.Name.StartsWith($script:BuildingFolderPrefix, [System.StringComparison]::Ordinal) -or
+            $dir.Name.StartsWith('Pruning_', [System.StringComparison]::Ordinal) -or
+            $dir.Name -ceq $script:Def.ViewFolderName -or $dir.Name -ceq $script:VerifyFolderName -or
+            $dir.Name -ceq $script:IncomingFolderName -or $dir.Name -ceq 'Temp') { continue }
+        if (Test-Path -LiteralPath (Join-Path $dir.FullName $script:Def.DatabaseFilename) -PathType Leaf) {
+            throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a folder with a $($script:Def.DatabaseFilename): an old-layout backup folder. $convert"
+        }
+    }
+}
+
 function Resolve-BackupSetPaths {
     <#
     .SYNOPSIS
-        Validates the set's SourcePath and resolves (creating if needed) the
-        Backup/Change paths to absolute form.
+        Validates the set's SourcePath and resolves (creating if needed) its
+        store folder, and the two roots inside it: Latest (the backup root)
+        and the store itself (the change root, holding the snapshots).
 
     .DESCRIPTION
-        A missing root is created only when that is safe:
-          * its drive or share is not attached (a Windows drive letter, a UNC
-            share): System.IO.DriveNotFoundException, which a backup reports as
-            4 - retry when the drive is back (plan C25);
-          * BackupPath is missing while ChangePath already holds snapshots: an
-            existing store that lost its backup folder (moved, renamed, or a
-            mount that is not there) - refused, never answered with a fresh
-            full backup (plan C26).
+        One folder per set (plan C44): <StorePath>/Latest is the latest state
+        and every Snapshot_<date> sits beside it. A missing store or Latest is
+        created only when that is safe:
+          * the store's drive or share is not attached (a Windows drive letter,
+            a UNC share): System.IO.DriveNotFoundException, which a backup
+            reports as 4 - retry when the drive is back (plan C25);
+          * the store holds snapshots but no Latest: an existing store that
+            lost its latest state (moved, renamed, or a mount that is not
+            there) - refused, never answered with a fresh full backup (C26);
+          * the store holds an old-layout backup (Assert-StoreLayout) -
+            refused (C44, L2).
 
     .PARAMETER Set
         The backup set to resolve.
@@ -4307,19 +4417,19 @@ function Resolve-BackupSetPaths {
         Resolve EXISTING roots only: create nothing, and do not require
         SourcePath. For the read-only actions (-Action Verify, SR-049), which
         are about the STORE — the source may legitimately be offline, and an
-        action that mutates nothing must not conjure a backup root. A backup
-        root that does not exist is a precondition failure the caller reports as
-        code 2 (WP5 review, finding m2) - unless its drive or share is not
-        attached, which throws DriveNotFoundException as a backup does, so
-        every caller answers it with 4 (Get-StoreRefusalCode).
+        action that mutates nothing must not conjure a store. A store or a
+        Latest that does not exist is a precondition failure the caller
+        reports as code 2 (WP5 review, finding m2) - unless its drive or share
+        is not attached, which throws DriveNotFoundException as a backup does,
+        so every caller answers it with 4 (Get-StoreRefusalCode).
 
     .OUTPUTS
-        [pscustomobject] SrcPath / SrcStatePath / BkpPath / ChgPath / ViewPath
-        (resolved full path when BrowseView is 'index', else $null). Under
-        -ReadOnly, SrcPath and SrcStatePath are $null when the source is absent
-        and ChgPath may name a folder that does not exist (there are then no
-        snapshots to audit). The view IS still rail-checked read-only - the
-        checks are pure path arithmetic and -Action View goes through here.
+        [pscustomobject] SrcPath / SrcStatePath / StorePath / BkpPath (Latest)
+        / ChgPath (the store) / ViewPath (resolved full path when BrowseView
+        is 'index', else $null). Under -ReadOnly, SrcPath and SrcStatePath are
+        $null when the source is absent. The view IS still rail-checked
+        read-only - the checks are pure path arithmetic and -Action View goes
+        through here.
     #>
     # Implements: SR-014, SR-049, SR-063, LLR-014, LLR-063
     [CmdletBinding()]
@@ -4328,25 +4438,26 @@ function Resolve-BackupSetPaths {
         [switch]$ReadOnly
     )
 
+    $latestName = $script:Def.LatestFolderName
     if ($ReadOnly) {
-        $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath -ErrorAction SilentlyContinue).Path
-        if (-not $bkpPath) {
-            Assert-StoreVolumePresent -Path $Set.BackupPath -SetName $Set.Name
-            throw "Backup path '$($Set.BackupPath)' for set '$($Set.Name)' does not exist; there is nothing to read there."
+        $storePath = (Resolve-Path -LiteralPath $Set.StorePath -ErrorAction SilentlyContinue).Path
+        if (-not $storePath) {
+            Assert-StoreVolumePresent -Path $Set.StorePath -SetName $Set.Name
+            throw "Store path '$($Set.StorePath)' for set '$($Set.Name)' does not exist; there is nothing to read there."
         }
-        $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath -ErrorAction SilentlyContinue).Path
-        if (-not $chgPath) {
-            # A missing change folder means no snapshots; a missing drive does not.
-            Assert-StoreVolumePresent -Path $Set.ChangePath -SetName $Set.Name
-            $chgPath = [IO.Path]::GetFullPath([string]$Set.ChangePath)
+        Assert-StoreLayout -StoreRoot $storePath -SetName $Set.Name
+        $bkpPath = Join-Path $storePath $latestName
+        if (-not (Test-Path -LiteralPath $bkpPath -PathType Container)) {
+            throw "Store '$storePath' for set '$($Set.Name)' holds no '$latestName' folder; there is nothing to read there."
         }
         $srcPath = (Resolve-Path -LiteralPath $Set.SourcePath -ErrorAction SilentlyContinue).Path
         return [pscustomobject]@{
             SrcPath = $srcPath
             SrcStatePath = $srcPath
+            StorePath = $storePath
             BkpPath = $bkpPath
-            ChgPath = $chgPath
-            ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath `
+            ChgPath = $storePath
+            ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $storePath `
                 -SrcPath $srcPath -SrcStatePath $srcPath
         }
     }
@@ -4356,26 +4467,23 @@ function Resolve-BackupSetPaths {
     }
     $srcPath = (Resolve-Path -LiteralPath $Set.SourcePath).Path
 
-    $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath -ErrorAction SilentlyContinue).Path
-    if (-not $bkpPath) {
-        Assert-StoreVolumePresent -Path $Set.BackupPath -SetName $Set.Name
-        $chgFull = [System.IO.Path]::GetFullPath([string]$Set.ChangePath)
-        if ([System.IO.Directory]::Exists($chgFull) -and
-            @(Get-ChildItem -LiteralPath $chgFull -Directory -Force -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -match $script:Def.ChangeFolderRegex } | Select-Object -First 1).Count -gt 0) {
-            throw ("Backup path '$($Set.BackupPath)' for set '$($Set.Name)' does not exist, but its change folder '$($Set.ChangePath)' holds snapshots: " +
-                   "the store has lost its backup folder (moved, renamed, or a mount that is not there). Refusing to start a new full backup; " +
-                   "put the folder back, or point BackupPath at it.")
-        }
-        New-Item -ItemType Directory -Path $Set.BackupPath -Force | Out-Null
-        $bkpPath = (Resolve-Path -LiteralPath $Set.BackupPath).Path
+    $storePath = (Resolve-Path -LiteralPath $Set.StorePath -ErrorAction SilentlyContinue).Path
+    if (-not $storePath) {
+        Assert-StoreVolumePresent -Path $Set.StorePath -SetName $Set.Name
+        New-Item -ItemType Directory -Path $Set.StorePath -Force | Out-Null
+        $storePath = (Resolve-Path -LiteralPath $Set.StorePath).Path
     }
+    Assert-StoreLayout -StoreRoot $storePath -SetName $Set.Name
 
-    $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath -ErrorAction SilentlyContinue).Path
-    if (-not $chgPath) {
-        Assert-StoreVolumePresent -Path $Set.ChangePath -SetName $Set.Name
-        New-Item -ItemType Directory -Path $Set.ChangePath -Force | Out-Null
-        $chgPath = (Resolve-Path -LiteralPath $Set.ChangePath).Path
+    $bkpPath = Join-Path $storePath $latestName
+    if (-not (Test-Path -LiteralPath $bkpPath -PathType Container)) {
+        if (@(Get-ChildItem -LiteralPath $storePath -Directory -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match $script:Def.ChangeFolderRegex } | Select-Object -First 1).Count -gt 0) {
+            throw ("Store '$storePath' for set '$($Set.Name)' holds snapshots but no '$latestName' folder: " +
+                   "the store has lost its latest state (moved, renamed, or a mount that is not there). Refusing to start a new full backup; " +
+                   "put the '$latestName' folder back.")
+        }
+        New-Item -ItemType Directory -Path $bkpPath -Force | Out-Null
     }
 
     # SourceStatePath is no longer used: the latest backup manifest is the
@@ -4392,9 +4500,10 @@ function Resolve-BackupSetPaths {
     return [pscustomobject]@{
         SrcPath = $srcPath
         SrcStatePath = $srcStatePath
+        StorePath = $storePath
         BkpPath = $bkpPath
-        ChgPath = $chgPath
-        ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $chgPath `
+        ChgPath = $storePath
+        ViewPath = Resolve-ViewRootPath -Set $Set -BkpPath $bkpPath -ChgPath $storePath `
             -SrcPath $srcPath -SrcStatePath $srcStatePath
     }
 }
@@ -4420,6 +4529,11 @@ function Resolve-ViewRootPath {
             and the run still reports success. Both were reproduced on
             2026-08-25 (WP9 independent review, MAJ-1) - the one-directional
             rail that shipped at step 7 caught neither.
+
+        The store holds the latest state and every snapshot, so the view may
+        lie inside it only as the one folder <StorePath>/View (plan C44, L3):
+        anywhere else inside the store it could be Latest, a snapshot or a
+        run folder. Outside the store the rails are as before.
 
         The source paths matter as much as the storage roots: SourcePath is the
         thing this tool exists to protect, and the volume rail cannot help,
@@ -4449,13 +4563,16 @@ function Resolve-ViewRootPath {
     $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
     $separator  = [System.IO.Path]::DirectorySeparatorChar
     $viewRaw = [string]$Set.ViewPath
-    if ([string]::IsNullOrWhiteSpace($viewRaw)) { $viewRaw = $BkpPath.TrimEnd('\', '/') + '_View' }
+    if ([string]::IsNullOrWhiteSpace($viewRaw)) { $viewRaw = Join-Path $ChgPath $script:Def.ViewFolderName }
     $viewFull = [IO.Path]::GetFullPath($viewRaw)
     $isWithin = {
         param([string]$Candidate, [string]$Root)
         return $Candidate.StartsWith($Root.TrimEnd('\', '/') + $separator, $comparison)
     }
-    $owned = [ordered]@{ 'backup/change storage' = @($BkpPath, $ChgPath) }
+    # The store's own view folder is the one place inside it a view may be.
+    $storeView = [IO.Path]::GetFullPath((Join-Path $ChgPath $script:Def.ViewFolderName))
+    $owned = [ordered]@{ 'the store' = @($BkpPath, $ChgPath) }
+    if ([string]::Equals($viewFull.TrimEnd('\', '/'), $storeView, $comparison)) { $owned['the store'] = @($BkpPath) }
     $sourcePaths = @(@($SrcPath, $SrcStatePath) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($sourcePaths.Count -gt 0) { $owned['the source tree'] = $sourcePaths }
     foreach ($label in $owned.Keys) {
@@ -4672,6 +4789,52 @@ function Get-ListedFileDamage {
     return (Get-ListedObjectDamage -Path $File.FullName -FileLength $File.Length -ContentLength $Parsed.Length -Extension $Parsed.Extension)
 }
 
+function Get-MisplacedStoreObject {
+    <#
+    .SYNOPSIS
+        The objects in the latest state that are not where their name puts
+        them: at its top, or in another name's shard folder (plan C44, L8).
+
+    .DESCRIPTION
+        No path leads to such a file, so it is not in the pool: a backup run
+        stores its content again in its right place while the source holds
+        it. Only -Action Verify asks, so a run pays nothing for this listing.
+        A prune's staged copy ('*.fbprune.tmp') is not an object.
+
+    .PARAMETER BackupRoot
+        The backup root (the latest state).
+
+    .OUTPUTS
+        [pscustomobject[]] entries shaped as Get-StoreObjectIndex's (Name,
+        Prefix, Path, Folder '', FileLength, ContentLength, Extension) plus
+        Expected, the shard folder the name puts it in.
+    #>
+    # Implements: SR-049, SR-069
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$BackupRoot)
+    $found = [System.Collections.Generic.List[object]]::new()
+    $root = [System.IO.DirectoryInfo]::new($BackupRoot)
+    $candidates = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    foreach ($file in $root.EnumerateFiles()) { $candidates.Add($file) }
+    foreach ($dir in $root.EnumerateDirectories()) {
+        if ($dir.Name -cnotmatch $script:Def.ShardFolderPattern) { continue }
+        foreach ($file in $dir.EnumerateFiles()) {
+            if ((Get-StoredObjectShard -Name $file.Name) -cne $dir.Name) { $candidates.Add($file) }
+        }
+    }
+    foreach ($file in $candidates) {
+        if ($file.Name.EndsWith('.fbprune.tmp', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        $parsed = ConvertFrom-StoredObjectName -Name $file.Name
+        if ($null -eq $parsed) { continue }
+        $found.Add([pscustomobject]@{
+            Name = $file.Name; Prefix = $parsed.Prefix; Path = $file.FullName; Folder = ''
+            FileLength = $file.Length; ContentLength = $parsed.Length; Extension = $parsed.Extension
+            Expected = Get-StoredObjectShard -Name $file.Name
+        })
+    }
+    return $found.ToArray()
+}
+
 function Get-StoreObjectIndex {
     <#
     .SYNOPSIS
@@ -4680,7 +4843,10 @@ function Get-StoreObjectIndex {
 
     .DESCRIPTION
         An object's name carries its content key (SR-069), so the listings
-        alone say what is stored and where (plan step 2). Snapshot manifests
+        alone say what is stored and where (plan step 2). The backup root (the
+        latest state) is listed through its shard folders (plan C44, L8): an
+        object anywhere else in it - at its top or in another name's shard
+        folder - is not in the pool. Snapshot manifests
         are never read by a backup run: holding them all was the 6.6 GB OOM of
         the 2026-10-05 defect review. Only top-level files named by the grammar
         count, less a prune's staged copy ('<object>.fbprune.tmp'), which the
@@ -4719,15 +4885,16 @@ function Get-StoreObjectIndex {
     $dups    = [System.Collections.Generic.List[object]]::new()
     $damaged = [System.Collections.Generic.List[object]]::new()
     $folders = [System.Collections.Generic.List[object]]::new()
-    $folders.Add([pscustomobject]@{ Folder = ''; Path = $BackupRoot })
+    $folders.Add([pscustomobject]@{ Folder = ''; Path = $BackupRoot; Sharded = $true })
     $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot)
     for ($i = $snapshots.Count - 1; $i -ge 0; $i--) {
-        $folders.Add([pscustomobject]@{ Folder = $snapshots[$i].Name; Path = $snapshots[$i].FullName })
+        $folders.Add([pscustomobject]@{ Folder = $snapshots[$i].Name; Path = $snapshots[$i].FullName; Sharded = $false })
     }
     foreach ($folder in $folders) {
         # DirectoryInfo enumeration includes hidden, system and dot-named files
-        # (SR-057): an object name can begin with any alphabet digit.
-        foreach ($file in [System.IO.DirectoryInfo]::new($folder.Path).EnumerateFiles()) {
+        # (SR-057): an object name can begin with any alphabet digit. The latest
+        # state's objects are in its shard folders (C44, L8).
+        foreach ($file in (Get-StoredObjectFile -Folder $folder.Path -Sharded:$folder.Sharded)) {
             # A prune killed while copying leaves '<object>.fbprune.tmp' beside
             # the destination (Copy-ReHomedDataFile), possibly partial. The
             # grammar takes '.7z.fbprune.tmp' as an extension, so the staged copy
@@ -4803,8 +4970,9 @@ function Get-StoredObjectCompressedFlag {
 function Assert-SingleStoreMount {
     <#
     .SYNOPSIS
-        Refuses a set whose BackupPath and ChangePath are not on one volume and
-        one mount (plan R8), by renaming a test directory from one to the other.
+        Refuses a store whose Latest folder is not on one volume and one mount
+        with the store itself (plan R8, C44 L4), by renaming a test directory
+        from one to the other.
 
     .DESCRIPTION
         Every move between the latest state and a snapshot must be a rename, so
@@ -4834,9 +5002,9 @@ function Assert-SingleStoreMount {
     } catch {
         $why = $_.Exception.Message
         try { [System.IO.Directory]::Delete($from) } catch { Write-Verbose "could not remove '$from': $($_.Exception.Message)" }
-        throw ("BackupPath '$BackupRoot' and ChangePath '$ChangeRoot' must be on one volume and one mount, so that " +
-               "moving content between them is a rename. A test rename between them failed: $why " +
-               'Put both folders on one drive; in a container, mount one folder that holds both (README).')
+        throw ("The latest state '$BackupRoot' and its store '$ChangeRoot' must be on one volume and one mount, so that " +
+               "moving content between Latest and a snapshot is a rename. A test rename between them failed: $why " +
+               'Do not mount Latest apart from its store; in a container, mount the store folder alone (README).')
     }
     [System.IO.Directory]::Delete($to)
 }
@@ -4921,7 +5089,7 @@ function Assert-CurrentStoreForm {
     if ($legacy.Count -gt 0) {
         throw ("Backup manifest at '$BackupRoot' holds $($legacy.Count) row(s) in the legacy path-addressed form " +
                "(StoredAsHashSize='Original'), e.g. '$($legacy[0].RelativePath)'. This store was written by a " +
-               'pre-content-addressed build and cannot be written to (SR-061). Back up to a fresh BackupPath; ' +
+               'pre-content-addressed build and cannot be written to (SR-061). Back up to a fresh StorePath; ' +
                'the old store stays restorable as-is.')
     }
     # A witness only an older build can have left; this build writes none (R5).
@@ -4929,13 +5097,13 @@ function Assert-CurrentStoreForm {
     if ($witness.Status -ne 'Absent' -and $witness.Version -gt 0 -and $witness.Version -lt $script:Def.WitnessFormatVersion) {
         throw ("Backup manifest at '$BackupRoot' is a pre-WP12 store: its witness declares format version " +
                "$($witness.Version), the retired base-85 name grammar. Mixing two grammars in one pool is refused " +
-               '(SR-061). Back up to a fresh BackupPath; restore the old store with the kit bundled inside it.')
+               '(SR-061). Back up to a fresh StorePath; restore the old store with the kit bundled inside it.')
     }
     $badName = @($Rows | Where-Object { Test-LegacyStoredObjectName -Name "$($_.DataPath)" })
     if ($badName.Count -gt 0) {
         throw ("Backup manifest at '$BackupRoot' holds $($badName.Count) row(s) named under a retired grammar, " +
                "e.g. '$($badName[0].DataPath)' for '$($badName[0].RelativePath)'. This store was written by a " +
-               'pre-WP12 build and cannot be written to (SR-061). Back up to a fresh BackupPath.')
+               'pre-WP12 build and cannot be written to (SR-061). Back up to a fresh StorePath.')
     }
 }
 
@@ -4965,7 +5133,8 @@ function Get-SourceFileList {
         Skip the old source-side record at the source root (see .DESCRIPTION).
 
     .OUTPUTS
-        [pscustomobject] Files (a List of [pscustomobject] RelativePath, File),
+        [pscustomobject] Files (a List of [pscustomobject] RelativePath - '/'-separated, plan
+        C44 L7 - and File),
         Unportable (RelativePath, Reason) and Unreadable (Path, Message).
     #>
     # Implements: SR-001, SR-055, SR-057, SR-074, LLR-001, LLR-055, LLR-057
@@ -4989,7 +5158,11 @@ function Get-SourceFileList {
         $unreadable.Add([pscustomobject]@{ Path = $path; Message = $e.Exception.Message })
     }
     foreach ($f in $walked) {
-        $rel = $f.FullName.Substring($SourcePath.Length).TrimStart('\', '/')
+        # '/' is the only separator a recorded path uses, whatever host writes
+        # it (plan C44, L7): converted once here, so every later comparison sees
+        # one form. Lossless: no Windows name holds '/', and a Linux name
+        # holding '\' is unportable (SR-055) and never recorded.
+        $rel = ConvertTo-RecordedPath -Path $f.FullName.Substring($SourcePath.Length).TrimStart('\', '/')
         if ($ExcludeOldSourceRecord -and $rel.IndexOfAny([char[]]@([char]92, [char]47)) -lt 0 -and $oldRecord -contains $rel) { continue }
         $reason = Test-PortableRelativePath -RelativePath $rel
         if ($reason) {
@@ -5106,7 +5279,7 @@ function Publish-StagedObject {
     .SYNOPSIS
         Turns a staged copy whose content key is new into a stored object in
         the backup root: decides its form, compresses it if so decided, and
-        renames it to its content name.
+        renames it to its content name, in its shard folder (plan C44, L8).
 
     .DESCRIPTION
         The form is decided once, from the staged copy, exactly as before
@@ -5182,7 +5355,7 @@ function Publish-StagedObject {
     $compress = [bool]$decision.Compress
     $ext  = if ($compress) { '.7z' } else { [System.IO.Path]::GetExtension($SourceName) }
     $name = Get-HashSizeFileName -HashHex $Hash -Length $Length -Extension $ext
-    $dest = Join-Path $BackupRoot $name
+    $dest = Get-StoredObjectPath -Folder $BackupRoot -Name $name -Sharded
     $from = $StagedPath
     if ($compress) {
         $from = "$StagedPath.7z"
@@ -5202,7 +5375,7 @@ function Publish-StagedObject {
             $compress = $false
             $ext  = [System.IO.Path]::GetExtension($SourceName)
             $name = Get-HashSizeFileName -HashHex $Hash -Length $Length -Extension $ext
-            $dest = Join-Path $BackupRoot $name
+            $dest = Get-StoredObjectPath -Folder $BackupRoot -Name $name -Sharded
             & $Log "The archive of '$SourceName' came out exactly as long as its content; stored raw as '$name'." 'DEBUG'
         } else {
             Remove-Item -LiteralPath $StagedPath -Force
@@ -5228,6 +5401,8 @@ function Publish-StagedObject {
         # Measured per object: NVMe +1.4 ms, HomeHub's USB NTFS drive
         # (ntfs-3g) +1.9 ms, a laptop SATA HDD +49 ms.
         Sync-FileToDisk -LiteralPath $from
+        # The shard folder exists once its first object does (C44, L8).
+        [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($dest))
         [System.IO.File]::Move($from, $dest)
     }
     if ($decision.Reason -ceq 'ProbeIncompressible') {
@@ -5401,7 +5576,7 @@ function Invoke-SourceFileCapture {
                       -BackupRoot $Context.BackupRoot -Set $Context.Set -SevenZipPath $Context.SevenZip `
                       -ProbeStats $Context.ProbeStats -Metrics $Context.Metrics -Log $Context.Log
         $staged = $null
-        $storedPath = Join-Path $Context.BackupRoot $stored.Name
+        $storedPath = Get-StoredObjectPath -Folder $Context.BackupRoot -Name $stored.Name -Sharded
         $newEntry = [pscustomobject]@{
             Name = $stored.Name; Prefix = $prefix; Path = $storedPath; Folder = ''
             FileLength = ([System.IO.FileInfo]::new($storedPath)).Length; ContentLength = $len
@@ -5469,9 +5644,11 @@ function Get-LatestObject {
         Add-RunMetric -Metrics $Context.Metrics -Name 'kit revision read' -Ticks $watch.ElapsedTicks
     }
     if ($Context.KitRevisionOf[$holder] -lt 4) { return $entry }
-    $dest = Join-Path $Context.BackupRoot $entry.Name
+    $dest = Get-StoredObjectPath -Folder $Context.BackupRoot -Name $entry.Name -Sharded
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
+        # Into its shard folder (C44, L8), which may not exist yet.
+        [void][System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($dest))
         [System.IO.File]::Move($entry.Path, $dest)
         Add-RunMetric -Metrics $Context.Metrics -Name 'move back from snapshot' -Ticks $watch.ElapsedTicks
         & $Context.Log "Moved '$($entry.Name)' back from '$($entry.Folder)' into the latest state." 'DEBUG'
@@ -5691,7 +5868,7 @@ function Publish-PriorStateSnapshot {
     $copies = [System.Collections.Generic.List[string]]::new()
     foreach ($artifact in @($script:Def.DirectorySidecarName, $script:Def.ReconstructPs1Name, $script:Def.ReconstructCmdName,
                             $script:Def.ReconstructCommandName, $script:Def.ReconstructShName, $script:Def.CommonModuleName,
-                            'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')) {
+                            'System.IO.Hashing.dll')) {
         $src = Join-Path $BackupRoot $artifact
         if (Test-Path -LiteralPath $src -PathType Leaf) {
             Copy-Item -LiteralPath $src -Destination $building -Force
@@ -6097,7 +6274,8 @@ function New-BrowseViewIndex {
         # Relative page->pool link, forward slashes, percent-encoded segments
         # (hash names contain '#', '%', '+', ';' and friends).
         $relRoot = [IO.Path]::GetRelativePath($FromDirFull, $bkpFull) -replace '\\', '/'
-        $segments = ($DataPath -split '[\\/]') | ForEach-Object { [Uri]::EscapeDataString($_) }
+        # The latest state's objects sit in shard folders (C44, L8).
+        $segments = @((Get-StoredObjectShard -Name $DataPath), $DataPath) | ForEach-Object { [Uri]::EscapeDataString($_) }
         return "$relRoot/$($segments -join '/')"
     }
     $style = '<style>body{font-family:Segoe UI,sans-serif;margin:1.5em}table{border-collapse:collapse}' +
@@ -6642,9 +6820,10 @@ function Invoke-LibraryCapture {
             & $log "Cannot list '$($bad.Path)': $($bad.Message). Files beneath it are not captured this run and keep their earlier copies (SR-057)." 'WARN'
             $notCaptured++
             if ("$($bad.Path)".StartsWith($Paths.SrcPath, [System.StringComparison]::OrdinalIgnoreCase)) {
-                $prefix = "$($bad.Path)".Substring($Paths.SrcPath.Length).TrimStart('\', '/')
-                # The source root itself: every row is beneath it.
-                if ($prefix) { $unreadablePrefixes.Add($prefix + [System.IO.Path]::DirectorySeparatorChar) } else { $unreadablePrefixes.Add('') }
+                $prefix = ConvertTo-RecordedPath -Path "$($bad.Path)".Substring($Paths.SrcPath.Length).TrimStart('\', '/')
+                # The source root itself: every row is beneath it. Rows are
+                # '/'-separated (L7).
+                if ($prefix) { $unreadablePrefixes.Add($prefix + '/') } else { $unreadablePrefixes.Add('') }
             }
         }
         Complete-RunStep -Metrics $Context.Metrics -Name 'walk source'
@@ -6951,7 +7130,7 @@ function Invoke-BackupSet {
         # its content's name (review 2026-10-26 G1).
         $damage = Move-DamagedStoreObject -Damaged $index.Damaged.ToArray() -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                       -Metrics $metrics -Log $log
-        New-ReconstructScript -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath
+        New-ReconstructScript -BackupRoot $paths.BkpPath
         Complete-RunStep -Metrics $metrics -Name 'restore kit'
         $snapshot = $null
         if ($null -ne $priorDate) {
@@ -7028,15 +7207,20 @@ function Invoke-BackupSet {
 
 # region Configuration loading (SR-042, SR-043)
 
-# The ConfigVersion this build understands (SR-042, SR-063). Version 2 (WP9):
-# the PreserveFolderTree layout selector is REMOVED — storage is always
-# content-addressed — and BrowseView/ViewPath are added. A config declaring a
-# HIGHER version is refused ("upgrade FileBackup"); a version-1 document is
-# refused as TOO OLD rather than half-understood, because its key set differs.
-# JSON has ONE number type, so an integral-valued number is that integer:
-# "ConfigVersion": 2.0 is the same document as "ConfigVersion": 2 and is
-# accepted; 2.5 is not. The published schema's `const: 2` agrees (TC-077).
-$script:ConfigSchemaVersion = 2
+# The ConfigVersion this build understands (SR-042, SR-063). Version 2 (WP9)
+# removed the PreserveFolderTree layout selector - storage is always
+# content-addressed - and added BrowseView/ViewPath. Version 3 (plan C44, L1)
+# replaced BackupPath and ChangePath with one StorePath; both are refused by
+# name in JSON and CLIXML alike, saying how to convert. A config declaring a
+# HIGHER version is refused ("upgrade FileBackup"); an older one is refused as
+# TOO OLD rather than half-understood, because its key set differs. JSON has
+# ONE number type, so an integral-valued number is that integer:
+# "ConfigVersion": 3.0 is the same document as "ConfigVersion": 3 and is
+# accepted; 3.5 is not. The published schema's `const: 3` agrees (TC-077).
+$script:ConfigSchemaVersion = 3
+$script:RetiredStorePathKeyMessage = ('BackupPath and ChangePath were replaced in ConfigVersion 3 by StorePath: one folder per backup set, ' +
+    'holding Latest/ (the latest state) and every Snapshot_<date>/ beside it. A store in the old layout is not converted: set it aside ' +
+    '(it keeps restoring with the kits inside it) and point StorePath at a new, empty folder.')
 
 function Assert-NoUnknownConfigKey {
     <#
@@ -7054,7 +7238,7 @@ function Assert-NoUnknownConfigKey {
     )
 
     $topLevelKeys = 'ConfigVersion', 'BackupSets', 'Tools', 'Secrets'
-    $setKeys      = 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq',
+    $setKeys      = 'Name', 'SourcePath', 'StorePath', 'HashRecalcFreq',
                     'CompressEnabled', 'SourceStatePath', 'AllowEmptySource',
                     'BrowseView', 'ViewPath', 'CompressProbe'
     $toolsKeys    = 'SevenZipPath', 'FfprobePath'
@@ -7064,6 +7248,8 @@ function Assert-NoUnknownConfigKey {
     # told the layout selector is GONE, not misspelled.
     $retiredKeys  = @{
         PreserveFolderTree = 'PreserveFolderTree was removed in ConfigVersion 2: storage is always content-addressed. Remove the key.'
+        BackupPath         = $script:RetiredStorePathKeyMessage
+        ChangePath         = $script:RetiredStorePathKeyMessage
     }
 
     function Test-ConfigKeySet {
@@ -7238,7 +7424,14 @@ function Test-BackupConfigurationShape {
         $setPath = "`$.BackupSets[$i]"
         if ($StrictTypes) { Assert-ConfigValueType -Value $set -JsonType 'object' -JsonPath $setPath }
 
-        foreach ($field in 'Name', 'SourcePath', 'BackupPath', 'ChangePath', 'HashRecalcFreq') {
+        # ConfigVersion 3 (C44): refused by name in EVERY format, before the
+        # required-key check would call StorePath merely missing.
+        foreach ($retired in 'BackupPath', 'ChangePath') {
+            if ($set.PSObject.Properties.Name -contains $retired) {
+                throw "Config '$ConfigPath' is invalid: $setPath.$retired — $script:RetiredStorePathKeyMessage"
+            }
+        }
+        foreach ($field in 'Name', 'SourcePath', 'StorePath', 'HashRecalcFreq') {
             if ($StrictTypes) {
                 if ($set.PSObject.Properties.Name -notcontains $field) {
                     throw "Every backup set must define a non-empty '$field'."
@@ -7349,7 +7542,7 @@ function Resolve-BackupSetDefaults {
     .SYNOPSIS
         Materializes each backup set's optional fields to their documented
         defaults (SourceStatePath = SourcePath, AllowEmptySource = $false,
-        BrowseView = 'off', ViewPath = '<BackupPath>_View',
+        BrowseView = 'off', ViewPath = '<StorePath>/View',
         CompressProbe = 'always') and normalizes
         casing/types, so the engine's own [bool] / ToUpperInvariant casts at
         point of use become belt-and-braces (SR-042, SR-063).
@@ -7371,8 +7564,8 @@ function Resolve-BackupSetDefaults {
         }
         $allowEmptySource = ($set.PSObject.Properties.Name -contains 'AllowEmptySource') -and $null -ne $set.AllowEmptySource -and [bool]$set.AllowEmptySource
         # BrowseView defaults OFF (work order §9 Q2): a config that never asked
-        # for a view pays no per-run cost. ViewPath defaults beside the backup
-        # root — same volume by construction, outside both roots.
+        # for a view pays no per-run cost. ViewPath defaults to <StorePath>/View
+        # (C44, L3): everything of one set in one folder, on its volume.
         $browseView = if ($set.PSObject.Properties.Name -contains 'BrowseView' -and
                           -not [string]::IsNullOrWhiteSpace([string]$set.BrowseView)) {
             [string]$set.BrowseView
@@ -7387,14 +7580,21 @@ function Resolve-BackupSetDefaults {
         $viewPath = if ($set.PSObject.Properties.Name -contains 'ViewPath' -and
                         -not [string]::IsNullOrWhiteSpace([string]$set.ViewPath)) {
             [string]$set.ViewPath
-        } else { ([string]$set.BackupPath).TrimEnd('\', '/') + '_View' }
+        } else { [System.IO.Path]::Combine([string]$set.StorePath, $script:Def.ViewFolderName) }
+        # The two roots every step works with (C44, S1): the latest state, and
+        # the folder holding the snapshots and the run files - the store itself.
+        # Path.Combine, never Join-Path, here: Join-Path throws for a drive that
+        # is not attached, which would turn C25's "retry later" (4) into a
+        # configuration error (2) before the store is ever looked at.
+        $storePath = [string]$set.StorePath
 
         [pscustomobject]@{
             Name               = [string]$set.Name
             SourcePath         = [string]$set.SourcePath
             SourceStatePath    = $sourceStatePath
-            BackupPath         = [string]$set.BackupPath
-            ChangePath         = [string]$set.ChangePath
+            StorePath          = $storePath
+            BackupPath         = [System.IO.Path]::Combine($storePath, $script:Def.LatestFolderName)
+            ChangePath         = $storePath
             HashRecalcFreq     = ([string]$set.HashRecalcFreq).ToUpperInvariant()
             CompressEnabled    = [bool]$set.CompressEnabled
             AllowEmptySource   = $allowEmptySource
@@ -7474,7 +7674,8 @@ function Import-BackupConfiguration {
             if ($rawVersion -lt $script:ConfigSchemaVersion) {
                 throw ("Config '$Path' is invalid: `$.ConfigVersion — config declares version $rawVersion, which is too old for this build (SR-063). " +
                        "Version 2 removed PreserveFolderTree (storage is always content-addressed) and added BrowseView/ViewPath; " +
-                       "update the document and set ConfigVersion to $script:ConfigSchemaVersion.")
+                       "version 3 replaced BackupPath and ChangePath with StorePath (one folder per set holding Latest/ and the snapshots). " +
+                       "Update the document and set ConfigVersion to $script:ConfigSchemaVersion.")
             }
             $version = [int]$rawVersion
 

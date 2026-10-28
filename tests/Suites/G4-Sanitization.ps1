@@ -39,7 +39,7 @@ function Invoke-G4 {
     $backupCode = $LASTEXITCODE
     Assert-True $suite $group 'G4.1' 'Legacy_backupRefused' { $backupCode -eq 2 }
     Assert-True $suite $group 'G4.1' 'Legacy_refusalNamesRemedy' {
-        $backupOut -match 'legacy path-addressed' -and $backupOut -match 'fresh BackupPath'
+        $backupOut -match 'legacy path-addressed' -and $backupOut -match 'fresh StorePath'
     }
     Assert-True $suite $group 'G4.1' 'Legacy_nothingMutated' {
         (Get-Content -LiteralPath $manifest -Raw) -eq $manifestBefore -and
@@ -106,7 +106,9 @@ function Invoke-G4 {
         if (-not $r.DataPath) { continue }
         $ext = (ConvertFrom-HashSizeFileName -Name $r.DataPath).Extension
         $old = "lii``7EXH@[hgD!I= !!!!!!=X&K$ext"
-        Move-Item -LiteralPath (Join-Path $Env.BkpPath $r.DataPath) `
+        # From its shard folder (plan C44, L8) to where a pre-WP12 store kept
+        # it, flat in the backup folder.
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $Env.BkpPath -Name $r.DataPath -Sharded) `
                   -Destination (Join-Path $Env.BkpPath $old) -Force
         $r.DataPath = $old
     }
@@ -144,7 +146,7 @@ function Invoke-G4 {
     $bOut  = (& $pwshExe -NoProfile -File $BackupScript -ConfigPath $cfgL -NoMail -NonInteractive *>&1 | Out-String)
     $bCode = $LASTEXITCODE
     Assert-True $suite $group 'G4.1b' 'PreWP12_backupRefused' { $bCode -eq 2 }
-    Assert-True $suite $group 'G4.1b' 'PreWP12_backupNamesRemedy' { $bOut -match 'fresh BackupPath' }
+    Assert-True $suite $group 'G4.1b' 'PreWP12_backupNamesRemedy' { $bOut -match 'fresh StorePath' }
 }
 
 function Invoke-G4ExtensionMerge {
@@ -207,12 +209,12 @@ function Invoke-G4ExtensionMerge {
         $ext = [IO.Path]::GetExtension($row.RelativePath).ToLowerInvariant()
         if ($merged -notcontains $ext) { continue }
         if ($row.Compressed -eq 'Yes') { continue }
-        $current = Join-Path $Env.BkpPath $row.DataPath
+        $current = Get-StoredObjectPath -Folder $Env.BkpPath -Name $row.DataPath -Sharded
         if (-not (Test-Path -LiteralPath $current -PathType Leaf)) { continue }
         # Named as the engine names a compressed object: the content key with
         # '.7z' in place of the source extension.
         $archiveName = Get-HashSizeFileName -HashHex $row.xxH2Hash -Length ([long]$row.Length) -Extension '.7z'
-        Compress-FileWithSevenZip -SevenZipPath $sevenZip -SourceFile $current -Destination7z (Join-Path $Env.BkpPath $archiveName)
+        Compress-FileWithSevenZip -SevenZipPath $sevenZip -SourceFile $current -Destination7z (Get-StoredObjectPath -Folder $Env.BkpPath -Name $archiveName -Sharded)
         Remove-Item -LiteralPath $current -Force
         $row.DataPath   = $archiveName
         $row.Compressed = 'Yes'
@@ -260,7 +262,7 @@ function Invoke-G4ExtensionMerge {
         $affected.Count -eq $merged.Count -and
         @($affected | Where-Object { $_.Compressed -ne 'Yes' }).Count -eq 0 -and
         @($affected | Where-Object { $_.DataPath -notlike '*.7z' }).Count -eq 0 -and
-        @($affected | Where-Object { -not (Test-Path -LiteralPath (Join-Path $Env.BkpPath $_.DataPath) -PathType Leaf) }).Count -eq 0
+        @($affected | Where-Object { -not (Test-Path -LiteralPath (Get-StoredObjectPath -Folder $Env.BkpPath -Name $_.DataPath -Sharded) -PathType Leaf) }).Count -eq 0
     }
     Assert-True $suite $group 'G4.2' 'ExtMerge_noDanglingReference' {
         @(Test-PoolResolves -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath |

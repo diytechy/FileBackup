@@ -3,14 +3,19 @@
     Reconstructs a source tree from MANIFEST.csv and the available data files.
 
 .DESCRIPTION
-    Deployed (by New-ReconstructScript) into the backup root and each change
-    folder, alongside FileBackup.Common.psm1, System.IO.Hashing.dll, and a
-    RECONSTRUCT.paths.json sidecar. Runs standalone — no repository required.
+    Deployed (by New-ReconstructScript) into a store's Latest folder and each
+    Snapshot_<date> folder beside it, alongside FileBackup.Common.psm1 and
+    System.IO.Hashing.dll. Runs standalone — no repository required.
 
-        * From the backup root: uses that folder's MANIFEST.csv only.
+        * From <store>/Latest: uses that folder's MANIFEST.csv only.
         * From a dated snapshot folder (name starts with "Snapshot_"): that
           snapshot's own manifest is the authoritative point-in-time state, with
-          bytes resolved by hash from the backup root + sibling snapshots.
+          bytes resolved from <store>/Latest + the snapshots beside it.
+
+    The store is the parent of the folder this script runs from (one store
+    folder per backup set, kit revision 15); no path is recorded anywhere, so
+    a moved or copied store restores as it is. Run from any other folder it
+    refuses (2) unless -StoreRootOverride names the store.
 
     When a row's DataPath is blank or its file is missing, the bytes are found
     through a name index built once per restore: every stored object is named
@@ -33,7 +38,8 @@
            manifest reads as NUL bytes from some line on (ManifestDamaged: a
            write cut short by a power loss; the rows before it are restored).
         2  Precondition / usage — nothing attempted (bad arguments, missing or
-           unrecognizable manifest, target inside the backup, an unusable target
+           unrecognizable manifest, target inside the store, a kit run from outside a
+           store's Latest or Snapshot_<date> folder, an unusable target
            path, missing required tool, insufficient capacity). Any terminating
            error this script did not classify lands here too: nothing was
            attempted, so it must not be reported as data loss (code 1). The
@@ -63,7 +69,7 @@
     RECONSTRUCT.cmd does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 14
+# KitRevision: 15
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -124,13 +130,22 @@
 # resolve. The MANIFEST.csv.meta witness is no longer read at all, so exit 3,
 # the 'unverified index' warning, -RequireWitness and the witness-version
 # refusal are gone (bounded-run-loop R5/R6, section 7).
+# Revision 15 (2026-10-27, plan C44): one store folder per backup set. The
+# store is the parent of this script's folder, which must be named Latest or
+# Snapshot_<date>; the pool is <store>/Latest plus every <store>/Snapshot_*.
+# The path sidecar and the sibling and child guesses (C21, C32) are gone, and
+# -BackupRootOverride/-ChangeRootOverride became one -StoreRootOverride. An
+# object of Latest lives in a shard folder named by the first two characters
+# of its name, lowercased (L8); snapshots stay flat. Recorded paths use '/'
+# (L7). This kit restores only that layout; an older store keeps its own kit.
 # Restoring a snapshot with its OWN older kit
 # still carries the defects fixed after it.
 
 param(
     [string]$TargetRoot,
-    [string]$BackupRootOverride,
-    [string]$ChangeRootOverride,
+    # The store folder (holding Latest and the Snapshot_* folders), for a kit
+    # run from outside it. Otherwise the store is this script's parent folder.
+    [string]$StoreRootOverride,
     [string]$SevenZipPath,
     # Report the SR-040 exit code as a process exit status instead of throwing.
     # Only process entry points pass this; in-process callers keep the throw.
@@ -519,13 +534,14 @@ function Find-DataFileByHash {
 function New-StoredObjectNameIndex {
     <#
     .SYNOPSIS
-        Lists the TOP-LEVEL files of each pool folder once and maps every
-        stored-object name to the (hash, length) it carries (kit revision 14).
+        Lists each pool folder's objects once and maps every stored-object
+        name to the (hash, length) it carries (kit revision 14; the latest
+        state's shard folders since revision 15).
 
     .DESCRIPTION
         Every stored object is named "<hash22>_<len><ext>" from its own content
-        (SR-069), and objects sit flat at the top of the backup root and of each
-        Snapshot_* folder. So one listing answers "where are the bytes for this
+        (SR-069), and objects sit in the latest state's shard folders and flat
+        at the top of each Snapshot_* folder. So one listing answers "where are the bytes for this
         (hash, length)?" for every row of the restore. Before revision 14 each
         blank or stale row ran Find-DataFileByHash, which re-listed the whole
         pool recursively and hashed candidates FOR EACH ROW: rows x pool.
@@ -557,6 +573,9 @@ function New-StoredObjectNameIndex {
         backup root, then snapshots newest first. Duplicates are the caller's
         to remove.
 
+    .PARAMETER LatestFolder
+        The store's Latest folder, whose objects sit in shard folders (L8).
+
     .OUTPUTS
         [hashtable] "<HASH32>:<length>" -> List[string] of full paths, in the
         order of -Folders.
@@ -564,14 +583,20 @@ function New-StoredObjectNameIndex {
     # Implements: SR-010, SR-069, LLR-069
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([AllowEmptyCollection()][string[]]$Folders = @())
+    param(
+        [AllowEmptyCollection()][string[]]$Folders = @(),
+        [string]$LatestFolder
+    )
 
+    $latestFull = if ($LatestFolder) { [System.IO.Path]::GetFullPath($LatestFolder).TrimEnd('\', '/') } else { $null }
     $index = @{}
     foreach ($folder in $Folders) {
         if (-not (Test-Path -LiteralPath $folder -PathType Container)) { continue }
-        # -Force (SR-057): a pool object carrying the Hidden attribute is still
-        # an object. Top level only - objects never nest.
-        foreach ($f in @(Get-ChildItem -LiteralPath $folder -File -Force -ErrorAction SilentlyContinue)) {
+        # Hidden, system and dot-named files included (SR-057); the latest
+        # state through its shard folders, a snapshot's top level (L8).
+        $sharded = ([System.IO.Path]::GetFullPath($folder).TrimEnd('\', '/') -eq $latestFull)
+        $listed = try { @(Get-StoredObjectFile -Folder $folder -Sharded:$sharded) } catch { @() }
+        foreach ($f in $listed) {
             # A prune's staged copy, never an object (see .DESCRIPTION).
             if ($f.Name.EndsWith('.fbprune.tmp', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
             $parsed = ConvertFrom-HashSizeFileName -Name $f.Name
@@ -625,71 +650,26 @@ function Find-DataFileByName {
     return $null
 }
 
-# ---- Resolve backup/change roots ----
+# ---- Resolve the store (kit revision 15, plan C44) ----
+# One folder per backup set: <store>/Latest is the latest state and every
+# Snapshot_<date> sits beside it. This script runs from one of those folders,
+# so the store is its parent. Nothing is guessed and no path is recorded: a
+# moved or copied store restores as it is. From any other folder - an older
+# store's layout, or a kit copied out of its store - it refuses (2) unless the
+# store is named, before anything is written.
 $isChangeFolder = $folderName -match $ChangeFolderPattern
-
-# Sidecar written by New-ReconstructScript takes precedence over auto-detection
-# (B10) — but ONLY while this folder still lives inside the roots it records.
-# The recorded absolute paths are meaningless for a store that was copied or
-# moved (USB, another machine, a drive-letter change), and honoring them there
-# either fails against a dead path or, worse, silently restores from the
-# still-live ORIGINAL store instead of this copy. reconstruct.sh applies the
-# same containment rule.
-$sidecar = Join-Path $here 'RECONSTRUCT.paths.json'
-if (-not $BackupRootOverride -and (Test-Path -LiteralPath $sidecar -PathType Leaf)) {
-    try {
-        $paths = Get-Content -LiteralPath $sidecar -Raw | ConvertFrom-Json
-        $hereIsInsideRecorded = foreach ($root in @($paths.BackupRoot, $paths.ChangeRoot)) {
-            if ($root -and (Test-Path -LiteralPath $root -PathType Container)) {
-                $r = [System.IO.Path]::GetFullPath($root).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
-                $h = [System.IO.Path]::GetFullPath($here).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
-                if ($h.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)) { $true; break }
-            }
-        }
-        if ($hereIsInsideRecorded) {
-            if (-not $BackupRootOverride) { $BackupRootOverride = $paths.BackupRoot }
-            if (-not $ChangeRootOverride) { $ChangeRootOverride = $paths.ChangeRoot }
-        } else {
-            Write-Warning "Path sidecar '$sidecar' records roots this folder no longer lives in (the store was likely copied or moved); using auto-detection."
-        }
-    } catch {
-        Write-Warning "Could not read path sidecar '$sidecar'; falling back to auto-detection. $($_.Exception.Message)"
-    }
-}
-
-if ($isChangeFolder) {
-    $changeRoot = [System.IO.Path]::GetDirectoryName($here)
-    $backupRoot = [System.IO.Path]::GetDirectoryName($changeRoot)
-    # The one-mount layout (bounded-run-loop R8) keeps the backup root BESIDE
-    # the change root (<store>/backup, <store>/changes), not above it. When the
-    # parent holds no manifest, the one sibling that does is the backup root;
-    # otherwise the name index would miss the latest state's objects and every
-    # row naming one would fall to the content scan.
-    if ($backupRoot -and -not (Test-Path -LiteralPath (Join-Path $backupRoot $DatabaseFilename) -PathType Leaf)) {
-        $siblings = @(Get-ChildItem -LiteralPath $backupRoot -Directory -Force -ErrorAction SilentlyContinue |
-                      Where-Object { $_.FullName -ne $changeRoot -and (Test-Path -LiteralPath (Join-Path $_.FullName $DatabaseFilename) -PathType Leaf) })
-        if ($siblings.Count -eq 1) { $backupRoot = $siblings[0].FullName }
-    }
+$isLatestFolder = $folderName -ceq $Def.LatestFolderName
+if ($StoreRootOverride) {
+    $storeRoot = [System.IO.Path]::GetFullPath($StoreRootOverride)
+} elseif ($isChangeFolder -or $isLatestFolder) {
+    $storeRoot = [System.IO.Path]::GetDirectoryName($here)
 } else {
-    $backupRoot = $here
-    $changeRoot = $null     # B10: no assumed CHANGES sibling; only used if known.
-    # A latest-state restore needs the snapshots only for a row whose object
-    # still sits in one (a move back that failed, plan C19). With no change root
-    # recorded or given, the one folder inside or beside the backup root that
-    # holds Snapshot_* folders is it - found, not assumed by name (B10). Every
-    # restored file is verified, so a wrong guess can supply no wrong bytes.
-    if (-not $ChangeRootOverride) {
-        $parent = [System.IO.Path]::GetDirectoryName($here)
-        $candidates = @(@(Get-ChildItem -LiteralPath $here -Directory -Force -ErrorAction SilentlyContinue) +
-                        @(if ($parent) { Get-ChildItem -LiteralPath $parent -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $here } }) |
-                        Where-Object { @(Get-ChildItem -LiteralPath $_.FullName -Directory -Force -ErrorAction SilentlyContinue |
-                                         Where-Object Name -match $ChangeFolderPattern | Select-Object -First 1).Count -gt 0 })
-        if ($candidates.Count -eq 1) { $changeRoot = $candidates[0].FullName }
-    }
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message (
+        "This restore kit runs from a store's '$($Def.LatestFolderName)' folder or one of its Snapshot_<date> folders, and '$here' is neither. " +
+        'A store written before kit revision 15 restores with the kit inside it; to use this kit from elsewhere, pass -StoreRootOverride <the store folder>.')
 }
-
-if ($BackupRootOverride) { $backupRoot = $BackupRootOverride }
-if ($ChangeRootOverride) { $changeRoot = $ChangeRootOverride }
+$backupRoot = Join-Path $storeRoot $Def.LatestFolderName
+$changeRoot = $storeRoot
 
 function Show-ReconstructUsage {
     <#
@@ -700,13 +680,13 @@ function Show-ReconstructUsage {
     #>
     # Implements: SR-016, LLR-016
     return @'
-Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-BackupRootOverride DIR]
-                       [-ChangeRootOverride DIR] [-SevenZipPath PATH]
+Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-StoreRootOverride DIR]
+                       [-SevenZipPath PATH]
                        [-NonInteractive] [-NoGui] [-ExitCode]
 
-  -TargetRoot DIR          Where to rebuild the tree (must be OUTSIDE the backup).
-  -BackupRootOverride DIR  Override the auto-detected backup root (the live data pool).
-  -ChangeRootOverride DIR  Override the folder that holds the Snapshot_<date> siblings.
+  -TargetRoot DIR          Where to rebuild the tree (must be OUTSIDE the store).
+  -StoreRootOverride DIR   The store folder (holding Latest and Snapshot_<date>),
+                           when this kit is run from outside it.
   -SevenZipPath PATH       Explicit 7z binary (else the configured default; needed
                            only when the backup has compressed rows).
   -NonInteractive          Never prompt: a missing -TargetRoot becomes this usage
@@ -1042,11 +1022,13 @@ function Test-PathIsInside {
     $p = (Resolve-PathPhysically -Path $Parent).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
     return $c.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase)
 }
-if (Test-PathIsInside -Child $TargetRoot -Parent $backupRoot) {
-    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message 'TargetRoot must be outside the backup root.'
+if (Test-PathIsInside -Child $TargetRoot -Parent $storeRoot) {
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message 'TargetRoot must be outside the store.'
 }
-if ($changeRoot -and (Test-Path -LiteralPath $changeRoot -PathType Container) -and (Test-PathIsInside -Child $TargetRoot -Parent $changeRoot)) {
-    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message 'TargetRoot must be outside the change folder root.'
+# With -StoreRootOverride this kit's own folder may lie outside the store it
+# restores; a target inside it would write into a backup all the same.
+if (Test-PathIsInside -Child $TargetRoot -Parent $here) {
+    Exit-Reconstruct -Code $EXIT_PRECONDITION -Message "TargetRoot must be outside the folder this restore kit runs from ('$here')."
 }
 
 function Read-RawManifest {
@@ -1371,7 +1353,8 @@ function Resolve-RowDataSource {
     $dataPath = "$($Row.DataPath)"
     $blank    = [string]::IsNullOrWhiteSpace($dataPath)
     if (-not $blank) {
-        $own = Join-Path $Row.SourceFolder (ConvertTo-LocalRelativePath $dataPath)
+        # In the latest state the object sits in its shard folder (L8).
+        $own = Get-StoredObjectPath -Folder $Row.SourceFolder -Name $dataPath -Sharded:($Row.SourceFolder -eq $backupRoot)
         if (Test-Path -LiteralPath $own -PathType Leaf) {
             return [pscustomobject]@{ Path = $own; LocatedForm = $null; Cause = $null; Detail = $null }
         }
@@ -1389,7 +1372,7 @@ function Resolve-RowDataSource {
     $why = if ($blank) { "No datapath for $Rel" } else { "Data file '$dataPath' missing for $Rel" }
 
     if ($null -eq $script:nameIndex) {
-        $script:nameIndex = New-StoredObjectNameIndex -Folders $indexFolders
+        $script:nameIndex = New-StoredObjectNameIndex -Folders $indexFolders -LatestFolder $backupRoot
         Add-ReconstructLog "Name index built: $($script:nameIndex.Count) object key(s) from $($indexFolders.Count) pool folder(s)."
     }
     $byName = Find-DataFileByName -Index $script:nameIndex -Hash $Row.xxH2Hash -Length ([long]$Row.Length)
@@ -1450,10 +1433,11 @@ function Add-Unrestored {
     $unrestored.Add([pscustomobject]@{ RelativePath = $RelativePath; Cause = $Cause; Detail = $Detail })
 }
 
-# Manifest paths use the separator of the machine that WROTE the backup. On a
-# non-Windows restore host, map '\' to '/' (reconstruct.sh's to_posix does the
-# same) — otherwise a Windows-made 'sub\file.txt' is written as one root-level
-# file literally named 'sub\file.txt', a structurally wrong tree with exit 0.
+# A store written from kit revision 15 records '/' as the only separator
+# (plan C44, L7), which every host's file APIs take. A '\' can only come from
+# a manifest an older engine wrote on Windows; on a non-Windows restore host it
+# is still mapped to '/' (reconstruct.sh's to_posix does the same) rather than
+# written as one root-level file literally named 'sub\file.txt'.
 function ConvertTo-LocalRelativePath {
     param([string]$Path)
     if ($IsWindows) { return $Path }

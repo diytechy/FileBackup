@@ -12,32 +12,39 @@
                           file's Get-FileXxHash value. Proves SR-030: the bash
                           hasher's output must equal these bytes exactly.
 
-      bash-restore/<mode>/  For each of the four storage modes, a small backup set
-                          produced by a fixed 3-run timeline (deterministic via
-                          -BackupTime + fixed content + fixed mtimes). Each mode
-                          holds:
-                            backup/    the backup root (latest MANIFEST.csv + data)
-                            changes/   the Snapshot_<date> point-in-time folders
-                            expected/  one <origin>.tsv per restore origin (root +
-                                       each snapshot): "posixRelativePath<TAB>hash"
-                                       read from that origin's own MANIFEST.csv —
-                                       the independent oracle reconstruct.sh must
-                                       reproduce (a restored file's xxh128sum must
-                                       equal the recorded content hash = byte-exact).
+      bash-restore/<mode>/  For each compression mode, a small store produced by a
+                          fixed 3-run timeline (deterministic via -BackupTime +
+                          fixed content + fixed mtimes), one store folder per
+                          backup set (ConfigVersion 3, plan C44). Each mode holds:
+                            store/Latest/      the latest state: MANIFEST.csv,
+                                               DIRECTORIES.csv and the objects,
+                                               each in its shard folder
+                                               <xx>/<name> (L8)
+                            store/Snapshot_*/  the point-in-time folders (flat)
+                            store/             also holds the run state
+                            expected/  one <origin>.tsv per restore origin (root =
+                                       Latest, + each snapshot):
+                                       "posixRelativePath<TAB>hash" read from that
+                                       origin's own MANIFEST.csv — the independent
+                                       oracle reconstruct.sh must reproduce (a
+                                       restored file's xxh128sum must equal the
+                                       recorded content hash = byte-exact).
 
     The timeline exercises: dedup (shared content), a modified file (point-in-time
-    v1 vs v2), a delete then identical re-add (yields a blank-DataPath row that
-    recovers by (hash,length)), a 0-byte file, unicode / bracketed / comma-bearing
+    v1 vs v2), a delete then identical re-add (a snapshot row whose object now
+    lives in Latest, so it resolves through the name index by (hash,length);
+    the engine writes no blank DataPath here, and the run reports how many it
+    found), a 0-byte file, unicode / bracketed / comma-bearing
     names, a nested user file named MANIFEST.csv (B6), and — in the +Compress
     modes — .7z-stored rows.
 
     Committed fixtures are STRIPPED of the deployed restore-kit artifacts
-    (RECONSTRUCT.ps1/.bat, reconstruct.sh, FileBackup.Common.psm1,
-    System.IO.Hashing.dll) and the
-    per-run backup.log, keeping only MANIFEST.csv + data + Snapshot_* + the tiny
-    RECONSTRUCT.paths.json sidecar (kept so the "ignore an unresolvable Windows-path
-    sidecar on Linux" path is exercised locally). -Fresh keeps everything — that is
-    the real, unstripped engine output the CI cross-artifact interop job restores.
+    (RECONSTRUCT.ps1/.cmd/.command, reconstruct.sh, FileBackup.Common.psm1,
+    System.IO.Hashing.dll) and the per-run backup.log, keeping the manifests,
+    DIRECTORIES.csv, the data and the store's run state. Kit revision 15 writes
+    no path sidecar: a restorer takes the store to be its own folder's parent.
+    -Fresh keeps everything — that is the real, unstripped engine output the CI
+    cross-artifact interop job restores.
 
 .PARAMETER OutRoot
     Where to write the fixtures. Default: <repo>/tests/fixtures.
@@ -96,12 +103,11 @@ function New-DeterministicBinary {
 }
 
 function Write-FixtureConfig {
-    param([string]$ConfigPath, [string]$Src, [string]$Bkp, [string]$Chg, [bool]$Compress)
+    param([string]$ConfigPath, [string]$Src, [string]$Store, [bool]$Compress)
     $set = [pscustomobject]@{
         Name               = 'FixtureSet'
         SourcePath         = $Src
-        BackupPath         = $Bkp
-        ChangePath         = $Chg
+        StorePath          = $Store
         HashRecalcFreq     = 'A'
         CompressEnabled    = $Compress
     }
@@ -172,21 +178,11 @@ $KitArtifacts = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', '
 
 function Remove-KitBloat {
     param([string]$Folder)
-    # Strip the deployed restore kit + logs from a committed fixture,
-    # keeping MANIFEST.csv, data files, Snapshot_* and the tiny path sidecar.
+    # Strip the deployed restore kit + logs from a committed fixture, keeping
+    # the manifests, DIRECTORIES.csv, data files, Snapshot_* and the run state.
     Get-ChildItem -LiteralPath $Folder -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -in $KitArtifacts -or $_.Name -eq 'backup.log' } |
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
-    # Normalize every RECONSTRUCT.paths.json to a STABLE, deliberately unresolvable
-    # Windows path (the real one carries a random temp GUID => fixture churn). The
-    # sidecar is kept so tests prove reconstruct.sh ignores a Windows-path sidecar
-    # on Linux and relies on --backup-root/--change-root / auto-detection instead.
-    Get-ChildItem -LiteralPath $Folder -Recurse -File -Filter 'RECONSTRUCT.paths.json' -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            $stable = @{ BackupRoot = 'C:\Backups\FileBackupFixture\backup'
-                         ChangeRoot = 'C:\Backups\FileBackupFixture\backup\changes' } | ConvertTo-Json
-            [System.IO.File]::WriteAllText($_.FullName, $stable, [System.Text.UTF8Encoding]::new($false))
-        }
 }
 
 function Get-ModeFlags {
@@ -204,39 +200,35 @@ try {
         Write-Host "=== bash-restore fixture: $mode ===" -ForegroundColor Cyan
 
         $src = Join-Path $work "$modeSafe\src"
-        $bkp = Join-Path $work "$modeSafe\backup"
-        $chg = Join-Path $work "$modeSafe\backup\changes"   # nested: enables Linux grandparent auto-detect too
+        $store = Join-Path $work "$modeSafe\store"
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         $cfg = Join-Path $work "$modeSafe\config.xml"
-        Write-FixtureConfig -ConfigPath $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $flags.Compress
+        Write-FixtureConfig -ConfigPath $cfg -Src $src -Store $store -Compress $flags.Compress
 
         Set-SourceTimelineStep -Src $src -Step 1; Invoke-FixtureBackup -ConfigPath $cfg -When $T1
         Set-SourceTimelineStep -Src $src -Step 2; Invoke-FixtureBackup -ConfigPath $cfg -When $T2
         Set-SourceTimelineStep -Src $src -Step 3; Invoke-FixtureBackup -ConfigPath $cfg -When $T3
 
-        # Publish backup + changes into the fixture output tree.
+        # Publish the whole store into the fixture output tree.
         $destMode = Join-Path $OutRoot "bash-restore\$modeSafe"
         if (Test-Path -LiteralPath $destMode) { Remove-Item -LiteralPath $destMode -Recurse -Force }
         New-Item -ItemType Directory -Path $destMode -Force | Out-Null
-        Copy-Item -LiteralPath $bkp -Destination (Join-Path $destMode 'backup') -Recurse -Force
+        Copy-Item -LiteralPath $store -Destination (Join-Path $destMode 'store') -Recurse -Force
 
-        # Expected oracle: one TSV per restore origin (root + each snapshot).
-        $destBackup = Join-Path $destMode 'backup'
-        $destChanges = Join-Path $destBackup 'changes'
-        Write-ExpectedTsv -ManifestPath (Join-Path $destBackup 'MANIFEST.csv') -OutFile (Join-Path $destMode 'expected\root.tsv')
+        # Expected oracle: one TSV per restore origin (root.tsv = Latest, + each snapshot).
+        $destStore = Join-Path $destMode 'store'
+        Write-ExpectedTsv -ManifestPath (Join-Path $destStore 'Latest\MANIFEST.csv') -OutFile (Join-Path $destMode 'expected\root.tsv')
         $snapCount = 0
-        if (Test-Path -LiteralPath $destChanges) {
-            Get-ChildItem -LiteralPath $destChanges -Directory | Where-Object { $_.Name -like 'Snapshot_*' } | ForEach-Object {
-                Write-ExpectedTsv -ManifestPath (Join-Path $_.FullName 'MANIFEST.csv') -OutFile (Join-Path $destMode "expected\$($_.Name).tsv")
-                $snapCount++
-            }
+        Get-ChildItem -LiteralPath $destStore -Directory | Where-Object { $_.Name -like 'Snapshot_*' } | ForEach-Object {
+            Write-ExpectedTsv -ManifestPath (Join-Path $_.FullName 'MANIFEST.csv') -OutFile (Join-Path $destMode "expected\$($_.Name).tsv")
+            $snapCount++
         }
 
-        if (-not $Fresh) { Remove-KitBloat -Folder $destBackup }
+        if (-not $Fresh) { Remove-KitBloat -Folder $destStore }
 
         # Report blank-DataPath coverage (the hash-recovery path).
         $blank = 0
-        Get-ChildItem -LiteralPath $destBackup -Recurse -Filter 'MANIFEST.csv' | ForEach-Object {
+        Get-ChildItem -LiteralPath $destStore -Recurse -Filter 'MANIFEST.csv' | ForEach-Object {
             $blank += (Import-Csv -LiteralPath $_.FullName | Where-Object { $_.RelativePath -and -not $_.DataPath }).Count
         }
         Write-Host ("    snapshots={0}  blank-DataPath-rows={1}" -f $snapCount, $blank) -ForegroundColor DarkGray

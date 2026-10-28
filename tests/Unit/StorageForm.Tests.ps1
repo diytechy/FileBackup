@@ -19,7 +19,7 @@ BeforeAll {
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg,
               [bool]$Compress = $false)
         $set = [pscustomobject]@{
-            Name = 'S'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+            Name = 'S'; SourcePath = $Src; StorePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
@@ -107,13 +107,16 @@ BeforeAll {
             into one of TC-091's four malformed shapes. The bytes are ground
             truth; only the manifest and the data-file NAMES are tampered with.
 
-            a.txt  flag-over-raw     Compressed=Yes, DataPath 'a.txt.7z', RAW bytes
-            b.txt  flag-over-archive Compressed=No,  DataPath 'b.txt',    ARCHIVE bytes
-            c.txt  name-lies         Compressed=No,  DataPath 'c.txt.7z', RAW bytes
-            d.txt  dangling-datapath Compressed=No,  DataPath 'd.txt',    no file
+            a.txt  flag-over-raw     Compressed=Yes, DataPath 'aa.txt.7z', RAW bytes
+            b.txt  flag-over-archive Compressed=No,  DataPath 'bb.txt',    ARCHIVE bytes
+            c.txt  name-lies         Compressed=No,  DataPath 'cc.txt.7z', RAW bytes
+            d.txt  dangling-datapath Compressed=No,  DataPath 'dd.txt',    no file
+
+            Each bent object sits where its DataPath leads in the latest state,
+            the shard folder its first two characters name (plan C44, L8).
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
@@ -126,31 +129,37 @@ BeforeAll {
         # fixture means the same thing with and without compression rather than
         # inheriting whatever form the seed run happened to produce.
         $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
+        $place = {
+            param([string]$Name)
+            $p = Get-StoredObjectPath -Folder $bkp -Name $Name -Sharded
+            New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($p)) -Force | Out-Null
+            return $p
+        }
         foreach ($row in $rows) {
-            $current = Join-Path $bkp $row.DataPath
+            $current = Get-StoredObjectPath -Folder $bkp -Name $row.DataPath -Sharded
             $raw     = Join-Path $src $row.RelativePath        # the true, raw bytes
             switch ($row.RelativePath) {
                 'a.txt' {
                     Remove-Item -LiteralPath $current -Force
-                    Copy-Item -LiteralPath $raw -Destination (Join-Path $bkp 'a.txt.7z') -Force
-                    $row.DataPath = 'a.txt.7z'; $row.Compressed = 'Yes'
+                    Copy-Item -LiteralPath $raw -Destination (& $place 'aa.txt.7z') -Force
+                    $row.DataPath = 'aa.txt.7z'; $row.Compressed = 'Yes'
                 }
                 'b.txt' {
                     # Real archive bytes parked under a RAW name (shape b).
                     Remove-Item -LiteralPath $current -Force
                     Compress-FileWithSevenZip -SevenZipPath $script:sevenZip -SourceFile $raw `
                         -Destination7z (Join-Path $Root 'b.7z')
-                    Move-Item -LiteralPath (Join-Path $Root 'b.7z') -Destination (Join-Path $bkp 'b.txt') -Force
-                    $row.DataPath = 'b.txt'; $row.Compressed = 'No'
+                    Move-Item -LiteralPath (Join-Path $Root 'b.7z') -Destination (& $place 'bb.txt') -Force
+                    $row.DataPath = 'bb.txt'; $row.Compressed = 'No'
                 }
                 'c.txt' {
                     Remove-Item -LiteralPath $current -Force
-                    Copy-Item -LiteralPath $raw -Destination (Join-Path $bkp 'c.txt.7z') -Force
-                    $row.DataPath = 'c.txt.7z'; $row.Compressed = 'No'
+                    Copy-Item -LiteralPath $raw -Destination (& $place 'cc.txt.7z') -Force
+                    $row.DataPath = 'cc.txt.7z'; $row.Compressed = 'No'
                 }
                 'd.txt' {
                     Remove-Item -LiteralPath $current -Force
-                    $row.DataPath = 'd.txt'
+                    $row.DataPath = 'dd.txt'
                 }
             }
         }
@@ -182,7 +191,7 @@ BeforeAll {
             can no longer reach it by a supported operation.
         #>
         param([string]$Root, [bool]$StartCompressed)
-        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         $cfgA = Join-Path $Root 'a.xml'
         New-FormConfig -Path $cfgA -Src $src -Bkp $bkp -Chg $chg -Compress $StartCompressed
@@ -242,7 +251,7 @@ Describe 'A backup run never re-forms stored data (SR-049, SR-061)' {
         foreach ($rel in 'a.txt', 'b.txt', 'c.txt', 'd.txt') {
             $row = @($rows | Where-Object RelativePath -eq $rel)[0]
             ConvertFrom-HashSizeFileName -Name $row.DataPath | Should -Not -BeNullOrEmpty -Because "'$rel' now names a stored object"
-            Test-Path -LiteralPath (Join-Path $store.Bkp $row.DataPath) -PathType Leaf | Should -BeTrue
+            Test-Path -LiteralPath (Get-StoredObjectPath -Folder $store.Bkp -Name $row.DataPath -Sharded) -PathType Leaf | Should -BeTrue
             $row.Compressed | Should -Be 'No' -Because 'the plain store keeps raw objects'
         }
         $after = Get-TreeFingerprint -Folder $store.Bkp
@@ -305,7 +314,7 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
             #>
             param([string]$Root, [string]$DataName, [string]$Compressed,
                   [bool]$Compress = $false, [switch]$Corrupt)
-            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
             $cfg = Join-Path $Root 'c.xml'
             New-Item -ItemType Directory -Path $src -Force | Out-Null
             New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
@@ -316,7 +325,9 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
 
             $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
             $row  = $rows | Where-Object RelativePath -eq 'x.txt'
-            Move-Item -LiteralPath (Join-Path $bkp $row.DataPath) -Destination (Join-Path $bkp $DataName) -Force
+            # At the top of Latest, where no DataPath leads: the restorers'
+            # content scan (which recurses) is the only way to it.
+            Move-Item -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $row.DataPath -Sharded) -Destination (Join-Path $bkp $DataName) -Force
             if ($Corrupt) { [IO.File]::WriteAllText((Join-Path $bkp $DataName), 'not an archive and not the payload') }
             $row.DataPath = ''          # force the hash-recovery branch
             $row.Compressed = $Compressed
@@ -359,7 +370,7 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
         # A compressed backup restored from its own root: every row has a
         # DataPath, so no located form exists and Compressed must still decide.
         $root = Join-Path $TestDrive 'tc098-nonblank'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
@@ -387,7 +398,7 @@ Describe 'Hash recovery reports the located file''s form (SR-050)' {
         # the bounded run keeps it (plan C10), so the blank is made here to keep
         # the hash-recovery path under test.
         $root = Join-Path $TestDrive 'tc098-realseven'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
@@ -450,7 +461,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         @{ Mode = 'Compress'; Compress = $true  }
     ) {
         $root = Join-Path $TestDrive "tc093-$Mode"
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
@@ -479,14 +490,14 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         # object; only the next prune removes it. Until then every Verify called
         # it Unreferenced and exited 1, though nothing is wrong with the store.
         $root = Join-Path $TestDrive 'argon3-fbprune'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $false
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('ALPHA ' * 50))
         Invoke-FormBackup -Cfg $cfg | Out-Null
         $object = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))[0].DataPath
-        Copy-Item -LiteralPath (Join-Path $bkp $object) -Destination (Join-Path $bkp "$object.fbprune.tmp")
+        Copy-Item -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $object -Sharded) -Destination (Join-Path $bkp "$object.fbprune.tmp")
 
         @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) | Should -BeNullOrEmpty
         Invoke-VerifyExitCode -Cfg $cfg | Should -Be 0
@@ -509,7 +520,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         # wrote its inner file under the original name — exit 0, silent
         # corruption of a store that had been correct.
         $root = Join-Path $TestDrive "tc093-hidden-$Mode"
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
@@ -521,7 +532,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         # bytes under a row that says Compressed=No.
         $row = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') |
                  Where-Object RelativePath -eq 'archive.7z.bak')[0]
-        Get-StoredFileForm -Path (Join-Path $bkp $row.DataPath) | Should -Be 'Archive'
+        Get-StoredFileForm -Path (Get-StoredObjectPath -Folder $bkp -Name $row.DataPath -Sharded) | Should -Be 'Archive'
         if (-not $Compress) { $row.Compressed | Should -Be 'No' -Because 'SR-004 declines to re-compress it' }
 
         @(Test-BackupStorageForm -BackupRoot $bkp -ChangeRoot $chg) |
@@ -575,7 +586,8 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         $snap = Join-Path $s.Chg 'Snapshot_2024_01_01_00_00_01'
         New-Item -ItemType Directory -Path $snap -Force | Out-Null
         $rows = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'b.txt')
-        Copy-Item -LiteralPath (Join-Path $s.Bkp 'b.txt') -Destination (Join-Path $snap 'b.txt') -Force
+        $bent = $rows[0].DataPath
+        Copy-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $bent -Sharded) -Destination (Join-Path $snap $bent) -Force
         Set-ManifestRows -Folder $snap -Rows $rows
 
         $all = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg)
@@ -630,7 +642,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         $doc[0].PSObject.Properties.Name | Should -Contain 'Class'
 
         $root = Join-Path $TestDrive 'tc093-json-clean'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
@@ -654,7 +666,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         # (b) A backup root that is not there is a precondition failure (2), and
         # no root is conjured for the next run to trip over.
         $root = Join-Path $TestDrive 'tc093-readonly-missing'
-        $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $root -Force | Out-Null
         $cfg = Join-Path $root 'c.xml'
         New-FormConfig -Path $cfg -Src $root -Bkp $bkp -Chg $chg
@@ -684,7 +696,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         # What the audit reports from an index built directly.
         $whole = Get-BackupContentIndex -BackupRoot $t.Bkp -SnapshotFolder $snaps
         $expected = @(foreach ($folder in @($t.Bkp) + $snaps) {
-            Get-StorageFormFinding -Folder $folder -Manifest @(Read-Manifest -FolderPath $folder) -Index $whole
+            Get-StorageFormFinding -Folder $folder -Manifest @(Read-Manifest -FolderPath $folder) -Index $whole -Sharded:($folder -eq $t.Bkp)
         })
 
         # The index the audit builds, seen through the real function.
@@ -714,7 +726,7 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         # check for it, then corrupt the bytes in place.
         Repair-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Log { param($m, $l) } | Out-Null
         $row = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'c.txt')[0]
-        [IO.File]::WriteAllText((Join-Path $s.Bkp $row.DataPath), 'DIFFERENT BYTES ENTIRELY')
+        [IO.File]::WriteAllText((Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded), 'DIFFERENT BYTES ENTIRELY')
         $deep = @(Test-BackupStorageForm -BackupRoot $s.Bkp -ChangeRoot $s.Chg -Deep -SevenZipPath $script:sevenZip)
         @($deep | Where-Object { $_.RelativePath -eq 'c.txt' -and $_.Class -eq 'PayloadMismatch' }) |
             Should -Not -BeNullOrEmpty
@@ -735,7 +747,7 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         $logical = @(Import-Csv -LiteralPath (Join-Path $s.Bkp 'MANIFEST.csv'))
         $payloads = @{}
         foreach ($row in $logical) {
-            $full = Join-Path $s.Bkp $row.DataPath
+            $full = Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded
             if (Test-Path -LiteralPath $full -PathType Leaf) {
                 $payloads[$row.RelativePath] = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash
             }
@@ -760,7 +772,7 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         # ...and no content was ever re-packed: every data file payload hash is
         # what it was, only its name and its Compressed column moved.
         foreach ($row in $now) {
-            $full = Join-Path $s.Bkp $row.DataPath
+            $full = Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded
             if (Test-Path -LiteralPath $full -PathType Leaf) {
                 (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash | Should -Be $payloads[$row.RelativePath]
             }
@@ -776,7 +788,7 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         # unrestorable row. Two identical-content rows sharing one DataPath, bent
         # into the FlagOverRaw shape, must both come out repaired.
         $root = Join-Path $TestDrive 'tc094-shared'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
@@ -797,7 +809,7 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         # naming a '.7z'. Repair must rename once and update both rows.
         $oldName = $shared[0].DataPath
         $newName = "$oldName.7z"
-        Move-Item -LiteralPath (Join-Path $bkp $oldName) -Destination (Join-Path $bkp $newName) -Force
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $oldName -Sharded) -Destination (Get-StoredObjectPath -Folder $bkp -Name $newName -Sharded) -Force
         foreach ($row in $shared) { $row.DataPath = $newName; $row.Compressed = 'Yes' }
         Set-ManifestRows -Folder $bkp -Rows $rows
 
@@ -811,7 +823,7 @@ Describe 'Storage-form repair makes the index agree with the bytes (SR-049)' {
         foreach ($rel in 'one.txt', 'two.txt') {
             $row = $after | Where-Object RelativePath -eq $rel
             $row.Compressed | Should -Be 'No'
-            Test-Path -LiteralPath (Join-Path $bkp $row.DataPath) -PathType Leaf |
+            Test-Path -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $row.DataPath -Sharded) -PathType Leaf |
                 Should -BeTrue -Because "row '$rel' must not be left dangling"
         }
         @($after | Where-Object { $_.RelativePath -in 'one.txt', 'two.txt' } |
@@ -940,7 +952,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
                 Compressed=No - the hub's shape, produced by a real run.
             #>
             param([string]$Root)
-            $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+            $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
             $cfg = Join-Path $Root 'c.xml'
             New-Item -ItemType Directory -Path $src -Force | Out-Null
             New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
@@ -953,7 +965,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
             $row                                   | Should -Not -BeNullOrEmpty
             $row.Compressed                        | Should -Be 'No'
             [IO.Path]::GetExtension($row.DataPath) | Should -Be '.z7'
-            Get-StoredFileForm -Path (Join-Path $bkp $row.DataPath) | Should -Be 'Archive'
+            Get-StoredFileForm -Path (Get-StoredObjectPath -Folder $bkp -Name $row.DataPath -Sharded) | Should -Be 'Archive'
             return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; Rows = $rows; Row = $row }
         }
 
@@ -1000,7 +1012,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
         $s = New-RawArchiveStore -Root (Join-Path $TestDrive 'tc229-unlisted')
 
         $renamed = [IO.Path]::GetFileNameWithoutExtension($s.Row.DataPath) + '.qqq'
-        Move-Item -LiteralPath (Join-Path $s.Bkp $s.Row.DataPath) -Destination (Join-Path $s.Bkp $renamed) -Force
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $s.Row.DataPath -Sharded) -Destination (Get-StoredObjectPath -Folder $s.Bkp -Name $renamed -Sharded) -Force
         $rows = @($s.Rows | ForEach-Object { $_.PSObject.Copy() })
         $bent = @($rows | Where-Object RelativePath -eq 'library.z7')[0]
         $bent.RelativePath = 'library.qqq'
@@ -1024,7 +1036,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
         # hash (it never hashed any other raw object either), and -Deep - the
         # PAYLOAD audit - still catches the substitution.
         $s = New-RawArchiveStore -Root (Join-Path $TestDrive 'tc229-substituted')
-        $object = Join-Path $s.Bkp $s.Row.DataPath
+        $object = Get-StoredObjectPath -Folder $s.Bkp -Name $s.Row.DataPath -Sharded
         $before = (Get-Item -LiteralPath $object).Length
         New-SevenZipMagicFile -Path $object -Size ([int]$before) -Seed 20260902
         (Get-Item -LiteralPath $object).Length | Should -Be $before -Because 'only the payload changes, never the size'
@@ -1064,7 +1076,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
         # the payload-keyed confirming hash decides (and, the row being stamped
         # with the stub's answer, proves the object correct).
         $renamed = [IO.Path]::GetFileNameWithoutExtension($t.Row.DataPath) + '.7z'
-        Move-Item -LiteralPath (Join-Path $t.Bkp $t.Row.DataPath) -Destination (Join-Path $t.Bkp $renamed) -Force
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $t.Bkp -Name $t.Row.DataPath -Sharded) -Destination (Get-StoredObjectPath -Folder $t.Bkp -Name $renamed -Sharded) -Force
         $rows = @($t.Rows | ForEach-Object { $_.PSObject.Copy() })
         $bentRow = @($rows | Where-Object RelativePath -eq 'library.z7')[0]
         $bentRow.DataPath = $renamed
@@ -1100,7 +1112,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
             return
         }
         $root = Join-Path $TestDrive 'tc229-mixed'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
@@ -1136,12 +1148,12 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
         }
         # ...and, as a property rather than row by row: the store holds BOTH
         # forms, with at least one raw object above the probe floor.
-        @(Get-ChildItem -LiteralPath $bkp -File -Filter '*.7z').Count |
+        # Latest's objects sit in shard folders (plan C44, L8).
+        $objects = @((Get-StoredObjectFile -Folder $bkp -Sharded))
+        @($objects | Where-Object Extension -eq '.7z').Count |
             Should -BeGreaterThan 0 -Because 'a mixed store holds compressed objects'
-        @(Get-ChildItem -LiteralPath $bkp -File | Where-Object {
-            $_.Extension -ne '.7z' -and $_.Length -gt 256KB -and
-            -not (Test-IsInfrastructureFile -Root $bkp -FullPath $_.FullName)
-        }).Count | Should -BeGreaterThan 0 -Because 'a mixed store holds raw objects the probe chose, above the floor'
+        @($objects | Where-Object { $_.Extension -ne '.7z' -and $_.Length -gt 256KB }).Count |
+            Should -BeGreaterThan 0 -Because 'a mixed store holds raw objects the probe chose, above the floor'
 
         # 1. The SR-049 audit calls the mixed store CLEAN - both forms are still
         #    just forms - non-Deep and under -Deep, and Verify exits 0.
@@ -1188,7 +1200,7 @@ Describe 'Verify does not re-hash raw-stored archives (SR-049, SR-081)' {
         }
 
         $root = Join-Path $TestDrive 'tc229-mixed-sh'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-FormConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $true
@@ -1225,7 +1237,7 @@ Describe 'A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)
         @{ Name = 'notes.txt';  Compressed = 'Yes'; Ext = '.7z'; Calls = 1 }
     ) {
         $root = Join-Path $TestDrive ('tc231-' + ($Name -replace '\W', '-'))
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, (Join-Path $chg 'Incoming') -Force | Out-Null
         $file = Join-Path $src $Name
         if ($Ext -eq '.z7') {
@@ -1261,8 +1273,8 @@ Describe 'A .z7 source is stored raw and 7-Zip is never invoked (SR-004, TC-231)
         if ($Calls -eq 0) {
             # Raw really means raw: the object is the source's own bytes, under
             # its own extension, and nothing in the store is named '.7z'.
-            @(Get-ChildItem -LiteralPath $bkp -Filter '*.7z') | Should -BeNullOrEmpty
-            Get-FileXxHash -FilePath (Join-Path $bkp $result.Row.DataPath) | Should -Be $hash
+            @(Get-ChildItem -LiteralPath $bkp -Filter '*.7z' -Recurse) | Should -BeNullOrEmpty
+            Get-FileXxHash -FilePath (Get-StoredObjectPath -Folder $bkp -Name $result.Row.DataPath -Sharded) | Should -Be $hash
         }
     }
 }

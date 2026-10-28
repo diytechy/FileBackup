@@ -55,13 +55,13 @@ BeforeAll {
         # volume (plan R8).
         param([string]$Name)
         $root = Join-Path $TestDrive $Name
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
         [pscustomobject]@{
             Root = $root; Src = $src; Bkp = $bkp; Chg = $chg
             Set  = [pscustomobject]@{
-                Name = $Name; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp
-                ChangePath = $chg; HashRecalcFreq = 'A'; CompressEnabled = $false
+                Name = $Name; SourcePath = $src; SourceStatePath = ''; StorePath = $chg
+                HashRecalcFreq = 'A'; CompressEnabled = $false
                 AllowEmptySource = $false; BrowseView = 'off'; ViewPath = ''
             }
         }
@@ -174,8 +174,8 @@ if ($Mode -eq 'Prune') {
 }
 switch ($Mode) {
     'Backup' {
-        $set = [pscustomobject]@{ Name = 'oslock'; SourcePath = $Src; SourceStatePath = ''; BackupPath = $Bkp
-            ChangePath = $Chg; HashRecalcFreq = 'A'; CompressEnabled = $false
+        $set = [pscustomobject]@{ Name = 'oslock'; SourcePath = $Src; SourceStatePath = ''; StorePath = $Chg
+            HashRecalcFreq = 'A'; CompressEnabled = $false
             AllowEmptySource = $false; BrowseView = 'off'; ViewPath = '' }
         Invoke-BackupSet -Set $set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
             -LogPaths (New-Object System.Collections.Generic.List[string]) -BackupTime ([datetime]$When) | Out-Null
@@ -737,8 +737,8 @@ Describe '-Action Verify through the entry point with the lock held (TC-253, SR-
         Initialize-TwoRunStore -Fixture $fx | Out-Null
         $cfg = Join-Path $fx.Root 'config.xml'
         @{ Secrets = $null; BackupSets = @([pscustomobject]@{
-                    Name = 'V'; SourcePath = $fx.Src; BackupPath = $fx.Bkp
-                    ChangePath = $fx.Chg; HashRecalcFreq = 'A'; CompressEnabled = $false }) } |
+                    Name = 'V'; SourcePath = $fx.Src; StorePath = $fx.Chg
+                    HashRecalcFreq = 'A'; CompressEnabled = $false }) } |
             Export-Clixml -LiteralPath $cfg
         $entry = Join-Path $script:Repo 'FileBackup.ps1'
         $pwsh  = (Get-Process -Id $PID).Path

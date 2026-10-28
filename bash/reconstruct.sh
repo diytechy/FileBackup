@@ -10,11 +10,16 @@
 # MANIFEST.csv format are the single source of truth; only the implementation is
 # duplicated). See docs/plans/bash-variant-plan.md and AGENTS.md sec.2/3.
 #
-#   * From a backup ROOT: that folder's MANIFEST.csv is the latest state.
+#   * From a store's Latest folder: that folder's MANIFEST.csv is the latest
+#     state.
 #   * From a dated SNAPSHOT folder (name matches ^Snapshot_<date>): that
 #     snapshot's own manifest is the authoritative point-in-time state, with each
-#     file's bytes resolved by (xxH2Hash,Length) from the data pool = backup root
+#     file's bytes resolved by (xxH2Hash,Length) from the data pool = Latest
 #     + all sibling snapshots (no newer manifest is ever overlaid).
+#   * The store is the origin's parent folder (one store folder per backup set,
+#     kit revision 15): nothing is guessed and no path is recorded, so a moved
+#     or copied store restores as it is. Any other origin is refused (2) unless
+#     --store-root names the store.
 #
 # Restore semantics (mirror Reconstruct.ps1):
 #   - a row's DataPath (Windows '\' mapped to '/') resolves against the origin
@@ -81,7 +86,7 @@
 # Implements: SR-030, SR-031, SR-032, SR-040, SR-050, SR-069 (LLR-030, LLR-031,
 #             LLR-032, LLR-040, LLR-050, LLR-069)
 #
-# KitRevision: 14
+# KitRevision: 15
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from
@@ -132,7 +137,12 @@
 set -uo pipefail
 
 readonly MANIFEST_NAME='MANIFEST.csv'
-readonly SIDECAR_NAME='RECONSTRUCT.paths.json'
+# One store folder per backup set (kit revision 15, plan C44): the latest
+# state is <store>/Latest, and an object there lives in a shard folder named by
+# the first two characters of its name, lowercased (L8). Snapshots stay flat.
+# The shard-folder pattern (^[2-9a-z]{2}$, Common's ShardFolderPattern) is
+# applied inside decode_hash_size_names' gawk program.
+readonly LATEST_NAME='Latest'
 readonly LOG_NAME='RECONSTRUCT.log'
 readonly SNAPSHOT_RE='^Snapshot_[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}'
 # Infrastructure filenames excluded at the ROOT of each search folder during hash
@@ -823,16 +833,20 @@ find_by_hash() {
 # ---------------------------------------------------------------------------
 # Name index over the data pool — SR-069 / SR-010 (kit revision 14)
 # ---------------------------------------------------------------------------
-# Every stored object is named "<hash22>_<len><ext>" from its own content, flat
-# at the top of the backup root and of each Snapshot_* folder. Listing those
+# Every stored object is named "<hash22>_<len><ext>" from its own content, in
+# the latest state's shard folders and flat at the top of each Snapshot_*
+# folder (kit revision 15). Listing those
 # folders ONCE therefore answers "where are the bytes for this (hash, length)?"
 # for every row, where find_by_hash walks and hashes the whole pool per row.
 INDEX_FOLDERS=()    # populated in main(): origin, backup root, snapshots (desc)
+LATEST_FOLDER=''    # <store>/Latest, set in main(); its objects are sharded
 INDEX_HIT=''        # set by lookup_name_index
 
-# decode_hash_size_names [<prefix>] : the SR-069 name parser, as a filter.
+# decode_hash_size_names [<prefix>] [1] : the SR-069 name parser, as a filter.
 # Reads NUL-terminated records on stdin; the NAME is the record with <prefix>
-# removed (the whole record when no prefix is given). For each name that
+# removed (the whole record when no prefix is given). With a second argument of
+# 1 the remainder must be "<shard>/<name>" in the name's own shard folder (the
+# latest state, kit revision 15), and the name is what follows the '/'. For each name that
 # parses, writes
 #     <HASH32>\037<length>\037<record>\0
 # with the hash as 32 upper-case hex digits and the length in decimal, and
@@ -854,10 +868,11 @@ INDEX_HIT=''        # set by lookup_name_index
 # exactly what the UTF-16 PowerShell parser decides.
 # Implements: SR-069, SR-070 (LLR-069)
 decode_hash_size_names() {
-    FB_NAME_PREFIX="${1-}" LC_ALL=C gawk '
+    FB_NAME_PREFIX="${1-}" FB_NAME_SHARDED="${2-}" LC_ALL=C gawk '
         BEGIN {
             RS = "\0"; ORS = "\0"
             prefix = ENVIRON["FB_NAME_PREFIX"]
+            sharded = (ENVIRON["FB_NAME_SHARDED"] == "1")
             A = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
             for (i = 1; i <= 57; i++) V[substr(A, i, 1)] = i - 1
         }
@@ -902,6 +917,16 @@ decode_hash_size_names() {
         {
             name = $0
             if (prefix != "" && substr(name, 1, length(prefix)) == prefix) name = substr(name, length(prefix) + 1)
+            # Sharded (the latest state, kit revision 15): "<xx>/<name>", where
+            # <xx> is the first two characters of the name, lowercased. A file in
+            # the shard folder of another name is no object (L8).
+            if (sharded) {
+                if (substr(name, 3, 1) != "/") next
+                shard = substr(name, 1, 2)
+                if (shard !~ /^[2-9a-z][2-9a-z]$/) next
+                name = substr(name, 4)
+                if (tolower(substr(name, 1, 2)) != shard) next
+            }
             if (length(name) < 24 || substr(name, 23, 1) != "_") next
             hf = substr(name, 1, 22)
             if (hf !~ /^[2-9A-HJ-NP-Za-km-z]+$/) next
@@ -946,8 +971,13 @@ build_name_index() {
             key="$hash:$len"
             if [[ -n "${NAME_INDEX[$key]+set}" ]]; then NAME_INDEX[$key]+=$'\037'"$path"
             else NAME_INDEX[$key]="$path"; fi
-        done < <(find "$folder" -mindepth 1 -maxdepth 1 -type f -print0 2>/dev/null \
-                    | decode_hash_size_names "${folder%/}/")
+        done < <(if [[ "$folder" == "$LATEST_FOLDER" ]]; then
+                     find "$folder" -mindepth 2 -maxdepth 2 -type f -print0 2>/dev/null \
+                         | decode_hash_size_names "${folder%/}/" 1
+                 else
+                     find "$folder" -mindepth 1 -maxdepth 1 -type f -print0 2>/dev/null \
+                         | decode_hash_size_names "${folder%/}/"
+                 fi)
     done
     NAME_INDEX_BUILT=1
     log "Name index built: ${#NAME_INDEX[@]} object key(s) from ${#INDEX_FOLDERS[@]} pool folder(s)."
@@ -1124,14 +1154,15 @@ Exited with code %s. Press Return to close.' "$rc" >&2
 
 usage() {
     cat >&2 <<'EOF'
-Usage: reconstruct.sh --target-root DIR [--from DIR] [--backup-root DIR]
-                      [--change-root DIR] [--seven-zip PATH] [--pick-target]
+Usage: reconstruct.sh --target-root DIR [--from DIR] [--store-root DIR]
+                      [--seven-zip PATH] [--pick-target]
 
-  --target-root DIR   Where to rebuild the tree (must be OUTSIDE the backup).
-  --from DIR          Restore origin: a backup root or a Snapshot_<date> folder.
-                      Default: the current directory.
-  --backup-root DIR   Override the auto-detected backup root (the live data pool).
-  --change-root DIR   Override the folder that holds the Snapshot_<date> siblings.
+  --target-root DIR   Where to rebuild the tree (must be OUTSIDE the store).
+  --from DIR          Restore origin: a store's Latest folder or one of its
+                      Snapshot_<date> folders. Default: the current directory,
+                      or <store-root>/Latest when --store-root is given.
+  --store-root DIR    The store folder (holding Latest and Snapshot_<date>),
+                      when the origin is not inside it.
   --seven-zip PATH    Explicit 7z/7za binary (else auto-probed; needed only when
                       the backup has compressed rows).
   --pick-target      Choose the target folder in a graphical file dialog when
@@ -1152,7 +1183,7 @@ EOF
 # Main
 # ---------------------------------------------------------------------------
 main() {
-    local from='' backup_root='' change_root='' seven_zip_opt=''
+    local from='' store_root='' backup_root='' change_root='' seven_zip_opt=''
     local pick_target=0
     TARGET_ROOT=''
     while [[ $# -gt 0 ]]; do
@@ -1160,8 +1191,7 @@ main() {
             --pick-target) pick_target=1; shift ;;
             --target-root) TARGET_ROOT="${2:?--target-root needs a value}"; shift 2 ;;
             --from)        from="${2:?--from needs a value}"; shift 2 ;;
-            --backup-root) backup_root="${2:?--backup-root needs a value}"; shift 2 ;;
-            --change-root) change_root="${2:?--change-root needs a value}"; shift 2 ;;
+            --store-root)  store_root="${2:?--store-root needs a value}"; shift 2 ;;
             --seven-zip)   seven_zip_opt="${2:?--seven-zip needs a value}"; shift 2 ;;
             -h|--help)     usage; exit 0 ;;
             *) usage; die "unknown argument: $1" ;;
@@ -1202,10 +1232,15 @@ main() {
         find_seven_zip || true
     fi
 
-    # --- Resolve the restore origin and the backup/change roots ---
+    # --- Resolve the restore origin and the store (kit revision 15) ---
+    # One store folder per backup set: <store>/Latest is the latest state and
+    # every Snapshot_<date> sits beside it, so the store is the origin's
+    # parent. Nothing is guessed and no path is recorded; any other origin is
+    # refused (2) unless --store-root names the store (Reconstruct.ps1's
+    # -StoreRootOverride is the twin).
     local origin
     if [[ -n "$from" ]]; then origin="$from"
-    elif [[ -n "$backup_root" ]]; then origin="$backup_root"
+    elif [[ -n "$store_root" ]]; then origin="$store_root/$LATEST_NAME"
     else origin="$PWD"; fi
     [[ -d "$origin" ]] || die "restore origin '$origin' is not a directory (pass --from)."
     origin="$(canon "$origin")" || die "cannot canonicalise restore origin '$origin' on this host. Pass an absolute path containing no '..'."
@@ -1214,89 +1249,19 @@ main() {
     origin_name="$(basename -- "$origin")"
     [[ "$origin_name" =~ $SNAPSHOT_RE ]] && is_snapshot=1
 
-    # Auto-detected roots (mirror Reconstruct.ps1's folder-name logic).
-    local auto_backup auto_change=''
-    if (( is_snapshot )); then
-        auto_change="$(dirname -- "$origin")"
-        auto_backup="$(dirname -- "$auto_change")"
-        # The one-mount layout (bounded-run-loop R8) keeps the backup root
-        # BESIDE the change root (<store>/backup, <store>/changes), not above
-        # it. When the parent holds no manifest, the one sibling that does is
-        # the backup root (Reconstruct.ps1 applies the same rule).
-        if [[ ! -f "$auto_backup/$MANIFEST_NAME" ]]; then
-            local sib found='' n=0 dotglob_was
-            # A folder may be dot-named ('.backup'); the glob must see it.
-            dotglob_was="$(shopt -p dotglob)"; shopt -s dotglob
-            for sib in "$auto_backup"/*/; do
-                sib="${sib%/}"
-                [[ "$(basename -- "$sib")" == "$(basename -- "$auto_change")" ]] && continue
-                [[ -f "$sib/$MANIFEST_NAME" ]] || continue
-                found="$sib"; n=$((n + 1))
-            done
-            eval "$dotglob_was"
-            (( n == 1 )) && auto_backup="$found"
-        fi
+    if [[ -n "$store_root" ]]; then
+        store_root="$(canon "$store_root")" || die "cannot canonicalise store root '$store_root' on this host."
+    elif (( is_snapshot )) || [[ "$origin_name" == "$LATEST_NAME" ]]; then
+        store_root="$(dirname -- "$origin")"
     else
-        auto_backup="$origin"
-        # A latest-state restore needs the snapshots only for a row whose
-        # object still sits in one (a move back that failed, plan C19). With no
-        # change root given, the one folder inside or beside the backup root
-        # that holds Snapshot_* folders is it (Reconstruct.ps1 applies the same
-        # rule). Every restored file is verified, so a wrong guess can supply
-        # no wrong bytes.
-        local cand sub chg_found='' chg_n=0 dotglob_was
-        # A change folder may be dot-named ('.changes'); the glob must see it.
-        dotglob_was="$(shopt -p dotglob)"; shopt -s dotglob
-        for cand in "$origin"/*/ "$(dirname -- "$origin")"/*/; do
-            cand="${cand%/}"
-            [[ -d "$cand" && "$cand" != "$origin" ]] || continue
-            for sub in "$cand"/*/; do
-                if [[ "$(basename -- "${sub%/}")" =~ $SNAPSHOT_RE ]]; then chg_found="$cand"; chg_n=$((chg_n + 1)); break; fi
-            done
-        done
-        eval "$dotglob_was"
-        (( chg_n == 1 )) && auto_change="$chg_found"
+        die "the restore origin '$origin' is neither a store's $LATEST_NAME folder nor one of its Snapshot_<date> folders. A store written before kit revision 15 restores with the kit inside it; otherwise pass --store-root <the store folder>."
     fi
-
-    # A path sidecar (written for the Windows kit) only applies on Linux if its
-    # paths actually resolve here — Windows paths won't, so they are ignored. The
-    # plan pins overrides + auto-detection as the real Linux path.
-    local side_backup='' side_change=''
-    if [[ -f "$origin/$SIDECAR_NAME" ]]; then
-        side_backup="$(sed -n 's/.*"BackupRoot"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' "$origin/$SIDECAR_NAME" | head -n1)"
-        side_change="$(sed -n 's/.*"ChangeRoot"[[:space:]]*:[[:space:]]*"\(.*\)".*/\1/p' "$origin/$SIDECAR_NAME" | head -n1)"
-        side_backup="${side_backup//\\\\//}"; side_change="${side_change//\\\\//}"
-    fi
-
-    # Precedence: explicit flag > sidecar > auto-detection — and the sidecar
-    # only applies while this ORIGIN still lives inside the roots it records.
-    # For a store copied or moved, the recorded roots may still exist (the
-    # original store on the same machine) and would silently point the restore
-    # at the ORIGINAL instead of this copy. Reconstruct.ps1 applies the same
-    # containment rule.
-    # An UNCANONICALISABLE sidecar root must not be treated as containing the
-    # origin: with canon() now able to fail, an empty expansion would leave the
-    # pattern "/*", which matches every absolute path and would honour a stale
-    # sidecar for a store that has been copied away from it.
-    local side_ok=0 origin_canon side_canon
-    origin_canon="$(canon "$origin")" || die "cannot canonicalise restore origin '$origin' on this host."
-    if [[ -n "$side_backup" && -d "$side_backup" ]] && side_canon="$(canon "$side_backup")"; then
-        case "$origin_canon/" in "$side_canon"/*) side_ok=1 ;; esac
-    fi
-    if (( ! side_ok )) && [[ -n "$side_change" && -d "$side_change" ]] && side_canon="$(canon "$side_change")"; then
-        case "$origin_canon/" in "$side_canon"/*) side_ok=1 ;; esac
-    fi
-
-    if   [[ -n "$backup_root" ]]; then backup_root="$(canon "$backup_root")" || die "cannot canonicalise backup root '$backup_root' on this host."
-    elif (( side_ok )) && [[ -n "$side_backup" && -d "$side_backup" ]]; then backup_root="$(canon "$side_backup")" || die "cannot canonicalise backup root '$side_backup' on this host."
-    else backup_root="$auto_backup"; fi
-
-    if   [[ -n "$change_root" ]]; then change_root="$(canon "$change_root")" || die "cannot canonicalise change root '$change_root' on this host."
-    elif (( side_ok )) && [[ -n "$side_change" && -d "$side_change" ]]; then change_root="$(canon "$side_change")" || die "cannot canonicalise change root '$side_change' on this host."
-    else change_root="$auto_change"; fi
+    backup_root="$store_root/$LATEST_NAME"
+    change_root="$store_root"
+    LATEST_FOLDER="$backup_root"
 
     local authority="$origin/$MANIFEST_NAME"
-    [[ -f "$authority" ]] || die "no $MANIFEST_NAME in origin '$origin'. Point --from at a backup root or a Snapshot_<date> folder."
+    [[ -f "$authority" ]] || die "no $MANIFEST_NAME in origin '$origin'. Point --from at a store's $LATEST_NAME folder or a Snapshot_<date> folder."
 
     # A non-empty but unparseable manifest must fail loudly, not silently restore
     # an empty tree (a scripted caller checks only the exit code). Validate the
@@ -1309,22 +1274,22 @@ main() {
         die "'$authority' is not a FileBackup manifest (unexpected header). Corrupt or wrong file."
     fi
 
-    # --- Safety: refuse a target inside the backup or change root (SR-009) ---
+    # --- Safety: refuse a target inside the store (SR-009) ---
     # Tri-state: refuse unless the target is PROVABLY outside. An
     # indeterminate answer (a path this host cannot canonicalise) is a
     # precondition failure, never a pass — that is the polarity SR-009 needs.
     local inside_rc
-    is_inside "$TARGET_ROOT" "$backup_root"; inside_rc=$?
-    if (( inside_rc == 0 )); then die "target '$TARGET_ROOT' is inside the backup root '$backup_root'."; fi
+    is_inside "$TARGET_ROOT" "$store_root"; inside_rc=$?
+    if (( inside_rc == 0 )); then die "target '$TARGET_ROOT' is inside the store '$store_root'."; fi
     if (( inside_rc == 2 )); then
-        die "cannot safely canonicalise '$TARGET_ROOT' or '$backup_root' on this host, so the target cannot be proven outside the backup. Pass an absolute target path containing no '..'."
+        die "cannot safely canonicalise '$TARGET_ROOT' or '$store_root' on this host, so the target cannot be proven outside the store. Pass an absolute target path containing no '..'."
     fi
-    if [[ -n "$change_root" && -d "$change_root" ]]; then
-        is_inside "$TARGET_ROOT" "$change_root"; inside_rc=$?
-        if (( inside_rc == 0 )); then die "target '$TARGET_ROOT' is inside the change root '$change_root'."; fi
-        if (( inside_rc == 2 )); then
-            die "cannot safely canonicalise '$TARGET_ROOT' or '$change_root' on this host, so the target cannot be proven outside the change root. Pass an absolute target path containing no '..'."
-        fi
+    # With --store-root the origin may lie outside the store it restores; a
+    # target inside it would write into a backup all the same.
+    is_inside "$TARGET_ROOT" "$origin"; inside_rc=$?
+    if (( inside_rc == 0 )); then die "target '$TARGET_ROOT' is inside the restore origin '$origin'."; fi
+    if (( inside_rc == 2 )); then
+        die "cannot safely canonicalise '$TARGET_ROOT' or '$origin' on this host, so the target cannot be proven outside the origin. Pass an absolute target path containing no '..'."
     fi
 
     # No MANIFEST.csv.meta witness is read (kit revision 14, bounded-run-loop
@@ -1337,7 +1302,7 @@ main() {
     SCRATCH_DIR="$TARGET_ROOT"
     LOG_PATH="$TARGET_ROOT/$LOG_NAME"
     : >"$LOG_PATH" 2>/dev/null || true
-    log "Reconstruction starting (origin=$origin, snapshot=$is_snapshot, backupRoot=$backup_root, changeRoot=${change_root:-<none>})"
+    log "Reconstruction starting (origin=$origin, snapshot=$is_snapshot, store=$store_root)"
 
     # --- Read the authoritative manifest into parallel arrays ---
     # A manifest torn by a power loss reads as NULs from some byte on. Only the
@@ -1525,7 +1490,16 @@ main() {
         # still carries the row's (hash, length), which is what the index
         # looks up.
         own=''
-        [[ -n "${d_data[i]}" ]] && own="$origin/$(to_posix "${d_data[i]}")"
+        if [[ -n "${d_data[i]}" ]]; then
+            # In the latest state the object sits in its shard folder (L8).
+            if [[ "$origin" == "$LATEST_FOLDER" ]]; then
+                local own_name="${d_data[i]}" own_shard
+                own_shard="${own_name:0:2}"; own_shard="${own_shard,,}"
+                own="$origin/$own_shard/$own_name"
+            else
+                own="$origin/$(to_posix "${d_data[i]}")"
+            fi
+        fi
         if [[ -n "$own" && -f "$own" ]]; then
             src="$own"
         elif [[ -z "${d_hash[i]}" || ! "${d_len[i]}" =~ ^[0-9]+$ ]]; then

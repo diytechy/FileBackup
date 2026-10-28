@@ -3,8 +3,9 @@
 # MANIFEST.csv.meta witness. A witness that is present, stale, garbage, from the
 # future, from a pre-WP12 store, or absent changes nothing: there is no exit 3,
 # no 'unverified index' warning and no --require-witness. Until revision 13
-# this file (TC-069) pinned the opposite; the witness WRITER's own contract
-# (SR-038) still holds for the shipped fixtures and is kept at the end.
+# this file (TC-069) pinned the opposite. The engine no longer WRITES one
+# either (R5): the last case pins that on the shipped fixtures, and setup()
+# stamps a witness by hand so the "present" cases still have one to ignore.
 #
 # What still refuses: a file that is not a manifest at all (the header guard,
 # exit 2), and the SR-061 name-grammar markers (name_grammar.bats,
@@ -14,10 +15,12 @@ setup() {
     load helpers
     # Work on a WRITABLE copy so we can damage the witness and the manifest.
     WORK="$BATS_TEST_TMPDIR/work"
-    cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$WORK"
-    BK="$WORK"; CH="$WORK/changes"
+    cp -r "$(store_for HashAddressed)" "$WORK"
+    BK="$WORK/Latest"
     MANIFEST="$BK/MANIFEST.csv"
     WITNESS="$BK/MANIFEST.csv.meta"
+    # The shape an older engine left: a witness that agrees with its manifest.
+    restamp_witness "$MANIFEST"
     EXPECTED="$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
 }
 
@@ -32,7 +35,7 @@ restored_count() {
 # restore_ok <target> : restore the root and require exit 0, byte-exact, and no
 # word about a witness anywhere in the output.
 restore_ok() {
-    run bash "$RS" --target-root "$1" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$1" --from "$BK"
     [ "$status" -eq 0 ] || { echo "expected 0, got $status"; echo "$output"; return 1; }
     [[ "$output" != *[Ww]itness* ]] || { echo "the witness was consulted:"; echo "$output"; return 1; }
     run verify_tree "$1" "$EXPECTED"
@@ -68,8 +71,7 @@ restore_ok() {
 }
 
 @test "--require-witness is gone: it is an unknown argument, usage and exit 2 (kit revision 14)" {
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/strict" --from "$BK" --backup-root "$BK" \
-        --change-root "$CH" --require-witness
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/strict" --from "$BK" --require-witness
     [ "$status" -eq 2 ]
     [[ "$output" == *"unknown argument: --require-witness"* ]]
     [ "$(restored_count "$BATS_TEST_TMPDIR/strict")" -eq 0 ]
@@ -85,26 +87,22 @@ restore_ok() {
     # The header-shape check stays: an unrecognizable header means this is not
     # a manifest at all (fail_loudly.bats pins the same code).
     printf 'this is not a backup manifest at all\n' > "$MANIFEST"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/garbage" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/garbage" --from "$BK"
     [ "$status" -eq 2 ]
     [[ "$output" == *"not a FileBackup manifest"* ]]
     [ "$(restored_count "$BATS_TEST_TMPDIR/garbage")" -eq 0 ]
 }
 
-@test "each SNAPSHOT carries its OWN witness, not the backup root's (SR-038, writer side)" {
-    # The writer's contract, checked on fixtures the real engine produced. The
-    # kit no longer reads these, but an OLDER kit bundled in an old snapshot
-    # still does (bounded-run-loop section 7), so they must stay correct.
-    local snap
-    for snap in "$CH"/Snapshot_*; do
-        [ -f "$snap/MANIFEST.csv.meta" ]
-        local want got
-        want="$(grep -m1 '^XxH128=' "$snap/MANIFEST.csv.meta" | cut -d= -f2 | tr -d '\r')"
-        got="$(xxh128sum -- "$snap/MANIFEST.csv" | awk '{print $1}' | tr 'a-f' 'A-F')"
-        [ "$want" = "$got" ]
-        # ...and it is NOT the backup root's digest.
-        local root_digest
-        root_digest="$(xxh128sum -- "$MANIFEST" | awk '{print $1}' | tr 'a-f' 'A-F')"
-        [ "$want" != "$root_digest" ]
+@test "the engine writes no witness into any state folder (R5, writer side; replaces the SR-038 per-snapshot witness pin)" {
+    # Until the bounded run loop each state folder carried its own
+    # MANIFEST.csv.meta, and this case pinned that a snapshot's witness was
+    # its own and not the backup root's. The engine stopped writing them (R5);
+    # the fixtures, regenerated from the real engine, prove it. An OLDER kit
+    # bundled in an old snapshot still reads one, but only in an old store.
+    local mode store
+    for mode in "${MODES[@]}"; do
+        store="$(store_for "$mode")"
+        [ -f "$store/Latest/MANIFEST.csv" ]
+        [ -z "$(find "$store" -name 'MANIFEST.csv.meta*')" ] || { echo "$mode:"; find "$store" -name 'MANIFEST.csv.meta*'; false; }
     done
 }

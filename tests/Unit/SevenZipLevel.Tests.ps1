@@ -117,7 +117,7 @@ Compress-FileWithSevenZip -SevenZipPath $Fake -SourceFile $Source -Destination7z
         # and no JSON schema surface is involved in this case at all.
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg, [bool]$Compress)
         $set = [pscustomobject]@{
-            Name = 'S'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+            Name = 'S'; SourcePath = $Src; StorePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
@@ -143,7 +143,8 @@ Compress-FileWithSevenZip -SevenZipPath $Fake -SourceFile $Source -Destination7z
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('hello ' * 200))
         $paths = @{
             Src = $src
-            Bkp = Join-Path $Root 'bkp'
+            # One store folder (plan C44): Chg is the store, Bkp its Latest.
+            Bkp = Join-Path $Root 'chg\Latest'
             Chg = Join-Path $Root 'chg'
             Cfg = Join-Path $Root 'config.xml'
             Log = Join-Path $Root 'Backup_Global.log'

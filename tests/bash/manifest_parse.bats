@@ -72,21 +72,23 @@ write_csv() { { printf '%s\r\n' "$HDR"; for r in "$@"; do printf '%s\r\n' "$r"; 
 }
 
 @test "parses the real committed fixture manifests without error (TC-056, SR-032)" {
-    # Checked against the WITNESS's own Rows= line, not a hard-coded number.
-    # The witness is stamped by the PowerShell engine, so this asserts the bash
-    # parser and the engine agree on how many rows the manifest holds - a real
-    # cross-implementation check, and one that does not go stale every time the
-    # fixture timeline gains a file. It went stale exactly that way when WP12
-    # added the SR-070 extension shapes.
-    local m rows want
+    # Checked against the PowerShell side's own count, not a hard-coded number:
+    # expected/<origin>.tsv holds one line per row Import-Csv read from that
+    # manifest (scripts/gen_bash_fixtures.ps1), so this asserts the bash parser
+    # and the engine agree on how many rows each manifest holds - a real
+    # cross-implementation check that does not go stale when the fixture
+    # timeline gains a file. (It read the witness's Rows= line until the
+    # engine stopped writing MANIFEST.csv.meta, bounded-run-loop R5.)
+    local m tsv name origin rows want
     for m in "${MODES[@]}"; do
-        rows="$(parse_manifest "$FIXTURES/bash-restore/$m/backup/MANIFEST.csv" | wc -l)"
-        # Read here rather than through the kit: kit revision 14 carries no
-        # witness reader (the sidecar is still written by the engine).
-        want="$(grep -m1 '^Rows=' "$FIXTURES/bash-restore/$m/backup/MANIFEST.csv.meta" | cut -d= -f2 | tr -d '\r')"
-        [[ "$want" =~ ^[0-9]+$ ]] || { echo "no Rows= in the $m witness"; false; }
-        [ "$rows" -ge 10 ] || { echo "$m: only $rows rows parsed"; false; }
-        [ "$rows" -eq "$want" ] || { echo "$m: bash parsed $rows rows, engine recorded $want"; false; }
+        for tsv in "$FIXTURES/bash-restore/$m"/expected/*.tsv; do
+            name="$(basename "$tsv" .tsv)"
+            origin="$(origin_for "$m" "$name")"
+            rows="$(parse_manifest "$origin/MANIFEST.csv" | wc -l)"
+            want="$(grep -c . "$tsv")"
+            [ "$rows" -ge 8 ] || { echo "$m/$name: only $rows rows parsed"; false; }
+            [ "$rows" -eq "$want" ] || { echo "$m/$name: bash parsed $rows rows, PowerShell read $want"; false; }
+        done
     done
 }
 

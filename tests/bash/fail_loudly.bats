@@ -7,12 +7,12 @@ setup() {
     load helpers
     # Work on a WRITABLE copy so we can destroy data sources.
     WORK="$BATS_TEST_TMPDIR/work"
-    cp -r "$FIXTURES/bash-restore/HashAddressed/backup" "$WORK"
-    BK="$WORK"; CH="$WORK/changes"
+    cp -r "$(store_for HashAddressed)" "$WORK"
+    BK="$WORK/Latest"; CH="$WORK"
 }
 
 @test "a clean (untampered) restore exits 0 (TC-055, SR-031)" {
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/clean" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/clean" --from "$BK"
     [ "$status" -eq 0 ]
 }
 
@@ -20,7 +20,7 @@ setup() {
     # Destroy one non-blank-DataPath row's source — resolved by CONTENT, since
     # pool objects are hash-named (WP9 step 5).
     rm -f -- "$(pool_file_by_hash "$BK" "$(expected_hash HashAddressed 'hello.txt')")"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tampered" --from "$BK" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tampered" --from "$BK"
     [ "$status" -eq 1 ]
     [[ "$output" == *"INCOMPLETE"* ]]
     [[ "$output" == *"1 file"* ]]
@@ -33,12 +33,12 @@ setup() {
 }
 
 @test "hash-unrecoverable: a blank-DataPath row whose only pool copy is gone exits non-zero (TC-055, SR-031)" {
-    # In Snapshot_T1, recur.txt is a blank-DataPath row recovered by hash from the
-    # backup-root copy. Destroy that sole copy -> unrecoverable -> loud failure,
+    # In Snapshot_T1, recur.txt is a row whose bytes live only in Latest (its
+    # object moved there when it was re-added). Destroy that sole copy -> unrecoverable -> loud failure,
     # while the snapshot's own superseded rows (hello.txt, data.bin) still restore.
     rm -f -- "$(pool_file_by_hash "$BK" "$(expected_hash HashAddressed 'recur.txt')")"
     local snap="$CH/Snapshot_2024_01_01_09_00_00"
-    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/hu" --from "$snap" --backup-root "$BK" --change-root "$CH"
+    run bash "$RS" --target-root "$BATS_TEST_TMPDIR/hu" --from "$snap"
     [ "$status" -eq 1 ]
     [[ "$output" == *"INCOMPLETE"* ]]
     [ ! -f "$BATS_TEST_TMPDIR/hu/recur.txt" ]
@@ -50,7 +50,7 @@ setup() {
     # A foreign/tampered manifest whose row escapes the target must NOT write
     # outside it and must fail loudly (defense in depth; the PS restorer shares
     # this gap and is left for the human per the plan).
-    local bad="$BATS_TEST_TMPDIR/bad"
+    local bad="$BATS_TEST_TMPDIR/bad/Latest"
     mkdir -p "$bad"
     printf 'x\n' > "$bad/payload.txt"
     local h len
@@ -67,7 +67,7 @@ setup() {
 }
 
 @test "a corrupt (non-manifest) MANIFEST.csv fails loudly, not an empty exit-0 restore (SR-031)" {
-    local bad="$BATS_TEST_TMPDIR/corrupt"
+    local bad="$BATS_TEST_TMPDIR/corrupt/Latest"
     mkdir -p "$bad"
     printf 'this is not a backup manifest at all\n' > "$bad/MANIFEST.csv"
     printf 'realdata\n' > "$bad/somefile.bin"

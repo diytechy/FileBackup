@@ -60,7 +60,8 @@ function Get-PoolByteVerifiedHashes {
 }
 
 function Get-PoolFolderList {
-    # The audit pool: the backup root plus every Snapshot_* sibling.
+    # The audit pool: the backup root (the store's Latest) plus every
+    # Snapshot_* in the change root (the store itself, plan C44).
     param([string]$BackupRoot, [string]$ChangeRoot)
     $folders = New-Object System.Collections.Generic.List[string]
     $folders.Add($BackupRoot)
@@ -116,36 +117,48 @@ function Get-PoolContentCopyCount {
 function Get-HashNameGrammarViolations {
     <#
     .SYNOPSIS
-        TC-123 (SR-058): every non-infrastructure file at the backup root must
-        carry the content-addressed name grammar "<hash16> <len10><ext>" —
-        16 alphabet glyphs, one space, 10 alphabet glyphs, then the extension —
-        and pool objects are flat at the root, never nested.
+        TC-123 (SR-058): every non-infrastructure file in the backup root (the
+        store's Latest folder) must carry the content-addressed name grammar
+        "<hash16> <len10><ext>" and sit in its own shard folder,
+        Latest/<first two characters lowercased>/<name> (plan C44, L8) - never
+        at Latest's top level, never in another name's folder, never deeper.
 
     .DESCRIPTION
         The work-order §3.1 compensating control for the deleted SR-022
         copy-branch refusal: a grammar name can never spell a root-level
-        infrastructure name, so proving the grammar at the root proves that
-        collision class stays dead. Assumes ChangePath lies OUTSIDE the backup
-        root (the harness default) — snapshot folders are not walked here.
+        infrastructure name, and an object never sits at the root at all.
+        Snapshot folders sit beside Latest, not inside it, so they are not
+        walked here.
     #>
     param([string]$BackupRoot)
     $skip = '^(MANIFEST|RECONSTRUCT|DIRECTORIES|FileBackup\.Common|System\.IO\.Hashing|FileBackupState)'
+    $shardPattern = (Get-FileBackupDefaults).ShardFolderPattern
     $violations = @()
     $root = (Resolve-Path -LiteralPath $BackupRoot).Path.TrimEnd('\', '/')
     foreach ($f in @(Get-ChildItem -LiteralPath $BackupRoot -File -Recurse -Force)) {
         # Trim BOTH sides: at a bare drive root (the subst harness),
         # GetDirectoryName returns 'X:\' while the resolved root trims to 'X:'.
-        $isRootLevel = (([IO.Path]::GetDirectoryName($f.FullName)).TrimEnd('\', '/') -eq $root)
+        $dir = ([IO.Path]::GetDirectoryName($f.FullName)).TrimEnd('\', '/')
+        $isRootLevel = ($dir -eq $root)
         if ($isRootLevel -and $f.Name -match $skip) { continue }
-        if (-not $isRootLevel) {
-            $violations += "'$($f.FullName)': pool objects are flat at the backup root; nothing may nest below it"
+        if ($isRootLevel) {
+            $violations += "'$($f.FullName)': a pool object at the backup root's top level; objects live in their shard folder (plan C44)"
+            continue
+        }
+        $shard = [IO.Path]::GetFileName($dir)
+        if (([IO.Path]::GetDirectoryName($dir)).TrimEnd('\', '/') -ne $root -or $shard -cnotmatch $shardPattern) {
+            $violations += "'$($f.FullName)': pool objects sit exactly one shard folder below the backup root; nothing else may nest"
             continue
         }
         $name = $f.Name
         # ONE parser, never a hand-rolled slice or a split on the separator: the
         # extension is opaque and may itself contain the separator (SR-069).
         if (-not (ConvertFrom-HashSizeFileName -Name $name)) {
-            $violations += "'$name' at the backup root does not match the content-addressed name grammar"
+            $violations += "'$name' in the backup root does not match the content-addressed name grammar"
+            continue
+        }
+        if ((Get-StoredObjectShard -Name $name) -cne $shard) {
+            $violations += "'$name' sits in shard folder '$shard', not in its own '$(Get-StoredObjectShard -Name $name)'"
         }
     }
     return $violations
@@ -183,7 +196,8 @@ function Get-ClaimedRowViolations {
         foreach ($row in @(Import-Csv -LiteralPath $manifest)) {
             if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
             if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
-            $full = Join-Path $folder $row.DataPath
+            # The latest state keeps its objects in shard folders (plan C44, L8).
+            $full = Get-StoredObjectPath -Folder $folder -Name $row.DataPath -Sharded:($folder -eq $BackupRoot)
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
                 # A DataPath goes stale when its object moves to another folder of
                 # the pool (bounded-run-loop plan R6: snapshots are write-once, and

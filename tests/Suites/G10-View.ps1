@@ -2,10 +2,8 @@
 .SYNOPSIS  G10 - the browse view over a real timeline (SR-062; TC-129, TC-130,
            TC-131, TC-133 integration arms; the unit battery is
            tests/Unit/View.Tests.ps1).
-.NOTES     The subst env's BkpPath is a bare drive root, and a view must lie
-           OUTSIDE the backup root on the SAME volume - impossible when the
-           root owns the whole drive. So this suite nests its roots one level
-           down (X:\bkp etc.), which is also the realistic deployment shape.
+.NOTES     The suite uses a store of its own one level down, so the view is at
+           its default, <store>\View (plan C44, L3).
 #>
 function Invoke-G10 {
     param([pscustomobject]$Env, [string]$BackupScript, [string]$Mode, [bool]$Compress)
@@ -14,9 +12,9 @@ function Invoke-G10 {
 
     Reset-TestEnvironment $Env
     $S   = Join-Path $Env.SrcPath 'src'
-    $bkp = Join-Path $Env.BkpPath 'bkp'
-    $chg = Join-Path $Env.ChgPath 'chg'
-    $view = "$bkp" + '_View'
+    $chg = Join-Path $Env.ChgPath 'g10'
+    $bkp = Join-Path $chg 'Latest'
+    $view = Join-Path $chg 'View'
     New-Item -ItemType Directory -Path $S -Force | Out-Null
     $cfg = Join-Path $Env.Root 'cfg-g10.xml'
     Write-TestConfig $cfg $S $bkp $chg $Compress -BrowseView 'index'

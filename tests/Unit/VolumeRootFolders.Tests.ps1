@@ -177,7 +177,8 @@ Describe 'The directory sidecar at a REAL volume root (SR-074, SR-065, review 20
         @($rows | Where-Object { $_ -like '$RECYCLE.BIN*' -or $_ -like 'System Volume Information*' }) |
             Should -BeNullOrEmpty -Because 'they are the volume''s, not the user''s'
         $rows | Should -Contain 'empty'
-        $rows | Should -Contain 'docs\System Volume Information' -Because 'a NESTED folder of that name is user data'
+        # '/'-separated on every host (plan C44, L7).
+        $rows | Should -Contain 'docs/System Volume Information' -Because 'a NESTED folder of that name is user data'
     }
 
     It 'still records a folder of that name at an ORDINARY root (SR-074 T2)' {
@@ -214,26 +215,31 @@ Describe 'A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040
     AfterAll { Remove-SubstVolume -Drive $script:drive2 }
 
     It 'reports ContentMissing (1), not StorageUnreadable (4), when the bytes really are gone' {
+        # Since kit revision 15 (plan C44) a restorer runs from a store's Latest
+        # folder, so a store at a volume root is 'X:\' with 'X:\Latest' and its
+        # snapshots below it, and the volume's own pseudo-folders sit beside
+        # them, at the store's top. The restore must still classify honestly:
+        # an unreadable 'System Volume Information' there is no host problem.
         if (-not $script:drive2) { Set-ItResult -Skipped -Because 'no free drive letter for subst'; return }
         $src = Join-Path $TestDrive 'cls-src'
         $chg = Join-Path $TestDrive 'cls-chg'
-        $made = Join-Path $TestDrive 'cls-bkp'
-        $bkp = "$($script:drive2)\"
+        $made = $chg
+        $store = "$($script:drive2)\"
+        $bkp = Join-Path $store 'Latest'
         New-Item -ItemType Directory -Path $src, $chg -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'ALPHA-CONTENT' -NoNewline
         Set-Content -LiteralPath (Join-Path $src 'b.txt') -Value ('BETA-' * 500) -NoNewline
 
         $cfg = Join-Path $TestDrive 'cls-cfg.xml'
-        # The backup is made beside its change root (a backup and change root on
-        # different volumes are refused, plan R8), then the finished store is
-        # copied to the volume root - the restorer is what this test is about.
+        # The store is made in an ordinary folder, then copied whole to the
+        # volume root - the restorer is what this test is about.
         $set = [pscustomobject]@{
-            Name = 'S'; SourcePath = $src; BackupPath = $made; ChangePath = $chg
+            Name = 'S'; SourcePath = $src; StorePath = $chg
             HashRecalcFreq = 'A'; CompressEnabled = $false
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
         & (Join-Path $repo 'FileBackup.ps1') -ConfigPath $cfg -NoMail -NonInteractive *>&1 | Out-Null
-        Get-ChildItem -LiteralPath $made -Force | Copy-Item -Destination $bkp -Recurse -Force
+        Get-ChildItem -LiteralPath $made -Force | Copy-Item -Destination $store -Recurse -Force
         Test-Path -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Should -BeTrue
 
         # Force the pool scan AND make it fail: blank the row's DataPath so the
@@ -243,12 +249,12 @@ Describe 'A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040
         # only keeps the edited store self-consistent.)
         $rows = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv'))
         $victim = $rows | Where-Object RelativePath -eq 'a.txt'
-        Remove-Item -LiteralPath (Join-Path $bkp $victim.DataPath) -Force
+        Remove-Item -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $victim.DataPath -Sharded) -Force
         $victim.DataPath = ''
         $rows | Export-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') -NoTypeInformation
         Write-ManifestWitness -FolderPath $bkp | Out-Null
 
-        $svi = Join-Path $bkp 'System Volume Information'
+        $svi = Join-Path $store 'System Volume Information'
         New-Item -ItemType Directory -Path $svi -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $svi 'tracking.log') -Value 'volume noise' -NoNewline
         icacls $svi /deny "${env:USERNAME}:(OI)(CI)(R)" | Out-Null

@@ -14,7 +14,7 @@ BeforeAll {
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg,
               [bool]$Compress = $false, [string]$BrowseView = 'index', [string]$ViewPath = '')
         $set = [ordered]@{
-            Name = 'V'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+            Name = 'V'; SourcePath = $Src; StorePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress; BrowseView = $BrowseView
         }
         if ($ViewPath) { $set['ViewPath'] = $ViewPath }
@@ -35,7 +35,7 @@ BeforeAll {
             already-compressed extension (a mixed tree under +Compress).
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub\deep') -Force | Out-Null
         New-ViewConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
@@ -44,7 +44,8 @@ BeforeAll {
         [IO.File]::WriteAllText((Join-Path $src 'sub\deep\note.txt'), 'DEEP NOTE')
         [IO.File]::WriteAllText((Join-Path $src 'pic.jpg'), 'pretend-jpeg')
         Invoke-VB $cfg
-        return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; View = ($bkp + '_View') }
+        # The default view: <StorePath>/View (plan C44, L3).
+        return [pscustomobject]@{ Src = $src; Bkp = $bkp; Chg = $chg; Cfg = $cfg; View = (Join-Path $chg 'View') }
     }
 
     function Get-PagePoolLink {
@@ -86,10 +87,10 @@ Describe 'The view mirrors the manifest exactly (SR-062, TC-129)' {
         $rootLinks = @(Get-PagePoolLink -PagePath (Join-Path $t.View 'INDEX.html') | Where-Object { $_ -notmatch 'INDEX\.tsv$' })
         $subLinks  = @(Get-PagePoolLink -PagePath (Join-Path $t.View 'sub\INDEX.html'))
         $aRow    = @($manifestRows | Where-Object RelativePath -eq 'a.bin')[0]
-        $pairRow = @($manifestRows | Where-Object RelativePath -eq 'sub\pair.bin')[0]
+        $pairRow = @($manifestRows | Where-Object RelativePath -eq 'sub/pair.bin')[0]
         $pairRow.DataPath | Should -Be $aRow.DataPath
-        $rootLinks | Should -Contain ([IO.Path]::GetFullPath((Join-Path $t.Bkp $aRow.DataPath)))
-        $subLinks  | Should -Contain ([IO.Path]::GetFullPath((Join-Path $t.Bkp $pairRow.DataPath)))
+        $rootLinks | Should -Contain ([IO.Path]::GetFullPath((Get-StoredObjectPath -Folder $t.Bkp -Name $aRow.DataPath -Sharded)))
+        $subLinks  | Should -Contain ([IO.Path]::GetFullPath((Get-StoredObjectPath -Folder $t.Bkp -Name $pairRow.DataPath -Sharded)))
 
         # EVERY pool link on every page resolves to a real file.
         foreach ($page in @(Get-ChildItem -LiteralPath $t.View -Recurse -Filter 'INDEX.html')) {
@@ -112,7 +113,7 @@ Describe 'The view mirrors the manifest exactly (SR-062, TC-129)' {
 
         # The root page embeds the search index below the threshold.
         $rootHtml | Should -Match 'id="q"'
-        $rootHtml | Should -Match 'sub\\\\pair\.bin'
+        $rootHtml | Should -Match 'sub/pair\.bin'
     }
 
     It 'prints the grep fallback instead of embedding search above the row threshold' {
@@ -171,18 +172,21 @@ Describe 'Freshness, idempotence, torn views (SR-062, TC-131)' {
 
     It 'refuses to overwrite a view root that holds a MANIFEST.csv (a STORE, not a view); the backup itself still succeeds' {
         $root = Join-Path $TestDrive 'v131b'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         $cfg = Join-Path $root 'c.xml'
-        New-Item -ItemType Directory -Path $src, ($bkp + '_View') -Force | Out-Null
-        [IO.File]::WriteAllText((Join-Path ($bkp + '_View') 'MANIFEST.csv'), 'looks like a store')
-        New-ViewConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        # Outside the store: a folder inside it that holds a MANIFEST.csv is
+        # refused before the run as an old-layout backup (plan C44, S2).
+        $impostor = Join-Path $root 'impostor-view'
+        New-Item -ItemType Directory -Path $src, $impostor -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $impostor 'MANIFEST.csv'), 'looks like a store')
+        New-ViewConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -ViewPath $impostor
         [IO.File]::WriteAllText((Join-Path $src 'f.txt'), 'DATA')
 
         # The backup completes (the view is cosmetic; failure is a WARNING)...
         (Invoke-VBExit -Cfg $cfg) | Should -Be 0
         (Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw) | Should -Match 'Browse view generation failed'
         # ...the impostor store is untouched...
-        (Get-Content -LiteralPath (Join-Path ($bkp + '_View') 'MANIFEST.csv') -Raw) | Should -Be 'looks like a store'
+        (Get-Content -LiteralPath (Join-Path $impostor 'MANIFEST.csv') -Raw) | Should -Be 'looks like a store'
         # ...and the loud path reports 2.
         (Invoke-VBExit -Cfg $cfg -Extra @('-Action', 'View')) | Should -Be 2
     }
@@ -267,7 +271,7 @@ Describe 'The view generator never deletes anything that is not a view (SR-062, 
         # store on 2026-08-25 must now fail the SET with everything still there.
         $root = Join-Path $TestDrive 'vguard-e2e'
         $store = Join-Path $root 'FB'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $store 'bkp'; $chg = Join-Path $store 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $store 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'PAYLOAD')
         $cfg = Join-Path $root 'c.xml'

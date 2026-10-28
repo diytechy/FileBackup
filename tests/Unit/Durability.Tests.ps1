@@ -42,8 +42,9 @@ BeforeAll {
         }
     }
 
+    # Kit revision 15 (plan C44, S3): six files, no RECONSTRUCT.paths.json.
     $script:kitFiles = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh',
-                         'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+                         'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
 }
 
 Describe 'Each file is on the disk before the rename that relies on it (review 2026-10-26 A1)' {
@@ -105,26 +106,27 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
     }
 
     It 'flushes each kit file it writes before its rename, and none of an unchanged kit (review 2026-10-26 A1)' {
-        $bkp = New-Folder 'kit\bkp'
         $chg = New-Folder 'kit\chg'
+        $bkp = New-Folder 'kit\chg\Latest'
         $seen = [System.Collections.Generic.List[object]]::new()
         Set-FileSyncHook ({
             param($p)
             $seen.Add([pscustomobject]@{ Path = $p; DestThere = (Test-Path -LiteralPath ($p -replace '\.tmp$', '')) })
         }.GetNewClosure())
-        New-ReconstructScript -BackupRoot $bkp -ChangeRoot $chg
+        New-ReconstructScript -BackupRoot $bkp
         @($seen | ForEach-Object { [IO.Path]::GetFileName($_.Path) } | Sort-Object) |
             Should -Be @($kitFiles | ForEach-Object { "$_.tmp" } | Sort-Object)
         @($seen | Where-Object DestThere).Count | Should -Be 0 -Because 'each temp file is flushed before it is renamed to its name'
+        Test-Path -LiteralPath (Join-Path $bkp 'RECONSTRUCT.paths.json') | Should -BeFalse -Because 'kit revision 15 writes no path sidecar'
         $seen.Clear()
-        New-ReconstructScript -BackupRoot $bkp -ChangeRoot $chg
+        New-ReconstructScript -BackupRoot $bkp
         $seen.Count | Should -Be 0 -Because 'an unchanged kit is not written at all'
     }
 
     It 'refreshes a snapshot kit through a flushed temp file, rewriting only what differs (review 2026-10-26 A1)' {
-        $bkp = New-Folder 'refresh\bkp'
         $chg = New-Folder 'refresh\chg'
-        New-ReconstructScript -BackupRoot $bkp -ChangeRoot $chg
+        $bkp = New-Folder 'refresh\chg\Latest'
+        New-ReconstructScript -BackupRoot $bkp
         $snap = New-Folder 'refresh\chg\Snapshot_2026_01_01_10_00_00'
         foreach ($f in $kitFiles) { Copy-Item -LiteralPath (Join-Path $bkp $f) -Destination $snap }
         $old = [datetime]::new(2020, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
@@ -151,9 +153,9 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
     }
 
     It 'flushes every file of Building_<D> before renaming it to Snapshot_<D> (review 2026-10-26 A1)' {
-        $bkp = New-Folder 'snap\bkp'
         $chg = New-Folder 'snap\chg'
-        New-ReconstructScript -BackupRoot $bkp -ChangeRoot $chg
+        $bkp = New-Folder 'snap\chg\Latest'
+        New-ReconstructScript -BackupRoot $bkp
         Set-Content -LiteralPath (Join-Path $bkp 'DIRECTORIES.csv') -Value '"RelativePath","Attributes"', '"empty",""'
         $final = Join-Path $chg 'Snapshot_2026_01_01_10_00_00'
         $seen = [System.Collections.Generic.List[object]]::new()
@@ -184,7 +186,7 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
         Copy-Item -LiteralPath $content -Destination (Join-Path $from $name)
         $item = [pscustomobject]@{
             SourceFullPath = (Join-Path $from $name); SourceDataPath = $name
-            DestinationFolder = $to; DestinationDataPath = $name; Compressed = 'No'
+            DestinationFolder = $to; DestinationDataPath = $name; DestinationFullPath = (Join-Path $to $name); Compressed = 'No'
             SourceRow = [pscustomobject]@{ RelativePath = 'c.txt'; Length = $len; xxH2Hash = $hash }
         }
         $dest = Join-Path $to $name
@@ -207,7 +209,8 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
         [IO.File]::WriteAllText($staged, 'NEW CONTENT, STORED RAW')
         $len  = (Get-Item -LiteralPath $staged).Length
         $hash = Get-FileXxHash -FilePath $staged
-        $dest = Join-Path $root (Get-HashSizeFileName -HashHex $hash -Length $len -Extension '.txt')
+        # In its shard folder of the latest state (plan C44, L8).
+        $dest = Get-StoredObjectPath -Folder $root -Name (Get-HashSizeFileName -HashHex $hash -Length $len -Extension '.txt') -Sharded
         $seen = [System.Collections.Generic.List[object]]::new()
         Set-FileSyncHook ({
             param($p)
@@ -233,7 +236,7 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
         [IO.File]::WriteAllText($staged, 'NEW CONTENT, STORED AS AN ARCHIVE ' * 20)
         $len  = (Get-Item -LiteralPath $staged).Length
         $hash = Get-FileXxHash -FilePath $staged
-        $dest = Join-Path $root (Get-HashSizeFileName -HashHex $hash -Length $len -Extension '.7z')
+        $dest = Get-StoredObjectPath -Folder $root -Name (Get-HashSizeFileName -HashHex $hash -Length $len -Extension '.7z') -Sharded
         $seen = [System.Collections.Generic.List[object]]::new()
         Set-FileSyncHook ({
             param($p)

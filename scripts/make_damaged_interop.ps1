@@ -27,19 +27,22 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
 
-$src = Join-Path $OutRoot 'bash-restore\HashAddressed\backup'
-if (-not (Test-Path -LiteralPath $src -PathType Container)) {
-    throw "Fresh HashAddressed backup not found at '$src' — run scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot $OutRoot first."
+# A whole store (plan C44): Latest, its objects in shard folders, and the
+# snapshots beside it. Each damaged copy is a store of its own.
+$src = Join-Path $OutRoot 'bash-restore\HashAddressed\store'
+$srcLatest = Join-Path $src 'Latest'
+if (-not (Test-Path -LiteralPath $srcLatest -PathType Container)) {
+    throw "Fresh HashAddressed store not found at '$src' — run scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot $OutRoot first."
 }
 $damageRoot = Join-Path $OutRoot 'damage'
 Remove-Item -LiteralPath $damageRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $damageRoot -Force | Out-Null
 
 # Pick a raw (Compressed=No) row whose DataPath resolves — the damage target.
-$rows = @(Import-Csv -LiteralPath (Join-Path $src 'MANIFEST.csv'))
+$rows = @(Import-Csv -LiteralPath (Join-Path $srcLatest 'MANIFEST.csv'))
 $victim = $rows | Where-Object {
     $_.Compressed -eq 'No' -and $_.DataPath -and
-    (Test-Path -LiteralPath (Join-Path $src $_.DataPath) -PathType Leaf) -and
+    (Test-Path -LiteralPath (Get-StoredObjectPath -Folder $srcLatest -Name $_.DataPath -Sharded) -PathType Leaf) -and
     [long]$_.Length -gt 0
 } | Select-Object -First 1
 if (-not $victim) { throw 'No raw resolvable row found to damage.' }
@@ -48,13 +51,14 @@ $results = New-Object System.Collections.Generic.List[string]
 foreach ($shape in 'heal', 'gone') {
     $store = Join-Path $damageRoot $shape
     Copy-Item -LiteralPath $src -Destination $store -Recurse -Force
-    $data = Join-Path $store $victim.DataPath
+    $latest = Join-Path $store 'Latest'
+    $data = Get-StoredObjectPath -Folder $latest -Name $victim.DataPath -Sharded
     if ($shape -eq 'heal') {
-        # Good copy parked in the pool under an unrelated name, then damage.
-        Copy-Item -LiteralPath $data -Destination (Join-Path $store 'interop-spare.bin')
+        # Good copy parked in the pool under an unrelated name (found only by
+        # the content scan), then damage.
+        Copy-Item -LiteralPath $data -Destination (Join-Path $latest 'interop-spare.bin')
     } else {
-        # 'gone' must be REALLY gone: the fixture nests changes/ inside the
-        # backup root, so a snapshot may hold another copy of these bytes —
+        # 'gone' must be REALLY gone: a snapshot may hold another copy of these bytes —
         # delete every pool file whose raw (hash,length) matches the victim,
         # except the victim's own data file (which gets corrupted below).
         $victimData = (Resolve-Path -LiteralPath $data).Path
@@ -64,13 +68,13 @@ foreach ($shape in 'heal', 'gone') {
             if ($match) { Remove-Item -LiteralPath $f.FullName -Force }
         }
     }
-    $bytes = [IO.File]::ReadAllBytes((Join-Path $src $victim.DataPath))
+    $bytes = [IO.File]::ReadAllBytes((Get-StoredObjectPath -Folder $srcLatest -Name $victim.DataPath -Sharded))
     $bytes[0] = $bytes[0] -bxor 0xFF          # same length, wrong bytes
     [IO.File]::WriteAllBytes($data, $bytes)
 
     # Restore with the store's own deployed kit and record the verdict.
     $target = Join-Path $damageRoot "restored-$shape"
-    & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $store 'RECONSTRUCT.ps1') `
+    & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $latest 'RECONSTRUCT.ps1') `
         -TargetRoot $target -NonInteractive -ExitCode *>&1 | Out-Null
     $code = $LASTEXITCODE
     $results.Add("exit`t$shape`t$code")

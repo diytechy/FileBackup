@@ -77,7 +77,9 @@ function Assert-FilesByteEqual {
 function Get-ManifestRow {
     param([string]$ManifestPath, [string]$RelativePath)
     if (-not (Test-Path -LiteralPath $ManifestPath)) { return $null }
-    Import-Csv -LiteralPath $ManifestPath | Where-Object { $_.RelativePath -eq $RelativePath } | Select-Object -First 1
+    # Recorded paths use '/' (plan C44, L7); a suite may name one either way.
+    $want = $RelativePath.Replace([char]92, [char]47)
+    Import-Csv -LiteralPath $ManifestPath | Where-Object { $_.RelativePath -eq $want } | Select-Object -First 1
 }
 
 function Assert-ManifestRow {
@@ -149,8 +151,8 @@ function Write-TestConfig {
     $set = [ordered]@{
         Name               = $Name
         SourcePath         = $SrcPath
-        BackupPath         = $BkpPath
-        ChangePath         = $ChgPath
+        # One store folder per set (plan C44): BkpPath is <ChgPath>\Latest.
+        StorePath          = $ChgPath
         HashRecalcFreq     = $HashRecalcFreq
         CompressEnabled    = $Compress
     }

@@ -508,3 +508,56 @@ Describe 'New-RelativePathMap keys compare like the local filesystem (SR-034)' {
         }
     }
 }
+
+Describe 'Shard folders of the latest state (SR-069, plan C44 L8)' {
+    # One Common function decides where an object of Latest lives, for the
+    # engine and both restorers: Latest/<first two characters, lowercased>/<name>.
+    # A snapshot stays flat. The caller says which folder is Latest (S4).
+    It 'names the shard by the first two characters, lowercased, an l included' {
+        Get-StoredObjectShard -Name 'aB3xyz_Q.txt' | Should -BeExactly 'ab'
+        Get-StoredObjectShard -Name 'LM5abc_2' | Should -BeExactly 'lm'
+        Get-StoredObjectShard -Name '9L.7z' | Should -BeExactly '9l'
+        (Get-StoredObjectShard -Name 'Lq') | Should -Match (Get-FileBackupDefaults).ShardFolderPattern
+        # Windows treats 'Ab' and 'aB' as one folder and Linux as two: both
+        # names land in the same one.
+        Get-StoredObjectShard -Name 'Ab_1' | Should -BeExactly (Get-StoredObjectShard -Name 'aB_1')
+    }
+
+    It 'gives every grammar name a shard that matches the folder pattern' {
+        $pattern = (Get-FileBackupDefaults).ShardFolderPattern
+        $rng = [System.Random]::new(44)
+        foreach ($i in 1..300) {
+            $hash = '{0:X16}{1:X16}' -f $rng.NextInt64(), $rng.NextInt64()
+            $name = Get-HashSizeFileName -HashHex $hash -Length ([long]$rng.Next(0, 1000000)) -Extension '.bin'
+            Get-StoredObjectShard -Name $name | Should -MatchExactly $pattern
+        }
+    }
+
+    It 'puts an object one folder down in Latest and flat in a snapshot' {
+        $name = 'Kz9abc_7.txt'
+        Get-StoredObjectPath -Folder 'C:\store\Latest' -Name $name -Sharded |
+            Should -Be ([IO.Path]::Combine('C:\store\Latest', 'kz', $name))
+        Get-StoredObjectPath -Folder 'C:\store\Snapshot_2026_01_01_00_00_00' -Name $name |
+            Should -Be ([IO.Path]::Combine('C:\store\Snapshot_2026_01_01_00_00_00', $name))
+    }
+
+    It 'lists Latest from its own shard folders only: not its top level, not another name''s folder, not a foreign folder' {
+        $latest = Join-Path $TestDrive 'shards\Latest'
+        $good = 'Lq7abc_5.txt'
+        $p = Get-StoredObjectPath -Folder $latest -Name $good -Sharded
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($p)) -Force | Out-Null
+        [IO.File]::WriteAllText($p, 'x')
+        New-Item -ItemType Directory -Path (Join-Path $latest 'zz'), (Join-Path $latest 'View'), (Join-Path $latest '.d') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $latest 'Ab9top_1.txt'), 'top')        # top level: misplaced
+        [IO.File]::WriteAllText((Join-Path $latest 'zz\Ab9wrong_1.txt'), 'w')    # another name's folder
+        [IO.File]::WriteAllText((Join-Path $latest 'View\Vi9x_1.txt'), 'v')      # not a shard folder
+        [IO.File]::WriteAllText((Join-Path $latest 'MANIFEST.csv'), 'm')        # infrastructure
+        [IO.File]::WriteAllText((Join-Path $latest '.d\.d2abc_3'), 'h')         # '.d' is no shard name
+
+        $sharded = @((Get-StoredObjectFile -Folder $latest -Sharded) | ForEach-Object Name)
+        $sharded | Should -Be @($good)
+        # Read flat, as a snapshot is, the same folder shows its top level only.
+        $flat = @((Get-StoredObjectFile -Folder $latest) | ForEach-Object Name | Sort-Object)
+        $flat | Should -Be @('Ab9top_1.txt', 'MANIFEST.csv')
+    }
+}

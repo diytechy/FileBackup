@@ -8,8 +8,8 @@
   "required": ["ConfigVersion", "BackupSets"],
   "properties": {
     "ConfigVersion": {
-      "description": "Currently 2 (version 1 documents are refused as too old: v2 removed PreserveFolderTree — storage is always content-addressed — and added BrowseView/ViewPath). A config declaring a higher version is refused by this build. JSON has one number type, so an integral-valued number IS that integer: 2.0 is accepted as 2 (both by this const and by the runtime validator); 2.5, 0, \"2\", 1 and anything above 2 are refused.",
-      "const": 2
+      "description": "Currently 3 (versions 1 and 2 are refused as too old: v2 removed PreserveFolderTree — storage is always content-addressed — and added BrowseView/ViewPath; v3 replaced BackupPath and ChangePath with StorePath, one folder per backup set holding Latest/ and every Snapshot_<date>/). A config declaring a higher version is refused by this build. JSON has one number type, so an integral-valued number IS that integer: 3.0 is accepted as 3 (both by this const and by the runtime validator); 3.5, 0, \"3\", 1, 2 and anything above 3 are refused.",
+      "const": 3
     },
     "BackupSets": {
       "description": "One or more backup sets. An array of at least one set object, or -- matching the runtime validator, which wraps it -- a single bare set object.",
@@ -30,14 +30,16 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "Name", "SourcePath", "BackupPath", "ChangePath", "HashRecalcFreq",
+        "Name", "SourcePath", "StorePath", "HashRecalcFreq",
         "CompressEnabled"
       ],
       "properties": {
         "Name":               { "type": "string", "minLength": 1 },
         "SourcePath":         { "type": "string", "minLength": 1 },
-        "BackupPath":         { "type": "string", "minLength": 1 },
-        "ChangePath":         { "type": "string", "minLength": 1 },
+        "StorePath": {
+          "type": "string", "minLength": 1,
+          "description": "One folder per backup set: it holds Latest/ (the latest state), every Snapshot_<date>/ beside it, and the run's own files. A new or empty folder starts a store; a folder holding an old-layout backup (a MANIFEST.csv of its own, or a folder beside Latest that holds one) is refused, because no store is converted."
+        },
         "HashRecalcFreq": {
           "type": "string",
           "enum": ["A", "E", "D", "W", "M", "Y", "N", "a", "e", "d", "w", "m", "y", "n"]
@@ -46,15 +48,15 @@
         "CompressProbe": {
           "type": "string",
           "enum": ["off", "excluded-extensions", "always"],
-          "description": "Optional; defaults to 'always'. How the stored form is decided when CompressEnabled is true (SR-081): 'off' uses the already-compressed extension list alone (the pre-WP17 behaviour); 'excluded-extensions' keeps the list's exemptions and measures everything it would otherwise compress; 'always' measures every file above the 256 KiB floor, the list serving only the smaller tail. Exact lowercase; ConfigVersion stays 2 because the key is optional and defaulted."
+          "description": "Optional; defaults to 'always'. How the stored form is decided when CompressEnabled is true (SR-081): 'off' uses the already-compressed extension list alone (the pre-WP17 behaviour); 'excluded-extensions' keeps the list's exemptions and measures everything it would otherwise compress; 'always' measures every file above the 256 KiB floor, the list serving only the smaller tail. Exact lowercase; optional and defaulted."
         },
         "BrowseView": {
           "enum": ["off", "index"],
-          "description": "Optional; defaults to 'off'. 'index' generates a browsable, manifest-derived INDEX.tsv + per-folder HTML view outside the backup root. 'link' is reserved and refused by name."
+          "description": "Optional; defaults to 'off'. 'index' generates a browsable, manifest-derived INDEX.tsv + per-folder HTML view outside Latest and the snapshots. 'link' is reserved and refused by name."
         },
         "ViewPath": {
           "type": "string",
-          "description": "Optional; defaults to '<BackupPath>_View'. Must lie outside the backup and change roots and on the backup volume. Only meaningful with BrowseView 'index'."
+          "description": "Optional; defaults to '<StorePath>/View'. Inside the store it may only be that one folder; elsewhere it must not overlap the store or the source, and it must be on the store's volume. Only meaningful with BrowseView 'index'."
         },
         "SourceStatePath": {
           "type": "string",

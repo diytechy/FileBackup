@@ -32,7 +32,7 @@ BeforeAll {
     function New-IndexConfig {
         param([string]$Path, [string]$Src, [string]$Bkp, [string]$Chg, [bool]$Compress = $false)
         $set = [pscustomobject]@{
-            Name = 'I'; SourcePath = $Src; BackupPath = $Bkp; ChangePath = $Chg
+            Name = 'I'; SourcePath = $Src; StorePath = $Chg
             HashRecalcFreq = 'A'; CompressEnabled = $Compress
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $Path
@@ -47,7 +47,7 @@ BeforeAll {
             a test needs plus the snapshot folder.
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $bkp = Join-Path $Root 'bkp'; $chg = Join-Path $Root 'chg'
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub'), $bkp, $chg -Force | Out-Null
         # Large and repetitive so a Compress-mode store really stores a .7z.
         Set-Content -LiteralPath (Join-Path $src 'keep.txt')     -Value ('KEEP-CONTENT-' * 3000) -NoNewline
@@ -185,6 +185,48 @@ Describe 'The name index (kit revision 14, SR-069)' {
         # Skipped, never deleted: the suffix alone proves nothing (AGENTS.md section 3).
         Test-Path -LiteralPath (Join-Path $stage "$nameB.fbprune.tmp") | Should -BeTrue
     }
+
+    It 'lists the Latest folder through its shard folders, an l folder included, and nothing misplaced (plan C44, L8)' {
+        # A name whose first character is an uppercase 'L' lives in the 'l'
+        # folder: the shard pattern must not leave 'l' out (L8).
+        $nameL = $null; $hashL = $null
+        $rng = [System.Random]::new(8)
+        for ($i = 1; $i -lt 20000 -and -not $nameL; $i++) {
+            $h = '{0:X16}{1:X16}' -f $rng.NextInt64(), $rng.NextInt64()
+            $n = Get-HashSizeFileName -HashHex $h -Length 5 -Extension '.txt'
+            if ($n.Substring(0, 1) -ceq 'L') { $nameL = $n; $hashL = $h }
+        }
+        $nameL | Should -Not -BeNullOrEmpty -Because 'the fixture needs a name that starts with L'
+        Get-StoredObjectShard -Name $nameL | Should -BeExactly ($nameL.Substring(0, 2).ToLowerInvariant())
+        Get-StoredObjectShard -Name $nameL | Should -Match '^l'
+
+        $latest = Join-Path $ix 'store\Latest'
+        $snapD  = Join-Path $ix 'store\Snapshot_2024_01_03_00_00_00'
+        New-Item -ItemType Directory -Path $latest, $snapD -Force | Out-Null
+        $inShard = Get-StoredObjectPath -Folder $latest -Name $nameL -Sharded
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($inShard)) -Force | Out-Null
+        [IO.File]::WriteAllText($inShard, 'L-obj')
+        # Misplaced in Latest: at its top level, and in another name's shard
+        # folder. No path leads to either, so neither is in the pool.
+        $hashTop = '0000000000000000000000000000ABCD'
+        $nameTop = Get-HashSizeFileName -HashHex $hashTop -Length 3 -Extension '.bin'
+        [IO.File]::WriteAllText((Join-Path $latest $nameTop), 'top')
+        $hashWrong = '0000000000000000000000000000DCBA'
+        $nameWrong = Get-HashSizeFileName -HashHex $hashWrong -Length 4 -Extension '.bin'
+        $wrongShard = if ((Get-StoredObjectShard -Name $nameWrong) -ceq 'zz') { 'yy' } else { 'zz' }
+        New-Item -ItemType Directory -Path (Join-Path $latest $wrongShard) -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $latest "$wrongShard\$nameWrong"), 'wrong')
+        # A snapshot stays flat: its top-level object is listed.
+        [IO.File]::WriteAllText((Join-Path $snapD $nameTop), 'top')
+
+        $local = New-StoredObjectNameIndex -Folders @($latest, $snapD) -LatestFolder $latest
+        Find-DataFileByName -Index $local -Hash $hashL -Length 5 | Should -Be $inShard
+        Find-DataFileByName -Index $local -Hash $hashTop -Length 3 | Should -Be (Join-Path $snapD $nameTop) -Because 'the copy at the top of Latest is misplaced'
+        Find-DataFileByName -Index $local -Hash $hashWrong -Length 4 | Should -BeNullOrEmpty -Because 'an object in another name''s shard folder is misplaced'
+        # Without -LatestFolder the same folder is read flat, as a snapshot is.
+        $flat = New-StoredObjectNameIndex -Folders @($latest)
+        Find-DataFileByName -Index $flat -Hash $hashL -Length 5 | Should -BeNullOrEmpty
+    }
 }
 
 Describe 'The bash decoder''s conformance corpus agrees with the PowerShell parser (kit revision 14, SR-069)' {
@@ -240,13 +282,15 @@ Describe 'Snapshot restore resolves blank rows through the name index (kit revis
     }
 }
 
-Describe 'A snapshot finds its backup root beside its change root (one-mount layout, plan R8)' {
-    It 'indexes the sibling backup root of a copied store (store\bkp beside store\chg), so no row needs the content scan' {
+Describe 'A snapshot finds Latest beside it in its store (one store folder, plan C44)' {
+    # Replaces the sibling and child root guesses (plan R8, C21, C32): the
+    # store is the parent of the kit's own folder, so a copied or moved store
+    # needs nothing recorded and nothing guessed.
+    It 'indexes the Latest folder beside a copied store''s snapshot, so no row needs the content scan (plan C44, S3)' {
         $root = Join-Path $TestDrive 'onemount'
         $made = New-IndexStore -Root (Join-Path $root 'store')
-        # A copy, so the path sidecar's recorded roots no longer hold the origin
-        # and the kit falls back to auto-detection - the host's view of a store
-        # the container wrote under /store.
+        # A copy, the host's view of a store the container wrote under /store:
+        # no root is recorded anywhere, the copy is read as it is.
         $copy = Join-Path $root 'copied'
         Copy-Item -LiteralPath (Join-Path $root 'store') -Destination $copy -Recurse
         $snap = Join-Path (Join-Path $copy 'chg') (Split-Path $made.Snap -Leaf)
@@ -258,22 +302,22 @@ Describe 'A snapshot finds its backup root beside its change root (one-mount lay
         $r = Invoke-IndexRestore -Recon (Join-Path $snap 'RECONSTRUCT.ps1') -TargetRoot $t
         $r.Code | Should -Be 0 -Because $r.Output
         Assert-RestoredFromManifest -Manifest (Join-Path $snap 'MANIFEST.csv') -TargetRoot $t
-        $r.Log | Should -Not -Match 'attempting hash scan' -Because 'the backup root beside the change root is indexed by name'
+        $r.Log | Should -Not -Match 'attempting hash scan' -Because 'Latest beside the snapshot is indexed by name'
         $r.Log | Should -Not -Match 'Hash-recovered'
     }
 
-    It 'restores the latest state of a copied store whose row names an object still in a snapshot (plan C32)' {
+    It 'restores the latest state of a copied store whose row names an object still in a snapshot (plan C32, C44)' {
         # A move back that failed (or call C19) leaves a latest row naming an
-        # object inside a snapshot. With no change root recorded for the copy,
-        # the kit finds the change folder beside the backup folder.
+        # object inside a snapshot. The snapshots of a copied store are the
+        # Snapshot_* folders beside its Latest.
         $root = Join-Path $TestDrive 'latest-in-snapshot'
         $made = New-IndexStore -Root (Join-Path $root 'store')
         $copy = Join-Path $root 'copied'
         Copy-Item -LiteralPath (Join-Path $root 'store') -Destination $copy -Recurse
-        $bkp = Join-Path $copy 'bkp'
+        $bkp = Join-Path $copy 'chg\Latest'
         $snap = Join-Path (Join-Path $copy 'chg') (Split-Path $made.Snap -Leaf)
         $keep = @(Import-Csv -LiteralPath (Join-Path $bkp 'MANIFEST.csv') | Where-Object RelativePath -eq 'keep.txt')[0]
-        Move-Item -LiteralPath (Join-Path $bkp $keep.DataPath) -Destination (Join-Path $snap $keep.DataPath)
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $keep.DataPath -Sharded) -Destination (Join-Path $snap $keep.DataPath)
 
         $t = Join-Path $root 'restored'
         $r = Invoke-IndexRestore -Recon (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $t
@@ -291,7 +335,7 @@ Describe 'A stale DataPath resolves through the name index (kit revision 14, R6)
         # side. Its row still names it in latest.
         $row = @(Import-Csv -LiteralPath $s.Manifest | Where-Object RelativePath -eq 'keep.txt')[0]
         $row.DataPath | Should -Not -BeNullOrEmpty
-        Move-Item -LiteralPath (Join-Path $s.Bkp $row.DataPath) -Destination (Join-Path $s.Snap $row.DataPath)
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded) -Destination (Join-Path $s.Snap $row.DataPath)
 
         $t = Join-Path $root 'restored'
         $r = Invoke-IndexRestore -Recon $s.Recon -TargetRoot $t
@@ -307,7 +351,7 @@ Describe 'A stale DataPath resolves through the name index (kit revision 14, R6)
         # The object survives under a name that is not an object name: the
         # index cannot see it, so the last-resort scan must.
         $row = @(Import-Csv -LiteralPath $s.Manifest | Where-Object RelativePath -eq 'change.txt')[0]
-        Move-Item -LiteralPath (Join-Path $s.Bkp $row.DataPath) -Destination (Join-Path $s.Bkp 'renamed-by-hand.bin')
+        Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded) -Destination (Join-Path $s.Bkp 'renamed-by-hand.bin')
 
         $t = Join-Path $root 'restored'
         $r = Invoke-IndexRestore -Recon $s.Recon -TargetRoot $t
@@ -322,7 +366,7 @@ Describe 'A stale DataPath resolves through the name index (kit revision 14, R6)
         $s = New-IndexStore -Root $root
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $row = @($rows | Where-Object RelativePath -eq 'change.txt')[0]
-        $obj = Join-Path $s.Bkp $row.DataPath
+        $obj = Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded
         # A good copy survives under a non-object name; the object the index
         # will pick carries same-length WRONG bytes, and the row is blank.
         Copy-Item -LiteralPath $obj -Destination (Join-Path $s.Bkp 'spare.bin')
@@ -351,14 +395,14 @@ Describe 'A partial prune staged copy does not block the intact original (review
         $row = @(Import-Csv -LiteralPath (Join-Path $s.Snap 'MANIFEST.csv') | Where-Object RelativePath -eq 'keep.txt')[0]
         $row.DataPath | Should -Match '\.7z$' -Because 'the residue must be archive-shaped to block the row'
         Test-Path -LiteralPath (Join-Path $s.Snap $row.DataPath) | Should -BeFalse
-        $bytes = [IO.File]::ReadAllBytes((Join-Path $s.Bkp $row.DataPath))
+        $bytes = [IO.File]::ReadAllBytes((Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded))
         [IO.File]::WriteAllBytes((Join-Path $s.Snap "$($row.DataPath).fbprune.tmp"), $bytes[0..([int]($bytes.Length / 2))])
 
         $t = Join-Path $root 'restored'
         $r = Invoke-IndexRestore -Recon $s.SnapRecon -TargetRoot $t
         $r.Code | Should -Be 0 -Because $r.Output
         Assert-RestoredFromManifest -Manifest (Join-Path $s.Snap 'MANIFEST.csv') -TargetRoot $t
-        $r.Log | Should -Match ("resolved by name index to '" + [regex]::Escape((Join-Path $s.Bkp $row.DataPath)) + "'")
+        $r.Log | Should -Match ("resolved by name index to '" + [regex]::Escape((Get-StoredObjectPath -Folder $s.Bkp -Name $row.DataPath -Sharded)) + "'")
         $r.Log | Should -Not -Match 'fbprune'
     }
 }

@@ -90,6 +90,17 @@ $script:ChangeFolderDateMask  = 'yyyy_MM_dd_HH_mm_ss'     # pattern used in snap
 # is the live backup root (no snapshot folder). Replaces the previous change-folder model.
 $script:SnapshotPrefix        = 'Snapshot_'
 $script:ChangeFolderRegex     = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
+# One store folder per backup set (plan C44): <StorePath>/Latest is the latest
+# state, every Snapshot_<date> sits beside it, and the browse view defaults to
+# <StorePath>/View. The names are exact (L1, L3).
+$script:LatestFolderName      = 'Latest'
+$script:ViewFolderName        = 'View'
+# An object in Latest lives one folder down, in the folder named by the first
+# two characters of its name, lowercased (L8). Lowercase because Windows treats
+# 'Ab' and 'aB' as one folder and Linux as two; the pattern includes 'l',
+# which only an uppercase 'L' produces. Snapshots stay flat.
+$script:ShardPrefixLength     = 2
+$script:ShardFolderPattern    = '^[2-9a-z]{2}$'
 
 # Alphabet for short-name encoding (base-57 over these glyphs). SR-069.
 #
@@ -268,6 +279,9 @@ function Get-FileBackupDefaults {
         ChangeFolderDateMask     = $script:ChangeFolderDateMask
         ChangeFolderRegex        = $script:ChangeFolderRegex
         SnapshotPrefix           = $script:SnapshotPrefix
+        LatestFolderName         = $script:LatestFolderName
+        ViewFolderName           = $script:ViewFolderName
+        ShardFolderPattern       = $script:ShardFolderPattern
         Alphabet                 = $script:Alphabet
         NonCompressibleExtensions= $script:NonCompressibleExtensions
         SevenZipDefaultPath      = $script:SevenZipDefaultPath
@@ -767,6 +781,108 @@ function Test-HashSizeFileName {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
     return $null -ne (ConvertFrom-HashSizeFileName -Name $Name)
+}
+
+function Get-StoredObjectShard {
+    <#
+    .SYNOPSIS
+        The shard folder an object of the latest state lives in: the first two
+        characters of its name, lowercased (plan C44, L8).
+
+    .PARAMETER Name
+        The object's bare name (a DataPath).
+
+    .OUTPUTS
+        [string] two characters matching ShardFolderPattern for an SR-069
+        name; for anything shorter, the name itself lowercased.
+    #>
+    # Implements: SR-069, LLR-069
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Name)
+    $n = [Math]::Min($script:ShardPrefixLength, $Name.Length)
+    return $Name.Substring(0, $n).ToLowerInvariant()
+}
+
+function Get-StoredObjectPath {
+    <#
+    .SYNOPSIS
+        Where an object is, from the state folder that holds it and its name:
+        <Folder>/<shard>/<Name> in the latest state, <Folder>/<Name> in a
+        snapshot (plan C44, L8).
+
+    .DESCRIPTION
+        The one place that decides it, for the engine and both restorers. The
+        caller says whether the folder is the latest state (the engine: it is
+        the backup root; a restorer: it is <store>/Latest), so nothing infers
+        it from a folder's name. A DataPath is always the bare name.
+
+    .PARAMETER Folder
+        The state folder.
+
+    .PARAMETER Name
+        The object's bare name (a DataPath).
+
+    .PARAMETER Sharded
+        The folder is the latest state.
+
+    .OUTPUTS
+        [string]
+    #>
+    # Implements: SR-069, LLR-069
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Folder,
+        [Parameter(Mandatory)][string]$Name,
+        [switch]$Sharded
+    )
+    if (-not $Sharded) { return [System.IO.Path]::Combine($Folder, $Name) }
+    return [System.IO.Path]::Combine($Folder, (Get-StoredObjectShard -Name $Name), $Name)
+}
+
+function Get-StoredObjectFile {
+    <#
+    .SYNOPSIS
+        Lists the objects a state folder holds: its top-level files, or in the
+        latest state the files of its shard folders (plan C44, L8).
+
+    .DESCRIPTION
+        Hidden, system and dot-named files are included (SR-057). In the
+        latest state only folders matching ShardFolderPattern are read, so
+        nothing else that lives there is taken for an object, and a file is
+        listed only from its OWN shard folder: one in another name's folder is
+        where no path leads, so it is no object (the engine's Verify reports
+        it as misplaced). A shard folder that cannot be listed throws, as a
+        folder that cannot be listed does.
+
+    .PARAMETER Folder
+        The state folder.
+
+    .PARAMETER Sharded
+        The folder is the latest state.
+
+    .OUTPUTS
+        [System.IO.FileInfo[]] (Name is the bare object name).
+    #>
+    # Implements: SR-057, SR-069, LLR-069
+    [CmdletBinding()]
+    [OutputType([System.IO.FileInfo[]])]
+    param(
+        [Parameter(Mandatory)][string]$Folder,
+        [switch]$Sharded
+    )
+    $root = [System.IO.DirectoryInfo]::new($Folder)
+    if (-not $Sharded) { return , @($root.EnumerateFiles()) }
+    $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    foreach ($dir in $root.EnumerateDirectories()) {
+        if ($dir.Name -cnotmatch $script:ShardFolderPattern) { continue }
+        foreach ($f in $dir.EnumerateFiles()) {
+            if ((Get-StoredObjectShard -Name $f.Name) -cne $dir.Name) { continue }
+            $files.Add($f)
+        }
+    }
+    return , $files.ToArray()
 }
 
 # endregion
@@ -1838,6 +1954,9 @@ Export-ModuleMember -Function @(
     'Test-HashSizeFileName',
     'Test-LegacyStoredObjectName',
     'Get-HashSizeFileName',
+    'Get-StoredObjectShard',
+    'Get-StoredObjectPath',
+    'Get-StoredObjectFile',
     'Test-ShouldCompress',
     'Compress-FileWithSevenZip',
     'Expand-FileWithSevenZip',

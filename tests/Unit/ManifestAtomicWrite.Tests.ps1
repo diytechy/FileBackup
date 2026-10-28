@@ -316,13 +316,13 @@ Describe 'A leftover MANIFEST.csv.tmp through whole backup runs (TC-240, SR-083,
             return ($code -eq 0)
         }
         $root = Join-Path $TestDrive 'e2e'
-        $src = Join-Path $root 'src'; $bkp = Join-Path $root 'bkp'; $chg = Join-Path $root 'chg'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
         $fx = [pscustomobject]@{
             Src = $src; Bkp = $bkp; Chg = $chg
             Set = [pscustomobject]@{
-                Name = 'tc240'; SourcePath = $src; SourceStatePath = ''; BackupPath = $bkp
-                ChangePath = $chg; HashRecalcFreq = 'A'; CompressEnabled = $false
+                Name = 'tc240'; SourcePath = $src; SourceStatePath = ''; StorePath = $chg
+                HashRecalcFreq = 'A'; CompressEnabled = $false
                 AllowEmptySource = $false; BrowseView = 'off'; ViewPath = ''
             }
         }

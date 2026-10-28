@@ -24,11 +24,36 @@ verify_tree() {  # <target> <expected.tsv>
     return $fail
 }
 
-# Origin folder for a mode + expected-file basename ("root" or "Snapshot_...").
+# The committed fixture STORE of a mode: one store folder per backup set (kit
+# revision 15, plan C44), holding Latest/ and every Snapshot_<date>/ beside it.
+store_for() {  # <mode>
+    printf '%s' "$FIXTURES/bash-restore/$1/store"
+}
+
+# Origin folder for a mode + expected-file basename ("root" = the store's
+# Latest folder, or "Snapshot_...").
 origin_for() {  # <mode> <origin_name>
     local mode="$1" name="$2"
-    if [[ "$name" == root ]]; then printf '%s' "$FIXTURES/bash-restore/$mode/backup"
-    else printf '%s' "$FIXTURES/bash-restore/$mode/backup/changes/$name"; fi
+    if [[ "$name" == root ]]; then printf '%s' "$(store_for "$mode")/Latest"
+    else printf '%s' "$(store_for "$mode")/$name"; fi
+}
+
+# shard_of <name> : the shard folder an object of the latest state lives in -
+# the first two characters of its name, lowercased (L8). Snapshots stay flat.
+shard_of() {  # <name>
+    local s="${1:0:2}"
+    printf '%s' "${s,,}"
+}
+
+# latest_object <latest-folder> <name> : the path an object named <name> has in
+# the latest state (<latest>/<shard>/<name>), creating its shard folder. Every
+# synthetic store a suite builds must put its Latest objects here: a file at
+# Latest's top level, or in another name's shard folder, is no object (L8).
+latest_object() {  # <latest-folder> <name>
+    local shard
+    shard="$(shard_of "$2")"
+    mkdir -p -- "$1/$shard"
+    printf '%s' "$1/$shard/$2"
 }
 
 # Expected content hash of one logical path, from a mode's expected/root.tsv.
@@ -36,12 +61,14 @@ expected_hash() {  # <mode> <posix_relpath>
     awk -F'\t' -v rel="$2" '$1==rel{print $2}' "$FIXTURES/bash-restore/$1/expected/root.tsv"
 }
 
-# First ROOT-LEVEL pool file whose raw bytes hash to the given content hash.
-# Content addressing derives names from bytes, so tests locate objects by
-# CONTENT rather than assuming a path (WP9 step 5: Mirror deleted).
-pool_file_by_hash() {  # <backup_root> <upper_hash>
+# First pool file of a state folder whose raw bytes hash to the given content
+# hash: its top-level files, then its shard folders (the latest state keeps
+# its objects one folder down, L8). Content addressing derives names from
+# bytes, so tests locate objects by CONTENT rather than assuming a path (WP9
+# step 5: Mirror deleted).
+pool_file_by_hash() {  # <state-folder> <upper_hash>
     local bk="$1" want="$2" f
-    for f in "$bk"/*; do
+    for f in "$bk"/* "$bk"/*/*; do
         [[ -f "$f" ]] || continue
         [[ "$(hash_upper "$f")" == "$want" ]] && { printf '%s' "$f"; return 0; }
     done

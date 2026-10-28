@@ -23,8 +23,7 @@
         [pscustomobject]@{
             Name               = 'MainData'
             SourcePath         = 'D:\Data'
-            BackupPath         = 'E:\Backups\DataStore'
-            ChangePath         = 'E:\Backups\DataChanges'
+            StorePath          = 'E:\Backups\MainData'   # one folder per set: Latest\ and Snapshot_<date>\ inside
             HashRecalcFreq     = 'W'    # A/E/D/W/M/Y/N — when to re-hash unchanged files
             CompressEnabled    = $true  # store data files as .7z
         }

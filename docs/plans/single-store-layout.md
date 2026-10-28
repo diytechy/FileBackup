@@ -100,6 +100,61 @@ is part of the pool.
   stores that content again in its right place; Verify reports it, and
   `-RepairStorage` moves it into `Verify/` like any other duplicate.
 
+## Settled by the implementer (2026-10-27)
+
+Recorded as they were made; each is reported to the Owner with the package.
+
+- **S1 - one key outside, the same two roots inside.** The configuration names
+  only `StorePath`. The loader derives `BackupPath = <StorePath>/Latest` and
+  `ChangePath = <StorePath>` on the normalized set, so every engine step keeps
+  its two-root parameters and their meaning (the latest state; the folder that
+  holds the snapshots and the run files) and only path derivation changes.
+  `BackupPath` or `ChangePath` in a configuration is refused by name (JSON and
+  CLIXML alike), with the conversion in the message.
+- **S2 - an old-layout store is refused, not adopted.** A `StorePath` that holds
+  `MANIFEST.csv` itself (an old backup root named directly), or a folder beside
+  `Latest` that holds one (the R8 layout's `backup/` beside `changes/`), or that
+  holds snapshots but no `Latest` (C26 re-read for one root), is refused with 2
+  before anything is written (`Assert-StoreLayout`). An empty or new
+  `StorePath` starts a store.
+- **S3 - the kit recognizes its layout by its own folder's name.** A restorer
+  runs only from a folder named exactly `Latest` or matching `^Snapshot_`; the
+  store is that folder's parent and the pool is `<store>/Latest` plus every
+  `<store>/Snapshot_*`. Run from anywhere else it refuses with 2 (that is how an
+  old-layout store, or a kit copied out of a store, is told apart), unless the
+  one store override is given. The path sidecar and the sibling and child
+  guesses (C21, C32) are gone. Kit revision 15.
+- **S4 - shard folders are decided by which folder holds the object.** One
+  Common function gives an object's path from its state folder, its name and
+  whether that folder is the latest state; the engine passes "is the backup
+  root", the restorers "is `<store>/Latest`". Nothing infers it from a folder's
+  name, so a test or a tool that names its roots differently still agrees.
+
+- **S5 - a misplaced object is set aside, not adopted.** (The "left to the
+  implementer" item above.) The listing of the latest state reads a file only
+  from its own shard folder (`Get-StoredObjectFile`), so retention, the run's
+  index and both restorers' name indexes agree that a file elsewhere in
+  `Latest` - at its top, or in another name's shard folder - is not an object.
+  The run stores its content again in its right place while the source holds
+  it. `-Action Verify` reports it as `MisplacedObject` (`Get-MisplacedStoreObject`,
+  read only by Verify, so a run pays nothing), and `-RepairStorage` moves it
+  into `Verify/` like a duplicate.
+- **S6 - the kit still maps a `\` in a recorded path on a POSIX host.** (The
+  L7 item above.) This engine never writes one, so mapping costs nothing and
+  keeps a hand-edited or older manifest restoring as it did; refusing it would
+  add a failure mode for no gain.
+- **S7 - the view may sit inside the store only as `<StorePath>/View`.** (L3.)
+  Anywhere else inside the store it could be `Latest`, a snapshot or a run
+  folder, and the view root is wiped on every refresh; outside the store the
+  rails are as before (no overlap with the store or the source, same volume).
+- **S8 - no path sidecar, and its parameter went with it.** `New-ReconstructScript`
+  takes only `-BackupRoot`; the kit has six files. `RECONSTRUCT.paths.json`
+  stays on the infrastructure list because older stores hold one.
+- **S9 - the remedy wording names `StorePath`.** Messages that told the user to
+  "back up to a fresh BackupPath" now say "fresh StorePath"; the one-mount
+  refusal names Latest and its store and keeps the phrase "one volume and one
+  mount", which the container check matches.
+
 ## Done when
 
 Lint clean; the full unit suite, the integration sweep, bats and shellcheck,

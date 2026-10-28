@@ -82,7 +82,7 @@ Describe 'Folder picker fallbacks (SR-073, TC-163)' {
 }
 
 Describe 'Kit revision marker (SR-049, TC-173)' {
-    It 'is 14 in BOTH restorers, and they agree (TC-173)' {
+    It 'is 15 in BOTH restorers, and they agree (TC-173)' {
         # Nothing pinned these before, which is exactly how they drifted to 8
         # and 6 while the project documented 9 - so every WP12 store reports the
         # kit it carries as 8.
@@ -102,39 +102,48 @@ Describe 'Kit revision marker (SR-049, TC-173)' {
         # change logic - blank or stale rows resolve through a name index built
         # once per restore, and the MANIFEST.csv.meta witness is no longer read
         # (no exit 3, no -RequireWitness / --require-witness).
+        # 14 -> 15 (2026-10-27, plan C44): one store folder per set. Both
+        # restorers find the store as the parent of their own folder (Latest or
+        # a Snapshot_<date>), read Latest's objects from shard folders, take
+        # one -StoreRootOverride / --store-root, and no RECONSTRUCT.paths.json
+        # is written.
         $ps1 = Select-String -Path (Join-Path $repo 'Reconstruct.ps1') -Pattern '^# KitRevision: (\d+)' |
                Select-Object -First 1
         $sh  = Select-String -Path (Join-Path $repo 'bash\reconstruct.sh') -Pattern '^# KitRevision: (\d+)' |
                Select-Object -First 1
         $ps1 | Should -Not -BeNullOrEmpty
         $sh  | Should -Not -BeNullOrEmpty
-        $ps1.Matches[0].Groups[1].Value | Should -Be '14'
-        $sh.Matches[0].Groups[1].Value  | Should -Be '14'
+        $ps1.Matches[0].Groups[1].Value | Should -Be '15'
+        $sh.Matches[0].Groups[1].Value  | Should -Be '15'
     }
 }
 
 Describe 'Generated launchers and the kit artifact list (SR-007, SR-072)' {
     BeforeAll {
         $script:root = Join-Path $TestDrive 'kit'
-        $script:bkp  = Join-Path $root 'bkp'
         $script:chg  = Join-Path $root 'chg'
+        $script:bkp  = Join-Path $chg 'Latest'
         New-Item -ItemType Directory -Path $bkp, $chg -Force | Out-Null
-        New-ReconstructScript -BackupRoot $bkp -ChangeRoot $chg
+        New-ReconstructScript -BackupRoot $bkp
     }
 
-    It 'deposits all seven kit artifacts (SR-007, TC-171)' {
-        # The list is SEVEN. An earlier version of this test named six and
-        # silently omitted System.IO.Hashing.dll while claiming to prove the
-        # whole kit - so removing the DLL deposition would not have failed it
-        # (2026-08-28 independent review, T4).
+    It 'deposits all six kit artifacts, and no path sidecar (SR-007, TC-171, plan C44)' {
+        # The list is SIX since kit revision 15 dropped RECONSTRUCT.paths.json
+        # (a restorer finds its store from its own folder). An earlier version
+        # of this test named one fewer than the kit and silently omitted
+        # System.IO.Hashing.dll while claiming to prove the whole kit - so
+        # removing the DLL deposition would not have failed it (2026-08-28
+        # independent review, T4).
         $expected = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command',
                       'reconstruct.sh', 'FileBackup.Common.psm1',
-                      'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
-        $expected.Count | Should -Be 7 -Because 'SR-007 names seven artifacts'
+                      'System.IO.Hashing.dll')
+        $expected.Count | Should -Be 6 -Because 'the kit is six artifacts'
         foreach ($artifact in $expected) {
             Test-Path -LiteralPath (Join-Path $bkp $artifact) -PathType Leaf |
                 Should -BeTrue -Because "'$artifact' is part of the restore kit"
         }
+        Test-Path -LiteralPath (Join-Path $bkp 'RECONSTRUCT.paths.json') | Should -BeFalse -Because 'kit revision 15 writes no path sidecar'
+        @(Get-ChildItem -LiteralPath $bkp -File -Force).Count | Should -Be 6 -Because 'nothing else is deposited'
     }
 
     It 'no longer writes RECONSTRUCT.bat' {
@@ -188,13 +197,13 @@ Describe 'Generated launchers and the kit artifact list (SR-007, SR-072)' {
 Describe 'The kit is rewritten only when it changed, by temp file and rename (SR-007, review 2026-10-26 A4)' {
     BeforeAll {
         $script:kitFiles = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', 'reconstruct.sh',
-                             'FileBackup.Common.psm1', 'System.IO.Hashing.dll', 'RECONSTRUCT.paths.json')
+                             'FileBackup.Common.psm1', 'System.IO.Hashing.dll')
         function New-KitFolder {
             param([string]$Name)
-            $b = Join-Path $TestDrive "$Name\bkp"
             $c = Join-Path $TestDrive "$Name\chg"
+            $b = Join-Path $c 'Latest'
             New-Item -ItemType Directory -Path $b, $c -Force | Out-Null
-            New-ReconstructScript -BackupRoot $b -ChangeRoot $c
+            New-ReconstructScript -BackupRoot $b
             return [pscustomobject]@{ Bkp = $b; Chg = $c }
         }
     }
@@ -209,7 +218,7 @@ Describe 'The kit is rewritten only when it changed, by temp file and rename (SR
         try {
             # -ErrorAction Stop: FileBackup.ps1 runs with $ErrorActionPreference
             # 'Stop', so a failed write there stops the set with 4.
-            { New-ReconstructScript -BackupRoot $k.Bkp -ChangeRoot $k.Chg -ErrorAction Stop } | Should -Not -Throw
+            { New-ReconstructScript -BackupRoot $k.Bkp -ErrorAction Stop } | Should -Not -Throw
         } finally { $hold.Dispose() }
         foreach ($f in $kitFiles) {
             [System.IO.File]::GetLastWriteTimeUtc((Join-Path $k.Bkp $f)) | Should -Be $old -Because "'$f' did not change, so it is not rewritten"
@@ -221,7 +230,7 @@ Describe 'The kit is rewritten only when it changed, by temp file and rename (SR
         $ps1 = Join-Path $k.Bkp 'RECONSTRUCT.ps1'
         $whole = [System.IO.File]::ReadAllBytes($ps1)
         [System.IO.File]::WriteAllBytes($ps1, [byte[]]($whole[0..99]))
-        New-ReconstructScript -BackupRoot $k.Bkp -ChangeRoot $k.Chg
+        New-ReconstructScript -BackupRoot $k.Bkp
         [System.Linq.Enumerable]::SequenceEqual([System.IO.File]::ReadAllBytes($ps1), $whole) | Should -BeTrue
         @(Get-ChildItem -LiteralPath $k.Bkp -File -Force | Where-Object Name -like '*.tmp').Count | Should -Be 0
     }
@@ -233,7 +242,7 @@ Describe 'The kit is rewritten only when it changed, by temp file and rename (SR
         $before = [System.IO.File]::ReadAllBytes($ps1)
         $hold = [System.IO.File]::Open($ps1, 'Open', 'Read', 'Read')
         try {
-            { New-ReconstructScript -BackupRoot $k.Bkp -ChangeRoot $k.Chg -ErrorAction Stop } | Should -Throw
+            { New-ReconstructScript -BackupRoot $k.Bkp -ErrorAction Stop } | Should -Throw
         } finally { $hold.Dispose() }
         [System.Linq.Enumerable]::SequenceEqual([System.IO.File]::ReadAllBytes($ps1), $before) | Should -BeTrue
         Test-Path -LiteralPath "$ps1.tmp" | Should -BeFalse
@@ -266,8 +275,8 @@ Describe 'A restored tree is ordinary writable files (SR-007, TC-174)' {
         # restores through the DEPLOYED kit.
         $root = Join-Path $TestDrive 'ro-real'
         $src  = Join-Path $root 'src'
-        $bkp2 = Join-Path $root 'bkp'
         $chg2 = Join-Path $root 'chg'
+        $bkp2 = Join-Path $chg2 'Latest'
         New-Item -ItemType Directory -Path $src, $bkp2, $chg2 -Force | Out-Null
         # A .jpg is on NonCompressibleExtensions, so it is stored RAW even with
         # compression on - and RAW is the Copy-Item path, the only one that
@@ -282,7 +291,7 @@ Describe 'A restored tree is ordinary writable files (SR-007, TC-174)' {
 
         $cfg = Join-Path $root 'cfg.xml'
         $set = [pscustomobject]@{
-            Name = 'S'; SourcePath = $src; BackupPath = $bkp2; ChangePath = $chg2
+            Name = 'S'; SourcePath = $src; StorePath = $chg2
             HashRecalcFreq = 'A'; CompressEnabled = $true
         }
         @{ Secrets = $null; BackupSets = @($set) } | Export-Clixml -LiteralPath $cfg
@@ -299,11 +308,11 @@ Describe 'A restored tree is ordinary writable files (SR-007, TC-174)' {
         # Write-protect every stored object - the WP14 end state.
         foreach ($row in $rows) {
             if ($row.DataPath) {
-                $obj = Join-Path $bkp2 $row.DataPath
+                $obj = Get-StoredObjectPath -Folder $bkp2 -Name $row.DataPath -Sharded
                 if (Test-Path -LiteralPath $obj) { Set-ItemProperty -LiteralPath $obj -Name IsReadOnly -Value $true }
             }
         }
-        @(Get-ChildItem -LiteralPath $bkp2 -File | Where-Object IsReadOnly).Count |
+        @((Get-StoredObjectFile -Folder $bkp2 -Sharded) | Where-Object IsReadOnly).Count |
             Should -BeGreaterThan 0 -Because 'the pool really is protected now'
 
         $target = Join-Path $root 'restored'

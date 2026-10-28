@@ -29,32 +29,36 @@
 
     JSON is the documented, VERSIONED contract (container/FileBackup.schema.json
     is the published, documentation-only mirror) -- a required integer
-    ConfigVersion (currently 2; version 1 is refused as too old -- it carried
-    the removed PreserveFolderTree layout selector), a closed schema (any key
-    it doesn't recognize aborts the run naming that key and its JSON path;
-    PreserveFolderTree itself gets a NAMED removal message), JSON-typed
+    ConfigVersion (currently 3; versions 1 and 2 are refused as too old --
+    version 1 carried the removed PreserveFolderTree layout selector, version 2
+    the two folders BackupPath and ChangePath that StorePath replaced), a
+    closed schema (any key it doesn't recognize aborts the run naming that key
+    and its JSON path; PreserveFolderTree, BackupPath and ChangePath get a
+    NAMED removal message), JSON-typed
     booleans for CompressEnabled/AllowEmptySource (a quoted "false" is
     rejected, never coerced true), and no Secrets.Credential (JSON cannot
     carry a PSCredential; use CLIXML, or run with -NoMail as containers do).
+    StorePath is one folder per backup set: it holds Latest/ (the latest
+    state), every Snapshot_<date>/ beside it and the run's own files.
     BrowseView ("off" default | "index"; "link" reserved) generates a
-    browsable manifest-derived view at ViewPath (default <BackupPath>_View,
-    outside both roots, on the backup volume). CompressProbe ("off" |
+    browsable manifest-derived view at ViewPath (default <StorePath>/View; on
+    the store's volume, and inside the store only as that one folder).
+    CompressProbe ("off" |
     "excluded-extensions" | "always", default "always"; exact lowercase in both
     formats) chooses HOW the stored form is decided when CompressEnabled is
     true (SR-081): "off" is the already-compressed extension list alone (the
     pre-WP17 behaviour), "excluded-extensions" keeps the list's exemptions and
     measures everything it would otherwise compress, and "always" measures a
     sample of the bytes of every file at or above 256 KiB. It is optional and
-    defaulted, so ConfigVersion stays 2 and an unchanged v2 document loads:
+    defaulted:
 
         {
-          "ConfigVersion": 2,
+          "ConfigVersion": 3,
           "Tools": { "SevenZipPath": "/usr/bin/7z" },
           "BackupSets": [{
             "Name": "MainData",
             "SourcePath": "/source",
-            "BackupPath": "/store/backup",
-            "ChangePath": "/store/changes",
+            "StorePath": "/store",
             "HashRecalcFreq": "W",
             "CompressEnabled": true,
             "CompressProbe": "always"
@@ -77,8 +81,7 @@
                 [pscustomobject]@{
                     Name               = 'MainData'
                     SourcePath         = 'D:\Data'
-                    BackupPath         = 'E:\Backups\DataStore'
-                    ChangePath         = 'E:\Backups\DataChanges'
+                    StorePath          = 'E:\Backups\MainData'   # holds Latest\ and Snapshot_<date>\
                     HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
                     CompressEnabled    = $true
                     CompressProbe      = 'always' # 'always' (default) | 'excluded-extensions' | 'off'
@@ -199,7 +202,7 @@
         0  Every file of every backup set was captured.
         1  A set completed, but some files were not captured (each is named
            in that set's log; its earlier copy is kept), or it set a damaged
-           stored object aside into <ChangePath>/Verify/ (also named there).
+           stored object aside into <StorePath>/Verify/ (also named there).
         2  Refused before anything changed: the configuration could not be
            loaded -- the file is missing or unreadable, or it violates the
            SR-042 schema (missing/unrecognized ConfigVersion, unknown key,
@@ -477,12 +480,8 @@ function Invoke-RetentionAction {
         & $Log '-Action Prune requires -Snapshot <name>[,<name>] (retention policy belongs to the caller; this entry point takes explicit names only).' 'ERROR'
         return 2
     }
-    # -ReadOnly no longer creates a missing change folder, and with none there
-    # is no snapshot to name: the same refusal (2) an unknown name gets.
-    if (-not (Test-Path -LiteralPath $paths.ChgPath -PathType Container)) {
-        & $Log "-Action Prune: the change folder '$($paths.ChgPath)' does not exist, so it holds no snapshot to remove." 'ERROR'
-        return 2
-    }
+    # The store (ChgPath) exists once -ReadOnly resolved it; a store with no
+    # snapshot is answered by the unknown-name refusal (2) below.
 
     $result = @(Remove-BackupSnapshot -BackupRoot $paths.BkpPath -ChangeRoot $paths.ChgPath `
                     -Name $names -SevenZipPath $Deps['7z'] -Log $Log `
@@ -541,7 +540,7 @@ function Invoke-VerifyAction {
         # Object-level audit (bounded-run-loop plan R9, R10, C4): duplicate
         # copies and objects of a length their name rules out always (review
         # 2026-10-26 G1), damaged bytes under -Deep. -RepairStorage moves both
-        # into <ChangePath>/Verify/ - nothing is deleted - and the audit runs
+        # into <StorePath>/Verify/ - nothing is deleted - and the audit runs
         # again so the report is the state the caller is left in. A plain run
         # says up front what a repair would cost: the kept copies it would read
         # to confirm before any duplicate moves (plan C28).
