@@ -194,10 +194,11 @@ Imports (internal): `Common`
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-DataFile` | yes | SR-057, SR-074, LLR-057, LLR-078 |
 | `Get-EmptySourceMessage` | no | SR-036, LLR-036 |
-| `Get-FolderFileSet` | no | SR-064, LLR-062 |
+| `Get-FolderFileSet` | no | SR-064, SR-045, LLR-062 |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-LatestObject` | no | SR-003, SR-053, SR-108 |
+| `Get-ListedFileDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-ListedObjectDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |

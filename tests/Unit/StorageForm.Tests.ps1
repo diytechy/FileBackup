@@ -681,8 +681,8 @@ Describe 'Storage-form verification reports without mutating (SR-049)' {
         Set-ManifestRows -Folder $t.Bkp -Rows $rows
         [IO.File]::WriteAllText((Join-Path $snaps[1] 'stray.bin'), 'no row names me')
 
-        # What the audit reported when its index held every manifest.
-        $whole = Get-BackupContentIndex -BackupRoot $t.Bkp -SnapshotFolder $snaps -IncludeManifests
+        # What the audit reports from an index built directly.
+        $whole = Get-BackupContentIndex -BackupRoot $t.Bkp -SnapshotFolder $snaps
         $expected = @(foreach ($folder in @($t.Bkp) + $snaps) {
             Get-StorageFormFinding -Folder $folder -Manifest @(Read-Manifest -FolderPath $folder) -Index $whole
         })

@@ -1971,7 +1971,7 @@ Describe 'Prune changes only the storage-form columns (SR-045)' {
         $before = @{}
         foreach ($folder in $survivors) { $before[$folder] = @(Import-Csv -LiteralPath (Join-Path $folder 'MANIFEST.csv')) }
         $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
-        $planned = @($plan.Items.ToArray() | ForEach-Object { "$($_.DestinationFolder)|$($_.DestinationRow.RelativePath)" })
+        $planned = @($plan.Items.ToArray() | ForEach-Object { "$($_.DestinationFolder)|$($_.DestinationRelativePath)" })
 
         Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -SevenZipPath $sevenZip | Out-Null
 
@@ -1990,6 +1990,83 @@ Describe 'Prune changes only the storage-form columns (SR-045)' {
                 }
             }
         }
+    }
+}
+
+Describe 'Prune and the pool check read one manifest at a time (SR-045, SR-046, plan C43)' {
+    It 'the plan keeps no manifest: each folder is read twice at most, and an item names its destination row by position (C43)' {
+        $env = New-PruneTimeline -Root (Join-Path $TestDrive 'c43-reads')
+        $script:c43Reads = [System.Collections.Generic.List[string]]::new()
+        $script:realReadManifest = Get-Command -Name Read-Manifest -Module FileBackup.Common
+        Mock -ModuleName FileBackup.Engine Read-Manifest {
+            $script:c43Reads.Add([string]$FolderPath)
+            & $script:realReadManifest @PesterBoundParameters
+        }
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+
+        $plan.PSObject.Properties['Manifests'] | Should -BeNullOrEmpty
+        foreach ($rec in $plan.Index.Folders) { $rec.PSObject.Properties['Manifest'] | Should -BeNullOrEmpty }
+        foreach ($group in ($script:c43Reads | Group-Object)) {
+            $group.Count | Should -BeLessOrEqual 2 -Because "'$($group.Name)' is read by the index once and by the plan once"
+        }
+        $plan.Items.Count | Should -BeGreaterThan 0
+        foreach ($item in $plan.Items.ToArray()) {
+            $item.PSObject.Properties['DestinationRow'] | Should -BeNullOrEmpty
+            $row = @(Read-Manifest -FolderPath $item.DestinationFolder)[$item.DestinationRowIndex]
+            $row.RelativePath | Should -BeExactly $item.DestinationRelativePath
+            "$($row.xxH2Hash)|$($row.Length)" | Should -Be $item.Key
+        }
+    }
+
+    It 'publishing refuses a destination manifest that changed after the plan, and writes nothing (C43)' {
+        $env = New-PruneTimeline -Root (Join-Path $TestDrive 'c43-guard')
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $item = $plan.Items.ToArray()[0]
+        $rows = @(Read-Manifest -FolderPath $item.DestinationFolder)
+        [array]::Reverse($rows)
+        Write-Manifest -FolderPath $item.DestinationFolder -Records $rows
+        $manifest = Join-Path $item.DestinationFolder 'MANIFEST.csv'
+        $before = Get-FileXxHash -FilePath $manifest
+
+        { Publish-PruneManifest -Plan $plan -Log { param($m, $l) } } | Should -Throw '*changed after the prune was planned*'
+        Get-FileXxHash -FilePath $manifest | Should -Be $before
+    }
+
+    It 'a damaged copy is no supply: the good copy in the target is not deleted beside it (C43, C37)' {
+        # The destination row names the object by a DataPath that went stale
+        # when the object moved into the newer snapshot. An empty file of that
+        # name in the destination is damaged (C37). Counted as a copy, the
+        # newer snapshot's good copy looked redundant and was deleted.
+        $env = New-PruneTimeline -Root (Join-Path $TestDrive 'c43-damaged')
+        $plan = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        $item = $plan.Items.ToArray()[0]
+        $planted = Join-Path $item.DestinationFolder $item.DestinationDataPath
+        [IO.File]::WriteAllBytes($planted, [byte[]]@())
+        $good = Get-FileXxHash -FilePath $item.SourceFullPath
+
+        $replanned = Get-SnapshotPrunePlan -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest
+        # Still endangered: the plan elects the same destination, finds a different
+        # file at the name and refuses rather than overwrite it.
+        @($replanned.Problems.ToArray() | Where-Object Kind -eq 'destination-collision').Count | Should -Be 1 -Because 'the key is still endangered'
+        $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest)
+        $result[0].Status | Should -Be 'Refused'
+        $result[0].Code | Should -Be 2
+        @($result[0].Refusals | Where-Object Kind -eq 'destination-collision').Count | Should -Be 1
+        Test-Path -LiteralPath $item.SourceFullPath -PathType Leaf | Should -BeTrue
+        Get-FileXxHash -FilePath $item.SourceFullPath | Should -Be $good
+    }
+
+    It 'the pool check names a row whose own object is damaged when no good copy survives (C43)' {
+        $env = New-PruneTimeline -Root (Join-Path $TestDrive 'c43-pool')
+        $row = @(Read-Manifest -FolderPath $env.Bkp | Where-Object RelativePath -eq 'keep.txt')[0]
+        $object = Join-Path $env.Bkp $row.DataPath
+        # Every copy of keep.txt's content lives in the backup root.
+        [IO.File]::WriteAllBytes($object, [byte[]]@())
+        $problems = @(Test-PoolResolves -BackupRoot $env.Bkp -ChangeRoot $env.Chg)
+        $mine = @($problems | Where-Object { $_.RelativePath -eq 'keep.txt' -and $_.Folder -eq (Split-Path $env.Bkp -Leaf) })
+        $mine.Count | Should -Be 1
+        $mine[0].Kind | Should -Be 'broken-pool'
+        $mine[0].Message | Should -BeLike '*is damaged*'
     }
 }
 

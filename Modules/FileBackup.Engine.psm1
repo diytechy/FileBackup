@@ -734,6 +734,11 @@ function Get-FolderFileSet {
         DataPaths (most of them naming objects still in the backup root), a
         per-row probe would cost a stat for nearly every row of every snapshot.
 
+        An object whose listing shows it damaged (Get-ListedFileDamage, plan
+        C37) is left out, as the backup run's object index leaves it out: it
+        is no copy of its content (C43). Retention counted one as supply, so a
+        snapshot holding the only good copy could be pruned beside it.
+
     .PARAMETER Folder
         The folder.
 
@@ -741,13 +746,17 @@ function Get-FolderFileSet {
         [System.Collections.Generic.HashSet[string]] (empty when the folder is
         absent or cannot be listed).
     #>
-    # Implements: SR-064, LLR-062
+    # Implements: SR-064, SR-045, LLR-062
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Folder)
     $comparer = if ($IsWindows) { [System.StringComparer]::OrdinalIgnoreCase } else { [System.StringComparer]::Ordinal }
     $set = [System.Collections.Generic.HashSet[string]]::new($comparer)
     try {
-        foreach ($f in [System.IO.DirectoryInfo]::new($Folder).EnumerateFiles()) { [void]$set.Add($f.Name) }
+        foreach ($f in [System.IO.DirectoryInfo]::new($Folder).EnumerateFiles()) {
+            $parsed = ConvertFrom-StoredObjectName -Name $f.Name
+            if ($null -ne $parsed -and $null -ne (Get-ListedFileDamage -File $f -Parsed $parsed)) { continue }
+            [void]$set.Add($f.Name)
+        }
     } catch {
         Write-Verbose "Could not list '$Folder': $($_.Exception.Message)"
     }
@@ -789,7 +798,7 @@ function Get-BackupContentIndex {
     .SYNOPSIS
         Builds the physical content index over a backup pool (backup root +
         snapshot folders): "<xxH2Hash>|<Length>" -> every folder that actually
-        holds those bytes, plus each folder's manifest.
+        holds those bytes, plus one record per folder.
 
     .DESCRIPTION
         One scan for the retention mechanism and the storage audit (LLR-047);
@@ -809,26 +818,23 @@ function Get-BackupContentIndex {
     .PARAMETER SnapshotFolder
         Full paths of the snapshot folders to index, oldest first. May be empty.
 
-    .PARAMETER IncludeManifests
-        Retain each folder's whole manifest in Folders[].Manifest. Off by default
-        (M-1, defect review 2026-10-05): a retained manifest costs ~2.3 KB per row,
-        so the lean default keeps only DataPaths. Callers that read whole rows
-        from the index (prune, pool-resolve, the G9 Rollback suite) pass it;
-        the storage-form audit reads only Map and does not.
+        Each manifest is read, indexed and let go before the next is read (plan
+        C43): a manifest costs ~2.3 KB per row, ~420 MB at HomeHub's 182,000
+        rows, and holding every one was the 2026-10-04 outage. A caller that
+        needs rows reads them again, one folder at a time (retention does).
 
     .OUTPUTS
         [pscustomobject] Map (hashtable key -> List of location records with
         LocationType/Folder/DataPath/FullPath/IsBackup/FolderOrder) and Folders
-        (one record per indexed folder: Folder, Name, Order, IsBackup, DataPaths,
-        Files - the set of the folder's top-level file names, from one listing -
-        plus Manifest only under -IncludeManifests).
+        (one record per indexed folder: Folder, Name, Order, IsBackup, and
+        Files - the set of the folder's top-level file names, from one listing,
+        less any its listing shows damaged).
     #>
     # Implements: SR-026, SR-045, SR-047, LLR-047
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$BackupRoot,
-        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][string[]]$SnapshotFolder,
-        [switch]$IncludeManifests
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][string[]]$SnapshotFolder
     )
     $map = @{}   # "<hash>|<len>" -> list of location records
 
@@ -854,34 +860,22 @@ function Get-BackupContentIndex {
 
     $folders = New-Object System.Collections.Generic.List[object]
 
-    # Reads one manifest into the map and returns its non-blank DataPaths as an
-    # array. The manifest is then unreferenced unless -IncludeManifests keeps it.
+    # One manifest at a time (C43): read, indexed, and unreferenced before the
+    # next is read.
     $indexFolder = {
-        param([string]$LocationType, [string]$Folder, [object[]]$Rows, [int]$FolderOrder, [object]$Files)
-        $dps = New-Object System.Collections.Generic.List[string]
-        foreach ($row in $Rows) {
-            & $addToMap $LocationType $Folder $row $FolderOrder $Files
-            if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $dps.Add([string]$row.DataPath) }
+        param([string]$LocationType, [string]$Folder, [int]$FolderOrder)
+        $files = Get-FolderFileSet -Folder $Folder
+        foreach ($row in (Read-Manifest -FolderPath $Folder)) {
+            & $addToMap $LocationType $Folder $row $FolderOrder $files
         }
-        return ,($dps.ToArray())
+        $folders.Add([pscustomobject]@{
+            Folder = $Folder; Name = [IO.Path]::GetFileName($Folder)
+            Order = $FolderOrder; IsBackup = ($LocationType -eq 'Backup'); Files = $files
+        })
     }
 
     if (Test-Path -LiteralPath (Join-Path $BackupRoot $script:Def.DatabaseFilename) -PathType Leaf) {
-        $backupManifest = Read-Manifest -FolderPath $BackupRoot
-        $backupFiles = Get-FolderFileSet -Folder $BackupRoot
-        $backupDataPaths = & $indexFolder 'Backup' $BackupRoot $backupManifest -1 $backupFiles
-        if ($IncludeManifests) {
-            $folders.Add([pscustomobject]@{
-                Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
-                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths; Files = $backupFiles; Manifest = $backupManifest
-            })
-        } else {
-            $folders.Add([pscustomobject]@{
-                Folder = $BackupRoot; Name = [IO.Path]::GetFileName($BackupRoot)
-                Order = -1; IsBackup = $true; DataPaths = $backupDataPaths; Files = $backupFiles
-            })
-        }
-        $backupManifest = $null
+        & $indexFolder 'Backup' $BackupRoot -1
     }
 
     $folderOrder = 0
@@ -889,21 +883,7 @@ function Get-BackupContentIndex {
     # parameter as $null makes @($SnapshotFolder) one $null element.
     foreach ($dir in @($SnapshotFolder | Where-Object { $_ })) {
         $folderOrder++
-        $manifest = Read-Manifest -FolderPath $dir
-        $files = Get-FolderFileSet -Folder $dir
-        $dataPaths = & $indexFolder 'Change' $dir $manifest $folderOrder $files
-        if ($IncludeManifests) {
-            $folders.Add([pscustomobject]@{
-                Folder = $dir; Name = [IO.Path]::GetFileName($dir)
-                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths; Files = $files; Manifest = $manifest
-            })
-        } else {
-            $folders.Add([pscustomobject]@{
-                Folder = $dir; Name = [IO.Path]::GetFileName($dir)
-                Order = $folderOrder; IsBackup = $false; DataPaths = $dataPaths; Files = $files
-            })
-        }
-        $manifest = $null
+        & $indexFolder 'Change' $dir $folderOrder
     }
 
     return [pscustomobject]@{ Map = $map; Folders = $folders }
@@ -974,6 +954,14 @@ function Get-SnapshotPrunePlan {
         and Remove-BackupSnapshot can apply the 2 > 3 > 4 > 1 precedence over
         the whole set.
 
+        No more than one manifest is held at a time (plan C43). The endangered
+        keys are known from the lean index alone - every copy inside the
+        target - so the target's manifest is read once for its counts and its
+        source rows, and every other manifest once, keeping only the rows that
+        claim an endangered key. An item names its destination row by position
+        (no row is ever added, removed or reordered), and Publish-PruneManifest
+        reads that manifest again to edit it.
+
     .PARAMETER BackupRoot
         The live backup root.
 
@@ -985,8 +973,11 @@ function Get-SnapshotPrunePlan {
 
     .OUTPUTS
         [pscustomobject] Name, Folder, Date, Rows, PhysicalBytes, Items,
-        BytesReHomed, BytesReclaimed, UnreferencedData, Problems, Index,
-        Manifests.
+        BytesReHomed, BytesReclaimed, UnreferencedData, Problems, Index. Each
+        item: Key, SourceFullPath, SourceDataPath, SourceRow (the target's
+        row), DestinationFolder, DestinationDataPath, DestinationRowIndex and
+        DestinationRelativePath (the destination row's position and the
+        RelativePath it must still carry), Compressed, StoredAsHashSize, Bytes.
     #>
     # Implements: SR-045, SR-047, LLR-045, LLR-047
     [CmdletBinding()]
@@ -1002,7 +993,7 @@ function Get-SnapshotPrunePlan {
         Rows = 0; PhysicalBytes = [long]0; Items = $items
         BytesReHomed = [long]0; BytesReclaimed = [long]0
         UnreferencedData = @(); Problems = $problems
-        Index = $null; Manifests = @{}
+        Index = $null
     }
 
     $snapshots = Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot
@@ -1015,11 +1006,36 @@ function Get-SnapshotPrunePlan {
     $targetFolder = $target.FullName
     $plan.Folder  = $targetFolder
 
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName }) -IncludeManifests
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
     $plan.Index = $index
-    foreach ($f in $index.Folders) { $plan.Manifests[$f.Folder] = $f.Manifest }
-    $targetManifest = @($index.Folders | Where-Object { $_.Folder -eq $targetFolder } | ForEach-Object { $_.Manifest })
-    $plan.Rows = $targetManifest.Count
+
+    # Endangered: every physical copy of the key lies inside the target. Known
+    # from the index alone, so the manifests below keep only rows that matter.
+    # .ToArray(), not @(...): a List reached through a PSObject property
+    # throws "Argument types do not match" under the array subexpression on
+    # PS 7.5 (the same gotcha AGENTS.md §4 records for Compare-SourceToBackup).
+    $endangered = @{}   # key -> the target's first location
+    foreach ($key in $index.Map.Keys) {
+        $locations = $index.Map[$key].ToArray()
+        if (@($locations | Where-Object { $_.Folder -ne $targetFolder }).Count -gt 0) { continue }  # survives without the target
+        $endangered[$key] = $locations[0]
+    }
+
+    # The target's manifest, read once: its row count, the DataPaths it
+    # references, and the first row naming each endangered copy (Ordinal: two
+    # object names may differ only in case).
+    $ownReferenced = @{}
+    $sourceRowOf = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $wanted = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($location in $endangered.Values) { [void]$wanted.Add($location.DataPath) }
+    $rowCount = 0
+    foreach ($row in (Read-Manifest -FolderPath $targetFolder)) {
+        $rowCount++
+        if ([string]::IsNullOrWhiteSpace($row.DataPath)) { continue }
+        $ownReferenced[$row.DataPath.TrimStart('\','/')] = $true
+        if ($wanted.Contains($row.DataPath) -and -not $sourceRowOf.ContainsKey($row.DataPath)) { $sourceRowOf[$row.DataPath] = $row }
+    }
+    $plan.Rows = $rowCount
 
     # Everything in the folder disappears with it — data files and the snapshot's
     # own restore-kit copies alike.
@@ -1030,44 +1046,40 @@ function Get-SnapshotPrunePlan {
 
     # Bytes in the target that its own manifest does not reference are unexplained
     # (the pipeline never creates one) — a refusal, not something to plan around.
-    $ownReferenced = @{}
-    foreach ($row in $targetManifest) {
-        if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) { $ownReferenced[$row.DataPath.TrimStart('\','/')] = $true }
-    }
     $targetPrefix = (Resolve-Path -LiteralPath $targetFolder).Path
     $unreferenced = foreach ($file in (Get-DataFile -Root $targetFolder)) {
         $rel = $file.FullName.Substring($targetPrefix.Length).TrimStart('\','/')
         if (-not $ownReferenced[$rel] -and $rel -notlike '*.fbprune.tmp') { $rel }
     }
     $plan.UnreferencedData = @($unreferenced)
+    $ownReferenced = $null
 
-    # Demand: rows OUTSIDE the target that resolve by (hash,length).
+    # Demand: rows OUTSIDE the target that resolve by (hash,length) and claim an
+    # endangered key, read one manifest at a time. A claim keeps the row's
+    # position, not the row.
     $demand = @{}
-    foreach ($f in $index.Folders) {
-        if ($f.Folder -eq $targetFolder) { continue }
-        foreach ($row in $f.Manifest) {
-            if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
-            $resolvesByHash = [string]::IsNullOrWhiteSpace($row.DataPath) -or
-                -not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)
-            if (-not $resolvesByHash) { continue }
-            $key = "$($row.xxH2Hash)|$($row.Length)"
-            if (-not $demand.ContainsKey($key)) { $demand[$key] = New-Object System.Collections.Generic.List[object] }
-            $demand[$key].Add([pscustomobject]@{ FolderRecord = $f; Row = $row })
+    if ($endangered.Count -gt 0) {
+        foreach ($f in $index.Folders) {
+            if ($f.Folder -eq $targetFolder) { continue }
+            $position = -1
+            foreach ($row in (Read-Manifest -FolderPath $f.Folder)) {
+                $position++
+                if ([string]::IsNullOrWhiteSpace($row.xxH2Hash)) { continue }
+                $key = "$($row.xxH2Hash)|$($row.Length)"
+                if (-not $endangered.ContainsKey($key)) { continue }
+                $resolvesByHash = [string]::IsNullOrWhiteSpace($row.DataPath) -or
+                    -not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)
+                if (-not $resolvesByHash) { continue }
+                if (-not $demand.ContainsKey($key)) { $demand[$key] = New-Object System.Collections.Generic.List[object] }
+                $demand[$key].Add([pscustomobject]@{ FolderRecord = $f; RowIndex = $position; RelativePath = [string]$row.RelativePath })
+            }
         }
     }
 
     foreach ($key in $demand.Keys) {
-        # .ToArray(), not @(...): a List reached through a PSObject property
-        # throws "Argument types do not match" under the array subexpression on
-        # PS 7.5 (the same gotcha AGENTS.md §4 records for Compare-SourceToBackup).
-        $locations = @()
-        if ($index.Map.ContainsKey($key)) { $locations = $index.Map[$key].ToArray() }
-        if ($locations.Count -eq 0) { continue }                                    # already broken: Test-PoolResolves reports it
-        if (@($locations | Where-Object { $_.Folder -ne $targetFolder }).Count -gt 0) { continue }  # survives without the target
-
-        $source    = $locations[0]
-        $sourceRow = @($targetManifest | Where-Object { $_.DataPath -eq $source.DataPath })[0]
-        if (-not $sourceRow) { continue }
+        $source    = $endangered[$key]
+        $sourceRow = $null
+        if (-not $sourceRowOf.TryGetValue($source.DataPath, [ref]$sourceRow)) { continue }
 
         $claims  = $demand[$key].ToArray()
         $winner  = @($claims | Where-Object { $_.FolderRecord.IsBackup })[0]
@@ -1113,7 +1125,8 @@ function Get-SnapshotPrunePlan {
             SourceRow           = $sourceRow
             DestinationFolder   = $destFolder
             DestinationDataPath = $destName
-            DestinationRow      = $winner.Row
+            DestinationRowIndex     = $winner.RowIndex
+            DestinationRelativePath = $winner.RelativePath
             Compressed          = $sourceRow.Compressed
             StoredAsHashSize    = $sourceRow.StoredAsHashSize
             Bytes               = [long](Get-Item -LiteralPath $source.FullPath).Length
@@ -1194,7 +1207,9 @@ function Test-PoolResolves {
         whose RelativePath is itself '.7z' stays exempt either way.
 
         Reports rather than throws, so the caller can name every unresolvable row
-        at once.
+        at once. The pool is indexed from the lean content index, and each
+        folder's manifest is then read and checked one at a time (plan C43). A
+        file its listing shows damaged counts as absent (Get-FolderFileSet).
 
     .PARAMETER BackupRoot
         The live backup root.
@@ -1220,7 +1235,7 @@ function Test-PoolResolves {
     $problems  = New-Object System.Collections.Generic.List[object]
     $snapshots = @(Get-PoolSnapshotFolder -ChangeRoot $ChangeRoot |
                    Where-Object { $_.FullName -ne $ExcludeFolder })
-    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName }) -IncludeManifests
+    $index = Get-BackupContentIndex -BackupRoot $BackupRoot -SnapshotFolder @($snapshots | ForEach-Object { $_.FullName })
 
     # WP7 (SR-046 as amended): whether a blank row's located copy must agree in
     # FORM depends on the kit that would restore it — the folder's own. Cached
@@ -1229,7 +1244,7 @@ function Test-PoolResolves {
 
     foreach ($f in $index.Folders) {
         if ($f.Folder -eq $ExcludeFolder) { continue }
-        foreach ($row in $f.Manifest) {
+        foreach ($row in (Read-Manifest -FolderPath $f.Folder)) {
             if (-not [string]::IsNullOrWhiteSpace($row.DataPath)) {
                 $full = Join-Path $f.Folder $row.DataPath
                 if (-not (Test-FolderHoldsFile -Files $f.Files -Folder $f.Folder -Name $row.DataPath)) {
@@ -1263,10 +1278,13 @@ function Test-PoolResolves {
                         }
                         if ($kitRevisionOf[$f.Folder] -ge 4) { continue }
                     }
+                    # Present but left out of the listing set: its listing shows
+                    # it damaged (C37), which is no copy of its content (C43).
+                    $why = if (Test-Path -LiteralPath $full -PathType Leaf) { 'which is damaged (its length rules out its name)' } else { 'which is not in that folder' }
                     $problems.Add([pscustomobject]@{ Code = 2; Kind = 'broken-pool'
                         Folder = $f.Name; RelativePath = $row.RelativePath; DataPath = $row.DataPath
                         BytesSurvive = $bytesSurvive
-                        Message = "'$($f.Name)': row '$($row.RelativePath)' points at '$($row.DataPath)', which is not in that folder." })
+                        Message = "'$($f.Name)': row '$($row.RelativePath)' points at '$($row.DataPath)', $why." })
                     continue
                 }
                 if (-not (Test-StorageFormAgreement -Compressed $row.Compressed -RelativePath $row.RelativePath -DataPath $row.DataPath)) {
@@ -2962,6 +2980,13 @@ function Publish-PruneManifest {
         the six logical columns are untouched. MANIFEST.csv.meta is never copied
         between folders — each folder's witness is stamped for its own manifest.
 
+        The plan holds no manifest (C43), so each touched manifest is read here,
+        one at a time, and each planned row is found by its position. A row
+        there that no longer carries the planned RelativePath and content key
+        means the manifest changed since the plan: that throws before the
+        manifest is written, which the caller reports as 4 before the commit
+        point, nothing lost.
+
     .PARAMETER Plan
         The Get-SnapshotPrunePlan result whose items have been materialized.
 
@@ -2974,18 +2999,30 @@ function Publish-PruneManifest {
         [Parameter(Mandatory)][object]$Plan,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $touched = New-Object System.Collections.Generic.List[string]
+    $byFolder = [ordered]@{}
     foreach ($item in $Plan.Items.ToArray()) {
-        $item.DestinationRow.DataPath         = $item.DestinationDataPath
-        $item.DestinationRow.Compressed       = $item.Compressed
-        $item.DestinationRow.StoredAsHashSize = $item.StoredAsHashSize
-        if (-not $touched.Contains($item.DestinationFolder)) { $touched.Add($item.DestinationFolder) }
+        if (-not $byFolder.Contains($item.DestinationFolder)) { $byFolder[$item.DestinationFolder] = New-Object System.Collections.Generic.List[object] }
+        $byFolder[$item.DestinationFolder].Add($item)
     }
-    foreach ($folder in $touched) {
+    foreach ($folder in $byFolder.Keys) {
+        $rows = @(Read-Manifest -FolderPath $folder)
+        foreach ($item in $byFolder[$folder]) {
+            $i = [int]$item.DestinationRowIndex
+            $row = if ($i -ge 0 -and $i -lt $rows.Count) { $rows[$i] } else { $null }
+            if ($null -eq $row -or [string]$row.RelativePath -cne $item.DestinationRelativePath -or
+                "$($row.xxH2Hash)|$($row.Length)" -ne $item.Key) {
+                throw ("The manifest in '$folder' changed after the prune was planned: row $i is no longer " +
+                       "'$($item.DestinationRelativePath)' with content $($item.Key). Nothing was published; run the prune again.")
+            }
+            $row.DataPath         = $item.DestinationDataPath
+            $row.Compressed       = $item.Compressed
+            $row.StoredAsHashSize = $item.StoredAsHashSize
+        }
         & $Log "Re-homed data published into '$folder'; rewriting its manifest." 'INFO'
-        Write-Manifest -FolderPath $folder -Records $Plan.Manifests[$folder]
+        Write-Manifest -FolderPath $folder -Records $rows
+        $rows = $null
     }
-    return $touched.ToArray()
+    return [string[]]@($byFolder.Keys)
 }
 
 function Complete-PruneDeletion {
@@ -4582,6 +4619,40 @@ function Get-ListedObjectDamage {
     return "it is $FileLength byte(s) long, but its name records $ContentLength byte(s) of raw content and it is no archive"
 }
 
+function Get-ListedFileDamage {
+    <#
+    .SYNOPSIS
+        Get-ListedObjectDamage for one listed file, asked only when its length
+        is one its name rules out.
+
+    .DESCRIPTION
+        Only a length the name rules out can be damage, and never for a '.7z'
+        that is not empty, so the predicate (which may read the first bytes) is
+        asked only then: a call per object costs seconds on a store of 180,000
+        objects. The backup run's object index and retention's folder listings
+        (Get-FolderFileSet) both ask here, so they cannot disagree (C37, C43).
+
+    .PARAMETER File
+        The listed file.
+
+    .PARAMETER Parsed
+        ConvertFrom-StoredObjectName's reading of its name.
+
+    .OUTPUTS
+        [string] the reason, or $null when the listing shows no damage.
+    #>
+    # Implements: SR-049, SR-053, SR-059
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][System.IO.FileInfo]$File,
+        [Parameter(Mandatory)][object]$Parsed
+    )
+    if ($File.Length -eq $Parsed.Length) { return $null }
+    if ($File.Length -ne 0 -and $Parsed.Extension -ieq '.7z') { return $null }
+    return (Get-ListedObjectDamage -Path $File.FullName -FileLength $File.Length -ContentLength $Parsed.Length -Extension $Parsed.Extension)
+}
+
 function Get-StoreObjectIndex {
     <#
     .SYNOPSIS
@@ -4658,16 +4729,11 @@ function Get-StoreObjectIndex {
                 ContentLength = $parsed.Length
                 Extension     = $parsed.Extension
             }
-            # Only a length the name rules out can be damage, and never for a
-            # '.7z' that is not empty, so the predicate is asked only then: a
-            # call per object costs seconds on a store of 180,000 objects.
-            if ($file.Length -ne $parsed.Length -and ($file.Length -eq 0 -or $parsed.Extension -ine '.7z')) {
-                $damage = Get-ListedObjectDamage -Path $file.FullName -FileLength $file.Length -ContentLength $parsed.Length -Extension $parsed.Extension
-                if ($null -ne $damage) {
-                    $entry | Add-Member -NotePropertyName Reason -NotePropertyValue $damage
-                    $damaged.Add($entry)
-                    continue
-                }
+            $damage = Get-ListedFileDamage -File $file -Parsed $parsed
+            if ($null -ne $damage) {
+                $entry | Add-Member -NotePropertyName Reason -NotePropertyValue $damage
+                $damaged.Add($entry)
+                continue
             }
             if ($objects.ContainsKey($parsed.Prefix)) { $dups.Add($entry); continue }
             $objects[$parsed.Prefix] = $entry

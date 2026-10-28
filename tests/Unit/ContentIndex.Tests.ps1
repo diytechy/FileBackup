@@ -75,18 +75,15 @@ Describe 'Lean content index structure (TC-234)' {
         $script:pool = New-SyntheticPool -Root $script:smallRoot -Snapshots 2 -Rows 6 -DataRows 2
     }
 
-    It 'default call retains no Manifest on any folder record and lists exactly the non-blank DataPaths (SR-026, LLR-047)' {
+    It 'retains no manifest and no per-row list on any folder record (SR-026, LLR-047, C43)' {
         $index = Get-BackupContentIndex -BackupRoot $pool.Bkp -SnapshotFolder $pool.Snapshots
         $index.Folders.Count | Should -Be 2
         foreach ($rec in $index.Folders) {
             $rec.PSObject.Properties['Manifest'] | Should -BeNullOrEmpty
+            $rec.PSObject.Properties['DataPaths'] | Should -BeNullOrEmpty
             $rec.IsBackup | Should -BeFalse
         }
-        $i = 0
-        foreach ($rec in $index.Folders) {
-            $i++
-            @($rec.DataPaths) | Should -Be @("d$i-1.bin", "d$i-2.bin")
-        }
+        $index.Map.Count | Should -Be 4 -Because 'two rows per folder name a file that exists'
     }
 
     It 'an empty backup root with no manifest yields no DataPaths and no Manifest (SR-026)' {
@@ -97,26 +94,24 @@ Describe 'Lean content index structure (TC-234)' {
         $index.Map.Count | Should -Be 0
     }
 
-    It '-IncludeManifests keeps Manifest equal to Read-Manifest and still reports DataPaths (SR-045, SR-047)' {
-        $index = Get-BackupContentIndex -BackupRoot $pool.Bkp -SnapshotFolder $pool.Snapshots -IncludeManifests
-        foreach ($rec in $index.Folders) {
-            $rec.PSObject.Properties['Manifest'] | Should -Not -BeNullOrEmpty
-            $fresh = @(Read-Manifest -FolderPath $rec.Folder)
-            @($rec.Manifest).Count | Should -Be $fresh.Count
-            (@($rec.Manifest) | ForEach-Object { $_.RelativePath }) -join '|' |
-                Should -Be (($fresh | ForEach-Object { $_.RelativePath }) -join '|')
-            @($rec.DataPaths).Count | Should -Be 2
-        }
+    It 'leaves out an object its listing shows damaged: it is no copy of its content (SR-045, C37, C43)' {
+        $root = Join-Path $TestDrive 'tc234-damaged'
+        $bkp = Join-Path $root 'bkp'
+        New-Item -ItemType Directory -Path $bkp -Force | Out-Null
+        $hash = '0123456789ABCDEF0123456789ABCDEF'
+        $good = Get-HashSizeFileName -HashHex $hash -Length 5 -Extension '.bin'
+        $badHash = 'FEDCBA9876543210FEDCBA9876543210'
+        $empty = Get-HashSizeFileName -HashHex $badHash -Length 5 -Extension '.bin'
+        [IO.File]::WriteAllText((Join-Path $bkp $good), 'hello')
+        [IO.File]::WriteAllBytes((Join-Path $bkp $empty), [byte[]]@())
+        Write-Manifest -FolderPath $bkp -Records @(
+            (New-IdxRow $good 'a.bin' 5 $hash), (New-IdxRow $empty 'b.bin' 5 $badHash))
+        $index = Get-BackupContentIndex -BackupRoot $bkp -SnapshotFolder @()
+        @($index.Map.Keys) | Should -Be @("$hash|5")
+        $index.Folders[0].Files.Contains($empty) | Should -BeFalse
     }
 
-    It 'the map is identical with and without -IncludeManifests (SR-026)' {
-        $lean = Get-BackupContentIndex -BackupRoot $pool.Bkp -SnapshotFolder $pool.Snapshots
-        $full = Get-BackupContentIndex -BackupRoot $pool.Bkp -SnapshotFolder $pool.Snapshots -IncludeManifests
-        @($lean.Map.Keys | Sort-Object) | Should -Be @($full.Map.Keys | Sort-Object)
-        $lean.Map.Count | Should -Be 4
-    }
-
-    It 'lean retained memory is under 25% of the -IncludeManifests figure and under two manifests (TC-234 memory, Smoke)' {
+    It 'lean retained memory is under 25% of every manifest held at once and under two manifests (TC-234 memory, Smoke)' {
         # 12 snapshots x 5,000 rows, 5 real data rows each (reduced from 20,000 to
         # keep the Smoke run under ~60 s). Ratios, not bytes,
         # so the assertion is machine-independent.
@@ -124,10 +119,11 @@ Describe 'Lean content index structure (TC-234)' {
         $snaps = $big.Snapshots
 
         $leanBytes = Measure-RetainedBytes { Get-BackupContentIndex -BackupRoot $big.Bkp -SnapshotFolder $snaps }
-        $fullBytes = Measure-RetainedBytes { Get-BackupContentIndex -BackupRoot $big.Bkp -SnapshotFolder $snaps -IncludeManifests }
+        # What the index cost when it kept every manifest (before C43).
+        $fullBytes = Measure-RetainedBytes { , @(foreach ($s in $snaps) { , @(Read-Manifest -FolderPath $s) }) }
         $oneManifest = Measure-RetainedBytes { Read-Manifest -FolderPath $snaps[0] }
 
-        Write-Host ("TC-234 memory: lean={0:N0} B, IncludeManifests={1:N0} B, one manifest={2:N0} B, ratio={3:P1}" -f `
+        Write-Host ("TC-234 memory: lean={0:N0} B, every manifest={1:N0} B, one manifest={2:N0} B, ratio={3:P1}" -f `
             $leanBytes, $fullBytes, $oneManifest, ($leanBytes / [double]$fullBytes))
 
         $leanBytes | Should -BeLessThan (0.25 * $fullBytes)

@@ -234,10 +234,11 @@ Imports (internal): `Common`
 | `Get-ConfigValueJsonTypeName` | no | SR-042, LLR-042 |
 | `Get-DataFile` | yes | SR-057, SR-074, LLR-057, LLR-078 |
 | `Get-EmptySourceMessage` | no | SR-036, LLR-036 |
-| `Get-FolderFileSet` | no | SR-064, LLR-062 |
+| `Get-FolderFileSet` | no | SR-064, SR-045, LLR-062 |
 | `Get-LastBackupRun` | yes | SR-005, SR-028, LLR-005, LLR-028 |
 | `Get-LastHashRun` | yes | SR-011, LLR-011 |
 | `Get-LatestObject` | no | SR-003, SR-053, SR-108 |
+| `Get-ListedFileDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-ListedObjectDamage` | no | SR-049, SR-053, SR-059 |
 | `Get-MediaMBPerSec` | yes | SR-020, LLR-020 |
 | `Get-PoolSnapshotFolder` | yes | SR-045, LLR-045 |
@@ -340,6 +341,17 @@ Imports (internal): `Common`
 - **Manifest schema** (9 columns): `DataPath, RelativePath, Length, LastWriteTimeStr,
   xxH2Hash, Compressed, StoredAsHashSize, Duplicate, MediaMBPerSec`. Round-trip only via
   `Read-Manifest`/`Write-Manifest`.
+- **No store action holds more than one manifest at a time** (plan C43). A
+  manifest costs ~2.3 KB per row, ~420 MB at HomeHub's 182,000 rows, and every
+  snapshot manifest is a whole state; holding them all was the 2026-10-04
+  outage (6.6 GB). The backup run reads no snapshot manifest at all
+  (`Get-StoreObjectIndex` lists names). `Get-BackupContentIndex` keeps only its
+  map of usable objects and each folder's file-name set; the prune plan, the
+  pool-resolve check and the storage-form audit read each manifest again, one
+  folder at a time, keeping only the rows they need, and a prune item names
+  its destination row by position (`Publish-PruneManifest` re-reads it and
+  refuses a row that changed). A file the listing calls damaged (C37,
+  `Get-ListedFileDamage`) is no supply anywhere.
 - **Dedup key is `(xxH2Hash, Length)`** — one physical data file per key, across
   runs *and within a single run* (SR-003/SR-060). The first file in walk order
   whose content is new decides that object's extension and form; every later
