@@ -1027,7 +1027,7 @@ function Get-SnapshotPrunePlan {
         The live backup root.
 
     .PARAMETER ChangeRoot
-        The change root holding the snapshot folders.
+        The store folder, whose BackupHistory holds the snapshots.
 
     .PARAMETER Name
         Exact snapshot folder name (no wildcards). See SR-046 for containment.
@@ -1281,7 +1281,7 @@ function Test-PoolResolves {
         The live backup root.
 
     .PARAMETER ChangeRoot
-        The change root holding the snapshot folders.
+        The store folder, whose BackupHistory holds the snapshots.
 
     .PARAMETER ExcludeFolder
         Full path of a folder to leave out of BOTH the index and the rows being
@@ -1769,7 +1769,7 @@ function Test-BackupStorageForm {
         The live backup root.
 
     .PARAMETER ChangeRoot
-        The change root holding the snapshot folders. Ignored under
+        The store folder, whose BackupHistory holds the snapshots. Ignored under
         -BackupRootOnly.
 
     .PARAMETER BackupRootOnly
@@ -2447,7 +2447,7 @@ function Repair-BackupStorageForm {
         The live backup root.
 
     .PARAMETER ChangeRoot
-        The change root holding the snapshot folders.
+        The store folder, whose BackupHistory holds the snapshots.
 
     .PARAMETER BackupRootOnly
         Repair only the backup root.
@@ -2600,7 +2600,7 @@ function Update-BackupSnapshotKit {
         The live backup root, whose kit is the current one.
 
     .PARAMETER ChangeRoot
-        The change root holding the snapshot folders.
+        The store folder, whose BackupHistory holds the snapshots.
 
     .PARAMETER Log
         Logger scriptblock (message, level).
@@ -2861,7 +2861,7 @@ function Get-BackupSnapshot {
         The live backup root.
 
     .PARAMETER ChangeRoot
-        The change root holding the snapshot folders.
+        The store folder, whose BackupHistory holds the snapshots.
 
     .OUTPUTS
         [pscustomobject] per snapshot, oldest first: Name, Date, Rows,
@@ -2890,7 +2890,7 @@ function Remove-CommittedPruneResidue {
     <#
     .SYNOPSIS
         Finishes every snapshot deletion an earlier prune COMMITTED but did not
-        complete: each 'Pruning_<snapshot name>' folder in the change root is
+        complete: each 'Pruning_<snapshot name>' folder in BackupHistory is
         past its own commit point, invisible to every consumer, and only its
         deletion remains (SR-046).
 
@@ -2918,7 +2918,7 @@ function Remove-CommittedPruneResidue {
         commit rename fail before the commit point (4, nothing lost).
 
     .PARAMETER ChangeRoot
-        The change root holding the snapshot folders.
+        The store folder, whose BackupHistory holds the snapshots.
 
     .OUTPUTS
         [int] the number of residue folders deleted.
@@ -3608,7 +3608,7 @@ $script:PruneTestHook_InTransaction              = $null   # TC-246 (a backup ag
 $script:StagingOsLockTestHook_BeforeOpen         = $null   # TC-249 (an open failure that is not a sharing violation)
 
 # The staging OS lock (SR-085). A plain file at the CHANGE ROOT, outside Temp:
-# the change root is enumerated for DIRECTORIES only by every consumer (the
+# the store and BackupHistory are enumerated for DIRECTORIES only by every consumer (the
 # engine's snapshot enumerators, both restorers), and a run's own backup.log
 # already lives beside it, so a file here is invisible to all of them. It is
 # opened with FileShare.None and held for the whole of a backup or prune; the
@@ -4450,8 +4450,19 @@ function Assert-StoreLayout {
         if ($dir.Name -ceq $script:Def.CurrentFolderName -or
             $dir.Name -ceq $script:Def.ViewFolderName -or $dir.Name -ceq $script:VerifyFolderName -or
             $dir.Name -ceq $script:IncomingFolderName -or $dir.Name -ceq 'Temp') { continue }
-        if (Test-Path -LiteralPath (Join-Path $dir.FullName $script:Def.DatabaseFilename) -PathType Leaf) {
+        $hasManifest = Test-Path -LiteralPath (Join-Path $dir.FullName $script:Def.DatabaseFilename) -PathType Leaf
+        # A snapshot moved up out of BackupHistory, not an old store: moving
+        # it back is all it needs (independent review of L9, finding 2).
+        if ($hasManifest -and $dir.Name -match $script:Def.ChangeFolderRegex) {
+            throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a snapshot outside its '$($script:Def.HistoryFolderName)' folder. Nothing has been changed. Move it back into '$(Get-SnapshotRoot -ChangeRoot $StoreRoot)' and run again."
+        }
+        if ($hasManifest) {
             throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a folder with a $($script:Def.DatabaseFilename): an old-layout backup folder. $convert"
+        }
+        # An old snapshot that has lost its manifest is still an old store's: a
+        # run must not start a full backup beside it (C26; review of L9, finding 1).
+        if ($dir.Name -match $script:Def.LegacySnapshotRegex) {
+            throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a Snapshot_<date> folder: an old-layout snapshot. $convert"
         }
         # An old change folder, whatever it is called. A folder that cannot be
         # listed (System Volume Information, when the
@@ -4512,7 +4523,7 @@ function Resolve-BackupSetPaths {
     .SYNOPSIS
         Validates the set's SourcePath and resolves (creating if needed) its
         store folder, and the two roots inside it: CurrentBackup (the backup root)
-        and the store itself (the change root, holding the snapshots).
+        and the store itself (the change root, holding the run files).
 
     .DESCRIPTION
         One folder per set (plan C44): <StorePath>/CurrentBackup is the latest state

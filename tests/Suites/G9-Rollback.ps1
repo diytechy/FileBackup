@@ -189,7 +189,7 @@ function Invoke-G9Prune {
         Save-FailureArtifact -Env $Env -Tag "G9.6-oldest-$suite"
     }
     Assert-True $suite $group 'G9.6' 'Prune_oldest_copies_zero'{ $oldest[0].BytesReHomed -eq 0 }
-    Assert-True $suite $group 'G9.6' 'Prune_oldest_folder_gone'{ -not (Test-Path -LiteralPath (Join-Path $Env.ChgPath $snaps[0])) }
+    Assert-True $suite $group 'G9.6' 'Prune_oldest_folder_gone'{ -not (Test-Path -LiteralPath (Join-Path (Join-Path $Env.ChgPath 'BackupHistory') $snaps[0])) }
 
     # -- newest: it parks the superseded bytes, so this is the expensive case --
     $newest = @(Remove-BackupSnapshot -BackupRoot $Env.BkpPath -ChangeRoot $Env.ChgPath -Name $snaps[3])
@@ -202,7 +202,7 @@ function Invoke-G9Prune {
 
     # Every state that is left still restores byte-exact, and the nested
     # infrastructure-named user file survives every re-home (B6).
-    $survivor = Join-Path $Env.ChgPath $snaps[2]
+    $survivor = Join-Path (Join-Path $Env.ChgPath 'BackupHistory') $snaps[2]
     $r3 = RestoreTo $Env $survivor 'g9p-r3'
     Assert-True $suite $group 'G9.8' 'Prune_survivor_state_restores' { TextAt (Join-Path $r3 'a.txt') 'A3' }
     Assert-True $suite $group 'G9.8' 'Prune_survivor_nested_manifest' { TextAt (Join-Path $r3 'sub\MANIFEST.csv') 'NESTED-NOT-INFRASTRUCTURE' }

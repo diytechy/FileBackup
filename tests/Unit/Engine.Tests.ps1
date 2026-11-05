@@ -183,6 +183,30 @@ Describe 'The store-layout check refuses an old backup, not the engine''s own fo
         Test-Path -LiteralPath (Join-Path $lost 'CurrentBackup') | Should -BeFalse -Because 'no fresh full backup starts beside the snapshots'
     }
 
+    It 'refuses a Snapshot_<date> folder at the store top even with no manifest in it, starting nothing beside it (C26, review of L9)' {
+        $root = Join-Path $TestDrive 'old-snap-no-manifest'
+        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
+        New-Item -ItemType Directory -Path $src, (Join-Path $store 'Snapshot_2026_01_01_10_00_00') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
+        $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage '*old-layout snapshot*'
+        Test-Path -LiteralPath (Join-Path $store 'CurrentBackup') | Should -BeFalse -Because 'no fresh full backup starts beside the snapshots'
+        Test-Path -LiteralPath (Join-Path $store 'BackupHistory') | Should -BeFalse
+    }
+
+    It 'tells the user to move back a snapshot found at the store top, not to set the store aside (review of L9)' {
+        $set = New-LayoutStore -Name 'moved-up' -Child '2026_01_01_10_00_00'
+        New-Item -ItemType Directory -Path (Join-Path $set.StorePath 'BackupHistory') -Force | Out-Null
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage "*a snapshot outside its 'BackupHistory' folder*Move it back*"
+    }
+
+    It 'leaves a dated folder with no manifest at the store top alone: it is no part of the pool (plan S12)' {
+        $set = New-LayoutStore -Name 'dated-empty' -Child 'BackupHistory'
+        New-Item -ItemType Directory -Path (Join-Path $set.StorePath '2026_01_01_10_00_00') -Force | Out-Null
+        Remove-Item -LiteralPath (Join-Path $set.StorePath 'BackupHistory\MANIFEST.csv') -Force
+        { Resolve-BackupSetPaths -Set $set } | Should -Not -Throw
+    }
+
     It 'refuses a store with a CurrentBackup but no BackupHistory, for a run and read-only, and changes nothing (plan L10, S15)' {
         $root = Join-Path $TestDrive 'no-history'
         $src = Join-Path $root 'src'; $store = Join-Path $root 'store'

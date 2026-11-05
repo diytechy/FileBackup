@@ -12,7 +12,8 @@
           snapshot's own manifest is the authoritative point-in-time state, with
           bytes resolved from <store>/CurrentBackup + the snapshots in BackupHistory.
 
-    The store is the parent of the folder this script runs from (one store
+    The store is found from the folder this script runs from: the parent of
+    CurrentBackup, the grandparent of a dated snapshot (one store
     folder per backup set, kit revision 15); no path is recorded anywhere, so
     a moved or copied store restores as it is. Run from any other folder it
     refuses (2) unless -StoreRootOverride names the store.
@@ -145,7 +146,7 @@
 param(
     [string]$TargetRoot,
     # The store folder (holding CurrentBackup and BackupHistory), for a kit
-    # run from outside it. Otherwise the store is this script's parent folder.
+    # run from outside it. Otherwise the store is found from this script's folder.
     [string]$StoreRootOverride,
     [string]$SevenZipPath,
     # Report the SR-040 exit code as a process exit status instead of throwing.

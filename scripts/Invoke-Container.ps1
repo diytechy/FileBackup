@@ -163,7 +163,7 @@ function Test-ContainerStorageForm {
         [Parameter(Mandatory)][string]$Logs
     )
     $common = @{ Image = $Image; ConfigPath = $ConfigPath; Source = $Source; Store = $Store; Logs = $Logs }
-    # One store per set (plan C44): CurrentBackup inside it, snapshots beside CurrentBackup.
+    # One store per set (plan C44, L9): CurrentBackup and BackupHistory inside it.
     $Backup  = Join-Path $Store 'CurrentBackup'
 
     # --- clean store: exit 0, parseable JSON, nothing modified ---

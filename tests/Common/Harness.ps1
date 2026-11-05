@@ -244,7 +244,7 @@ function Save-FailureArtifact {
             if (Test-Path -LiteralPath $log) { Copy-Item -LiteralPath $log -Destination $dest -Force -ErrorAction SilentlyContinue }
         }
         foreach ($folder in @($Env.BkpPath) + @(Get-ChildItem -LiteralPath (Join-Path $Env.ChgPath 'BackupHistory') -Directory -Force -ErrorAction SilentlyContinue |
-                                                Where-Object { $_.Name -match '^\d{4}_' -or $_.Name -like 'Pruning_*' -or $_.Name -eq 'Temp' } |
+                                                Where-Object { $_.Name -match '^\d{4}_' -or $_.Name -like 'Pruning_*' } |
                                                 ForEach-Object { $_.FullName })) {
             $m = Join-Path $folder 'MANIFEST.csv'
             if (Test-Path -LiteralPath $m) {

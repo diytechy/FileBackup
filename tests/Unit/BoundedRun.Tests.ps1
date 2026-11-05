@@ -1388,5 +1388,28 @@ Describe 'Refusals need a person (2); a held lock is retry later (4) (plan §6)'
             { Assert-SingleStoreMount -BackupRoot $s.Bkp -ChangeRoot $s.Chg } | Should -Not -Throw
         } finally { cmd /c "subst ${letter}: /d" | Out-Null }
     }
+    It 'tries BackupHistory as well as the store, and leaves neither test folder behind (plan L9)' -Skip:(-not $IsWindows) {
+        # A true split needs a bind mount (the container check has one). Here
+        # a folder the check cannot write to proves it goes there at all.
+        $s = New-Store 'historymount'
+        $history = Join-Path $s.Chg 'BackupHistory'
+        { Assert-SingleStoreMount -BackupRoot $s.Bkp -ChangeRoot $s.Chg } | Should -Not -Throw
+        @(Get-ChildItem -LiteralPath $history -Force) | Should -BeNullOrEmpty
+        @(Get-ChildItem -LiteralPath $s.Bkp -Force) | Should -BeNullOrEmpty
+        icacls $history /deny "${env:USERNAME}:(AD)" | Out-Null
+        try {
+            { Assert-SingleStoreMount -BackupRoot $s.Bkp -ChangeRoot $s.Chg } | Should -Throw
+        } finally { icacls $history /remove:d "${env:USERNAME}" | Out-Null }
+    }
+    It 'clears a killed run''s leftovers wherever they sit, and only those (plan L9)' {
+        $s = New-Store 'residue'
+        Set-SourceFile $s 'a.txt' 'a'
+        $history = Join-Path $s.Chg 'BackupHistory'
+        $gone = @((Join-Path $history 'Building_2026_01_01_10_00_00'), (Join-Path $history '.fbmountcheck-1'),
+                  (Join-Path $s.Chg '.fbmountcheck-2'), (Join-Path $s.Bkp '.fbmountcheck-3'))
+        New-Item -ItemType Directory -Path $gone -Force | Out-Null
+        Invoke-Run $s '2026-03-01T10:00:00' | Should -Be 0
+        foreach ($path in $gone) { Test-Path -LiteralPath $path | Should -BeFalse -Because "'$path' is residue" }
+    }
 }
 }

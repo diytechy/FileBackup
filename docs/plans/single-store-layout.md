@@ -195,6 +195,20 @@ Each is reported to the Owner with the package.
 - **S16 - kit revision 16.** A kit older than 16 in a folder named
   `CurrentBackup` marks an old layout, as C44's finding 2 did for `Latest`.
 
+- **S17 - independent review of `88640a0`.** Nothing serious. Fixed: a
+  `Snapshot_<date>` folder with no manifest at the store's top is refused again
+  (a regression; it had started a backup beside it); a dated snapshot at the top
+  now says to move it back rather than to set the store aside; tests added for
+  the mount check reaching `BackupHistory`, residue in all three places, S15's
+  exit 1 and L10 for every action through the entry point. Left, for the Owner:
+  a `CurrentBackup` holding a manifest and flat objects but no kit, with an
+  empty `BackupHistory`, is adopted (as before this change; nothing is lost,
+  Verify reports the objects and a run stores them again); a symlinked
+  `BackupHistory` is refused by `reconstruct.sh` (its name resolves to the
+  target; `--store-root` gets past it) and accepted by `RECONSTRUCT.ps1`; a
+  plain file named `BackupHistory` in a new store passes S14's creation step and
+  meets L10 on the next run.
+
 ## Done when
 
 Lint clean; the full unit suite, the integration sweep, bats and shellcheck,

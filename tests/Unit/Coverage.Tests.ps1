@@ -3298,6 +3298,46 @@ Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)' {
         }
     }
 
+    It 'with BackupHistory missing, reports a row whose object is gone with 1 and restores the rest (plan S15)' {
+        $root = Join-Path $TestDrive 'wg-no-history-lost'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'KEPT')
+        [IO.File]::WriteAllText((Join-Path $src 'k.txt'), 'LEFT IN A SNAPSHOT')
+        Invoke-FB $cfg
+        Remove-Item -LiteralPath (Join-Path $chg 'BackupHistory') -Recurse -Force
+        $row = @(Read-Manifest -FolderPath $bkp | Where-Object RelativePath -eq 'k.txt')[0]
+        Remove-Item -LiteralPath (Get-StoredObjectPath -Folder $bkp -Name $row.DataPath -Sharded) -Force
+
+        $target = Join-Path $root 'restored'
+        & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $bkp 'RECONSTRUCT.ps1') -TargetRoot $target -NonInteractive -ExitCode *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 1
+        [IO.File]::ReadAllText((Join-Path $target 'a.txt')) | Should -Be 'KEPT'
+        Test-Path -LiteralPath (Join-Path $target 'k.txt') | Should -BeFalse
+    }
+
+    It 'refuses every action with 2 when BackupHistory is missing, and none recreates it (plan L10, S15): <Action>' -ForEach @(
+        @{ Action = 'Backup'; Extra = @() }
+        @{ Action = 'Verify'; Extra = @() }
+        @{ Action = 'Snapshots'; Extra = @() }
+        @{ Action = 'Prune'; Extra = @('-Snapshot', '2024_01_01_00_00_01') }
+    ) {
+        $root = Join-Path $TestDrive "wg-l10-$Action"
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        $cfg = Join-Path $root 'c.xml'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        New-FBConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
+        [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'A')
+        Invoke-FB $cfg
+        Remove-Item -LiteralPath (Join-Path $chg 'BackupHistory') -Recurse -Force
+
+        & (Get-Process -Id $PID).Path -NoProfile -File $entry -ConfigPath $cfg -Action $Action @Extra -NoMail -NonInteractive -ExitCode *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 2
+        Test-Path -LiteralPath (Join-Path $chg 'BackupHistory') | Should -BeFalse -Because 'the engine never makes the history of an existing store'
+    }
+
     It 'still restores from CurrentBackup when BackupHistory is missing (plan S15)' {
         # L10 stops a backup, never a restore: the moment something has gone
         # wrong is the moment the user most needs their files back.
@@ -3643,6 +3683,7 @@ Describe 'A snapshot can never exist without its restore kit (F8, SR-028)' {
         # The next run clears the unpublished folder and publishes the same state.
         Invoke-BackupSet -Set $set -Deps $deps -LogPaths $logs -BackupTime ([datetime]'2024-03-03 00:00:03') | Should -Be 0
         @(Get-ChildItem -LiteralPath (Join-Path $set.StorePath 'BackupHistory') -Directory | ForEach-Object Name) | Should -Be @('2024_01_01_00_00_01')
+        @(Get-ChildItem -LiteralPath $set.StorePath -Directory | ForEach-Object Name) | Should -Be @('BackupHistory', 'CurrentBackup')
         $t = Join-Path $root 'r'
         & (Join-Path $set.StorePath 'BackupHistory/2024_01_01_00_00_01\RECONSTRUCT.ps1') -TargetRoot $t *>&1 | Out-Null
         [IO.File]::ReadAllText((Join-Path $t 'a.txt')) | Should -Be 'ONE'

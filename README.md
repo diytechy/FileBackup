@@ -684,7 +684,9 @@ value is refused by name before a compression-enabled backup creates anything
 - **`CurrentBackup` is always the latest state**, and each dated folder in
   `BackupHistory` is an older one. The data pool is `CurrentBackup` plus every dated
   folder in `BackupHistory`; nothing else in the store is part of it. A date
-  alone does not make a snapshot: a dated folder anywhere else is ignored.
+  alone does not make a snapshot: a dated folder elsewhere is no part of the
+  pool. One with a `MANIFEST.csv` at the store's top is refused (status 2), with
+  a message saying to move it back into `BackupHistory`.
 - **Both folders must be there.** A store with a `CurrentBackup` but no `BackupHistory`
   is refused (status 2, for every action except a restore): a backup has run
   there, so the history was moved, renamed or deleted, and stopping gives you

@@ -16,7 +16,8 @@
 #     snapshot's own manifest is the authoritative point-in-time state, with each
 #     file's bytes resolved by (xxH2Hash,Length) from the data pool = CurrentBackup
 #     + all sibling snapshots (no newer manifest is ever overlaid).
-#   * The store is the origin's parent folder (one store folder per backup set,
+#   * The store is found from the origin: the parent of CurrentBackup, the
+#     grandparent of a dated snapshot (one store folder per backup set,
 #     kit revision 15): nothing is guessed and no path is recorded, so a moved
 #     or copied store restores as it is. Any other origin is refused (2) unless
 #     --store-root names the store.

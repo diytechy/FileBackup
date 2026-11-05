@@ -7,9 +7,9 @@
 # from each origin's own manifest) are the oracle: a restored file's xxh128sum
 # must equal it.
 #
-# Kit revision 15 (plan C44, S3): one store folder per backup set. The store is
-# the origin's parent, so the origin must be a folder named exactly 'CurrentBackup' or
-# matching ^BackupHistory/<date>; anything else is refused with 2 unless
+# Kit revision 16 (plan C44, S3, L9): one store folder per backup set. The origin
+# must be a folder named exactly 'CurrentBackup', or a dated folder inside
+# BackupHistory; anything else is refused with 2 unless
 # --store-root names the store. No path sidecar is read and nothing is guessed.
 
 setup() { load helpers; }
@@ -42,7 +42,7 @@ copy_store() {
     restore_mode_from_origin HashAddressed_Compress
 }
 
-@test "the fixture store has the kit revision 15 layout: CurrentBackup sharded, snapshots flat, no path sidecar (TC-054, L8)" {
+@test "the fixture store has the kit revision 16 layout: CurrentBackup sharded, snapshots flat, no path sidecar (TC-054, L8)" {
     # Pins what the restores above run against, so a fixture regenerated from
     # an engine that writes another layout fails here by name.
     local mode store f base shard n=0
@@ -130,6 +130,17 @@ copy_store() {
     run bash "$RS" --target-root "$w/out" --from "$w/store/CurrentBackup"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     verify_tree "$w/out" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
+}
+
+@test "1: with BackupHistory missing, a row whose object is gone is reported, the rest restored (plan S15)" {
+    local w="$BATS_TEST_TMPDIR/no-history-lost" obj
+    copy_store HashAddressed "$w/store"
+    rm -rf "$w/store/BackupHistory"
+    obj="$(find "$w/store/CurrentBackup" -mindepth 2 -type f | head -n1)"
+    rm -f -- "$obj"
+    run bash "$RS" --target-root "$w/out" --from "$w/store/CurrentBackup"
+    [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
+    [ -n "$(find "$w/out" -type f ! -name RECONSTRUCT.log)" ]
 }
 
 @test "2: the default origin is the working directory, refused when it is not CurrentBackup or a snapshot (SR-040, kit revision 15)" {
