@@ -25,6 +25,17 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **BOUNDARY DRAFT PREPARED (2026-11-05).** The
+  [boundary review guide](plans/spine-rebaseline-2026-11-05/boundary-review.md)
+  links the revised external frame, summarizes its scope and queues the
+  assumptions review. It reflects the approved retention, coordination and
+  assurance limits, independent scripted recovery and native engine delivery.
+  All frame rows remain Drafted; B-24 is excluded as an inactive legacy
+  reference. Approved needs, their snapshot, runtime behavior and hooks are
+  unchanged. The requested DeepSeek cross-review remains outstanding: the
+  paid endpoint reported insufficient funds and the free endpoint returned
+  no output during a ten-minute wait.
+
 - **STAKEHOLDER NEEDS APPROVED (2026-11-05).** The owner explicitly approved
   all 49 needs following review 01. Only their statuses changed; the approved
   normative text is unchanged from `3363994`. See the
@@ -41,8 +52,8 @@ last) — it is the record, not required reading for every pass.
   Retention establishes a recovery cutoff; reporting does not control manual
   deletion; coordination is within one configuration with unique roots;
   historical support is designated explicitly (none currently); restore
-  verification provides bounded assurance. The rows remain Drafted for the
-  owner's continued review. Runtime behavior and the downstream SR text have
+  verification provides bounded assurance. The needs were subsequently
+  approved as recorded above. Runtime behavior and the downstream SR text have
   not been changed by this review.
 
 - **SPINE RESYNC AND NEEDS REBASELINE (2026-11-05, in progress).** See the
@@ -6842,3 +6853,31 @@ SN-055 instead of hiding it as draft work. Existing interface and other
 reconciliation debt remain. No runtime code or hook changes. The next owner
 review is the external frame, followed by assumptions and system requirements;
 the approval record lists the known frame issues to reconcile.
+
+### 2026-11-05 — prepare the boundary review after needs approval
+
+Reconciled the Drafted external frame with the approved needs: scoped
+coordination, retention cutoff and requested advice, shared-store handoff,
+link fidelity, recovery input/output and failures, native engine versus
+external tools, conditional provisioning, container access, credential limits
+and explicit release support. Preserved all entity, boundary and relationship
+IDs. B-24 remains an explicitly inactive reference pending SR-093/139
+reconciliation, excluded from proposed approval. Added a boundary diagram,
+review groups and an assumptions worklist in the linked boundary review guide.
+No SN, assumption, downstream requirement, approval snapshot, product code or
+hook changed.
+
+The owner explicitly authorized sharing the review documents with DeepSeek
+4.1 through OpenCode. The paid endpoint failed with HTTP 402 insufficient
+funds; the same provider's free endpoint produced no output during ten minutes
+and was stopped. Automatic approval review blocked an alternate provider as a
+separate destination. No external review findings are claimed. The next step
+is owner review of the boundary draft; independent cross-review remains open,
+followed by assumptions and then system-requirement reconciliation.
+
+Validation: strict spine integrity exits 0 (119 existing orphan relationships,
+450 Drafted rows and existing interface debt). All frame rows remain Drafted;
+IDs are preserved and approved needs and pending assumptions match their
+baseline copies byte-for-byte. Documentation: 92 documents, 265 links, zero
+broken, 28 existing orphan warnings. Whitespace check passes. No runtime tests
+were needed for these documentation-only edits.

@@ -9,6 +9,11 @@ remain Drafted. Review [external.toml](../requirements/external.toml) next,
 then [assumptions.toml](../requirements/assumptions.toml), before reconciling
 the system requirements.
 
+The [boundary review guide](spine-rebaseline-2026-11-05/boundary-review.md)
+summarizes the proposed frame corrections and the assumptions worklist. Review
+the 23 active crossings; B-24 remains an inactive legacy reference awaiting
+reconciliation of SR-093/139, not a source-write permission.
+
 **Latest owner review:** [Review 01](spine-rebaseline-2026-11-05/owner-review-01.md)
 revises SN-029, SN-046, SN-039, SN-041 and SN-033, with a consistency edit to
 SN-034. History removal can invalidate all dates at or before its cutoff;
