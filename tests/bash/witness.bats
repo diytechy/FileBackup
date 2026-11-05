@@ -16,7 +16,7 @@ setup() {
     # Work on a WRITABLE copy so we can damage the witness and the manifest.
     WORK="$BATS_TEST_TMPDIR/work"
     cp -r "$(store_for HashAddressed)" "$WORK"
-    BK="$WORK/Latest"
+    BK="$WORK/CurrentBackup"
     MANIFEST="$BK/MANIFEST.csv"
     WITNESS="$BK/MANIFEST.csv.meta"
     # The shape an older engine left: a witness that agrees with its manifest.
@@ -102,7 +102,7 @@ restore_ok() {
     local mode store
     for mode in "${MODES[@]}"; do
         store="$(store_for "$mode")"
-        [ -f "$store/Latest/MANIFEST.csv" ]
+        [ -f "$store/CurrentBackup/MANIFEST.csv" ]
         [ -z "$(find "$store" -name 'MANIFEST.csv.meta*')" ] || { echo "$mode:"; find "$store" -name 'MANIFEST.csv.meta*'; false; }
     done
 }

@@ -38,9 +38,9 @@ Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
 
 $work = Join-Path ([IO.Path]::GetTempPath()) ("FileBackupDemo\" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
 $src  = Join-Path $work 'source'
-# One store per set (plan C44): Latest inside it, snapshots beside it.
+# One store per set (plan C44, L9): CurrentBackup and BackupHistory inside it.
 $chg  = Join-Path $work 'store'
-$bkp  = Join-Path $chg 'Latest'
+$bkp  = Join-Path $chg 'CurrentBackup'
 $cfg  = Join-Path $work 'config.xml'
 New-Item -ItemType Directory -Path $src -Force | Out-Null
 if (-not $ReportPath) { $ReportPath = Join-Path $work 'TimelineReport.md' }
@@ -92,13 +92,13 @@ $script:runNo = 0
 $script:states = [ordered]@{}   # snapshot-folder-name-or-'latest' -> expected tree state
 function Invoke-TimelineRun([datetime]$When, [string[]]$Events) {
     $script:runNo++
-    $before = @(Get-ChildItem -LiteralPath $chg -Directory -ErrorAction SilentlyContinue |
-                Where-Object Name -match '^Snapshot_' | ForEach-Object Name)
+    $before = @(Get-ChildItem -LiteralPath (Join-Path $chg 'BackupHistory') -Directory -ErrorAction SilentlyContinue |
+                Where-Object Name -match '^\d{4}_' | ForEach-Object Name)
     $t0 = Get-Date
     & $entry -ConfigPath $cfg -NoMail -NonInteractive -BackupTime $When *>&1 | Out-Null
     $elapsed = '{0:N1}s' -f ((Get-Date) - $t0).TotalSeconds
-    $after = @(Get-ChildItem -LiteralPath $chg -Directory -ErrorAction SilentlyContinue |
-               Where-Object Name -match '^Snapshot_' | ForEach-Object Name)
+    $after = @(Get-ChildItem -LiteralPath (Join-Path $chg 'BackupHistory') -Directory -ErrorAction SilentlyContinue |
+               Where-Object Name -match '^\d{4}_' | ForEach-Object Name)
     $newSnap = @($after | Where-Object { $_ -notin $before })
 
     Out-Line ''
@@ -168,7 +168,7 @@ $i = 0
 foreach ($snap in $script:states.Keys) {
     $i++
     $expected = $script:states[$snap]
-    $problems = Invoke-Restore (Join-Path $chg $snap) (Join-Path $work "rollback$i") $expected
+    $problems = Invoke-Restore (Join-Path (Join-Path $chg 'BackupHistory') $snap) (Join-Path $work "rollback$i") $expected
     $files = ($expected.Keys | Sort-Object) -join ', '
     $verdict = if ($problems.Count -eq 0) { '**PASS**' } else { '**FAIL** — ' + ($problems -join '; ') }
     Out-Line ("- ``{0}`` -> expected state: [{1}] -> {2}" -f $snap, $files, $verdict)

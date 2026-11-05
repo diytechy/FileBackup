@@ -187,9 +187,11 @@ Each is reported to the Owner with the package.
   run cut short between the two then leaves a store that is still new, never
   one L10 refuses.
 - **S15 - L10 holds for every action, and for no restore.** Backup, Verify,
-  Prune, Snapshots and View refuse. A restore from `CurrentBackup` still runs:
-  it needs no history, and refusing a restore would stop the user getting their
-  files back at the moment something has gone wrong.
+  Prune, Snapshots and View refuse. A restore from `CurrentBackup` still runs,
+  because refusing it would stop the user getting their files back at the
+  moment something has gone wrong. It restores what it can reach: a row whose
+  object was left in a snapshot (a move back that failed) is reported missing
+  and the restore exits 1, as for any lost object.
 - **S16 - kit revision 16.** A kit older than 16 in a folder named
   `CurrentBackup` marks an old layout, as C44's finding 2 did for `Latest`.
 

@@ -4,7 +4,7 @@
 # identical exit codes and identical restored bytes, as recorded in
 # <root>/damage/expected.tsv by scripts/make_damaged_interop.ps1.
 # Each damaged store is a whole store folder (kit revision 15): it is restored
-# from its Latest folder, and the store is found as Latest's parent.
+# from its CurrentBackup folder, and the store is found as CurrentBackup's parent.
 set -uo pipefail
 
 root="${1:?usage: verify_damage_interop.sh <fixture-root>}"
@@ -26,7 +26,7 @@ for shape in heal gone; do
     [[ -d "$store" ]] || { echo "FAIL: store '$store' missing"; fails=$((fails+1)); continue; }
     want_exit="$(awk -F'\t' -v s="$shape" '$1=="exit" && $2==s {print $3}' "$expected")"
     target="$(mktemp -d)/t"
-    bash "$rs" --target-root "$target" --from "$store/Latest" >/dev/null 2>&1
+    bash "$rs" --target-root "$target" --from "$store/CurrentBackup" >/dev/null 2>&1
     got_exit=$?
     if [[ "$got_exit" != "$want_exit" ]]; then
         echo "FAIL[$shape]: exit parity broken — PowerShell $want_exit, bash $got_exit"

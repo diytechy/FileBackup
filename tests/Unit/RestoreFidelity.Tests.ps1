@@ -36,8 +36,8 @@ BeforeAll {
             ordinary populated folder that must NOT be recorded.
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
 
         # Large and repetitive so a Compress-mode store really stores a .7z.
         $shared = 'SHARED-CONTENT-X' * 4000
@@ -156,8 +156,8 @@ Describe 'Directory sidecar (SR-065)' {
 
     It 'writes NO sidecar for a tree with no empty or attributed directory (TC-137)' {
         $root = Join-Path $TestDrive 'dirs-none'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path (Join-Path $src 'sub'), $bkp, $chg -Force | Out-Null
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path (Join-Path $src 'sub'), $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'sub\f.txt') -Value 'X' -NoNewline
         $cfg = Join-Path $root 'cfg.xml'
         New-FidelityConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg
@@ -191,8 +191,8 @@ Describe 'Directory sidecar (SR-065)' {
         $s = New-FidelityStore -Root $root
         Set-Content -LiteralPath (Join-Path $s.Src 'uniq.txt') -Value ('CHANGED-Q' * 4000) -NoNewline
         & $entry -ConfigPath $s.Cfg -NoMail -NonInteractive *>&1 | Out-Null
-        $snap = @(Get-ChildItem -LiteralPath $s.Chg -Directory -Force |
-                    Where-Object { $_.Name -like 'Snapshot_*' })[0]
+        $snap = @(Get-ChildItem -LiteralPath (Join-Path $s.Chg 'BackupHistory') -Directory -Force |
+                    Where-Object { $_.Name -match '^\d{4}_' })[0]
         Test-Path -LiteralPath (Join-Path $snap.FullName $sidecarName) | Should -BeTrue
 
         $verifyOut = & $pwshExe -NoProfile -File $entry -ConfigPath $s.Cfg -NoMail `
@@ -211,8 +211,8 @@ Describe 'Directory sidecar (SR-065)' {
         Set-Content -LiteralPath (Join-Path $s.Src 'uniq.txt') -Value ('CHANGED-Z' * 4000) -NoNewline
         & $entry -ConfigPath $s.Cfg -NoMail -NonInteractive *>&1 | Out-Null
 
-        $snap = @(Get-ChildItem -LiteralPath $s.Chg -Directory -Force |
-                    Where-Object { $_.Name -like 'Snapshot_*' })[0]
+        $snap = @(Get-ChildItem -LiteralPath (Join-Path $s.Chg 'BackupHistory') -Directory -Force |
+                    Where-Object { $_.Name -match '^\d{4}_' })[0]
         $snap | Should -Not -BeNullOrEmpty
         $snapRows = @(Import-Csv -LiteralPath (Join-Path $snap.FullName $sidecarName))
         @($snapRows | Where-Object RelativePath -eq 'empty-dir').Count   | Should -Be 1
@@ -256,8 +256,8 @@ Describe 'The stored form is decided by the bytes, not the Compressed column (SR
             Set-ItResult -Skipped -Because '7-Zip is not available on this host'
         }
         $root = Join-Path $TestDrive ('form-source7z-' + $Mode)
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         # A GENUINE archive in the source. '.7z' is on the non-compressible list,
         # so SR-004 stores it raw - which is exactly the shape that makes a
         # magic-byte sniff insufficient. (The restorer never consults the stored
@@ -344,7 +344,7 @@ Describe 'A source file the run cannot read is never faked (SR-067, plan R12)' {
     # no row, and the files around it are unaffected.
     It 'omits a file that vanishes between the walk and its capture (TC-140)' {
         $root = Join-Path $TestDrive 'vanish-midrun'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'a-keep.txt')   -Value ('KEEP '   * 500) -NoNewline
         Set-Content -LiteralPath (Join-Path $src 'z-vanish.txt') -Value ('VANISH ' * 500) -NoNewline

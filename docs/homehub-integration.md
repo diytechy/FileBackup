@@ -171,7 +171,7 @@ disk.
 
 ### I — Snapshot retention is unbounded
 
-**Where:** the whole product; no removal path prunes a `Snapshot_*` folder.
+**Where:** the whole product; no removal path prunes a dated snapshot folder.
 
 Nothing rotates or ages out snapshots. Deduplication slows growth but does not
 bound it.

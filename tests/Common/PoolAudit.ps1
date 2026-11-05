@@ -60,14 +60,14 @@ function Get-PoolByteVerifiedHashes {
 }
 
 function Get-PoolFolderList {
-    # The audit pool: the backup root (the store's Latest) plus every
-    # Snapshot_* in the change root (the store itself, plan C44).
+    # The audit pool: the backup root (the store's CurrentBackup) plus every
+    # dated snapshot in the store's BackupHistory (plan C44, L9).
     param([string]$BackupRoot, [string]$ChangeRoot)
     $folders = New-Object System.Collections.Generic.List[string]
     $folders.Add($BackupRoot)
     if ($ChangeRoot -and (Test-Path -LiteralPath $ChangeRoot -PathType Container)) {
-        foreach ($d in @(Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force |
-                         Where-Object { $_.Name -match '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}' })) {
+        foreach ($d in @(Get-ChildItem -LiteralPath (Join-Path $ChangeRoot 'BackupHistory') -Directory -Force |
+                         Where-Object { $_.Name -match '^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}' })) {
             $folders.Add($d.FullName)
         }
     }
@@ -118,16 +118,16 @@ function Get-HashNameGrammarViolations {
     <#
     .SYNOPSIS
         TC-123 (SR-058): every non-infrastructure file in the backup root (the
-        store's Latest folder) must carry the content-addressed name grammar
+        store's CurrentBackup folder) must carry the content-addressed name grammar
         "<hash16> <len10><ext>" and sit in its own shard folder,
-        Latest/<first two characters lowercased>/<name> (plan C44, L8) - never
-        at Latest's top level, never in another name's folder, never deeper.
+        CurrentBackup/<first two characters lowercased>/<name> (plan C44, L8) - never
+        at CurrentBackup's top level, never in another name's folder, never deeper.
 
     .DESCRIPTION
         The work-order §3.1 compensating control for the deleted SR-022
         copy-branch refusal: a grammar name can never spell a root-level
         infrastructure name, and an object never sits at the root at all.
-        Snapshot folders sit beside Latest, not inside it, so they are not
+        Snapshot folders sit beside CurrentBackup, not inside it, so they are not
         walked here.
     #>
     param([string]$BackupRoot)

@@ -8,7 +8,7 @@
   "required": ["ConfigVersion", "BackupSets"],
   "properties": {
     "ConfigVersion": {
-      "description": "Currently 3 (versions 1 and 2 are refused as too old: v2 removed PreserveFolderTree — storage is always content-addressed — and added BrowseView/ViewPath; v3 replaced BackupPath and ChangePath with StorePath, one folder per backup set holding Latest/ and every Snapshot_<date>/). A config declaring a higher version is refused by this build. JSON has one number type, so an integral-valued number IS that integer: 3.0 is accepted as 3 (both by this const and by the runtime validator); 3.5, 0, \"3\", 1, 2 and anything above 3 are refused.",
+      "description": "Currently 3 (versions 1 and 2 are refused as too old: v2 removed PreserveFolderTree — storage is always content-addressed — and added BrowseView/ViewPath; v3 replaced BackupPath and ChangePath with StorePath, one folder per backup set holding CurrentBackup/ and BackupHistory/). A config declaring a higher version is refused by this build. JSON has one number type, so an integral-valued number IS that integer: 3.0 is accepted as 3 (both by this const and by the runtime validator); 3.5, 0, \"3\", 1, 2 and anything above 3 are refused.",
       "const": 3
     },
     "BackupSets": {
@@ -38,7 +38,7 @@
         "SourcePath":         { "type": "string", "minLength": 1 },
         "StorePath": {
           "type": "string", "minLength": 1,
-          "description": "One folder per backup set: it holds Latest/ (the latest state), every Snapshot_<date>/ beside it, and the run's own files. A new or empty folder starts a store; a folder holding an old-layout backup (a MANIFEST.csv of its own, or a folder beside Latest that holds one) is refused, because no store is converted."
+          "description": "One folder per backup set: it holds CurrentBackup/ (the latest state), BackupHistory/ (every dated snapshot) and the run's own files. A new or empty folder starts a store; a folder holding an old-layout backup (a MANIFEST.csv of its own, or a folder beside CurrentBackup that holds one) is refused, because no store is converted."
         },
         "HashRecalcFreq": {
           "type": "string",
@@ -52,7 +52,7 @@
         },
         "BrowseView": {
           "enum": ["off", "index"],
-          "description": "Optional; defaults to 'off'. 'index' generates a browsable, manifest-derived INDEX.tsv + per-folder HTML view outside Latest and the snapshots. 'link' is reserved and refused by name."
+          "description": "Optional; defaults to 'off'. 'index' generates a browsable, manifest-derived INDEX.tsv + per-folder HTML view outside CurrentBackup and the snapshots. 'link' is reserved and refused by name."
         },
         "ViewPath": {
           "type": "string",

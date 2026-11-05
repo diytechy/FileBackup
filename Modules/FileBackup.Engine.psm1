@@ -944,25 +944,45 @@ function Get-PoolSnapshotFolder {
     # Implements: SR-045, LLR-045
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$ChangeRoot)
-    if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { return @() }
+    $history = Get-SnapshotRoot -ChangeRoot $ChangeRoot
+    if (-not (Test-Path -LiteralPath $history -PathType Container)) { return @() }
     # -Force (SR-057): the data POOL is built from this list — a hidden snapshot
     # folder would silently drop out of recovery and prune alike (D-4).
-    return @(Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force |
+    return @(Get-ChildItem -LiteralPath $history -Directory -Force |
              Where-Object { $_.Name -match $script:Def.ChangeFolderRegex } |
              Sort-Object Name)
+}
+
+function Get-SnapshotRoot {
+    <#
+    .SYNOPSIS
+        The folder holding a store's snapshots: <ChangeRoot>/BackupHistory
+        (plan L9). The change root itself stays the store, which holds the run
+        files (S10).
+
+    .PARAMETER ChangeRoot
+        The store folder.
+
+    .OUTPUTS
+        [string] The path. It is not checked for existence.
+    #>
+    # Implements: SR-045, LLR-045
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ChangeRoot)
+    return [System.IO.Path]::Combine($ChangeRoot, $script:Def.HistoryFolderName)
 }
 
 function Get-SnapshotDate {
     <#
     .SYNOPSIS
-        Parses the point-in-time date out of a Snapshot_<date> folder name
+        Parses the point-in-time date out of a dated snapshot folder name
         (tolerating the _NNN collision disambiguator older builds appended).
         Returns $null when the name carries no parseable date.
     #>
     # Implements: SR-047, LLR-047
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
-    if ($Name -notmatch '^Snapshot_(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})') { return $null }
+    if ($Name -notmatch '^(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})') { return $null }
     try { return [datetime]::ParseExact($Matches[1], $script:Def.FileLabelDateFormat, $null) }
     catch { return $null }
 }
@@ -975,7 +995,7 @@ function Get-SnapshotPrunePlan {
         pointing at content that no longer exists (SR-045).
 
     .DESCRIPTION
-        Pool = backup root + every Snapshot_* folder. The physical index (bytes
+        Pool = backup root + every dated snapshot folder. The physical index (bytes
         that EXIST) comes from Get-BackupContentIndex. The demand set is every
         row OUTSIDE the target whose DataPath is blank, or whose DataPath names
         a file that is not there — those rows resolve by (hash,length) from
@@ -1041,7 +1061,7 @@ function Get-SnapshotPrunePlan {
     $target    = $snapshots | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
     if (-not $target) {
         $problems.Add([pscustomobject]@{ Code = 2; Kind = 'bad-target'
-            Message = "'$Name' is not a snapshot folder directly under '$ChangeRoot'." })
+            Message = "'$Name' is not a snapshot folder directly under '$(Get-SnapshotRoot -ChangeRoot $ChangeRoot)'." })
         return $plan
     }
     $targetFolder = $target.FullName
@@ -1494,7 +1514,7 @@ function Get-StorageFormFinding {
         (LLR-049, TC-229).
 
     .PARAMETER Folder
-        The pool folder being audited (backup root or one Snapshot_* folder).
+        The pool folder being audited (backup root or one dated snapshot folder).
 
     .PARAMETER Manifest
         That folder's own manifest rows.
@@ -1735,7 +1755,7 @@ function Test-BackupStorageForm {
     <#
     .SYNOPSIS
         Audits a whole backup pool — the live backup root and, by default, every
-        Snapshot_* folder — for disagreements between what the index says about a
+        dated snapshot folder — for disagreements between what the index says about a
         row's storage form and what the bytes actually are (SR-049). Mutates
         nothing.
 
@@ -1974,7 +1994,7 @@ function Get-StoreObjectFinding {
         # The state folder, not the object's directory: in the latest state that
         # is a shard folder (C44, L8), and the kit revision is read from here.
         [pscustomobject]@{
-            Folder = if ($Entry.Folder) { Join-Path $ChangeRoot $Entry.Folder } else { $BackupRoot }
+            Folder = if ($Entry.Folder) { Join-Path (Get-SnapshotRoot -ChangeRoot $ChangeRoot) $Entry.Folder } else { $BackupRoot }
             FolderName = if ($Entry.Folder) { $Entry.Folder } else { [System.IO.Path]::GetFileName($BackupRoot.TrimEnd('\', '/')) }
             RelativePath = ''; DataPath = $Entry.Name; Path = $Entry.Path; Class = $Class
             Observed = $Observed; Expected = $Expected; Repairable = $true
@@ -2557,7 +2577,7 @@ function Update-BackupSnapshotKit {
     <#
     .SYNOPSIS
         Re-copies the backup root's current restore-kit artifacts into every
-        Snapshot_* folder — the only mechanism that retires an old kit from a
+        dated snapshot folder — the only mechanism that retires an old kit from a
         snapshot written before the SR-050 fix (SR-049, plan §5 / decision Q3).
 
     .DESCRIPTION
@@ -2597,7 +2617,7 @@ function Update-BackupSnapshotKit {
         [Parameter(Mandatory)][scriptblock]$Log
     )
     # The staging OS lock (SR-085, LLR-094): a kit refresh overwrites files
-    # inside every Snapshot_* folder and must not race a backup publishing
+    # inside every dated snapshot folder and must not race a backup publishing
     # or deduplicating snapshots, a prune, or the coming staging recovery.
     # A lock that cannot be taken refuses (throws) touching nothing
     # (SR-086). -WhatIf mutates nothing and takes no lock.
@@ -2909,15 +2929,16 @@ function Remove-CommittedPruneResidue {
         [Parameter(Mandatory)][string]$ChangeRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    if (-not (Test-Path -LiteralPath $ChangeRoot -PathType Container)) { return 0 }
+    $history = Get-SnapshotRoot -ChangeRoot $ChangeRoot
+    if (-not (Test-Path -LiteralPath $history -PathType Container)) { return 0 }
     $removed = 0
     try {
         # -Force (SR-057): a hidden leftover would otherwise never be finished.
-        $residue = @(Get-ChildItem -LiteralPath $ChangeRoot -Directory -Force -ErrorAction Stop |
+        $residue = @(Get-ChildItem -LiteralPath $history -Directory -Force -ErrorAction Stop |
                      Where-Object { $_.Name.StartsWith('Pruning_', [System.StringComparison]::Ordinal) -and
                                     $_.Name.Substring(8) -match $script:Def.ChangeFolderRegex })
     } catch {
-        & $Log "Could not look for earlier prunes' leftover folders in '$ChangeRoot': $($_.Exception.Message) The next prune tries again." 'WARN'
+        & $Log "Could not look for earlier prunes' leftover folders in '$history': $($_.Exception.Message) The next prune tries again." 'WARN'
         return 0
     }
     foreach ($folder in $residue) {
@@ -2954,7 +2975,7 @@ function Invoke-PruneEntrySweep {
         every snapshot at once (WP4 review, finding H1); a file its own folder's
         manifest references is data and is never swept.
 
-        Only pool folders are scanned (the backup root and each Snapshot_*),
+        Only pool folders are scanned (the backup root and each dated snapshot),
         because those are the only re-home destinations.
 
     .PARAMETER BackupRoot
@@ -3159,7 +3180,7 @@ function Publish-PruneManifest {
 function Complete-PruneDeletion {
     <#
     .SYNOPSIS
-        The commit point: renames the snapshot out of the ^Snapshot_ namespace
+        The commit point: renames the snapshot out of the dated namespace
         to 'Pruning_<name>' — which fails the pattern Reconstruct.ps1,
         reconstruct.sh AND the backup run's object index all use, so one atomic rename
         removes it from every consumer's view — and then deletes it (SR-046).
@@ -4395,10 +4416,11 @@ function Get-StoreRefusalCode {
 function Assert-StoreLayout {
     <#
     .SYNOPSIS
-        Refuses a StorePath that holds an old-layout backup (plan C44, L2, S2):
-        a MANIFEST.csv of its own (an old backup folder named directly), or a
-        folder beside Latest that holds one (an old backup root beside its
-        change folder, the R8 layout).
+        Refuses a StorePath that holds an old-layout backup (plan C44, L2, S2,
+        S13): a MANIFEST.csv of its own (an old backup folder named directly),
+        a folder beside CurrentBackup that holds one (an old backup root beside
+        its change folder, or the Latest and Snapshot_<date> folders of kit
+        revision 15), or a folder of Snapshot_<date> folders.
 
     .DESCRIPTION
         No store is converted: an old store is set aside and keeps restoring
@@ -4422,59 +4444,92 @@ function Assert-StoreLayout {
         throw "StorePath '$StoreRoot' for set '$SetName' holds a $($script:Def.DatabaseFilename) of its own: it is an old-layout backup folder (a BackupPath before ConfigVersion 3). $convert"
     }
     foreach ($dir in [System.IO.DirectoryInfo]::new($StoreRoot).EnumerateDirectories()) {
-        # The store's own folders. A Building_<date> (a killed run) and a
-        # Pruning_<name> (a prune whose delete failed) both hold a manifest
-        # and are finished by the next run or prune; refusing them would keep
-        # the store from ever healing (C44 unit review, bug 1).
-        if ($dir.Name -ceq $script:Def.LatestFolderName -or $dir.Name -match $script:Def.ChangeFolderRegex -or
-            $dir.Name.StartsWith($script:BuildingFolderPrefix, [System.StringComparison]::Ordinal) -or
-            $dir.Name.StartsWith('Pruning_', [System.StringComparison]::Ordinal) -or
+        # The store's own folders. BackupHistory is not skipped: an old change
+        # folder of that name must still meet the check below. A Building_<date>
+        # and a Pruning_<name> sit inside it now, so one here is an old store's.
+        if ($dir.Name -ceq $script:Def.CurrentFolderName -or
             $dir.Name -ceq $script:Def.ViewFolderName -or $dir.Name -ceq $script:VerifyFolderName -or
             $dir.Name -ceq $script:IncomingFolderName -or $dir.Name -ceq 'Temp') { continue }
         if (Test-Path -LiteralPath (Join-Path $dir.FullName $script:Def.DatabaseFilename) -PathType Leaf) {
             throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a folder with a $($script:Def.DatabaseFilename): an old-layout backup folder. $convert"
         }
-        # An old change folder beside an old backup root named Latest. A
-        # folder that cannot be listed (System Volume Information, when the
+        # An old change folder, whatever it is called. A folder that cannot be
+        # listed (System Volume Information, when the
         # store is a drive root) is no evidence either way.
         $children = try { @([System.IO.Directory]::GetDirectories($dir.FullName)) } catch { @() }
-        if (@($children | Where-Object { [System.IO.Path]::GetFileName($_) -match $script:Def.ChangeFolderRegex } | Select-Object -First 1).Count -gt 0) {
+        if (@($children | Where-Object { [System.IO.Path]::GetFileName($_) -match $script:Def.LegacySnapshotRegex } | Select-Object -First 1).Count -gt 0) {
             throw "StorePath '$StoreRoot' for set '$SetName' holds '$($dir.Name)', a folder of Snapshot_<date> folders: an old-layout change folder. $convert"
         }
     }
-    # An old backup root that happened to be named Latest (C44 review,
-    # finding 2): only an engine before kit revision 15 wrote a path sidecar
-    # or a kit older than 15 into it. Adopted, its objects would sit flat and
-    # out of the pool. A Latest with no kit yet (a first run cut short) is new.
-    $latest = Join-Path $StoreRoot $script:Def.LatestFolderName
+    # An old backup root that happened to be named CurrentBackup (C44 review,
+    # finding 2): only an older engine wrote a path sidecar or a kit older than
+    # 16 into it. Adopted, its objects would sit flat and out of the pool. A
+    # CurrentBackup with no kit yet (a first run cut short) is new.
+    $latest = Join-Path $StoreRoot $script:Def.CurrentFolderName
     if (Test-Path -LiteralPath (Join-Path $latest 'RECONSTRUCT.paths.json') -PathType Leaf) {
-        throw "StorePath '$StoreRoot' for set '$SetName' holds a '$($script:Def.LatestFolderName)' folder with a RECONSTRUCT.paths.json, which only an older FileBackup wrote: an old-layout backup folder. $convert"
+        throw "StorePath '$StoreRoot' for set '$SetName' holds a '$($script:Def.CurrentFolderName)' folder with a RECONSTRUCT.paths.json, which only an older FileBackup wrote: an old-layout backup folder. $convert"
     }
     $revision = Get-BackupKitRevision -Folder $latest
-    if ($revision -ge 1 -and $revision -lt 15) {
-        throw "StorePath '$StoreRoot' for set '$SetName' holds a '$($script:Def.LatestFolderName)' folder whose restore kit is revision $revision, older than this layout (15): an old-layout backup folder. $convert"
+    if ($revision -ge 1 -and $revision -lt 16) {
+        throw "StorePath '$StoreRoot' for set '$SetName' holds a '$($script:Def.CurrentFolderName)' folder whose restore kit is revision $revision, older than this layout (16): an old-layout backup folder. $convert"
     }
+}
+
+function Assert-StoreHistoryPresent {
+    <#
+    .SYNOPSIS
+        Refuses a store that has a CurrentBackup folder but no BackupHistory
+        folder (plan L10).
+
+    .DESCRIPTION
+        A CurrentBackup means a backup ran here, and the store is always given
+        its BackupHistory first (S14), so a missing one was moved or mangled.
+        Going on would start a new, empty history and hide that. Stopping lets
+        the user put it right, and the message says how.
+
+    .PARAMETER StoreRoot
+        The resolved store folder.
+
+    .PARAMETER SetName
+        The set, for the message.
+    #>
+    # Implements: SR-014, LLR-014
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$StoreRoot,
+        [Parameter(Mandatory)][string]$SetName
+    )
+    $history = Get-SnapshotRoot -ChangeRoot $StoreRoot
+    if (Test-Path -LiteralPath $history -PathType Container) { return }
+    $current = $script:Def.CurrentFolderName
+    throw ("Store '$StoreRoot' for set '$SetName' has a '$current' folder but no '$($script:Def.HistoryFolderName)' folder. " +
+           'A backup has run here, so the history was moved, renamed or deleted; nothing has been changed. ' +
+           "Put the folder back. If it really is gone, create an empty folder at '$history' and run again.")
 }
 
 function Resolve-BackupSetPaths {
     <#
     .SYNOPSIS
         Validates the set's SourcePath and resolves (creating if needed) its
-        store folder, and the two roots inside it: Latest (the backup root)
+        store folder, and the two roots inside it: CurrentBackup (the backup root)
         and the store itself (the change root, holding the snapshots).
 
     .DESCRIPTION
-        One folder per set (plan C44): <StorePath>/Latest is the latest state
-        and every Snapshot_<date> sits beside it. A missing store or Latest is
+        One folder per set (plan C44): <StorePath>/CurrentBackup is the latest state
+        and every dated snapshot sits in <store>/BackupHistory. A missing store or CurrentBackup is
         created only when that is safe:
           * the store's drive or share is not attached (a Windows drive letter,
             a UNC share): System.IO.DriveNotFoundException, which a backup
             reports as 4 - retry when the drive is back (plan C25);
-          * the store holds snapshots but no Latest: an existing store that
+          * the store holds snapshots but no CurrentBackup: an existing store that
             lost its latest state (moved, renamed, or a mount that is not
             there) - refused, never answered with a fresh full backup (C26);
           * the store holds an old-layout backup (Assert-StoreLayout) -
-            refused (C44, L2).
+            refused (C44, L2);
+          * the store has a CurrentBackup but no BackupHistory
+            (Assert-StoreHistoryPresent) - refused for every action (L10, S15).
+        A new store gets BackupHistory first, so a run cut short between the
+        two leaves a store that is still new (S14).
 
     .PARAMETER Set
         The backup set to resolve.
@@ -4484,13 +4539,13 @@ function Resolve-BackupSetPaths {
         SourcePath. For the read-only actions (-Action Verify, SR-049), which
         are about the STORE — the source may legitimately be offline, and an
         action that mutates nothing must not conjure a store. A store or a
-        Latest that does not exist is a precondition failure the caller
+        CurrentBackup that does not exist is a precondition failure the caller
         reports as code 2 (WP5 review, finding m2) - unless its drive or share
         is not attached, which throws DriveNotFoundException as a backup does,
         so every caller answers it with 4 (Get-StoreRefusalCode).
 
     .OUTPUTS
-        [pscustomobject] SrcPath / SrcStatePath / StorePath / BkpPath (Latest)
+        [pscustomobject] SrcPath / SrcStatePath / StorePath / BkpPath (CurrentBackup)
         / ChgPath (the store) / ViewPath (resolved full path when BrowseView
         is 'index', else $null). Under -ReadOnly, SrcPath and SrcStatePath are
         $null when the source is absent. The view IS still rail-checked
@@ -4504,7 +4559,7 @@ function Resolve-BackupSetPaths {
         [switch]$ReadOnly
     )
 
-    $latestName = $script:Def.LatestFolderName
+    $latestName = $script:Def.CurrentFolderName
     if ($ReadOnly) {
         $storePath = (Resolve-Path -LiteralPath $Set.StorePath -ErrorAction SilentlyContinue).Path
         if (-not $storePath) {
@@ -4516,6 +4571,7 @@ function Resolve-BackupSetPaths {
         if (-not (Test-Path -LiteralPath $bkpPath -PathType Container)) {
             throw "Store '$storePath' for set '$($Set.Name)' holds no '$latestName' folder; there is nothing to read there."
         }
+        Assert-StoreHistoryPresent -StoreRoot $storePath -SetName $Set.Name
         $srcPath = (Resolve-Path -LiteralPath $Set.SourcePath -ErrorAction SilentlyContinue).Path
         return [pscustomobject]@{
             SrcPath = $srcPath
@@ -4542,13 +4598,15 @@ function Resolve-BackupSetPaths {
     Assert-StoreLayout -StoreRoot $storePath -SetName $Set.Name
 
     $bkpPath = Join-Path $storePath $latestName
-    if (-not (Test-Path -LiteralPath $bkpPath -PathType Container)) {
-        if (@(Get-ChildItem -LiteralPath $storePath -Directory -Force -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -match $script:Def.ChangeFolderRegex } | Select-Object -First 1).Count -gt 0) {
+    if (Test-Path -LiteralPath $bkpPath -PathType Container) {
+        Assert-StoreHistoryPresent -StoreRoot $storePath -SetName $Set.Name
+    } else {
+        if (@(Get-PoolSnapshotFolder -ChangeRoot $storePath | Select-Object -First 1).Count -gt 0) {
             throw ("Store '$storePath' for set '$($Set.Name)' holds snapshots but no '$latestName' folder: " +
                    "the store has lost its latest state (moved, renamed, or a mount that is not there). Refusing to start a new full backup; " +
                    "put the '$latestName' folder back.")
         }
+        New-Item -ItemType Directory -Path (Get-SnapshotRoot -ChangeRoot $storePath) -Force | Out-Null
         New-Item -ItemType Directory -Path $bkpPath -Force | Out-Null
     }
 
@@ -4598,7 +4656,7 @@ function Resolve-ViewRootPath {
 
         The store holds the latest state and every snapshot, so the view may
         lie inside it only as the one folder <StorePath>/View (plan C44, L3):
-        anywhere else inside the store it could be Latest, a snapshot or a
+        anywhere else inside the store it could be CurrentBackup, a snapshot or a
         run folder. Outside the store the rails are as before.
 
         The source paths matter as much as the storage roots: SourcePath is the
@@ -4905,7 +4963,7 @@ function Get-StoreObjectIndex {
     <#
     .SYNOPSIS
         Indexes every stored object of a backup by name: one listing of the
-        backup root and of each Snapshot_* folder, and no manifest read.
+        backup root and of each dated snapshot folder, and no manifest read.
 
     .DESCRIPTION
         An object's name carries its content key (SR-069), so the listings
@@ -4931,7 +4989,7 @@ function Get-StoreObjectIndex {
         The backup root (the latest state).
 
     .PARAMETER ChangeRoot
-        The change root holding the Snapshot_* folders.
+        The store folder, whose BackupHistory holds the dated snapshot folders.
 
     .OUTPUTS
         [pscustomobject] Objects (an ordinal Dictionary from name prefix to an
@@ -5036,7 +5094,7 @@ function Get-StoredObjectCompressedFlag {
 function Assert-SingleStoreMount {
     <#
     .SYNOPSIS
-        Refuses a store whose Latest folder is not on one volume and one mount
+        Refuses a store whose CurrentBackup folder is not on one volume and one mount
         with the store itself (plan R8, C44 L4), by renaming a test directory
         from one to the other.
 
@@ -5059,20 +5117,25 @@ function Assert-SingleStoreMount {
         [Parameter(Mandatory)][string]$BackupRoot,
         [Parameter(Mandatory)][string]$ChangeRoot
     )
-    $name = $script:MountCheckPrefix + [guid]::NewGuid().ToString('N')
-    $from = Join-Path $ChangeRoot $name
-    $to   = Join-Path $BackupRoot $name
-    [void][System.IO.Directory]::CreateDirectory($from)
-    try {
-        [System.IO.Directory]::Move($from, $to)
-    } catch {
-        $why = $_.Exception.Message
-        try { [System.IO.Directory]::Delete($from) } catch { Write-Verbose "could not remove '$from': $($_.Exception.Message)" }
-        throw ("The latest state '$BackupRoot' and its store '$ChangeRoot' must be on one volume and one mount, so that " +
-               "moving content between Latest and a snapshot is a rename. A test rename between them failed: $why " +
-               'Do not mount Latest apart from its store; in a container, mount the store folder alone (README).')
+    # Both folders a rename into or out of the latest state crosses: the store
+    # (Incoming) and the history (superseded objects). Either could be a mount.
+    foreach ($root in @($ChangeRoot, (Get-SnapshotRoot -ChangeRoot $ChangeRoot))) {
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        $name = $script:MountCheckPrefix + [guid]::NewGuid().ToString('N')
+        $from = Join-Path $root $name
+        $to   = Join-Path $BackupRoot $name
+        [void][System.IO.Directory]::CreateDirectory($from)
+        try {
+            [System.IO.Directory]::Move($from, $to)
+        } catch {
+            $why = $_.Exception.Message
+            try { [System.IO.Directory]::Delete($from) } catch { Write-Verbose "could not remove '$from': $($_.Exception.Message)" }
+            throw ("The latest state '$BackupRoot' and '$root' must be on one volume and one mount, so that " +
+                   "moving content between CurrentBackup and a snapshot is a rename. A test rename between them failed: $why " +
+                   'Do not mount CurrentBackup or BackupHistory apart from their store; in a container, mount the store folder alone (README).')
+        }
+        [System.IO.Directory]::Delete($to)
     }
-    [System.IO.Directory]::Delete($to)
 }
 
 function Clear-InterruptedRunResidue {
@@ -5110,8 +5173,14 @@ function Clear-InterruptedRunResidue {
     $incoming = Join-Path $ChangeRoot $script:IncomingFolderName
     if (Test-Path -LiteralPath $incoming -PathType Container) { $residue.Add($incoming) }
     foreach ($dir in [System.IO.DirectoryInfo]::new($ChangeRoot).EnumerateDirectories()) {
-        if ($dir.Name.StartsWith($script:BuildingFolderPrefix, [System.StringComparison]::Ordinal) -or
-            $dir.Name.StartsWith($script:MountCheckPrefix, [System.StringComparison]::Ordinal)) { $residue.Add($dir.FullName) }
+        if ($dir.Name.StartsWith($script:MountCheckPrefix, [System.StringComparison]::Ordinal)) { $residue.Add($dir.FullName) }
+    }
+    $history = Get-SnapshotRoot -ChangeRoot $ChangeRoot
+    if (Test-Path -LiteralPath $history -PathType Container) {
+        foreach ($dir in [System.IO.DirectoryInfo]::new($history).EnumerateDirectories()) {
+            if ($dir.Name.StartsWith($script:BuildingFolderPrefix, [System.StringComparison]::Ordinal) -or
+                $dir.Name.StartsWith($script:MountCheckPrefix, [System.StringComparison]::Ordinal)) { $residue.Add($dir.FullName) }
+        }
     }
     foreach ($dir in [System.IO.DirectoryInfo]::new($BackupRoot).EnumerateDirectories()) {
         if ($dir.Name.StartsWith($script:MountCheckPrefix, [System.StringComparison]::Ordinal)) { $residue.Add($dir.FullName) }
@@ -5867,7 +5936,7 @@ function Get-SortedManifestRow {
 function Publish-PriorStateSnapshot {
     <#
     .SYNOPSIS
-        Publishes the prior state as Snapshot_<D> before the run changes
+        Publishes the prior state as BackupHistory/<D> before the run changes
         anything (plan step 3), unless a snapshot of that name already exists.
 
     .DESCRIPTION
@@ -5875,7 +5944,7 @@ function Publish-PriorStateSnapshot {
         object as it is called in the backup root - together with the prior
         directory record and the current restore kit, into Building_<D>; each
         file is flushed to the disk, and one rename then makes it
-        Snapshot_<D>. It restores from the moment it
+        BackupHistory/<D>. It restores from the moment it
         appears, because every object it needs is still in the backup root or
         an older snapshot, and a row whose object is not in the snapshot's own
         folder is found by name (§7). The DataPaths are kept so that an object
@@ -5916,14 +5985,14 @@ function Publish-PriorStateSnapshot {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$PriorRows,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $label = $PriorDate.ToString($script:Def.FileLabelDateFormat)
-    $name  = "$($script:Def.SnapshotPrefix)$label"
-    $final = Join-Path $ChangeRoot $name
+    $name    = $PriorDate.ToString($script:Def.FileLabelDateFormat)
+    $history = Get-SnapshotRoot -ChangeRoot $ChangeRoot
+    $final   = Join-Path $history $name
     if (Test-Path -LiteralPath $final -PathType Container) {
         & $Log "Snapshot '$name' already exists (published by an interrupted run); keeping it." 'INFO'
         return [pscustomobject]@{ Path = $final; BuiltNow = $false }
     }
-    $building = Join-Path $ChangeRoot "$($script:BuildingFolderPrefix)$label"
+    $building = Join-Path $history "$($script:BuildingFolderPrefix)$name"
     [void][System.IO.Directory]::CreateDirectory($building)
     # Write-Manifest flushes the manifest before its own rename. Every other
     # file is flushed here, before the one rename that publishes the folder:
@@ -5952,7 +6021,7 @@ function Remove-UnchangedSnapshot {
     <#
     .SYNOPSIS
         Removes the snapshot a run built when the run changed no row (plan
-        step 7, SR-100), without ever leaving a half-deleted Snapshot_* folder.
+        step 7, SR-100), without ever leaving a half-deleted dated snapshot folder.
 
     .DESCRIPTION
         The folder is first renamed back to Building_<D> - one rename, so it is
@@ -5983,8 +6052,8 @@ function Remove-UnchangedSnapshot {
         [Parameter(Mandatory)][string]$ChangeRoot,
         [Parameter(Mandatory)][scriptblock]$Log
     )
-    $label = ([System.IO.Path]::GetFileName($SnapshotPath)).Substring($script:Def.SnapshotPrefix.Length)
-    $building = Join-Path $ChangeRoot "$($script:BuildingFolderPrefix)$label"
+    $label = [System.IO.Path]::GetFileName($SnapshotPath)
+    $building = Join-Path (Get-SnapshotRoot -ChangeRoot $ChangeRoot) "$($script:BuildingFolderPrefix)$label"
     try {
         [System.IO.Directory]::Move($SnapshotPath, $building)
     } catch {
@@ -7285,7 +7354,7 @@ function Invoke-BackupSet {
 # accepted; 3.5 is not. The published schema's `const: 3` agrees (TC-077).
 $script:ConfigSchemaVersion = 3
 $script:RetiredStorePathKeyMessage = ('BackupPath and ChangePath were replaced in ConfigVersion 3 by StorePath: one folder per backup set, ' +
-    'holding Latest/ (the latest state) and every Snapshot_<date>/ beside it. A store in the old layout is not converted: set it aside ' +
+    'holding CurrentBackup/ (the latest state) and BackupHistory/ (every dated snapshot). A store in the old layout is not converted: set it aside ' +
     '(it keeps restoring with the kits inside it) and point StorePath at a new, empty folder.')
 
 function Assert-NoUnknownConfigKey {
@@ -7659,7 +7728,7 @@ function Resolve-BackupSetDefaults {
             SourcePath         = [string]$set.SourcePath
             SourceStatePath    = $sourceStatePath
             StorePath          = $storePath
-            BackupPath         = [System.IO.Path]::Combine($storePath, $script:Def.LatestFolderName)
+            BackupPath         = [System.IO.Path]::Combine($storePath, $script:Def.CurrentFolderName)
             ChangePath         = $storePath
             HashRecalcFreq     = ([string]$set.HashRecalcFreq).ToUpperInvariant()
             CompressEnabled    = [bool]$set.CompressEnabled
@@ -7740,7 +7809,7 @@ function Import-BackupConfiguration {
             if ($rawVersion -lt $script:ConfigSchemaVersion) {
                 throw ("Config '$Path' is invalid: `$.ConfigVersion — config declares version $rawVersion, which is too old for this build (SR-063). " +
                        "Version 2 removed PreserveFolderTree (storage is always content-addressed) and added BrowseView/ViewPath; " +
-                       "version 3 replaced BackupPath and ChangePath with StorePath (one folder per set holding Latest/ and the snapshots). " +
+                       "version 3 replaced BackupPath and ChangePath with StorePath (one folder per set holding CurrentBackup/ and BackupHistory/). " +
                        "Update the document and set ConfigVersion to $script:ConfigSchemaVersion.")
             }
             $version = [int]$rawVersion

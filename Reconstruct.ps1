@@ -3,14 +3,14 @@
     Reconstructs a source tree from MANIFEST.csv and the available data files.
 
 .DESCRIPTION
-    Deployed (by New-ReconstructScript) into a store's Latest folder and each
-    Snapshot_<date> folder beside it, alongside FileBackup.Common.psm1 and
+    Deployed (by New-ReconstructScript) into a store's CurrentBackup folder and
+    each dated folder in its BackupHistory, alongside FileBackup.Common.psm1 and
     System.IO.Hashing.dll. Runs standalone — no repository required.
 
-        * From <store>/Latest: uses that folder's MANIFEST.csv only.
-        * From a dated snapshot folder (name starts with "Snapshot_"): that
+        * From <store>/CurrentBackup: uses that folder's MANIFEST.csv only.
+        * From a dated snapshot folder in <store>/BackupHistory: that
           snapshot's own manifest is the authoritative point-in-time state, with
-          bytes resolved from <store>/Latest + the snapshots beside it.
+          bytes resolved from <store>/CurrentBackup + the snapshots in BackupHistory.
 
     The store is the parent of the folder this script runs from (one store
     folder per backup set, kit revision 15); no path is recorded anywhere, so
@@ -39,7 +39,7 @@
            write cut short by a power loss; the rows before it are restored).
         2  Precondition / usage — nothing attempted (bad arguments, missing or
            unrecognizable manifest, target inside the store, a kit run from outside a
-           store's Latest or Snapshot_<date> folder, an unusable target
+           store's CurrentBackup or dated snapshot folder, an unusable target
            path, missing required tool, insufficient capacity). Any terminating
            error this script did not classify lands here too: nothing was
            attempted, so it must not be reported as data loss (code 1). The
@@ -69,7 +69,7 @@
     RECONSTRUCT.cmd does) to exit the process with the table's code instead.
 #>
 
-# KitRevision: 15
+# KitRevision: 16
 # The revision of the restore kit bundled into a backup folder. Bumped whenever
 # any kit-bundled file changes behaviour, so a snapshot can be asked which kit
 # it carries (SR-049 reports it with every blank-row form finding, and
@@ -131,11 +131,12 @@
 # the 'unverified index' warning, -RequireWitness and the witness-version
 # refusal are gone (bounded-run-loop R5/R6, section 7).
 # Revision 15 (2026-10-27, plan C44): one store folder per backup set. The
-# store is the parent of this script's folder, which must be named Latest or
-# Snapshot_<date>; the pool is <store>/Latest plus every <store>/Snapshot_*.
+# store is found from this script's folder, which must be CurrentBackup or a
+# dated folder in BackupHistory; the pool is <store>/CurrentBackup plus every
+# dated folder in <store>/BackupHistory.
 # The path sidecar and the sibling and child guesses (C21, C32) are gone, and
 # -BackupRootOverride/-ChangeRootOverride became one -StoreRootOverride. An
-# object of Latest lives in a shard folder named by the first two characters
+# object of CurrentBackup lives in a shard folder named by the first two characters
 # of its name, lowercased (L8); snapshots stay flat. Recorded paths use '/'
 # (L7). This kit restores only that layout; an older store keeps its own kit.
 # Restoring a snapshot with its OWN older kit
@@ -143,7 +144,7 @@
 
 param(
     [string]$TargetRoot,
-    # The store folder (holding Latest and the Snapshot_* folders), for a kit
+    # The store folder (holding CurrentBackup and BackupHistory), for a kit
     # run from outside it. Otherwise the store is this script's parent folder.
     [string]$StoreRootOverride,
     [string]$SevenZipPath,
@@ -290,7 +291,7 @@ $Def = Get-FileBackupDefaults
 
 $DatabaseFilename    = $Def.DatabaseFilename
 $ReconstructLogName  = $Def.ReconstructLogName
-$ChangeFolderPattern = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
+$ChangeFolderPattern = '^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
 
 $folderName = [System.IO.Path]::GetFileName($here)
 
@@ -541,7 +542,7 @@ function New-StoredObjectNameIndex {
     .DESCRIPTION
         Every stored object is named "<hash22>_<len><ext>" from its own content
         (SR-069), and objects sit in the latest state's shard folders and flat
-        at the top of each Snapshot_* folder. So one listing answers "where are the bytes for this
+        at the top of each dated snapshot folder. So one listing answers "where are the bytes for this
         (hash, length)?" for every row of the restore. Before revision 14 each
         blank or stale row ran Find-DataFileByHash, which re-listed the whole
         pool recursively and hashed candidates FOR EACH ROW: rows x pool.
@@ -574,7 +575,7 @@ function New-StoredObjectNameIndex {
         to remove.
 
     .PARAMETER LatestFolder
-        The store's Latest folder, whose objects sit in shard folders (L8).
+        The store's CurrentBackup folder, whose objects sit in shard folders (L8).
 
     .OUTPUTS
         [hashtable] "<HASH32>:<length>" -> List[string] of full paths, in the
@@ -650,28 +651,53 @@ function Find-DataFileByName {
     return $null
 }
 
-# ---- Resolve the store (kit revision 15, plan C44) ----
-# One folder per backup set: <store>/Latest is the latest state and every
-# Snapshot_<date> sits beside it. This script runs from one of those folders,
-# so the store is its parent. Nothing is guessed and no path is recorded: a
-# moved or copied store restores as it is. From any other folder - an older
-# store's layout, or a kit copied out of its store - it refuses (2) unless the
-# store is named, before anything is written.
-$isChangeFolder = $folderName -match $ChangeFolderPattern
+# ---- Resolve the store (kit revision 16, plan C44, L9) ----
+# One folder per backup set: <store>/CurrentBackup is the latest state and every
+# dated snapshot sits in <store>/BackupHistory. This script runs from one of
+# those folders, so the store is the parent of CurrentBackup or the grandparent
+# of a snapshot. Nothing is guessed and no path is recorded: a moved or copied
+# store restores as it is. From any other folder - an older store's layout, or
+# a kit copied out of its store - it refuses (2) unless the store is named,
+# before anything is written.
 # Compared as the host's file system compares names: on Windows a path typed
-# as ...\latest\ names the Latest folder (C44 review, finding 3).
-$isLatestFolder = if ($IsWindows) { $folderName -eq $Def.LatestFolderName } else { $folderName -ceq $Def.LatestFolderName }
+# as ...\currentbackup\ names the CurrentBackup folder (C44 review, finding 3).
+function Test-FolderNameIs {
+    <#
+    .SYNOPSIS
+        Whether a folder name equals an expected one, as this host compares names.
+
+    .PARAMETER Name
+        The folder name found.
+
+    .PARAMETER Expected
+        The name it should be.
+
+    .OUTPUTS
+        [bool]
+    #>
+    # Implements: SR-014, LLR-014
+    param([AllowEmptyString()][string]$Name, [string]$Expected)
+    if ($IsWindows) { return $Name -eq $Expected }
+    return $Name -ceq $Expected
+}
+$parentName = [System.IO.Path]::GetFileName([System.IO.Path]::GetDirectoryName($here))
+# With no prefix a date proves nothing by itself: only inside BackupHistory is a
+# dated folder a snapshot (S12).
+$isChangeFolder = ($folderName -match $ChangeFolderPattern) -and (Test-FolderNameIs -Name $parentName -Expected $Def.HistoryFolderName)
+$isLatestFolder = Test-FolderNameIs -Name $folderName -Expected $Def.CurrentFolderName
 if ($StoreRootOverride) {
     $storeRoot = [System.IO.Path]::GetFullPath($StoreRootOverride)
-} elseif ($isChangeFolder -or $isLatestFolder) {
+} elseif ($isLatestFolder) {
     $storeRoot = [System.IO.Path]::GetDirectoryName($here)
+} elseif ($isChangeFolder) {
+    $storeRoot = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetDirectoryName($here))
 } else {
     Exit-Reconstruct -Code $EXIT_PRECONDITION -Message (
-        "This restore kit runs from a store's '$($Def.LatestFolderName)' folder or one of its Snapshot_<date> folders, and '$here' is neither. " +
-        'A store written before kit revision 15 restores with the kit inside it; to use this kit from elsewhere, pass -StoreRootOverride <the store folder>.')
+        "This restore kit runs from a store's '$($Def.CurrentFolderName)' folder or a dated folder in its '$($Def.HistoryFolderName)' folder, and '$here' is neither. " +
+        'A store written before kit revision 16 restores with the kit inside it; to use this kit from elsewhere, pass -StoreRootOverride <the store folder>.')
 }
-$backupRoot = Join-Path $storeRoot $Def.LatestFolderName
-$changeRoot = $storeRoot
+$backupRoot = Join-Path $storeRoot $Def.CurrentFolderName
+$changeRoot = Join-Path $storeRoot $Def.HistoryFolderName
 
 function Show-ReconstructUsage {
     <#
@@ -687,7 +713,7 @@ Usage: RECONSTRUCT.ps1 -TargetRoot DIR [-StoreRootOverride DIR]
                        [-NonInteractive] [-NoGui] [-ExitCode]
 
   -TargetRoot DIR          Where to rebuild the tree (must be OUTSIDE the store).
-  -StoreRootOverride DIR   The store folder (holding Latest and Snapshot_<date>),
+  -StoreRootOverride DIR   The store folder (holding CurrentBackup and BackupHistory),
                            when this kit is run from outside it.
   -SevenZipPath PATH       Explicit 7z binary (else the configured default; needed
                            only when the backup has compressed rows).
@@ -1054,7 +1080,7 @@ function Read-RawManifest {
         its row (SR-056).
 
     .PARAMETER Folder
-        The restore origin (backup root or Snapshot_<date> folder).
+        The restore origin (backup root or dated snapshot folder).
     #>
     # Implements: SR-040, LLR-040
     param([string]$Folder)
@@ -1152,7 +1178,7 @@ $haveSnapshotTree = $changeRoot -and (Test-Path -LiteralPath $changeRoot -PathTy
 # The manifest restored is the origin's own: a snapshot's, or with
 # -StoreRootOverride the manifest beside this kit when it runs from a folder of
 # its own (a copy of a state folder), as reconstruct.sh's --from does; else the
-# store's Latest (C44 review, finding 4). The store always supplies the pool.
+# store's CurrentBackup (C44 review, finding 4). The store always supplies the pool.
 $authorityFolder  = if ($isChangeFolder) { $here }
                     elseif ($StoreRootOverride -and -not $isLatestFolder -and
                             (Test-Path -LiteralPath (Join-Path $here $DatabaseFilename) -PathType Leaf)) { $here }

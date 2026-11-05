@@ -215,8 +215,8 @@ Describe 'A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040
     AfterAll { Remove-SubstVolume -Drive $script:drive2 }
 
     It 'reports ContentMissing (1), not StorageUnreadable (4), when the bytes really are gone' {
-        # Since kit revision 15 (plan C44) a restorer runs from a store's Latest
-        # folder, so a store at a volume root is 'X:\' with 'X:\Latest' and its
+        # Since kit revision 15 (plan C44) a restorer runs from a store's CurrentBackup
+        # folder, so a store at a volume root is 'X:\' with 'X:\CurrentBackup' and its
         # snapshots below it, and the volume's own pseudo-folders sit beside
         # them, at the store's top. The restore must still classify honestly:
         # an unreadable 'System Volume Information' there is no host problem.
@@ -225,7 +225,7 @@ Describe 'A store at a volume root CLASSIFIES a failure honestly (SR-074, SR-040
         $chg = Join-Path $TestDrive 'cls-chg'
         $made = $chg
         $store = "$($script:drive2)\"
-        $bkp = Join-Path $store 'Latest'
+        $bkp = Join-Path $store 'CurrentBackup'
         New-Item -ItemType Directory -Path $src, $chg -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'ALPHA-CONTENT' -NoNewline
         Set-Content -LiteralPath (Join-Path $src 'b.txt') -Value ('BETA-' * 500) -NoNewline

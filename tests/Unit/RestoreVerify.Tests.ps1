@@ -33,8 +33,8 @@ BeforeAll {
             the repo at backup time).
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         # b.txt is large and repetitive so a Compress-mode store reliably stores
         # it as a .7z archive (the compression decision is per-file).
         Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'ALPHA-CONTENT' -NoNewline
@@ -488,8 +488,8 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         # -Force made 'System Volume Information'-shaped directories visible;
         # before this fix one of them aborted the whole run with NO manifest.
         $root = Join-Path $TestDrive 'b1-denied'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'good.txt') -Value 'REACHABLE' -NoNewline
         $denied = Join-Path $src 'DeniedDir'
         New-Item -ItemType Directory -Path $denied | Out-Null
@@ -541,14 +541,16 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
         # listed — that is a host problem the operator can fix.
         $root = Join-Path $TestDrive 't2-badchg'
         $s = New-RVStore -Root $root
-        $snap = Join-Path $s.Chg 'Snapshot_2024_01_01_00_00_01'
+        $snap = Join-Path $s.Chg 'BackupHistory/2024_01_01_00_00_01'
         New-Item -ItemType Directory -Path $snap -Force | Out-Null
         $rows = @(Import-Csv -LiteralPath $s.Manifest)
         $a = $rows | Where-Object RelativePath -eq 'a.txt'
         Move-Item -LiteralPath (Get-StoredObjectPath -Folder $s.Bkp -Name $a.DataPath -Sharded) -Destination (Join-Path $snap 'moved.bin')
         $a.DataPath = ''
         Set-ManifestRows -Folder $s.Bkp -Rows $rows
-        icacls $s.Chg /deny "${env:USERNAME}:(R)" | Out-Null
+        # The snapshot tree is BackupHistory (plan L9).
+        $history = Join-Path $s.Chg 'BackupHistory'
+        icacls $history /deny "${env:USERNAME}:(R)" | Out-Null
         try {
             $t = Join-Path $root 't'
             $code = Invoke-ReconstructExitCode -Recon $s.Recon -TargetRoot $t
@@ -556,16 +558,16 @@ Describe 'Hidden and dot-prefixed entries are captured and located (SR-057, TC-1
             $log = Get-Content -LiteralPath (Join-Path $t 'RECONSTRUCT.log') -Raw
             $log | Should -Match '\[StorageUnreadable\]'
         } finally {
-            icacls $s.Chg /remove:d "${env:USERNAME}" | Out-Null
+            icacls $history /remove:d "${env:USERNAME}" | Out-Null
         }
     }
 
-    It 'a HIDDEN Snapshot_* folder is still part of the pool (Get-PoolSnapshotFolder, TC-114)' {
+    It 'a HIDDEN dated snapshot folder is still part of the pool (Get-PoolSnapshotFolder, TC-114)' {
         $chg = Join-Path $TestDrive 'd4-hidsnap'
-        $snap = Join-Path $chg 'Snapshot_2024_01_01_00_00_01'
+        $snap = Join-Path $chg 'BackupHistory/2024_01_01_00_00_01'
         New-Item -ItemType Directory -Path $snap -Force | Out-Null
         (Get-Item -LiteralPath $snap -Force).Attributes = ((Get-Item -LiteralPath $snap -Force).Attributes -bor [IO.FileAttributes]::Hidden)
-        @(Get-PoolSnapshotFolder -ChangeRoot $chg).Name | Should -Contain 'Snapshot_2024_01_01_00_00_01'
+        @(Get-PoolSnapshotFolder -ChangeRoot $chg).Name | Should -Contain '2024_01_01_00_00_01'
     }
 }
 

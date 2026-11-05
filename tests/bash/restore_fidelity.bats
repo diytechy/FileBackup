@@ -10,7 +10,7 @@ setup() {
     load helpers
 }
 
-# Each <dir> below is a store's Latest folder: its objects sit in their shard
+# Each <dir> below is a store's CurrentBackup folder: its objects sit in their shard
 # folders (latest_object, L8), so the store is <dir>'s parent (kit revision 15).
 
 # twin_store <dir> : two rows sharing ONE stored object (the dedup shape) with
@@ -36,7 +36,7 @@ twin_store() {
 }
 
 @test "a deduplicated twin keeps its OWN modification time (SR-066 / TC-136)" {
-    local s="$BATS_TEST_TMPDIR/mtime/Latest" t="$BATS_TEST_TMPDIR/tmtime"
+    local s="$BATS_TEST_TMPDIR/mtime/CurrentBackup" t="$BATS_TEST_TMPDIR/tmtime"
     twin_store "$s"
 
     run bash "$RS" --target-root "$t" --from "$s"
@@ -48,7 +48,7 @@ twin_store() {
 }
 
 @test "a garbage LastWriteTimeStr warns but still restores the bytes (SR-066 / TC-136)" {
-    local s="$BATS_TEST_TMPDIR/badtime/Latest" t="$BATS_TEST_TMPDIR/tbadtime"
+    local s="$BATS_TEST_TMPDIR/badtime/CurrentBackup" t="$BATS_TEST_TMPDIR/tbadtime"
     twin_store "$s"
 
     run bash "$RS" --target-root "$t" --from "$s"
@@ -80,7 +80,7 @@ sidecar_store() {
 }
 
 @test "the sidecar recreates empty directories and reports the attributes as inapplicable (SR-065 / TC-137)" {
-    local s="$BATS_TEST_TMPDIR/dirs/Latest" t="$BATS_TEST_TMPDIR/tdirs"
+    local s="$BATS_TEST_TMPDIR/dirs/CurrentBackup" t="$BATS_TEST_TMPDIR/tdirs"
     sidecar_store "$s"
 
     run bash "$RS" --target-root "$t" --from "$s"
@@ -93,7 +93,7 @@ sidecar_store() {
 }
 
 @test "an absent sidecar restores exactly as before, with no empty directories (SR-065 / TC-137)" {
-    local s="$BATS_TEST_TMPDIR/nodirs/Latest" t="$BATS_TEST_TMPDIR/tnodirs"
+    local s="$BATS_TEST_TMPDIR/nodirs/CurrentBackup" t="$BATS_TEST_TMPDIR/tnodirs"
     sidecar_store "$s"
     rm -f "$s/DIRECTORIES.csv"
 
@@ -104,7 +104,7 @@ sidecar_store() {
 }
 
 @test "a garbage sidecar never fails the restore (SR-065 / TC-137)" {
-    local s="$BATS_TEST_TMPDIR/junkdirs/Latest" t="$BATS_TEST_TMPDIR/tjunkdirs"
+    local s="$BATS_TEST_TMPDIR/junkdirs/CurrentBackup" t="$BATS_TEST_TMPDIR/tjunkdirs"
     sidecar_store "$s"
     printf 'this is not a directory sidecar\n,,,\n' > "$s/DIRECTORIES.csv"
 
@@ -114,7 +114,7 @@ sidecar_store() {
 }
 
 @test "the sidecar cannot write outside the target root (SR-065 / TC-137)" {
-    local s="$BATS_TEST_TMPDIR/escdirs/Latest" t="$BATS_TEST_TMPDIR/tescdirs"
+    local s="$BATS_TEST_TMPDIR/escdirs/CurrentBackup" t="$BATS_TEST_TMPDIR/tescdirs"
     sidecar_store "$s"
     {
       printf '"RelativePath","Attributes"\r\n'
@@ -151,7 +151,7 @@ legacy_store() {
 }
 
 @test "a legacy store marked StoredAsHashSize=Original is refused, writing nothing (SR-061 / TC-138)" {
-    local s="$BATS_TEST_TMPDIR/legacy-col/Latest" t="$BATS_TEST_TMPDIR/tlegacy-col"
+    local s="$BATS_TEST_TMPDIR/legacy-col/CurrentBackup" t="$BATS_TEST_TMPDIR/tlegacy-col"
     legacy_store "$s" 'stored-as-original'
 
     run bash "$RS" --target-root "$t" --from "$s"
@@ -162,7 +162,7 @@ legacy_store() {
 }
 
 @test "a legacy store marked by a path-addressed DataPath is refused too (SR-061 / TC-138)" {
-    local s="$BATS_TEST_TMPDIR/legacy-path/Latest" t="$BATS_TEST_TMPDIR/tlegacy-path"
+    local s="$BATS_TEST_TMPDIR/legacy-path/CurrentBackup" t="$BATS_TEST_TMPDIR/tlegacy-path"
     legacy_store "$s" 'path-addressed-datapath'
 
     run bash "$RS" --target-root "$t" --from "$s"
@@ -191,7 +191,7 @@ form_store() {
 }
 
 @test "a LYING Compressed=Yes over raw bytes still restores byte-exact (SR-068 / TC-141)" {
-    local s="$BATS_TEST_TMPDIR/formlie/Latest" t="$BATS_TEST_TMPDIR/tformlie"
+    local s="$BATS_TEST_TMPDIR/formlie/CurrentBackup" t="$BATS_TEST_TMPDIR/tformlie"
     form_store "$s" 'Yes'
 
     run bash "$RS" --target-root "$t" --from "$s"
@@ -201,7 +201,7 @@ form_store() {
 
 @test "an already-compressed SOURCE file stored raw is never expanded (SR-068 / TC-141)" {
     command -v 7z >/dev/null 2>&1 || skip "7z not available"
-    local s="$BATS_TEST_TMPDIR/form7z/Latest" t="$BATS_TEST_TMPDIR/tform7z" h len
+    local s="$BATS_TEST_TMPDIR/form7z/CurrentBackup" t="$BATS_TEST_TMPDIR/tform7z" h len
     mkdir -p "$s" "$BATS_TEST_TMPDIR/mk"
     printf 'INSIDE-THE-USERS-ARCHIVE' > "$BATS_TEST_TMPDIR/mk/payload.txt"
     ( cd "$BATS_TEST_TMPDIR/mk" && 7z a -bso0 -bsp0 mine.7z payload.txt >/dev/null 2>&1 )

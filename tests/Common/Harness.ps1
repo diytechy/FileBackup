@@ -151,7 +151,7 @@ function Write-TestConfig {
     $set = [ordered]@{
         Name               = $Name
         SourcePath         = $SrcPath
-        # One store folder per set (plan C44): BkpPath is <ChgPath>\Latest.
+        # One store folder per set (plan C44): BkpPath is <ChgPath>\CurrentBackup.
         StorePath          = $ChgPath
         HashRecalcFreq     = $HashRecalcFreq
         CompressEnabled    = $Compress
@@ -243,8 +243,8 @@ function Save-FailureArtifact {
         foreach ($log in @((Join-Path $Env.ChgPath 'backup.log'))) {
             if (Test-Path -LiteralPath $log) { Copy-Item -LiteralPath $log -Destination $dest -Force -ErrorAction SilentlyContinue }
         }
-        foreach ($folder in @($Env.BkpPath) + @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory -Force -ErrorAction SilentlyContinue |
-                                                Where-Object { $_.Name -like 'Snapshot_*' -or $_.Name -like 'Pruning_*' -or $_.Name -eq 'Temp' } |
+        foreach ($folder in @($Env.BkpPath) + @(Get-ChildItem -LiteralPath (Join-Path $Env.ChgPath 'BackupHistory') -Directory -Force -ErrorAction SilentlyContinue |
+                                                Where-Object { $_.Name -match '^\d{4}_' -or $_.Name -like 'Pruning_*' -or $_.Name -eq 'Temp' } |
                                                 ForEach-Object { $_.FullName })) {
             $m = Join-Path $folder 'MANIFEST.csv'
             if (Test-Path -LiteralPath $m) {

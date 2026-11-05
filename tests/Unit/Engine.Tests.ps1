@@ -114,7 +114,7 @@ Describe 'The store-layout check refuses an old backup, not the engine''s own fo
             param([string]$Name, [string]$Child)
             $root = Join-Path $TestDrive $Name
             $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
-            New-Item -ItemType Directory -Path $src, (Join-Path $store 'Latest'), (Join-Path $store $Child) -Force | Out-Null
+            New-Item -ItemType Directory -Path $src, (Join-Path $store 'CurrentBackup'), (Join-Path $store $Child) -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
             Set-Content -LiteralPath (Join-Path (Join-Path $store $Child) 'MANIFEST.csv') -Value '"DataPath","RelativePath"'
             return [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
@@ -122,13 +122,13 @@ Describe 'The store-layout check refuses an old backup, not the engine''s own fo
     }
 
     It 'accepts a store holding a leftover <Child> with a MANIFEST.csv, for a run and read-only (plan C44, S2)' -ForEach @(
-        @{ Child = 'Building_2026_01_01_10_00_00' }
-        @{ Child = 'Pruning_Snapshot_2026_01_01_10_00_00' }
+        @{ Child = 'BackupHistory/Building_2026_01_01_10_00_00' }
+        @{ Child = 'BackupHistory/Pruning_2026_01_01_10_00_00' }
     ) {
         # A run killed before the snapshot rename leaves Building_<date>; a
         # prune whose delete failed leaves Pruning_<name>. Each holds the
         # manifest it was given, and the next run or prune must finish it.
-        $set = New-LayoutStore -Name ('ok-' + $Child) -Child $Child
+        $set = New-LayoutStore -Name ('ok-' + ($Child -replace '\W', '')) -Child $Child
         { Resolve-BackupSetPaths -Set $set } | Should -Not -Throw
         { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Not -Throw
     }
@@ -136,32 +136,38 @@ Describe 'The store-layout check refuses an old backup, not the engine''s own fo
     It 'still refuses a store holding an old-layout backup folder (a <Child> with a MANIFEST.csv) (plan C44, L2, S2)' -ForEach @(
         @{ Child = 'backup' }
         @{ Child = 'Backup_2026' }
+        @{ Child = 'Latest' }
+        @{ Child = 'Snapshot_2026_01_01_10_00_00' }
+        @{ Child = 'Building_2026_01_01_10_00_00' }
+        @{ Child = 'Pruning_2026_01_01_10_00_00' }
     ) {
         $set = New-LayoutStore -Name ('old-' + $Child) -Child $Child
         { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage "*holds '$Child', a folder with a MANIFEST.csv*old-layout*"
         { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Throw -ExpectedMessage '*old-layout*'
     }
 
-    It 'refuses an old store whose backup folder was named Latest: a <Marker> (C44 review, finding 2)' -ForEach @(
-        @{ Marker = 'path sidecar in Latest' }
-        @{ Marker = 'kit older than revision 15 in Latest' }
-        @{ Marker = 'change folder of snapshots beside Latest' }
+    It 'refuses an old store whose backup folder was named CurrentBackup: a <Marker> (C44 review, finding 2)' -ForEach @(
+        @{ Marker = 'path sidecar in CurrentBackup' }
+        @{ Marker = 'kit older than revision 16 in CurrentBackup' }
+        @{ Marker = 'change folder of snapshots beside CurrentBackup' }
+        @{ Marker = 'old-named snapshots in BackupHistory' }
     ) {
         $root = Join-Path $TestDrive ('old-latest-' + ($Marker -replace '\W', ''))
-        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'; $latest = Join-Path $store 'Latest'
+        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'; $latest = Join-Path $store 'CurrentBackup'
         New-Item -ItemType Directory -Path $src, $latest -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
         switch -Wildcard ($Marker) {
             'path sidecar*' { Set-Content -LiteralPath (Join-Path $latest 'RECONSTRUCT.paths.json') -Value '{}' }
-            'kit older*'    { Set-Content -LiteralPath (Join-Path $latest 'RECONSTRUCT.ps1') -Value '# KitRevision: 14' }
+            'kit older*'    { Set-Content -LiteralPath (Join-Path $latest 'RECONSTRUCT.ps1') -Value '# KitRevision: 15' }
             'change folder*' { New-Item -ItemType Directory -Path (Join-Path $store 'changes\Snapshot_2026_01_01_10_00_00') -Force | Out-Null }
+            'old-named*'     { New-Item -ItemType Directory -Path (Join-Path $store 'BackupHistory\Snapshot_2026_01_01_10_00_00') -Force | Out-Null }
         }
         $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
         { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage '*old-layout*'
         { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Throw -ExpectedMessage '*old-layout*'
     }
 
-    It 'refuses a StorePath that is itself an old backup folder, and one with snapshots but no Latest (plan C44, S2, C26)' {
+    It 'refuses a StorePath that is itself an old backup folder, and one with snapshots but no CurrentBackup (plan C44, S2, C26)' {
         $root = Join-Path $TestDrive 'old-self'
         $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
         New-Item -ItemType Directory -Path $src, $store -Force | Out-Null
@@ -171,10 +177,57 @@ Describe 'The store-layout check refuses an old backup, not the engine''s own fo
         { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage '*holds a MANIFEST.csv of its own*'
 
         $lost = Join-Path $root 'lost'
-        New-Item -ItemType Directory -Path (Join-Path $lost 'Snapshot_2026_01_01_10_00_00') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $lost 'BackupHistory/2026_01_01_10_00_00') -Force | Out-Null
         $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $lost }
-        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage "*holds snapshots but no 'Latest' folder*"
-        Test-Path -LiteralPath (Join-Path $lost 'Latest') | Should -BeFalse -Because 'no fresh full backup starts beside the snapshots'
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage "*holds snapshots but no 'CurrentBackup' folder*"
+        Test-Path -LiteralPath (Join-Path $lost 'CurrentBackup') | Should -BeFalse -Because 'no fresh full backup starts beside the snapshots'
+    }
+
+    It 'refuses a store with a CurrentBackup but no BackupHistory, for a run and read-only, and changes nothing (plan L10, S15)' {
+        $root = Join-Path $TestDrive 'no-history'
+        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
+        New-Item -ItemType Directory -Path $src, (Join-Path $store 'CurrentBackup') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
+        $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
+        $history = Join-Path $store 'BackupHistory'
+        { Resolve-BackupSetPaths -Set $set } | Should -Throw -ExpectedMessage "*'CurrentBackup' folder but no 'BackupHistory' folder*create an empty folder at '$history'*"
+        { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Throw -ExpectedMessage "*no 'BackupHistory' folder*"
+        Test-Path -LiteralPath $history | Should -BeFalse -Because 'the engine never makes the history of an existing store'
+    }
+
+    It 'lets the run go on once the user creates the empty BackupHistory the refusal names (plan L10)' {
+        $root = Join-Path $TestDrive 'history-remade'
+        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
+        New-Item -ItemType Directory -Path $src, (Join-Path $store 'CurrentBackup'), (Join-Path $store 'BackupHistory') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
+        $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
+        { Resolve-BackupSetPaths -Set $set } | Should -Not -Throw
+        { Resolve-BackupSetPaths -Set $set -ReadOnly } | Should -Not -Throw
+    }
+
+    It 'gives a new store both folders, and treats an empty BackupHistory with no CurrentBackup as still new (plan S14)' {
+        $root = Join-Path $TestDrive 'new-store'
+        $src = Join-Path $root 'src'; $store = Join-Path $root 'store'
+        New-Item -ItemType Directory -Path $src -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $src 'a.txt') -Value 'a'
+        $set = [pscustomobject]@{ Name = 'L'; SourcePath = $src; StorePath = $store }
+        Resolve-BackupSetPaths -Set $set | Out-Null
+        Test-Path -LiteralPath (Join-Path $store 'BackupHistory') -PathType Container | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $store 'CurrentBackup') -PathType Container | Should -BeTrue
+
+        # A run cut short between the two folders: history first, so this is new.
+        Remove-Item -LiteralPath (Join-Path $store 'CurrentBackup') -Force
+        { Resolve-BackupSetPaths -Set $set } | Should -Not -Throw
+        Test-Path -LiteralPath (Join-Path $store 'CurrentBackup') -PathType Container | Should -BeTrue
+    }
+
+    It 'counts a dated folder as a snapshot only inside BackupHistory (plan S12)' {
+        $root = Join-Path $TestDrive 'dated-top'
+        $store = Join-Path $root 'store'
+        New-Item -ItemType Directory -Path (Join-Path $store '2026_01_01_10_00_00'), (Join-Path $store 'BackupHistory') -Force | Out-Null
+        @(Get-PoolSnapshotFolder -ChangeRoot $store) | Should -BeNullOrEmpty
+        New-Item -ItemType Directory -Path (Join-Path $store 'BackupHistory\2026_01_01_10_00_00') -Force | Out-Null
+        @(Get-PoolSnapshotFolder -ChangeRoot $store).Name | Should -Be '2026_01_01_10_00_00'
     }
 }
 
@@ -206,7 +259,7 @@ Describe 'FileBackup.ps1 entry point (SR-018)' {
         $entry = Join-Path $repo 'FileBackup.ps1'
         $source = Join-Path $TestDrive 'json-source'
         $changes = Join-Path $TestDrive 'json-store'
-        $backup = Join-Path $changes 'Latest'
+        $backup = Join-Path $changes 'CurrentBackup'
         $config = Join-Path $TestDrive 'FileBackup.json'
         $log = Join-Path $TestDrive 'logs\global.log'
         New-Item -ItemType Directory -Path $source | Out-Null
@@ -317,7 +370,7 @@ Describe 'Configuration loader accepts the documented contract (SR-042)' {
         # The two roots every engine step takes are derived from the one key
         # (plan C44, S1): the latest state, and the store itself.
         $result.Sets[0].StorePath  | Should -Be 'C:\store'
-        $result.Sets[0].BackupPath | Should -Be 'C:\store\Latest'
+        $result.Sets[0].BackupPath | Should -Be 'C:\store\CurrentBackup'
         $result.Sets[0].ChangePath | Should -Be 'C:\store'
     }
 
@@ -440,12 +493,12 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
 
     It 'refuses a ViewPath inside the store, except at exactly <StorePath>/View, at path resolution (SR-063, TC-128, plan C44 L3)' {
         $root = Join-Path $TestDrive 'tc128-contain'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         $mk = { param($vp) [pscustomobject]@{
             Name = 'S'; SourcePath = $src; StorePath = $chg
             SourceStatePath = ''; BrowseView = 'index'; ViewPath = $vp } }
-        # Inside Latest, or Latest itself.
+        # Inside CurrentBackup, or CurrentBackup itself.
         { Resolve-BackupSetPaths -Set (& $mk (Join-Path $bkp 'view')) } |
             Should -Throw -ExpectedMessage '*must lie outside the store*'
         { Resolve-BackupSetPaths -Set (& $mk $bkp) } |
@@ -454,7 +507,7 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
         # folder, or a folder of another name.
         { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'elsewhere')) } |
             Should -Throw -ExpectedMessage '*must lie outside the store*'
-        { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'Snapshot_2026_01_01_00_00_00')) } |
+        { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'BackupHistory/2026_01_01_00_00_00')) } |
             Should -Throw -ExpectedMessage '*must lie outside the store*'
         { Resolve-BackupSetPaths -Set (& $mk (Join-Path $chg 'View\deeper')) } |
             Should -Throw -ExpectedMessage '*must lie outside the store*'
@@ -475,14 +528,14 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
         # success. Both reproduced on 2026-08-25 before this arm existed.
         $root = Join-Path $TestDrive 'tc128-ancestor'
         $store = Join-Path $root 'store'
-        $src = Join-Path $root 'src'; $chg = Join-Path $store 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $store 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         $state = Join-Path $root 'state'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg, $state -Force | Out-Null
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory'), $state -Force | Out-Null
         $mk = { param($vp) [pscustomobject]@{
             Name = 'S'; SourcePath = $src; StorePath = $chg
             SourceStatePath = $state; BrowseView = 'index'; ViewPath = $vp } }
 
-        # ancestor of the store (and so of Latest)
+        # ancestor of the store (and so of CurrentBackup)
         { Resolve-BackupSetPaths -Set (& $mk $store) } |
             Should -Throw -ExpectedMessage '*CONTAINS the store*'
         # the store itself
@@ -511,9 +564,9 @@ Describe 'Config v2 contract (SR-063, LLR-063)' {
                 Select-Object -First 1
         if (-not $free) { Set-ItResult -Skipped -Because 'no free drive letter for subst'; return }
         $root = Join-Path $TestDrive 'tc128-volume'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         $other = Join-Path $root 'othervol'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg, $other -Force | Out-Null
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory'), $other -Force | Out-Null
         $substOut = & cmd.exe /c "subst ${free}: `"$other`"" 2>&1
         if ($LASTEXITCODE -ne 0) { Set-ItResult -Skipped -Because "subst failed: $substOut"; return }
         try {

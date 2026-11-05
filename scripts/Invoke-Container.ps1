@@ -109,8 +109,8 @@ function Invoke-ContainerAction {
     .PARAMETER Word
         The entrypoint's positional action word (backup, prune, snapshots, verify).
     .PARAMETER Store
-        The ONE writable host folder mounted at /store, holding Latest/ and
-        every Snapshot_<date>/ (plan C44; R8).
+        The ONE writable host folder mounted at /store, holding CurrentBackup/ and
+        every BackupHistory/<date>/ (plan C44; R8).
     .PARAMETER Environment
         Extra 'NAME=value' pairs passed with -e.
     .OUTPUTS
@@ -163,8 +163,8 @@ function Test-ContainerStorageForm {
         [Parameter(Mandatory)][string]$Logs
     )
     $common = @{ Image = $Image; ConfigPath = $ConfigPath; Source = $Source; Store = $Store; Logs = $Logs }
-    # One store per set (plan C44): Latest inside it, snapshots beside Latest.
-    $Backup  = Join-Path $Store 'Latest'
+    # One store per set (plan C44): CurrentBackup inside it, snapshots beside CurrentBackup.
+    $Backup  = Join-Path $Store 'CurrentBackup'
 
     # --- clean store: exit 0, parseable JSON, nothing modified ---
     $before = @{}
@@ -213,11 +213,11 @@ function Test-ContainerStorageForm {
     $seedArgs.AddRange([string[]]@('-NoProfile', '-Command', @'
 $ErrorActionPreference = 'Stop'
 Import-Module /opt/filebackup/Modules/FileBackup.Common.psm1
-$rows = @(Read-Manifest -FolderPath /store/Latest)
+$rows = @(Read-Manifest -FolderPath /store/CurrentBackup)
 $t = @($rows | Where-Object RelativePath -eq $env:FILEBACKUP_SEED_REL)[0]
-if (-not $t) { throw "seed target '$env:FILEBACKUP_SEED_REL' not found in /store/Latest manifest" }
+if (-not $t) { throw "seed target '$env:FILEBACKUP_SEED_REL' not found in /store/CurrentBackup manifest" }
 $t.Compressed = if ($t.Compressed -eq 'Yes') { 'No' } else { 'Yes' }
-Write-Manifest -FolderPath /store/Latest -Records $rows
+Write-Manifest -FolderPath /store/CurrentBackup -Records $rows
 '@))
     Invoke-ContainerCommand -Arguments $seedArgs.ToArray()
 
@@ -319,7 +319,7 @@ function Test-ContainerCompressProbe {
     $source    = Join-Path $probeRoot 'source'
     $config    = Join-Path $probeRoot 'config'
     $store     = Join-Path $probeRoot 'store'
-    $backup    = Join-Path $store 'Latest'
+    $backup    = Join-Path $store 'CurrentBackup'
     $changes   = $store
     $logs      = Join-Path $probeRoot 'logs'
     $restore   = Join-Path $probeRoot 'restore'
@@ -491,7 +491,7 @@ function Test-ContainerCompressProbe {
     Add-BindMountArguments -Arguments $restoreArgs -Source $store -Target '/store' -ReadOnly
     Add-BindMountArguments -Arguments $restoreArgs -Source $restore -Target '/restore'
     $restoreArgs.Add($Image)
-    foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/Latest/RECONSTRUCT.ps1','-TargetRoot','/restore','-SevenZipPath','/usr/bin/7z') {
+    foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/CurrentBackup/RECONSTRUCT.ps1','-TargetRoot','/restore','-SevenZipPath','/usr/bin/7z') {
         $restoreArgs.Add($arg)
     }
     Invoke-ContainerCommand -Arguments $restoreArgs.ToArray()
@@ -520,34 +520,37 @@ function Test-ContainerCompressProbe {
 function Test-ContainerSplitMountRefusal {
     <#
     .SYNOPSIS
-        A store whose Latest folder is a separate bind mount is refused with
-        exit 2 and writes no manifest.
+        A store whose CurrentBackup or BackupHistory folder is a separate bind
+        mount is refused with exit 2 and writes no manifest.
     .DESCRIPTION
         On Linux a rename between two bind mounts fails even when both are one
         host filesystem, so the engine's test directory rename
-        (Assert-SingleStoreMount) must refuse a Latest folder mounted apart
-        from its store: every move between the latest state and a snapshot
+        (Assert-SingleStoreMount) must refuse either folder mounted apart from
+        its store: every move between the latest state and a snapshot
         must be a rename (bounded-run-loop plan R8; single-store layout L4).
         This check owns its own tree beneath the smoke root.
     .PARAMETER Image
         Local image reference to run.
     .PARAMETER Root
         Scratch root (the smoke root); this check builds its own tree beneath it.
+    .PARAMETER Folder
+        Which of the store's two folders to mount apart.
     .OUTPUTS
         None. Throws on any failed assertion.
     #>
     # Implements: SR-059, LLR-150
     param(
         [Parameter(Mandatory)][string]$Image,
-        [Parameter(Mandatory)][string]$Root
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][ValidateSet('CurrentBackup', 'BackupHistory')][string]$Folder
     )
-    $splitRoot  = Join-Path $Root 'split'
+    $splitRoot  = Join-Path $Root "split-$Folder"
     $source     = Join-Path $splitRoot 'source'
     $store      = Join-Path $splitRoot 'store'
-    $latest     = Join-Path $splitRoot 'latest-elsewhere'
+    $elsewhere  = Join-Path $splitRoot 'elsewhere'
     $logs       = Join-Path $splitRoot 'logs'
     $configFile = Join-Path $splitRoot 'FileBackup.json'
-    $folders    = @($splitRoot,$source,$store,(Join-Path $store 'Latest'),$latest,$logs)
+    $folders    = @($splitRoot,$source,$store,(Join-Path $store 'CurrentBackup'),(Join-Path $store 'BackupHistory'),$elsewhere,$logs)
     New-Item -ItemType Directory -Path $folders -Force | Out-Null
     if ($IsLinux -or $IsMacOS) {
         & chmod 0777 @folders
@@ -572,21 +575,21 @@ function Test-ContainerSplitMountRefusal {
     Add-BindMountArguments -Arguments $runArgs -Source $configFile -Target '/config/FileBackup.json' -ReadOnly
     Add-BindMountArguments -Arguments $runArgs -Source $source -Target '/source' -ReadOnly
     Add-BindMountArguments -Arguments $runArgs -Source $store -Target '/store'
-    Add-BindMountArguments -Arguments $runArgs -Source $latest -Target '/store/Latest'
+    Add-BindMountArguments -Arguments $runArgs -Source $elsewhere -Target "/store/$Folder"
     Add-BindMountArguments -Arguments $runArgs -Source $logs -Target '/logs'
     $runArgs.Add($Image)
     $output = & $script:ContainerRuntime @($runArgs.ToArray()) 2>&1 | Out-String
     $code = $LASTEXITCODE
     if ($code -ne 2) {
-        throw "A backup whose Latest folder is a separate bind mount exited $code; plan R8 refuses it with 2.`n$output"
+        throw "A backup whose $Folder folder is a separate bind mount exited $code; plan R8 refuses it with 2.`n$output"
     }
     if ($output -notmatch 'one volume and one mount') {
         throw "The split-mount backup exited 2, but not with the one-mount refusal.`n$output"
     }
-    if (Test-Path -LiteralPath (Join-Path $latest 'MANIFEST.csv')) {
+    if ((Test-Path -LiteralPath (Join-Path $elsewhere 'MANIFEST.csv')) -or (Test-Path -LiteralPath (Join-Path $store 'CurrentBackup/MANIFEST.csv'))) {
         throw 'The refused split-mount backup wrote a MANIFEST.csv; a refusal must write no backup.'
     }
-    Write-Host 'Container split-mount check passed: a Latest folder mounted apart from its store is refused with exit 2, and no manifest is written.'
+    Write-Host "Container split-mount check passed: a $Folder folder mounted apart from its store is refused with exit 2, and no manifest is written."
 }
 
 function Invoke-ContainerSmokeTest {
@@ -598,7 +601,7 @@ function Invoke-ContainerSmokeTest {
     $config = Join-Path $smokeRoot 'config'
     # ONE store mount holds both roots (bounded-run-loop plan R8).
     $store = Join-Path $smokeRoot 'store'
-    $backup = Join-Path $store 'Latest'
+    $backup = Join-Path $store 'CurrentBackup'
     $changes = $store
     $logs = Join-Path $smokeRoot 'logs'
     $restore = Join-Path $smokeRoot 'restore'
@@ -653,7 +656,7 @@ function Invoke-ContainerSmokeTest {
         Add-BindMountArguments -Arguments $restoreArgs -Source $store -Target '/store' -ReadOnly
         Add-BindMountArguments -Arguments $restoreArgs -Source $restore -Target '/restore'
         $restoreArgs.Add($Image)
-        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/Latest/RECONSTRUCT.ps1','-TargetRoot','/restore','-SevenZipPath','/usr/bin/7z') {
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/CurrentBackup/RECONSTRUCT.ps1','-TargetRoot','/restore','-SevenZipPath','/usr/bin/7z') {
             $restoreArgs.Add($arg)
         }
         Invoke-ContainerCommand -Arguments $restoreArgs.ToArray()
@@ -694,10 +697,10 @@ function Invoke-ContainerSmokeTest {
         Invoke-ContainerCommand -Arguments $runArgs.ToArray()
 
         # -Force (SR-057): a hidden snapshot folder must not escape this count.
-        $snapshotDirs = @(Get-ChildItem -LiteralPath $changes -Directory -Force -ErrorAction SilentlyContinue |
-            Where-Object Name -match '^Snapshot_\d')
+        $snapshotDirs = @(Get-ChildItem -LiteralPath (Join-Path $changes 'BackupHistory') -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object Name -match '^\d{4}_')
         if ($snapshotDirs.Count -ne 1) {
-            throw "Expected exactly one Snapshot_<date> folder in the store after the incremental run; found $($snapshotDirs.Count)."
+            throw "Expected exactly one BackupHistory/<date> folder in the store after the incremental run; found $($snapshotDirs.Count)."
         }
         $snapshotName = $snapshotDirs[0].Name
         $snapshotPath = $snapshotDirs[0].FullName
@@ -710,7 +713,7 @@ function Invoke-ContainerSmokeTest {
             }
         }
 
-        # Restore #1: latest state (/store/Latest), compared against the mutated source.
+        # Restore #1: latest state (/store/CurrentBackup), compared against the mutated source.
         $restoreLatestArgs = [System.Collections.Generic.List[string]]@(
             'run','--rm','--network','none','--read-only',
             '--security-opt','no-new-privileges','--cap-drop','ALL',
@@ -720,7 +723,7 @@ function Invoke-ContainerSmokeTest {
         Add-BindMountArguments -Arguments $restoreLatestArgs -Source $store -Target '/store' -ReadOnly
         Add-BindMountArguments -Arguments $restoreLatestArgs -Source $restoreLatest -Target '/restore-latest'
         $restoreLatestArgs.Add($Image)
-        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/Latest/RECONSTRUCT.ps1','-TargetRoot','/restore-latest','-SevenZipPath','/usr/bin/7z') {
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File','/store/CurrentBackup/RECONSTRUCT.ps1','-TargetRoot','/restore-latest','-SevenZipPath','/usr/bin/7z') {
             $restoreLatestArgs.Add($arg)
         }
         Invoke-ContainerCommand -Arguments $restoreLatestArgs.ToArray()
@@ -752,7 +755,7 @@ function Invoke-ContainerSmokeTest {
         Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $store -Target '/store' -ReadOnly
         Add-BindMountArguments -Arguments $restoreSnapshotArgs -Source $restoreSnapshot -Target '/restore-snapshot'
         $restoreSnapshotArgs.Add($Image)
-        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File',"/store/$snapshotName/RECONSTRUCT.ps1",'-TargetRoot','/restore-snapshot','-SevenZipPath','/usr/bin/7z') {
+        foreach ($arg in '-NoLogo','-NoProfile','-NonInteractive','-File',"/store/BackupHistory/$snapshotName/RECONSTRUCT.ps1",'-TargetRoot','/restore-snapshot','-SevenZipPath','/usr/bin/7z') {
             $restoreSnapshotArgs.Add($arg)
         }
         Invoke-ContainerCommand -Arguments $restoreSnapshotArgs.ToArray()
@@ -779,7 +782,7 @@ function Invoke-ContainerSmokeTest {
 
         Test-ContainerCompressProbe -Image $Image -Root $smokeRoot
 
-        Test-ContainerSplitMountRefusal -Image $Image -Root $smokeRoot
+        foreach ($apart in 'CurrentBackup', 'BackupHistory') { Test-ContainerSplitMountRefusal -Image $Image -Root $smokeRoot -Folder $apart }
     }
     finally {
         if (Test-Path -LiteralPath $smokeRoot) {

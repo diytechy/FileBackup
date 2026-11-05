@@ -35,7 +35,7 @@ BeforeAll {
             already-compressed extension (a mixed tree under +Compress).
         #>
         param([string]$Root, [bool]$Compress = $false)
-        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $Root 'src'; $chg = Join-Path $Root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         $cfg = Join-Path $Root 'c.xml'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub\deep') -Force | Out-Null
         New-ViewConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -Compress $Compress
@@ -172,7 +172,7 @@ Describe 'Freshness, idempotence, torn views (SR-062, TC-131)' {
 
     It 'refuses to overwrite a view root that holds a MANIFEST.csv (a STORE, not a view); the backup itself still succeeds' {
         $root = Join-Path $TestDrive 'v131b'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         $cfg = Join-Path $root 'c.xml'
         # Outside the store: a folder inside it that holds a MANIFEST.csv is
         # refused before the run as an old-layout backup (plan C44, S2).
@@ -219,7 +219,7 @@ Describe 'Snapshots get no view (SR-062, TC-133)' {
         [IO.File]::WriteAllText((Join-Path $t.Src 'a.bin'), ('CHANGED ' * 50))
         Invoke-VB $t.Cfg    # second run => a snapshot exists
 
-        $snaps = @(Get-ChildItem -LiteralPath $t.Chg -Directory | Where-Object Name -match '^Snapshot_')
+        $snaps = @(Get-ChildItem -LiteralPath (Join-Path $t.Chg 'BackupHistory') -Directory | Where-Object Name -match '^\d{4}_')
         $snaps.Count | Should -BeGreaterThan 0
         foreach ($snap in $snaps) {
             @(Get-ChildItem -LiteralPath $snap.FullName -Recurse -Force |
@@ -271,8 +271,8 @@ Describe 'The view generator never deletes anything that is not a view (SR-062, 
         # store on 2026-08-25 must now fail the SET with everything still there.
         $root = Join-Path $TestDrive 'vguard-e2e'
         $store = Join-Path $root 'FB'
-        $src = Join-Path $root 'src'; $chg = Join-Path $store 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        $src = Join-Path $root 'src'; $chg = Join-Path $store 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'PAYLOAD')
         $cfg = Join-Path $root 'c.xml'
         New-ViewConfig -Path $cfg -Src $src -Bkp $bkp -Chg $chg -ViewPath $store

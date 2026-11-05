@@ -85,17 +85,20 @@ $script:DirectorySidecarName  = 'DIRECTORIES.csv'
 $script:CSVDateFormat         = 'O'                       # ISO 8601 round-trip
 $script:FileLabelDateFormat   = 'yyyy_MM_dd_HH_mm_ss'     # label in folder/manifest names (no ':' — invalid in Windows paths)
 $script:ChangeFolderDateMask  = 'yyyy_MM_dd_HH_mm_ss'     # pattern used in snapshot-folder names
-# Dated point-in-time snapshots (SR-005/SR-028): a folder Snapshot_<date> preserves
-# the state of the backup whose completion date it is named for. The latest state
-# is the live backup root (no snapshot folder). Replaces the previous change-folder model.
-$script:SnapshotPrefix        = 'Snapshot_'
-$script:ChangeFolderRegex     = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
-# One store folder per backup set (plan C44): <StorePath>/Latest is the latest
-# state, every Snapshot_<date> sits beside it, and the browse view defaults to
-# <StorePath>/View. The names are exact (L1, L3).
-$script:LatestFolderName      = 'Latest'
+# Dated point-in-time snapshots (SR-005/SR-028): a folder named by a date alone
+# preserves the state of the backup whose completion date it is named for. The
+# latest state is the live backup root (no snapshot folder). The name proves
+# nothing by itself: a dated folder is a snapshot only inside BackupHistory (S12).
+$script:ChangeFolderRegex     = '^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
+# The names older stores gave their snapshots. Only to refuse such a store (S13).
+$script:LegacySnapshotRegex   = '^Snapshot_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}'
+# One store folder per backup set (plan C44, L9): <StorePath>/CurrentBackup is the
+# latest state, every dated snapshot sits in <StorePath>/BackupHistory, and the
+# browse view defaults to <StorePath>/View. The names are exact (L1, L3, L9).
+$script:CurrentFolderName     = 'CurrentBackup'
+$script:HistoryFolderName     = 'BackupHistory'
 $script:ViewFolderName        = 'View'
-# An object in Latest lives one folder down, in the folder named by the first
+# An object in CurrentBackup lives one folder down, in the folder named by the first
 # two characters of its name, lowercased (L8). Lowercase because Windows treats
 # 'Ab' and 'aB' as one folder and Linux as two; the pattern includes 'l',
 # which only an uppercase 'L' produces. Snapshots stay flat.
@@ -278,8 +281,9 @@ function Get-FileBackupDefaults {
         FileLabelDateFormat      = $script:FileLabelDateFormat
         ChangeFolderDateMask     = $script:ChangeFolderDateMask
         ChangeFolderRegex        = $script:ChangeFolderRegex
-        SnapshotPrefix           = $script:SnapshotPrefix
-        LatestFolderName         = $script:LatestFolderName
+        LegacySnapshotRegex      = $script:LegacySnapshotRegex
+        CurrentFolderName        = $script:CurrentFolderName
+        HistoryFolderName        = $script:HistoryFolderName
         ViewFolderName           = $script:ViewFolderName
         ShardFolderPattern       = $script:ShardFolderPattern
         Alphabet                 = $script:Alphabet
@@ -814,7 +818,7 @@ function Get-StoredObjectPath {
     .DESCRIPTION
         The one place that decides it, for the engine and both restorers. The
         caller says whether the folder is the latest state (the engine: it is
-        the backup root; a restorer: it is <store>/Latest), so nothing infers
+        the backup root; a restorer: it is <store>/CurrentBackup), so nothing infers
         it from a folder's name. A DataPath is always the bare name.
 
     .PARAMETER Folder

@@ -16,14 +16,14 @@
                           fixed 3-run timeline (deterministic via -BackupTime +
                           fixed content + fixed mtimes), one store folder per
                           backup set (ConfigVersion 3, plan C44). Each mode holds:
-                            store/Latest/      the latest state: MANIFEST.csv,
+                            store/CurrentBackup/      the latest state: MANIFEST.csv,
                                                DIRECTORIES.csv and the objects,
                                                each in its shard folder
                                                <xx>/<name> (L8)
-                            store/Snapshot_*/  the point-in-time folders (flat)
+                            store/BackupHistory/<date>/  the point-in-time folders (flat)
                             store/             also holds the run state
                             expected/  one <origin>.tsv per restore origin (root =
-                                       Latest, + each snapshot):
+                                       CurrentBackup, + each snapshot):
                                        "posixRelativePath<TAB>hash" read from that
                                        origin's own MANIFEST.csv — the independent
                                        oracle reconstruct.sh must reproduce (a
@@ -32,7 +32,7 @@
 
     The timeline exercises: dedup (shared content), a modified file (point-in-time
     v1 vs v2), a delete then identical re-add (a snapshot row whose object now
-    lives in Latest, so it resolves through the name index by (hash,length);
+    lives in CurrentBackup, so it resolves through the name index by (hash,length);
     the engine writes no blank DataPath here, and the run reports how many it
     found), a 0-byte file, unicode / bracketed / comma-bearing
     names, a nested user file named MANIFEST.csv (B6), and — in the +Compress
@@ -179,7 +179,7 @@ $KitArtifacts = @('RECONSTRUCT.ps1', 'RECONSTRUCT.cmd', 'RECONSTRUCT.command', '
 function Remove-KitBloat {
     param([string]$Folder)
     # Strip the deployed restore kit + logs from a committed fixture, keeping
-    # the manifests, DIRECTORIES.csv, data files, Snapshot_* and the run state.
+    # the manifests, DIRECTORIES.csv, data files, the snapshots and the run state.
     Get-ChildItem -LiteralPath $Folder -Recurse -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -in $KitArtifacts -or $_.Name -eq 'backup.log' } |
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
@@ -215,11 +215,11 @@ try {
         New-Item -ItemType Directory -Path $destMode -Force | Out-Null
         Copy-Item -LiteralPath $store -Destination (Join-Path $destMode 'store') -Recurse -Force
 
-        # Expected oracle: one TSV per restore origin (root.tsv = Latest, + each snapshot).
+        # Expected oracle: one TSV per restore origin (root.tsv = CurrentBackup, + each snapshot).
         $destStore = Join-Path $destMode 'store'
-        Write-ExpectedTsv -ManifestPath (Join-Path $destStore 'Latest\MANIFEST.csv') -OutFile (Join-Path $destMode 'expected\root.tsv')
+        Write-ExpectedTsv -ManifestPath (Join-Path $destStore 'CurrentBackup\MANIFEST.csv') -OutFile (Join-Path $destMode 'expected\root.tsv')
         $snapCount = 0
-        Get-ChildItem -LiteralPath $destStore -Directory | Where-Object { $_.Name -like 'Snapshot_*' } | ForEach-Object {
+        Get-ChildItem -LiteralPath (Join-Path $destStore 'BackupHistory') -Directory | Where-Object { $_.Name -match '^\d{4}_' } | ForEach-Object {
             Write-ExpectedTsv -ManifestPath (Join-Path $_.FullName 'MANIFEST.csv') -OutFile (Join-Path $destMode "expected\$($_.Name).tsv")
             $snapCount++
         }

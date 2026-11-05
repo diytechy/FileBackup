@@ -6,24 +6,24 @@
 # decoder itself is held to the PowerShell oracle in name_grammar.bats.
 #
 # Kit revision 15 (plan C44): one store folder per backup set. The index lists
-# Latest through its shard folders (<Latest>/<xx>/<name>, L8) and each
-# Snapshot_<date> flat; the store is the origin's parent, never guessed.
+# CurrentBackup through its shard folders (<CurrentBackup>/<xx>/<name>, L8) and each
+# BackupHistory/<date> flat; the store is the origin's parent, never guessed.
 
 setup() {
     load helpers
 }
 
 # copy_store <mode> : a writable copy of a shipped fixture store; sets
-# STORE (the store), BK (its Latest folder) and CH (the folder holding the
+# STORE (the store), BK (its CurrentBackup folder) and CH (the folder holding the
 # snapshots, which is the store itself).
 copy_store() {
     STORE="$BATS_TEST_TMPDIR/store-$1"
     cp -r "$(store_for "$1")" "$STORE"
-    BK="$STORE/Latest"
+    BK="$STORE/CurrentBackup"
     CH="$STORE"
 }
 
-# lobj <name> : where object <name> sits in the copied store's Latest (L8).
+# lobj <name> : where object <name> sits in the copied store's CurrentBackup (L8).
 lobj() { printf '%s' "$BK/$(shard_of "$1")/$1"; }
 
 # blank_datapaths <manifest> : blank column 1 of every data row, in place.
@@ -40,7 +40,7 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
     local mode snap log rows
     for mode in "${MODES[@]}"; do
         copy_store "$mode"
-        snap="$CH/Snapshot_2024_01_01_09_00_00"
+        snap="$CH/BackupHistory/2024_01_01_09_00_00"
         # The worst case the field sees (about 96% of real snapshot rows are
         # blank): EVERY DataPath blank, including the two whose objects live
         # in the snapshot itself, so bytes come from the origin AND from latest.
@@ -49,7 +49,7 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 
         run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t-$mode" --from "$snap"
         [ "$status" -eq 0 ] || { echo "$mode: expected 0, got $status"; echo "$output"; false; }
-        run verify_tree "$BATS_TEST_TMPDIR/t-$mode" "$FIXTURES/bash-restore/$mode/expected/Snapshot_2024_01_01_09_00_00.tsv"
+        run verify_tree "$BATS_TEST_TMPDIR/t-$mode" "$FIXTURES/bash-restore/$mode/expected/2024_01_01_09_00_00.tsv"
         [ "$status" -eq 0 ] || { echo "$mode: $output"; false; }
 
         # The proof the scan did not run: every row was resolved by name, and
@@ -64,7 +64,7 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 
 @test "the index prefers the origin's own copy, then latest's shard folders (kit revision 14, 15)" {
     copy_store HashAddressed
-    local snap="$CH/Snapshot_2024_01_01_09_00_00" obj readme
+    local snap="$CH/BackupHistory/2024_01_01_09_00_00" obj readme
     # The snapshot's own superseded hello.txt object must be the one used, and
     # an object that exists only in latest must come from latest.
     obj="$(gawk -F'"' '$4 == "hello.txt" { print $2 }' "$snap/MANIFEST.csv")"
@@ -80,17 +80,17 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 @test "a DataPath whose object moved to another pool folder resolves through the index (kit revision 14, R6)" {
     copy_store HashAddressed
     local obj
-    # Latest's hello.txt object moves into a snapshot: the row still names it
+    # CurrentBackup's hello.txt object moves into a snapshot: the row still names it
     # in latest, which is the shape a write-once manifest goes stale with.
     obj="$(gawk -F'"' '$4 == "hello.txt" { print $2 }' "$BK/MANIFEST.csv")"
     [ -f "$(lobj "$obj")" ]
-    mv "$(lobj "$obj")" "$CH/Snapshot_2024_01_02_09_00_00/$obj"
+    mv "$(lobj "$obj")" "$CH/BackupHistory/2024_01_02_09_00_00/$obj"
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tmoved" --from "$BK"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     run verify_tree "$BATS_TEST_TMPDIR/tmoved" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
-    grep -qF "missing for 'hello.txt'; resolved by name index to '$CH/Snapshot_2024_01_02_09_00_00/$obj'" "$BATS_TEST_TMPDIR/tmoved/RECONSTRUCT.log"
+    grep -qF "missing for 'hello.txt'; resolved by name index to '$CH/BackupHistory/2024_01_02_09_00_00/$obj'" "$BATS_TEST_TMPDIR/tmoved/RECONSTRUCT.log"
     [ "$(grep -c 'attempting hash scan' "$BATS_TEST_TMPDIR/tmoved/RECONSTRUCT.log")" -eq 0 ]
 }
 
@@ -110,8 +110,8 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
     grep -q "Hash-recovered 'hello.txt' from '.*renamed-by-hand.bin'" "$BATS_TEST_TMPDIR/tscan/RECONSTRUCT.log"
 }
 
-@test "an object in the WRONG place in Latest is not found by the name index, only by the content scan (kit revision 15, L8)" {
-    # A file in Latest is an object only in its own shard folder: at Latest's
+@test "an object in the WRONG place in CurrentBackup is not found by the name index, only by the content scan (kit revision 15, L8)" {
+    # A file in CurrentBackup is an object only in its own shard folder: at CurrentBackup's
     # top level, in another name's shard folder, or in an uppercase spelling
     # of its own (a distinct folder here, one folder on Windows) no path leads
     # to it. The index must not offer it; the content scan, which reads bytes,
@@ -168,20 +168,20 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 @test "a snapshot of a COPIED store resolves every blank row inside the copy, with no flags (kit revision 15, S3)" {
     # Replaces the one-mount sibling guess (plan R8): the store is the
     # snapshot's parent wherever it now lives, so a copy restores from its own
-    # Latest and snapshots, never the original's.
+    # CurrentBackup and snapshots, never the original's.
     local mode store snap log rows
     for mode in "${MODES[@]}"; do
         store="$BATS_TEST_TMPDIR/copied-$mode/some where/My Store"
         mkdir -p "$(dirname -- "$store")"
         cp -r "$(store_for "$mode")" "$store"
         store="$(cd "$store" && pwd -P)"
-        snap="$store/Snapshot_2024_01_01_09_00_00"
+        snap="$store/BackupHistory/2024_01_01_09_00_00"
         blank_datapaths "$snap/MANIFEST.csv"
         rows="$(data_rows "$snap/MANIFEST.csv")"
 
         run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t1-$mode" --from "$snap"
         [ "$status" -eq 0 ] || { echo "$mode: expected 0, got $status"; echo "$output"; false; }
-        run verify_tree "$BATS_TEST_TMPDIR/t1-$mode" "$FIXTURES/bash-restore/$mode/expected/Snapshot_2024_01_01_09_00_00.tsv"
+        run verify_tree "$BATS_TEST_TMPDIR/t1-$mode" "$FIXTURES/bash-restore/$mode/expected/2024_01_01_09_00_00.tsv"
         [ "$status" -eq 0 ] || { echo "$mode: $output"; false; }
         log="$BATS_TEST_TMPDIR/t1-$mode/RECONSTRUCT.log"
         [ "$(grep -c "resolved by name index to '$store/" "$log")" -eq "$rows" ] || { echo "$mode:"; cat "$log"; false; }
@@ -192,11 +192,11 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 @test "a latest-state restore finds a row whose object is still in a snapshot of its store (plan C19, kit revision 15)" {
     # A move back that failed leaves a latest row naming an object inside a
     # snapshot. Until kit revision 15 the change folder was guessed (plan
-    # C32); now it is the store, Latest's parent, and nothing is guessed.
+    # C32); now it is the store, CurrentBackup's parent, and nothing is guessed.
     local mode obj snap
     for mode in "${MODES[@]}"; do
         copy_store "$mode"
-        snap="$CH/Snapshot_2024_01_01_09_00_00"
+        snap="$CH/BackupHistory/2024_01_01_09_00_00"
         obj="$(gawk -F'"' 'NR > 1 && $2 != "" { print $2; exit }' "$BK/MANIFEST.csv")"
         [ -f "$(lobj "$obj")" ] || { echo "$mode: no latest object '$obj'"; false; }
         mv -- "$(lobj "$obj")" "$snap/$obj"
@@ -216,7 +216,7 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
     # the key's first candidate, the partial archive failed to expand, and the
     # restore exited 4 with the intact original in latest.
     copy_store HashAddressed_Compress
-    local snap="$CH/Snapshot_2024_01_01_09_00_00" o1 o2 log
+    local snap="$CH/BackupHistory/2024_01_01_09_00_00" o1 o2 log
     o1="$(gawk -F'"' '$4 == "README" { print $2 }' "$BK/MANIFEST.csv")"
     o2="$(gawk -F'"' '$4 == "[b] (p).txt" { print $2 }' "$BK/MANIFEST.csv")"
     [[ "$o1" == *.7z && "$o2" == *.7z ]] || { echo "objects must be archives: '$o1' '$o2'"; false; }
@@ -225,7 +225,7 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tstaged" --from "$snap"
     [ "$status" -eq 0 ] || { echo "expected 0, got $status"; echo "$output"; false; }
-    run verify_tree "$BATS_TEST_TMPDIR/tstaged" "$FIXTURES/bash-restore/HashAddressed_Compress/expected/Snapshot_2024_01_01_09_00_00.tsv"
+    run verify_tree "$BATS_TEST_TMPDIR/tstaged" "$FIXTURES/bash-restore/HashAddressed_Compress/expected/2024_01_01_09_00_00.tsv"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     log="$BATS_TEST_TMPDIR/tstaged/RECONSTRUCT.log"
     grep -qF "for 'README'; resolved by name index to '$(lobj "$o1")'" "$log"
@@ -247,8 +247,8 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
         for name in 'Backups & Archive' 'Backup #2'; do
             store="$BATS_TEST_TMPDIR/$name-$mode"
             cp -r "$(store_for "$mode")" "$store"
-            older="$store/Snapshot_2024_01_01_09_00_00"
-            newer="$store/Snapshot_2024_01_02_09_00_00"
+            older="$store/BackupHistory/2024_01_01_09_00_00"
+            newer="$store/BackupHistory/2024_01_02_09_00_00"
             obj="$(gawk -F'"' '$4 == "hello.txt" { print $2 }' "$older/MANIFEST.csv")"
             [ -f "$older/$obj" ] || { echo "$mode: no object '$obj' in the older snapshot"; false; }
             mv -- "$older/$obj" "$newer/$obj"
@@ -256,7 +256,7 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 
             run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t-$name-$mode" --from "$older"
             [ "$status" -eq 0 ] || { echo "$mode '$name': expected 0, got $status"; echo "$output"; false; }
-            run verify_tree "$BATS_TEST_TMPDIR/t-$name-$mode" "$FIXTURES/bash-restore/$mode/expected/Snapshot_2024_01_01_09_00_00.tsv"
+            run verify_tree "$BATS_TEST_TMPDIR/t-$name-$mode" "$FIXTURES/bash-restore/$mode/expected/2024_01_01_09_00_00.tsv"
             [ "$status" -eq 0 ] || { echo "$mode '$name': $output"; false; }
             grep -qF "resolved by name index to '$newer/$obj'" "$BATS_TEST_TMPDIR/t-$name-$mode/RECONSTRUCT.log" \
                 || { echo "$mode '$name':"; cat "$BATS_TEST_TMPDIR/t-$name-$mode/RECONSTRUCT.log"; false; }
@@ -267,14 +267,14 @@ data_rows() { gawk 'NR>1 && NF>0' "$1" | wc -l | tr -d ' '; }
 @test "a dot-named store keeps its snapshots in the pool (SR-057, plan C32 successor)" {
     # The change-folder guess had to see a dot-named folder ('.changes'). The
     # store is now named by the origin, so a dot-named STORE is the remaining
-    # shape: its snapshots must still be listed and its Latest still sharded.
+    # shape: its snapshots must still be listed and its CurrentBackup still sharded.
     local mode store obj snap
     for mode in "${MODES[@]}"; do
         store="$BATS_TEST_TMPDIR/dot-$mode/.store"
         mkdir -p "$(dirname -- "$store")"
         cp -r "$(store_for "$mode")" "$store"
-        BK="$store/Latest"
-        snap="$store/Snapshot_2024_01_01_09_00_00"
+        BK="$store/CurrentBackup"
+        snap="$store/BackupHistory/2024_01_01_09_00_00"
         obj="$(gawk -F'"' 'NR > 1 && $2 != "" { print $2; exit }' "$BK/MANIFEST.csv")"
         mv -- "$(lobj "$obj")" "$snap/$obj"
 

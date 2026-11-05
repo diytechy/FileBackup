@@ -143,8 +143,8 @@ Compress-FileWithSevenZip -SevenZipPath $Fake -SourceFile $Source -Destination7z
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), ('hello ' * 200))
         $paths = @{
             Src = $src
-            # One store folder (plan C44): Chg is the store, Bkp its Latest.
-            Bkp = Join-Path $Root 'chg\Latest'
+            # One store folder (plan C44): Chg is the store, Bkp its CurrentBackup.
+            Bkp = Join-Path $Root 'chg\CurrentBackup'
             Chg = Join-Path $Root 'chg'
             Cfg = Join-Path $Root 'config.xml'
             Log = Join-Path $Root 'Backup_Global.log'

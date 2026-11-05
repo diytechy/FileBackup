@@ -25,17 +25,17 @@ verify_tree() {  # <target> <expected.tsv>
 }
 
 # The committed fixture STORE of a mode: one store folder per backup set (kit
-# revision 15, plan C44), holding Latest/ and every Snapshot_<date>/ beside it.
+# revision 16, plan C44 L9), holding CurrentBackup/ and BackupHistory/<date>/.
 store_for() {  # <mode>
     printf '%s' "$FIXTURES/bash-restore/$1/store"
 }
 
 # Origin folder for a mode + expected-file basename ("root" = the store's
-# Latest folder, or "Snapshot_...").
+# CurrentBackup folder, or a dated snapshot in its BackupHistory).
 origin_for() {  # <mode> <origin_name>
     local mode="$1" name="$2"
-    if [[ "$name" == root ]]; then printf '%s' "$(store_for "$mode")/Latest"
-    else printf '%s' "$(store_for "$mode")/$name"; fi
+    if [[ "$name" == root ]]; then printf '%s' "$(store_for "$mode")/CurrentBackup"
+    else printf '%s' "$(store_for "$mode")/BackupHistory/$name"; fi
 }
 
 # shard_of <name> : the shard folder an object of the latest state lives in -
@@ -47,8 +47,8 @@ shard_of() {  # <name>
 
 # latest_object <latest-folder> <name> : the path an object named <name> has in
 # the latest state (<latest>/<shard>/<name>), creating its shard folder. Every
-# synthetic store a suite builds must put its Latest objects here: a file at
-# Latest's top level, or in another name's shard folder, is no object (L8).
+# synthetic store a suite builds must put its CurrentBackup objects here: a file at
+# CurrentBackup's top level, or in another name's shard folder, is no object (L8).
 latest_object() {  # <latest-folder> <name>
     local shard
     shard="$(shard_of "$2")"

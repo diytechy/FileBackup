@@ -82,7 +82,7 @@ Describe 'Folder picker fallbacks (SR-073, TC-163)' {
 }
 
 Describe 'Kit revision marker (SR-049, TC-173)' {
-    It 'is 15 in BOTH restorers, and they agree (TC-173)' {
+    It 'is 16 in BOTH restorers, and they agree (TC-173)' {
         # Nothing pinned these before, which is exactly how they drifted to 8
         # and 6 while the project documented 9 - so every WP12 store reports the
         # kit it carries as 8.
@@ -103,18 +103,19 @@ Describe 'Kit revision marker (SR-049, TC-173)' {
         # once per restore, and the MANIFEST.csv.meta witness is no longer read
         # (no exit 3, no -RequireWitness / --require-witness).
         # 14 -> 15 (2026-10-27, plan C44): one store folder per set. Both
-        # restorers find the store as the parent of their own folder (Latest or
-        # a Snapshot_<date>), read Latest's objects from shard folders, take
-        # one -StoreRootOverride / --store-root, and no RECONSTRUCT.paths.json
-        # is written.
+        # restorers find the store from their own folder, read the latest
+        # state's objects from shard folders, take one -StoreRootOverride /
+        # --store-root, and no RECONSTRUCT.paths.json is written.
+        # 15 -> 16 (2026-11-04, plan L9): CurrentBackup and BackupHistory, with
+        # date-only snapshots; a dated folder is one only inside BackupHistory.
         $ps1 = Select-String -Path (Join-Path $repo 'Reconstruct.ps1') -Pattern '^# KitRevision: (\d+)' |
                Select-Object -First 1
         $sh  = Select-String -Path (Join-Path $repo 'bash\reconstruct.sh') -Pattern '^# KitRevision: (\d+)' |
                Select-Object -First 1
         $ps1 | Should -Not -BeNullOrEmpty
         $sh  | Should -Not -BeNullOrEmpty
-        $ps1.Matches[0].Groups[1].Value | Should -Be '15'
-        $sh.Matches[0].Groups[1].Value  | Should -Be '15'
+        $ps1.Matches[0].Groups[1].Value | Should -Be '16'
+        $sh.Matches[0].Groups[1].Value  | Should -Be '16'
     }
 }
 
@@ -122,8 +123,8 @@ Describe 'Generated launchers and the kit artifact list (SR-007, SR-072)' {
     BeforeAll {
         $script:root = Join-Path $TestDrive 'kit'
         $script:chg  = Join-Path $root 'chg'
-        $script:bkp  = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $bkp, $chg -Force | Out-Null
+        $script:bkp  = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         New-ReconstructScript -BackupRoot $bkp
     }
 
@@ -201,7 +202,7 @@ Describe 'The kit is rewritten only when it changed, by temp file and rename (SR
         function New-KitFolder {
             param([string]$Name)
             $c = Join-Path $TestDrive "$Name\chg"
-            $b = Join-Path $c 'Latest'
+            $b = Join-Path $c 'CurrentBackup'
             New-Item -ItemType Directory -Path $b, $c -Force | Out-Null
             New-ReconstructScript -BackupRoot $b
             return [pscustomobject]@{ Bkp = $b; Chg = $c }
@@ -276,8 +277,8 @@ Describe 'A restored tree is ordinary writable files (SR-007, TC-174)' {
         $root = Join-Path $TestDrive 'ro-real'
         $src  = Join-Path $root 'src'
         $chg2 = Join-Path $root 'chg'
-        $bkp2 = Join-Path $chg2 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp2, $chg2 -Force | Out-Null
+        $bkp2 = Join-Path $chg2 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp2, $chg2, (Join-Path $chg2 'BackupHistory') -Force | Out-Null
         # A .jpg is on NonCompressibleExtensions, so it is stored RAW even with
         # compression on - and RAW is the Copy-Item path, the only one that
         # propagates the read-only attribute. Without a raw row this test passes

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# verify_restores.sh <fixtures-root> — restore every origin (the store's Latest
-# + each Snapshot_<date>) of every storage mode found under
+# verify_restores.sh <fixtures-root> — restore every origin (the store's CurrentBackup
+# + each BackupHistory/<date>) of every storage mode found under
 # <fixtures-root>/bash-restore/<mode>/store with reconstruct.sh, and verify each
 # restored file byte-for-byte against that origin's expected TSV
 # (posixRelPath<TAB>content-hash). Exits non-zero if any origin fails to
 # restore cleanly or any file's hash differs. No store flag is passed: kit
-# revision 15 finds the store as the origin's parent, which is what a user
-# running the kit from inside the store gets.
+# revision 16 finds the store from the origin, which is what a user running the
+# kit from inside the store gets.
 #
 # Used by the CI cross-artifact interop job on a FRESH set of PowerShell-produced
 # backups (gen_bash_fixtures.ps1 -Fresh) — the real windows->ubuntu proof — and
@@ -28,11 +28,11 @@ hash_upper() { xxh128sum -- "$1" | awk '{print $1}' | tr 'a-f' 'A-F'; }
 for modedir in "$BR"/*/; do
     mode="$(basename "$modedir")"
     store="$modedir/store"
-    [[ -f "$store/Latest/MANIFEST.csv" ]] || continue
+    [[ -f "$store/CurrentBackup/MANIFEST.csv" ]] || continue
     for tsv in "$modedir"/expected/*.tsv; do
         [[ -f "$tsv" ]] || continue
         name="$(basename "$tsv" .tsv)"
-        if [[ "$name" == root ]]; then origin="$store/Latest"; else origin="$store/$name"; fi
+        if [[ "$name" == root ]]; then origin="$store/CurrentBackup"; else origin="$store/BackupHistory/$name"; fi
         out="$TMP/$mode/$name"; origins=$((origins+1))
         if ! bash "$RS" --target-root "$out" --from "$origin" >/dev/null 2>&1; then
             echo "FAIL  $mode/$name  (reconstruct.sh exit non-zero)"; fails=$((fails+1)); continue
@@ -49,6 +49,6 @@ for modedir in "$BR"/*/; do
 done
 
 echo "==== verified $origins origin(s); $fails failing ===="
-# Zero origins is a layout mismatch (no <mode>/store/Latest found), never a pass.
-[[ $origins -gt 0 ]] || { echo "no store found under '$BR' (expected <mode>/store/Latest)" >&2; exit 1; }
+# Zero origins is a layout mismatch (no <mode>/store/CurrentBackup found), never a pass.
+[[ $origins -gt 0 ]] || { echo "no store found under '$BR' (expected <mode>/store/CurrentBackup)" >&2; exit 1; }
 [[ $fails -eq 0 ]]

@@ -11,7 +11,7 @@ setup() {
 
 # one_row_store <dir> <payload> : a store whose single row names its own data
 # file under the SR-069 grammar; sets STORE_HASH/STORE_LEN/STORE_DATA and
-# STORE_OBJ, the object's path. <dir> is the store's Latest folder, so the
+# STORE_OBJ, the object's path. <dir> is the store's CurrentBackup folder, so the
 # object sits in its shard folder (L8) and the store is <dir>'s parent.
 one_row_store() {
     local dir="$1" payload="$2"
@@ -30,7 +30,7 @@ one_row_store() {
 }
 
 @test "0: a wrong-payload data file is healed from a surviving pool copy, warning logged (SR-056 / TC-109)" {
-    local s="$BATS_TEST_TMPDIR/heal/Latest"
+    local s="$BATS_TEST_TMPDIR/heal/CurrentBackup"
     one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
     cp "$STORE_OBJ" "$s/spare.bin"                       # good copy survives in the pool
     printf 'WRNG-PAYLOAD-BYTES' > "$STORE_OBJ"           # same length, wrong bytes
@@ -43,7 +43,7 @@ one_row_store() {
 }
 
 @test "1: a same-length bit-flip with no surviving copy fails loudly, bad bytes deleted (SR-056 / TC-109)" {
-    local s="$BATS_TEST_TMPDIR/flip/Latest"
+    local s="$BATS_TEST_TMPDIR/flip/CurrentBackup"
     one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
     printf 'GOOD-PAYLOAD-BYTEX' > "$STORE_OBJ"
 
@@ -55,7 +55,7 @@ one_row_store() {
 }
 
 @test "1: truncation is caught by the length check before any hashing (SR-056 / TC-109)" {
-    local s="$BATS_TEST_TMPDIR/trunc/Latest"
+    local s="$BATS_TEST_TMPDIR/trunc/CurrentBackup"
     one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
     printf 'GOOD' > "$STORE_OBJ"
 
@@ -68,7 +68,7 @@ one_row_store() {
 @test "4: a 7z that cannot run is a HOST problem, never lost content (SR-040, kit rev 6 review fix)" {
     # A working 7z on the same store proves the bytes are fine, so a failing
     # one must exit 4 (self-test separates broken-host from damaged-archive).
-    local s="$BATS_TEST_TMPDIR/broken7z/Latest"
+    local s="$BATS_TEST_TMPDIR/broken7z/CurrentBackup"
     one_row_store "$s" 'PAYLOAD-FOR-BROKEN7Z'
     rm -f "$STORE_OBJ"
     sed -i "s|^\"$STORE_DATA\"|\"\"|" "$s/MANIFEST.csv"
@@ -147,7 +147,7 @@ one_row_store() {
 @test "2: a non-numeric Length is refused as a PRECONDITION before anything is written (review minor 7)" {
     # Parity: RECONSTRUCT.ps1's casts refuse the same index shape as class 2;
     # restoring such a row unverified would silently disable SR-056 for it.
-    local s="$BATS_TEST_TMPDIR/badlen/Latest"
+    local s="$BATS_TEST_TMPDIR/badlen/CurrentBackup"
     one_row_store "$s" 'GOOD-PAYLOAD-BYTES'
     sed -i "s/\"$STORE_LEN\"/\"abc\"/" "$s/MANIFEST.csv"
     restamp_witness "$s/MANIFEST.csv"
@@ -162,7 +162,7 @@ one_row_store() {
     # Before this fix hash_file's failure fell through to non-match and the
     # locator reported ContentMissing/exit 1 while the bytes may well survive.
     [[ $EUID -ne 0 ]] || skip "running as root reads through chmod 000"
-    local s="$BATS_TEST_TMPDIR/unreadable/Latest"
+    local s="$BATS_TEST_TMPDIR/unreadable/CurrentBackup"
     one_row_store "$s" 'UNREADABLE-CANDIDATE'
     # Blank the row and park its bytes under a name that is NOT an object
     # name, so the content scan - not the name index - is what meets the
@@ -185,7 +185,7 @@ one_row_store() {
     # keep the scan's cause; this one took the missing-data-file branch, so an
     # unreadable pool read as "your bytes are gone" (exit 1).
     [[ $EUID -ne 0 ]] || skip "running as root reads through chmod 000"
-    local s="$BATS_TEST_TMPDIR/a7/Latest"
+    local s="$BATS_TEST_TMPDIR/a7/CurrentBackup"
     one_row_store "$s" 'NONBLANK-ROW-BYTES'
     # The row keeps its DataPath; its object is gone from that name (and from
     # every name the index can see), and the bytes that survive cannot be read.
@@ -200,41 +200,40 @@ one_row_store() {
     [[ "$output" == *"0 content-missing, 1 host"* ]]
 }
 
-@test "4: an UNLISTABLE store surfaces as StorageUnreadable, never a silently smaller pool (SR-040, Terra review T2)" {
-    # The snapshots sit in the store, beside Latest (kit revision 15). A store
-    # that can be passed through but not LISTED (--x) still reaches Latest by
-    # path, but its snapshots cannot be found: silently dropping them would
-    # call a blank row whose only copy lives in one "gone" (exit 1).
+@test "4: an UNLISTABLE BackupHistory surfaces as StorageUnreadable, never a silently smaller pool (SR-040, Terra review T2)" {
+    # The snapshots sit in BackupHistory (kit revision 16, plan L9). One that can
+    # be passed through but not LISTED (--x) hides them: silently dropping them
+    # would call a blank row whose only copy lives in one "gone" (exit 1).
     [[ $EUID -ne 0 ]] || skip "running as root lists through chmod 100"
-    local s="$BATS_TEST_TMPDIR/badchg/Latest" store="$BATS_TEST_TMPDIR/badchg"
+    local s="$BATS_TEST_TMPDIR/badchg/CurrentBackup" store="$BATS_TEST_TMPDIR/badchg"
     one_row_store "$s" 'SNAPSHOT-ONLY-BYTES'
-    mkdir -p "$store/Snapshot_2024_01_01_00_00_01"
-    mv "$STORE_OBJ" "$store/Snapshot_2024_01_01_00_00_01/data.bin"
+    mkdir -p "$store/BackupHistory/2024_01_01_00_00_01"
+    mv "$STORE_OBJ" "$store/BackupHistory/2024_01_01_00_00_01/data.bin"
     # Blank the row (the old '"data.bin"' pattern stopped matching at WP12).
     sed -i "s|^\"$STORE_DATA\"|\"\"|" "$s/MANIFEST.csv"
 
-    # Sanity: with the store listable, the blank row heals from the snapshot.
+    # Sanity: with BackupHistory listable, the blank row heals from the snapshot.
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tchg-ok" --from "$s"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
 
-    chmod 100 "$store"
+    chmod 100 "$store/BackupHistory"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tchg-bad" --from "$s"
-    chmod 755 "$store"
+    chmod 755 "$store/BackupHistory"
     [ "$status" -eq 4 ] || { echo "expected 4, got $status"; echo "$output"; false; }
     [[ "$output" == *"StorageUnreadable"* ]]
 }
 
 @test "4: an UNREADABLE snapshot folder surfaces as StorageUnreadable (SR-040, Terra review T2)" {
     [[ $EUID -ne 0 ]] || skip "running as root lists through chmod 000"
-    local s="$BATS_TEST_TMPDIR/badsnap/Latest" store="$BATS_TEST_TMPDIR/badsnap"
+    local s="$BATS_TEST_TMPDIR/badsnap/CurrentBackup" store="$BATS_TEST_TMPDIR/badsnap"
     one_row_store "$s" 'SNAPSHOT-ONLY-BYTES'
-    mkdir -p "$store/Snapshot_2024_01_01_00_00_01"
-    mv "$STORE_OBJ" "$store/Snapshot_2024_01_01_00_00_01/data.bin"
+    mkdir -p "$store/BackupHistory/2024_01_01_00_00_01"
+    mv "$STORE_OBJ" "$store/BackupHistory/2024_01_01_00_00_01/data.bin"
     sed -i "s|^\"$STORE_DATA\"|\"\"|" "$s/MANIFEST.csv"
 
-    chmod 000 "$store/Snapshot_2024_01_01_00_00_01"
+    chmod 000 "$store/BackupHistory/2024_01_01_00_00_01"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/tsnap-bad" --from "$s"
-    chmod 755 "$store/Snapshot_2024_01_01_00_00_01"
+    chmod 755 "$store/BackupHistory/2024_01_01_00_00_01"
     [ "$status" -eq 4 ] || { echo "expected 4, got $status"; echo "$output"; false; }
     [[ "$output" == *"StorageUnreadable"* ]]
 }
@@ -242,7 +241,7 @@ one_row_store() {
 @test "0: a DOT-NAMED pool file is found by hash recovery (SR-057 regression pin / TC-114 twin)" {
     # find(1) never skipped dot files, so this has always worked on Linux —
     # pinned so it stays true (the PowerShell scan needed -Force, kit rev 6).
-    local s="$BATS_TEST_TMPDIR/dotpool/Latest"
+    local s="$BATS_TEST_TMPDIR/dotpool/CurrentBackup"
     one_row_store "$s" 'DOT-POOL-PAYLOAD'
     mv "$STORE_OBJ" "$s/.pool-copy.bin"
     sed -i "s|^\"$STORE_DATA\"|\"\"|" "$s/MANIFEST.csv"
@@ -256,7 +255,7 @@ one_row_store() {
 @test "0: a valid archive with the WRONG payload at the row's own DataPath is healed from a pool copy (SR-056 / TC-109)" {
     command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
     local zbin; zbin="$(command -v 7z || command -v 7za || command -v 7zz)"
-    local s="$BATS_TEST_TMPDIR/arch/Latest" w="$BATS_TEST_TMPDIR/work"
+    local s="$BATS_TEST_TMPDIR/arch/CurrentBackup" w="$BATS_TEST_TMPDIR/work"
     mkdir -p "$s" "$w"
     printf 'ARCHIVE-GOOD-PAYLOAD' > "$w/restored.txt"
     local h len

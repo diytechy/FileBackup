@@ -57,7 +57,7 @@ hand-written pipeline overview for control flow. Do not edit by hand._
 15. `Move-DamagedStoreObject` — Sets aside every object the run's index found damaged by its listing,
 16. `New-ReconstructScript` — Copies the Windows and POSIX restore entry points into the backup root
 17. `Complete-RunStep` — Records the time since the previous step mark under a step name.
-18. `Publish-PriorStateSnapshot` — Publishes the prior state as Snapshot_<D> before the run changes
+18. `Publish-PriorStateSnapshot` — Publishes the prior state as BackupHistory/<D> before the run changes
 19. `Invoke-BackupRunTestHook` — Calls the module's backup-run test seam, when one is set, with a stage
 20. `Complete-RunStep` — Records the time since the previous step mark under a step name.
 21. `New-BackupRunContext` — Builds what every capture of one run shares (plan step 4): the roots,
@@ -178,6 +178,7 @@ Imports (internal): `Common`
 | `Assert-PrunePrecondition` | yes | SR-046, SR-035, SR-039, LLR-046 |
 | `Assert-SingleStoreMount` | yes | SR-059, LLR-150 |
 | `Assert-SourceNotEmpty` | no | SR-036, LLR-036 |
+| `Assert-StoreHistoryPresent` | no | SR-014, LLR-014 |
 | `Assert-StoreLayout` | no | SR-014, LLR-014 |
 | `Assert-StoreVolumePresent` | no | SR-014, SR-040, LLR-014 |
 | `Clear-InterruptedRunResidue` | no | SR-017, SR-075 |
@@ -213,6 +214,7 @@ Imports (internal): `Common`
 | `Get-PruneCapacityRefusal` | yes | SR-046, SR-052, LLR-046 |
 | `Get-SnapshotDate` | no | SR-047, LLR-047 |
 | `Get-SnapshotPrunePlan` | yes | SR-045, SR-047, LLR-045, LLR-047 |
+| `Get-SnapshotRoot` | no | SR-045, LLR-045 |
 | `Get-SortedManifestRow` | yes | SR-024, SR-025 |
 | `Get-SourceDirectoryRecord` | yes | SR-065, SR-074, SR-055, LLR-065 |
 | `Get-SourceFileList` | yes | SR-001, SR-055, SR-057, SR-074, LLR-001, LLR-055, LLR-057 |

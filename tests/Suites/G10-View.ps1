@@ -13,7 +13,7 @@ function Invoke-G10 {
     Reset-TestEnvironment $Env
     $S   = Join-Path $Env.SrcPath 'src'
     $chg = Join-Path $Env.ChgPath 'g10'
-    $bkp = Join-Path $chg 'Latest'
+    $bkp = Join-Path $chg 'CurrentBackup'
     $view = Join-Path $chg 'View'
     New-Item -ItemType Directory -Path $S -Force | Out-Null
     $cfg = Join-Path $Env.Root 'cfg-g10.xml'
@@ -83,7 +83,7 @@ function Invoke-G10 {
     # G10.5 (TC-133): snapshots hold no view artifacts.
     Assert-True $suite $group 'G10.5' 'Snapshots_view_free' {
         $bad = 0
-        foreach ($snap in @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -match '^Snapshot_')) {
+        foreach ($snap in @(Get-ChildItem -LiteralPath (Join-Path $chg 'BackupHistory') -Directory | Where-Object Name -match '^\d{4}_')) {
             $bad += @(Get-ChildItem -LiteralPath $snap.FullName -Recurse -Force |
                       Where-Object { $_.Name -in 'INDEX.html', 'INDEX.tsv', '.viewstamp' }).Count
         }

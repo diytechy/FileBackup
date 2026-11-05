@@ -3,8 +3,8 @@
     Backend abstraction: every backend returns a [pscustomobject] with the same shape:
         @{ SrcPath; BkpPath; ChgPath; ReconPath; Dispose=<scriptblock> }
     so the suites are backend-agnostic. ChgPath is the store (one folder per
-    backup set, plan C44) and BkpPath its Latest folder: <store>\Latest beside
-    every Snapshot_<date>. The config names only the store (StorePath).
+    backup set, plan C44) and BkpPath its CurrentBackup folder: <store>\CurrentBackup beside
+    every BackupHistory/<date>. The config names only the store (StorePath).
 
     Backends:
         Subst      - subst-mapped letters over %TEMP%; default; no admin.
@@ -64,11 +64,11 @@ function New-SubstEnv {
         Backend   = 'Subst'
         Root      = $Root
         SrcPath   = "$($letters.Src):\"
-        BkpPath   = "$($letters.Store):\Store\Latest"
+        BkpPath   = "$($letters.Store):\Store\CurrentBackup"
         ChgPath   = "$($letters.Store):\Store"
         ReconPath = "$($letters.Recon):\"
         PhysSrc   = $phys.Src
-        PhysBkp   = Join-Path $phys.Store 'Store\Latest'
+        PhysBkp   = Join-Path $phys.Store 'Store\CurrentBackup'
         PhysChg   = Join-Path $phys.Store 'Store'
         PhysRecon = $phys.Recon
         UsedLetters = @($letters.Src, $letters.Store, $letters.Recon)
@@ -116,7 +116,7 @@ function New-VhdxEnv {
         Backend   = 'VHDX'
         Root      = $Root
         SrcPath   = "$($byLabel['FBTEST-SRC'].Letter):\"
-        BkpPath   = "$($byLabel['FBTEST-BKP'].Letter):\Store\Latest"
+        BkpPath   = "$($byLabel['FBTEST-BKP'].Letter):\Store\CurrentBackup"
         ChgPath   = "$($byLabel['FBTEST-BKP'].Letter):\Store"
         ReconPath = "$($byLabel['FBTEST-RCN'].Letter):\"
         Mounted   = $mounted
@@ -161,7 +161,7 @@ function New-RealUsbEnv {
     [pscustomobject]@{
         Backend   = 'RealUSB'
         SrcPath   = $src
-        BkpPath   = (Join-Path $bkp 'Store\Latest')
+        BkpPath   = (Join-Path $bkp 'Store\CurrentBackup')
         ChgPath   = (Join-Path $bkp 'Store')
         ReconPath = $rcn
         Dispose   = { }

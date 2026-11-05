@@ -510,9 +510,9 @@ Describe 'New-RelativePathMap keys compare like the local filesystem (SR-034)' {
 }
 
 Describe 'Shard folders of the latest state (SR-069, plan C44 L8)' {
-    # One Common function decides where an object of Latest lives, for the
-    # engine and both restorers: Latest/<first two characters, lowercased>/<name>.
-    # A snapshot stays flat. The caller says which folder is Latest (S4).
+    # One Common function decides where an object of CurrentBackup lives, for the
+    # engine and both restorers: CurrentBackup/<first two characters, lowercased>/<name>.
+    # A snapshot stays flat. The caller says which folder is CurrentBackup (S4).
     It 'names the shard by the first two characters, lowercased, an l included' {
         Get-StoredObjectShard -Name 'aB3xyz_Q.txt' | Should -BeExactly 'ab'
         Get-StoredObjectShard -Name 'LM5abc_2' | Should -BeExactly 'lm'
@@ -533,16 +533,16 @@ Describe 'Shard folders of the latest state (SR-069, plan C44 L8)' {
         }
     }
 
-    It 'puts an object one folder down in Latest and flat in a snapshot' {
+    It 'puts an object one folder down in CurrentBackup and flat in a snapshot' {
         $name = 'Kz9abc_7.txt'
-        Get-StoredObjectPath -Folder 'C:\store\Latest' -Name $name -Sharded |
-            Should -Be ([IO.Path]::Combine('C:\store\Latest', 'kz', $name))
-        Get-StoredObjectPath -Folder 'C:\store\Snapshot_2026_01_01_00_00_00' -Name $name |
-            Should -Be ([IO.Path]::Combine('C:\store\Snapshot_2026_01_01_00_00_00', $name))
+        Get-StoredObjectPath -Folder 'C:\store\CurrentBackup' -Name $name -Sharded |
+            Should -Be ([IO.Path]::Combine('C:\store\CurrentBackup', 'kz', $name))
+        Get-StoredObjectPath -Folder 'C:\store\2026_01_01_00_00_00' -Name $name |
+            Should -Be ([IO.Path]::Combine('C:\store\2026_01_01_00_00_00', $name))
     }
 
-    It 'lists Latest from its own shard folders only: not its top level, not another name''s folder, not a foreign folder' {
-        $latest = Join-Path $TestDrive 'shards\Latest'
+    It 'lists CurrentBackup from its own shard folders only: not its top level, not another name''s folder, not a foreign folder' {
+        $latest = Join-Path $TestDrive 'shards\CurrentBackup'
         $good = 'Lq7abc_5.txt'
         $p = Get-StoredObjectPath -Folder $latest -Name $good -Sharded
         New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($p)) -Force | Out-Null

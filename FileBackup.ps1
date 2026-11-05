@@ -16,7 +16,7 @@
         * Migrates backup storage to the current compress / tree-mode config.
         * Diffs source vs backup, copies new data (deduped by xxHash128 + length),
           and evicts removed files' previous data into a staging folder.
-        * Renames staging to a dated  Snapshot_<date>  point-in-time folder (only
+        * Renames staging to a dated  BackupHistory/<date>  point-in-time folder (only
           when something was superseded; the latest state is the live backup) and drops a
           self-contained RECONSTRUCT.ps1 / .bat and reconstruct.sh (plus the Common module + xxHash
           DLL) into the backup and change folders.
@@ -38,8 +38,8 @@
     booleans for CompressEnabled/AllowEmptySource (a quoted "false" is
     rejected, never coerced true), and no Secrets.Credential (JSON cannot
     carry a PSCredential; use CLIXML, or run with -NoMail as containers do).
-    StorePath is one folder per backup set: it holds Latest/ (the latest
-    state), every Snapshot_<date>/ beside it and the run's own files.
+    StorePath is one folder per backup set: it holds CurrentBackup/ (the latest
+    state), BackupHistory/ (every dated snapshot) and the run's own files.
     BrowseView ("off" default | "index"; "link" reserved) generates a
     browsable manifest-derived view at ViewPath (default <StorePath>/View; on
     the store's volume, and inside the store only as that one folder).
@@ -81,7 +81,7 @@
                 [pscustomobject]@{
                     Name               = 'MainData'
                     SourcePath         = 'D:\Data'
-                    StorePath          = 'E:\Backups\MainData'   # holds Latest\ and Snapshot_<date>\
+                    StorePath          = 'E:\Backups\MainData'   # holds CurrentBackup\ and BackupHistory\
                     HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
                     CompressEnabled    = $true
                     CompressProbe      = 'always' # 'always' (default) | 'excluded-extensions' | 'off'
@@ -102,7 +102,7 @@
 
         Backup     — the normal run described above; unchanged.
         Verify     — audit the stored form of every manifest row in the backup
-                     root and in every Snapshot_* folder against the physical
+                     root and in every dated snapshot folder against the physical
                      bytes, mutating nothing, and print the findings as JSON.
                      Never invoked by a backup run. Add -RepairStorage to fix
                      the findings that are unambiguous from bytes in the row's
@@ -135,7 +135,7 @@
 
 .PARAMETER Snapshot
     Snapshot folder name(s) for -Action Prune, e.g.
-    Snapshot_2026_01_02_03_04_05. Several may be given, or one
+    2026_01_02_03_04_05. Several may be given, or one
     comma-separated string (what the container passes). Each is an independent
     transaction; the process status is the worst by the SR-040 precedence
     2 > 3 > 4 > 1.

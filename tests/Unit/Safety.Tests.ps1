@@ -58,7 +58,7 @@ BeforeAll {
 Describe 'Backup history safety: corner cases warn, and the prior state stays restorable (SR-035, SR-036, plan R1, review 2026-10-26 C2)' {
     It 'dates the prior state by the manifest file when LastBackupRun is missing, and keeps it as a snapshot (SR-035)' {
         $root = Join-Path $TestDrive 'missing-state'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         $cfg = Join-Path $root 'config.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-SafetyConfig -Path $cfg -Source $src -Backup $bkp -Changes $chg
@@ -70,7 +70,7 @@ Describe 'Backup history safety: corner cases warn, and the prior state stays re
 
         (Invoke-SafetyBackup $cfg) | Should -Be 0
         (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'NEW'
-        $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_')
+        $snap = @(Get-ChildItem -LiteralPath (Join-Path $chg 'BackupHistory') -Directory | Where-Object Name -Match '^\d{4}_')
         $snap.Count | Should -Be 1
         (Get-SnapshotText -Snapshot $snap[0].FullName -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
         Get-Content -LiteralPath (Join-Path $chg 'backup.log') -Raw | Should -Match 'No usable LastBackupRun'
@@ -78,7 +78,7 @@ Describe 'Backup history safety: corner cases warn, and the prior state stays re
 
     It 'sets a malformed state file aside instead of treating the store as new (SR-035)' {
         $root = Join-Path $TestDrive 'bad-state'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         $cfg = Join-Path $root 'config.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         New-SafetyConfig -Path $cfg -Source $src -Backup $bkp -Changes $chg
@@ -90,13 +90,13 @@ Describe 'Backup history safety: corner cases warn, and the prior state stays re
         (Invoke-SafetyBackup $cfg) | Should -Be 0
         @(Get-ChildItem -LiteralPath $bkp -Filter 'FileBackupState.json.unreadable-*').Count | Should -Be 1
         (Get-StoredText -Backup $bkp -RelativePath 'f.txt') | Should -Be 'NEW'
-        $snap = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object Name -Match '^Snapshot_')
+        $snap = @(Get-ChildItem -LiteralPath (Join-Path $chg 'BackupHistory') -Directory | Where-Object Name -Match '^\d{4}_')
         (Get-SnapshotText -Snapshot $snap[0].FullName -Backup $bkp -RelativePath 'f.txt') | Should -Be 'OLD'
     }
 
     It 'stops with 4 when the source is empty at the start of a run, leaving the latest state as it was (SR-036, review 2026-10-26 C2)' {
         $root = Join-Path $TestDrive 'empty-source'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         $cfg = Join-Path $root 'config.xml'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         # AllowEmptySource is accepted and ignored: it does not let an empty

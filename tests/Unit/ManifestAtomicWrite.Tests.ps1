@@ -297,7 +297,7 @@ Describe 'A leftover MANIFEST.csv.tmp breaks nothing (TC-239, SR-083, LLR-088)' 
     It 'raises no storage-form finding in the backup root or a snapshot (TC-239, SR-083, SR-049)' {
         $root = New-Folder 'sf-root'
         $chg  = New-Folder 'sf-chg'
-        $snap = New-Folder 'sf-chg\Snapshot_2026_01_02_03_04_05'
+        $snap = New-Folder 'sf-chg\BackupHistory\2026_01_02_03_04_05'
         Write-Manifest -FolderPath $root -Records @()
         Write-Manifest -FolderPath $snap -Records @()
         [System.IO.File]::WriteAllText((Join-Path $root 'MANIFEST.csv.tmp'), 'torn')
@@ -316,7 +316,7 @@ Describe 'A leftover MANIFEST.csv.tmp through whole backup runs (TC-240, SR-083,
             return ($code -eq 0)
         }
         $root = Join-Path $TestDrive 'e2e'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
         $fx = [pscustomobject]@{
             Src = $src; Bkp = $bkp; Chg = $chg
@@ -335,7 +335,7 @@ Describe 'A leftover MANIFEST.csv.tmp through whole backup runs (TC-240, SR-083,
         [System.IO.File]::WriteAllText((Join-Path $bkp 'MANIFEST.csv.tmp'), 'torn,leftover')
         [System.IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'TWO')
         $script:Runs += (Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-02 00:00:01'))
-        $snapDir = @(Get-ChildItem -LiteralPath $chg -Directory | Where-Object { $_.Name -match '^Snapshot_' })[0]
+        $snapDir = @(Get-ChildItem -LiteralPath (Join-Path $chg 'BackupHistory') -Directory | Where-Object { $_.Name -match '^\d{4}_' })[0]
         [System.IO.File]::WriteAllText((Join-Path $snapDir.FullName 'MANIFEST.csv.tmp'), 'torn,leftover')
         [System.IO.File]::WriteAllText((Join-Path $bkp 'MANIFEST.csv.tmp'), 'torn,leftover')
         $script:Runs += (Invoke-FixtureBackup -Fixture $fx -When ([datetime]'2024-01-03 00:00:01'))

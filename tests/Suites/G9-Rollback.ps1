@@ -18,7 +18,7 @@ function Invoke-G9 {
     $D2 = [datetime]'2024-02-02 00:00:02'
     $D3 = [datetime]'2024-03-03 00:00:03'
     $D4 = [datetime]'2024-04-04 00:00:04'
-    function SnapName([datetime]$d) { 'Snapshot_' + $d.ToString('yyyy_MM_dd_HH_mm_ss') }
+    function SnapName([datetime]$d) { $d.ToString('yyyy_MM_dd_HH_mm_ss') }
 
     $S = $Env.SrcPath
     # ---- run1 @D1 : initial mixed-content tree (state1) — no snapshot (first run) ----
@@ -46,9 +46,9 @@ function Invoke-G9 {
     Invoke-Backup -Suite $suite -Group $group -ExpectSuccess -BackupScriptPath $BackupScript -ConfigPath $cfg -BackupTime $D4 | Out-Null
 
     # ---- Lifecycle (SR-005): snapshots for D1 & D2 exist; none for D3 (no-op run4) ----
-    $snapD1 = Join-Path $Env.ChgPath (SnapName $D1)
-    $snapD2 = Join-Path $Env.ChgPath (SnapName $D2)
-    $snapD3 = Join-Path $Env.ChgPath (SnapName $D3)
+    $snapD1 = Join-Path (Join-Path $Env.ChgPath 'BackupHistory') (SnapName $D1)
+    $snapD2 = Join-Path (Join-Path $Env.ChgPath 'BackupHistory') (SnapName $D2)
+    $snapD3 = Join-Path (Join-Path $Env.ChgPath 'BackupHistory') (SnapName $D3)
     Assert-True $suite $group 'G9.1' 'Snapshot_D1_exists' { Test-Path -LiteralPath (Join-Path $snapD1 'MANIFEST.csv') }
     Assert-True $suite $group 'G9.1' 'Snapshot_D2_exists' { Test-Path -LiteralPath (Join-Path $snapD2 'MANIFEST.csv') }
     Assert-True $suite $group 'G9.2' 'NoSnapshot_for_noop' { -not (Test-Path -LiteralPath $snapD3) }
@@ -86,7 +86,7 @@ function Invoke-G9 {
     Assert-True $suite $group 'G9.4' 'State2_orig_present'   { TextEq (Join-Path $r2 'orig.txt') 'RENAMEME' }
     Assert-True $suite $group 'G9.4' 'State2_renamed_absent' { -not (Test-Path -LiteralPath (Join-Path $r2 'renamed.txt')) }
 
-    # ---- Latest from the backup root: a=A3, rename applied (state3/4) ----
+    # ---- CurrentBackup from the backup root: a=A3, rename applied (state3/4) ----
     $r0 = Restore $Env.BkpPath 'g9-r0'
     Assert-True $suite $group 'G9.5' 'Latest_a_is_A3'        { TextEq (Join-Path $r0 'a.txt') 'A3' }
     Assert-True $suite $group 'G9.5' 'Latest_dup1_present'   { TextEq (Join-Path $r0 'dup1.txt') 'SHARED' }
@@ -136,7 +136,7 @@ function Invoke-G9Prune {
     $suite = $Mode
     $group = 'G9-Rollback'
 
-    function SnapName([datetime]$d) { 'Snapshot_' + $d.ToString('yyyy_MM_dd_HH_mm_ss') }
+    function SnapName([datetime]$d) { $d.ToString('yyyy_MM_dd_HH_mm_ss') }
     function RestoreTo([pscustomobject]$Env, [string]$ReconFolder, [string]$TargetName) {
         $target = Join-Path $Env.Root $TargetName
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
@@ -289,9 +289,9 @@ function Invoke-G9Prune {
             # from the restore output being judged: reading it back from the
             # target made the assertion self-fulfilling, so losing f.txt passed
             # vacuously (WP4 review, finding M2).
-            $expectF = @(Read-Manifest -FolderPath (Join-Path $Env.ChgPath $name) |
+            $expectF = @(Read-Manifest -FolderPath (Join-Path (Join-Path $Env.ChgPath 'BackupHistory') $name) |
                          Where-Object { $_.RelativePath -eq 'f.txt' }).Count -gt 0
-            $t = RestoreTo $Env (Join-Path $Env.ChgPath $name) ('g9c-' + $name)
+            $t = RestoreTo $Env (Join-Path (Join-Path $Env.ChgPath 'BackupHistory') $name) ('g9c-' + $name)
             Assert-True $suite $group 'G9.10' ("Cycle_state_restores_" + $name) {
                 (TextAt (Join-Path $t 'steady.txt') 'STEADY') -and
                 $(if ($expectF) { TextAt (Join-Path $t 'f.txt') $C }

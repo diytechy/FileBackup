@@ -55,7 +55,7 @@ BeforeAll {
         # volume (plan R8).
         param([string]$Name)
         $root = Join-Path $TestDrive $Name
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         New-Item -ItemType Directory -Path (Join-Path $src 'sub') -Force | Out-Null
         [pscustomobject]@{
             Root = $root; Src = $src; Bkp = $bkp; Chg = $chg
@@ -77,7 +77,7 @@ BeforeAll {
 
     function Initialize-TwoRunStore {
         # Run 1 (D1) and run 2 (D2), in-process: the store then holds a
-        # Snapshot_<D1> to prune, and the source is edited so a THIRD run
+        # the snapshot of D1 to prune, and the source is edited so a THIRD run
         # supersedes content (a changed file and a removed one) and therefore
         # publishes a snapshot and moves objects into it.
         param([object]$Fixture)
@@ -90,7 +90,7 @@ BeforeAll {
         if (-not (Invoke-LockBackup -Fixture $Fixture -When $script:D2)) { throw 'fixture error: run 2 failed' }
         [System.IO.File]::WriteAllText((Join-Path $Fixture.Src 'a.txt'), 'ALPHA three')
         Remove-Item -LiteralPath (Join-Path $Fixture.Src 'b.txt')
-        $snaps = @(Get-ChildItem -LiteralPath $Fixture.Chg -Directory | Where-Object Name -match '^Snapshot_')
+        $snaps = @(Get-ChildItem -LiteralPath (Join-Path $Fixture.Chg 'BackupHistory') -Directory | Where-Object Name -match '^\d{4}_')
         if ($snaps.Count -ne 1) { throw "fixture error: expected one snapshot after run 2, found $($snaps.Count)" }
         return $snaps[0].Name
     }
@@ -374,7 +374,7 @@ Describe 'The lock is held across the whole run (TC-244, TC-245, SR-085, SR-086,
             $child = Start-ParkedChild -Fixture $fx -Mode Backup -Stage $stage -When ($script:D3.ToString('o'))
             try {
                 $r = @{}
-                $r.Published = Test-Path -LiteralPath (Join-Path $fx.Chg ('Snapshot_' + $script:D2.ToString('yyyy_MM_dd_HH_mm_ss'))) -PathType Container
+                $r.Published = Test-Path -LiteralPath (Join-Path $fx.Chg ('BackupHistory/' + $script:D2.ToString('yyyy_MM_dd_HH_mm_ss'))) -PathType Container
                 $before = Get-FixtureStoreHash -Fixture $fx
                 $r.ProbeAcquired = Test-LockAcquirable -ChgPath $fx.Chg
                 $r.BackupCode = Invoke-BackupSet -Set $fx.Set -Deps @{ '7z' = $null; 'ffprobe' = $null } `
@@ -510,7 +510,7 @@ Describe 'The lock file is invisible to every consumer of the store (TC-250, SR-
         $script:Inv = $fx
         Initialize-TwoRunStore -Fixture $fx | Out-Null
         if (-not (Invoke-LockBackup -Fixture $fx -When $script:D3)) { throw 'fixture error: run 3 failed' }
-        $script:InvSnapshots = @(Get-ChildItem -LiteralPath $fx.Chg -Directory | Where-Object Name -match '^Snapshot_' | Sort-Object Name)
+        $script:InvSnapshots = @(Get-ChildItem -LiteralPath (Join-Path $fx.Chg 'BackupHistory') -Directory | Where-Object Name -match '^\d{4}_' | Sort-Object Name)
         $script:InvExpected = @{}
         foreach ($f in (Get-ChildItem -LiteralPath $fx.Src -Recurse -File)) {
             $script:InvExpected[$f.FullName.Substring($fx.Src.Length).TrimStart('\', '/')] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash
@@ -624,7 +624,7 @@ Describe 'Storage repair against a live backup (TC-251, SR-085, SR-086, LLR-094)
     BeforeAll {
         $fx = New-LockFixture 'repair-vs-backup'
         $snapshot = Initialize-TwoRunStore -Fixture $fx
-        $snapDir  = Join-Path $fx.Chg $snapshot
+        $snapDir  = Join-Path (Join-Path $fx.Chg 'BackupHistory') $snapshot
         $rows = @(Read-Manifest -FolderPath $snapDir)
         # A row whose object is in the snapshot's own folder: the snapshot keeps
         # every DataPath (plan C10), most naming objects in the backup root.
@@ -675,14 +675,14 @@ Describe 'Storage repair against a live backup (TC-251, SR-085, SR-086, LLR-094)
 }
 
 Describe 'Kit refresh against a live backup (TC-252, SR-085, SR-086, LLR-094)' {
-    # -RefreshKits overwrites kit files inside every Snapshot_* folder. The older
+    # -RefreshKits overwrites kit files inside every dated snapshot folder. The older
     # snapshot carries a STALE kit (its RECONSTRUCT.ps1 differs from the root's),
     # so a refresh that ran would visibly change bytes.
 
     BeforeAll {
         $fx = New-LockFixture 'refresh-vs-backup'
         $snapshot = Initialize-TwoRunStore -Fixture $fx
-        $script:RefSnapKit = Join-Path (Join-Path $fx.Chg $snapshot) 'RECONSTRUCT.ps1'
+        $script:RefSnapKit = Join-Path (Join-Path (Join-Path $fx.Chg 'BackupHistory') $snapshot) 'RECONSTRUCT.ps1'
         $script:RefRootKit = Join-Path $fx.Bkp 'RECONSTRUCT.ps1'
         [System.IO.File]::AppendAllText($script:RefSnapKit, "`n# an older kit revision`n")
         $script:Ref = @{}
@@ -890,7 +890,7 @@ Describe 'A run reads the prior store state only after it holds the lock (TC-250
             Stop-ParkedChild -Process $child
         }
         $script:RalState = $st
-        $script:RalSnapshots = @(Get-ChildItem -LiteralPath $fx.Chg -Directory | Where-Object Name -match '^Snapshot_' | ForEach-Object Name)
+        $script:RalSnapshots = @(Get-ChildItem -LiteralPath (Join-Path $fx.Chg 'BackupHistory') -Directory | Where-Object Name -match '^\d{4}_' | ForEach-Object Name)
         $script:RalHashes = @(foreach ($root in $fx.Bkp, $fx.Chg) {
                 Get-ChildItem -LiteralPath $root -Recurse -Force -File |
                     Where-Object Name -ne 'Temp.lock' |
@@ -906,7 +906,7 @@ Describe 'A run reads the prior store state only after it holds the lock (TC-250
     }
 
     It 'makes run B see run A''s state: one snapshot, dated by run A (TC-250, SR-085, SR-005)' {
-        ($script:RalSnapshots -join '|') | Should -Be ('Snapshot_' + $script:D1.ToString('yyyy_MM_dd_HH_mm_ss'))
+        ($script:RalSnapshots -join '|') | Should -Be ($script:D1.ToString('yyyy_MM_dd_HH_mm_ss'))
     }
 
     It 'completes run B (TC-250, SR-014)' {

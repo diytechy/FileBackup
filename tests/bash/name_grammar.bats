@@ -92,7 +92,7 @@ setup() {
 }
 
 # --- Sharded mode (kit revision 15, plan C44 L8) ------------------------------
-# In the latest state an object lives at <Latest>/<xx>/<name>, xx being the
+# In the latest state an object lives at <CurrentBackup>/<xx>/<name>, xx being the
 # first two characters of the name lowercased. decode_hash_size_names' second
 # argument 1 reads records in that shape; with no second argument it must
 # behave exactly as above (the corpus cases pin that).
@@ -270,8 +270,8 @@ sharded_decode() {
     local mode f base n=0 bad=0 store
     for mode in "${MODES[@]}"; do
         store="$(store_for "$mode")"
-        # Latest keeps its objects in shard folders (L8); snapshots are flat.
-        for f in "$store/Latest"/*/* "$store"/Snapshot_*/*; do
+        # CurrentBackup keeps its objects in shard folders (L8); snapshots are flat.
+        for f in "$store/CurrentBackup"/*/* "$store"/BackupHistory/2*/*; do
             [[ -f "$f" ]] || continue
             base="${f##*/}"
             # Root-level infrastructure is not a data object (SR-022).
@@ -318,13 +318,13 @@ sharded_decode() {
     # still come back byte-exact rather than half-restored or misread.
     local store="$BATS_TEST_TMPDIR/blank" i=0
     cp -r "$(store_for HashAddressed)" "$store"
-    rm -rf "$store"/Snapshot_*
-    local work="$store/Latest"
+    rm -rf "$store"/BackupHistory/2*
+    local work="$store/CurrentBackup"
     rm -f "$work/MANIFEST.csv.meta"
 
     # Rename every pool object into the old grammar. Names become meaningless;
     # only the bytes can answer now.
-    # Each lands at Latest's top level, where no name can make it an object.
+    # Each lands at CurrentBackup's top level, where no name can make it an object.
     local f base
     for f in "$work"/* "$work"/*/*; do
         [[ -f "$f" ]] || continue

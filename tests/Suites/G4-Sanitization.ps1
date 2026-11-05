@@ -232,8 +232,8 @@ function Invoke-G4ExtensionMerge {
     # migration decompressed the root rows back to raw on the next run and
     # silently re-aligned the divergence the fixture had created. SR-061 deleted
     # that migration, so the fixture has to be honest about the state it builds.
-    foreach ($snapDir in @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory -Force |
-                           Where-Object Name -match '^Snapshot_')) {
+    foreach ($snapDir in @(Get-ChildItem -LiteralPath (Join-Path $Env.ChgPath 'BackupHistory') -Directory -Force |
+                           Where-Object Name -match '^\d{4}_')) {
         $snapRows = @(Import-Csv -LiteralPath (Join-Path $snapDir.FullName 'MANIFEST.csv'))
         $touched = 0
         foreach ($row in $snapRows) {
@@ -274,7 +274,7 @@ function Invoke-G4ExtensionMerge {
 
     # --- Every state still restores byte-exact ---
     $origins = @([pscustomobject]@{ Name = 'latest'; Folder = $Env.BkpPath })
-    foreach ($snap in @(Get-ChildItem -LiteralPath $Env.ChgPath -Directory | Where-Object Name -match '^Snapshot_')) {
+    foreach ($snap in @(Get-ChildItem -LiteralPath (Join-Path $Env.ChgPath 'BackupHistory') -Directory | Where-Object Name -match '^\d{4}_')) {
         $origins += [pscustomobject]@{ Name = $snap.Name; Folder = $snap.FullName }
     }
     Assert-True $suite $group 'G4.2' 'ExtMerge_snapshotsPresent' { $origins.Count -ge 3 }

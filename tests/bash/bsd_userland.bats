@@ -131,7 +131,7 @@ teardown() { rm -rf "$WORK"; }
 
 @test "BSD + Compress + snapshot: a dated snapshot restores byte-exact (SR-071, TC-179)" {
     local mode=HashAddressed_Compress
-    local snap=Snapshot_2024_01_01_09_00_00
+    local snap=2024_01_01_09_00_00
     local origin; origin="$(origin_for "$mode" "$snap")"
     local target="$WORK/restored"
 
@@ -159,7 +159,7 @@ teardown() { rm -rf "$WORK"; }
     # the earlier one's - the pool walk has to see both siblings, which is the
     # half `find -printf` used to break silently.
     local mode=HashAddressed_Compress
-    local snap=Snapshot_2024_01_02_09_00_00
+    local snap=2024_01_02_09_00_00
     local origin; origin="$(origin_for "$mode" "$snap")"
     local target="$WORK/restored-2"
 

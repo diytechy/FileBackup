@@ -35,12 +35,12 @@ BeforeAll {
     # mostly blank DataPath, with D rows naming a real tiny file per folder.
     function New-SyntheticPool {
         param([string]$Root, [int]$Snapshots, [int]$Rows, [int]$DataRows)
-        # One store folder (plan C44): chg is the store, bkp its Latest.
+        # One store folder (plan C44): chg is the store, bkp its CurrentBackup.
         $chg = Join-Path $Root 'chg'
-        $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $bkp, $chg -Force | Out-Null
+        $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         $snaps = for ($s = 1; $s -le $Snapshots; $s++) {
-            $dir = Join-Path $chg ('Snapshot_2024_{0:D2}_01_00_00_00' -f $s)
+            $dir = Join-Path $chg ('BackupHistory/2024_{0:D2}_01_00_00_00' -f $s)
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             $manifestRows = for ($i = 1; $i -le $Rows; $i++) {
                 if ($i -le $DataRows) {
@@ -103,7 +103,7 @@ Describe 'Lean content index structure (TC-234)' {
         $good = Get-HashSizeFileName -HashHex $hash -Length 5 -Extension '.bin'
         $badHash = 'FEDCBA9876543210FEDCBA9876543210'
         $empty = Get-HashSizeFileName -HashHex $badHash -Length 5 -Extension '.bin'
-        # Latest's objects sit in their shard folders (plan C44, L8).
+        # CurrentBackup's objects sit in their shard folders (plan C44, L8).
         New-IdxFile -Folder $bkp -Name (Join-Path (Get-StoredObjectShard -Name $good) $good) -Content 'hello' | Out-Null
         [IO.File]::WriteAllBytes((New-IdxFile -Folder $bkp -Name (Join-Path (Get-StoredObjectShard -Name $empty) $empty) -Content ''), [byte[]]@())
         Write-Manifest -FolderPath $bkp -Records @(

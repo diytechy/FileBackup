@@ -137,9 +137,9 @@ shim_away() {
     # lives in a snapshot reported "your bytes are gone" (exit 1).
     # shellcheck disable=SC1090
     source "$RS"
-    # The snapshots sit in the store, beside Latest (kit revision 15).
-    local chg; chg="$(store_for HashAddressed)"
-    run bash -c "find '$chg' -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's#.*/##' | grep -E '^Snapshot_' | sort -r"
+    # The snapshots sit in BackupHistory (kit revision 16, plan L9).
+    local chg; chg="$(store_for HashAddressed)/BackupHistory"
+    run bash -c "find '$chg' -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's#.*/##' | grep -E '^[0-9]{4}_' | sort -r"
     [ "$status" -eq 0 ]
     [ -n "$output" ]
     # Descending, so the newest snapshot is consulted first.

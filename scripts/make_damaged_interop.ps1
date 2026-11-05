@@ -27,10 +27,10 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $repo 'Modules\FileBackup.Common.psm1') -Force
 
-# A whole store (plan C44): Latest, its objects in shard folders, and the
+# A whole store (plan C44): CurrentBackup, its objects in shard folders, and the
 # snapshots beside it. Each damaged copy is a store of its own.
 $src = Join-Path $OutRoot 'bash-restore\HashAddressed\store'
-$srcLatest = Join-Path $src 'Latest'
+$srcLatest = Join-Path $src 'CurrentBackup'
 if (-not (Test-Path -LiteralPath $srcLatest -PathType Container)) {
     throw "Fresh HashAddressed store not found at '$src' — run scripts/gen_bash_fixtures.ps1 -Fresh -OutRoot $OutRoot first."
 }
@@ -51,7 +51,7 @@ $results = New-Object System.Collections.Generic.List[string]
 foreach ($shape in 'heal', 'gone') {
     $store = Join-Path $damageRoot $shape
     Copy-Item -LiteralPath $src -Destination $store -Recurse -Force
-    $latest = Join-Path $store 'Latest'
+    $latest = Join-Path $store 'CurrentBackup'
     $data = Get-StoredObjectPath -Folder $latest -Name $victim.DataPath -Sharded
     if ($shape -eq 'heal') {
         # Good copy parked in the pool under an unrelated name (found only by

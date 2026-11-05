@@ -17,9 +17,9 @@ services:
       - ./container/FileBackup.example.json:/config/FileBackup.json:ro
       - ${FILEBACKUP_SOURCE:?set FILEBACKUP_SOURCE}:/source:ro
       # ONE writable mount is the set's whole store (StorePath=/store): it
-      # holds Latest/ and every Snapshot_<date>/ beside it. Every move between
+      # holds CurrentBackup/ and BackupHistory/. Every move between
       # them must be a rename, and a rename across two bind mounts fails even
-      # on one filesystem, so a Latest mounted apart from /store is refused
+      # on one filesystem, so a CurrentBackup mounted apart from /store is refused
       # with exit 2.
       - ${FILEBACKUP_STORE:?set FILEBACKUP_STORE}:/store
       - ${FILEBACKUP_LOGS:?set FILEBACKUP_LOGS}:/logs

@@ -107,7 +107,7 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
 
     It 'flushes each kit file it writes before its rename, and none of an unchanged kit (review 2026-10-26 A1)' {
         $chg = New-Folder 'kit\chg'
-        $bkp = New-Folder 'kit\chg\Latest'
+        $bkp = New-Folder 'kit\chg\CurrentBackup'
         $seen = [System.Collections.Generic.List[object]]::new()
         Set-FileSyncHook ({
             param($p)
@@ -125,9 +125,9 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
 
     It 'refreshes a snapshot kit through a flushed temp file, rewriting only what differs (review 2026-10-26 A1)' {
         $chg = New-Folder 'refresh\chg'
-        $bkp = New-Folder 'refresh\chg\Latest'
+        $bkp = New-Folder 'refresh\chg\CurrentBackup'
         New-ReconstructScript -BackupRoot $bkp
-        $snap = New-Folder 'refresh\chg\Snapshot_2026_01_01_10_00_00'
+        $snap = New-Folder 'refresh\chg\BackupHistory\2026_01_01_10_00_00'
         foreach ($f in $kitFiles) { Copy-Item -LiteralPath (Join-Path $bkp $f) -Destination $snap }
         $old = [datetime]::new(2020, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
         foreach ($f in $kitFiles) { [IO.File]::SetLastWriteTimeUtc((Join-Path $snap $f), $old) }
@@ -152,12 +152,12 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
         Test-Path -LiteralPath (Join-Path $snap 'MANIFEST.csv.meta') | Should -BeFalse
     }
 
-    It 'flushes every file of Building_<D> before renaming it to Snapshot_<D> (review 2026-10-26 A1)' {
+    It 'flushes every file of Building_<D> before renaming it to BackupHistory/<D> (review 2026-10-26 A1)' {
         $chg = New-Folder 'snap\chg'
-        $bkp = New-Folder 'snap\chg\Latest'
+        $bkp = New-Folder 'snap\chg\CurrentBackup'
         New-ReconstructScript -BackupRoot $bkp
         Set-Content -LiteralPath (Join-Path $bkp 'DIRECTORIES.csv') -Value '"RelativePath","Attributes"', '"empty",""'
-        $final = Join-Path $chg 'Snapshot_2026_01_01_10_00_00'
+        $final = Join-Path $chg 'BackupHistory/2026_01_01_10_00_00'
         $seen = [System.Collections.Generic.List[object]]::new()
         Set-FileSyncHook ({
             param($p)
@@ -167,7 +167,7 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
                  -PriorRows @(New-ManifestRow 'prior') -Log { param($m, $l) }
         $r.BuiltNow | Should -BeTrue
         @($seen | Where-Object Published).Count | Should -Be 0 -Because 'every flush comes before the rename that publishes the snapshot'
-        @($seen | Where-Object { [IO.Path]::GetDirectoryName($_.Path) -ne (Join-Path $chg 'Building_2026_01_01_10_00_00') }).Count |
+        @($seen | Where-Object { [IO.Path]::GetDirectoryName($_.Path) -ne (Join-Path $chg 'BackupHistory\Building_2026_01_01_10_00_00') }).Count |
             Should -Be 0
         $flushed = @($seen | ForEach-Object { [IO.Path]::GetFileName($_.Path) -replace '^MANIFEST\.csv\.tmp$', 'MANIFEST.csv' } | Sort-Object)
         $published = @(Get-ChildItem -LiteralPath $final -File -Force | ForEach-Object Name | Sort-Object)
@@ -176,8 +176,8 @@ Describe 'Each file is on the disk before the rename that relies on it (review 2
     }
 
     It 'flushes a prune''s staged copy before renaming it to its name (review 2026-10-26 A1)' {
-        $from = New-Folder 'prune\Snapshot_2026_01_02_10_00_00'
-        $to   = New-Folder 'prune\Snapshot_2026_01_01_10_00_00'
+        $from = New-Folder 'prune\2026_01_02_10_00_00'
+        $to   = New-Folder 'prune\2026_01_01_10_00_00'
         $content = Join-Path (New-Folder 'prune\content') 'c.txt'
         [IO.File]::WriteAllText($content, 'the last copy of this content')
         $hash = Get-FileXxHash -FilePath $content

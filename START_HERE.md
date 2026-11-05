@@ -51,7 +51,7 @@ pause for human approval — **without breaking the working tool.**
 
 - **Goal:** Periodic, content-aware backup with change tracking and
   self-contained reconstruction (xxHash128 dedup by `(hash,size)`, optional
-  7-Zip, `MANIFEST.csv`, dated `Snapshot_<date>` point-in-time snapshots,
+  7-Zip, `MANIFEST.csv`, dated point-in-time snapshots in `BackupHistory`,
   bundled restore kit).
 - **Primary users:** technical Windows users / the author (scheduled + ad-hoc
   `pwsh` runs), Linux recovery users, and agents modifying the tool.

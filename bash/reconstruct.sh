@@ -10,11 +10,11 @@
 # MANIFEST.csv format are the single source of truth; only the implementation is
 # duplicated). See docs/plans/bash-variant-plan.md and AGENTS.md sec.2/3.
 #
-#   * From a store's Latest folder: that folder's MANIFEST.csv is the latest
+#   * From a store's CurrentBackup folder: that folder's MANIFEST.csv is the latest
 #     state.
-#   * From a dated SNAPSHOT folder (name matches ^Snapshot_<date>): that
+#   * From a dated SNAPSHOT folder in the store's BackupHistory: that
 #     snapshot's own manifest is the authoritative point-in-time state, with each
-#     file's bytes resolved by (xxH2Hash,Length) from the data pool = Latest
+#     file's bytes resolved by (xxH2Hash,Length) from the data pool = CurrentBackup
 #     + all sibling snapshots (no newer manifest is ever overlaid).
 #   * The store is the origin's parent folder (one store folder per backup set,
 #     kit revision 15): nothing is guessed and no path is recorded, so a moved
@@ -86,7 +86,7 @@
 # Implements: SR-030, SR-031, SR-032, SR-040, SR-050, SR-069 (LLR-030, LLR-031,
 #             LLR-032, LLR-040, LLR-050, LLR-069)
 #
-# KitRevision: 15
+# KitRevision: 16
 # The revision of the restore kit bundled into a backup folder — the same marker
 # Reconstruct.ps1 carries, bumped together whenever any kit-bundled file changes
 # behaviour. Revision 2 was the first to decide a hash-recovered row's form from
@@ -138,13 +138,14 @@ set -uo pipefail
 
 readonly MANIFEST_NAME='MANIFEST.csv'
 # One store folder per backup set (kit revision 15, plan C44): the latest
-# state is <store>/Latest, and an object there lives in a shard folder named by
+# state is <store>/CurrentBackup, and an object there lives in a shard folder named by
 # the first two characters of its name, lowercased (L8). Snapshots stay flat.
 # The shard-folder pattern (^[2-9a-z]{2}$, Common's ShardFolderPattern) is
 # applied inside decode_hash_size_names' gawk program.
-readonly LATEST_NAME='Latest'
+readonly LATEST_NAME='CurrentBackup'
+readonly HISTORY_NAME='BackupHistory'
 readonly LOG_NAME='RECONSTRUCT.log'
-readonly SNAPSHOT_RE='^Snapshot_[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}'
+readonly SNAPSHOT_RE='^[0-9]{4}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}_[0-9]{2}'
 # Infrastructure filenames excluded at the ROOT of each search folder during hash
 # recovery (nested files with these names are user data — B6). Matches Reconstruct
 # .ps1's $skip set (case-insensitive).
@@ -834,12 +835,12 @@ find_by_hash() {
 # Name index over the data pool — SR-069 / SR-010 (kit revision 14)
 # ---------------------------------------------------------------------------
 # Every stored object is named "<hash22>_<len><ext>" from its own content, in
-# the latest state's shard folders and flat at the top of each Snapshot_*
+# the latest state's shard folders and flat at the top of each dated snapshot
 # folder (kit revision 15). Listing those
 # folders ONCE therefore answers "where are the bytes for this (hash, length)?"
 # for every row, where find_by_hash walks and hashes the whole pool per row.
 INDEX_FOLDERS=()    # populated in main(): origin, backup root, snapshots (desc)
-LATEST_FOLDER=''    # <store>/Latest, set in main(); its objects are sharded
+LATEST_FOLDER=''    # <store>/CurrentBackup, set in main(); its objects are sharded
 INDEX_HIT=''        # set by lookup_name_index
 
 # decode_hash_size_names [<prefix>] [1] : the SR-069 name parser, as a filter.
@@ -1158,10 +1159,10 @@ Usage: reconstruct.sh --target-root DIR [--from DIR] [--store-root DIR]
                       [--seven-zip PATH] [--pick-target]
 
   --target-root DIR   Where to rebuild the tree (must be OUTSIDE the store).
-  --from DIR          Restore origin: a store's Latest folder or one of its
-                      Snapshot_<date> folders. Default: the current directory,
-                      or <store-root>/Latest when --store-root is given.
-  --store-root DIR    The store folder (holding Latest and Snapshot_<date>),
+  --from DIR          Restore origin: a store's CurrentBackup folder or a dated
+                      folder in its BackupHistory. Default: the current directory,
+                      or <store-root>/CurrentBackup when --store-root is given.
+  --store-root DIR    The store folder (holding CurrentBackup and BackupHistory),
                       when the origin is not inside it.
   --seven-zip PATH    Explicit 7z/7za binary (else auto-probed; needed only when
                       the backup has compressed rows).
@@ -1232,10 +1233,12 @@ main() {
         find_seven_zip || true
     fi
 
-    # --- Resolve the restore origin and the store (kit revision 15) ---
-    # One store folder per backup set: <store>/Latest is the latest state and
-    # every Snapshot_<date> sits beside it, so the store is the origin's
-    # parent. Nothing is guessed and no path is recorded; any other origin is
+    # --- Resolve the restore origin and the store (kit revision 16) ---
+    # One store folder per backup set: <store>/CurrentBackup is the latest state
+    # and every dated snapshot sits in <store>/BackupHistory, so the store is
+    # the parent of CurrentBackup or the grandparent of a snapshot. With no
+    # prefix a date proves nothing by itself: only inside BackupHistory is a
+    # dated folder a snapshot (S12). Nothing is guessed and no path is recorded; any other origin is
     # refused (2) unless --store-root names the store (Reconstruct.ps1's
     # -StoreRootOverride is the twin).
     local origin
@@ -1247,21 +1250,25 @@ main() {
 
     local origin_name is_snapshot=0
     origin_name="$(basename -- "$origin")"
-    [[ "$origin_name" =~ $SNAPSHOT_RE ]] && is_snapshot=1
+    if [[ "$origin_name" =~ $SNAPSHOT_RE ]] && [[ "$(basename -- "$(dirname -- "$origin")")" == "$HISTORY_NAME" ]]; then
+        is_snapshot=1
+    fi
 
     if [[ -n "$store_root" ]]; then
         store_root="$(canon "$store_root")" || die "cannot canonicalise store root '$store_root' on this host."
-    elif (( is_snapshot )) || [[ "$origin_name" == "$LATEST_NAME" ]]; then
+    elif (( is_snapshot )); then
+        store_root="$(dirname -- "$(dirname -- "$origin")")"
+    elif [[ "$origin_name" == "$LATEST_NAME" ]]; then
         store_root="$(dirname -- "$origin")"
     else
-        die "the restore origin '$origin' is neither a store's $LATEST_NAME folder nor one of its Snapshot_<date> folders. A store written before kit revision 15 restores with the kit inside it; otherwise pass --store-root <the store folder>."
+        die "the restore origin '$origin' is neither a store's $LATEST_NAME folder nor a dated folder in its $HISTORY_NAME folder. A store written before kit revision 16 restores with the kit inside it; otherwise pass --store-root <the store folder>."
     fi
     backup_root="$store_root/$LATEST_NAME"
-    change_root="$store_root"
+    change_root="$store_root/$HISTORY_NAME"
     LATEST_FOLDER="$backup_root"
 
     local authority="$origin/$MANIFEST_NAME"
-    [[ -f "$authority" ]] || die "no $MANIFEST_NAME in origin '$origin'. Point --from at a store's $LATEST_NAME folder or a Snapshot_<date> folder."
+    [[ -f "$authority" ]] || die "no $MANIFEST_NAME in origin '$origin'. Point --from at a store's $LATEST_NAME folder or a dated folder in its $HISTORY_NAME folder."
 
     # A non-empty but unparseable manifest must fail loudly, not silently restore
     # an empty tree (a scripted caller checks only the exit code). Validate the

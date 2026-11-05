@@ -24,22 +24,23 @@ action and exits. HomeHub owns scheduling, mount-identity preflight, retention
 is **one** mount, `/store`, and the set's config names it as its one store
 folder: `StorePath=/store` (ConfigVersion 3,
 [plans/single-store-layout.md](plans/single-store-layout.md) L1/L5). FileBackup
-lays it out itself: `/store/Latest/` is the latest state (its manifest, the
-restore kit, and every object in use, in two-character shard folders), each
-`/store/Snapshot_<date>/` sits beside it, and the run's lock, log and working
-folders live in `/store`. Content moves between `Latest` and the snapshots by
+lays it out itself: `/store/CurrentBackup/` is the latest state (its manifest, the
+restore kit, and every object in use, in two-character shard folders), the
+snapshots sit in `/store/BackupHistory/`, each named by its date, and the run's
+lock, log and working folders live in `/store`. A store with a `CurrentBackup` but no
+`BackupHistory` is refused with exit 2, and FileBackup never creates the folder
+for an existing store (L10): HomeHub must not create either one. Content moves between `CurrentBackup` and the snapshots by
 rename (bounded run loop R8), Linux cannot rename across two bind mounts even of
-one disk, and a `Latest` mounted apart from its store (a second bind mount at
-`/store/Latest`) is refused with exit 2 (L4). There is no conversion from the
+one disk, and a `CurrentBackup` or `BackupHistory` mounted apart from its store (a
+second bind mount at `/store/CurrentBackup`) is refused with exit 2 (L4). There is no conversion from the
 old two-folder layout (`/store/backup` + `/store/changes`): a store still in it
 is refused with exit 2 and keeps restoring with the kits inside it, and HomeHub
 sets it aside and starts a clean store (L2, L5). There is no source-state mount
 any more: nothing is written into the source (R3).
 
-**Restore.** The kit (revision 15) runs from `<store>/Latest` or a
-`<store>/Snapshot_<date>` folder and takes the store to be that folder's
-parent, so it needs no path arguments wherever the store is mounted or copied —
-in a container (`pwsh -File /store/Latest/RECONSTRUCT.ps1 -TargetRoot /restore`,
+**Restore.** The kit (revision 16) runs from `<store>/CurrentBackup` or a dated
+`<store>/BackupHistory/<date>` folder and finds the store from there, so it needs no path arguments wherever the store is mounted or copied —
+in a container (`pwsh -File /store/CurrentBackup/RECONSTRUCT.ps1 -TargetRoot /restore`,
 the store mount may be read-only) or on the host. Run from anywhere else it
 exits 2 unless `-StoreRootOverride DIR` / `--store-root DIR` names the store;
 the target must be outside the store. A store written in the old layout
@@ -74,7 +75,7 @@ argument starting with `-` passes through to `FileBackup.ps1` unchanged. `prune`
 also reads `FILEBACKUP_SNAPSHOT` / `-Snapshot` (required) and
 `FILEBACKUP_DRY_RUN` / `-WhatIf`; `verify` reads `FILEBACKUP_REPAIR=1` for its
 opt-in repair mode. `view` (SR-062) is deliberately **not** one of them: the
-browse view must be written outside `Latest` and the snapshots and on the
+browse view must be written outside `CurrentBackup` and the snapshots and on the
 store's volume. Its default, `<StorePath>/View` (`/store/View` in the
 container), would satisfy that, but no IF-001 revision has ruled on it yet, so
 it stays native-host functionality.
@@ -95,7 +96,7 @@ compression-enabled backup on the existing exit `2` (a terminating error without
 
 **Retention: policy vs. mechanism.** HomeHub decides *what* to keep; FileBackup
 decides *how* a snapshot is safely removed. **HomeHub must never delete a
-`Snapshot_*` folder directly** — dedup means one snapshot's bytes can be the
+dated snapshot folder directly** — dedup means one snapshot's bytes can be the
 only physical copy another snapshot recovers by content hash. The container
 exposes `snapshots` (read-only inventory: name, date, row count, physical
 bytes, bytes-reclaimable-if-pruned — a figure only FileBackup can compute) and
@@ -115,7 +116,7 @@ duplicate objects (`DuplicateObject`) and damaged ones (`DamagedObject`: always
 for an object its listing shows empty or the wrong length, and under `-Deep` for
 one whose bytes do not reproduce its name; one it could not check is
 `UnverifiedObject` and is never moved) and misplaced ones (`MisplacedObject`: an
-object of `Latest` outside its own shard folder, which is no part of the pool),
+object of `CurrentBackup` outside its own shard folder, which is no part of the pool),
 which repair MOVES into `/store/Verify/` — nothing is deleted.
 
 **Exit-code table** — one vocabulary for backup, restore (`RECONSTRUCT.cmd` /
@@ -125,7 +126,7 @@ which repair MOVES into `/store/Verify/` — nothing is deleted.
 |---|---|---|---|
 | 0 | Every file captured | Complete / nothing to report | ok |
 | 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept), or a damaged stored object was set aside into `Verify/` (`[DamagedObject]` in the set log; its content stored again when the source still holds it) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
-| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a store in the old two-folder layout, a store whose `Latest` is gone while it holds snapshots) | Usage or precondition error (for a restore: also a kit run from outside a store's `Latest` or `Snapshot_<date>` folder without the store override); nothing mutated | error — do not retry |
+| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a store in the old two-folder layout, a store whose `CurrentBackup` is gone while it holds snapshots, a store with a `CurrentBackup` but no `BackupHistory`) | Usage or precondition error (for a restore: also a kit run from outside a store's `CurrentBackup` or a dated folder in `BackupHistory` folder without the store override); nothing mutated | error — do not retry |
 | 3 | — never | Restore: retired from kit revision 14 (an older kit bundled in an older snapshot can still return it). Prune: a witness an older build left disagrees with its manifest; nothing mutated | error — **escalate** |
 | 4 | Stopped by a host problem (volume full or gone, the store's drive not attached, the source gone, or empty at the start or mid-run while the backup holds files) or another run holds the lock; every state stays restorable | Host/dependency I/O failure; prune, or Verify's repair or kit refresh, finding another run holding the lock | warn — retry |
 

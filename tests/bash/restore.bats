@@ -1,15 +1,15 @@
 #!/usr/bin/env bats
 # TC-054 / SR-031 — a PowerShell-produced fixture store restores byte-for-byte
-# on Linux via reconstruct.sh, from the store's Latest folder and from EVERY
-# Snapshot_<date> folder, in both compression combos (storage is always
+# on Linux via reconstruct.sh, from the store's CurrentBackup folder and from EVERY
+# BackupHistory/<date> folder, in both compression combos (storage is always
 # content-addressed since WP9 step 5 deleted Mirror; TC-134 regenerated these
 # fixtures). The per-origin expected TSVs (posixRelPath -> content hash, read
 # from each origin's own manifest) are the oracle: a restored file's xxh128sum
 # must equal it.
 #
 # Kit revision 15 (plan C44, S3): one store folder per backup set. The store is
-# the origin's parent, so the origin must be a folder named exactly 'Latest' or
-# matching ^Snapshot_<date>; anything else is refused with 2 unless
+# the origin's parent, so the origin must be a folder named exactly 'CurrentBackup' or
+# matching ^BackupHistory/<date>; anything else is refused with 2 unless
 # --store-root names the store. No path sidecar is read and nothing is guessed.
 
 setup() { load helpers; }
@@ -34,38 +34,38 @@ copy_store() {
     cp -r "$(store_for "$1")" "$2"
 }
 
-@test "HashAddressed: Latest + every snapshot restore byte-exact (TC-054, SR-031)" {
+@test "HashAddressed: CurrentBackup + every snapshot restore byte-exact (TC-054, SR-031)" {
     restore_mode_from_origin HashAddressed
 }
 
-@test "HashAddressed+Compress: Latest + every snapshot restore byte-exact (TC-054, SR-031)" {
+@test "HashAddressed+Compress: CurrentBackup + every snapshot restore byte-exact (TC-054, SR-031)" {
     restore_mode_from_origin HashAddressed_Compress
 }
 
-@test "the fixture store has the kit revision 15 layout: Latest sharded, snapshots flat, no path sidecar (TC-054, L8)" {
+@test "the fixture store has the kit revision 15 layout: CurrentBackup sharded, snapshots flat, no path sidecar (TC-054, L8)" {
     # Pins what the restores above run against, so a fixture regenerated from
     # an engine that writes another layout fails here by name.
     local mode store f base shard n=0
     for mode in "${MODES[@]}"; do
         store="$(store_for "$mode")"
-        [ -f "$store/Latest/MANIFEST.csv" ]
+        [ -f "$store/CurrentBackup/MANIFEST.csv" ]
         [ -z "$(find "$store" -name 'RECONSTRUCT.paths.json')" ]
         [ ! -e "$store/MANIFEST.csv" ]
-        # Every object of Latest sits in its own shard folder...
+        # Every object of CurrentBackup sits in its own shard folder...
         while IFS= read -r -d '' f; do
             base="${f##*/}"; shard="$(basename -- "$(dirname -- "$f")")"
             [ "$shard" = "$(shard_of "$base")" ] || { echo "$mode: '$f' is not in its shard folder"; false; }
             n=$((n+1))
-        done < <(find "$store/Latest" -mindepth 2 -maxdepth 2 -type f -print0)
-        # ...and no object sits at Latest's top level.
-        [ -z "$(find "$store/Latest" -mindepth 1 -maxdepth 1 -type f ! -name 'MANIFEST.csv*' ! -name 'DIRECTORIES.csv' ! -name 'FileBackupState.json')" ]
+        done < <(find "$store/CurrentBackup" -mindepth 2 -maxdepth 2 -type f -print0)
+        # ...and no object sits at CurrentBackup's top level.
+        [ -z "$(find "$store/CurrentBackup" -mindepth 1 -maxdepth 1 -type f ! -name 'MANIFEST.csv*' ! -name 'DIRECTORIES.csv' ! -name 'FileBackupState.json')" ]
         # Snapshots stay flat.
-        [ -z "$(find "$store"/Snapshot_* -mindepth 1 -type d)" ]
+        [ -z "$(find "$store"/BackupHistory/2* -mindepth 1 -type d)" ]
     done
     [ "$n" -ge 20 ]
 }
 
-@test "--store-root restores Latest from OUTSIDE the store, with no --from (TC-054, SR-031, kit revision 15)" {
+@test "--store-root restores CurrentBackup from OUTSIDE the store, with no --from (TC-054, SR-031, kit revision 15)" {
     local out="$BATS_TEST_TMPDIR/sr-latest" elsewhere="$BATS_TEST_TMPDIR/elsewhere"
     mkdir -p "$elsewhere"
     # The working directory is NOT inside the store: without --store-root this
@@ -79,52 +79,67 @@ copy_store() {
 @test "--store-root with --from a snapshot restores that snapshot byte-exact (TC-054, SR-031, kit revision 15)" {
     local store snap out="$BATS_TEST_TMPDIR/sr-snap"
     store="$(store_for HashAddressed)"
-    snap="$store/Snapshot_2024_01_01_09_00_00"
+    snap="$store/BackupHistory/2024_01_01_09_00_00"
     run bash "$RS" --target-root "$out" --from "$snap" --store-root "$store"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
-    verify_tree "$out" "$FIXTURES/bash-restore/HashAddressed/expected/Snapshot_2024_01_01_09_00_00.tsv"
+    verify_tree "$out" "$FIXTURES/bash-restore/HashAddressed/expected/2024_01_01_09_00_00.tsv"
 }
 
-@test "--store-root names a store whose Latest a renamed origin cannot (TC-054, kit revision 15)" {
-    # A copy of Latest under another name is refused on its own (below); the
+@test "--store-root names a store whose CurrentBackup a renamed origin cannot (TC-054, kit revision 15)" {
+    # A copy of CurrentBackup under another name is refused on its own (below); the
     # one store override is what makes it restorable, with the pool taken from
     # the store named.
     local w="$BATS_TEST_TMPDIR/renamed"
     copy_store HashAddressed "$w/store"
-    cp -r "$w/store/Latest" "$w/latest-copy"
+    cp -r "$w/store/CurrentBackup" "$w/latest-copy"
     run bash "$RS" --target-root "$w/out" --from "$w/latest-copy" --store-root "$w/store"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     verify_tree "$w/out" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
 }
 
-@test "2: an origin that is neither Latest nor a Snapshot_<date> folder is refused, writing nothing (SR-040, kit revision 15)" {
+@test "2: an origin that is neither CurrentBackup nor a BackupHistory/<date> folder is refused, writing nothing (SR-040, kit revision 15)" {
     local w="$BATS_TEST_TMPDIR/badorigin" o
     copy_store HashAddressed "$w/store"
     # The old backup-root shape (a manifest in a folder of another name), the
-    # store folder itself, a case variant of Latest, and a near-miss snapshot
+    # store folder itself, a case variant of CurrentBackup, and a near-miss snapshot
     # name. Each holds a real manifest except the store, so the refusal is the
     # NAME rule and not a missing manifest.
-    cp -r "$w/store/Latest" "$w/backup"
-    cp -r "$w/store/Latest" "$w/latest"
-    cp -r "$w/store/Latest" "$w/LATEST"
-    cp -r "$w/store/Snapshot_2024_01_01_09_00_00" "$w/Snapshot-2024_01_01_09_00_00"
-    for o in "$w/backup" "$w/store" "$w/latest" "$w/LATEST" "$w/Snapshot-2024_01_01_09_00_00"; do
+    cp -r "$w/store/CurrentBackup" "$w/backup"
+    cp -r "$w/store/CurrentBackup" "$w/currentbackup"
+    cp -r "$w/store/CurrentBackup" "$w/CURRENTBACKUP"
+    cp -r "$w/store/CurrentBackup" "$w/Latest"
+    cp -r "$w/store/BackupHistory/2024_01_01_09_00_00" "$w/Snapshot-2024_01_01_09_00_00"
+    # With no prefix a date proves nothing: a dated folder is a snapshot only
+    # inside BackupHistory, and an old Snapshot_<date> name is none at all (S12, S13).
+    cp -r "$w/store/BackupHistory/2024_01_01_09_00_00" "$w/2024_01_01_09_00_00"
+    cp -r "$w/store/BackupHistory/2024_01_01_09_00_00" "$w/Snapshot_2024_01_01_09_00_00"
+    for o in "$w/backup" "$w/store" "$w/currentbackup" "$w/CURRENTBACKUP" "$w/Latest" "$w/Snapshot-2024_01_01_09_00_00" \
+             "$w/2024_01_01_09_00_00" "$w/Snapshot_2024_01_01_09_00_00"; do
         run bash "$RS" --target-root "$w/t-${o##*/}" --from "$o"
         [ "$status" -eq 2 ] || { echo "'$o': expected 2, got $status"; echo "$output"; false; }
-        [[ "$output" == *"neither a store's Latest folder nor one of its Snapshot_<date> folders"* ]] \
+        [[ "$output" == *"neither a store's CurrentBackup folder nor a dated folder in its BackupHistory folder"* ]] \
             || { echo "'$o':"; echo "$output"; false; }
         [ ! -e "$w/t-${o##*/}" ]
     done
 }
 
-@test "2: the default origin is the working directory, refused when it is not Latest or a snapshot (SR-040, kit revision 15)" {
+@test "CurrentBackup still restores when BackupHistory is missing (plan S15)" {
+    local w="$BATS_TEST_TMPDIR/no-history"
+    copy_store HashAddressed "$w/store"
+    rm -rf "$w/store/BackupHistory"
+    run bash "$RS" --target-root "$w/out" --from "$w/store/CurrentBackup"
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+    verify_tree "$w/out" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
+}
+
+@test "2: the default origin is the working directory, refused when it is not CurrentBackup or a snapshot (SR-040, kit revision 15)" {
     local w="$BATS_TEST_TMPDIR/pwd-origin"
     copy_store HashAddressed "$w/store"
     run bash -c 'cd "$1" && bash "$2" --target-root "$3"' _ "$w/store" "$RS" "$w/t-store"
     [ "$status" -eq 2 ]
     [[ "$output" == *"--store-root"* ]]
-    # From inside Latest the same command line restores.
-    run bash -c 'cd "$1" && bash "$2" --target-root "$3"' _ "$w/store/Latest" "$RS" "$w/t-latest"
+    # From inside CurrentBackup the same command line restores.
+    run bash -c 'cd "$1" && bash "$2" --target-root "$3"' _ "$w/store/CurrentBackup" "$RS" "$w/t-latest"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
     verify_tree "$w/t-latest" "$FIXTURES/bash-restore/HashAddressed/expected/root.tsv"
 }
@@ -145,19 +160,20 @@ copy_store() {
     # even while the original still exists, and a stale path sidecar of the
     # old kits is not read. Its paths point at the ORIGINAL store, which would
     # restore just as well - so the log line naming the store is the proof.
-    local mode w store tsv name out
+    local mode w store tsv name out origin
     for mode in "${MODES[@]}"; do
         w="$BATS_TEST_TMPDIR/moved-$mode"
         store="$w/new home/Backups & Archive #2"
         copy_store "$mode" "$store"
         printf '{\n  "BackupRoot": "%s",\n  "ChangeRoot": "%s"\n}\n' \
-            "$(store_for "$mode")/Latest" "$(store_for "$mode")" > "$store/Latest/RECONSTRUCT.paths.json"
+            "$(store_for "$mode")/CurrentBackup" "$(store_for "$mode")" > "$store/CurrentBackup/RECONSTRUCT.paths.json"
         store="$(cd "$store" && pwd -P)"
         for tsv in "$FIXTURES/bash-restore/$mode"/expected/*.tsv; do
             name="$(basename "$tsv" .tsv)"
-            if [[ "$name" == root ]]; then name=Latest; fi
+            if [[ "$name" == root ]]; then name=CurrentBackup; origin="$store/$name"
+            else origin="$store/BackupHistory/$name"; fi
             out="$w/t-$name"
-            run bash "$RS" --target-root "$out" --from "$store/$name"
+            run bash "$RS" --target-root "$out" --from "$origin"
             [ "$status" -eq 0 ] || { echo "$mode/$name: expected 0, got $status"; echo "$output"; false; }
             verify_tree "$out" "$tsv" || { echo "$mode/$name: verify failed"; false; }
             grep -qF "store=$store)" "$out/RECONSTRUCT.log" || { echo "$mode/$name:"; cat "$out/RECONSTRUCT.log"; false; }
@@ -179,11 +195,11 @@ copy_store() {
     # folders), so the legacy shape is CONSTRUCTED — the restorer deliberately
     # still serves legacy stores: sub/MANIFEST.csv's OBJECT is moved to the
     # nested infra name; its row's named file is then missing, forcing hash
-    # recovery, which must scan past Latest/sub/MANIFEST.csv rather than skip
+    # recovery, which must scan past CurrentBackup/sub/MANIFEST.csv rather than skip
     # it. The PS twin is TC-058 (same constructed shape since WP9 step 5).
     local store="$BATS_TEST_TMPDIR/b6-legacy/store"
     copy_store HashAddressed "$store"
-    local bk="$store/Latest"
+    local bk="$store/CurrentBackup"
     local want obj
     want="$(expected_hash HashAddressed 'sub/MANIFEST.csv')"
     [ -n "$want" ]
@@ -199,11 +215,11 @@ copy_store() {
     [ "$(cat "$out/sub/MANIFEST.csv")" = "nested not-infra" ]
 }
 
-@test "refuses a target inside the store, its Latest or a snapshot (SR-009)" {
+@test "refuses a target inside the store, its CurrentBackup or a snapshot (SR-009)" {
     local store; store="$(store_for HashAddressed)"
     local t
-    for t in "$store/restore-here" "$store/Latest/restore-here" "$store/Snapshot_2024_01_01_09_00_00/restore-here"; do
-        run bash "$RS" --target-root "$t" --from "$store/Latest"
+    for t in "$store/restore-here" "$store/CurrentBackup/restore-here" "$store/BackupHistory/2024_01_01_09_00_00/restore-here"; do
+        run bash "$RS" --target-root "$t" --from "$store/CurrentBackup"
         [ "$status" -eq 2 ] || { echo "'$t': expected 2, got $status"; false; }
         [[ "$output" == *"inside the store"* ]]
         [ ! -e "$t" ]
@@ -224,8 +240,8 @@ copy_store() {
     local a="$BATS_TEST_TMPDIR/A" b="$BATS_TEST_TMPDIR/B"
     cp -R "$(store_for HashAddressed)" "$a"
     cp -R "$(store_for HashAddressed)" "$b"
-    run bash "$RS" --target-root "$a/Latest/inside" --from "$a/Latest" --store-root "$b"
+    run bash "$RS" --target-root "$a/CurrentBackup/inside" --from "$a/CurrentBackup" --store-root "$b"
     [ "$status" -eq 2 ]
     [[ "$output" == *"inside the restore origin"* ]]
-    [ ! -e "$a/Latest/inside" ]
+    [ ! -e "$a/CurrentBackup/inside" ]
 }

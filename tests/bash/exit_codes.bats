@@ -12,11 +12,11 @@
 
 setup() {
     load helpers
-    # A writable copy of the fixture STORE; the origin is its Latest folder
-    # and the store is found as Latest's parent (kit revision 15).
+    # A writable copy of the fixture STORE; the origin is its CurrentBackup folder
+    # and the store is found as CurrentBackup's parent (kit revision 15).
     WORK="$BATS_TEST_TMPDIR/work"
     cp -r "$(store_for HashAddressed)" "$WORK"
-    BK="$WORK/Latest"
+    BK="$WORK/CurrentBackup"
     MANIFEST="$BK/MANIFEST.csv"
 }
 
@@ -49,9 +49,9 @@ setup() {
 }
 
 @test "2: precondition — no manifest in the origin (SR-040)" {
-    # Named Latest, so the refusal is the missing manifest, not the origin
+    # Named CurrentBackup, so the refusal is the missing manifest, not the origin
     # name rule (kit revision 15; restore.bats pins that one).
-    local empty="$BATS_TEST_TMPDIR/empty/Latest"
+    local empty="$BATS_TEST_TMPDIR/empty/CurrentBackup"
     mkdir -p "$empty"
     run bash "$RS" --target-root "$BATS_TEST_TMPDIR/t2b" --from "$empty"
     [ "$status" -eq 2 ]
@@ -98,7 +98,7 @@ setup() {
     # The row itself stays Compressed=No, so the up-front 7z precondition (exit
     # 2) does not fire: the missing dependency is discovered DURING recovery,
     # which is a host problem (retriable), not lost data.
-    local bad="$BATS_TEST_TMPDIR/hostcase/Latest"
+    local bad="$BATS_TEST_TMPDIR/hostcase/CurrentBackup"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -126,7 +126,7 @@ setup() {
     # A raw file parked under a '.7z' name — a genuine .7z source stored
     # verbatim is the common shape — needs no 7z to test: its own bytes are
     # hashed directly, so the restore succeeds instead of exiting 4.
-    local pool="$BATS_TEST_TMPDIR/rawcase/Latest"
+    local pool="$BATS_TEST_TMPDIR/rawcase/CurrentBackup"
     mkdir -p "$pool"
     printf 'raw-payload\n' > "$pool/orig.txt"
     local h len
@@ -145,7 +145,7 @@ setup() {
 
 @test "4 outranks 1: a host failure alongside a content failure reports the actionable one (SR-040)" {
     # A wrapper should retry rather than alarm the user about lost data.
-    local bad="$BATS_TEST_TMPDIR/mixed/Latest"
+    local bad="$BATS_TEST_TMPDIR/mixed/CurrentBackup"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -221,7 +221,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
 }
 
 @test "4 outranks a torn manifest's 1: a host failure in the rows read still reports 4 (review 2026-10-26 A1, SR-040)" {
-    local bad="$BATS_TEST_TMPDIR/torn-host/Latest"
+    local bad="$BATS_TEST_TMPDIR/torn-host/CurrentBackup"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -249,7 +249,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     # candidate the locator inspects is the row's own file, so an unexpandable
     # archive there is damaged data: ContentMissing, exit 1, candidate named.
     command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
-    local bad="$BATS_TEST_TMPDIR/d3content/Latest"
+    local bad="$BATS_TEST_TMPDIR/d3content/CurrentBackup"
     mkdir -p "$bad"
     printf 'payload-bytes\n' > "$bad/orig.txt"
     local h len
@@ -274,7 +274,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     # The restore loop's CandidateError is untouched by D-3: the row resolves
     # through its own DataPath, so extraction failure is about THIS host.
     command -v 7z >/dev/null || command -v 7za >/dev/null || command -v 7zz >/dev/null || skip "7z not installed"
-    local bad="$BATS_TEST_TMPDIR/d3own/Latest"
+    local bad="$BATS_TEST_TMPDIR/d3own/CurrentBackup"
     mkdir -p "$bad"
     # A REAL archive, then truncated: keeps the 7-Zip signature and destroys
     # the archive, which is the interrupted-write shape and, since kit
@@ -304,7 +304,7 @@ tear_manifest() {  # <manifest> <keep-bytes>
     # this host is wrong and no retry can help: exit 1, not 4. Before SR-068
     # the Compressed column sent this down the expand path and 7-Zip took the
     # blame, telling wrappers to retry corruption forever.
-    local bad="$BATS_TEST_TMPDIR/d3raw/Latest"
+    local bad="$BATS_TEST_TMPDIR/d3raw/CurrentBackup"
     mkdir -p "$bad"
     local own; own="$(hash_size_name 'DEADBEEFDEADBEEFDEADBEEFDEADBEEF' 999 '.7z')"
     printf 'garbage-with-no-signature\n' > "$(latest_object "$bad" "$own")"

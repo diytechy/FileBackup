@@ -12,7 +12,7 @@ setup() {
     WORK="$BATS_TEST_TMPDIR/work"
 }
 
-# Copy a fixture store into a writable work tree; its latest state is $WORK/Latest.
+# Copy a fixture store into a writable work tree; its latest state is $WORK/CurrentBackup.
 use_fixture() {  # <mode>
     rm -rf "$WORK"
     cp -r "$(store_for "$1")" "$WORK"
@@ -22,7 +22,7 @@ use_fixture() {  # <mode>
 # witness. Kit revision 14 no longer reads the witness; the re-stamp keeps the
 # store self-consistent, which is what an older kit would need.
 bend_row() {  # <relpath> <new-datapath> <new-compressed>
-    local m="$WORK/Latest/MANIFEST.csv"
+    local m="$WORK/CurrentBackup/MANIFEST.csv"
     gawk -v FPAT='("([^"]|"")*")|([^,]*)' -v OFS=',' \
          -v rel="\"$1\"" -v dp="\"$2\"" -v comp="\"$3\"" '
         NR==1 { print; next }
@@ -37,7 +37,7 @@ bend_row() {  # <relpath> <new-datapath> <new-compressed>
 HELLO_HASH='3F6A2320F4D75810986789940FF30339'
 
 restore_work() {  # <outdir>
-    run bash "$RS" --target-root "$1" --from "$WORK/Latest"
+    run bash "$RS" --target-root "$1" --from "$WORK/CurrentBackup"
 }
 
 @test "row says Compressed=No but the located file is a .7z: restores the payload (TC-099, SR-050)" {
@@ -58,7 +58,7 @@ restore_work() {  # <outdir>
 
 @test "a .7z-named file holding RAW bytes is recovered, not called a candidate error (TC-099, SR-050)" {
     use_fixture HashAddressed
-    mv -- "$(pool_file_by_hash "$WORK/Latest" "$HELLO_HASH")" "$WORK/Latest/hello-raw.7z"
+    mv -- "$(pool_file_by_hash "$WORK/CurrentBackup" "$HELLO_HASH")" "$WORK/CurrentBackup/hello-raw.7z"
     bend_row 'hello.txt' '' 'Yes'
     restore_work "$BATS_TEST_TMPDIR/c"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
@@ -84,16 +84,16 @@ restore_work() {  # <outdir>
 
     printf 'ARCHIVE-PAYLOAD-%.0s' {1..200} > "$BATS_TEST_TMPDIR/inner.txt"
     ( cd "$BATS_TEST_TMPDIR" && "$SEVEN_ZIP" a -bso0 -bsp0 -y real.7z inner.txt >/dev/null )
-    cp "$BATS_TEST_TMPDIR/real.7z" "$WORK/Latest/real.7z"
+    cp "$BATS_TEST_TMPDIR/real.7z" "$WORK/CurrentBackup/real.7z"
 
     # A row for it with a BLANK DataPath: hash recovery must locate the file in
     # the pool and copy its own bytes.
     local h len
-    h="$(hash_upper "$WORK/Latest/real.7z")"
-    len="$(stat -c '%s' -- "$WORK/Latest/real.7z")"
+    h="$(hash_upper "$WORK/CurrentBackup/real.7z")"
+    len="$(stat -c '%s' -- "$WORK/CurrentBackup/real.7z")"
     printf '"","real.7z","%s","2024-01-01T08:00:00.0000000-06:00","%s","No","Hash","0",""\r\n' \
-        "$len" "$h" >> "$WORK/Latest/MANIFEST.csv"
-    restamp_witness "$WORK/Latest/MANIFEST.csv"
+        "$len" "$h" >> "$WORK/CurrentBackup/MANIFEST.csv"
+    restamp_witness "$WORK/CurrentBackup/MANIFEST.csv"
 
     restore_work "$BATS_TEST_TMPDIR/g"
     [ "$status" -eq 0 ] || { echo "$output"; false; }
@@ -105,8 +105,8 @@ restore_work() {  # <outdir>
     # locator inspects is the row's own file, so an archive that will not
     # expand is damaged data a retry cannot fix (D-3 ruling, 2026-08-24).
     use_fixture HashAddressed
-    rm -f -- "$(pool_file_by_hash "$WORK/Latest" "$HELLO_HASH")"
-    printf 'neither an archive nor the payload' > "$WORK/Latest/hello-decoy.7z"
+    rm -f -- "$(pool_file_by_hash "$WORK/CurrentBackup" "$HELLO_HASH")"
+    printf 'neither an archive nor the payload' > "$WORK/CurrentBackup/hello-decoy.7z"
     bend_row 'hello.txt' '' 'Yes'
     restore_work "$BATS_TEST_TMPDIR/e"
     [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }
@@ -115,7 +115,7 @@ restore_work() {  # <outdir>
 
 @test "genuinely absent content is still the CONTENT class, exit 1 (TC-099, SR-040)" {
     use_fixture HashAddressed
-    rm -f -- "$(pool_file_by_hash "$WORK/Latest" "$HELLO_HASH")"
+    rm -f -- "$(pool_file_by_hash "$WORK/CurrentBackup" "$HELLO_HASH")"
     bend_row 'hello.txt' '' 'No'
     restore_work "$BATS_TEST_TMPDIR/f"
     [ "$status" -eq 1 ] || { echo "expected 1, got $status"; echo "$output"; false; }

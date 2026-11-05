@@ -75,8 +75,8 @@ BeforeAll {
         #>
         param([string]$Label, [string[]]$Name, [byte[]]$Bytes)
         $root = Join-Path $TestDrive ($Label + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
-        New-Item -ItemType Directory -Path $src, $bkp, $chg -Force | Out-Null
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
+        New-Item -ItemType Directory -Path $src, $bkp, $chg, (Join-Path $chg 'BackupHistory') -Force | Out-Null
         foreach ($n in $Name) { [IO.File]::WriteAllBytes((Join-Path $src $n), $Bytes) }
         [pscustomobject]@{ Root = $root; Src = $src; Bkp = $bkp; Chg = $chg; Names = @($Name) }
     }
@@ -176,7 +176,7 @@ Describe 'Q7: the bytes decide, not the name (SR-004, SR-081, TC-224)' {
         $script:tc224 = @{}
         foreach ($mode in 'always', 'off') {
             $root = Join-Path $TestDrive "tc224-$mode"
-            $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+            $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
             New-Item -ItemType Directory -Path $src -Force | Out-Null
             # Distinct seeds: identical bytes would dedup into ONE content group
             # and take one owner's storage form, which would prove nothing.
@@ -370,7 +370,7 @@ Describe 'A non-lowercase mode is refused before anything is read (SR-042, SR-08
                                Windows = @(1.0, 1.0, 1.0); Ratio = 1.0 }
         }
         $root = Join-Path $TestDrive 'r10-set'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         [IO.File]::WriteAllBytes((Join-Path $src 'a.qqq'), (New-ProbeContent -Kind 'text'))
         $set = [pscustomobject]@{
@@ -535,7 +535,7 @@ Describe 'The CompressProbe configuration key (SR-042, SR-063, SR-081, TC-227)' 
 
     It 'refuses a bad CompressProbe at the process boundary with status 2 and creates nothing (SR-043, TC-227)' {
         $root = Join-Path $TestDrive 'tc227-exit2'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         [IO.File]::WriteAllText((Join-Path $src 'a.txt'), 'x')
         $json = Join-Path $root 'c.json'
@@ -597,7 +597,7 @@ Describe 'Per-set probe telemetry (SR-081, LLR-086)' {
 
     It 'reports the three counter lines in the set summary of a real run' {
         $root = Join-Path $TestDrive 'probe-summary'
-        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'Latest'
+        $src = Join-Path $root 'src'; $chg = Join-Path $root 'chg'; $bkp = Join-Path $chg 'CurrentBackup'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
         [IO.File]::WriteAllBytes((Join-Path $src 'a.qqq'), (New-ProbeContent -Kind 'random'))
         $cfg = Join-Path $root 'c.xml'

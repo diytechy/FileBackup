@@ -23,7 +23,7 @@ container for unattended backup runs.
 FileBackup walks a source tree, hashes every file with **xxHash128**, deduplicates
 identical content by `(hash, size)`, optionally compresses with 7-Zip, and records
 everything in a `MANIFEST.csv`. When a run supersedes earlier content it preserves a
-**dated point-in-time snapshot** (`Snapshot_<date>`) of the prior state, and drops a
+**dated point-in-time snapshot** (a dated folder in `BackupHistory`) of the prior state, and drops a
 **self-contained restore kit** into the backup so you can rebuild *any* point in time —
 the latest from the backup folder, or an earlier state from its dated snapshot — with
 nothing but that folder and the documented restore tools. No repository or NuGet
@@ -98,7 +98,7 @@ that file's earlier copy, and names it in the set's log. Its exit code says what
 |---|---|---|
 | **0** | Every file was captured. | Nothing. |
 | **1** | The run completed, but one or more files were not captured (locked after three tries 60 s apart, unreadable, or named in a way Windows or Linux cannot restore). Each is named in `backup.log`; their earlier copies are kept. Also when the run found a stored object damaged — empty, or a raw object of the wrong length, as a power cut can leave it — and set it aside into `<StorePath>\Verify\` (`[DamagedObject]` in the log): it is never reused, and its content is stored again from the source while the source still holds it. | Read the log; usually nothing — the next run tries again. |
-| **2** | Refused before changing anything: a bad configuration, a missing tool, a missing source folder, a store whose `Latest` folder is on another volume or mount than the store itself, a damaged latest manifest, a `StorePath` that holds a backup in the old two-folder layout (see [The store](#the-store-one-folder-per-backup-set)), or a store whose `Latest` folder is gone while it still holds snapshots (moved, renamed, or a mount that is not there — a fresh full backup is never started beside old snapshots). | Fix what the message names. |
+| **2** | Refused before changing anything: a bad configuration, a missing tool, a missing source folder, a store whose `CurrentBackup` or `BackupHistory` folder is on another volume or mount than the store itself, a store with a `CurrentBackup` but no `BackupHistory`, a damaged latest manifest, a `StorePath` that holds a backup in the old two-folder layout (see [The store](#the-store-one-folder-per-backup-set)), or a store whose `CurrentBackup` folder is gone while it still holds snapshots (moved, renamed, or a mount that is not there — a fresh full backup is never started beside old snapshots). | Fix what the message names. |
 | **4** | Stopped by a host problem, or not started: the backup drive is not attached (a Windows drive letter or a network share), the backup volume filled up or went away, the source disappeared, or was empty while the backup holds files, at the start of the run or during it (a missing or dropped mount, or a failed drive, looks like that), or another run of this store holds its lock. Every state stays restorable. | Retry later — the next scheduled run is the retry. |
 
 ### Where a run's time goes
@@ -122,23 +122,23 @@ A run that stops (exit 4) still writes what it had measured.
 
 ### 3. Restore
 
-Open the store's **`Latest`** folder and double-click **`RECONSTRUCT.cmd`** (Windows) or
+Open the store's **`CurrentBackup`** folder and double-click **`RECONSTRUCT.cmd`** (Windows) or
 **`RECONSTRUCT.command`** (macOS). With no arguments it opens a folder picker, restores,
 and holds the window so you can read the result; it writes a `RECONSTRUCT.log` next to
 the restored tree. To restore a *historical* state, run the launcher inside a specific
-dated `Snapshot_<date>` folder beside `Latest` instead — it reproduces exactly the state
+dated folder in `BackupHistory` instead — it reproduces exactly the state
 as of that backup. Each of those folders is self-contained — it carries `RECONSTRUCT.cmd`,
 `RECONSTRUCT.command`, `RECONSTRUCT.ps1`, `reconstruct.sh`, the hashing module and
 `System.IO.Hashing.dll` — so restore works on a machine without this repo.
 
-The kit finds the rest of the store by going one level up from its own folder: the
-store is the parent of `Latest` or of the snapshot folder it runs from. Nothing records
+The kit finds the rest of the store from its own folder: the store is the parent of
+`CurrentBackup`, or the grandparent of a dated folder in `BackupHistory`. Nothing records
 where the store was, so a store moved to another drive letter, copied whole, or
 attached to a Linux machine restores as it is, with no arguments. Run from any other
 folder — a kit copied out of its store, say — it refuses with exit 2 unless you name
 the store: `-StoreRootOverride DIR` (`--store-root DIR` for `reconstruct.sh`), where
-`DIR` is the store folder that holds `Latest`. Then the manifest beside the kit (or
-`--from`'s) is the state restored, if there is one, else the store's `Latest`; the
+`DIR` is the store folder that holds `CurrentBackup`. Then the manifest beside the kit (or
+`--from`'s) is the state restored, if there is one, else the store's `CurrentBackup`; the
 store supplies the bytes. The restore target must be **outside** the store and
 outside the folder the restore runs from.
 
@@ -189,7 +189,7 @@ error unless you pass `-ExitCode` (which `RECONSTRUCT.cmd` does for you).
 |---|---|---|---|
 | **0** | Complete | Every manifest row restored. | Nothing. |
 | **1** | Incomplete — content | Everything salvageable was restored; the remaining rows' bytes do not exist anywhere in the data pool, or the manifest itself is damaged (it reads as NUL bytes from some line on, as a write cut short by a power loss can: the rows before that line are restored, and the log names the manifest and how many rows were read). | Real data loss: check an older backup. |
-| **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, a legacy path-addressed store (see `StoredAsHashSize` below), a kit run from outside a store's `Latest` or `Snapshot_<date>` folder without the store override, target inside the store, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
+| **2** | Precondition / usage | Nothing was attempted — bad or missing arguments, no `MANIFEST.csv`, an unrecognizable manifest, a legacy path-addressed store (see `StoredAsHashSize` below), a kit run from outside a store's `CurrentBackup` or a dated folder in `BackupHistory` folder without the store override, target inside the store, an unusable target path, a missing required tool, or not enough free space. Any unexpected failure lands here too, since nothing was attempted. | Fix the invocation or environment. |
 | **3** | *Retired* | Never returned from kit revision 14. A kit an older version bundled into an older snapshot can still return it when that snapshot's witness disagrees with its manifest. | Restore that snapshot with a current kit (`-Action Verify -RefreshKits`), or from another copy. |
 | **4** | Incomplete — host | Rows failed because of *this machine*, not the backup: an unreadable search folder, 7-Zip unavailable for an archive candidate, or an extraction/copy I/O error on an **archive-shaped** object. | **Retriable** — fix the host and run again. |
 
@@ -224,23 +224,23 @@ only if the backup used compression). Install them with e.g.
 
 ```bash
 # Restore the latest state:
-bash /path/to/store/Latest/reconstruct.sh --target-root /tmp/restore --from /path/to/store/Latest
+bash /path/to/store/CurrentBackup/reconstruct.sh --target-root /tmp/restore --from /path/to/store/CurrentBackup
 
 # Restore a historical point in time from a dated snapshot:
-bash /path/to/store/Latest/reconstruct.sh --target-root /tmp/asof --from /path/to/store/Snapshot_2024_01_01_09_00_00
+bash /path/to/store/CurrentBackup/reconstruct.sh --target-root /tmp/asof --from /path/to/store/BackupHistory/2024_01_01_09_00_00
 ```
 
-`--from` names the restore origin: the store's `Latest` folder or one of its
-`Snapshot_<date>` folders (default: the current directory). The store is that
-folder's parent, and the data pool is `Latest` plus every `Snapshot_*` beside it;
+`--from` names the restore origin: the store's `CurrentBackup` folder or a dated folder in
+its `BackupHistory` (default: the current directory). The store is found from that
+folder, and the data pool is `CurrentBackup` plus every dated folder in `BackupHistory`;
 nothing is guessed and no recorded path is read, so a store copied off a Windows
 drive or out of a container's `/store` mount restores where it now is. Any other
 origin is refused (exit 2) unless `--store-root DIR` names the store; with
-`--store-root` and no `--from`, the origin is `<store-root>/Latest`. Like the
+`--store-root` and no `--from`, the origin is `<store-root>/CurrentBackup`. Like the
 Windows restorer it **fails loudly**: it checks the manifest's header before
 writing anything, then restores everything recoverable and exits with the code
 from "Restore exit codes" above — the same numbers the Windows restorer returns.
-New backups carry the tested script as `reconstruct.sh` in `Latest` and each
+New backups carry the tested script as `reconstruct.sh` in `CurrentBackup` and each
 snapshot; an external rescue copy of the same script also works, given
 `--from` (or `--store-root`). See `bash reconstruct.sh --help`.
 
@@ -249,7 +249,7 @@ snapshot; an external rescue copy of the same script also works, given
 ## Snapshot retention (pruning)
 
 Snapshots pile up, so eventually you want to drop old ones. **Do not delete a
-`Snapshot_*` folder yourself.** Because content is deduplicated, a folder that
+snapshot folder yourself.** Because content is deduplicated, a folder that
 looks like old history can hold the *only* physical copy of content other
 snapshots recover by hash — deleting it from outside the tool is silent data
 loss. Ask FileBackup to do it instead:
@@ -260,11 +260,11 @@ pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Snapshots
 
 # Dry run first: reports exactly what the real run would do, changes nothing.
 pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Prune `
-     -Snapshot Snapshot_2024_01_01_09_00_00 -WhatIf
+     -Snapshot 2024_01_01_09_00_00 -WhatIf
 
 # Remove it (several names are allowed; each is its own transaction).
 pwsh -File FileBackup.ps1 -ConfigPath config.json -Action Prune `
-     -Snapshot Snapshot_2024_01_01_09_00_00
+     -Snapshot 2024_01_01_09_00_00
 ```
 
 `-WhatIf` is for `-Action Prune`, and for `-Action Verify -RepairStorage`, which
@@ -274,7 +274,7 @@ up front with status **2** rather than performing part of a run.
 
 `-Action Snapshots` prints JSON, one object per snapshot, and exits 0; it exits
 **4** when the store's drive or share is not attached and **2** when the store,
-or its `Latest` folder, is missing:
+or its `CurrentBackup` folder, is missing:
 
 | Field | Meaning |
 |---|---|
@@ -285,9 +285,9 @@ or its `Latest` folder, is missing:
 | `BytesReclaimed` | What removing it would **actually** free — `PhysicalBytes` less the re-homed bytes. Not the same as the folder size, because of dedup. |
 
 Removing a snapshot first copies any content whose only physical copy it holds
-into the surviving pool (`Latest`, or the newest surviving snapshot that
+into the surviving pool (`CurrentBackup`, or the newest surviving snapshot that
 needs it), rewrites that destination's manifest, proves that **every** surviving manifest row still resolves, and only then
-deletes the folder. The last step out of the `Snapshot_` namespace is a single
+deletes the folder. The last step out of the dated names is a single
 rename, so no restore ever sees a half-removed snapshot. Nothing is deleted
 until the pool is provably redundant. If the folder cannot be fully deleted
 after that rename (a scanner holding one of its files, say), the removal still
@@ -365,7 +365,7 @@ Each finding names the folder, the row, and a class:
 | `Unreferenced` | A data file in the folder that no manifest row names. | no |
 | `DuplicateObject` | The same content is stored in a second folder (stores written by older versions). The copy kept is the latest state's, else the newest snapshot's. | yes — moved |
 | `DamagedObject` | A stored object of a length its name rules out — empty while its name records content, or a raw object of another length that holds no 7-Zip archive (what a power cut can leave) — always; and under `-Deep`, one whose bytes were read (or expanded) completely and do not hash to the content its name records. A `.7z` exactly as long as its content is expanded before it is judged. | yes — moved |
-| `MisplacedObject` | A stored object in `Latest` that is not in the folder its name puts it in — at the top of `Latest`, or in another name's two-character folder (see [The store](#the-store-one-folder-per-backup-set)). Nothing looks for it there, so it is not part of the pool; a backup stores its content again in the right place while the source still holds it. | yes — moved |
+| `MisplacedObject` | A stored object in `CurrentBackup` that is not in the folder its name puts it in — at the top of `CurrentBackup`, or in another name's two-character folder (see [The store](#the-store-one-folder-per-backup-set)). Nothing looks for it there, so it is not part of the pool; a backup stores its content again in the right place while the source still holds it. | yes — moved |
 | `UnverifiedObject` | `-Deep` only: a stored object that could not be checked — a read or a 7-Zip expand failed, which can be a corrupt archive or a host problem such as a full volume. Nothing is moved on a guess. `-Deep` without 7-Zip is refused before any object is checked. | no |
 
 A row whose named data file has moved to another folder of the pool is **not** a
@@ -463,7 +463,7 @@ back-dated, because the number records what a bundled kit *does*.
 **Revision 15 is the first kit of the one-folder store** (see
 [The store](#the-store-one-folder-per-backup-set)): it takes the store to be the
 parent of its own folder, reads no `RECONSTRUCT.paths.json`, guesses at no sibling
-or child folder, looks for an object of `Latest` in its two-character folder, and
+or child folder, looks for an object of `CurrentBackup` in its two-character folder, and
 restores only that layout. A store written in the older two-folder layout is never
 given it — `-RefreshKits` refuses such a store — and keeps restoring with the kits
 already inside it, which still read its path sidecar and find its folders exactly as
@@ -488,18 +488,18 @@ Three ways to restore an old snapshot with the current kit:
   **own** manifest and its own witness.
 * without the configuration at hand (a store moved to another machine), copy
   `RECONSTRUCT.ps1`, `FileBackup.Common.psm1` and `System.IO.Hashing.dll` from
-  the store's **`Latest`** folder into the snapshot folder, replacing the old copies,
+  the store's **`CurrentBackup`** folder into the snapshot folder, replacing the old copies,
   and run it there: `pwsh RECONSTRUCT.ps1 -TargetRoot DIR`. Do this only while
   no backup or prune of that store is running: unlike `-RefreshKits`, a copy
   by hand takes no lock; or
 * with `bash` ([Restore on Linux](#restore-on-linux-no-powershell)), run
-  `Latest`'s `reconstruct.sh` and name the snapshot as the origin; this
+  `CurrentBackup`'s `reconstruct.sh` and name the snapshot as the origin; this
   writes nothing into the store:
-  `bash <store>/Latest/reconstruct.sh --target-root DIR --from <store>/Snapshot_<date>`.
+  `bash <store>/CurrentBackup/reconstruct.sh --target-root DIR --from <store>/BackupHistory/<date>`.
 
 `-StoreRootOverride` (`--store-root`) names the store folder — the one holding
-`Latest` — never a snapshot; it is only for a kit run from outside the store.
-`Latest`'s `RECONSTRUCT.ps1` run with it restores the latest state, not a snapshot.
+`CurrentBackup` — never a snapshot; it is only for a kit run from outside the store.
+`CurrentBackup`'s `RECONSTRUCT.ps1` run with it restores the latest state, not a snapshot.
 (The `-BackupRootOverride` / `-ChangeRootOverride` and `--backup-root` /
 `--change-root` options of older kits are gone from revision 15.)
 
@@ -507,11 +507,11 @@ Three ways to restore an old snapshot with the current kit:
 
 ## Browsing the backup without restoring (`BrowseView` / `-Action View`)
 
-Data files in `Latest` are named by their **content**, not by their
+Data files in `CurrentBackup` are named by their **content**, not by their
 original path — that is what makes the store safe (an edit can never overwrite
 the bytes another file still shares), but it means the backup folder is not
 browsable by eye. The browse view is the answer: a generated, read-only index of
-what is in the backup, written **outside** `Latest` and the snapshots.
+what is in the backup, written **outside** `CurrentBackup` and the snapshots.
 
 Turn it on per set with `BrowseView = 'index'`. It is written to `ViewPath`,
 which defaults to `<StorePath>/View`, so everything of one set lives in one folder.
@@ -547,7 +547,7 @@ Three things worth knowing:
   fails, the run logs a warning and still reports the backup's real outcome.
 - **It lists duplicates honestly.** Every path appears, including files that
   share one stored object. (The old mirrored layout omitted them entirely.)
-- **Snapshots do not get one.** Only the latest state (`Latest`) is indexed.
+- **Snapshots do not get one.** Only the latest state (`CurrentBackup`) is indexed.
 
 ---
 
@@ -595,7 +595,7 @@ both formats (see `StorePath` below).
         [pscustomobject]@{
             Name               = 'MainData'
             SourcePath         = 'D:\Data'
-            StorePath          = 'E:\Backups\MainData'   # holds Latest\ and Snapshot_<date>\
+            StorePath          = 'E:\Backups\MainData'   # holds CurrentBackup\ and BackupHistory\
             HashRecalcFreq     = 'W'      # A/E/D/W/M/Y/N
             CompressEnabled    = $true
             CompressProbe      = 'always' # 'always' (default) | 'excluded-extensions' | 'off'
@@ -650,13 +650,13 @@ value is refused by name before a compression-enabled backup creates anything
 | Field | Meaning |
 |---|---|
 | `ConfigVersion` | JSON only, required. Currently `3`. Versions 1 and 2 are refused as too old: version 1 carried the removed `PreserveFolderTree` selector, and version 2 named two folders, `BackupPath` and `ChangePath`, which `StorePath` replaced. A config declaring a higher version is refused by name rather than half-understood; a missing/non-integer/out-of-range value is a hard error. |
-| `StorePath` | Required. The one folder that holds everything of this backup set: the latest state in `Latest`, every `Snapshot_<date>` beside it, and the run's own files — see [The store](#the-store-one-folder-per-backup-set). Give each set its own. A new or empty folder starts a store; one that does not exist yet is created, unless its drive or share is not attached (status **4**). `BackupPath` and `ChangePath` (ConfigVersion 2) are refused by name, in JSON and CLIXML alike, with a message saying how to convert. |
+| `StorePath` | Required. The one folder that holds everything of this backup set: the latest state in `CurrentBackup`, the snapshots in `BackupHistory`, and the run's own files — see [The store](#the-store-one-folder-per-backup-set). Give each set its own. A new or empty folder starts a store; one that does not exist yet is created, unless its drive or share is not attached (status **4**). `BackupPath` and `ChangePath` (ConfigVersion 2) are refused by name, in JSON and CLIXML alike, with a message saying how to convert. |
 | `HashRecalcFreq` | When to re-hash an *unchanged* file. `A`/`E`=always, `D`=daily, `W`=weekly, `M`=monthly, `Y`=yearly, `N`=never. |
 | `SourceStatePath` | Ignored; accepted so older configurations still load. Nothing is written into the source any more: the latest backup manifest is the change-detection record. A `MANIFEST.csv` an older version left at the source root stays out of the backup and can be deleted. |
 | `CompressEnabled` | `$true`/`true` allows data files to be re-packed as `.7z`; `false` stores everything verbatim and probes nothing. Which allowed files are actually compressed is decided per object — see "How the stored form is chosen". JSON must use a real boolean, not a quoted string. |
 | `CompressProbe` | Optional; `off` \| `excluded-extensions` \| `always` (default `always`), exact lowercase. How the stored form is decided when `CompressEnabled` is on: `off` trusts the already-compressed extension list alone; `excluded-extensions` keeps the list's exemptions and measures everything it would otherwise compress; `always` measures a sample of the bytes of every file at or above 256 KiB, the list serving only the smaller files. |
 | `AllowEmptySource` | Ignored; accepted so older configurations still load. It does not let an empty source through: a source that is empty while the backup holds files stops the set with status **4** and leaves the backup as it was (see "Unexpected empty source"). A set whose source really is meant to be empty is removed from the configuration. |
-| `BrowseView` | `off` (default) or `index`: generate a browsable, manifest-derived `INDEX.tsv` + per-folder HTML view of the backup, outside `Latest` and the snapshots. `link` is reserved and refused by name. |
+| `BrowseView` | `off` (default) or `index`: generate a browsable, manifest-derived `INDEX.tsv` + per-folder HTML view of the backup, outside `CurrentBackup` and the snapshots. `link` is reserved and refused by name. |
 | `ViewPath` | Where the view is written. Defaults to `<StorePath>/View`. Inside the store it may only be that one folder; anywhere else it must not overlap the store or the source, and it must be on the store's volume. |
 
 ### The store: one folder per backup set
@@ -665,39 +665,50 @@ value is refused by name before a compression-enabled backup creates anything
 
 ```
 <StorePath>\                       e.g. E:\Backups\MainData  (container: /store)
-├── Latest\                        the latest state
+├── CurrentBackup\                        the latest state
 │   ├── MANIFEST.csv               its index
 │   ├── DIRECTORIES.csv            empty and attributed folders (when there are any)
 │   ├── FileBackupState.json       the last run's dates
 │   ├── RECONSTRUCT.cmd, … (kit)   the restore kit
 │   ├── 2a\  bq\  …  zz\           every stored object, in a folder named by
 │   │   └── bqCY8RX7mwko…_oJua.7z  the first two characters of its name, lowercased
-├── Snapshot_2026_03_19_22_50_06\  an older state: its manifest, its kit, and the
-│                                  objects that stopped being used after it (flat)
+├── BackupHistory\                 the older states
+│   ├── 2026_03_19_22_50_06\       one older state: its manifest, its kit, and the
+│   │                              objects that stopped being used after it (flat)
+│   └── Building_<date>\           a snapshot being published
 ├── View\                          the browse view, when BrowseView is 'index'
 ├── Temp.lock, backup.log          the run's lock and log
-└── Incoming\, Building_<date>\, Verify\   a run's working folders, and objects set aside
+└── Incoming\, Verify\             a run's working folder, and objects set aside
 ```
 
-- **`Latest` is always the latest state**, and each `Snapshot_<date>` folder
-  beside it is an older one. The data pool is `Latest` plus every `Snapshot_*`
-  folder; nothing else in the store is part of it.
-- **Objects in `Latest` sit one folder down.** A stored object lives in
-  `Latest\<xx>\<name>`, where `<xx>` is the first two characters of its name,
+- **`CurrentBackup` is always the latest state**, and each dated folder in
+  `BackupHistory` is an older one. The data pool is `CurrentBackup` plus every dated
+  folder in `BackupHistory`; nothing else in the store is part of it. A date
+  alone does not make a snapshot: a dated folder anywhere else is ignored.
+- **Both folders must be there.** A store with a `CurrentBackup` but no `BackupHistory`
+  is refused (status 2, for every action except a restore): a backup has run
+  there, so the history was moved, renamed or deleted, and stopping gives you
+  the chance to put it right. Put the folder back; if it really is gone, create
+  an empty `BackupHistory` folder and run again. A restore from `CurrentBackup` still
+  runs without it, and reports any file whose content was in the history as
+  missing.
+- **Objects in `CurrentBackup` sit one folder down.** A stored object lives in
+  `CurrentBackup\<xx>\<name>`, where `<xx>` is the first two characters of its name,
   lowercased (so `bqCY…` is in `bq`, and an object starting `L…` is in a
   folder starting `l`). The reason is browsing: a Linux file manager reading
   an NTFS drive through FUSE (ntfs-3g) took over two minutes to open one flat
-  folder of every object, so `Latest` now holds about a thousand small
+  folder of every object, so `CurrentBackup` now holds about a thousand small
   folders instead. Snapshots stay flat: they hold only superseded objects,
   usually few. The manifest's `DataPath` is still the bare name — where the
   object sits follows from the name and the folder that holds it. An object of
-  `Latest` anywhere else (at its top, or in another name's folder) is not part
+  `CurrentBackup` anywhere else (at its top, or in another name's folder) is not part
   of the pool; `-Action Verify` reports it as `MisplacedObject`.
-- **One volume, one mount.** Content moves between `Latest` and the
-  snapshots by rename, so the store and its `Latest` folder must be on one
-  volume and one mount. A run checks this with a test rename and refuses
-  (status 2) a store a rename cannot cross — in a container, a `Latest`
-  mounted apart from its store (say at `/store/Latest`) even on the same disk.
+- **One volume, one mount.** Content moves between `CurrentBackup` and the
+  snapshots by rename, so the store, `CurrentBackup` and `BackupHistory` must be on one
+  volume and one mount. A run checks this with test renames and refuses
+  (status 2) a store a rename cannot cross — in a container, a `CurrentBackup` or
+  `BackupHistory` mounted apart from its store (say at `/store/CurrentBackup`) even on
+  the same disk.
   Mount or attach the store folder as a whole.
 - **Paths are recorded with `/`.** `RelativePath` in `MANIFEST.csv` and
   `DIRECTORIES.csv` uses `/` as its only separator, whichever system wrote it,
@@ -709,8 +720,9 @@ value is refused by name before a compression-enabled backup creates anything
   set named two folders, `BackupPath` (the latest state) and `ChangePath` (the
   snapshots). A backup refuses (status 2, before writing anything) a
   `StorePath` that holds a `MANIFEST.csv` of its own, or a folder beside
-  `Latest` that holds one — an old backup folder — and a store that holds
-  snapshots but no `Latest`. To move on, set the old store aside (it keeps
+  `CurrentBackup` that holds one — an old backup folder — a folder of old
+  `Snapshot_<date>` folders, and a store that holds snapshots but no `CurrentBackup`.
+  To move on, set the old store aside (it keeps
   restoring with the kits inside it, as before) and point `StorePath` at a
   new, empty folder; the first run there is a full backup.
 
@@ -818,7 +830,7 @@ run with `-LogLevel DEBUG` to see why any single object took the form it did.
 
 Changing the list, or the mode, changes what a *future* run stores. **Nothing
 already stored is ever re-formed** — there is no migration, in either direction.
-Existing data files keep the form they were written with, in `Latest` and
+Existing data files keep the form they were written with, in `CurrentBackup` and
 in every snapshot alike, and are restored correctly regardless (see "Restoring
 an older snapshot" below). An object that dedup already locates is adopted
 *before* the probe is ever consulted, so no stored object's form is re-decided.
@@ -894,13 +906,13 @@ docker run --rm --network none --read-only \
 `FILEBACKUP_STORE` and `FILEBACKUP_LOGS`. The source and config are read-only;
 the store and log mounts must be writable by the selected
 `FILEBACKUP_UID`/`FILEBACKUP_GID`. **The store is ONE mount**, `/store`, and the
-set's `StorePath` is `/store`: `Latest/` and every `Snapshot_<date>/` are created
+set's `StorePath` is `/store`: `CurrentBackup/` and `BackupHistory/` are created
 inside it. Content moves between them by rename, Linux cannot rename across two
-bind mounts even of the same disk, and a `Latest` mounted apart from its store
-(say a second bind mount at `/store/Latest`) is refused with exit 2. Give each
+bind mounts even of the same disk, and either one mounted apart from its store
+(say a second bind mount at `/store/CurrentBackup`) is refused with exit 2. Give each
 backup set its own store folder. Nothing is written into `/source`, so there is
 no source-state mount any more. To restore on the host, run the kit from the
-host's store folder (`<store>/Latest` or a `<store>/Snapshot_<date>`): it finds
+host's store folder (`<store>/CurrentBackup` or a `<store>/BackupHistory/<date>`): it finds
 the store from there, whatever path the container mounted it at.
 The entrypoint preserves FileBackup's exit code, so HomeHub can wrap the job and
 post its own NagLight result without coupling this project to that service.
@@ -918,7 +930,7 @@ untouched, so existing invocations are unaffected:
 docker run --rm ... filebackup:local snapshots
 
 # Remove one snapshot (FILEBACKUP_SNAPSHOT / FILEBACKUP_DRY_RUN work too):
-docker run --rm ... filebackup:local prune -Snapshot Snapshot_2024_01_01_09_00_00
+docker run --rm ... filebackup:local prune -Snapshot 2024_01_01_09_00_00
 ```
 
 Pruning writes inside `/store`, so it must be mounted writable for that action. See "Snapshot retention (pruning)" above for the
@@ -930,7 +942,7 @@ The checked-in helper uses the same commands locally and in CI. Its test creates
 a real compressed backup in the container, checks the restore kit, restores
 the latest state and a snapshot in further containers and compares every file
 byte-for-byte, checks that a clean store verifies clean, and checks that a
-`Latest` folder mounted apart from its store is refused:
+`CurrentBackup` or `BackupHistory` folder mounted apart from its store is refused:
 
 ```powershell
 pwsh -File scripts/Invoke-Container.ps1 -Action BuildAndTest
@@ -983,7 +995,7 @@ consumption paths on their own.
 ```
 SOURCE                      STORE: E:\Backups\MainData\
 ------                      ---------------------------
-                            Latest\                               (the latest state)
+                            CurrentBackup\                               (the latest state)
 D:\Data\report.docx  -hash→   ab\Ab92Cd…_5K.7z
 D:\Data\photo.jpg    -hash→   xy\Xy7Ko…_3M.jpg
                               MANIFEST.csv
@@ -991,15 +1003,16 @@ D:\Data\photo.jpg    -hash→   xy\Xy7Ko…_3M.jpg
                               FileBackup.Common.psm1
                               System.IO.Hashing.dll
                               FileBackupState.json
-                            Snapshot_2026_03_19_22_50_06\         (an older state)
-                              MANIFEST.csv                        ← full point-in-time index
-                              + the objects superseded after it, and a restore kit
-                            Snapshot_2026_02_10_08_00_00\  …
+                            BackupHistory\
+                              2026_03_19_22_50_06\                (an older state)
+                                MANIFEST.csv                      ← full point-in-time index
+                                + the objects superseded after it, and a restore kit
+                              2026_02_10_08_00_00\  …
 ```
 
 Identical content is stored once (keyed on `(xxHash128, length)`) under a name that
-carries that key; extra logical names just point at the same object. `Latest`
-is always the **latest** state. Each older state is a `Snapshot_<date>` folder named
+carries that key; extra logical names just point at the same object. `CurrentBackup`
+is always the **latest** state. Each older state is a dated folder in `BackupHistory` named
 for the backup whose state it preserves — its full manifest plus the objects that
 stopped being used after it; everything else it resolves by name from the rest of the
 pool. The **most recent run has no snapshot** (it *is* the live backup), and a run
@@ -1061,19 +1074,19 @@ creates is named below, so you can recognise each one (the layout is in
 
 | File | Where | What it holds |
 |---|---|---|
-| `MANIFEST.csv` | `Latest`, and each `Snapshot_<date>` folder | **The index.** One row per logical file, nine columns (below). A snapshot's copy is that point in time's complete index. |
+| `MANIFEST.csv` | `CurrentBackup`, and each dated folder in `BackupHistory` | **The index.** One row per logical file, nine columns (below). A snapshot's copy is that point in time's complete index. |
 | `MANIFEST.csv.meta` | beside a `MANIFEST.csv` an **older version** wrote | The witness older versions wrote. Not written any more; a run deletes it when it rewrites that manifest, and only the older kit bundled beside it reads it. |
-| `<xx>\<hash>_<len><ext>` | `Latest` (in the two-character folder its name starts with), and flat in each `Snapshot_<date>` folder | The stored objects: your files' bytes, one per unique content. |
+| `<xx>\<hash>_<len><ext>` | `CurrentBackup` (in the two-character folder its name starts with), and flat in each dated folder in `BackupHistory` | The stored objects: your files' bytes, one per unique content. |
 | `Incoming\`, `Building_<date>\` | the store folder, while a run is working | A run's temporary copies and the snapshot it is preparing. A run that is killed leaves them; the next run deletes them — neither ever holds the only copy of anything. |
 | `Verify\` | the store folder, after `-Action Verify -RepairStorage`, or a backup run that found a damaged object | Duplicate, damaged and misplaced objects set aside instead of deleted. Delete it yourself. |
 | `Temp.lock` | the store folder | An empty file a backup, prune or repair holds locked while it runs (see "Notes & troubleshooting"). Leave it where it is. |
-| `DIRECTORIES.csv` | `Latest`, and each `Snapshot_<date>` folder, when there is anything to say | **The directory sidecar.** One row per folder that holds no file anywhere beneath it, or that carries a `Hidden`, `System`, `ReadOnly` or `NotContentIndexed` attribute - the two things a one-row-per-file index cannot express. Advisory: it is not witnessed, and a restore never fails over it. A tree with no empty or attributed folder gets no such file at all. |
-| `FileBackupState.json` | `Latest` | Two dates: `LastHashRun` (when the last full re-hash swept) and `LastBackupRun` (which dates the next snapshot). Written by rename, so a crash cannot leave it torn. If it is missing or unreadable, a run warns, sets it aside, and dates the previous state by the manifest file's own time. |
+| `DIRECTORIES.csv` | `CurrentBackup`, and each dated folder in `BackupHistory`, when there is anything to say | **The directory sidecar.** One row per folder that holds no file anywhere beneath it, or that carries a `Hidden`, `System`, `ReadOnly` or `NotContentIndexed` attribute - the two things a one-row-per-file index cannot express. Advisory: it is not witnessed, and a restore never fails over it. A tree with no empty or attributed folder gets no such file at all. |
+| `FileBackupState.json` | `CurrentBackup` | Two dates: `LastHashRun` (when the last full re-hash swept) and `LastBackupRun` (which dates the next snapshot). Written by rename, so a crash cannot leave it torn. If it is missing or unreadable, a run warns, sets it aside, and dates the previous state by the manifest file's own time. |
 | `RECONSTRUCT.paths.json` | the backup folder of a store an **older version** wrote | The source/backup/change paths that store was written with, read only by the older kits inside it. Not written any more: a kit from revision 15 finds the store from its own folder. |
 | `backup.log` | the store folder | The run log: what was hashed, stored, moved, not captured, refused. |
 | `RECONSTRUCT.log` | the **restore target** | Written by a restore, not a backup — the per-file record of what was recovered and how. |
 | `.viewstamp` | the view root (`ViewPath`), only with `BrowseView: index` | A digest of the manifest rows the browse view mirrors, so a stale view is rebuilt rather than trusted. |
-| `RECONSTRUCT.ps1` · `RECONSTRUCT.cmd` · `RECONSTRUCT.command` · `reconstruct.sh` · `FileBackup.Common.psm1` · `System.IO.Hashing.dll` | `Latest` and every snapshot | The restore kit — the reason a backup folder needs nothing else to give your files back. (Stores older than kit revision 10 carry `RECONSTRUCT.bat` in place of the `.cmd`.) |
+| `RECONSTRUCT.ps1` · `RECONSTRUCT.cmd` · `RECONSTRUCT.command` · `reconstruct.sh` · `FileBackup.Common.psm1` · `System.IO.Hashing.dll` | `CurrentBackup` and every snapshot | The restore kit — the reason a backup folder needs nothing else to give your files back. (Stores older than kit revision 10 carry `RECONSTRUCT.bat` in place of the `.cmd`.) |
 
 Those names are **infrastructure at the root only**. A file of your own called
 `MANIFEST.csv` in a subfolder is ordinary data and is backed up as such.
@@ -1195,7 +1208,7 @@ account read access to the folder and the run goes green.
 
 ```
 FileBackup.ps1            Entry point (reads config, runs each backup set)
-Reconstruct.ps1          Restore script (deployed standalone into Latest and each snapshot)
+Reconstruct.ps1          Restore script (deployed standalone into CurrentBackup and each snapshot)
 Modules/
   FileBackup.Common.psm1   Restore-safe primitives (hashing, manifest I/O, 7-Zip, …)
   FileBackup.Engine.psm1   Backup engine (walk, diff, dedup, snapshots, retention, view)
@@ -1243,7 +1256,7 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   loses nothing); (2) run `-Action Verify` and test-restore your oldest snapshot — if
   verification is clean and restores complete, discard the moved folder; (3) if any
   snapshot restore reports missing content, copy the moved folder's *data files* into
-  `Latest`, each into the folder named by the first two characters of its name,
+  `CurrentBackup`, each into the folder named by the first two characters of its name,
   lowercased (skip its `MANIFEST.csv`) — both restorers find content by name and hash
   regardless of which state folder holds it — and verify again. A `Temp` left by an
   interrupted **prune** blocks further prunes the same way; the same steps apply.
@@ -1263,7 +1276,7 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   machine reaching the same store over SMB or NFS — **two machines writing one store are not
   supported**.
 - **Where a run's log lives.** Per-set detail — the lock messages above included —
-  is written to **`backup.log` inside that set's `StorePath`** (beside `Latest`). `Backup_Global.log` (beside
+  is written to **`backup.log` inside that set's `StorePath`** (beside `CurrentBackup`). `Backup_Global.log` (beside
   the config unless `-GlobalLogPath` / `FILEBACKUP_LOG_PATH` says otherwise) is the
   orchestrator's sink: configuration, dependency checks, cross-set failure summaries and
   mail. It is legitimately near-empty while a set is running, so read `<StorePath>\backup.log`
@@ -1276,8 +1289,8 @@ suite breakdown live in **[AGENTS.md](AGENTS.md)**.
   set whose source really is meant to be empty should be removed from the configuration. The
   first backup of an empty source is not affected, and a source folder that does not exist at
   all is refused (exit 2).
-- **Never delete, move or "clean up" files inside `Latest` or the snapshot folders.**
-  `Latest` is a managed pool of content-addressed objects: deduplication means one file
+- **Never delete, move or "clean up" files inside `CurrentBackup` or the snapshot folders.**
+  `CurrentBackup` is a managed pool of content-addressed objects: deduplication means one file
   there can be the only physical copy that other rows and older snapshots recover by
   content hash, and an object moved out of its two-character folder is no longer found
   there. If a data file does go missing
