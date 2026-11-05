@@ -1,8 +1,9 @@
 # Boundary review for the approved needs
 
-Status: cross-review completed and draft corrections applied; ready for owner
-review. No boundary or assumption is approved by this work. The 49 approved
-needs and their approval snapshot are unchanged.
+Status: active external frame approved by the owner; see the
+[approval record](boundary-approval.md). B-24 is excluded. The assumptions
+remain Drafted, and the 49 approved needs are unchanged. The review below
+records the preparation and cross-review leading to that approval.
 
 Review [external.toml](../../requirements/external.toml) next. It describes the
 intended product's surroundings and exchanges, including capabilities the
@@ -118,7 +119,7 @@ does not make a damaged state clean; failure does not, by itself, mean a newer
 retained state is damaged. This preserves SN-030's check scope and SN-029's
 permission to withdraw older recovery.
 
-Please confirm this interpretation during boundary review. A future report
+The owner accepted this interpretation with the frame approval. A future report
 could distinguish findings by recovery window, but how the cutoff is known
 (especially after direct external deletion) and how results are grouped belong
 in the system requirements. Automatically ignoring older folders or reporting

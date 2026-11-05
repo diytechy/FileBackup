@@ -8,8 +8,9 @@
 # guidance and configuration contract (B-23). How either is built stays outside
 # this frame. This is the intended product scope under the approved needs,
 # not a claim that the current implementation provides every exchange.
-# All rows are Drafted. B-24 is an inactive legacy reference, not a crossing
-# proposed for approval; remove it when its downstream references are reconciled.
+# Active entities, crossings and relationships are owner-approved. B-24 is
+# excluded: an inactive Drafted legacy reference, not an authorized crossing.
+# Remove it when its downstream references are reconciled.
 
 # --- ENTITIES -----------------------------------------------------------------
 
@@ -17,86 +18,86 @@
 name = "Owner"
 class = "operational"
 description = """The person whose files are backed up, acting as operator: writes the configuration, starts or schedules runs, asks for removals, listings, checks and repairs, and reads outcomes, records and notifications."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-02]
 name = "Restorer"
 class = "operational"
 description = """The person restoring from a backup folder: the owner, or whoever holds the folder, on a machine that may never have had FileBackup. Starts a restore, chooses the state and the target, and reads the outcome."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-03]
 name = "Backup host"
 class = "operational"
 description = """Any system that runs FileBackup unattended for the owner and acts on its results: a scheduled task, a home server, a NAS, a container platform's scheduler. One example is the owner's HomeHub server; no row depends on which product it is."""
-status = "Drafted"
+status = "Approved"
 mediates = "EXT-01"
 
 [entity.EXT-04]
 name = "Source filesystem"
 class = "enabling"
 description = """The filesystem holding each source tree: file bytes, names, sizes, times, attributes, links and directory structure, together with availability and read results. FileBackup reads it without writing its own state there; filesystem-managed read effects are governed by the host."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-05]
 name = "Backup volume"
 class = "enabling"
 description = """The filesystem holding each backup: stored content, state records and recovery kits. It supplies storage-operation results, capacity and location information where available, and the publication, persistence and coordination facilities the supported store environment requires. Local, removable, network and synchronized storage have different capabilities; naming a storage type does not designate every instance as supported."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-06]
 name = "Backup runtime and tools"
 class = "enabling"
 description = """The host operating environment on Windows, Linux or macOS and any separately installed archive or optional media tools used by the engine. The deployed engine and its embedded libraries are inside FileBackup, not external tools; native engine operation needs no separately installed language runtime or build toolchain."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-07]
 name = "Package source"
 class = "enabling"
 description = """A distribution source for separately installed tools. Where FileBackup offers automatic provisioning, it obtains a missing tool from this source; otherwise the owner follows the shipped installation guidance outside the running tool."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-08]
 name = "Notification relay"
 class = "interoperating"
 description = """The mail server the owner configures to carry success-or-failure messages. It receives notification submissions and authentication and returns acceptance or failure; later delivery and whether anyone reads the message are outside FileBackup's control."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-09]
 name = "Container platform"
 class = "enabling"
 description = """The container runtime on a backup host that runs FileBackup's image: it supplies read-only source access, writable store access and the unprivileged execution identity, and carries the run's outcome back to the host. Internal store folders need not be separate mounts."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-10]
 name = "Restore host"
 class = "enabling"
 description = """The machine a restore runs on: Windows, Linux or macOS, with or without a desktop or console session, possibly a stock system that has never had FileBackup."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-11]
 name = "Restore tools"
 class = "enabling"
 description = """The documented PowerShell or bash execution environment and local tools used by the carried recovery scripts, including text processing, content hashing and archive extraction where required. These recovery prerequisites are independent of the native backup executable and do not require its source repository or build toolchain."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-12]
 name = "Restore target filesystem"
 class = "enabling"
 description = """The filesystem the restorer chose to receive the restored tree: its free space, where it really is once links are resolved, and how it keeps names, times, empty folders and attributes."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-13]
 name = "Out-of-band store actors"
 class = "operational"
 description = """Actors outside the configured operation's coordination scope that change stored contents: antivirus, cloud sync, a person deleting or moving folders directly, or another configuration or writer using the same store. FileBackup cannot require those actors to consult its retention advice or honor its coordination."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-14]
 name = "Complete backup store for handoff"
 class = "deliverable"
 description = """The complete store handed to a future restorer: shared stored content, available state records and carried recovery scripts, guidance and required redistribution notices. Recovery uses the documented local tools without installing the backup engine. Retention may leave older state folders outside the supported recovery window; a remaining folder is not itself a promise of recoverability."""
-status = "Drafted"
+status = "Approved"
 
 # --- BOUNDARY CROSSINGS ------------------------------------------------------
 
@@ -105,133 +106,133 @@ entity = "EXT-04"
 direction = "in"
 carries = """Source file bytes, names, sizes, modification times, attributes, directory structure including empty and hidden folders, and link identity and target information needed by the declared capture scope, together with enumeration and read results. FileBackup performs no source writes; host-managed effects of reading remain outside its control."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-02]
 entity = "EXT-05"
 direction = "inout"
 carries = """Stored content, state records and recovery kits, written or read by capture, retention, verification, repair and kit maintenance, and read by standalone recovery. Storage-operation results include missing, unreadable or damaged records and content; their presence in the store does not make them trusted inputs."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-03]
 entity = "EXT-05"
 direction = "in"
 carries = """Available capacity and volume identity supplied by the backup volume, where measurable; estimates do not guarantee capacity during later writes."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-04]
 entity = "EXT-05"
 direction = "inout"
 carries = """Coordination requests, ownership and busy results for competing mutations using one validated configuration, whose backup sets must have unique resolved backup roots. Ownership ends when the holder ends or dies under the declared host assumptions, including interruption or a crash. Coordination across independent configurations, external writers or unsupported hosts is outside this promise."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-05]
 entity = "EXT-01"
 direction = "in"
 carries = """The owner's configuration, source and backup locations, requested action (backup, removal, listing or retention information, check, repair, kit refresh, browse view), and any selected history date, given at an interactive launch."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-06]
 entity = "EXT-01"
 direction = "out"
 carries = """What the owner reads: run records, progress, outcome and refusal diagnostics, browse and space views, and requested state listings and retention estimates with their limits and recovery-cutoff implications. Supplying advice does not establish that it was read or understood."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-07]
 entity = "EXT-03"
 direction = "in"
 carries = """An unattended launch with configuration and action parameters, including a selected history date or a request for retention information where applicable, with no person present to answer anything."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-08]
 entity = "EXT-03"
 direction = "out"
 carries = """Each operation's documented outcome class, including configuration refusal, with refusal diagnostics identifying conflicting configuration entries where applicable; and machine-readable findings for listings and checks, including requested retention estimates, their limits and the recovery-cutoff implications."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-09]
 entity = "EXT-08"
 direction = "inout"
 carries = """A run-outcome notification and authentication sent to the configured relay, and the relay's submission result or observed failure returned to FileBackup. Notification failure is recorded without changing the underlying operation's outcome."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-10]
 entity = "EXT-06"
 direction = "inout"
 carries = """Host capabilities, execution resources, time and interruption signals, and the availability and versions of separately installed required or optional tools, plus requests to those tools and their results or failures. Calls between the engine and its embedded implementation libraries do not cross this boundary."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-11]
 entity = "EXT-07"
 direction = "in"
 carries = """A separately installed tool package obtained where automatic provisioning is offered. This exchange is conditional: shipped guidance may instead explain how the owner obtains the tool, and native engine operation does not fetch a language runtime or build toolchain."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-12]
 entity = "EXT-09"
 direction = "inout"
 carries = """Read-only source access, writable store access and unprivileged execution identity supplied by the container platform, and operation outcomes returned to it."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-13]
 entity = "EXT-14"
 direction = "out"
 carries = """The complete store handed to recovery: available state records, carried recovery scripts and guidance, required redistribution notices and the shared content pool. An individual state folder need not hold all referenced content. After history removal, the supported recovery window contains only retained later states and the latest state; older folders may remain outside that window."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-14]
 entity = "EXT-02"
 direction = "in"
 carries = """The chosen latest or dated saved state, store location and restore target, supplied through the carried interactive or scripted recovery route. An unattended invocation supplies its inputs without requiring a dialog."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-15]
 entity = "EXT-02"
 direction = "out"
 carries = """A restore's outcome class, summary counts and diagnostics for files not recovered, required checks that failed or could not complete, and metadata or links the target cannot represent. Interactive starts keep the outcome available to read; scripted starts return the outcome without prompting. Success communicates that the documented required checks passed, not absolute proof of correctness."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-16]
 entity = "EXT-12"
 direction = "out"
 carries = """The recovered tree written within the selected target: file bytes, names and per-file modification times, empty folders, supported folder attributes and supported links within the restored tree. Unsupported names, attributes or links are reported through the recovery outcome."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-17]
 entity = "EXT-12"
 direction = "in"
 carries = """The target's location and path-resolution information, representational capabilities and storage-operation results, available capacity where measurable, and any target content read by the documented recovery checks. Capacity information is an estimate, not a promise that subsequent writes will fit; the integrity-check method is specified in the recovery requirements."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-18]
 entity = "EXT-11"
 direction = "inout"
 carries = """Calls to the restore tools (content digests, archive extraction, text processing) and their results, and the presence or absence of each tool on the documented floor."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-19]
 entity = "EXT-10"
 direction = "in"
 carries = """The restore host's operating system, its flavour of system tools, and whether a desktop or a console session is present."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 # --- RELATIONSHIPS (FileBackup not a party) ----------------------------------
 
@@ -240,61 +241,61 @@ from = "EXT-13"
 to = "EXT-05"
 kind = "alters"
 flow = """External actors delete, quarantine, move or change stored files outside the configured operation's coordination scope. Direct history deletion may bypass retention advice and invalidate older recovery points; the tool does not intercept it or ensure anyone understood its consequences."""
-status = "Drafted"
+status = "Approved"
 
 [relationship.REL-02]
 from = "EXT-14"
 to = "EXT-02"
 kind = "hands-off"
 flow = """The complete store is copied, carried or handed to a restorer, possibly years later or onto another supported host, with its carried recovery scripts and guidance. The recipient supplies the documented local tools; transferring one state folder alone need not transfer its shared content."""
-status = "Drafted"
+status = "Approved"
 
 [relationship.REL-03]
 from = "EXT-01"
 to = "EXT-03"
 kind = "configures"
 flow = """The owner sets up the backup host's schedule and retention policy and tells it which configuration to launch with; the host then acts for the owner."""
-status = "Drafted"
+status = "Approved"
 
 [relationship.REL-04]
 from = "EXT-03"
 to = "EXT-09"
 kind = "runs-on"
 flow = """A backup host that uses containers starts FileBackup's image through the container platform and reads the run's exit status from it."""
-status = "Drafted"
+status = "Approved"
 
 [relationship.REL-05]
 from = "EXT-03"
 to = "EXT-01"
 kind = "notifies"
 flow = """A backup host passes outcomes it acted on to the owner by its own means (an alert, a dashboard), independently of FileBackup's own notification."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-15]
 name = """Operational records and derived views"""
 class = "enabling"
 description = """Operational state, logs and the optional derived browse view. Operations permitted to mutate the store may keep operational records on the store side; nonmutating checks and retention reports return results without creating or changing store-side records. Source metadata used for change detection comes from the selected latest state, not from a writable source-side cache. Losing a derived view must not cost stored content."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-16]
 name = "Credential protection facility"
 class = "enabling"
 description = """The host facility that supplies protected notification credentials to the authorized execution account. Its access and portability limits depend on the declared host mechanism; credentials must not be exposed in readable configuration, backup or run records."""
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-20]
 entity = "EXT-15"
 direction = "inout"
 carries = """Operational run state, logs and a rebuildable browse view, read or written as permitted by the requested operation. Nonmutating checks and retention reports leave the entire store unchanged, including its operational records and views; their results go to the caller through B-06 or B-08 without writing inside the store. Failures to read or write permitted operational records are reported."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-21]
 entity = "EXT-16"
 direction = "inout"
 carries = """The notification credentials protected when the owner sets them up and read back by a run that sends a notification, never entering the configuration, the backup or a run's record in plain form."""
 system = "operation"
-status = "Drafted"
+status = "Approved"
 
 # --- DELIVERY ----------------------------------------------------------------
 
@@ -302,27 +303,27 @@ status = "Drafted"
 name = """Distributed release artifacts"""
 class = "deliverable"
 description = """Native executables and release bundles for supported Windows, Linux and macOS hosts, and the optional container image, with the licenses and notices required for bundled third-party components."""
-status = "Drafted"
+status = "Approved"
 
 [entity.EXT-18]
 name = "Release guidance and configuration contract"
 class = "deliverable"
 description = """What a release hands to an owner or an integrator besides the program: the quick-start guidance, the configuration helper, the published versioned description of the configuration and the example configuration."""
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-22]
 entity = "EXT-17"
 direction = "out"
 carries = """Native release bundles for each declared supported operating-system and CPU combination, and the container image for container-based operation, delivered with required third-party notices. Container delivery does not substitute for the declared native releases."""
 system = "delivery"
-status = "Drafted"
+status = "Approved"
 
 [boundary.B-23]
 entity = "EXT-18"
 direction = "out"
 carries = """Quick-start guidance, configuration helper, versioned configuration contract and example, declared host and tool support, recovery instructions and assurance limits, retention-cutoff semantics, and any designated older-version continuation, upgrade or migration paths. No older version is supported merely because a historical store or kit exists."""
 system = "delivery"
-status = "Drafted"
+status = "Approved"
 
 # --- INACTIVE LEGACY REFERENCE: NOT PROPOSED FOR APPROVAL --------------------
 

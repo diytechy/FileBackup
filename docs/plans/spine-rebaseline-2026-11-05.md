@@ -1,17 +1,18 @@
 # Requirements spine rebaseline and staged template resync
 
-Status: **stakeholder needs approved by the owner; boundary review next**.
+Status: **stakeholder needs and active external frame approved; assumptions next**.
 
 The [needs approval record](spine-rebaseline-2026-11-05/needs-approval.md)
 records the owner's approval of all 49 needs on 2026-11-05, without changing
-their normative text. The external frame, assumptions and downstream tiers
-remain Drafted. Review [external.toml](../requirements/external.toml) next,
-then [assumptions.toml](../requirements/assumptions.toml), before reconciling
-the system requirements.
+their normative text. The [boundary approval](spine-rebaseline-2026-11-05/boundary-approval.md)
+records approval of 18 entities, 23 active crossings and five external
+relationships. B-24 is excluded. Review
+[assumptions.toml](../requirements/assumptions.toml) next, before reconciling
+the system requirements; those tiers remain Drafted.
 
 The [boundary review guide](spine-rebaseline-2026-11-05/boundary-review.md)
-summarizes the proposed frame corrections and the assumptions worklist. Review
-the 23 active crossings; B-24 remains an inactive legacy reference awaiting
+summarizes the accepted frame corrections and the assumptions worklist.
+B-24 remains an inactive legacy reference awaiting
 reconciliation of SR-093/139, not a source-write permission.
 
 **Latest owner review:** [Review 01](spine-rebaseline-2026-11-05/owner-review-01.md)

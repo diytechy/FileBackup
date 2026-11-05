@@ -25,18 +25,21 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **BOUNDARY DRAFT PREPARED (2026-11-05).** The
+- **BOUNDARY FRAME APPROVED (2026-11-05).** The owner accepted the
+  [active external frame and whole-store check interpretation](plans/spine-rebaseline-2026-11-05/boundary-approval.md):
+  18 entities, 23 crossings and five relationships are Approved; B-24 is excluded.
+  The
   [boundary review guide](plans/spine-rebaseline-2026-11-05/boundary-review.md)
   links the revised external frame, summarizes its scope and queues the
   assumptions review. It reflects the approved retention, coordination and
   assurance limits, independent scripted recovery and native engine delivery.
-  All frame rows remain Drafted; B-24 is excluded as an inactive legacy
-  reference. Approved needs, their snapshot, runtime behavior and hooks are
+  The external-frame snapshot and approval ledger record this act only.
+  Approved needs, their snapshot, runtime behavior and hooks are
   unchanged. The [DeepSeek cross-review](plans/spine-rebaseline-2026-11-05/deepseek-boundary-review.md)
   is complete through the Go subscription route. Four findings led to frame
   corrections/clarifications, three feed the assumptions review, B-24 remains
-  tracked retirement debt, and the guide asks the owner to confirm how a
-  whole-store check treats remaining history outside the recovery window.
+  tracked retirement debt. Whole-store checks still report damage in remaining
+  older states outside the recovery window. Assumptions are next and remain Drafted.
 
 - **STAKEHOLDER NEEDS APPROVED (2026-11-05).** The owner explicitly approved
   all 49 needs following review 01. Only their statuses changed; the approved
@@ -6910,3 +6913,16 @@ Validation for the cross-review response: strict spine integrity passes with
 and assumptions match their baseline copies byte-for-byte; downstream rows
 and approval snapshots are unchanged. No runtime tests were needed for these
 frame and documentation edits.
+
+### 2026-11-05 — owner approves the active external frame
+
+The owner reviewed the boundary guide and external registry and said they
+appear sufficient and to proceed. Recorded approval of EXT-01..18, B-01..23
+and REL-01..05 (46 rows), excluding inactive B-24. The normative frame text
+is unchanged from dac0155. The accepted whole-store check interpretation
+reports damage in remaining older state records even outside the retention
+recovery window; no approved need was amended. The pinned snapshot writer
+copied only external.toml and appended exactly those 46 IDs to the approval
+ledger. Other registry snapshots are byte-identical. Stakeholder identities,
+assumptions, surrogates and downstream tiers remain unapproved. Next is the
+assumptions draft, followed by its owner review. Runtime and hooks unchanged.
