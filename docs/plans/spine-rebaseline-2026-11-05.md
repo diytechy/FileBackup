@@ -2,6 +2,16 @@
 
 Status: **authoring in progress; no tier approved by this change**.
 
+**Latest owner review:** [Review 01](spine-rebaseline-2026-11-05/owner-review-01.md)
+revises SN-029, SN-046, SN-039, SN-041 and SN-033, with a consistency edit to
+SN-034. History removal can invalidate all dates at or before its cutoff;
+retention reporting does not control external deletion or operator understanding;
+coordination is scoped to one configuration with unique backup roots;
+legacy support is explicitly designated, with no older versions currently
+designated; recovery success reports passed integrity checks, not absolute proof.
+Earlier analysis artifacts are marked as review snapshots where these rulings
+supersede them.
+
 The owner authorized this work on 2026-11-05, prioritizing the requirements
 spine while ai-template is still changing. General hooks remain disabled.
 Spine checks can be activated incrementally after they check the intended
@@ -89,8 +99,8 @@ retired while its legacy SR references are reconciled; it authorizes no write.
 | N2 — space exhaustion (SN-019) | Safe failure and recoverability; useful admission estimates without an impossible future-capacity guarantee. | Whether stronger restore preflight is a required enhancement, and its scope for compressed data. |
 | N3 — record integrity (SN-025/026) | Structural validation and verified recovered file content; no claim to detect every well-formed truncation/substitution. | Whether stronger completeness/authenticity evidence is wanted as a future format change. Current R5 removes the witness. |
 | N4 — names and links (SN-001/032/036) | No silent omission, aliasing or overwrite. Preserve the requested link-fidelity outcome for explicit disposition. | Portable name/collision policy and exact link-follow/recreate scope; unsupported cases must be explicit. |
-| N5 — version support (SN-040/041) | Continue declared supported formats; refuse retired layouts without mutation and preserve their original recovery route. | Enumerate release/store/kit support combinations; do not promise every historical format. |
-| N6 — concurrency diagnostics (SN-039) | One writer; readers do not claim writer ownership, but are not promised snapshot isolation. | Whether naming the holding operation is required beyond a busy result. |
+| N5 — version support (SN-040/041) | Owner ruled: reasonable-effort compatibility, with commitments only for designated older versions and supported upgrade/migration paths. No older versions are currently designated. | Designate actual version/store/kit combinations and transition paths when support is undertaken; newer designs need not preserve all legacy compatibility. |
+| N6 — configuration and concurrency (SN-039) | Owner ruled: one configuration must use unique resolved backup roots and refuse duplicate destinations; coordination is promised within that configuration. | Separate configurations sharing a root are outside the promise. Assess duplicate-root validation and within-configuration exclusion; holder-identification detail remains a downstream choice. |
 | N7 — measurable scale (SN-043) | Retain the large-library outcome. | Reference corpus, hardware, RAM and time budgets, and which operations must fit a scheduled window. |
 | N8 — repair and metadata (SN-036/047) | Preserve recoverable states and report unfulfilled repairs/metadata. | Closed supported repair classes and whether metadata loss makes recovery incomplete or warning-only. |
 

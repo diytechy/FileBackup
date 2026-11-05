@@ -24,10 +24,10 @@ standing = "active"
 
 [assumption.DA-03]
 effect_at = ["B-04"]
-assumption = "A claim of exclusive use taken by one operation is seen by every other operation that might change the same backup."
-holds_when = """All writers use interoperable exclusion on the same supported host and store filesystem; a multi-host or network configuration is supported only after its coordination behavior is demonstrated."""
-obstacle = "Two hosts writing one backup over a network filesystem whose locks are advisory or not shared between clients."
-falsifier = "Two operations changing the same backup are both observed to proceed."
+assumption = """An exclusive-use claim taken by an operation using a single validated configuration is observed by competing operations using that same configuration on the supported host and store filesystem."""
+holds_when = """The configuration assigns each backup set a unique resolved backup root and all operations within this coordination scope use interoperable exclusion on the declared host and filesystem."""
+obstacle = """Independent configurations or external writers targeting the same root are outside this coordination promise; network or multi-host locking may also lack the required behavior."""
+falsifier = """Two operations using the same validated configuration are both observed mutating the same backup on a supported host."""
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
 status = "Drafted"
 standing = "active"

@@ -1,5 +1,7 @@
 # Initial Rust migration plan
 
+> **Owner review update:** [Review 01](spine-rebaseline-2026-11-05/owner-review-01.md) changes the retention and compatibility basis of this proposal. No older versions are currently designated for support; the continuation and migration milestones below require reconciliation before approval.
+
 Draft for review, 2026-11-05. Based on `Rust-Rewrite` at `45c9a4d`, kit revision
 16 and ConfigVersion 3. This is a migration proposal, not an approved new store
 format or a request to start modifying production backups.

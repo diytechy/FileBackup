@@ -104,28 +104,28 @@ stakeholder_refs = ["STK-01"]
 
 [need.SN-034]
 status = "Drafted"
-need = """No later operation of the tool ever alters or loses stored content that the latest state or any saved state still depends on."""
-why = """Files and saved states share stored content. An operation that rewrites or removes a stored copy because one file changed or one state went away silently breaks every other file and state still relying on it, and that loss is found only when one of them is restored."""
+need = """Operations of the tool preserve stored content needed by the latest state and saved states within the supported recovery window. Explicit history removal may withdraw recovery of the removed date and older dependent states as described by the retention policy."""
+why = """Files and saved states share stored content. Ordinary capture or maintenance must not silently damage states the operator still relies on. Explicit retirement of older history is a different choice: it can remove shared content needed only by states outside the retained recovery window."""
 priority = "M"
-acceptance = """After one of two identical files is edited, or a file is removed, renamed or re-added, restoring every earlier saved state still reproduces the old bytes for every path that held them, and the latest state restores the new bytes; checking the store finds no recorded content that is unaccounted for."""
+acceptance = """After a source file is edited, removed, renamed or re-added, states within the supported recovery window still recover their recorded content and the latest state reflects captured changes. A retention removal does not have to preserve states at or before its cutoff, but must preserve the latest state and retained states after that cutoff. Remaining older folders alone are not evidence that their recovery is still supported."""
 tags = ["store-mutation"]
 stakeholder_refs = ["STK-01", "STK-02"]
 
 [need.SN-029]
 status = "Drafted"
-need = """The owner can remove saved states they no longer want, to bound the space the backup takes, without losing anything a remaining state needs, older or newer than the removed one; what the removal gives up is only what no remaining state records, the files that existed only at the removed point in time."""
-why = """Without a way to remove saved states, history grows until the backup volume fills. Saved states share content, so a folder that looks like old history can hold the only stored copy of content other states need; removing it from outside the tool is silent data loss, which is why the removing has to be the tool's."""
+need = """The operator can remove saved history to limit storage use, accepting that removing history at a given date may invalidate recovery of that date and every older state that depends on content removed with it. The supported recovery window then contains only retained states after that date and the latest state."""
+why = """Saved states share content identified by its content identity. Removing a history folder can remove the only stored copy needed by earlier states even when their records remain. Retention therefore trades the older recovery window for space; it does not promise independent deletion of arbitrary snapshots while preserving all other dates."""
 priority = "M"
-acceptance = """Removing a named saved state leaves every remaining saved state, older and newer alike, and the latest state restorable byte-exact, with compression on or off, including when the removed state held the only stored copy of shared content; a removal that would lose content is refused before anything changes, with its own outcome; a removal interrupted at any point loses nothing and can simply be run again."""
+acceptance = """Removing history at a selected date leaves the latest state and retained states after that date within the supported recovery window. The removed date and all earlier dates are outside that promise, even if some still happen to restore. There is no requirement to relocate shared content merely to preserve those older dates. The documented retention semantics state this cutoff and do not describe surviving older folders as guaranteed recovery points."""
 tags = ["store-mutation", "filesystem", "scale"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-046]
 status = "Drafted"
-need = """Before removing anything, the owner, or a host deciding retention on their behalf, is told what removing each saved state would actually reclaim."""
-why = """Because content is shared, the size of a saved state's folder is not what removing it frees, and nobody outside the tool can work the true figure out. Retention decided on wrong numbers either removes history for nothing or keeps the volume full."""
+need = """When the operator or an automation host requests retention information from the tool, they can obtain an estimate of the storage affected and an explanation that removal can invalidate older recovery points."""
+why = """Retention information helps an operator choose how much history to keep, but the tool cannot control deletion through a file manager or another program, require that its report be consulted, or ensure that a person understands or follows its explanation."""
 priority = "M"
-acceptance = """For each saved state, the report distinguishes stored-content bytes reclaimed by removal from bytes that must be retained or relocated for remaining states. With no intervening store changes, removal matches the reported content-byte accounting. Filesystem allocation and unrelated free-space changes are not claimed to equal that number. Producing the report does not mutate the store, and a host can read it without parsing prose."""
+acceptance = """A requested retention report identifies the history being considered, states the basis and limits of its storage estimate, and explains the possible loss of recovery at that date and earlier dates. Producing the report does not mutate the store, and an automation host can read its findings without parsing prose. Neither exact future free-space gains nor operator understanding is guaranteed. Direct deletion outside the tool may occur without a report or warning; preventing or intercepting it is outside this need."""
 tags = ["store-mutation", "scale"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
@@ -160,10 +160,10 @@ stakeholder_refs = ["STK-01", "STK-02", "STK-03"]
 
 [need.SN-039]
 status = "Drafted"
-need = """Two operations that would change the same backup at the same time never both proceed; the one that arrives second is refused and the backup is left unchanged by it, while reading the backup and restoring from it still work."""
-why = """Scheduled runs overlap when a run takes longer than its interval, and a host may start a removal while a backup is still going. Two writers working on one store can each act on state the other is changing and destroy content neither meant to touch."""
+need = """Within a single configuration, each backup set points to a unique backup root, and competing operations using that configuration do not mutate the same backup at the same time. A configuration that assigns the same backup root to more than one set is refused before backup work proceeds."""
+why = """Duplicate destinations within a job and overlapping launches of that job can make writers interfere with each other. The tool can validate and coordinate the configuration it is given; this need does not promise coordination across independently supplied configurations or external writers."""
 priority = "M"
-acceptance = """While a backup, removal, repair or kit refresh is changing a store, another mutation of that store is refused as busy without changing its protected data. Read-only operations do not claim writer ownership. Ending or killing the holder releases exclusivity under the declared host assumptions. Simultaneous reads must either recover valid content or report interference; availability of an unchanging view during a writer is not assumed."""
+acceptance = """Before backup mutation, a configuration whose sets resolve to the same backup root is refused with the conflicting entries identified. For a valid configuration on a supported host, while one of its operations is mutating a backup, a competing mutation using that same configuration is refused as busy without changing protected data. The exclusive claim is released when the holder ends or dies under the declared host assumptions. Separate configurations pointing to the same root and writers outside the tool are outside this coordination promise; read access is not a promise of an unchanging view during mutation."""
 tags = ["store-mutation", "filesystem", "unattended", "backup-host"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
@@ -235,10 +235,10 @@ stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-041]
 status = "Drafted"
-need = """Every saved state written by a supported version of FileBackup stays restorable whatever version writes to the backup later, a state in a retired form is refused by name rather than misread, and the owner can bring the restore kit inside an existing backup up to date when they choose."""
-why = """A saved state may be restored years after it was written, with the restore kit it carries, after many newer versions have written to the same store. If a later version left an older kit unable to read what is now stored, or a newer kit unable to read an older state, history would be lost without a single file being deleted."""
+need = """The owner can determine which designated older versions a release supports and whether continued use requires a supported upgrade or migration. Compatibility should be retained where reasonable, but a newer design may require migration and need not support every legacy store or restore kit."""
+why = """Perpetual compatibility can prevent useful design changes and cannot be assured for every historical format. Explicit support boundaries and designated transition paths let an owner plan an upgrade without mistaking the existence of a newer release for a promise that it can use their old store."""
 priority = "M"
-acceptance = """Each declared supported store and kit combination restores earlier states after a newer supported writer has continued the store. Refreshing kits on a supported store preserves recovery. A store excluded from current continuation or kit-refresh support remains untouched and recoverable through its original kit and documented tools."""
+acceptance = """A release names the older versions, store formats and kit combinations it supports, if any, and describes each supported continuation, upgrade, migration or kit-refresh path and its recovery limits. It may designate no older versions. Only designated combinations and paths carry a compatibility commitment; unsupported stores are identified without an attempted automatic conversion. Newer writers or kits are not claimed to restore or preserve every legacy format merely because they are newer."""
 tags = ["store-format", "restore-host"]
 stakeholder_refs = ["STK-01", "STK-02"]
 
@@ -291,10 +291,10 @@ stakeholder_refs = ["STK-02"]
 
 [need.SN-033]
 status = "Drafted"
-need = """A restore that reports success has proved that every file it wrote has the content the backup recorded for it."""
-why = """A wrong stored copy, a flipped bit or a truncated file would otherwise restore with a success status. A backup whose restore can silently hand back damaged bytes and say "done" is not a backup."""
+need = """The restorer receives reasonable assurance that restored files match the selected backup record through documented integrity checks, with detected discrepancies and verification failures reported rather than presented as successful recovery."""
+why = """Checks can detect ordinary corruption, truncation and selection of the wrong stored content, but cannot establish absolute correctness under every fault or corner case. Stating the method and its limits makes a successful result meaningful without claiming mathematical proof or perfect detection."""
 priority = "M"
-acceptance = """When stored content has been altered, flipped or truncated, the restore either produces that file byte-exact from another intact copy in the backup or names the file and reports failure; it never reports success with wrong bytes."""
+acceptance = """Every file reported successfully restored has completed and passed the documented content-integrity checks against the selected record. A detected mismatch, an inability to perform a required check, or a recovery error is reported as incomplete recovery unless another copy is recovered and passes those checks. Documentation explains the assurance limits, including content-identity collisions, an incorrect but internally consistent record, and faults outside the checks' observation. Success means the required checks passed, not a guarantee that all possible corruption or corner cases were excluded."""
 tags = ["restore-host", "unattended"]
 stakeholder_refs = ["STK-02", "STK-03"]
 

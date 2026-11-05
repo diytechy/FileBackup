@@ -1,5 +1,7 @@
 # Candidate-to-legacy system requirement alignment
 
+> **Review snapshot:** [Owner review 01](owner-review-01.md) supersedes the retention, reporting, coordination, compatibility and absolute-verification proposals affected by SN-029/046/039/041/033 and the consistency edit to SN-034. The analysis below records the earlier draft, not the current ruling.
+
 Reconciliation proposal, 2026-11-05. This is not owner adjudication, a replacement specification, approval of amended needs, or runtime evidence. No normative requirement, approval status, code or test was changed by this review.
 
 The separate alignment reviewer read all 123 current SR statements, rationales and acceptance criteria in [the system registry](../../requirements/system-requirements.toml), the revised 49 needs and boundary/assumption/hat registries, and all 82 [fresh candidates](fresh-derivation.md). Earlier architecture and audit exposure is explicit. Reading both sides is permitted for this alignment role; it does not make the preceding derivation fully blind. Its inherited architecture context remains a limitation. Matching below compares actual obligations and acceptance intent, not shared parent IDs. No LLR/TC-chain completeness or implementation verification is claimed.

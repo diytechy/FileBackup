@@ -1,5 +1,7 @@
 # Stakeholder-needs review
 
+> **Review snapshot:** [Owner review 01](owner-review-01.md) supersedes the retention, reporting, coordination, compatibility and absolute-verification proposals affected by SN-029/046/039/041/033 and the consistency edit to SN-034. The analysis below records the earlier draft, not the current ruling.
+
 Review basis: the 48 needs at `92268f9`, the project's vision and operating
 frame, the implementation audit, and the native-engine direction. A separate
 read-only reviewer considered every need. This is independent needs analysis,

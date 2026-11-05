@@ -25,6 +25,16 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **OWNER NEEDS REVIEW 01 (2026-11-05).** Applied the owner's corrections to
+  SN-029/046/039/041/033 and scoped SN-034 consistently. See
+  [the ruling and downstream impacts](plans/spine-rebaseline-2026-11-05/owner-review-01.md).
+  Retention establishes a recovery cutoff; reporting does not control manual
+  deletion; coordination is within one configuration with unique roots;
+  historical support is designated explicitly (none currently); restore
+  verification provides bounded assurance. The rows remain Drafted for the
+  owner's continued review. Runtime behavior and the downstream SR text have
+  not been changed by this review.
+
 - **SPINE RESYNC AND NEEDS REBASELINE (2026-11-05, in progress).** See the
   [working record](plans/spine-rebaseline-2026-11-05.md). The pinned upstream
   checker now reads the 49 SN / 123 SR / 87 LLR / 240 TC rows. All four tiers
@@ -6784,3 +6794,22 @@ Resume from [the rebaseline record](plans/spine-rebaseline-2026-11-05.md): settl
 the concrete need/policy choices, reconcile the authoritative SR tier, then
 rewrite design contracts and bind actual code/test evidence. The structural
 floor is now trustworthy; the full requirements assurance claim is not yet made.
+
+
+### 2026-11-05 — owner needs review 01 applied
+
+Applied the owner's SN-029/046/039/041/033 corrections and reconciled SN-034's
+blanket shared-content promise with the retention cutoff. DA-03 now scopes its
+coordination premise to one validated configuration. Added
+[owner review 01](plans/spine-rebaseline-2026-11-05/owner-review-01.md) with the
+rulings and affected downstream SRs; marked earlier review/derivation/alignment
+artifacts and the migration proposal where their prior assumptions are superseded.
+No older versions are currently designated for compatibility support. This is
+not a whole-tier approval, and no engine, restore or managed-prune code changed.
+
+Validation: 49 needs parse; exactly the five reviewed rows plus SN-034 changed,
+with all statuses Drafted and stakeholder records unchanged. Strict integrity
+exits 0; the existing 118 orphan relationships and interface debt remain.
+Documentation: 90 documents, 253 links, zero broken, 28 existing orphan warnings.
+Whitespace check passes. Product tests were not rerun for these requirements
+and review-record edits.
