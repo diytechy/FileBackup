@@ -28,7 +28,7 @@ standing = "active"
 [assumption.DA-03]
 effect_at = ["B-04"]
 assumption = """An exclusive-use claim taken by an operation using a single validated configuration is observed by competing operations using that same configuration on the supported host and store filesystem."""
-holds_when = """The configuration assigns each backup set a unique resolved backup root and all operations within this coordination scope use interoperable exclusion on the declared host and filesystem."""
+holds_when = """For an already validated configuration, the declared host and filesystem expose the same interoperable exclusion domain to contenders for a resolved root. Unique-root validation and refusal of duplicate roots are independent product admission requirements, not environmental premises."""
 obstacle = """Independent configurations or external writers targeting the same root are outside this coordination promise; network or multi-host locking may also lack the required behavior."""
 falsifier = """Two operations using the same validated configuration are both observed mutating the same backup on a supported host."""
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
@@ -99,9 +99,9 @@ standing = "active"
 
 [assumption.DA-10]
 effect_at = ["B-18"]
-assumption = "At least one documented carried-script recovery route has its required PowerShell or bash environment and local tools available on the recovery host, or an operator can provision them before affected recovery work."
-holds_when = "The selected route's declared tools are already installed, bundled where permitted, or obtainable through an allowed online or offline installation path."
-obstacle = "A locked-down or offline host may lack every supported route and permission to provision one. The product must still identify missing prerequisites; a native backup executable is not a substitute for independent script recovery."
+assumption = "A documented carried-script route has its required PowerShell or bash environment and local tools present when recovery starts. With those prerequisites present, recovery is independent of network access, the native engine and its repository."
+holds_when = "The selected route's declared tools have been installed or are bundled where permitted. Provisioning may have occurred online beforehand or from offline installation media; online provisioning is not a dependency of the recovery operation."
+obstacle = "A locked-down or offline host may lack every supported route and permission or media to provision one. Missing prerequisites must still be named before affected work; the documented Windows, Linux and macOS routes must recover offline once their prerequisites are present."
 falsifier = "A host meeting a declared recovery-route tool floor cannot execute the carried route because it requires an undeclared external prerequisite."
 obstacle_hats = ["CROSS-PLATFORM"]
 status = "Drafted"
@@ -160,7 +160,7 @@ standing = "active"
 [assumption.DA-16]
 effect_at = ["B-02", "B-04"]
 assumption = "The backup host clock supplies dates meaningful to the operator only within its configured accuracy and timezone; displayed date order alone does not establish state identity, capture order or writer ownership."
-holds_when = "The host clock and timezone are configured as intended. Product handling of equal dates, rollback and state selection does not depend on assuming that timestamps are unique."
+holds_when = "The host clock and timezone are configured as intended, and the clock supplies dates within the accuracy and timezone interpretation declared for that environment."
 obstacle = "Clock rollback, equal timestamps and timezone changes can make dates ambiguous and complicate date-based history selection."
 falsifier = "A recorded display date differs from an independent time reference beyond the host's declared accuracy or intended timezone interpretation."
 obstacle_hats = ["INTEGRITY-RECOVERABILITY", "UNATTENDED-OPS"]
@@ -169,10 +169,10 @@ standing = "active"
 
 [assumption.DA-17]
 effect_at = ["B-02", "B-03", "B-04"]
-assumption = "Mapped temporary-drive fixtures represent only the Windows local-filesystem operations exercised on their actual backing filesystem; they do not stand in for every supported host or storage type."
-holds_when = "A test records its Windows host and NTFS backing filesystem and relies only on behavior actually exercised by that fixture."
-obstacle = "The fixture cannot establish Linux/macOS behavior, real removable-volume events, other filesystems, network reconnects, synchronization semantics or power-loss durability."
-falsifier = "An operation within the fixture's stated Windows local-NTFS scope behaves differently on a matching real volume under equivalent conditions."
+assumption = "Mapped temporary-drive fixtures supply evidence for the file, name and rename cases actually exercised through that mapping on the recorded Windows host and backing filesystem. The mapping itself supplies no capacity, volume-identity or ownership evidence."
+holds_when = "Each claimed case records its Windows host, NTFS backing volume, tested operation and mapping-specific limitations. Capacity, volume identity and cross-process ownership or owner-death release require their own explicit exercises on the declared host and real backing volume."
+obstacle = "A mapped path can differ from the underlying volume in volume discovery or capacity reporting. The fixture supplies no untested locking, Linux/macOS, removable-device, network, synchronization or power-loss evidence."
+falsifier = "A paired file, name or rename test through a mapped path and its direct backing path produces different results for a documented case that claims those operations behave equivalently."
 realized_by = "SUR-01"
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
 status = "Drafted"
@@ -181,7 +181,7 @@ standing = "active"
 [surrogate.SUR-01]
 name = "Mapped temporary drives"
 emulates = ["EXT-04", "EXT-05"]
-description = "Windows test stand-in using temporary folders mapped to drive letters for source and store operations. Its claims are limited to the recorded host, backing filesystem and exercised behavior; it supplies no Linux/macOS, network, removable-device or power-loss evidence."
+description = "Windows test stand-in using temporary folders mapped to drive letters for exercised file, name and rename cases. Merely creating the mapping supplies no evidence for capacity, volume identity or cross-process ownership; those require separately identified exercises on the real backing volume. It supplies no Linux/macOS, network, removable-device or power-loss evidence."
 status = "Drafted"
 
 [surrogate.SUR-02]
@@ -201,10 +201,10 @@ standing = "active"
 
 [assumption.DA-19]
 effect_at = ["B-13"]
-assumption = "A complete-store handoff preserves the records, carried recovery scripts and shared content available in a coherent source store at the time of transfer. It does not recreate content removed before transfer."
-holds_when = "The transfer captures a coherent store, preserves required file contents and layout, and includes the content needed by states within the retained recovery window; any present older state records may remain outside that window."
+assumption = "A complete-store handoff preserves the records, carried recovery scripts, guidance, required redistribution notices and shared content available in a coherent source store at the time of transfer. It does not recreate content removed before transfer."
+holds_when = "The transfer captures a coherent store, preserves required file contents and layout, includes its recovery guidance and required notices, and includes content needed by states within the retained recovery window; any present older state records may remain outside that window."
 obstacle = "Copying only a state folder, omitting shared content, or copying during mutation without a coherent transfer can lose dependencies. Earlier retention may already have invalidated older states."
-falsifier = "A state recoverable from the coherent source store loses required content or recovery files solely because the purported complete transfer omitted or changed them."
+falsifier = "A purported complete transfer omits or changes required content, recovery files, guidance or redistribution notices available in the coherent source store."
 status = "Drafted"
 standing = "active"
 

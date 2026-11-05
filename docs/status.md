@@ -31,7 +31,10 @@ last) — it is the record, not required reading for every pass.
   Environmental limits are distinguished from required failure handling and
   reporting; test-fixture scope is separated from production support. The
   approved needs, external frame and standing approval snapshots are unchanged
-  by this authoring work. System-requirement reconciliation follows review.
+  by this authoring work. The
+  [DeepSeek cross-review](plans/spine-rebaseline-2026-11-05/deepseek-assumptions-review.md)
+  is complete; five findings have recorded dispositions and localized draft
+  corrections. System-requirement reconciliation follows owner review.
 
 - **BOUNDARY FRAME APPROVED (2026-11-05).** The owner accepted the
   [active external frame and whole-store check interpretation](plans/spine-rebaseline-2026-11-05/boundary-approval.md):
@@ -6957,3 +6960,24 @@ Validation: strict spine integrity passes (119 existing orphan relationships,
 278 links, zero broken, 28 existing orphan warnings. Structural checks preserve
 all assumption/surrogate IDs, statuses and links; approved needs and frame
 match their snapshots byte-for-byte. No runtime or hook changes.
+
+### 2026-11-05 — complete assumptions cross-review and resolve findings
+
+DeepSeek V4.1 Flash through OpenCode Go, low reasoning variant, confirmed all
+five complete inputs and returned five findings on the assumption draft at
+8346411. Preserved its response and recorded every disposition in the guide.
+Clarified DA-03's independent product admission, DA-16's clock-only holding
+condition, DA-17/SUR-01's limits and need for explicit capacity/identity/ownership
+exercises, DA-19's guidance and notices in complete handoff, and DA-10's
+separation of provisioning from offline recovery. Existing Windows/macOS
+recovery evidence must be audited rather than inferred absent from the supplied
+surrogate list. No new surrogate, support declaration or identifier design
+was invented. The reviewed corrections have not been re-reviewed by DeepSeek.
+
+The full draft now revises 20 assumptions and both surrogates; DA-01/15 are
+retained. All 22 DA and two SUR rows remain Drafted for owner review. Approved
+needs and frame remain byte-identical to their approval snapshots; all IDs and
+trace links are preserved. Strict integrity passes with the existing 119
+orphan relationships and interface debt. Documentation: 97 docs, 281 links,
+zero broken and 28 existing orphan warnings. Whitespace passes; no runtime or
+hook changes and no product test rerun for this documentation-only work.
