@@ -24,6 +24,15 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **L9-L11 RULED, BEING BUILT (2026-11-04).** The Owner changed the store's
+  layout before `BoundedRebuild` merges: `CurrentBackup` replaces `Latest`, the
+  snapshots move into `BackupHistory` under date-only names, and a store with a
+  `CurrentBackup` but no `BackupHistory` is refused with 2. See
+  [plans/single-store-layout.md](plans/single-store-layout.md) (rulings L9-L11,
+  calls S10-S16). **Do not merge `BoundedRebuild` or build a HomeHub image until
+  this lands;** item 2 of the resume list below is held behind it, and HomeHub's
+  branch must follow the new names (its `count_snapshots` too).
+
 - **C43 AND C44 BUILT, INDEPENDENTLY REVIEWED, FIXED (2026-10-28).** The
   data-loss review of `7532b86` is now fully built on `BoundedRebuild`
   ([reviews/2026-10-26-data-loss/consolidated.md](reviews/2026-10-26-data-loss/consolidated.md)):

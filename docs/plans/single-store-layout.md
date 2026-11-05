@@ -19,18 +19,25 @@ finishes at scale (review item A6). One folder per set removes the guess.
 
 ```
 <StorePath>/                     one folder per backup set (container: /store)
-├── Latest/                      the latest state: MANIFEST.csv, the kit, and
+├── CurrentBackup/               the latest state: MANIFEST.csv, the kit, and
 │   ├── 2a/ … zz/                every object in use, one folder down (L8)
 │   └── …
-├── Snapshot_<date>/             one per superseded state, as today (objects flat)
-├── Snapshot_<date>/
+├── BackupHistory/               the history (L9)
+│   ├── 2026_11_04_23_09_17/     one per superseded state, named by its date
+│   ├── 2026_11_05_03_00_00/     (objects flat)
+│   └── Building_*/, Pruning_*/  a snapshot being published or removed
 ├── View/                        the browse view (SR-062), when turned on
-└── Temp.lock, backup.log, Incoming/, Building_*/, Verify/   run files
+└── Temp.lock, backup.log, Incoming/, Verify/   run files
 ```
 
-From any state folder (`Latest` or a `Snapshot_*`) the store is its parent, and
-the pool is `Latest` plus every `Snapshot_*` beside it. Nothing else in the store
-is part of the pool.
+From `CurrentBackup` the store is its parent; from a dated folder inside
+`BackupHistory` the store is its grandparent. The pool is `CurrentBackup` plus
+every dated folder in `BackupHistory`. Nothing else in the store is part of the
+pool.
+
+*This section shows the layout as ruled by L9. The rulings and calls below are
+kept as written, so L1-L8 and S1-S9 still say `Latest` and `Snapshot_<date>`;
+read those as `CurrentBackup` and a dated folder in `BackupHistory`.*
 
 ## The Owner's rulings
 
@@ -44,6 +51,9 @@ is part of the pool.
 | L6 | Built as one work package after the review's fix batches merge, with an independent review before it lands. |
 | L7 | (2026-10-27) Paths recorded in the store use `/` as the separator, whatever host writes them: `RelativePath` in `MANIFEST.csv` and in `DIRECTORIES.csv`. Today each records the writer's own separator (`\` on Windows, `/` in the container), on `main` as on this branch. The change is lossless: no Windows name holds `/`, and SR-055 already refuses a Linux name holding `\` as unportable. It rides on this package because L2 means no store has to be migrated, so nothing reads both forms. |
 | L8 | (2026-10-27) An object in `Latest` lives one folder down, in a folder named by the first two characters of its name, lowercased: `Latest/ab/aB…_<len><ext>`. Fixed: no configuration key, no other length. The snapshots stay flat. Why: a Linux file manager over FUSE (ntfs-3g) takes more than two minutes to open a flat `Latest`, while a snapshot holds only superseded objects, usually few. `DataPath` stays the bare name (both restorers refuse a separator in it); the folder is a pure function of the name and of which state folder holds the object, so nothing searches for it. Lowercase because Windows treats `Ab` and `aB` as one folder and Linux as two. A shard folder's name matches `^[2-9a-z]{2}$`, **`l` included**: `L` is in the alphabet, so lowercasing produces it (a first proposal left `l` out and would have hidden about 4% of objects from every listing). Folders fill unevenly, by up to about 2x: the first character only reaches the first 46 digits (`2`..`o`, since 2^128 / 57^21 is about 45.6) and lowercasing pairs some of them. Accepted, because a person looking for an object by name looks in the folder its name starts with. It rides on this package for L7's reason: no store has to read both layouts. Independent review of an opencode argon proposal: a per-set `ShardPrefixLength` (0..4) was rejected, because a kit that must work without the configuration would have to try every length. |
+| L9 | (2026-11-04) The store holds two named folders: `CurrentBackup` (was `Latest`) and `BackupHistory`, which holds the snapshots. A snapshot's folder is named by its date alone, with no `Snapshot_` prefix: `BackupHistory/2026_11_04_23_09_17`. Run files stay at the store's top, because HomeHub reads them there (its LLR-1357). Amends L1 and the layout above. |
+| L10 | (2026-11-04) A store with a `CurrentBackup` but no `BackupHistory` is refused with 2. A `CurrentBackup` means a backup ran here, so a missing `BackupHistory` means something was moved or mangled, and stopping gives the user the chance to put it right. The message says so, and says that creating an empty `BackupHistory` folder lets the run go on. The engine never creates it for an existing store. |
+| L11 | (2026-11-04) L9 and L10 land before `BoundedRebuild` merges, so no store is ever written in the `Latest` layout outside a test. |
 
 ## Scope (what changes)
 
@@ -154,6 +164,34 @@ Recorded as they were made; each is reported to the Owner with the package.
   "back up to a fresh BackupPath" now say "fresh StorePath"; the one-mount
   refusal names Latest and its store and keeps the phrase "one volume and one
   mount", which the container check matches.
+
+## Settled by the implementer for L9-L11 (2026-11-04)
+
+Each is reported to the Owner with the package.
+
+- **S10 - the change root stays the store.** S1's two roots keep their meaning
+  for run files: `ChangeRoot` is the store, and one helper gives
+  `<ChangeRoot>/BackupHistory` to the few steps that touch snapshots. Moving
+  `ChangeRoot` to `BackupHistory` instead would have sent `Verify/` into
+  `CurrentBackup` wherever a missing change root falls back to the backup root.
+- **S11 - the date label is unchanged:** `yyyy_MM_dd_HH_mm_ss`, as in the old
+  names, so the name order is still the date order.
+- **S12 - a dated name is a snapshot only inside `BackupHistory`.** With no
+  prefix the name alone proves nothing, so a restorer takes a dated folder as a
+  snapshot only when its parent is named `BackupHistory`, and otherwise refuses
+  as for any folder outside a store.
+- **S13 - the old prefix survives only to refuse old stores.** One legacy
+  pattern, used by `Assert-StoreLayout` alone. `-Snapshot` takes the dated name;
+  a `Snapshot_<date>` name is refused as not a snapshot of this store.
+- **S14 - a new store gets `BackupHistory` first, then `CurrentBackup`.** A
+  run cut short between the two then leaves a store that is still new, never
+  one L10 refuses.
+- **S15 - L10 holds for every action, and for no restore.** Backup, Verify,
+  Prune, Snapshots and View refuse. A restore from `CurrentBackup` still runs:
+  it needs no history, and refusing a restore would stop the user getting their
+  files back at the moment something has gone wrong.
+- **S16 - kit revision 16.** A kit older than 16 in a folder named
+  `CurrentBackup` marks an old layout, as C44's finding 2 did for `Latest`.
 
 ## Done when
 
