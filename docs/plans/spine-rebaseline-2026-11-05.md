@@ -10,6 +10,10 @@ relationships. B-24 is excluded. Review
 [assumptions.toml](../requirements/assumptions.toml) next, before reconciling
 the system requirements; those tiers remain Drafted.
 
+The [assumptions review guide](spine-rebaseline-2026-11-05/assumptions-review.md)
+explains the revised conditions, residual risks and limits of the test fixtures.
+No assumption is approved by its drafting or independent cross-review.
+
 The [boundary review guide](spine-rebaseline-2026-11-05/boundary-review.md)
 summarizes the accepted frame corrections and the assumptions worklist.
 B-24 remains an inactive legacy reference awaiting
@@ -130,8 +134,8 @@ reporting (SN-044), space/media analysis (SN-051), and redistribution notices
 
 ## Decomposition and code attachment sequence
 
-1. The owner has approved the needs. Review the external frame and assumptions
-   against them next. Preserve existing IDs where their outcome survives;
+1. The owner has approved the needs and active external frame. Review the
+   assumptions against them next. Preserve existing IDs where their outcome survives;
    track retirements and splits explicitly. Authoring does not approve its own rows.
 2. Use the input-restricted derivation as a **validation proposal**, then align
    every candidate and all 123 existing SRs: matched, legacy-only or fresh-only.

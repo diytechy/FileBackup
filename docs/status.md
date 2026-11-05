@@ -25,6 +25,14 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **ASSUMPTIONS DRAFT PREPARED (2026-11-05).** The
+  [assumptions review guide](plans/spine-rebaseline-2026-11-05/assumptions-review.md)
+  covers all 22 assumptions and two test surrogates, which remain Drafted.
+  Environmental limits are distinguished from required failure handling and
+  reporting; test-fixture scope is separated from production support. The
+  approved needs, external frame and standing approval snapshots are unchanged
+  by this authoring work. System-requirement reconciliation follows review.
+
 - **BOUNDARY FRAME APPROVED (2026-11-05).** The owner accepted the
   [active external frame and whole-store check interpretation](plans/spine-rebaseline-2026-11-05/boundary-approval.md):
   18 entities, 23 crossings and five relationships are Approved; B-24 is excluded.
@@ -48,8 +56,8 @@ last) — it is the record, not required reading for every pass.
   The initial approval baseline and act ledger preserve exactly this scope;
   other copied records retain their existing statuses. The three stakeholder
   records, external frame, assumptions and downstream tiers are not approved
-  by this act. **Next: external entities and boundary crossings in
-  `docs/requirements/external.toml`, then environmental assumptions.**
+  by this act. The separate external-frame approval is recorded above;
+  environmental assumptions are the current review step.
 
 - **OWNER NEEDS REVIEW 01 (2026-11-05).** Applied the owner's corrections to
   SN-029/046/039/041/033 and scoped SN-034 consistently. See
@@ -6926,3 +6934,26 @@ copied only external.toml and appended exactly those 46 IDs to the approval
 ledger. Other registry snapshots are byte-identical. Stakeholder identities,
 assumptions, surrogates and downstream tiers remain unapproved. Next is the
 assumptions draft, followed by its owner review. Runtime and hooks unchanged.
+
+### 2026-11-05 — draft environmental assumptions for owner review
+
+Reviewed all 22 assumptions and both test surrogates against the approved needs
+and active frame. Revised 19 assumptions and both surrogates; retained DA-01,
+DA-03 and DA-15. Conditions now separate stable per-file reads from a quiet
+production tree, metadata heuristics from content re-reads, capacity estimates
+from reserved space, target support from collision/error reporting, provenance
+limits from passed integrity checks, coherent store handoff from retention,
+and fixture evidence from production support. Credential and external-tool
+premises follow the approved frame. All rows remain Drafted, with stable IDs,
+boundary links and surrogate links. No approved registry or snapshot changed.
+
+The assumptions review guide gives the complete row disposition and the next
+owner review. Independent DeepSeek review is in progress; the initial attempt
+exhausted its reasoning budget without a report and is not evidence. The retry
+uses the supported low reasoning setting and separate complete attachments.
+
+Validation: strict spine integrity passes (119 existing orphan relationships,
+450 Drafted spine rows and existing interface debt). Documentation: 96 docs,
+278 links, zero broken, 28 existing orphan warnings. Structural checks preserve
+all assumption/surrogate IDs, statuses and links; approved needs and frame
+match their snapshots byte-for-byte. No runtime or hook changes.
