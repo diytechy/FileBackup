@@ -124,7 +124,7 @@ status = "Drafted"
 [boundary.B-04]
 entity = "EXT-05"
 direction = "inout"
-carries = """Coordination requests, ownership and busy results for competing mutations using one validated configuration, whose backup sets must have unique resolved backup roots. Ownership ends when the operation completes or is interrupted under the supported host contract. Coordination across independent configurations, external writers or unsupported hosts is outside this promise."""
+carries = """Coordination requests, ownership and busy results for competing mutations using one validated configuration, whose backup sets must have unique resolved backup roots. Ownership ends when the holder ends or dies under the declared host assumptions, including interruption or a crash. Coordination across independent configurations, external writers or unsupported hosts is outside this promise."""
 system = "operation"
 status = "Drafted"
 
@@ -152,7 +152,7 @@ status = "Drafted"
 [boundary.B-08]
 entity = "EXT-03"
 direction = "out"
-carries = """Each operation's documented outcome class and machine-readable findings for listings and checks, including requested retention estimates, their limits and the recovery-cutoff implications."""
+carries = """Each operation's documented outcome class, including configuration refusal, with refusal diagnostics identifying conflicting configuration entries where applicable; and machine-readable findings for listings and checks, including requested retention estimates, their limits and the recovery-cutoff implications."""
 system = "operation"
 status = "Drafted"
 
@@ -273,7 +273,7 @@ status = "Drafted"
 [entity.EXT-15]
 name = """Operational records and derived views"""
 class = "enabling"
-description = """The store-side operational state and logs and the optional derived browse view. Source metadata used for change detection comes from the selected latest state, not from a writable source-side cache. Losing a derived view must not cost stored content."""
+description = """Operational state, logs and the optional derived browse view. Operations permitted to mutate the store may keep operational records on the store side; nonmutating checks and retention reports return results without creating or changing store-side records. Source metadata used for change detection comes from the selected latest state, not from a writable source-side cache. Losing a derived view must not cost stored content."""
 status = "Drafted"
 
 [entity.EXT-16]
@@ -285,7 +285,7 @@ status = "Drafted"
 [boundary.B-20]
 entity = "EXT-15"
 direction = "inout"
-carries = """Operational run state, logs and a rebuildable browse view, kept on the store side or in the configured view location; failure to read or write them is reported."""
+carries = """Operational run state, logs and a rebuildable browse view, read or written as permitted by the requested operation. Nonmutating checks and retention reports leave the entire store unchanged, including its operational records and views; their results go to the caller through B-06 or B-08 without writing inside the store. Failures to read or write permitted operational records are reported."""
 system = "operation"
 status = "Drafted"
 
@@ -313,7 +313,7 @@ status = "Drafted"
 [boundary.B-22]
 entity = "EXT-17"
 direction = "out"
-carries = """Native release bundles or a container image delivered to the owner or backup host, including required third-party notices and the declared supported operating-system and CPU combinations."""
+carries = """Native release bundles for each declared supported operating-system and CPU combination, and the container image for container-based operation, delivered with required third-party notices. Container delivery does not substitute for the declared native releases."""
 system = "delivery"
 status = "Drafted"
 

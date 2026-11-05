@@ -32,9 +32,11 @@ last) — it is the record, not required reading for every pass.
   assurance limits, independent scripted recovery and native engine delivery.
   All frame rows remain Drafted; B-24 is excluded as an inactive legacy
   reference. Approved needs, their snapshot, runtime behavior and hooks are
-  unchanged. The requested DeepSeek cross-review remains outstanding: the
-  paid endpoint reported insufficient funds and the free endpoint returned
-  no output during a ten-minute wait.
+  unchanged. The [DeepSeek cross-review](plans/spine-rebaseline-2026-11-05/deepseek-boundary-review.md)
+  is complete through the Go subscription route. Four findings led to frame
+  corrections/clarifications, three feed the assumptions review, B-24 remains
+  tracked retirement debt, and the guide asks the owner to confirm how a
+  whole-store check treats remaining history outside the recovery window.
 
 - **STAKEHOLDER NEEDS APPROVED (2026-11-05).** The owner explicitly approved
   all 49 needs following review 01. Only their statuses changed; the approved
@@ -6881,3 +6883,30 @@ IDs are preserved and approved needs and pending assumptions match their
 baseline copies byte-for-byte. Documentation: 92 documents, 265 links, zero
 broken, 28 existing orphan warnings. Whitespace check passes. No runtime tests
 were needed for these documentation-only edits.
+
+### 2026-11-05 — complete the DeepSeek boundary cross-review
+
+At the owner's request, ran the current boundary draft through OpenCode Go
+DeepSeek V4.1 Flash. The first combined attachment was truncated at 50 KB;
+its incomplete-input report was discarded. A new session received five
+separate documents under the attachment limit and explicitly confirmed every
+end marker and row count. The verbatim report and adjudication are linked
+from the boundary review guide. This was advisory review, not approval.
+
+Applied findings 1/2/6/8 to EXT-15 and B-04/08/20/22: no store-side writes for
+nonmutating checks/reports, clear host-visible configuration refusal diagnostics,
+native releases not substituted by containers, and explicit holder-death
+release wording. Did not narrow the nonmutation promise to protected content
+or add a structured schema for all configuration diagnostics. Findings 4/5/7
+are queued for assumptions review. B-24 retirement remains tied to SR-093/139
+reconciliation. Finding 3 is surfaced for the owner: proposed whole-store
+checks still report damage in remaining older folders even outside the
+retention recovery window. Approved needs, assumptions, downstream requirements,
+approval snapshots, runtime code and hook settings were not changed.
+
+Validation for the cross-review response: strict spine integrity passes with
+119 existing orphan relationships and existing interface debt; 93 documents,
+268 links, zero broken links and 28 existing orphan warnings. Approved needs
+and assumptions match their baseline copies byte-for-byte; downstream rows
+and approval snapshots are unchanged. No runtime tests were needed for these
+frame and documentation edits.

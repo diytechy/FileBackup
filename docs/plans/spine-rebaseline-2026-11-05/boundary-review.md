@@ -1,7 +1,8 @@
 # Boundary review for the approved needs
 
-Status: draft prepared for owner review. No boundary or assumption is approved
-by this work. The 49 approved needs and their approval snapshot are unchanged.
+Status: cross-review completed and draft corrections applied; ready for owner
+review. No boundary or assumption is approved by this work. The 49 approved
+needs and their approval snapshot are unchanged.
 
 Review [external.toml](../../requirements/external.toml) next. It describes the
 intended product's surroundings and exchanges, including capabilities the
@@ -82,16 +83,47 @@ service. The requested review challenges boundary completeness, unsupported
 guarantees, implementation constraints and assumptions that weaken needs.
 It is advisory; it cannot approve rows or amend approved needs.
 
-The first request to `opencode/deepseek-v4.1-flash` returned an HTTP 402
-insufficient-account-funds error. A request to the same provider's
-`opencode/deepseek-v4.1-flash-free` endpoint produced no output in ten minutes
-and was stopped. **No DeepSeek findings or verdict were obtained; the
-independent cross-review remains outstanding.** The attached input was
-the pre-edit registry set at `6eb5bd5`, not a verdict on the revised draft.
-OpenCode ran with its plan agent, external plugins disabled and tool
-permissions denied; repository guidance may still be loaded, so this is not
-claimed as a blind review. The alternate `opencode-go` provider was not used:
-automatic approval review rejected that destination change.
+The completed [DeepSeek report](deepseek-boundary-review.md) reviewed the
+draft at `3f8c2db` through `opencode-go/deepseek-v4.1-flash`, the working
+subscription route. It confirmed receipt of all five complete documents and
+returned nine findings. Its verdict was **conditionally ready for owner review,
+not ready for approval as-is**. The dispositions below explain the corrections
+made after that verdict; DeepSeek has not re-reviewed those corrections.
+
+Earlier requests used the non-subscription route (insufficient funds) and a
+free route (no response). The initial subscription review exposed OpenCode's
+50 KB per-file attachment limit, so that incomplete report was discarded.
+The successful rerun attached each document separately with an end marker,
+used a fresh temporary working directory, and disabled external plugins and
+all tool permissions. Its complete response wording is preserved.
+
+| Finding | Disposition |
+|---|---|
+| 1 — nonmutating checks versus logging | **Corrected EXT-15/B-20.** Checks and retention reports leave the entire store unchanged, including operational records and views; results go to the caller. The proposed distinction between protected content and other store files would weaken SN-030, so no such exemption was introduced. |
+| 2 — unattended configuration refusal | **Partly accepted; clarified B-08.** Refusal outcomes and diagnostics identifying conflicting configuration entries reach the automation caller. SN-045 requires a machine-readable outcome class, but explicitly requires machine-readable detailed findings only for listings/checks. A structured schema for every configuration diagnostic was not added as a new obligation. |
+| 3 — checks of history outside the recovery window | **Owner/SR clarification below.** No approved need or check scope changed. |
+| 4 — DA-14 change-detection premise | **Queued for assumptions review.** The size/time heuristic cannot exclude SN-007's scheduled content re-read cases. |
+| 5 — DA-08 name representability | **Queued for assumptions review.** Name collisions must still be detected and reported under SN-032. |
+| 6 — native release or container | **Corrected B-22.** Native bundles cover declared OS/CPU combinations; a container does not substitute for native delivery. |
+| 7 — DA-17/SUR-01 evidence scope | **Queued for assumptions review.** Windows mapped-drive evidence cannot establish Linux/macOS or other filesystem behavior. |
+| 8 — death of lock holder | **Clarified B-04** using SN-039's ends-or-dies wording, including interruption and crash under declared host assumptions. |
+| 9 — inactive B-24 still represented as Drafted | **Deferred with its citing SR-093/139.** Do not invent an unsupported registry status or break references. B-24 remains excluded from proposed approval and may not justify a source write. Machine-readable retirement and coverage treatment must be reconciled with those references. |
+
+### One point for your review: checking older folders after retention
+
+**Proposed interpretation:** a whole-store check still examines every remaining
+state record, including older folders outside the supported recovery window,
+and reports missing or inconsistent content there. Being outside the window
+does not make a damaged state clean; failure does not, by itself, mean a newer
+retained state is damaged. This preserves SN-030's check scope and SN-029's
+permission to withdraw older recovery.
+
+Please confirm this interpretation during boundary review. A future report
+could distinguish findings by recovery window, but how the cutoff is known
+(especially after direct external deletion) and how results are grouped belong
+in the system requirements. Automatically ignoring older folders or reporting
+the whole store clean despite known missing content would require an explicit
+change to the approved check need; neither has been assumed here.
 
 The completed local checks found zero spine integrity errors and zero broken
 documentation links. The existing 119 orphan relationships and interface debt
