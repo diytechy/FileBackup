@@ -1880,7 +1880,7 @@ Describe 'Prune re-homes the last copy before deleting (SR-045)' {
         $result[0].Status | Should -Be 'Pruned'
         $result[0].Code | Should -Be 0
         Test-Path -LiteralPath (Join-Path $env.Hist $env.Newest) | Should -BeFalse
-        @(Get-ChildItem -LiteralPath $env.Chg -Directory | Where-Object { $_.Name -like 'Pruning_*' }) | Should -BeNullOrEmpty
+        @(Get-ChildItem -LiteralPath $env.Hist -Directory | Where-Object { $_.Name -like 'Pruning_*' }) | Should -BeNullOrEmpty
 
         # The re-homed file is where the plan said, with the SOURCE row's form
         # adopted on the destination row, and its content hashes to the row.
@@ -2341,7 +2341,7 @@ Describe 'Prune is idempotent and resumable (SR-046)' {
         $result = @(Remove-BackupSnapshot -BackupRoot $env.Bkp -ChangeRoot $env.Chg -Name $env.Newest -Log { param($m, $l) $lines.Add("[$l] $m") })
         $result[0].Code | Should -Be 2
         Test-Path -LiteralPath $leftover | Should -BeFalse
-        @(Get-ChildItem -LiteralPath $env.Chg -Directory | Where-Object { $_.Name -like 'Pruning_*' }) |
+        @(Get-ChildItem -LiteralPath $env.Hist -Directory | Where-Object { $_.Name -like 'Pruning_*' }) |
             Should -BeNullOrEmpty
         @($lines | Where-Object { $_.Contains("removing 'Pruning_$($env.Newest)'") }).Count | Should -Be 1
         Assert-EveryStateRestores -Env $env -Root $root -Tag 'after-commit-done'
