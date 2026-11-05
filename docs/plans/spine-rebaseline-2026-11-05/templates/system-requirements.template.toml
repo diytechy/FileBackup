@@ -1,0 +1,32 @@
+# System specifications (SR-###) — the TOML registry CARRIER.
+#
+# ONE TABLE PER ROW, id-keyed with the prefix retained and the key BARE:
+# `[requirement.SR-000]`. Refs are typed arrays, `Phase` is an int, and an
+# EMPTY CELL IS AN ABSENT KEY — omit a key rather than setting it to "".
+# A duplicate id is a parse error, which is the carrier doing what a check
+# used to (docs/process.md; the carrier's reader is scripts/spine_carrier.py).
+#
+# THE `-000` ROW BELOW IS THE SCHEMA. There is no header line to declare a
+# column, so this example row is the only place the vocabulary is written
+# down: it sets EVERY key the tier has, with the guidance for each as its
+# value. Delete it on the first real entry — and add its keys to the rows you
+# write, not from memory. Comments survive every tool that edits this file
+# (the Status flip is a line rewrite), so keep your own notes here.
+[requirement.SR-000]
+title = "EXAMPLE - delete on first real entry"
+sn_refs = ["SN-000"]
+boundary_refs = ["B-000"]  # the BOUNDARY crossing(s) in docs/requirements/external.toml this requirement states an observable AT (process.md; the frame tier). An SR forms around a crossing, so a row with no Boundary-Refs is either off-boundary on purpose - say so in Rationale - or mis-tiered. An id that does not resolve is a hard finding; a blank cell is a warn-first coverage count.
+hat_refs = ["SECURITY"]  # OPTIONAL, and the value is a REAL shipped roster name so this row resolves the moment it is copied. The declared perspective(s) in docs/requirements/hats.toml this requirement's content is ATTRIBUTABLE to - the hats that actually SHAPED the row, by NAME (the roster key: SECURITY, UNATTENDED-OPS). NOT the set of hats that APPLIED: applicability is computed from the roster's own applies_when, so recording it here would store a derived fact and let it go stale. An ABSENT cell means NOT RECORDED, never "no perspective reached this row" - so a blank is a warn-first coverage count and never a finding, while a name that resolves against no roster row is a hard finding. Delete this key on a project that ships no hats roster.
+requirement = """One testable shall-statement, on an EARS pattern (docs/process.md; the condition goes IN FRONT of the subject). Ubiquitous: The <system> shall <response>. Event-driven: When <trigger>, the <system> shall <response>. State-driven: While <state>, the <system> shall <response>. Unwanted behavior: If <trigger>, then the <system> shall <response>. Optional feature: Where <feature is included>, the <system> shall <response>. A condition opened any other way ("Before ...", "During ...") warns: same condition, stated where nothing looks for it."""
+rationale = "Why it exists — what breaks without it, which alternative lost (link the SN by id; do not restate it). Never provenance: the citation frame belongs in the log (process.md §3)."
+acceptance_criteria = "Measurable condition a test/demo asserts (the contract with the Test Engineer)."
+permutations = """Input dimensions for test design (process.md 'Dimensional coverage'); feed to scripts/gen_cases.py. Grammar: name=range[min..max]; name=set{a,b,c}; name=bool; @full|@pairwise|@boundaries. e.g. size=range[0..2GiB]; mode=set{a,b,c}; @pairwise"""
+priority = "M"
+verification = "Test"
+status = "Drafted"
+phase = """Optional DELIVERY phase — a bare integer (1,2,3…), digits only, full cell: once any row is phased, an approved row's Phase must be a bare integer (a prefixed v2 is a --strict-schema finding — the --phase/--approve filters and the phase-drop detector match the cell literally, so a prefix disarms them silently; legacy labels still digit-parse in those filters). Blank is legal only on a pre-approval (Drafted) row, and the foundation (minimum) phase is always in scope under --phase. See process.md 'Phased delivery'. NOT the lifecycle phase: to tag WHEN in the running product's life a requirement holds (Provision/Startup/Runtime), add an optional 'Lifecycle' column instead (process.md §4 'Lifecycle phase')."""
+da_refs = ["DA-000"]  # the DOMAIN ASSUMPTION(S) in docs/requirements/assumptions.toml this requirement's argument relies on to deliver its needs: the claims about the world between what the system does and what a stakeholder experiences. A POINTER: moving it re-opens no approval. Once the assumptions registry holds a row, a requirement citing none and recording no `coincident` waiver is reported as unclassified; an id that resolves to no assumption fails the check.
+delivered_with = ["SR-000"]  # the SIBLING REQUIREMENT(S) that, together with this row, deliver its needs. Each id must resolve and share at least one need with this row. This is a statement about the requirement's own delivery argument, so changing it re-opens approval; it never imports a sibling's assumptions.
+coincident = "Why this requirement's own specification alone delivers its needs - the system's output IS the outcome, so no assumption sits between. Write it INSTEAD of da_refs, never beside it; it is a statement the row makes, so changing it re-opens the row's approval."
+form = "interface"  # how the requirement is met, from a CLOSED set: interface (met at an interface) | assumption (resting on an assumption) | cross-cutting (a property of the whole system, met at no single seam). Once the assumptions registry holds a row, a requirement with no form is reported and a value outside the three fails the check.
+aspect = """Optional CROSS-CUTTING review grouping, from a CLOSED vocabulary: process | trajectory | unattended-loop | connectivity | perf | portability. Blank is normal and never a finding — a requirement that is not cross-cutting simply carries no aspect (and a concern your components already express is derivable, so it does not belong here); an out-of-vocabulary value IS a --strict-schema finding. An aspect is a REVIEW grouping, never an ownership claim. trace.py reports per-aspect SR counts when filled, and never gates on the count."""

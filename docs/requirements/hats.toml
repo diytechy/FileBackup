@@ -15,6 +15,7 @@
 #   filesystem       the need's outcome depends on how a filesystem treats
 #                    renames, locks, names, times, attributes or free space
 #   unattended       the need holds while nobody is watching
+#   backup-host      native backup or maintenance on any supported host
 #   restore-host     the need's subject is a restore on a machine that is not
 #                    the backup host
 #   scale            the need's outcome depends on the size of the library
@@ -52,9 +53,9 @@ asks = "What does this look like at 3am with nobody watching: what happens when 
 listens_for = "A failure that tells nobody: a prompt that hangs a scheduled run, a silent degrade, a partial write left behind, an unbounded retry, a success status because nothing looked."
 
 [hat.CROSS-PLATFORM]
-applies_when = "tags contains \"restore-host\""
+applies_when = "tags contains \"restore-host\" or tags contains \"backup-host\""
 asks = "Which of Windows, Linux and macOS, with only commonly available tools, breaks this: path separators, line endings, name normalisation, case, shell and tool differences?"
-listens_for = "A restore rule that is true only on the platform the backup was made on, shipped as if it held on every restore host."
+listens_for = "A backup, maintenance, continuation or recovery rule that works on one host but is presented as portable to every declared supported host."
 
 [hat.PERFORMANCE]
 applies_when = "tags contains \"scale\""

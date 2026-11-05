@@ -40,6 +40,8 @@ For a walkthrough, see the [backup flow diagrams](docs/backup-flow.md).
 The [2026-11-05 requirements audit](docs/requirements-audit-2026-11-05.md) and
 [initial Rust migration plan](docs/plans/rust-migration.md) describe the current
 specification gaps and proposed cross-platform engine transition.
+The [requirements rebaseline](docs/plans/spine-rebaseline-2026-11-05.md)
+tracks the staged template resync, draft needs and remaining design decisions.
 
 ---
 

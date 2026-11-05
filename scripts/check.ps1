@@ -6,8 +6,8 @@
     Runs, and fails nonzero on any failure:
         1. PSScriptAnalyzer (tests/PSScriptAnalyzerSettings.psd1; any diagnostic = fail)
         2. python scripts/trace.py --strict        (0 traceability orphans; at
-           -Gate G3/all also --require-verified: every Verification=Test SR is
-           Status=Verified — the machine half of the G3 exit criteria)
+           -Gate G3/all also --require-verified: the pinned spine checker's
+           approval criterion; Drafted rows remain authoring work, not proof)
         3. python scripts/check_docs.py            (doc navigability: 0 broken
            intra-repo links; generated composites ignored)
         4. scripts/gen_arch_map.ps1 -Check         (generated module map, flow,
@@ -36,6 +36,9 @@
 .PARAMETER Modes
     Integration compression combos (forwarded to Run-All.ps1). Default: both.
 
+.PARAMETER Python
+    Python 3.11+ executable for process checks. Default: python on PATH.
+
 .NOTES
     Mirrors the kit's scripts/check.py contract (gate + exit code), wired to the
     PowerShell/Pester/Python stack.
@@ -44,7 +47,8 @@
 param(
     [ValidateSet('Smoke','Full','Release')][string]$Tier = 'Smoke',
     [ValidateSet('','G1','G2','G3','all')][string]$Gate = '',
-    [string]$Modes = 'Plain,Compress'
+    [string]$Modes = 'Plain,Compress',
+    [string]$Python = 'python'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -123,12 +127,12 @@ Invoke-Step 'Traceability (trace.py --strict)' {
     # Pass in the SAME commit that armed it here.
     # bash-v2 (SR-033) remains the one phase-deferred row.
     if ($Gate -in 'G3','all') { $traceArgs += @('--require-verified', '--phase', 'core,bash-v1,container-v1,kitbump-v6,ca-v1,fidelity-v1,robust-v1,form-v1,name-v1,probe-v1') }
-    python (Join-Path $repo 'scripts\trace.py') @traceArgs
+    & $Python (Join-Path $repo 'scripts\trace.py') @traceArgs
 }
 
 # 3. Doc navigability (broken intra-repo links; generated composites ignored)
 Invoke-Step 'Doc navigability (check_docs.py)' {
-    python (Join-Path $repo 'scripts\check_docs.py') --root $repo `
+    & $Python (Join-Path $repo 'scripts\check_docs.py') --root $repo `
         --ignore 'docs/test/report.md' --ignore 'docs/releases/*'
 }
 
@@ -158,7 +162,7 @@ if ($Gate -in 'G3','all') {
         # check_perf's default artifact paths are cwd-relative (no --docs flag),
         # so run it from the repo root.
         Push-Location $repo
-        try { python (Join-Path $repo 'scripts\check_perf.py') --tier ($Tier.ToLower()) }
+        try { & $Python (Join-Path $repo 'scripts\check_perf.py') --tier ($Tier.ToLower()) }
         finally { Pop-Location }
     }
 }

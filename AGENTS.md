@@ -890,6 +890,15 @@ Imports (internal): `Common`
 
 ## 5. Build / verify
 
+The [2026-11-05 spine rebaseline](docs/plans/spine-rebaseline-2026-11-05.md)
+is a partial ai-template resync. Trace/hats/checklist tools now require
+**Python 3.11+**, and all four live spine tiers use TOML. Historic LLR/TC
+results are preserved in the rebaseline's evidence harvest; Drafted is not a
+test result. General hooks remain disabled. The pinned Python tooling lives
+under `scripts/spine-kit`; its helpers do not replace the PowerShell AST
+generator or product harness. Do not treat a clean integrity check as approval
+or completed implementation traceability.
+
 ```powershell
 # deps + test tooling (System.IO.Hashing, Pester 5, PSScriptAnalyzer)
 pwsh -File tests\Setup.ps1 -InstallDeps -InstallTestTools

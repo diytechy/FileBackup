@@ -25,3 +25,6 @@ coverage.xml
 
 # Local RealUSB volume map (tests/Config/real-volumes.json.example is the tracked template)
 tests/Config/real-volumes.json
+
+# Generated interactive trace view
+docs/test/report.html

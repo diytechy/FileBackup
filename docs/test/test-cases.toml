@@ -1,0 +1,2381 @@
+# Migrated without content loss; legacy status/evidence retained in
+# docs/plans/spine-rebaseline-2026-11-05/legacy/evidence-harvest.json.
+# Drafted means this text and its parent chain await review, not that tests failed.
+
+[test.TC-001]
+verifies = ["SR-002", "LLR-002"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "content=set{same,different}"
+expected = """Get-FileXxHash returns a 32-char uppercase hex string, identical for identical bytes and different otherwise (SR-002 AcceptanceCriteria). Pester: Describe 'Get-FileXxHash'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-002]
+verifies = ["SR-004", "LLR-004"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "ext=set{compressible,already-compressed}; compress=set{on,off}"
+expected = """Test-ShouldCompress is true only for compressible extensions and inspects extension not path (SR-004). Pester: Describe 'Test-ShouldCompress'. NOTE: TC-096 supersedes this case's coverage of the already-compressed LIST membership (and pins the merged eight); TC-002 keeps the extension-not-path property."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-003]
+verifies = ["SR-025", "LLR-025"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "records=set{rows,null,empty,missing-file}"
+expected = """Read/Write-Manifest round-trips typed Length/LastWriteTime, tolerates null/empty, returns @() for a missing manifest (SR-025). Pester: Describe 'Read/Write-Manifest' + 'Manifest date round-trip'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-004]
+verifies = ["SR-003", "SR-069", "LLR-003", "LLR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """Convert-HexToShortName/Convert-ShortNameToHex round-trip a full 128-bit hash EXACTLY as all 32 hex digits - including leading-zero and high-bit-set (sign nibble) values - and Get-HashSizeFileName yields a stable "<hash22>_<len><ext>" name (SR-069 naming). Pester: Describe 'Short-name encoding'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-005]
+verifies = ["SR-011", "LLR-011"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "freq=set{A,E,D,W,M,Y,N,unknown}"
+expected = """Test-HashRecalcDue returns the documented decision per code for a fixed -Now/last-run (SR-011). Pester: Describe 'Test-HashRecalcDue'; module/function presence G6.0."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-006]
+verifies = ["SR-001", "LLR-001"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "case=set{new,removed,unchanged,changed,null}"
+expected = """Compare-SourceToBackup flags new/removed/changed, ignores unchanged, tolerates null (SR-001 diff). Pester: Describe 'Compare-SourceToBackup'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-007]
+verifies = ["SR-022", "LLR-022"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "path=set{root-infra,nested-same-name,ordinary}"
+expected = """Test-IsInfrastructureFile flags root infra only, not nested same-named or ordinary files (SR-022, B6). Pester: Describe 'Test-IsInfrastructureFile'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-008]
+verifies = ["SR-001"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = "An empty source backs up without error (SR-001). Suite case G1.1 EmptySource_completes."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-009]
+verifies = ["SR-001", "SR-025"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = "A single file appears as a manifest row (SR-001/SR-025). Suite case G1.2 Single_present."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-010]
+verifies = ["SR-001"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = "A 200-file tree yields >=200 manifest rows (SR-001). Suite case G1.3 BulkFiles_200rows."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-011]
+verifies = ["SR-022"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A nested sub\\MANIFEST.csv is preserved as data (SR-022, B6). Suite case G1.5 NestedManifest_preserved."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-012]
+verifies = ["SR-021", "LLR-021"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}; charset=set{greek,chinese}"
+expected = """Unicode filenames are captured intact (SR-021). Suite case G1.6 Unicode_Greek/Unicode_Chinese."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-013]
+verifies = ["SR-021"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """Bracketed/parenthesized names back up correctly (SR-021). Suite case G1.8 SpecialChars_present."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-014]
+verifies = ["SR-001"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A rename is detected: new path present, old path absent (SR-001). Suite case G2.1 Rename_newPresent/Rename_oldAbsent."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-015]
+verifies = ["SR-001"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A move is detected: new path present, old absent (SR-001). Suite case G2.2 Move_newPath/Move_oldPath_absent."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-016]
+verifies = ["SR-001", "SR-002"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A content modification changes the recorded hash (SR-001/SR-002). Suite case G2.3 Modify_hashChanged."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-017]
+verifies = ["SR-006", "LLR-006"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A deleted file's row is absent next run and its data evicted refcount-aware (SR-006). Suite case G2.5 Delete_rowAbsent."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-018]
+verifies = ["SR-003"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """Re-adding identical content restores a row pointing at existing data (SR-003). Suite case G2.6 Readd_rowPresent."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-019]
+verifies = ["SR-003", "LLR-003"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """Two identical files, exact (AMENDED 2026-08-24, kit-bump rev6, de-vacuums the prior -le 2 assertion; the Mirror change-detector arm died with the mode at WP9 step 5): the two rows carry exactly one distinct non-blank DataPath and the pool holds exactly one physical copy whose bytes hash to the shared content. Suite case G2.8 Dedup_singleDataPath."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-020]
+verifies = ["SR-007", "LLR-007"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """The restore kit is deposited in the backup folder (SR-007). Suite case G3.1 ReconScript_exists."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-021]
+verifies = ["SR-008", "SR-004", "LLR-008", "LLR-004"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=on"
+expected = """Blank-DataPath rows (incl. compressed .7z) are recovered by content hash on restore (SR-008/SR-004). Suite case G3.5 HashFallback_recoveredFile."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-022]
+verifies = ["SR-009", "LLR-009"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A restore target inside the backup folder is rejected (SR-009). Suite case G3.6 BadTarget_rejected."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-024]
+verifies = ["SR-017", "LLR-017"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A pre-existing Temp staging folder makes the run throw (SR-017). Suite case G5.1 PreexistingTemp_throws. Review round 2026-08-23: the take is ATOMIC (CreateDirectory-without-Force IS the lock - no look-then-create window for two overlapping scheduled runs), the guard's message directs the operator to the non-destructive Temp recovery in README instead of deletion, and an early abort (an unreadable source file in step 5, a step-6 throw) removes the still-empty staging folder so the NEXT run fails on the real cause rather than the stale-Temp guard. Pester: Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-025]
+verifies = ["SR-001"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A read-only source file is backed up (SR-001 edge). Suite case G5.4 ReadOnlyFile_backedUp."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-026]
+verifies = ["SR-024", "LLR-024"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = "A second identical run is idempotent (SR-024). Suite case G5.7 Idempotent_secondRun."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-027]
+verifies = ["SR-024"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """No-change re-run keeps manifest rows stable (SR-024). Suite case G7.1 NoChange_manifestStable."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-028]
+verifies = ["SR-024"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A known SHA-256 spot check confirms deterministic output (SR-024). Suite case G7.2 SHA256_known."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-030]
+verifies = ["SR-005", "LLR-005"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+expected = """A change run produces a folder matching ^\\d{4}_\\d{2}_\\d{2}_\\d{2}_\\d{2}_\\d{2} carrying its own MANIFEST.csv; a no-op re-run adds no snapshot; the latest state has none (SR-005). Pester: Describe 'Dated point-in-time snapshot'; suite G9.1/G9.2."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-031]
+verifies = ["SR-007"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """AST check: FileBackup.Common.psm1 imports/loads no Engine module (SR-007 Common!=>Engine invariant). Pester: Describe 'Common does not depend on Engine'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-032]
+verifies = ["SR-008"]
+level = "System"
+method = "Demonstration"
+tier = "Release"
+parameters = "fs=set{NTFS,exFAT,FAT32}"
+expected = """Copy a produced backup to a machine without the repo, run RECONSTRUCT.cmd, byte-compare to the original (SR-008). Hardware runbook (AGENTS.md sec.6)."""
+automated = "No"
+status = "Drafted"
+
+[test.TC-033]
+verifies = ["SR-010", "LLR-010"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "compress=set{on,off}"
+expected = """After f=v1 (run1) then f=v2 (run2): restoring the run1 dated snapshot reproduces f=v1 byte-exact; restoring the backup root reproduces f=v2 (SR-010). Pester: Describe 'Point-in-time restore from a dated snapshot' (4 modes). Review round 2026-08-23 (kit revision 4): RECONSTRUCT.paths.json is honored only while the kit folder still lives INSIDE the roots it records - a COPIED or moved store falls back to folder auto-detection instead of failing against a dead path or silently restoring from the still-live original (both restorers; Pester: 'Backup pipeline crash-window hardening' Describe; bash containment shares restore.bats' sidecar pin)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-034]
+verifies = ["SR-014", "LLR-014"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "sets=multi"
+expected = """A 2-set config whose first set fails (bad source) still backs up the good set and exits non-zero (SR-014). Pester: Describe 'Independent multi-set processing'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-035]
+verifies = ["SR-015", "LLR-015"]
+level = "System"
+method = "Demonstration"
+tier = "Release"
+parameters = "mail=set{configured,omitted,-NoMail,send-fails}"
+expected = """Mail sends only when configured and not -NoMail; a send failure logs WARN and does not flip exit status (SR-015). Demonstration with a test SMTP."""
+automated = "No"
+status = "Drafted"
+
+[test.TC-036]
+verifies = ["SR-016", "LLR-016"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "tool=set{missing,present}"
+expected = """Resolve-OptionalTool -NonInteractive returns (null for missing, the path for present) without ever invoking Read-Host (SR-016) — a blocking prompt would hang the test. Pester: Describe 'Resolve-OptionalTool non-interactive'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-037]
+verifies = ["SR-018", "LLR-018"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """Invoking FileBackup.ps1 with a non-existent ConfigPath throws "... not found" before any work (SR-018). Pester: Describe 'FileBackup.ps1 entry point'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-038]
+verifies = ["SR-019"]
+level = "System"
+method = "Inspection"
+tier = "Full"
+expected = """On a session lacking System.IO.Hashing, setup/init fails with remediation guidance and never hashes against a missing library (SR-019). Inspect Setup.ps1 -NonInteractive + Initialize-XxHashLibrary."""
+automated = "No"
+status = "Drafted"
+
+[test.TC-039]
+verifies = ["SR-020", "LLR-020"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "7zip=set{present,absent}; ffprobe=set{present,absent}"
+expected = """A required missing tool makes Resolve-OptionalTool throw before backup processing; an optional missing tool returns null without prompting, while a present tool is returned (SR-020). Pester: Describe 'Resolve-OptionalTool non-interactive'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-040]
+verifies = ["SR-023", "LLR-023"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+expected = """Inflating a manifest row's recorded length beyond target free space makes RECONSTRUCT abort before writing files (SR-023, B11). Pester: Describe 'Restore capacity check'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-041]
+verifies = ["SR-026", "LLR-026"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+expected = """Optimize-ChangeFolders collapses identical (hash,len) data shared across two change folders to a single physical copy (SR-026). Pester: Describe 'Cross-change duplicate collapse'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-042]
+verifies = ["SR-027", "LLR-027"]
+level = "System"
+method = "Demonstration"
+tier = "Release"
+expected = """Following the README quick-start with CredSetEx.ps1 yields a valid config and a successful first backup (SR-027)."""
+automated = "No"
+status = "Drafted"
+
+[test.TC-043]
+verifies = ["SR-028", "LLR-028"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """A snapshot physically stores only the bytes superseded at the next run; files unchanged since the snapshot restore by hash from the live backup or sibling snapshots (SR-028). Suite G9-Rollback (mixed content, 4 modes); Save-SupersededData."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-044]
+verifies = ["SR-028", "LLR-028"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """AST/static check: FileBackup.Engine, FileBackup.Common and Reconstruct.ps1 contain no Pre_*_Changes naming or reading logic; only the the dated contract (SR-028 clean cutover). Pester: Describe 'Clean cutover from Pre_*_Changes'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-045]
+verifies = ["SR-010", "LLR-010"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}; snapshot=set{each-historical,latest}"
+expected = """G9 rollback timeline: a mixed-content tree taken through ~4 dated runs (add/modify/delete/rename/no-op); restoring each historical snapshot reproduces that exact tree byte-for-byte (files added later are absent, files deleted later are present at their old bytes) and the backup root reproduces the latest state (SR-010). Suite G9-Rollback (G9.3/G9.4/G9.5, 4 modes)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-046]
+verifies = ["SR-005", "LLR-005"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """Over the G9 timeline (deterministic via -BackupTime): exactly one snapshot per superseding run, each named ^<injected-date> with its own MANIFEST.csv; no snapshot for the no-op run; none for the latest live state (SR-005). Suite G9-Rollback (G9.1/G9.2, deterministic -BackupTime, 4 modes)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-047]
+verifies = ["SR-028", "LLR-028"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """compress=set{on,off}; content=set{compressible,already-compressed-media,binary,empty,duplicate,nested-infra-named,unicode-bracket}"""
+expected = """Across the G9 timeline each content type is handled correctly (compressible stored .7z when compress on; media/already-compressed stored verbatim; duplicates deduped; nested MANIFEST.csv kept as data; unicode/bracket names intact) and stays restorable by hash at every rollback point; snapshots store only superseded bytes (SR-028). Suite G9-Rollback (mixed content types, 4 modes)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-048]
+verifies = ["SR-007", "LLR-007"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """AST guard: Reconstruct.ps1 calls no Engine function and imports no Engine module, so the bundled restore kit (Common + DLL only) stays sufficient (SR-007). Pester: It 'Reconstruct.ps1 calls no Engine function'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-049]
+verifies = ["SR-028", "SR-010", "LLR-028"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "cycle=set{delete,reintroduce-identical,delete-again}"
+expected = """After a delete/re-add-identical/delete timeline the content's physical bytes exist exactly once across backup root + snapshots, and each dated state (D1/D3 with the file, latest without) restores byte-exact (SR-028 delta storage, SR-010 authority). Pester: Describe 'Re-deleted content stored once across snapshots'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-050]
+verifies = ["SR-005", "LLR-005"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "change=set{dup-add,shared-removal,noop}"
+expected = """A run whose only change is a duplicate-content add (dedup reuse, no byte copied) or a shared-content removal (no byte evicted) still creates a snapshot named by the prior date restoring the prior state byte-exact; a manifest-identical no-op run creates none (SR-005). Pester: Describe ''Manifest-only change creates a snapshot''."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-051]
+verifies = ["SR-029", "LLR-029"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "cause=set{missing-datapath}"
+expected = """With one row''s only data source deleted, RECONSTRUCT.ps1 restores the other rows, logs the failure, and terminates with an error naming the unrestored count; the untampered restore completes cleanly (SR-029). Pester: Describe ''Restore fails loudly''."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-052]
+verifies = ["SR-022", "LLR-022"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """After two runs, backup.log contains no orphan/not-in-DB WARN for RECONSTRUCT.paths.json — the sidecar is classified infrastructure like the rest of the deployed kit (SR-022). Pester: Describe ''Reconstruct sidecar is infrastructure''."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-053]
+verifies = ["SR-030", "LLR-030"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "fixture=set{empty,one-byte,text,binary-1MiB,unicode-name}"
+expected = """bash hash_file output equals the committed Get-FileXxHash golden value for every conformance fixture (SR-030). bats: tests/bash/hash_conformance.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-054]
+verifies = ["SR-031", "LLR-031"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}; origin=set{backup-root,snapshot}"
+expected = """A PowerShell-produced fixture backup restores byte-exact on Linux via reconstruct.sh from the root and from each snapshot (SR-031). bats: tests/bash/restore.bats + CI cross-artifact job."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-055]
+verifies = ["SR-031", "LLR-031"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "cause=set{missing-datapath,hash-unrecoverable}"
+expected = """reconstruct.sh restores every recoverable row then exits non-zero naming the unrestored count when a data source is destroyed; clean restore exits 0 (SR-031, mirrors TC-051)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-056]
+verifies = ["SR-032", "LLR-032"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "field=set{plain,comma,quote,unicode,bracket,space}"
+expected = """Golden Write-Manifest outputs parse to identical field values in bash; RelativePath separator mapping round-trips (SR-032). bats: tests/bash/manifest_parse.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-057]
+verifies = ["SR-033", "LLR-033"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}; direction=set{bash->pwsh,pwsh->bash}"
+expected = """Cross-implementation interop: a backup produced by either engine restores byte-exact via the other implementation's restorer (SR-033). Phase bash-v2."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-058]
+verifies = ["SR-022", "SR-010", "LLR-010"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "store=constructed-legacy; row=nested-infra-named-pool-file"
+expected = """A row whose only physical copy is a NESTED infra-named pool file hash-recovers: the infra skip is root-level-only (B6) and the restore does not throw INCOMPLETE (SR-022/SR-010). Since WP9 step 5 the engine cannot produce this shape (hash names are flat at the root), so both twins CONSTRUCT it - the restorers deliberately still serve legacy stores, where it occurs naturally. Pester: Describe 'Hash recovery of a nested infra-named pool file'; bash twin: restore.bats B6 test. Review round 2026-08-23 (kit revision 4): a NON-BLANK DataPath is a locator HINT - when the named file is missing both restorers fall back to the same (hash,length) pool recovery before declaring the content missing, so the Optimize-ChangeFolders delete-before-blank crash window no longer reads as data loss (Pester: 'Backup pipeline crash-window hardening' Describe)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-059]
+verifies = ["SR-007", "SR-031", "LLR-007", "LLR-031"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """A completed backup and its dated snapshot each contain RECONSTRUCT.cmd, RECONSTRUCT.command, RECONSTRUCT.ps1, and the repository-identical self-contained reconstruct.sh, so either origin is directly recoverable on Windows or POSIX without the repository. Pester: Describe 'Cross-platform restore kit deposition'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-060]
+verifies = ["SR-034", "LLR-034"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "distribution=set{local,tar,registry}; restore=compressed"
+expected = """On a Docker-capable Linux runner, scripts/Invoke-Container.ps1 -Action BuildAndTest builds the image, backs up a read-only source using a separate writable source-state mount, produces a compressed two-file backup with the complete 8-artifact recovery kit, restores it in a second container, and SHA-256 compares both files; CI additionally proves the image survives a `docker save`/-Action Load roundtrip and a publish/pull roundtrip through a throwaway registry, each re-smoke-tested (TC-079). Review round 2026-08-23: RelativePath keying is filesystem-faithful via New-RelativePathMap - case-differing Linux filenames stay distinct rows through diff, backup map, source cache and the PS restorer dictionary, and Reconstruct.ps1 maps '\\' separators on non-Windows hosts (the Windows merge half runs in Pester Common tests; the Linux distinct half rides this container job)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-061]
+verifies = ["SR-035", "LLR-035"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "state=set{missing,malformed}"
+expected = """After a first backup, removing or corrupting FileBackupState.json then re-running with changed source exits 1, leaves backup bytes and MANIFEST.csv untouched, and creates no snapshot (SR-035). Pester: Describe 'Backup history safety gates (SR-035, SR-036)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-062]
+verifies = ["SR-036", "LLR-036"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "override=set{default,allow}"
+expected = """Emptying a previously populated source makes the next run exit 1 with backup and manifest intact; re-running with AllowEmptySource=true performs the delete-all and snapshots the prior state (SR-036). Pester: Describe 'Backup history safety gates (SR-035, SR-036)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-063]
+verifies = ["SR-008", "SR-029", "LLR-029"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "cause=set{missing-manifest,missing-7zip}"
+expected = """RECONSTRUCT refuses an origin whose MANIFEST.csv is missing, and refuses compressed rows when 7-Zip is unavailable instead of copying archive bytes under the original name (SR-008/SR-029, HomeHub finding A). Pester: Describe 'Restore dependency preflight (SR-008, SR-029)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-064]
+verifies = ["SR-009", "SR-029", "LLR-009"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "row=traversal-relativepath"
+expected = """A manifest RelativePath that escapes the target root is refused, warned, and counted unrestored so the run fails loudly (SR-009/SR-029). Pester: Describe 'Restore target guard (SR-009)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-065]
+verifies = ["SR-037", "LLR-037"]
+level = "Unit"
+method = "Inspection"
+tier = "Full"
+expected = """Inspection: FileBackup.Common.psm1 seeds SevenZipDefaultPath from FILEBACKUP_7ZIP_PATH with no module-scope Windows path construction (Common.psm1:63); Invoke-Container.ps1 BuildAndTest imports the modules on Linux (SR-037)."""
+automated = "No"
+status = "Drafted"
+
+[test.TC-066]
+verifies = ["SR-038", "LLR-038"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "records=set{rows,empty,rewrite}"
+expected = """Write-Manifest emits MANIFEST.csv.meta beside the manifest with Version=1, Rows equal to the data-row count, Bytes equal to the file length, and XxH128 equal to Get-FileXxHash of the manifest; Review round 2026-08-23: the backup pipeline now CONSULTS the witness it publishes - a Mismatch/Malformed verdict on the root manifest refuses the set BEFORE staging or mutation and surfaces as process exit 3 (IF-001's exit table applies to backup), while Absent stays legal so a legacy store still backs up (Pester: Describe 'Backup pipeline crash-window hardening (2026-08-23 review round)'); an empty record set yields Rows=0; rewriting the manifest replaces the sidecar atomically (no .tmp survives) (SR-038). Pester: Describe 'Manifest witness sidecar (SR-038)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-067]
+verifies = ["SR-038", "SR-022", "LLR-038"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "path=set{root-witness,nested-same-name}; origin=set{backup-root,snapshot}"
+expected = """After two runs, backup.log contains no orphan/not-in-DB WARN for MANIFEST.csv.meta, a nested sub\\MANIFEST.csv.meta is backed up and restored as user data (B6), and each dated snapshot folder carries its OWN witness matching its own manifest rather than the backup root's (SR-038/SR-022). Pester: Describe 'Manifest witness is infrastructure (SR-022, SR-038)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-068]
+verifies = ["SR-039", "LLR-039"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "damage=set{truncated,byte-edited,replaced-garbage,absent-sidecar,restamped}"
+expected = """RECONSTRUCT.ps1 aborts before writing any manifest row when the origin manifest is truncated or byte-edited (witness failure, exit 3) or replaced by non-CSV text (unrecognizable header, exit 2 — precedence 2 > 3), restores normally once the witness is re-stamped, and restores a sidecar-less legacy origin while logging 'unverified'; -RequireWitness turns that absence into the same abort (SR-039). Pester: Describe 'Manifest witness verification on restore (SR-039)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-069]
+verifies = ["SR-039", "SR-031", "LLR-039"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "damage=set{truncated,byte-edited,replaced-garbage,absent-sidecar}"
+expected = """reconstruct.sh is the bash twin of TC-068 over a writable fixture copy: a truncated, byte-edited or row-shortened manifest exits 3 with nothing written into the target while a manifest replaced by non-CSV garbage exits 2 via the pre-existing header guard (precedence 2 > 3), the re-stamped copy restores, a sidecar-less origin exits 0 with an 'unverified' warning, and --require-witness makes it exit 3 (SR-039/SR-031). bats: tests/bash/witness.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-070]
+verifies = ["SR-040", "LLR-040"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "cause=set{clean,content-missing,precondition,witness-mismatch,host-dependency}"
+expected = """Invoked as a child process (pwsh -File RECONSTRUCT.ps1 -ExitCode), the PowerShell restorer returns 0 clean, 1 when a row's only data source was deleted, 2 for a target inside the backup and for a missing MANIFEST.csv, 3 for a witness mismatch, and 4 when an archive row's recovery needs an unavailable 7-Zip; the in-process invocation still throws with the existing wording (SR-040). Pester: Describe 'Restore exit-code table (SR-040)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-071]
+verifies = ["SR-040", "SR-031", "LLR-040"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "cause=set{clean,content-missing,precondition,witness-mismatch,host-dependency}"
+expected = """reconstruct.sh returns the same five codes for the same five induced conditions as TC-070, and the pre-existing TC-055 expectations (0 clean, 1 incomplete, 1 traversal, 2 corrupt/unrecognized manifest header) are unchanged (SR-040/SR-031). bats: tests/bash/exit_codes.bats + tests/bash/fail_loudly.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-072]
+verifies = ["SR-040", "LLR-040"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "cause=set{ContentMissing,DependencyMissing,StorageUnreadable,CandidateError}"
+expected = """Find-DataFileByHash returns a distinct Cause for each of the four collapsed failures and RECONSTRUCT.log carries a distinct message per cause, with the terminating summary naming the count per class instead of one 'cannot recover by hash' line (SR-040, HomeHub finding D). Pester: Describe 'Hash-recovery failure causes are distinguishable (SR-040)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-073]
+verifies = ["SR-041", "LLR-041"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "loop=set{removed-eviction,superseded-preservation}; failures=2"
+expected = """With two data files held unmovable during one run, backup.log records an ERROR per failure plus a summary count, every other entry is still staged, the dated snapshot is still finalized, the run exits 1, no Temp staging folder survives, and the following run completes normally instead of tripping the SR-017 stale-staging guard (SR-041). Pester: Describe 'Move loops aggregate failures (SR-041)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-074]
+verifies = ["SR-042", "LLR-042"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "format=set{json,clixml}; optional=set{present,absent}; corpus=set{accepted}"
+expected = """Import-BackupConfiguration accepts container/FileBackup.example.json verbatim -- the checked-in file itself, with no in-memory patching and no filesystem access -- returning ConfigVersion 1 and one set; every accepted fixture in the ONE shared corpus (tests/Common/ConfigFixtures.ps1, also driven by TC-075 and TC-077) loads, including a single bare BackupSets object (wrapped, matching the schema's anyOf) and an integral-valued ConfigVersion number (JSON has one number type, so 1.0 IS 1); a minimal JSON config omitting SourceStatePath and AllowEmptySource yields SourceStatePath equal to SourcePath and AllowEmptySource false; a lowercase HashRecalcFreq is normalized to upper; the CLIXML configs written by tests/Common/Harness.ps1 still load with identical field values (SR-042). Pester: Describe 'Configuration loader accepts the documented contract (SR-042)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-075]
+verifies = ["SR-042", "LLR-042"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """defect=set{missing-version,future-version,out-of-range-version,fractional-version,string-version,zero-version,unknown-key-top,unknown-key-set,unknown-key-tools,json-credential,string-boolean-compress,string-boolean-preserve,string-boolean-allowempty,array-sourcepath,number-name,number-sourcestatepath,number-toolspath,array-hashfreq,number-secrets-string,non-integer-port,string-backupsets,bad-enum,empty-sets,missing-key,empty-string,not-json}"""
+expected = """Every defective JSON config in the shared corpus (tests/Common/ConfigFixtures.ps1) is refused by a terminating error naming the offending key by its JSON path (with the set's REAL index, not a literal [?]) and the expected type or value set. EVERY schema-defined value is type-checked, not just the two booleans: a quoted "false" is rejected for CompressEnabled, PreserveFolderTree AND AllowEmptySource (where [bool]'false' is $true, which would silently disarm the SR-036 delete-all refusal), an array or number where a string belongs is rejected (SourcePath, Name, SourceStatePath, HashRecalcFreq, Tools.SevenZipPath, Secrets strings), Secrets.SmtpPort must be an integer, and an out-of-range ConfigVersion is refused as an unsupported version rather than by fractional-representation luck; "AllowEmptySources" is rejected as an unknown key rather than silently ignored; the existing wordings 'at least one BackupSets entry', 'must define a non-empty', and 'invalid HashRecalcFreq' are preserved. No backup, change, state or log artifact is created by any refused run -- in particular a refused run never creates a log directory and never truncates the previous run's global log (SR-042). Pester: Describe 'Configuration loader fails loudly and names the key (SR-042)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-076]
+verifies = ["SR-042", "SR-034", "LLR-042"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "substitution=set{paths,seven-zip}; compress=set{on,off}"
+expected = """The shipped container/FileBackup.example.json is loaded, has ONLY its SourcePath/SourceStatePath/BackupPath/ChangePath and Tools.SevenZipPath retargeted to the test drive and host 7-Zip (every other key kept verbatim), and drives a real FileBackup.ps1 run that produces MANIFEST.csv plus the restore kit and restores byte-exact; a keys-only diff proves the executed document is key-identical to the checked-in example, so the example can no longer drift from the contract (SR-042/SR-034). The keys-only diff is host-independent and runs BEFORE the 7-Zip skip guard, so a runner without 7-Zip still catches example drift; CI's unit job asserts 7-Zip is present so the run half cannot silently skip. Pester: Describe 'The shipped example config is executable (SR-042)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-077]
+verifies = ["SR-042", "LLR-042"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "artifact=set{schema,example,readme,smoke-config}"
+expected = """container/FileBackup.schema.json accepts (via Test-Json, given the JSON and the schema as STRINGS -- the -Path/-SchemaFile forms need pwsh 7.4, above this repo's PowerShell 7+ floor) every fixture the validator accepts and rejects every fixture it rejects, reading the ONE shared corpus tests/Common/ConfigFixtures.ps1 that TC-074/TC-075 drive, so the published schema and the runtime validator cannot drift and the fixture lists cannot be hand-copied out of sync; the schema's BackupSets anyOf and ConfigVersion const agree with the validator on a bare single set object and on an integral-valued version number; container/FileBackup.example.json, the README JSON block, and Invoke-Container.ps1's New-SmokeConfiguration all declare ConfigVersion equal to the loader's supported maximum (SR-042). Pester: Describe 'Published JSON schema matches the validator (SR-042)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-078]
+verifies = ["SR-043", "LLR-043"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """invocation=set{in-process,child-process}; switch=set{present,absent}; outcome=set{clean,set-failure,config-failure,config-missing}"""
+expected = """Run as a child process with -ExitCode, a schema-violating config returns 2 with no backup artifacts created, a MISSING or unsupported-extension config file also returns 2 (the likeliest container misconfiguration -- NagLight must not retry forever on exit 1), a config whose only set fails returns 1, and a clean single-set run returns 0; a refused run leaves a seeded global log byte-intact and creates no log directory at a fresh path; the same invocations without -ExitCode return the pre-change codes and the in-process '& $entry' call still throws for a bad config; a two-set JSON config logs the IF-001 one-set-per-invocation warning naming the count while still processing both sets (SR-043). Pester: Describe 'Entry-point status codes (SR-043)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-079]
+verifies = ["SR-044", "SR-034", "LLR-044"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "distribution=set{tar-load,registry-publish-pull}"
+expected = """On the ubuntu-latest container CI job, scripts/Invoke-Container.ps1 -Action Export followed by docker rmi and -Action Load reproduces a working image verified by -Action Test; separately, -Action Publish to a throwaway registry:2 service followed by docker rmi (both tags) and -Action Pull reproduces a working image verified by -Action Test. Both roundtrips run in the same job, teardown via the registry service's automatic container lifecycle."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-080]
+verifies = ["SR-044", "SR-005", "SR-010", "LLR-044"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "kit=8-artifact; run=set{initial,incremental}"
+expected = """The container smoke test's kit check lists all 8 real kit artifacts (adds RECONSTRUCT.paths.json to the existing 7). After the first no-snapshot backup and its restore, the source is mutated (one file changed, one removed, one added) and the container is run a second time; exactly one dated snapshot folder appears under /changes with its own complete kit; a restore container reconstructs the latest state from /backup and byte-compares it against the mutated source; a second restore container invokes RECONSTRUCT.ps1 from inside the snapshot folder itself and byte-compares its output against the pre-mutation source (SR-010 point-in-time authority)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-081]
+verifies = ["SR-045", "LLR-045"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "compress=set{on,off}; demand=set{snapshot-blank-row,backup-root-blank-row}"
+expected = """In each of the four storage modes, a timeline is built in which the newest snapshot holds the only physical copy of content an older snapshot's blank-DataPath row needs; pruning it re-homes exactly that file into the elected destination with the SOURCE row's Compressed/StoredAsHashSize adopted on the destination row, the re-homed content hashes to the row's xxH2Hash at its Length, and every remaining dated state plus the latest state restores byte-exact (exit 0). Pester: Describe 'Prune re-homes the last copy before deleting (SR-045)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-082]
+verifies = ["SR-045", "SR-028", "SR-010", "LLR-045"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """cycle=set{delete,reintroduce-identical,delete-again}; order=set{newest-first,oldest-first}"""
+expected = """TC-049's delete / reintroduce-identical / delete-again timeline extended with prunes: pruning the keeper snapshot leaves the content stored exactly ONCE on the quiescent state and every remaining state restorable; pruning oldest-first copies zero bytes; a nested MANIFEST.csv in the fixture stays user data (B6). Runs in the G9-Rollback integration suite across the four modes."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-083]
+verifies = ["SR-046", "LLR-046"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """phase=set{after-copy,after-manifest,after-commit-rename}; residue=set{staged-copy,committed-folder,user-file-named-like-residue}; run=set{real,whatif,refused}"""
+expected = """The transaction is interrupted at each phase boundary (the materialized .fbprune.tmp left behind, the destination manifest published but the folder not yet renamed, the folder renamed to Pruning_* but not yet deleted): every dated state still restores byte-exact from every origin, the residue is invisible to both restorers' the dated pattern, and simply re-invoking the command completes the operation and sweeps the residue -- with no journal file anywhere in the store. Pester: Describe 'Prune is idempotent and resumable (SR-046)'. Plus the WP4-review residue cases: a Mirror-mode USER file named '*.fbprune.tmp' (root-level and nested) survives a refused prune, a dry run and a successful prune of another snapshot and still restores byte-exact from every origin, while a genuine unreferenced staged copy beside it is still swept; a refused prune and a -WhatIf run both leave staged and committed residue exactly as they found it (and log nothing about it); an undeletable committed residue is reported as code 4; and the residue completion is scoped to the name being pruned, leaving another name's 'Pruning_*' alone."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-084]
+verifies = ["SR-046", "SR-035", "SR-039", "SR-040", "LLR-046"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """refusal=set{witness-mismatch,witness-absent,run-state,staging-busy,bad-target,unreferenced-data,broken-pool,form-mismatch,capacity,copy-io,infrastructure-name,destination-collision,staging-busy-toctou}"""
+expected = """Each of the induced refusals returns its documented SR-040 code (3 for the witness pair, 2 for the rest, 4 for an induced copy I/O failure) and leaves the store byte-identical -- a recursive file-hash comparison covering FileBackupState.json, every manifest and every witness. -AllowUnverifiedIndex and -DiscardUnreferencedData convert their own refusals into warned successes. Manifests tampered with on purpose are re-stamped with Write-ManifestWitness so the failure observed is the one intended and not exit 3 (AGENTS.md 3). Pester: Describe 'Prune refuses before mutating (SR-046)'. The three rails WP4 shipped untested are covered: destination-collision (a different file parked on the elected name), infrastructure-name (the re-homed name would be a root-level infrastructure name at the destination), and capacity -- the last rebuilt on Common's Get-FreeSpaceBytes/Get-VolumeIdentity (SR-052) and exercised with the probe stubbed on drive-qualified AND UNC destinations, refusing with 2 when free space is short and skipping when the volume cannot be measured. The staging lock's TOCTOU window is pinned by making the folder appear after the rails pass: creating the lock must itself refuse with staging-busy (2) and must not delete the other holder's folder."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-085]
+verifies = ["SR-046", "SR-038", "SR-045", "LLR-045", "LLR-046"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "destination=set{backup-root,snapshot}"
+expected = """After prunes that re-home into the backup root and into a surviving snapshot, Test-ManifestWitness reports Verified for EVERY manifest in the pool and Reconstruct.ps1 -RequireWitness exits 0 from each origin; no MANIFEST.csv.meta is ever copied between folders. Source guard over the prune path: no Export-Csv and no direct Write-ManifestWitness call. Pester: Describe 'Prune re-stamps every manifest it rewrites (SR-038)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-086]
+verifies = ["SR-045", "SR-005", "SR-010", "LLR-045"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "compress=set{on,off}"
+expected = """Column-wise before/after comparison of every manifest in the pool across the four storage modes: the row sets are identical (same count, same RelativePath order), the six logical columns RelativePath/Length/LastWriteTimeStr/xxH2Hash/Duplicate/MediaMBPerSec are unchanged in every row of every folder, and the only differences are DataPath/Compressed/StoredAsHashSize in the rows the plan named. Pester: Describe 'Prune changes only the storage-form columns (SR-045)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-087]
+verifies = ["SR-047", "LLR-047"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "snapshots=set{1,3}; sharing=set{none,shared-with-root,shared-between-snapshots}"
+expected = """Get-BackupSnapshot returns one record per snapshot with all six fields, PhysicalBytes = BytesReclaimed + BytesReHomed, Rows equal to the snapshot's own manifest row count, and a Date parsed from the folder name; the reported BytesReclaimed equals the measured whole-store byte drop after actually removing that snapshot, once the few bytes a destination manifest and its witness gain from the written DataPath are accounted for explicitly (index, not content) and BytesReHomed equals the measured bytes copied; running the report leaves every file in the store byte-identical; the records serialize to one JSON object per snapshot carrying all six fields; the oldest snapshot's plan re-homes nothing while the newest's does. Pester: Describe 'Snapshot inventory reports true dedup-aware reclaim (SR-047)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-088]
+verifies = ["SR-048", "SR-043", "SR-034", "LLR-048"]
+level = "Integration"
+method = "Test"
+tier = "Release"
+parameters = """action=set{backup,prune,snapshots,legacy-flags-only}; outcome=set{clean,unknown-snapshot,dry-run}"""
+expected = """In-container (Docker CI job): the snapshots action emits parseable JSON and exits 0 modifying nothing; pruning a valid snapshot name exits 0 and every remaining state restores byte-exact in-container; an unknown name exits 2 with the tree unchanged; a dry run exits 0 changing nothing; the default action and a flags-only invocation are byte-identical in behavior to today (TC-060/TC-076 re-run unchanged). Locally runnable halves, which DO run in the Pester suite: the entrypoint's action dispatch and '-'-prefixed pass-through parsed out of container/entrypoint.sh, the -Action/-Snapshot parameter contract on FileBackup.ps1, the grep guard proving bash/reconstruct.sh carries no removal path, and the snapshots action printing the literal empty JSON document [] for a store holding no snapshots (WP5 residual - a zero-object pipeline into ConvertTo-Json emitted nothing at all, breaking the IF-001 inventory contract on the empty store). The in-container half awaits the Docker CI job."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-089]
+verifies = ["SR-026", "SR-045", "LLR-047"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "keeper=set{backup-root,newest-snapshot}; row=set{shared,vanished}"
+expected = """Regression pin for the Get-BackupContentIndex extraction, run green against the PRE-refactor code: over a hand-built pool Optimize-ChangeFolders keeps the backup copy as keeper, elects the newest snapshot when there is no root copy, deletes no backup-root file, blanks every row whose data file is gone, leaves the row sets otherwise untouched, re-witnesses every manifest it rewrites, and leaves exactly one physical copy per (hash,length) (TC-049's property); an empty change root is a no-op that does not even rewrite the backup manifest. Pester: Describe 'Optimize-ChangeFolders is unchanged by the shared index (SR-026)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-090]
+verifies = ["SR-045", "SR-046", "LLR-045"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "position=set{oldest,middle,newest,only}"
+expected = """Over a four-snapshot timeline, pruning at every timeline position: the oldest copies zero bytes, the newest re-homes its superseded bytes, and the middle and the sole remaining snapshot both succeed -- no refusal for the newest or the last. Every case leaves each remaining dated state and the latest state restorable byte-exact and exactly one physical copy per live (hash,length). Runs in the G9-Rollback integration suite."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-091]
+verifies = ["SR-049", "LLR-049"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """defect=set{flag-over-raw,flag-over-archive,name-lies,dangling-datapath}; sevenzip=present"""
+expected = """REPRO-FIRST (red before any WP5 code): with 7-Zip present, each malformed row survives a full backup run untouched by Sync-BackupStorageLayout - the metadata-only comparison at Engine.psm1:529 leaves flag-over-raw and flag-over-archive rows byte-identical and reports the set as successful, and a Compressed=Yes-over-raw row whose configuration now says No produces only a logged ERROR while the set still succeeds. Manifests are re-stamped with Write-ManifestWitness after tampering so the intended failure is observed, not exit 3. Pester: Describe 'Sync-BackupStorageLayout trusts metadata over bytes (SR-049)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-092]
+verifies = ["SR-050", "SR-049", "LLR-050"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """direction=set{compression-on-after-snapshot,compression-off-after-snapshot}; compress=set{on,off}"""
+expected = """REPRO-FIRST for the WP4-surfaced latent defect, with NO tampering: run with compression off, supersede a file to create a snapshot, then re-run with compression on so only the backup root migrates. Before the fix, restoring that snapshot writes 7z container bytes under the original filename and exits 0; after the fix the restored bytes equal the original exactly and the exit is 0. The reverse flip, which before the fix exits 4 with a misfiled host-class cause, likewise restores byte-exact. Both restorers. In G9-Rollback plus a bats counterpart. This is THE SR-050 integration proof (TC-097 covers the extension-list migration, not this)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-093]
+verifies = ["SR-049", "LLR-049"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "compress=set{on,off}; scope=set{root,root+snapshots}; defect=set{each,clean}"
+expected = """The verification action reports one finding per disagreeing row across the backup root and every snapshot, mutates nothing (pre/post hash of every file in the tree, including MANIFEST.csv and its witness), and maps its outcome onto the SR-040 table: 0 clean, 1 findings, 2 precondition (missing manifest, -Deep without 7-Zip), 3 witness failure, 4 host. A clean backup in each of the four modes reports zero findings. Its already-compressed fixtures hold REAL 7z bytes (a literal string is Raw to Get-StoredFileForm, so the assertion would pass vacuously), both under a .7z name and under a name that hides it. Payload-keyed exemption (WP5 re-review residual HIGH): an UNTAMPERED store holding a source file that IS a 7z archive under a non-.7z name (archive.7z.bak) reports ZERO findings in all four modes with and without -Deep, exits 0, is left byte-identical by repair, and restores byte-exact before and after; the converse - archive bytes whose PAYLOAD and not whose file matches the row - is still found as FlagOverArchive and repaired. JSON document pin (WP5 residual, found by TC-102's harness in the first real container run): at the process boundary the findings print as ONE parseable JSON document - a non-empty array carrying Class for a malformed store, and the literal empty-array document [] for a clean store (piping zero objects into ConvertTo-Json used to emit nothing at all, breaking the SR-049 report contract on exactly the clean store while every exit code stayed correct). Read-only routing (WP5 review finding m2): the action creates no directory and does not require SourcePath - it verifies a store whose source is gone, and a backup root that does not exist is code 2 with neither root conjured. Describe 'Storage-form verification reports without mutating (SR-049)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-094]
+verifies = ["SR-049", "SR-024", "SR-038", "LLR-049"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "action=repair; compress=set{on,off}; sharing=set{unshared,shared-datapath}"
+expected = """Repair mode makes every unambiguous finding agree, leaves the six logical columns byte-identical, re-stamps every rewritten folder's witness (Test-ManifestWitness = Verified for every pool manifest; Reconstruct.ps1 -RequireWitness exits 0 from each origin), never re-packs content (data-file payload hashes unchanged), and reports blank-row form disagreements without repairing them. A backup run immediately after a repair is idempotent (SR-024): its manifest rows are byte-identical to a run with no repair in between. Source guard: no verification or repair symbol is reachable from Invoke-BackupSet, and the repair path contains no Export-Csv and no direct Write-ManifestWitness call. A row whose stored bytes reproduce its OWN (xxH2Hash,Length) is never rewritten to Compressed=Yes, whatever its RelativePath is called, so repair cannot turn a correct store into one whose restore expands the user's own archive. Dedup case (WP5 review finding H1): two identical-content rows sharing ONE DataPath in the FlagOverRaw shape are BOTH healed by a single repair - the file is renamed once, both rows adopt it, no row is left dangling, the store re-verifies clean and restores byte-exact."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-096]
+verifies = ["SR-004", "LLR-004"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "ext=set{original-17,merged-8,wp17-part-a,unlisted}"
+expected = """Test-ShouldCompress returns false for every extension in the merged already-compressed list - the original seventeen plus .jar .tgz .zst .gif .webm .ogg .sav .pack - is case-insensitive, inspects the extension and not the path, and still returns true for compressible extensions. AMENDED 2026-09-01 (WP17, Owner ruling Q7): the arm that asserted .docx .txt .xlsx .csv .log .bin compress BECAUSE SN-003 SAYS SO is re-scoped to what it can honestly claim - Test-ShouldCompress (THE LIST) says compress for .docx .txt .xlsx .csv .log .bin. SN-003's acceptance line is an EXAMPLE of the need, not a ruling on those formats, so the COMPOSED decision's behaviour on them is TC-224's, not this case's: under mode always above the floor a .docx over incompressible bytes is stored raw. The list arm additionally covers WP17 Part A's additions and non-additions (TC-222). Parity guard: the list is defined in exactly one place and its documented form in README/AGENTS matches it. Amends TC-002 rather than replacing it."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-097]
+verifies = ["SR-004", "SR-061", "SR-049", "LLR-060"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}; corpus=merged-extensions-plus-snapshots"
+expected = """The extension-list merge at scale: a compression-enabled backup seeded with .gif .webm .jar .tgz .zst .ogg .sav .pack content plus text, run to produce two snapshots on the pre-merge list, is re-run on the merged list. Under SR-061 the merge re-forms NOTHING already stored - it changes only which extensions get compressed on the way in - so no row is rewritten, nothing dangles, and afterwards EVERY state (both snapshots and the latest) restores byte-exact with exit 0 in both restorers; a third run is idempotent (SR-024) and storage-form verification reports zero findings, because a Compressed=Yes row backed by genuine archive bytes is well-formed whatever the current extension list says. Suite case G4.2. SCOPE NOTE (WP5 review finding m3): the case forces CompressEnabled=true - the extension-list merge only bites with compression on. TC-092 is the SR-050 integration proof; this case's SR-049 reference is the zero-findings assertion, not a second SR-050 proof. AMENDED at WP9 step 9: the migration this case used to trigger no longer exists, so the assertion inverted from 'the migration leaves nothing dangling' to 'nothing is re-formed at all'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-098]
+verifies = ["SR-050", "SR-040", "LLR-050"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """direction=set{row-says-No-file-is-archive,row-says-Yes-file-is-raw,genuine-7z-source}; origin=set{backup-root,snapshot}"""
+expected = """Reconstruct.ps1: a blank-DataPath row whose only pool match is the opposite form restores the true original bytes and exits 0 in both directions; an archive candidate that cannot be expanded but whose raw bytes match (hash,length) is recovered rather than reported as a candidate error; a row with a non-blank DataPath is still resolved by its own Compressed column; genuinely missing content still exits 1 and a genuine host failure still exits 4. Plus the GENUINE .7z source case (WP5 review finding H2, no tampering): an ordinary two-run timeline whose source holds a real .7z leaves that row blank in the snapshot; the candidate expands successfully but to other content, and its own bytes must still be tested - the snapshot restores byte-exact with exit 0 while Test-BackupStorageForm reports the store clean. Describe 'Hash recovery trusts the located file's form (SR-050)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-099]
+verifies = ["SR-050", "SR-031", "SR-040", "LLR-050"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "direction=set{row-says-No-file-is-archive,row-says-Yes-file-is-raw,genuine-7z-source}"
+expected = """bash/reconstruct.sh mirrors TC-098 exactly under bats: find_by_hash reports the located form, the restore loop consults it, byte-exact output in both directions, a blank row for a GENUINE .7z file (which expands successfully but to other content) is recovered from the candidate's own bytes, unchanged exit codes for content-missing and host classes, shellcheck clean. In tests/bash."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-100]
+verifies = ["SR-052", "LLR-052"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "volume=set{backup,change,same-volume}; fit=set{fits,does-not-fit}"
+expected = """A backup set whose estimated additions exceed the destination volume's free space (induced by a stubbed free-space probe) refuses before any mutation: the backup root, change root and FileBackupState.json are byte-identical to before the run, the message names volume, required and free bytes, and the entry point OBSERVABLY exits 1 (child process, a genuine shortfall with no stub - WP5 review finding m1). A set that fits proceeds unchanged. Two demands on ONE volume are summed against that volume's free space, so a pair that each fit and together do not is refused (finding M2). Describe 'Backup capacity preflight refuses before mutating (SR-052)'. AMENDED at WP9 step 9: the migration component of the estimate retired with the migration itself (SR-061), and the case that asserted it was deleted rather than left inert."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-101]
+verifies = ["SR-052", "SR-023", "LLR-052", "LLR-023"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "platform=set{windows,linux}"
+expected = """Get-FreeSpaceBytes returns a plausible non-zero value for a drive-qualified Windows path and never throws for an unresolvable one; Get-VolumeIdentity answers a real MOUNT POINT from [System.IO.DriveInfo]::GetDrives() rather than the path handed to it, picking the longest mount point that prefixes the path (the same matcher the Linux fix depends on, exercised on Windows - WP5 review finding M2); run inside the container against a rooted POSIX path it returns non-zero, and an inflated manifest length makes the containerized Reconstruct.ps1 abort with the SR-023 precondition code - the check that Split-Path -Qualifier silently skipped on Linux. Windows half in Pester, Linux half in the Docker CI job."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-102]
+verifies = ["SR-049", "SR-048", "SR-043", "LLR-049"]
+level = "Integration"
+method = "Test"
+tier = "Release"
+parameters = "action=set{verify,verify-repair}; outcome=set{clean,findings}"
+expected = """In-container: the verification action emits a parseable report and exits 0 on a clean backup while modifying nothing; against a seeded malformed row it exits non-zero per the SR-040 table; repair mode fixes it and a re-verify exits 0; the default backup action and a flags-only invocation remain byte-identical in behaviour (TC-060/TC-076/TC-088 re-run unchanged). Runs in the Docker CI job."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-103]
+verifies = ["SR-053", "LLR-053"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """loss=externally-deleted-root-data-file; adoption=new-same-content-file-in-same-run; diff=set{blank-DataPath,non-blank}"""
+expected = """Pure diff: a metadata-identical row with a blank DataPath lands in NewOrChanged; with a non-blank DataPath it does not. End-to-end: after Remove-Item of a root data file plus a NEW same-content source file, the next run exits 0, BOTH rows carry a non-blank DataPath naming a file that exists, and the standalone-kit restore reproduces both files byte-exact. Pester: Describe 'WP7 storage self-healing and retention unblock'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-104]
+verifies = ["SR-054", "LLR-054"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "content-copies-deleted=every-physical-copy; action=Verify"
+expected = """With every physical copy of gone.txt's content removed from the prune-timeline pool, a child-process -Action Verify exits 1 and the line-framed JSON document contains a finding with Class=PoolUnresolvable. WP7 review pin: a row whose named file is gone while the content survives elsewhere reports Class=PoolDataPathMissing and NO PoolUnresolvable; deleting the surviving copy flips it to PoolUnresolvable. And the capacity preflight budgets a heal (a blank row's key is not already-held). Pester: same WP7 Describe."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-105]
+verifies = ["SR-046", "LLR-054"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "kit=set{revision-4,regressed-to-1}; trigger=CompressEnabled-flip"
+expected = """After a CompressEnabled flip plus one migrating run on the prune timeline: -Action Prune of the newest snapshot exits 0 (kits are revision 2+; the blank-row form rail does not fire) and the surviving snapshot restores byte-exact across the flip; with the oldest snapshot's kit marker regressed to revision 1, the same prune exits 2 naming form-mismatch and the -RefreshKits remedy. Pester: same WP7 Describe."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-106]
+verifies = ["SR-055", "LLR-055"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """char=set{quote,pipe,newline,trailing-dot,trailing-space}; prior-row=set{none,frozen}; platform-arm=trailing-dot-via-\\\\?\\"""
+expected = """Unit matrix: Test-PortableRelativePath refuses quote/pipe/control/trailing-dot/trailing-space components naming the character and accepts Unicode/brackets/parens/spaces (the backslash-in-component arm is asserted on Windows through the -TreatAsPosix test seam (WP8 review, minor 1)). End-to-end: with a \\\\?\\-created trailing-dot source file plus a pre-existing manifest row of the same name, the run exits 1 with one Skipping ERROR, writes no row for the bad name, backs up the other files, and leaves the prior row and its data file frozen. Pester: Describe 'WP8 portable names and raw-candidate recovery'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-107]
+verifies = ["SR-050", "LLR-050"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "candidate=raw-bytes-under-.7z-name; seven-zip=absent"
+expected = """Kit revision 5: with no usable 7-Zip, a blank row whose only pool candidate is a RAW file under a .7z name restores byte-exact (the candidate's own bytes are hashed, needing no 7-Zip) - PS: RECONSTRUCT.ps1 with a bogus -SevenZipPath; bash: the 'raw .7z-named candidate WITHOUT 7z' bats case. A candidate whose raw bytes do NOT match still reports DependencyMissing/exit 4 (existing pins updated to non-matching fixture bytes)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-108]
+verifies = ["SR-056", "LLR-056"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """damage=set{wrong-payload,same-length-bitflip,truncated}; recoverable=set{pool-has-good-copy,pool-has-none}; resolution=set{own-datapath,hash-recovered}; form=set{raw,archive}; origin=set{backup-root,snapshot}@pairwise"""
+expected = """PowerShell restorer, kit-bump rev6 D-2 core matrix. Recoverable damage is silently healed from the pool: tree byte-exact, exit 0, and the log carries the ContentMismatch WARN line naming the row (a silent heal that leaves no trace is not acceptable). Unrecoverable damage exits 1 naming the row, every other row still restored. truncated is caught by both the length check and the hash check (asserted separately; same-length-bitflip proves the hash-only arm). The archive arm uses a .7z whose payload is wrong (repacked bytes), not a corrupt container (which already exits 4). Pester: Describe 'Restore verifies the bytes it wrote (SR-056)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-109]
+verifies = ["SR-056", "LLR-056"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """damage=set{wrong-payload,same-length-bitflip,truncated}; recoverable=set{pool-has-good-copy,pool-has-none}; resolution=set{own-datapath,hash-recovered}; form=set{raw,archive}; origin=set{backup-root,snapshot}@pairwise"""
+expected = """bash/reconstruct.sh twin of TC-108 against the same fixture shapes under bats: identical recoverable/unrecoverable outcomes, identical exit codes, identical ContentMismatch log line wording, shellcheck clean."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-110]
+verifies = ["SR-056", "SR-031"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """damage=set{wrong-payload,same-length-bitflip,truncated}; recoverable=set{pool-has-good-copy,pool-has-none}"""
+expected = """Cross-artifact CI interop: a Windows-made damaged store (each damage/recoverable combination) restores under both restorers with identical exit codes and identical restored bytes."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-111]
+verifies = ["SR-040", "LLR-040"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """pool-noise=set{unexpandable-7z,unreadable-candidate,none}; row=set{blank-datapath,named-file-missing}; sevenzip=set{present,absent}@pairwise"""
+expected = """PowerShell locator reclassification (D-3): an unrelated unexpandable .7z anywhere in the pool yields ContentMissing/exit 1 (was CandidateError/exit 4), the candidate still named in the detail; an unreadable candidate yields StorageUnreadable/exit 4; a no-7-Zip unreadable candidate records exactly one cause, never CandidateError plus DependencyMissing; a run containing both a genuinely unrecoverable row and a real host failure still exits 4 (4 > 1 precedence survives); the row's own archive failing to expand still exits 4 (CandidateError, host-class, unchanged). Pester: Describe 'Locators reclassify candidate-expansion failures as data damage (SR-040)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-112]
+verifies = ["SR-040", "SR-031"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """pool-noise=set{unexpandable-7z,unreadable-candidate,none}; row=set{blank-datapath,named-file-missing}; sevenzip=set{present,absent}@pairwise"""
+expected = """bash/reconstruct.sh twin of TC-111; extends tests/bash/exit_codes.bats with the same outcomes and the same precedence pin."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-113]
+verifies = ["SR-057", "LLR-057"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """class=set{dot-file,nested-dot-directory,windows-hidden-file,windows-hidden-directory,system-attribute}; compress=set{on,off}"""
+expected = """End-to-end hidden/dot capture across all four modes: a dot file at root, a nested dot-directory with content (.config/nested/deep.txt), a Windows Hidden file, a Windows Hidden directory, and a System-attribute file all appear in MANIFEST.csv and restore byte-exact; a restored hidden file's Hidden attribute is NOT required to survive the restore (the 9-column manifest has never carried attributes; README documents this). Run via Run-All across the 4-mode matrix."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-114]
+verifies = ["SR-057", "LLR-057"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """site=set{source-walk,external-cache-walk,restore-pool-scan,snapshot-enumeration,prune-residue,physical-bytes,7z-extract-pick}"""
+expected = """The static anti-regression guard (greps Modules/*.psm1, Reconstruct.ps1, FileBackup.ps1 for Get-ChildItem occurrences lacking -Force and fails naming the file/line, modeled on tests/Unit/Coverage.Tests.ps1) fails on a deliberately reverted site; a dot-named and a Windows-Hidden pool data file are both recovered by (hash,length) in Find-DataFileByHash; a hidden extracted payload is picked up by Expand-FileWithSevenZip; a hidden dated snapshot folder is present in Get-PoolSnapshotFolder and counted by Get-SnapshotPrunePlan's PhysicalBytes. bash: one regression-pin bats case proving reconstruct.sh already finds a dot-named pool file (it does today; the value is that it stays true)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-115]
+verifies = ["SR-016", "LLR-016"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """invocation=set{interactive-no-arg,noninteractive-no-arg,arg-given}; restorer=set{powershell,bash}"""
+expected = """Reconstruct.ps1 -NonInteractive with no -TargetRoot exits 2 with usage and never blocks; with -TargetRoot, unchanged; reconstruct.sh with no --target-root exits 2 with usage (existing behavior, pinned as the parity twin). The interactive-no-arg arm is manual/self-hosted (no automated Read-Host); instead assert the prompt branch is unreachable under -NonInteractive ([System.Console]::IsInputRedirected true for the in-process Pester callers, which always pass -TargetRoot so the branch stays provably dead there)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-116]
+verifies = ["SR-053", "SR-054"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "timeline=set{G2,G3,G9,G9Prune}"
+expected = """Orphan second pass as reusable harness tooling (tests/Common/PoolAudit.ps1, Get-BlankRowPoolViolations -BackupRoot -ChangeRoot, dot-sourced by Run-All.ps1 and called at the end of G2/G3/G9/G9Prune): after each timeline, every blank-DataPath row's (xxH2Hash,Length) in every manifest (backup root and every snapshot) is present among the hashes actually verified this cycle by reading and hashing pool bytes (expanding .7z candidates) - not merely Test-Path-resolved. Runs green over the existing (non-D-1) timelines; the D-1 owner-edit shape that is expected to fail on Mirror is out of scope for this WP (option-3 WP, kit-bump rev6 plan sec.6.3/sec.6.6)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-117]
+verifies = ["SR-055", "LLR-055"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "name=set{CON,NUL.txt,COM1,LPT9,con.tar.gz,CONSOLE.txt}; platform-arm=set{windows,posix}"
+expected = """Reserved device names (the kit-bump plan's deferred open question 2, ruled IN 2026-08-25): Test-PortableRelativePath refuses a component whose stem is CON/PRN/AUX/NUL/COM1-9/LPT1-9 case-insensitively, with or without an extension, and still ACCEPTS names that merely start with those letters (CONSOLE.txt). End-to-end: a source file so named is skipped, its row frozen, and the set marked failed with the rename-at-source remediation (SR-055's existing behavior; that skip/freeze/fail machinery is the already-Verified TC-106 path, unchanged - only the classifier grew a predicate). Automated at WP9 step 8b (Coverage.Tests.ps1 'classifies portability per name component', windows + posix arms). Landing it EXPOSED a latent classifier bug: the component split never split (an if-expression unrolled the [char[]] separators to object[]), invisible while every predicate was character- or suffix-scoped; fixed with a typed assignment in the same commit."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-118]
+verifies = ["SR-059", "SR-003", "SR-051", "LLR-059", "LLR-051"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """copies=set{2,3}; edit=set{owner,borrower}; removal=set{none,owner-removed,evict+supersede-same-run}; compress=set{on,off}"""
+expected = """D-1 repro. The borrow shape: an owner stores content, a LATER run adds one or more identical copies that adopt the owner's DataPath without writing bytes, then an ordinary edit of one holder follows. Every other holder must still restore its original content from the live backup, the pre-edit snapshot must reproduce the original for ALL of them, the pool must hold exactly one physical copy per distinct content, and Get-ClaimedRowViolations (tests/Common/PoolAudit.ps1 - every non-blank row's own DataPath must reproduce that row's (hash,length) from bytes) must report nothing. CRITICAL DIMENSION, established 2026-08-25 while writing the repro: the owner must be the ONLY PRIOR copy. A second copy in the SAME run as the owner MASKS the defect - the borrower's adopted DataPath may name the untouched sibling, and even when it names the edited file the surviving sibling keeps the content alive - which is why the HomeHub drill only saw this at cycle 10, on a twin of a single-copy file; further run-2 borrowers (copies=3) are a different axis and never mask it. Proven both ways: the same timeline passes content-addressed and is corrupt under Mirror (the change-detector Describe, deleted with the mode at WP9 step 5). WP9 step-4 arms automated (Coverage.Tests.ps1): evict+supersede-same-run (risk R4), the FROZEN-claim shape (SR-057 deny-ACE, non-vacuity-guarded per review MAJ-1), and the FAILED-copy shape (locked new-object destination) - the last two red-first-proven against the source-based survival test. WP9 step-9 arms automated: edit={owner,borrower} x copies={2,3} x compress={on,off}, eight arms over New-BorrowTimeline."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-119]
+verifies = ["SR-060", "LLR-058"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "duplicates=set{same-run,prior-run}; compress=set{on,off}"
+expected = """D-5 repro: two identical files first seen in ONE run produce exactly one physical pool file and one distinct DataPath, and the copy/compress counter (Get-PoolContentCopyCount) proves one write rather than two. Supersedes the G2.8 Mirror change-detector arm, which documents the defect today. AMENDED at the WP9 review (MAJ-2): the file-count assertions were VACUOUS with respect to the memo - under content addressing a second write lands on the same name with the same bytes, so deleting the memo outright left the whole suite green while every duplicate was re-copied. The engine now logs one line per PHYSICAL write and this case counts it, which is what SR-060 asked for all along."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-120]
+verifies = ["SR-060", "LLR-058"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "group=set{mixed-extension,mixed-compressibility,uniform}"
+expected = """Owner election is deterministic: a (hash,length) group holding a.txt/a.dat, or x.txt/x.jpg under CompressEnabled, elects exactly one physical object from the shortest RelativePath (ordinal tie-break), and every member row's Compressed and DataPath describe THAT object."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-121]
+verifies = ["SR-058", "SR-013", "LLR-058"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "row=set{new,adopted,evicted}; compress=set{on,off}"
+expected = """Every DataPath written by the engine matches the hash-name grammar '<hash16> <len10><ext>' and every written row carries StoredAsHashSize='Hash'. Automated at WP9 step 5 (Coverage.Tests.ps1 'Every stored row is content-addressed' + Get-HashNameGrammarViolations in PoolAudit.ps1)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-122]
+verifies = ["SR-059", "LLR-059"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "runs=set{3,5}; compress=set{on,off}"
+expected = """SR-059 immutability census: across a 3-run and a 5-run timeline (seed, a LATER duplicate that borrows, the owner editing away, the last live claim going, the old content returning under a new name), a per-run census records the PROVEN CONTENT at every DataPath the manifests claim - raw bytes where they match the row's hash, the expanded payload otherwise - and proves it never changes while the path persists. Content, not raw bytes: a .7z re-created for identical content is not byte-identical (7-Zip stores the member name and time) and re-creating an evicted object is legitimate; what SR-059 forbids is the CONTENT under a live claim changing. Each run additionally proves Get-ClaimedRowViolations and Get-UnjustifiedPoolNames clean - the latter is the pool-side half: every object's name must encode the (hash,length) its own content produces, so an object no live row claims is still held to the naming contract that hash recovery (SR-050) relies on. Automated at WP9 step 9 (Coverage.Tests.ps1, Describe 'The pool is immutable and every name is justified'), with a non-vacuity arm that tampers a COPY of a real store and requires the audit to go red."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-123]
+verifies = ["SR-058", "SR-022"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "source=set{root-level-infra-name,nested-infra-name,ordinary}"
+expected = """Compensating control for the flat pool root: no non-infrastructure file at the backup root fails the hash-name grammar, and a SOURCE file named like root-level infrastructure (MANIFEST.csv) is stored and restored as ordinary data - the SR-022 Mirror refusal is gone because the collision it guarded cannot occur. Automated at WP9 step 5 (G2.9 HashNameGrammar_atRoot every run + Coverage.Tests.ps1 'backs up a source file named like ROOT-LEVEL infrastructure')."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-124]
+verifies = ["SR-061", "LLR-060"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = """action=set{Backup,Verify}; rows=set{all-original,mixed}; flip=set{compress-on,compress-off}"""
+expected = """Legacy-store refusal AND the no-migration contract: a manifest carrying StoredAsHashSize='Original' fails -Action Backup before anything is staged or mutated, with the fresh-BackupPath remedy in the message, while the same store under -Action Verify yields a finding and a non-zero audit status rather than a refusal, and BOTH restorers refuse the same store with exit 2 writing nothing (kit revision 7, 2026-08-26: the "legacy store still restores" arm is withdrawn -- see TC-138). Flipping CompressEnabled on a content-addressed store re-forms NOTHING: every existing object keeps the form it was stored in, only NEW content follows the new setting, the resulting mixed-form store restores byte-exact through both restorers, and -Action Verify reports it CLEAN (a mixed-form store is normal, not a finding - compression has always been per-file)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-125]
+verifies = ["SR-063", "LLR-063"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "key=PreserveFolderTree; format=json; value=set{true,false}"
+expected = """PreserveFolderTree in a JSON config fails with the NAMED diagnostic (not the generic unknown-key message) and status 2, for either boolean value."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-126]
+verifies = ["SR-063", "SR-042", "LLR-063"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "format=clixml; key=set{PreserveFolderTree,none}; version=set{1,2,3}"
+expected = """PreserveFolderTree in a CLIXML config fails by name with status 2 - CLIXML is exempt from the closed schema, so without this it would be silently ignored; ConfigVersion 1 is refused as too old and 3 as too new."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-127]
+verifies = ["SR-063", "LLR-063"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "BrowseView=set{off,index,link,bogus,missing}"
+expected = """BrowseView vocabulary: off and index accepted, link refused BY NAME as reserved-not-implemented, any other value refused, and an absent key defaults to off."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-128]
+verifies = ["SR-063", "LLR-063"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """ViewPath=set{default,same-volume-sibling,other-volume,inside-BackupPath,inside-ChangePath,contains-BackupPath,contains-both-roots,is-SourcePath,is-SourceStatePath,prefix-sibling}"""
+expected = """ViewPath refusals: a path on another volume, inside BackupPath, or inside ChangePath is refused by name; the default <BackupPath>_View and an explicit same-volume sibling are accepted. AMENDED at the WP9 review (MAJ-1): the rail must refuse in BOTH directions and must cover the SOURCE paths, not only the storage roots. A ViewPath naming an ancestor of BackupPath deleted the whole store, and one naming SourcePath deleted the user files, on a run that reported success - the view root is wiped and regenerated on every refresh. Arms added for contains-a-storage-root, contains-both-roots, IS-SourcePath, IS-SourceStatePath, and a prefix-sibling that must still be ACCEPTED (the comparison is by path component, not string prefix)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-129]
+verifies = ["SR-062", "LLR-061"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """dedup=set{none,siblings}; compress=set{on,off,mixed}; rows=set{under-threshold,over-threshold}"""
+expected = """G10-View: the generated index matches the manifest EXACTLY - every logical path present including every dedup sibling (the deleted Mirror layout omitted borrowers entirely), each entry named RelativePath+('.7z' when the ROW's Compressed is Yes) so per-file compression yields a mixed tree, and the root page switches from embedded search to the documented grep instruction above the row threshold."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-130]
+verifies = ["SR-062", "LLR-061"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "action=set{Backup,Verify,Prune,Restore}"
+expected = """The view is invisible to the engine: -Action Verify, prune accounting, Get-DataFile and BOTH restorers ignore the view root entirely - no orphan warning, no capacity accounting, no restore candidate."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-131]
+verifies = ["SR-062", "LLR-064"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "state=set{fresh,stale-rows,torn,current}"
+expected = """Witness staleness triggers a rebuild, -Action View is idempotent, and a torn or partially written view is rebuilt rather than trusted - a stale view is cosmetic by construction because nothing reads it."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-132]
+verifies = ["SR-064", "LLR-062"]
+level = "Unit"
+method = "Test"
+tier = "Full"
+parameters = "rows=set{1k,4k}"
+expected = """The unreferenced-data-file audit is linear: the 1k->4k wall-clock ratio stays under 10 (linear ~4, the old per-file Where-Object re-pipe ~16), and the behavioral arms still report the orphan file and blank the missing-file row. Scaled 1k/4k rather than the drafted 10k: the same quadratic-vs-linear discrimination at a quarter of the suite cost. Automated at WP9 step 8."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-133]
+verifies = ["SR-062", "LLR-061"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "snapshots=set{1,3}"
+expected = """Snapshots get NO view (invariant): after several runs no dated snapshot folder contains view artifacts, and prune's PhysicalBytes accounting is unaffected by the view's existence."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-134]
+verifies = ["SR-058", "SR-031"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "store=content-addressed; compress=set{on,off}"
+expected = """bats twin: bash/reconstruct.sh restores a content-addressed store built by this WP byte-exact (regenerated fixtures replace the retired Mirror ones), and its 'find ... -type f' without -L is pinned as deliberate link-immunity rather than accident. Automated at WP9 step 5 (bats 68/68 incl. the source-text intent pin; verify_damage_interop verdict parity on the content-addressed damaged stores)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-135]
+verifies = ["SR-059", "SR-051", "SR-010", "LLR-059", "LLR-051"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "removed=set{owner,borrower}; copies=set{2,3}; compress=set{on,off}"
+expected = """One dedup member deleted while the others live - B9's eviction refcount, which had NO named test before WP9 step 4 (only the migration-side SR-051 refcount was covered): removing any member of a dedup group evicts nothing the survivors still claim; the survivors restore byte-exact from the live backup and the snapshot restores the removed path's bytes. removed={owner,borrower} x compress={on,off} automated at step 4 (Coverage.Tests.ps1, New-MemberRemovedTimeline); copies=3 - two survivors, so an eviction guard that only asked 'is there one other claim' cannot pass by accident - automated at step 9."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-136]
+verifies = ["SR-066", "LLR-066"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """restorer=set{powershell,bash}; mode=set{plain,compress}; row=set{unique,dedup-owner,dedup-twin,blank-time,garbage-time}"""
+expected = """Two source files with IDENTICAL content but different modification times (2001 and 2002) and a third unique file back up and restore with each row's OWN LastWriteTime under both restorers and both modes -- the dedup twin no longer inherits the pool object's timestamp (SR-066). A row whose LastWriteTimeStr is blanked or replaced with garbage still restores its bytes, logs the failure to stamp, and exits 0. Pester: Describe 'Restored files carry their own modification time (SR-066)'; bats: restore_mtime.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-137]
+verifies = ["SR-065", "LLR-065"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """restorer=set{powershell,bash}; directory=set{empty,nested-empty,hidden-system,readonly,populated-plain}; sidecar=set{present,absent,malformed}"""
+expected = """A source tree with an empty directory, a nested empty directory, a Hidden+System folder and an ordinary populated folder writes a DIRECTORIES.csv naming exactly the first three; RECONSTRUCT.ps1 recreates both empty directories and returns the folder Hidden+System; reconstruct.sh creates the directories and logs the attributes as inapplicable; a tree with no empty or attributed directory writes NO sidecar and leaves the store byte-identical to a pre-SR-065 one; a deleted or garbage sidecar still restores every file and exits 0; a snapshot carries the sidecar of the state it preserves. Pester: Describe 'Directory sidecar (SR-065)'; bats: dir_sidecar.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-138]
+verifies = ["SR-061", "LLR-060"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "restorer=set{powershell,bash}; marker=set{stored-as-original,path-addressed-datapath}"
+expected = """A CONSTRUCTED legacy store -- one row flipped to StoredAsHashSize='Original', witness re-stamped -- is refused by RECONSTRUCT.ps1 and by reconstruct.sh with exit 2, the message naming the row and the cause, and NO file written into the restore target. The same holds for a store whose marker is a DataPath containing a path separator with the column left at 'Hash'. This replaces the withdrawn 'legacy store still restores' claim (WP9 review MIN-2). Pester/G4.1: Legacy_restoreRefused; bats: legacy_refused.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-139]
+verifies = ["SR-004", "LLR-004"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "destination=set{absent,valid-orphan,truncated-debris}"
+expected = """Compress-FileWithSevenZip REPLACES its destination rather than adding to it: with a valid archive already at the target name the result contains exactly one member and expands to the new payload; with truncated debris there the call succeeds and the result expands to the new payload (before the fix '7z a' merged into both). Pester: Describe 'Compress-FileWithSevenZip replaces its destination (SR-004, nit-4)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-140]
+verifies = ["SR-067", "LLR-067"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = """failure=set{transient-lock,permanent,directory-destination,budget-spent}; group=set{unique,multi-member}; window=set{unit-group,end-to-end}"""
+expected = """A UNIQUE-content source file held under an exclusive handle that is released mid-window is stored successfully and the log shows a retry; a permanently unreadable file exhausts three attempts, marks the set failed, leaves NO row in the BackupMap and logs that the file is NOT in the backup; Test-CopyFailureIsTransient rejects the directory-destination refusal and accepts a sharing violation, and Get-CopyRetryDelayMs caps at three attempts; a call with a spent budget makes exactly one attempt, says the budget is spent, and returns in well under a second. PLUS an END-TO-END case driving the real entry point: a separate sniper process polls for the step-5 source hash cache and deletes one of two source files the instant it appears, inside the walk-to-copy window, proving the whole pipeline (not just the copy stage) omits the vanished file from the manifest, keeps the healthy file and its stored object, exits 1, and logs three attempts - it verifies it entered the window before asserting and SKIPS rather than failing if a loaded host starves the sniper, so it cannot go falsely green. Pester: Describe 'A transiently unreadable source file is retried, not lost (SR-067)'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-141]
+verifies = ["SR-068", "LLR-068"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = """restorer=set{powershell,bash}; mode=set{plain,compress}; column=set{correct,flipped}; object=set{our-archive,raw-content,source-archive-stored-raw,damaged}"""
+expected = """A real store restores byte-exact with EVERY row's Compressed value flipped, in Plain and Compress, through RECONSTRUCT.ps1; reconstruct.sh restores byte-exact with a lying Compressed='Yes' over raw bytes. A GENUINE already-compressed source file ('.7z', which SR-004 stores raw) restores byte-exact and is never expanded, with the column correct AND with it flipped to 'Yes', under both restorers. A stored object whose bytes reproduce neither form still fails loudly (exit 1, INCOMPLETE). Pester: Describe 'The stored form is decided by the bytes, not the Compressed column (SR-068)'; bats: restore_fidelity.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-142]
+verifies = ["SR-069", "LLR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """The alphabet holds exactly 57 distinct glyphs, all alphanumeric, and EXCLUDES 0 O I l 1 under a CASE-SENSITIVE test; Alphabet[0] is '2', the zero digit. Pester: Describe 'Short-name encoding'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-143]
+verifies = ["SR-069", "LLR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """A generated name matches ^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+<ext> and the length field is UNPADDED - 5120 occupies three characters, not a fixed width. Pester: Describe 'Short-name encoding'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-144]
+verifies = ["SR-069", "LLR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """A zero-length object's length field is the single zero digit '2'. Pester: Describe 'Short-name encoding'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-145]
+verifies = ["SR-069", "LLR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """An over-wide value THROWS instead of being truncated, and a 22-character field decoding to 2^128 or more is rejected (57^22 is 128.324 bits, so syntactically valid fields can be out of range). Pester: Describe 'Short-name encoding'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-146]
+verifies = ["SR-070", "LLR-070"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+parameters = "ext=set{space,underscore,bracket,mixed-case}"
+expected = """An extension containing a space, an underscore, brackets or mixed case round-trips byte-for-byte through Get-HashSizeFileName/ConvertFrom-HashSizeFileName - the extension is OPAQUE (review finding T2). Pester: Describe 'Short-name encoding'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-147]
+verifies = ["SR-061", "SR-069", "LLR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """Three real pre-WP12 base-85 names - two from the WP11-era fixtures, one from a live pool - all fail Test-HashSizeFileName, so the SR-061 gate cannot fail open. Pester: Describe 'Short-name encoding'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-148]
+verifies = ["SR-070", "LLR-070"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "compress=set{on,off}"
+expected = """An EXTENSIONLESS source file (README) backs up and restores byte-exact in Plain AND Compress mode. Regression for the 2026-08-27 T6 bug: -Extension was [Parameter(Mandatory)], which rejects '', so a Plain-mode set containing any extensionless file failed entirely. Suite case G1/G2 Extensionless_roundTrip."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-149]
+verifies = ["SR-061", "SR-069"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+parameters = "restorer=set{powershell,bash}"
+expected = """A constructed pre-WP12 store is refused by BOTH restorers with exit 2 and nothing written - once by its witness declaring format version 1, and again with the witness removed, by its base-85 DataPath failing the structural test."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-150]
+verifies = ["SR-061", "SR-049", "LLR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """REGRESSION PIN for the WP12 T7 defect: "not the current grammar" and "a retired grammar" are DIFFERENT predicates, never complements. A damaged or foreign DataPath ('data.bin', 'd.txt', a 22-char field decoding out of range) is NOT classified legacy - classifying it so refuses a whole store SR-049/SR-053/SR-056 could have repaired; both retired grammars (base-85, path-addressed) ARE; blank never is; the "neither" class is non-empty and nothing is ever both. Pester: Describe 'Legacy vs current are different questions'; bats: tests/bash/name_grammar.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-151]
+verifies = ["SR-069", "SR-061", "LLR-069"]
+level = "Integration"
+method = "Test"
+tier = "Smoke"
+parameters = "implementation=set{powershell,bash}"
+expected = """The PowerShell and bash SR-061 predicates agree case for case over the committed corpus tests/fixtures/name-grammar/cases.tsv (PowerShell is the oracle; the Pester twin re-derives the file so it cannot rot). Drift is silent until a restore is needed and fails both ways - accepting a retired name MISreads an old store, refusing a current one rejects good backups. Also: no shipped fixture object reads as a retired grammar, so the engine never emits a name its own gate refuses. Same pattern as TC-053's hash goldens."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-152]
+verifies = ["SR-061", "SR-038"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """The witness format version agrees across all three files that declare it - FileBackup.Common.psm1 stamps it, bash/reconstruct.sh refuses anything below it, tests/bash/helpers.bash re-stamps fixtures with it. The WP12 bump left the third behind and broke 30 bats tests at once; a mismatch between the first two would make the POSIX restorer refuse every store the Windows engine writes. bats: tests/bash/name_grammar.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-153]
+verifies = ["SR-069"]
+level = "Unit"
+method = "Test"
+tier = "Smoke"
+expected = """The alphabet keeps the properties base-57 was chosen for: it folds to exactly 34 case-insensitive classes, so a 22-character field is worth 111.92 bits on a case-INSENSITIVE volume - above the 94.12 the retired base-85 grammar gave - and it still encodes 128 bits in 22 characters. Pins the arithmetic the 2026-08-27 review's T1 was answered with, so a later alphabet change cannot quietly erode it. Pester: Describe 'The alphabet keeps the properties WP12 chose it for'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-154]
+verifies = ["SR-061", "SR-039"]
+level = "Integration"
+method = "Test"
+tier = "Full"
+expected = """The one gap SR-061's markers leave open is proved BENIGN rather than argued: a store with every object renamed into the retired base-85 grammar, every DataPath blanked, and no witness - the worst case the gap admits - still restores byte-exact, because the locator matches CONTENT and never names. bats: tests/bash/name_grammar.bats."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-155]
+verifies = ["SR-071", "LLR-071"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "GNU stat shimmed off PATH; a 10-byte file and an absent file"
+expected = """stat_size returns 10 and -1; the probe never selects a style whose output is not numeric."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-156]
+verifies = ["SR-071", "LLR-071"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """gen_cases pairwise case 1/4: userland=BSD, mode=HashAddressed, origin=root (GNU stat shimmed off PATH; fixture store restored from the backup root)"""
+expected = """The store restores byte-exact, exit 0. Before the shim this exited 3 - "the index is damaged" - against an intact manifest, because the witness byte length compared against -1."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-157]
+verifies = ["SR-071", "SR-009", "LLR-072"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """realpath shimmed off PATH; symlink outside/link -> backup; target outside/link/../backup/victim"""
+expected = """canon returns non-zero and prints nothing. Reducing the .. lexically would judge this OUTSIDE the backup while the kernel resolves it INSIDE, letting a restore write into the backup root."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-158]
+verifies = ["SR-071", "LLR-071"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "realpath shimmed off PATH; ordinary, ./, //, and not-yet-existing paths"
+expected = """Each resolves to the physical path; a not-yet-existing tail is appended; a name merely CONTAINING ".." (foo..bar) is not treated as a .. component."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-159]
+verifies = ["SR-009", "LLR-072"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "is_inside for nested, sibling, self, prefix-sharing sibling, and an unresolvable child"
+expected = """Returns 0, 1, 0, 1 and 2 respectively; a target that cannot be canonicalised exits 2 as a precondition and creates nothing."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-160]
+verifies = ["SR-071", "LLR-071"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "mktemp shimmed off PATH; sevenzip_usable invoked"
+expected = """It refuses instead of using an empty path; no /p.txt or /p.7z is created at the filesystem root."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-161]
+verifies = ["SR-066", "SR-071", "LLR-071"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "stamp_mtime_posix with a UTC stamp, junk, and a foreign offset"
+expected = """UTC applies; junk is refused; a foreign offset is refused rather than written wrong by the offset difference."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-162]
+verifies = ["SR-073", "SR-016", "LLR-073"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Test-ShouldPromptGraphically across NonInteractive / InputRedirected / UserInteractive / NoGui"""
+expected = """None for NonInteractive, redirected stdin, and no-console-no-desktop; Text for NoGui; Gui otherwise. NonInteractive outranks a present desktop."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-163]
+verifies = ["SR-073", "LLR-073"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Select-FolderInteractively with an injected picker returning a path, a trailing separator, null, blank, and a throw"""
+expected = """Path returned and trailing separator trimmed; null, blank and throw each yield $null so the caller falls back to the typed prompt. No dialog is ever shown in a test."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-164]
+verifies = ["SR-073", "LLR-073"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = "reconstruct.sh --pick-target with FILEBACKUP_PICKER returning a folder"
+expected = "Restores byte-exact into the chosen folder, exit 0."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-165]
+verifies = ["SR-073", "SR-040", "LLR-073"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = "reconstruct.sh --pick-target with a picker that cancels"
+expected = "Usage + exit 2; no default target is invented."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-166]
+verifies = ["SR-016", "SR-073", "LLR-073"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = "reconstruct.sh --pick-target with no DISPLAY, no WAYLAND_DISPLAY and no picker"
+expected = "Usage + exit 2 rather than a hang."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-167]
+verifies = ["SR-016", "LLR-073"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = "reconstruct.sh with NO --target-root and NO --pick-target"
+expected = """Usage + exit 2, unchanged. Adding a picker must not turn the bare failure into an interactive path: a caller that forgot the flag must keep failing, not start waiting."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-168]
+verifies = ["SR-072", "LLR-074"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "The generated RECONSTRUCT.cmd content"
+expected = """A single pwsh line with -ExitCode and %*, CRLF, ASCII, and NO pause - the hold is the restorer job so it cannot fire for an automated caller."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-169]
+verifies = ["SR-072", "LLR-074"]
+level = "Integration"
+method = "Manual"
+tier = "Release"
+parameters = """Double-click RECONSTRUCT.cmd; then cmd /c RECONSTRUCT.cmd with no arguments from a console; then a scripted call with -TargetRoot"""
+expected = """Double-click picks a folder, restores, and holds the window showing the code; the cmd /c no-arg call RETURNS rather than blocking; the scripted call neither prompts nor holds and returns the SR-040 code."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-170]
+verifies = ["SR-072", "LLR-074"]
+level = "Integration"
+method = "Manual"
+tier = "Release"
+parameters = """Double-click RECONSTRUCT.command on macOS from an exFAT volume, and after a zip round-trip onto APFS"""
+expected = """From exFAT it launches and restores. From APFS-after-zip Finder refuses until chmod +x, which is the documented limit of the claim; bash reconstruct.sh --pick-target works in both cases."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-171]
+verifies = ["SR-007", "LLR-075"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = "A completed backup and its dated snapshot"
+expected = """Both contain all seven kit artifacts, including RECONSTRUCT.cmd and RECONSTRUCT.command, and the kit is staged BEFORE the publish rename."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-172]
+verifies = ["SR-022", "SR-007", "LLR-075"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = "A backup root carrying a leftover RECONSTRUCT.bat from a pre-rev-10 store"
+expected = """It is treated as root-level infrastructure: no orphan or not-in-DB WARN, and no manifest row."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-173]
+verifies = ["SR-049", "SR-007", "SR-084", "LLR-076", "LLR-089"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "The KitRevision markers in Reconstruct.ps1 and bash/reconstruct.sh"
+expected = """Both read 13 and are equal (AMENDED 2026-10-09, SR-082: 12 -> 13 because Write-Manifest in the kit-bundled Common.psm1 now publishes by temp-file rename; restorer logic unchanged, so existing stores need no -RefreshKits; AMENDED 2026-09-01, WP17 Part A took 10 -> 11 for the kit-bundled Common.psm1 extension-list and comment edit, Owner ruling Q1; the same-day FILEBACKUP_7Z_LEVEL change to that same file takes 11 -> 12). The pin lives in tests/Unit/RestoreLaunchers.Tests.ps1:85. WP16 (PROPOSED) pins the same fact in TC-216 and now takes the next free number after 13, MERGING the two cases in its own commit. Nothing pinned them before, which is how they drifted to 8 and 6 while the project documented 9."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-174]
+verifies = ["SR-007", "LLR-077"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = "A pool object marked read-only, restored by both restorers"
+expected = """The restored file is WRITABLE, its bytes verify, and it carries its own mtime. A restored tree is ordinary writable files even when the store is protected."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-175]
+verifies = ["SR-074", "LLR-078"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """gen_cases: root=set{volume,ordinary} x location=set{root,nested} x folder x side. Volume roots are made with `subst` so they are GENUINE roots, not folders standing in for one."""
+expected = """True only when the root is a volume root AND the folder is at its root level. At an ORDINARY root - a user's project folder containing '$RECYCLE.BIN' - False, because excluding it is silent data loss. Nested is False everywhere (B6)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-176]
+verifies = ["SR-074", "LLR-078"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """gen_cases pairwise case 1/4: location=nested, folder=$RECYCLE.BIN, side=backup (plus the root-level $RECYCLE.BIN that must NOT be enumerated)"""
+expected = """Ordinary files are enumerated; nothing under the root-level $RECYCLE.BIN is (deleted files are not backup material); the nested folder's files ARE."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-177]
+verifies = ["SR-074", "SR-057", "LLR-078"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """gen_cases pairwise case 4/4: location=root, folder=System Volume Information, side=backup"""
+expected = """No enumeration-error record names it, so the set is not marked failed; its contents are not enumerated; the rest of the tree is. Previously a SourcePath at a volume root failed EVERY run."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-178]
+verifies = ["SR-074", "SR-040", "LLR-078"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "The restorer's pool scan over a store whose root carries a volume-root pseudo-folder"
+expected = """Both the candidate list and the enumeration errors are filtered, so no StorageUnreadable / exit 4 is reported against an intact store. Filtering only one half would leave the false verdict in place."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-179]
+verifies = ["SR-071", "LLR-071", "LLR-072"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """gen_cases pairwise case 2/4: userland=BSD, mode=HashAddressed_Compress, origin=snapshot (GNU stat/mktemp/find shimmed off PATH; compressed fixture store restored from a dated snapshot)"""
+expected = """The snapshot restores byte-exact, exit 0. This is the ONLY combination that drives the mktemp fix (every compressed row would otherwise fail and be blamed on 7-Zip) and the find -printf fix (the pool would otherwise lose every sibling snapshot) through a REAL restore rather than as isolated units."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-180]
+verifies = ["SR-074", "SR-040", "LLR-078"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """gen_cases pairwise cases 2/4 and 3/4: side=restore, both folders at the root plus a nested one. A DENY ACE on the unreadable folder (a merely-named folder is readable and never raises the error), the victim row's DataPath blanked AND its pool object deleted, so the pool scan both RUNS and FAILS."""
+expected = """Exit 1 with ContentMissing in the log and no StorageUnreadable; the undamaged row still restores byte-exact (SR-029). Without the filter this returns 4 - 'fix this host and retry' - for content that is genuinely gone. NOTE: an INTACT store restores with exit 0 either way, because the locator returns on finding the bytes and only consults host issues when it does not; asserting exit 0 here passes against a broken restorer, which two earlier versions of this case did."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-181]
+verifies = ["SR-009", "LLR-079"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """A real junction 'outside\\link' -> the backup root; -TargetRoot outside\\link\\restore. Plus a genuinely external target, a prefix-sharing sibling, and a nested target."""
+expected = """The junction target is recognised as INSIDE the backup and refused; the other three keep their existing outcomes. A lexical comparison judges the junction outside and writes into the backup."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-182]
+verifies = ["SR-066", "SR-071", "LLR-071"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """A BSD userland shim layer that INCLUDES a `touch` rejecting -d; the same store restored with and without the shims; restored mtimes compared."""
+expected = """The BSD restore reproduces the same instant as the GNU one, and it is the row's own stamp rather than the moment of restore. Without a `touch` shim the suite silently exercises GNU `touch -d` and never reaches the fallback at all."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-183]
+verifies = ["SR-073", "LLR-073"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Invoke-OnStaThread driven from a genuinely MTA host - a `pwsh -MTA` child process, because 7.3+ is STA in-process and the path is otherwise unreachable."""
+expected = """The scriptblock runs on STA, its value crosses back, and the child EXITS 0. The raw-thread version throws an unhandled PSInvalidOperationException on a background thread and terminates the process (observed exit -532462766), so the exit code is asserted as well as the value. Every other picker test injects a -Picker and never reaches the marshalling at all, which is how the broken version survived."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-184]
+verifies = ["SR-073", "LLR-073"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """FILEBACKUP_PICKER set to an executable whose PATH CONTAINS SPACES, driving a real --pick-target restore."""
+expected = """The picker runs and the store restores byte-exact. Unquoted, the variable word-splits and the first fragment is executed instead - '/opt/FileBackup Tools/picker' runs '/opt/FileBackup'."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-185]
+verifies = ["SR-075", "LLR-080"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """A staging lock taken and heartbeated while a deliberately long blocking operation (a large-file hash) occupies the pipeline; the marker's mtime is sampled from a SEPARATE process across several beat intervals. A second variant injects a callback that throws. A third performs a REAL Remove-Module plus Import-Module -Force cycle in a CHILD pwsh process and beats again afterwards (AMENDED 2026-08-31, WP14 §11 R-10: the previous reload case never reloaded the module)."""
+expected = """The mtime advances on the 60 s cadence throughout the blocking operation, proving the compiled callback and not the pipeline drives the beat; the throwing callback neither terminates the run nor leaves the beat silently stopped (System.Timers.Timer swallows handler exceptions, so a dead beat would otherwise look identical to a healthy one). NEGATIVE CONTROL REQUIRED: with the fix removed -- a PowerShell scriptblock or Register-ObjectEvent handler in place of the Add-Type class, or the handle left unrooted -- this case must be shown to FAIL (the mtime stops advancing). An inline or scriptblock beat passes a naive test and fails in production (WP13-T4 precedent)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-186]
+verifies = ["SR-017", "SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """A run killed from outside leaves Temp holding only RUN.inprogress; the marker's mtime is aged past StaleAfterSeconds and the confirmation-sample delay is compressed by a test seam. A second run is then started on the same set."""
+expected = """The second run takes the confirmation sample, sees the mtime unchanged, moves Temp to Temp.stale-<utc>-<8 hex>, recreates Temp with its own marker, completes with exit 0, and the aside folder is gone (marker leaf deleted by name, directory deleted non-recursively). The log carries [SR-075/reclaimed]. This is the observed HomeHub defect end to end."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-187]
+verifies = ["SR-017", "SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Temp holding only a RUN.inprogress whose heartbeat is genuinely running (a live owner process); a second run is started against the same ChangePath. Hashes of the whole tree are taken before and after."""
+expected = """The second run refuses with [SR-075/owner-live] and a message naming the owning host and pid, the start time and the seconds since the last heartbeat; nothing is moved, nothing is deleted, no change folder is written and every file is hash-identical. This is the stomp case that reclaim-by-age alone could not survive."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-188]
+verifies = ["SR-017", "SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Temp holding a STALE RUN.inprogress plus one or more data files (including a hidden one); SHA-256 of every file in the change root captured before and after the run."""
+expected = """Refused with [SR-075/content-refused]; the folder is not moved, nothing is deleted, and every hash matches -- asserted as hashes, not merely as presence. This is invariant I-1: a Temp holding data may hold the only physical copy of snapshot-demanded bytes."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-189]
+verifies = ["SR-075", "LLR-017", "LLR-080"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Reclaim of a stale marker-only Temp with a test hook that creates data files in the folder AFTER Get-StagingLockState has classified it and BEFORE the Directory.Move -- the frozen-then-resumed-owner window."""
+expected = """The move-aside still happens (it is the README's own safe action), the step-4 re-enumeration sees content, the aside folder is KEPT with its bytes intact, the deletes are skipped and the README recovery is printed; the run continues. NEGATIVE CONTROL REQUIRED: with the step-4 re-enumeration removed (classification trusted through the move) this case must be shown to FAIL by deleting the injected files."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-190]
+verifies = ["SR-017", "SR-046", "SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Temp holding PRUNE.inprogress, both fresh and aged well past StaleAfterSeconds, with the backup path started against it; plus a real Remove-BackupSnapshot holding the lock for its duration."""
+expected = """The backup refuses in every case with [SR-075/prune-held] and moves nothing -- age is irrelevant to a prune marker, which WP14 does not own (a killed prune remains WP15). Prune's own staging-busy refusal and its marker are unchanged, so this is also the SR-046 mutual-exclusion regression (invariant I-3)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-191]
+verifies = ["SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Two runs started concurrently against one stale marker-only Temp, released together at the classification barrier so both reach the Directory.Move."""
+expected = """Exactly one proceeds; the loser fails the move (or the subsequent New-Item) and refuses without retrying in a loop. Afterwards exactly one Temp exists and its RUN.inprogress carries the WINNER's RunId, and no aside folder survives holding anything but a marker. A DETERMINISTIC INTERLEAVING is also required (AMENDED 2026-08-31, WP14 §11 R-3): reclaimer B stalled at a test seam between its confirmation sample and its move while reclaimer A completes its whole reclaim, so B's move takes A's freshly recreated LIVE Temp -- B must detect the identity mismatch after the move, move the folder straight BACK and refuse, leaving A's marker intact at the original path and no aside folder behind. NEGATIVE CONTROL REQUIRED: with the atomic move replaced by a delete-then-create, or the step-3 New-Item given -Force, this case must be shown to FAIL (both proceed, or the marker is the loser's). Invariant I-2."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-192]
+verifies = ["SR-017", "SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """An EMPTY Temp with no marker, run twice: once with the directory's own mtime aged past the threshold (a pre-WP14 store, which is literally the hub's state) and once with it freshly created (a live run inside its create-to-marker window)."""
+expected = """Stale directory mtime is reclaimed and the run completes, so the upgrade path from a pre-WP14 store costs nothing; fresh directory mtime is REFUSED, which is the gate that stops a reclaimer stealing a live lock in the microseconds between New-Item and the marker publish."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-193]
+verifies = ["SR-075", "LLR-080"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """A RUN.inprogress whose mtime is set into the future relative to the reader, at offsets both inside and far beyond the threshold, fed through Read-StagingOwnerRecord and Get-StagingLockState."""
+expected = """Classified OwnerLive and refused. Clock skew is handled conservatively in the harmless direction: a future mtime can only be a clock disagreement, never proof of death."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-194]
+verifies = ["SR-017", "SR-075", "LLR-017"]
+level = "System"
+method = "Automated"
+tier = "Release"
+parameters = """The G8 real-volume suite on Windows against an actual exFAT-formatted volume: a stale marker-only Temp reclaimed end to end, plus an ambiguous Directory.Move failure injected on the same volume."""
+expected = """The reclaim completes on exFAT with the aside folder removed and the run at exit 0, and the injected move failure REFUSES with both paths untouched and no writer started -- never a fallback to delete. Half of the plan's Q1 evidence: .NET does not promise rename atomicity, so the supported-provider list is defined from this evidence."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-195]
+verifies = ["SR-017", "SR-075", "LLR-017"]
+level = "System"
+method = "Automated"
+tier = "Release"
+parameters = """Container acceptance inside filebackup:local on the deployment's Linux-over-exFAT bind mount: the same stale-marker reclaim, with the boot id read from /proc and the host and container id recorded in the marker."""
+expected = """The reclaim completes inside the container and the run reaches exit 0; the record's diagnostic identity fields are populated from the container's own view. This is the deployment the defect was actually found in, and the other half of Q1 -- one Windows run is not evidence for this stack."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-196]
+verifies = ["SR-075", "LLR-017", "LLR-080"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """The existing TC-073 staging-cleanup case and the four catch cleanups re-run unchanged, plus an exception injected at each major phase AFTER staging has gained content."""
+expected = """TC-073 and the four catch cleanups remain green, and in every injected-exception case the heartbeat is stopped and drained by the Part B finally -- no live timer is left advertising an abandoned lock as owned, and the successor run therefore classifies it OwnerStale rather than OwnerLive. The catch blocks alone cover only the early exits, which is the regression risk this case exists for."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-197]
+verifies = ["SR-075", "LLR-017", "LLR-080"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Run A paused by a test hook AFTER its New-Item of Temp and BEFORE the marker publish; run B meanwhile classifies the empty directory per TC-192 and reclaims it; run A is then released."""
+expected = """A's exclusive FileMode.CreateNew publish FAILS because RUN.inprogress now exists (B's), and A aborts immediately, touching nothing -- no move, no delete, no change folder, and NOTHING left in B's Temp, which holds its own RUN.inprogress and nothing else (AMENDED 2026-08-31, WP14 §11 R-4: the old temp-write publish could strand a '.tmp' in a folder A no longer owned, itself a permanent wedge) -- logging [SR-075/lock-lost]. NEGATIVE CONTROL REQUIRED: with the publish made non-exclusive (a create-or-truncate write) this case must be shown to FAIL, with A silently continuing to write into B's staging folder. The window is microseconds wide; correctness must not depend on that."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-198]
+verifies = ["SR-017", "SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """A reclaim whose test hook drops a data file into the ASIDE folder between the step-4 re-enumeration and the delete -- the last window in the protocol."""
+expected = """The exact-leaf marker delete may succeed, but the non-recursive Directory.Delete then FAILS because the directory is not empty; the aside folder is kept with the injected bytes intact, the failure is logged loudly with the README recovery, and the run continues. NEGATIVE CONTROL REQUIRED: with a recursive delete restored in place of the non-recursive one, this case must be shown to FAIL by destroying the injected file. This race is the entire reason -Recurse is banned from the reclaim path."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-199]
+verifies = ["SR-075", "LLR-080"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Read-StagingOwnerRecord and Get-StagingLockState against a truncated marker, a marker of unknown SchemaVersion, a marker whose StaleAfterSeconds is BELOW 1800 s, and a marker held open with a deny-read lock or an ACL that blocks reading -- each at both stale and fresh mtimes."""
+expected = """Truncated and unknown-schema markers return ParseInvalid with LastWriteUtc and AgeSeconds populated and fall back to mtime alone with the 1800 s reader floor applied (a below-floor StaleAfterSeconds cannot shorten it), reclaiming when stale and refusing when fresh; ParseInvalid is never an error, because a torn record is precisely a writer that died mid-publish and refusing it would recreate the permanent wedge for the commonest crash. The unreadable marker returns Unreadable and REFUSES: absence of evidence is not evidence of death."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-200]
+verifies = ["SR-017", "SR-075", "LLR-080"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Get-StagingLockState fed enumerations containing hidden, system and dot-named entries; an enumeration that raises an I/O or access error; and a Temp that is a symlink/junction to another tree."""
+expected = """Hidden, system and dot-named entries all classify HoldsContent -- forced enumeration means they are content like any other. An enumeration, stat or access failure classifies Indeterminate and refuses: an I/O error is never evidence of emptiness. A reparse-point Temp is refused outright, because moving or deleting through one acts on a tree the guard never classified."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-201]
+verifies = ["SR-075", "LLR-080"]
+level = "Unit"
+method = "Automated"
+tier = "Full"
+parameters = """A heartbeat callback deliberately held in flight (a test seam blocking inside the touch) across a Stop-StagingHeartbeat call, while a successor acquires Temp and publishes a marker with a DIFFERENT RunId; the held callback is then released."""
+expected = """Stop blocks until the in-flight callback drains, and the released callback finds a RunId that is not its own and does not touch: the successor's marker mtime is NOT freshened, so the successor's own staleness is judged on its own beat. Stop is also idempotent when called twice. NEGATIVE CONTROL REQUIRED: with either layer removed -- the drain or the RunId identity guard -- this case must be shown to FAIL by freshening the successor's marker."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-202]
+verifies = ["SR-075", "SR-046", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """A full changed-run finalize through Complete-ChangeFolder, plus the no-op and first-run paths, each starting from a staging lock that carried a RUN.inprogress; the produced dated snapshot is then pruned."""
+expected = """No RUN.inprogress exists anywhere inside the produced dated snapshot on any of the three paths -- the marker is stopped, drained and deleted as a leaf immediately before finalize -- and that snapshot prunes WITHOUT an unreferenced-data refusal. Left in place, the marker would be renamed wholesale into every snapshot and then refused by SR-046's rail as a file its manifest does not name."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-203]
+verifies = ["SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """The writer's clock set BEHIND the reader's by more than StaleAfterSeconds (the marker therefore reads as long stale on first sample) while the owner is genuinely alive and beating; the reader then takes its confirmation sample."""
+expected = """The confirmation sample sees the mtime MOVE, so the owner is judged live and the run is refused with [SR-075/owner-live] -- no clock configuration can cause a live owner to be stomped, because the second sample is clock-free. NEGATIVE CONTROL REQUIRED: with the confirmation sample removed (age alone deciding), this case must be shown to FAIL by reclaiming a live owner's lock. This is the skew direction the first draft had backwards."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-204]
+verifies = ["SR-075", "LLR-017"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """A test hook that swaps Temp's RUN.inprogress for one carrying a different RunId, applied at each of the FIVE fence points in turn: before the step-7 staging manifest write, before Move-RemovedFilesToStaging, before Save-SupersededData, before the backup-root MANIFEST.csv publish and before Complete-ChangeFolder (AMENDED 2026-08-31, WP14 §11 R-2/R-10)."""
+expected = """At every fence the run aborts BEFORE that phase mutates the pool or publishes state, cleans up NOTHING (the folder is no longer its own to delete), and logs [SR-075/lock-lost]. Per fence: no stored data byte ceases to exist anywhere in the store, the snapshot set and FileBackupState.json are unchanged, and MANIFEST.csv and its DIRECTORIES.csv sidecar are unchanged at every fence that precedes the backup-root publish. At the finalize fence -- the only one that FOLLOWS that publish, the run having still owned the lock one step earlier -- the manifest is this run's own canonical step-12 output and nothing was finalized over it. NEGATIVE CONTROL REQUIRED: with the fence check removed at each point IN TURN, this case must be shown to FAIL -- the run proceeds past that boundary, finalizes a snapshot, deletes the successor's owner record and publishes state."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-222]
+verifies = ["SR-004", "LLR-004"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Every extension WP17 Part A appends to $script:NonCompressibleExtensions - .z7 .esd .mpg .mpeg .m2ts .m4v .wmv .flv .heic .heif .opus .m4a - in lower, upper and mixed case; plus the deliberate NON-additions .iso .mca .bin .dng .pdf."""
+expected = """Test-ShouldCompress returns $false for every added extension and is case-insensitive; .iso still returns $true, pinning the deliberate non-addition (a filesystem CONTAINER is not already-compressed content, and adding it would be the false-'already compressed' error the defect review names). The list stays defined in exactly ONE place in Common and Engine holds no NonCompressibleExtensions reference (with TC-096). .z7 is the finding itself: 649 objects, 880 GB, 43% of the production library."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-223]
+verifies = ["SR-081", "LLR-086"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Measure-SampleCompressibility called directly via InModuleScope over synthetic corpora BUILT IN THE TEST: pure random bytes; repeated text; a random file with a 64 KiB text head; a file one third text; a 500 KiB file; a 4 KiB file; an empty file; a vanished path; and a path held open with FileShare.None. Constants read through InModuleScope ($script:CompressProbeThreshold 0.10, $script:CompressProbeMinBytes 262144)."""
+expected = """Aggregate CompressedBytes/SampledBytes is approximately 1.0 for random, far below 1 for text, approximately 0.93 for the mixed-head file (so the aggregate rule keeps it RAW where an any-sample rule would have compressed it - the defect review's own failure mode) and approximately 0.7 for the mixed-third file (so it COMPRESSES). The 500 KiB file is below Samples x SampleBytes and is therefore read exactly ONCE as a single whole-file sample, not as three overlapping windows. The vanished path and the FileShare.None-locked path each return $null rather than throwing. Random bytes must NOT measure below 0.98, which is the assertion that pins the compressed count being taken AFTER Dispose() - a count read before the encoder is closed reads short and would call random bytes compressible. Offsets are 0, floor((len - SampleBytes)/2) and len - SampleBytes, and the open uses FileShare.Read."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-224]
+verifies = ["SR-004", "SR-081", "LLR-086"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """A full backup run per arm, mode always and then mode off, above the 256 KiB floor: a .docx whose bytes are random, a .jpg whose bytes are text, and a .txt. The Owner's Q7 ruling under test."""
+expected = """Under always: the .docx over random bytes is stored RAW with Compressed=No; the .jpg over text bytes is stored as .7z with Compressed=Yes; the .txt is stored .7z. Under off the SAME three files take today's list answer - .7z, raw, .7z - so the pre-WP17 behaviour and SN-003's illustration are still reproducible on demand. No Reason value named after a file format exists anywhere in the decision, and Resolve-CompressionDecision takes no name-based override input: this case is the PIN on Owner ruling Q7 (2026-09-01), that SN-003's acceptance extensions are examples of the need and the bytes, not the names, decide. Filename extension and the Compressed column agree in all six arms."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-225]
+verifies = ["SR-081", "LLR-086"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Mode always, every file above the 256 KiB floor: an unlisted extension and a no-extension file over each of random, text, mixed-head and mixed-third content; plus a LISTED .zip over text and the same .zip over random."""
+expected = """Random stores raw, text stores .7z, mixed-head (aggregate ~0.93) stores RAW, mixed-third (aggregate ~0.7) stores .7z; the listed .zip over text stores .7z and over random stores raw - the defining property of the default mode, that the list is not consulted above the floor. In every arm the stored filename's extension and the row's Compressed column agree (SR-004's agreement sentence, I-1). NEGATIVE CONTROL REQUIRED: with the probe BYPASSED so the decision falls back to the extension list, this case must be shown to FAIL - the random arms compress."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-226]
+verifies = ["LLR-058", "LLR-086"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Invoke-BackupFileGroup called DIRECTLY in-process (the suites drive backups through FileBackup.ps1, which re-imports both modules with -Force at FileBackup.ps1:236 and thereby discards any Mock -ModuleName injected earlier; Mock -ModuleName FileBackup.Engine on a direct call has precedent at Coverage.Tests.ps1:1862), with Measure-SampleCompressibility mocked behind a call counter. Arms: a prior-backup dedup hit; an in-run twin; a group whose FIRST member's copy fails and whose second succeeds; a locked owner with a readable twin."""
+expected = """The dedup hit makes ZERO probe calls and the in-run twin makes zero ADDITIONAL calls - both return before the write branch, which is what keeps SR-061 true (no already-stored object's form is re-decided). The failed-then-twin group makes EXACTLY 1 call and emits at most 1 WARN. The locked-owner group samples the readable TWIN and its decision is NOT ProbeUnavailable. NEGATIVE CONTROL REQUIRED: with the group-scope memo removed, this case must be shown to FAIL - the failed-then-twin arm counts 2 calls (the write branch sits inside foreach ($entry in $Group) and a failed member continues with the written-object memo still null, so a naive lazy expression re-probes per failing member)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-227]
+verifies = ["SR-081", "SR-042", "SR-063", "LLR-042", "LLR-063", "LLR-086"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """CompressProbe across both configuration formats, driven from the ONE shared fixture corpus tests/Common/ConfigFixtures.ps1. Accepted: off, excluded-extensions, always, and the key ABSENT. Rejected: "Always" (mixed case), "maybe", null and a number. Plus TC-225's inputs replayed under off and under excluded-extensions, and an unchanged v2 config."""
+expected = """off reproduces the pre-WP17 decision for TC-225's inputs exactly; excluded-extensions stores the listed .zip-over-text RAW (the list still exempts) while still probing the unlisted arms; an absent key resolves to always and the object Resolve-BackupSetDefaults returns CARRIES the value (without the key in its fixed field list a validated key is silently dropped). Each of "Always", "maybe", null and a number aborts with exit 2 NAMING the key, creating nothing, in JSON AND in CLIXML - the CLIXML arms are what prove the value check lives in Test-BackupConfigurationShape beside the BrowseView block (-cnotin) and not only in the JSON-only closed key set. The published container/FileBackup.schema.json enum equals the validator's vocabulary (TC-077 parity). An unchanged v2 configuration still loads with ConfigVersion 2, and TC-074, TC-075 and TC-077 stay green on the shared corpus."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-228]
+verifies = ["SR-081", "LLR-086"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Invoke-BackupFileGroup called DIRECTLY, mode always, a file above the 256 KiB floor, in TWO arms. (A) The probe is unavailable for every candidate (Measure-SampleCompressibility yields no measurement) while the bytes stay READABLE, so the copy itself succeeds. (B) A REAL FileShare.None handle is held on EVERY member of the group, so no candidate can be opened by the probe - nor by the copy, which is why the two arms are separate."""
+expected = """Both arms: the decision is ProbeUnavailable and its Compress value is THE LIST'S ANSWER - today's behaviour, not a default of 'compress' - with EXACTLY ONE WARN over the whole group (the group-scope memo, LLR-058) and exactly one 'compress-decision: <rel> ProbeUnavailable' DEBUG line. No probe error propagates and the destination is never opened. Arm A additionally: the object IS written and the run stays successful - fail-toward-today, never fail-the-run: a lock costs a decision, never a file (I-6). Arm B additionally: the ONLY failure is SR-067's ordinary copy failure on the locked source (the copy cannot read a file the probe cannot read either), so nothing about that failure is attributable to the probe."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-229]
+verifies = ["SR-081", "SR-049", "LLR-049"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """-Action Verify over a probe-MIXED store (objects in both storage forms, some raw-stored with archive-magic bytes under their own .z7 name) using TC-093's harness, non-Deep and then -Deep, with Get-FileXxHash mocked behind a call counter. Then a full restore of the same store by Reconstruct.ps1 and by bash/reconstruct.sh."""
+expected = """The audit reports CLEAN over the probe-mixed store - both forms are still just forms. A raw-stored .z7 (Compressed=No over 7-Zip magic) whose DataPath extension equals the row's RelativePath extension and whose on-disk length equals the row's Length is EXEMPTED WITHOUT A HASH: the mocked Get-FileXxHash counter is 0 on the non-Deep scan and greater than 0 under -Deep, where the confirming hash is retained. This is what stops Part A turning a 'rare' shape into 880 GB of re-hashing on every Verify pass. The exemption is NARROW (review R-1): an archive-magic object at the row's own length under an extension the already-compressed list does NOT exempt is still hashed on the non-Deep scan and still raises FlagOverArchive when the hash disagrees; and a LISTED-extension object whose payload is replaced by a different same-length archive-magic payload is exempted non-Deep WITHOUT a hash - the reduced assurance stated in a test rather than hidden - and is caught under -Deep, the payload audit. Reconstruct.ps1 and reconstruct.sh each reproduce every object BYTE-EXACT from the mixed store."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-230]
+verifies = ["SR-081", "LLR-086"]
+level = "System"
+method = "Automated"
+tier = "Release"
+parameters = """TC-225's arms re-run INSIDE the filebackup:local container image on the Linux stack, mode always, with the set summary captured."""
+expected = """Every TC-225 assertion holds inside the image - Linux is where the defect was measured, so the fix is proven there. The summary REPORTS the 'Probe reads: <bytes>' counter and the wall time the probe cost, so the first-run cost claim is MEASURED rather than asserted; the figures are recorded, and no pass budget is set until there is production data to set one from (no PB row is invented here)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-231]
+verifies = ["SR-004", "SR-081", "LLR-086"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """Arm 1 (rule 0): CompressEnabled=false, every mode (off, excluded-extensions, always) x every extension class (SN-003's example names, listed, unlisted, none), above and below the floor, with Measure-SampleCompressibility mocked behind a call counter. Arm 2 (Part A end to end): a .z7 source under CompressEnabled=true, mode off, with Compress-FileWithSevenZip mocked behind a call counter."""
+expected = """Arm 1: every file is stored RAW with Compressed=No, the probe call counter is 0 (no probe is opened, no 7-Zip is resolved), and a Plain set never names an object .7z. Arm 2: the .z7 source is stored raw and the Compress-FileWithSevenZip counter is 0 - 7z is not invoked at all - which is the hub's actual fix path and the nine days Part A recovers. NEGATIVE CONTROL REQUIRED: with rule 0 removed from Resolve-CompressionDecision, this case must be shown to FAIL - the Plain set names an object .7z and records Compressed=Yes for a set where 7-Zip was never resolved, and the copy path raw-copies under that lying name (both cross-reviewers' P0)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-232]
+verifies = ["SR-004", "SR-037", "LLR-004", "LLR-037"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """FILEBACKUP_7Z_LEVEL over Compress-FileWithSevenZip and over the FileBackup.ps1 startup path. The 7-Zip invocation is captured by passing -SevenZipPath a fake 7z .cmd that writes its own argument line to a file (the function takes the executable as a parameter, so no seam is needed), run in a CHILD pwsh per arm because the level is resolved at Common's import. Arms: (a) variable absent; (b) '1'; (c) the '0' and '9' boundaries; (d) the invalid values '10', '-1', 'fast' and a whitespace-only string plus the CULTURE LOOKALIKES '9'+U+200B and the Arabic-Indic U+0669, each against a child import of Common, and a kit-shaped folder reproducing Reconstruct.ps1's own Common load path under '9'+U+200B, '9'+U+FEFF, '9'+U+00AD and U+0669; (e) a compression-enabled backup through the entry point with -ExitCode for '10', '-1', 'fast', the whitespace-only string and '9'+U+200B; (f) ONE Plain (CompressEnabled=false) control run, under a single invalid value; (g) a real 7-Zip compress-then-expand round trip at levels 0 and 1, skipped loudly when no 7-Zip resolves on the host; (h) a static scan of Reconstruct.ps1 and bash/reconstruct.sh. Windows-only arms (the fake 7z is a cmd script and the entry-point arms run on Windows); Linux/container behavioural coverage of the knob is a recorded gap."""
+expected = """(a) the argument list carries -mx=9 - the pre-existing behaviour is exactly the default; (b) -mx=1; (c) -mx=0 and -mx=9 are accepted, so the whole 0-9 range is usable; (d) every invalid value, the lookalikes included, leaves Import-Module FileBackup.Common succeeding in a child pwsh with NO throw, (Get-FileBackupDefaults).SevenZipCompressionLevel = 9 and the raw value recorded as rejected, and the kit-shaped load path exits 0 the same way (the lookalikes passed the original culture-sensitive membership gate, so the [int] cast threw AT IMPORT - inside a restore kit, over a backup-only setting; 2026-09-01 dual review R-1); (e) a compression-enabled backup refuses before it creates anything - exit 2, the SR-042/SR-043 usage/precondition code under -ExitCode and a terminating error without it, no new code - with stderr naming FILEBACKUP_7Z_LEVEL, the 0-9 range, the rejected value's length and every non-printable character escaped as \\uXXXX, and no backup root, change root or log created; (f) the same class of invalid value leaves the Plain control run completing normally (exit 0, files stored); (g) the real 7-Zip round trip returns byte-identical content at both levels and the stored object carries the 7-Zip signature - the arm that earns the claim that any level's archive restores with the same kit; (h) neither restorer makes a DIRECT reference to FILEBACKUP_7Z_LEVEL. The restorers read no POLICY from the variable and restore correctness is level-independent; Reconstruct.ps1's host self-test does compress its own throwaway probe file, so that probe archive inherits the resolved level, which is harmless because every 0-9 archive round-trips (pinned by (g))."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-233]
+verifies = ["SR-028", "SR-011", "LLR-028", "LLR-011"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Second run with HashRecalcFreq=A (recalc always due); Optimize-ChangeFolders mocked to throw at step 15 (stand-in for a SIGKILL in dedupe)."""
+expected = """Run state is persisted before the cross-change dedupe (defect review M-4): after a run that dies in step 15, the step-13 snapshot of the prior state is published and LastBackupRun and LastHashRun both equal this run's date, so the next snapshot is not named stale and the weekly rehash does not repeat nightly. Pester: Describe 'Run state is persisted before the cross-snapshot dedupe' in tests/Unit/Coverage.Tests.ps1. NEGATIVE CONTROL: with the step-14 state block moved back after Optimize-ChangeFolders, this case fails (LastBackupRun stays at the prior run's date)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-234]
+verifies = ["SR-026", "SR-045", "SR-047", "LLR-047"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Get-BackupContentIndex over a synthetic pool. (a) No Folders record has a Manifest or DataPaths property, and the map holds exactly the rows naming a file that exists; an empty backup root yields no folders and an empty map. (b) An empty object whose name records content (damaged by the C37 listing rule) is neither in the map nor in its folder's Files set. (d) Memory, 12 snapshot manifests x 5,000 rows with 5 real data rows each, retained managed bytes after a full collection measured by GC.GetTotalMemory(true) with the result held live: lean retained vs every manifest held at once and vs the cost of one manifest."""
+expected = """(a) the record shape is {Folder, Name, Order, IsBackup, Files}. (b) a damaged object is no supply (plan C43). (d) lean retained is under 25% of every manifest held at once AND under twice the retained cost of one manifest. The ratio, not absolute bytes, is asserted so the check is machine-independent."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-235]
+verifies = ["SR-026", "LLR-026", "LLR-047"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """Optimize-ChangeFolders on a fixed pool: a backup root and three snapshots with a duplicate across root and snapshots, a duplicate across two snapshots, a row whose file never existed, and a clean snapshot whose DataPaths all exist. The same pool is built twice; one copy is run through Invoke-ReferenceOptimize, a verbatim copy of the pre-M-1 body driven by the -IncludeManifests index, and the other through the lean Optimize-ChangeFolders. The clean snapshot MANIFEST.csv LastWriteTimeUtc is pinned to 2001 before the run."""
+expected = """(a) every file in both pools matches by hash, and the change-folder MANIFEST.csv bytes and the witness content fields (Version/Rows/Bytes/XxH128; Written excluded) are identical to the reference. (b) vanished rows are blanked and the live duplicate is kept as before. (c) the clean snapshot is neither re-read nor rewritten: its MANIFEST.csv timestamp and bytes are unchanged. (d) a folder with a vanished DataPath is rewritten and its witness verifies. (e) Describe 'Optimize-ChangeFolders probes each DataPath once' (added 2026-10-10): a snapshot with six distinct DataPaths, the LAST vanished, is optimized over its real index (Map emptied, so only the blanking pass probes) with Test-Path mocked as a pass-through counter: exactly 6 leaf probes under the snapshot; only the vanished row is blanked; with an -IncludeManifests index, Read-Manifest is not called. MUTATION-CHECKED 2026-10-10: restoring the per-row probe in the blanking loop (the M-1 merge's second pass) gives 12 probes and fails the single Should -Invoke -Exactly -Times 6 assertion, ContentIndex.Tests.ps1:341."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-236]
+verifies = ["SR-026", "LLR-047"]
+level = "Unit"
+method = "Automated"
+tier = "Full"
+parameters = """Production-shape memory: a synthetic pool of 30 snapshot manifests x 180,000 rows each (mostly blank DataPath, 6 real data rows per snapshot). Get-BackupContentIndex default call; retained managed bytes after a full collection, measured with GC.GetTotalMemory(true) with the result held live. Tagged Full in tests/Unit/ContentIndex.Tests.ps1 and excluded from the Smoke gate by scripts/check.ps1."""
+expected = """The lean index retains at most 1 GB (1073741824 bytes) at 30 x 180,000 rows, independent of snapshot count in the sense that each snapshot adds only its DataPath rows to the map. No performance-budgets.csv row: that registry traces to SR/LLR/Module ids only."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-237]
+verifies = ["SR-082", "SR-025", "SR-038", "LLR-087"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """kill-point=set{before-temp,after-temp-complete,after-temp-torn-half,after-temp-zero,after-rename}; folder=set{absolute,relative}; failure=set{kill,rename-error}"""
+expected = """tests/Unit/ManifestAtomicWrite.Tests.ps1, Describe 'Write-Manifest publishes MANIFEST.csv atomically'. A folder is seeded with the OLD complete manifest; Write-Manifest(NEW) is interrupted by the ManifestWriteTestHook seam throwing at each boundary (after truncating the staging file to half or zero where the case says so). The SHA-256 of MANIFEST.csv is IN {old, new} at every kill point (and so never zero-length or truncated), equals OLD before the rename and NEW after it; a kill after the rename leaves a witness that mismatches; a relative folder lands in the PowerShell location, not the process directory; a failing rename removes the staging file and leaves the destination alone; an empty record set still writes and verifies. MUTATION-CHECKED 2026-10-09: writing MANIFEST.csv in place again fails the single BeIn assertion at ManifestAtomicWrite.Tests.ps1:115 for the torn-at-half and zero-length cases."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-238]
+verifies = ["SR-082", "LLR-087"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "stage=set{BeforeTempWrite,AfterTempWrite,AfterTempWrite-torn-0.4,AfterRename}"
+expected = """tests/Unit/ManifestAtomicWrite.Tests.ps1, Describe 'A process killed at each Write-Manifest boundary never tears MANIFEST.csv'. A child pwsh runs Write-Manifest(NEW) over a seeded folder with a hook that parks it (writes a flag file, sleeps 600 s) at the stage, truncating the staging file first in the torn case; the parent waits for the flag and then Stop-Process -Force (TerminateProcess / SIGKILL), so no finally, catch or flush in the child can run. SCOPE: a real process kill at each of three boundaries, with tearing SIMULATED by truncating the already-complete temp file before parking; the Export-Csv interval itself is never killed mid-write. The SHA-256 of MANIFEST.csv is IN {old, new}. Mutation-checked with TC-237 (fails at :228 for the torn case)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-239]
+verifies = ["SR-083", "SR-017", "SR-022", "LLR-088"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """leftover=set{complete,torn,zero-length}; classifier=set{marker-stale,marker-fresh,with-MANIFEST.csv,case-differing}; location=set{backup-root,snapshot,nested,temp}"""
+expected = """tests/Unit/ManifestAtomicWrite.Tests.ps1 Describe 'A leftover MANIFEST.csv.tmp breaks nothing' and tests/Unit/StagingLock.Tests.ps1 Describe 'The Write-Manifest staging file in Temp is not content'. The next Write-Manifest over each kind of leftover publishes the complete NEW file (hash) and consumes the temp file, with a verified witness; Get-DataFile returns the nested sub\\MANIFEST.csv.tmp and not the root one; Test-BackupManifest raises no orphan WARN; Test-BackupStorageForm raises no finding in the root or a snapshot; Get-StagingLockState gives OwnerStale for a stale marker plus the staging file, OwnerLive for a fresh one, HoldsContent when a MANIFEST.csv or a case-differing name is also there; a real stale Temp holding the marker and the staging file is reclaimed with the aside folder removed, one that also holds a data file is refused with every hash unchanged, and a run that fails early with the staging file in its own Temp removes that Temp. Mutation-checked: dropping the allowlist entry fails 4 tests; dropping the classifier filter fails 4; removing the by-name temp delete in Clear-ReclaimedStagingFolder fails only the aside-folder-GONE assertion (StagingLock.Tests.ps1:2080)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-240]
+verifies = ["SR-083", "SR-022", "LLR-088"]
+level = "Integration"
+method = "Automated"
+tier = "Full"
+parameters = """run=set{first,changed,no-op}; leftover=set{backup-root,snapshot}; nested-user-file=set{present}"""
+expected = """tests/Unit/ManifestAtomicWrite.Tests.ps1 Describe 'A leftover MANIFEST.csv.tmp through whole backup runs'. Three real Invoke-BackupSet runs over a source holding a nested user file sub\\MANIFEST.csv.tmp, with a torn MANIFEST.csv.tmp planted in the backup root before runs 2 and 3 and in the snapshot before run 3. All three runs succeed; backup.log has no WARN naming the leftover; the manifest has no row for the root-level file and exactly one for the nested user file (B6); the root leftover is consumed; the witness verifies."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-241]
+verifies = ["SR-085", "SR-087", "LLR-090", "LLR-093"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "holder=set{none,same-process}; file=set{absent,present,read-only}"
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'The staging OS lock primitive'. Get-StagingOsLockPath is <ChangeRoot>/Temp.lock; a second Enter-StagingOsLock while the first is held throws a message carrying [SR-075/lock-held]; after Exit the lock can be taken again; Exit is idempotent and accepts $null; the file is still there, zero-length, after release; on Windows it cannot be deleted while held; a read-only attribute on it does not stop the lock being taken."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-242]
+verifies = ["SR-085", "LLR-091"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "end=set{normal,throw-after-step-7,step-3-refusal,fence-tripped}"
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'The lock is released on every way a run ends in-process'. Four in-process Invoke-BackupSet runs end normally, by a mocked Save-SupersededData throw (rethrown), by a content-holding Temp refusal, and by a marker swapped at a RunId fence; after each, this process can take the change root's OS lock."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-243]
+verifies = ["SR-085", "LLR-090", "LLR-091"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "holder=set{child-backup-parked-after-marker-delete}; end=set{Stop-Process -Force}"
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'A hard kill releases the lock'. A child pwsh running a real backup is parked at StagingTestHook_AfterMarkerDelete; while parked the parent cannot take the lock; after Stop-Process -Force (TerminateProcess) it can. SCOPE: Windows only; SIGKILL on Linux is the same claim by the same mechanism and is not run here."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-244]
+verifies = ["SR-085", "SR-086", "LLR-091", "LLR-092"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """window-point=set{after-marker-delete,before-finalize-rename}; contender=set{probe,backup,prune}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'The lock is held across the whole no-marker window' (design E3). A child pwsh runs a real third backup (one file changed, one removed, so Temp holds evicted and superseded bytes) and is parked at each end of the window, where Temp exists and holds no RUN.inprogress. At each point: the parent cannot take the lock; a concurrent backup fails its set with [SR-075/lock-held] in backup.log; a concurrent prune of the existing snapshot is refused with [SR-075/lock-held] in its message; and the SHA-256 of every file under BackupPath and ChangePath is unchanged after each contender (backup.log excluded: the refusal must be logged; the held lock file recorded by length). MUTATION-CHECKED 2026-10-09: releasing the OS lock just before the RUN.inprogress delete fails the single assertion StagingOsLock.Tests.ps1:428 (BackupLog Should -Match lock-held) at both window points -- the contender then took the lock and was refused only by the content rule ([SR-075/content-refused]) -- and also :423 and the prune-token assertion; the byte assertion :438 still PASSES under that mutation, because today's content refusal is the second wall the coming recovery will remove."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-245]
+verifies = ["SR-085", "SR-040", "LLR-092"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "backup=set{parked-after-finalize-rename}"
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'Prune against a live backup past its finalize rename'. A child backup is parked at StagingTestHook_AfterFinalizeRename, where Temp has already been renamed into the new snapshot and Optimize-ChangeFolders is next. A prune of the older snapshot is Refused with code 4 (retry later, as a backup; kind lock-held; code 2 until 2026-10-27) and [SR-075/lock-held], and the SHA-256 of every file under BackupPath and ChangePath is unchanged. MUTATION-CHECKED 2026-10-09: with Remove-BackupSnapshot skipping the lock, the prune REMOVED the snapshot under the live backup, failing the single byte assertion StagingOsLock.Tests.ps1:478 (and the code-2 and token assertions)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-246]
+verifies = ["SR-085", "SR-086", "LLR-092"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "prune=set{parked-in-transaction}"
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'Backup against a live prune'. A child Remove-BackupSnapshot is parked at PruneTestHook_InTransaction (Temp and PRUNE.inprogress present, lock held). A backup fails its set with [SR-075/lock-held] and the SHA-256 of every file under BackupPath and ChangePath, the prune's Temp included, is unchanged."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-247]
+verifies = ["SR-085", "SR-086", "SR-075", "LLR-091"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """holder=set{live-process-holding-lock}; temp=set{marker-only-3h-stale}; arm=set{held,control-released}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'Reclaim against a live run whose marker looks dead'. A frozen run is modelled by a child that only holds the OS lock while Temp carries a marker three hours stale and unchanging -- a folder the SR-075 rules alone reclaim. With the confirmation sample compressed, the backup refuses with [SR-075/lock-held], moves nothing aside and changes no byte. Control arm: with the holder killed, the same backup over the same folder logs [SR-075/reclaimed], proving the lock was the only thing that refused."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-248]
+verifies = ["SR-086", "SR-075", "SR-017", "LLR-091", "LLR-080"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "lock=set{free}; temp=set{fresh-marker,stale-marker-plus-data}"
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'A free lock is not proof of death'. An older FileBackup's live run is represented by a Temp with a FRESH RUN.inprogress and no OS lock held. The lock is free (precondition), the backup acquires it, and still refuses [SR-075/owner-live] and fails the set with every byte unchanged; a stale marker plus a data file still refuses [SR-075/content-refused] unchanged. MUTATION-CHECKED 2026-10-09: with Invoke-StagingLockReclaim treating its acquired -OsLock as proof of death, the run reclaimed the live Temp and completed, failing the single byte assertion StagingOsLock.Tests.ps1:618 (and the owner-live, set-failed and content assertions)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-249]
+verifies = ["SR-086", "LLR-090", "LLR-092"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """failure=set{directory-at-lock-path,IOException-seam,UnauthorizedAccessException-seam}; temp=set{marker-only-3h-stale}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'An open failure that is not a sharing violation is LIVE'. Each arm makes the lock-file open fail -- a real directory squatting on Temp.lock, or the StagingOsLockTestHook_BeforeOpen seam throwing -- over a store whose Temp is reclaimable, so proceeding would be visible. The backup logs [SR-075/lock-held], the prune is Refused with code 4, as the backup (2 until 2026-10-27), and the SHA-256 of every file under BackupPath and ChangePath, the reclaimable Temp included, is unchanged."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-250]
+verifies = ["SR-087", "SR-085", "LLR-091", "LLR-092", "LLR-093"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """consumer=set{Get-PoolSnapshotFolder,Test-BackupStorageForm,Test-PoolResolves,Optimize-ChangeFolders,restore-latest,restore-snapshots}; static=set{init-caller,enter-before-init,exit-sites,no-state-read-before-enter,prune-enter-before-residue}; ordering=set{first-backup-A-finishes-while-B-takes-the-lock}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describes 'The lock file is invisible to every consumer of the store' and 'Where the lock is taken and released, statically'. After three runs Temp.lock is at the change root with length 0; with it HELD, the snapshot list is exactly the dated snapshot folders, the storage-form audit and pool resolution report nothing, Optimize-ChangeFolders runs, the latest state restores byte-exact against the source and every snapshot restores. From the engine AST: Initialize-StagingFolder's only caller is Invoke-BackupSet; Enter-StagingOsLock precedes it there; Invoke-BackupSet's four Exit-StagingOsLock calls are in the step-2.95, logger and step-3 catches and after Complete-ChangeFolder; no Get-LastBackupRun, Get-LastHashRun, Read-Manifest, Test-ManifestWitness or Test-Path call in Invoke-BackupSet precedes its Enter-StagingOsLock; Remove-BackupSnapshot's Enter-StagingOsLock precedes Remove-CommittedPruneResidue. Describe 'A run reads the prior store state only after it holds the lock' (added 2026-10-10 after review): run A, the store's FIRST backup, is a child pwsh parked holding the lock at its first fence (before any manifest or LastBackupRun exists); run B starts, and its StagingOsLockTestHook_BeforeOpen seam lets A run to completion and waits for it to exit (exit 0, precondition) before B's open; only then is a.txt changed. B completes, the SHA-256 of A's stored a.txt is still present under BackupPath or ChangePath, and the only snapshot is the one named by A's date. MUTATION-CHECKED 2026-10-10: with the LastBackupRun read and the no-LastBackupRun guard moved back above the lock, B took itself for a first backup and completed while discarding A's version -- failing the single assertion StagingOsLock.Tests.ps1:1102 (A's bytes present) and the snapshot assertion; B still reported success."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-251]
+verifies = ["SR-085", "SR-086", "LLR-094"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """backup=set{parked-after-marker-delete}; finding=set{raw-object-under-Compressed=Yes-in-snapshot}; arm=set{held,control-released}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'Storage repair against a live backup'. The older snapshot's manifest is re-written (through Write-Manifest, witness valid) with a raw object's row flagged Compressed=Yes, a repairable finding (precondition asserted). With a child backup parked in the no-marker window, Repair-BackupStorageForm throws [SR-075/lock-held], logs it through the caller's logger, and the SHA-256 of every file under BackupPath and ChangePath is unchanged; once the child is killed the same repair repairs the finding. MUTATION-CHECKED 2026-10-09: with the repair skipping the lock it rewrote the snapshot manifest under the live backup, failing the single byte assertion StagingOsLock.Tests.ps1:856 (and the token and log assertions)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-252]
+verifies = ["SR-085", "SR-086", "LLR-094"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """backup=set{parked-after-marker-delete}; kit=set{stale-RECONSTRUCT.ps1-in-snapshot}; arm=set{held,control-released}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'Kit refresh against a live backup'. The older snapshot's RECONSTRUCT.ps1 is made to differ from the root's (precondition asserted). With a child backup parked in the no-marker window, Update-BackupSnapshotKit throws [SR-075/lock-held], logs it, and every byte under BackupPath and ChangePath is unchanged; once the child is killed the same refresh makes the snapshot kit equal the root's. MUTATION-CHECKED 2026-10-09: with the refresh skipping the lock it overwrote the snapshot kit under the live backup, failing the single byte assertion StagingOsLock.Tests.ps1:909 (and the token and log assertions)."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-253]
+verifies = ["SR-085", "SR-086", "SR-040", "LLR-094"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """invocation=set{Verify,Verify -RepairStorage,Verify -RefreshKits}; lock=set{held-by-parent}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe '-Action Verify through the entry point with the lock held'. The real FileBackup.ps1 runs in a child process with -ExitCode while the test process holds the store's OS lock: a read-only Verify exits 0; -RepairStorage and -RefreshKits each exit 4 (retry later; 2 until 2026-10-27) with [SR-075/lock-held] in their output; every byte under BackupPath and ChangePath is unchanged across all three."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-254]
+verifies = ["SR-085", "SR-086", "LLR-094"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """case=set{WhatIf-repair-held,WhatIf-refresh-held,no-change-root,missing-change-root}; static=set{Repair-BackupStorageForm,Update-BackupSnapshotKit}"""
+expected = """tests/Unit/StagingOsLock.Tests.ps1 Describe 'The maintenance lock edge cases and placement'. Under -WhatIf both mutators run while the lock is held (no lock taken); a repair given no change root throws [SR-075/lock-held]; a repair given a change root that does not exist creates it, takes the lock there and leaves it free afterwards. From the engine AST, Enter-StoreMutationLock is called exactly once in each mutator and before its first audit, enumeration or mutating command."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-255]
+verifies = ["SR-045", "SR-046", "LLR-045", "LLR-046", "LLR-047"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "case=set{reads-and-shape,changed-destination-manifest,damaged-supply,damaged-own-object}"
+expected = """tests/Unit/Coverage.Tests.ps1 Describe 'Prune and the pool check read one manifest at a time' (plan C43), on the three-run prune timeline. (a) Read-Manifest seen through a spy: Get-SnapshotPrunePlan reads no folder's manifest more than twice, the plan has no Manifests member, the index records carry no Manifest, and each item names a destination row by position whose RelativePath and content key match. (b) The destination manifest is rewritten with its rows reversed after planning; Publish-PruneManifest throws and the manifest is byte-identical. (c) An empty file planted at the destination name of the endangered object; the plan still lists the key and Remove-BackupSnapshot refuses. (d) keep.txt's only object emptied in the backup root; Test-PoolResolves. Expected outcome: (a) one manifest at a time, positions correct. (b) 'changed after the prune was planned', nothing written. (c) Refused, code 2, one destination-collision refusal; the target's good copy is still there with its original hash (before C43 the damaged copy counted as supply and the good copy was deleted). (d) one broken-pool problem for the backup root's keep.txt row, its message saying damaged."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-256]
+verifies = ["SR-014", "SR-042", "SR-063", "LLR-095"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """config=set{StorePath,BackupPath,ChangePath,v2}; store=set{new,old-root,old-sibling,old-CurrentBackup,old-top-snapshot,old-named-history,building-leftover,pruning-leftover,snapshots-without-CurrentBackup,CurrentBackup-without-history,recreated-history,cut-short-new}; view=set{default,store/View,elsewhere-in-store,inside-CurrentBackup}"""
+expected = """tests/Unit/Engine.Tests.ps1 and tests/Common/ConfigFixtures.ps1 (TC-077 corpus): the v3 contract, refusal by name of BackupPath/ChangePath in JSON and CLIXML, v2 too old; Resolve-BackupSetPaths on each store shape; the view rails. tests/Unit/Coverage.Tests.ps1: an unattached store drive gives 4 for every action (C25). Expected outcome: Only StorePath loads; the retired keys and v2 are refused naming the conversion; old-layout stores, snapshots-without-CurrentBackup and CurrentBackup-without-history are refused (2) and nothing is created, the last naming the empty folder that lets the run go on; a recreated empty BackupHistory is accepted; an empty BackupHistory with no CurrentBackup is still a new store; leftover Building_*/Pruning_* folders are accepted inside BackupHistory; the view is accepted only at <store>/View inside the store; an unplugged drive is 4."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-257]
+verifies = ["SR-007", "SR-009", "SR-010", "SR-031", "LLR-098"]
+level = "Integration"
+method = "Automated"
+tier = "Smoke"
+parameters = """origin=set{CurrentBackup,CurrentBackup-without-history,Snapshot,dated-outside-history,old-Snapshot-name,neither,outside-with-override,copied-store}; target=set{outside,inside-store,inside-origin}"""
+expected = """tests/Unit/Coverage.Tests.ps1 (kit run from neither folder; -StoreRootOverride; copied store B10), RestoreLaunchers (six kit artifacts, no sidecar, revision 16), RestoreIndex (a snapshot finds CurrentBackup in its store); tests/bash/restore.bats, restore_index.bats, exit_codes.bats for reconstruct.sh. Expected outcome: Each origin restores byte-exact from its own store; a kit run from neither CurrentBackup nor a dated folder in BackupHistory exits 2 writing nothing unless the store is named; a dated folder outside BackupHistory and an old Snapshot_<date> name each exit 2; CurrentBackup restores with BackupHistory missing; a copied store restores from the copy; a target inside the store or inside the origin exits 2."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-258]
+verifies = ["SR-069", "SR-058", "LLR-096"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = """name=set{ordinary,first-char-L,second-char-L}; placement=set{own-shard,top-of-CurrentBackup,other-shard,uppercase-shard}"""
+expected = """tests/Unit/Common.Tests.ps1 Describe 'Shard folders of the latest state'; tests/Unit/BoundedRun.Tests.ps1 (MisplacedObject); tests/bash/name_grammar.bats (sharded decoder). Expected outcome: The shard is the lowercased first two characters, an 'l' folder included; only a file in its own shard folder is listed or decoded; a misplaced object is reported as MisplacedObject, its content is stored again by the next run, and -RepairStorage moves it into Verify/CurrentBackup."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-259]
+verifies = ["SR-010", "SR-069", "LLR-096", "LLR-098"]
+level = "Unit"
+method = "Automated"
+tier = "Smoke"
+parameters = "index=set{PowerShell,bash}; object=set{in-l-shard,misplaced}"
+expected = """tests/Unit/RestoreIndex.Tests.ps1 (New-StoredObjectNameIndex -LatestFolder) and tests/bash/restore_index.bats: the restorers' name indexes over a sharded CurrentBackup. Expected outcome: An object in its own shard (an 'l' folder included) is indexed; a misplaced one is not, and only the content scan can find it."""
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-260]
+verifies = ["SR-055", "SR-065", "LLR-097"]
+level = "Integration"
+method = "Automated"
+tier = "Smoke"
+parameters = "host=set{Windows,container}; path=set{nested-file,empty-dir}"
+expected = """tests/Unit/RestoreFidelity.Tests.ps1 (DIRECTORIES.csv rows with '/'), tests/Common/Harness.ps1 Get-ManifestRow over the integration suites (G1, G2, G10), and the scratch end-to-end check of 2026-10-27 (nested rows recorded 'sub/deep/x.txt'). Expected outcome: RelativePath in MANIFEST.csv and DIRECTORIES.csv uses '/' on Windows; nested files and empty directories restore to their places."""
+automated = "Yes"
+status = "Drafted"

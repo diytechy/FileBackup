@@ -25,6 +25,13 @@
      file-naming clause, held once where tier_questions composes it into every
      tier's brief, so an SN or SR sitting reads the same rule as an LLR or TC
      one; §1(e), §2(b), §2(d) and §3 point at it.
+
+     §4 serves the LLR tier because DevStg-Arch has no approval act of its
+     own: the first LLR sitting at a component scope, or one that re-cuts
+     it, is the act a decomposition judgement feeds. Every LLR brief carries
+     §4, so its line states that applies-when itself: at any other LLR
+     sitting the decomposition record is "not supplied" in the rubric's A4
+     sense, never a ground for a return.
 -->
 
 # The adjudicator's questions, per spine tier
@@ -52,6 +59,8 @@
   rationale included. An approved cell keeps its approved text verbatim, names
   included, until it is amended through its authority, and an amendment adds no
   name the rule forbids.
+- **Keep or mint:** a row whose meaning changed keeps its id only as
+  `docs/process.md` §4 "Keep or mint" allows.
 
 ## 1. At SN intake — answer these before the need is approved
 <!-- tiers: SN -->
@@ -182,16 +191,15 @@ Questions:
   - **Which tiers carry it:** `SR` and `LLR` only. `SN` states the need a hat is
     a lens *on*, and `TC` records how a claim is checked; neither is a place an
     obligation is attributed, and neither schema declares the key.
-- **(c3) Leave the decomposition's perspective record beside it, and review
-  from it.** `Hat-Refs` cannot say that a perspective was weighed and found
-  nothing. The decomposing session runs `python scripts/hats.py record
-  <record-stem>.perspectives.toml --row <id> ... --by <who>` next to its
-  decomposition record. That derives which hats applied and what each produced (own
-  `Hat-Refs`), and the session writes a one-line `no_finding` for each applicable
-  hat that produced nothing. As adjudicator, read that file, not the authoring
-  transcript, and run `record <file> --check`. MISSING, STALE or CONFLICT goes
-  back for a fix. Whether each no-finding is adequate is your judgement; the
-  check only proves that every applicable hat has an answer.
+- **(c3) In a decomposition round, the review record names each applicable
+  hat's outcome.** `Hat-Refs` cannot say that a perspective was weighed and
+  found nothing, and no file beside the decomposition says it either. A round
+  that adds an SR under a need, or amends an approved need, carries each
+  applicable hat's question in its brief, and the sitting's verdict, the
+  review record, names every one of them once: the rows it raised, by their
+  `Hat-Refs`, or no finding with the reason. A missing outcome is a finding
+  for the review, never a coverage gate, and no check counts the outcomes.
+  Whether each outcome is adequate is your judgement as adjudicator.
 - **(d) The advisories are detectors, not caps.** `scripts/trace.py` warns —
   never gates — on (i) an SR `Requirement` naming a concrete `.py` artifact,
   (ii) two SRs naming the same artifact token, (iii) an SN `acceptance` naming a
@@ -300,3 +308,8 @@ Questions:
   dimensional space and are not interdependent; otherwise the honest states are
   a recorded orphan or a direct TC. No validator settles this, and none is
   likely to be efficient: it rests on the author's and the reviewer's reading.
+
+## 4. At DevStg-Arch — a component scope's decomposition
+<!-- tiers: LLR -->
+
+- **When the sitting is the first LLR sitting at a component scope, or one that re-cuts it, judge the scope's decomposition against `docs/rubrics/architecture-decomposition.md`**, citing its anchor ids; at any other LLR sitting the scope's decomposition record is *not supplied* in the rubric's A4 sense, never a ground for `RETURN`. This section restates none of the rubric's anchors.

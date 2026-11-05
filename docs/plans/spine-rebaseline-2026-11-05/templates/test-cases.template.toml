@@ -1,0 +1,40 @@
+# Test Cases (TC-###) — the TOML registry CARRIER.
+#
+# ONE TABLE PER ROW, id-keyed with the prefix retained and the key BARE:
+# `[test.TC-000]`. `verifies` is a typed array naming the SR/LLR (and, at
+# rung 2, IF) ids this case covers; `Phase` is an int; an EMPTY CELL IS AN
+# ABSENT KEY — omit a key rather than setting it to "".
+# A duplicate id is a parse error, which is the carrier doing what a check
+# used to (docs/process.md; the carrier's reader is scripts/spine_carrier.py).
+#
+# THE `-000` ROW BELOW IS THE SCHEMA. There is no header line to declare a
+# column, so this example row is the only place the vocabulary is written
+# down: it sets EVERY key the tier has, with the guidance for each as its
+# value. Delete it on the first real entry.
+#
+# NEVER PROVENANCE. The TC tier has no reason cell, so its living cells —
+# `method`, `expected`, `parameters` — state the case and nothing else: no
+# work-item id, ruling, sitting, review-round or open-item reference, decision
+# id, edit verb or date stamp. Naming an SR/LLR id is a trace link, not a
+# citation frame; the history belongs in the log (process.md §3).
+[test.TC-000]
+verifies = ["SR-000", "LLR-000"]
+level = "Unit"
+method = "EXAMPLE - delete on first real entry"
+tier = "Smoke"
+parameters = "param=a; other=x"
+expected = "Cite the verified requirement's AcceptanceCriteria by id (do not paraphrase)."
+automated = "No"
+evidence = "docs/test/manual-smoke.md"
+status = "Drafted"
+phase = """Delivery phase = the max Phase of the SR/LLR it Verifies (a bare integer; blank only on a pre-approval Drafted row). See process.md 'Phased delivery'."""
+assumption_refs = ["DA-000"]  # the DOMAIN ASSUMPTION(S) in docs/requirements/assumptions.toml this case can falsify, in place of or beside what it verifies. A case naming only assumptions needs no verifies; a case naming neither is an orphan, and an id no assumption row declares fails the check. A POINTER: moving it re-opens no approval. An assumption-only case belongs to every phase of the requirements citing its assumptions.
+inputs = ["docs/test/manual-smoke.md", "SR-000"]  # OBSERVATION CASES ONLY (automated = "No"): the repository paths and registry row ids the judgment reads, so a change to any of them makes the result stale. Omitted on an observation case, it is reported; an automated case declares none of these observation cells.
+max_age = 30  # OBSERVATION CASES ONLY: how many whole days the result holds before it is taken again. Omitted, it is reported; under 7 or not a whole number, the check fails.
+sampling = "sampled"  # OBSERVATION CASES CITING AN ASSUMPTION: sampled (judged over a sample of the population the assumption speaks about) | monitored (read continuously in operation). Omitted, it is reported; any other value fails the check.
+sample_size = 5  # SAMPLED CASES, OPTIONAL: the sampling model's whole-number sample size, at least 1. Declare it together with acceptance_rule or not at all; one without the other fails the check. Whether the model supports the claim is judged when the case is approved.
+acceptance_rule = "State what a passing sample is - e.g. at least four of five readers find the entry point unaided."
+
+rubric = "docs/rubrics/example.md" # OBSERVATIONS: write the numbered pass/fail anchors before the first judgement (PROCESS.md Observation judgement).
+trigger = "release" # OBSERVATIONS: files:<semicolon-separated globs> | component:CMP-### | release | stage-gate; omitted preserves input-change triggering under the floor.
+min_work_items = 10 # OPTIONAL: may raise the [checks] observation_min_work_items floor; closed archived WIs since the last result's adding commit.

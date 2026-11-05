@@ -1,0 +1,29 @@
+# Design expectations (LLR-###) — the TOML registry CARRIER.
+#
+# ONE TABLE PER ROW, id-keyed with the prefix retained and the key BARE:
+# `[design.LLR-000]`. Refs are typed arrays, `Phase` is an int, and an EMPTY
+# CELL IS AN ABSENT KEY — omit a key rather than setting it to "".
+# A duplicate id is a parse error, which is the carrier doing what a check
+# used to (docs/process.md; the carrier's reader is scripts/spine_carrier.py).
+#
+# THE `-000` ROW BELOW IS THE SCHEMA. There is no header line to declare a
+# column, so this example row is the only place the vocabulary is written
+# down: it sets EVERY key the tier has, with the guidance for each as its
+# value. Delete it on the first real entry.
+[design.LLR-000]
+sr_refs = ["SR-000"]
+hat_refs = ["SECURITY"]  # OPTIONAL. The declared perspective(s) in docs/requirements/hats.toml raised AT THIS DESIGN DECOMPOSITION - by roster NAME, and a real shipped one so this row resolves when copied. NEVER a copy of the parent SR's cell: a row's EFFECTIVE set is DERIVED (this row's own refs, unioned with its SR parents'), so re-ruling one requirement propagates to every child on the next read and corrects no LLR cell at all. Copying down instead would turn one re-ruling into a sweep over every child - the hand-maintenance this design exists to escape, moved one tier down and multiplied. An ABSENT cell means NOT RECORDED, never "no perspective reached this row".
+title = "EXAMPLE - delete on first real entry"
+module = "path/to/module"
+code_symbol = "function_or_type"
+detail = """Decomposition/implementation detail — NOT a paraphrase of the SR (reference it by id). Name the real (or planned) module + symbol."""
+rationale = """WHY this decomposition, not another — what breaks without it, and which alternative was ruled out. Optional: a short mechanical row's why is its parent SR's. Never provenance: no work-item id, ruling, sitting, review-round or open-item reference, decision id, edit verb or date stamp — the history belongs in the log (process.md §3)."""
+test_refs = "(see TC)"
+status = "Approved"
+phase = """Delivery phase = the parent SR's Phase (a bare integer; blank only on a pre-approval Drafted row). See process.md 'Phased delivery'."""
+
+component = "CMP-000"
+# `component` — the CMP id this design row belongs to, when the project runs
+# the optional component layer (process-options.md). Once components.toml holds
+# real rows every Component tag must resolve to one; omit the key on a project
+# that declares no components.

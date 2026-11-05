@@ -37,7 +37,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Trace registries (strict, 0 orphans + Test SRs Verified)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Trace registries (strict; rebaseline debt remains visible)
         shell: pwsh
         # --phase mirrors check.ps1: bash-v1 and container-v1 have shipped
         # (container-v1's promotion evidence is the first green container job,

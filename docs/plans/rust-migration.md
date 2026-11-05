@@ -10,6 +10,9 @@ kits**. Establish compatibility first, then expand native distribution and
 measure performance. The [requirements audit](../requirements-audit-2026-11-05.md)
 identifies which old requirements cannot safely be copied into the new design.
 The [user flow](../backup-flow.md) describes the behavior to preserve.
+R0 is now being worked through the
+[staged spine rebaseline](spine-rebaseline-2026-11-05.md); its draft needs and
+open decisions must be reconciled before the new engine's design is approved.
 
 ## 1. Intended result and scope
 

@@ -18,3 +18,8 @@
 # Golden fixtures are byte-exact engine output (CRLF manifests, binary data,
 # .7z archives) — never let git normalize them or the conformance check drifts.
 tests/fixtures/** -text
+
+# Exact upstream bytes are verified against the pinned import's SHA-256 map.
+scripts/spine-kit/** text eol=lf
+# Original registry evidence retains its historical bytes, including bad rows.
+docs/plans/spine-rebaseline-2026-11-05/legacy/*.csv -text

@@ -1,0 +1,121 @@
+# Stakeholder Needs (SN-###) — the TOML registry CARRIER.
+#
+# ONE TABLE PER NEED, id-keyed with the prefix retained and the key BARE:
+# `[need.SN-000]`. An EMPTY CELL IS AN ABSENT KEY — omit a key rather than
+# setting it to "". A duplicate id is a parse error, which is the carrier
+# doing what a check used to (the reader is scripts/spine_carrier.py).
+#
+# Every need below serves the [PROJECT-VISION](../../README.md#vision) — the DevStg-Reqs
+# consistency review checks each against it: a need serving no part of the
+# vision is scope creep (or a missing vision clause); a need contradicting it
+# is a finding. (The link is kept in markdown form so the pointer stays
+# checkable and a human following it lands in the right place.)
+#
+# Owned by the Stakeholder hat — whoever the system serves: an end user, an
+# operator, or ANOTHER SYSTEM (represented by its owner/integrator).
+# Plain-language needs — a failure-mode expectation ("never hand me a
+# half-written file") is a need like any other. Engineering translations live
+# in system-requirements.toml (referenced by its `sn_refs`); do not restate
+# them here. Priority: M=Must · S=Should · C=Could.
+#
+# MATURITY IS A FIELD, NOT A SECTION, AND IT IS THE SAME FIELD AT EVERY TIER.
+# `status` is the ONE vocabulary the whole spine speaks — SN, SR, LLR and TC —
+# so "what is un-approved right now?" is one question with one answer, not a
+# per-registry special case:
+#
+#   Drafted   still being drafted — DevStg-Below. trace.py exempts it from the
+#             "every SN needs an SR" rule, so it can sit in the live registry
+#             before its SR decomposition exists. Do not park real needs here.
+#   Approved  an approved need (the steady state). APPROVE by changing `status`
+#             to "Approved" in a reviewed commit; that commit is the sign-off
+#             and its date is the approval date.
+#
+# There is NO third value for "approved text that has since been AMENDED". A
+# transitional `Modified` carried that until 2026-08-20, exactly as long as its
+# own note here said it would: it retired once approved text was snapshotted to
+# `docs/archive/last_approved/` and the DIFF answered the same question, for
+# every row rather than the ones someone remembered to mark.
+#
+# Do NOT add a second field for this axis — no `attestation`, no `amended`
+# date. When a row changed is git's job, and it holds that for every row
+# rather than the ones someone remembered to mark.
+#
+# This retires the older carrier's "section-as-state", where draft-ness was
+# "appears under a heading containing the word draft" — a rule a prose MENTION
+# of an id could trip, silently re-drafting an already-approved need.
+#
+# COVER THE WHOLE LIFECYCLE, NOT JUST STEADY STATE. For each need ask: when in
+# the running product's life must this hold? — Provision (before it runs:
+# install, dependencies), Startup (once per launch: config, migrations), or
+# Runtime (steady-state serving). Most authors write only Runtime needs and
+# discover the install/first-run ones late; tag the non-runtime ones with
+# `lifecycle` (process.md §4 "Lifecycle phase").
+#
+# NAME WHOSE OUTCOME EACH NEED IS. The short STAKEHOLDER LIST below the needs
+# (`[stakeholder.STK-000]`) says who owns outcomes: a `name`, a `description` of
+# which outcomes are theirs, an optional `party` (the declared entity in
+# `external.toml` they are, which is what lets a need's outcome be placed on
+# the frame) and the same `status` field as every tier. Each need names its
+# owners in `stakeholder_refs`; once the list has a row, a need naming none is
+# reported, and a reference to an undeclared stakeholder always fails. A stakeholder owns an OUTCOME, which is
+# not the same thing as a review perspective in `hats.toml`, which owns a
+# QUESTION put to each decomposition: no perspective becomes a stakeholder row.
+#
+# SAY WHERE A NEED CAME FROM. When a need is drawn from a longer document (an
+# owner's statement of design constraints, a needs catalog), point at it in
+# `source`: a list of repository-relative `path#anchor` targets, each of which
+# must resolve to a file and one of its headings or ids. The need stays the
+# canonical obligation and the document its provenance, so the pointer lives in
+# its own cell and never in the need's text. Optional.
+#
+# CONSIDER THE COST, NOT JUST THE BEHAVIOR. Where the scope warrants it, also
+# capture non-functional needs — performance, memory/size, cost (unit/BOM,
+# licensing, cloud spend), reliability, security, observability — and route
+# each to its home (process.md §9). A prompt, not a mandate.
+
+[need.SN-000]
+status = "Approved"
+need = """_EXAMPLE — replace this row; number real needs sequentially (the `-000` id is a placeholder the tooling ignores)._"""
+why = """Why it matters — the consequence of NOT meeting it, in the stakeholder's terms. This is the need tier's REASON cell (the schema carries no Rationale), and it takes the ARGUMENT, never the CITATION: no work-item id, ruling, sitting, review-round or open-item reference, decision id, edit verb or date stamp — the history belongs in the log (process.md §3)."""
+priority = "M"
+acceptance = "Acceptance intent: how we would know it is met."
+tags = ["EXAMPLE-domain"]
+stakeholder_refs = ["STK-000"]
+source = ["README.md#vision"]
+# `tags` (OPTIONAL — omit the key on an untagged need) names the DOMAINS a
+# need's OWN SUBJECT sits in, in the vocabulary the hats roster's
+# `applies_when` clauses evaluate (`hats.toml`, `tags contains "…"`). Tag a
+# need when a hat's charter subject IS the need's subject — reading it without
+# that lens would leave a plainly governing question unasked — never merely
+# because some hat once derived a row from it. Untagged is normal, not
+# incomplete: an `always` hat needs no tag to reach anything, and `tags` adds
+# no arithmetic.
+# `stakeholder_refs` and `source` are the two POINTERS described above: they
+# point at rows and documents, and are not part of the need's own text.
+
+# --- EDGE-CASE COVERAGE -------------------------------------------------------
+#
+# How the system behaves when things go wrong is the highest-value content
+# here — but it is NOT a separate row kind. Write a failure-mode expectation
+# as an ordinary need (an ordinary `status`), and let the HATS ROSTER carry
+# the coverage question: each hat's `asks` is put to every decomposition its
+# `applies_when` matches (`hats.toml`; process.md §1), so edge coverage is
+# regenerated per need rather than maintained as a standing checklist tier.
+#
+# --- DRAFT NEEDS --------------------------------------------------------------
+#
+# Draft new needs with `status = "Drafted"`, then approve them to "Approved".
+# Empty is the normal steady state.
+
+# --- STAKEHOLDERS --------------------------------------------------------------
+#
+# One table per stakeholder, `[stakeholder.STK-000]`, ids numbered `STK-01`,
+# `STK-02`, ... . `party` is OPTIONAL: omit it for a stakeholder who is not an
+# entity of the frame. Approve a stakeholder the way you approve a need, by
+# moving its `status` in a reviewed commit.
+
+[stakeholder.STK-000]
+name = "_EXAMPLE_ — who owns an outcome, in a few words"
+description = """Which outcomes this stakeholder owns, and what they would lose if a need of theirs were dropped. Replace this row; the `-000` id is a placeholder the tooling ignores."""
+party = "EXT-000"
+status = "Approved"

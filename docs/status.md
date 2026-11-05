@@ -5,9 +5,10 @@ Live coordination for the gated process (see [process.md](process.md)). Keep the
 last) — it is the record, not required reading for every pass.
 
 > **Retrofit, not greenfield.** FileBackup already works and ships a green Pester
-> suite. We are layering the requirement-traced process *onto existing code*:
-> back-fill SN/SR/LLR/TC from what the tool already does and from
-> [AGENTS.md](../AGENTS.md), close traceability gaps, then keep new work gated.
+> suite. We are rechecking stakeholder needs and decomposing their obligations,
+> then comparing them with existing code and evidence. Existing behavior and
+> [AGENTS.md](../AGENTS.md) inform that comparison; they do not define the needs.
+> Unmet valid obligations remain work rather than being rewritten to pass.
 > The spine's top layer is
 > [requirements/stakeholder-needs.toml](requirements/stakeholder-needs.toml)
 > (formerly `user-needs.md`/UN-###; ids kept their numbers, so audit entries
@@ -23,6 +24,18 @@ last) — it is the record, not required reading for every pass.
 ---
 
 ## Current State
+
+- **SPINE RESYNC AND NEEDS REBASELINE (2026-11-05, in progress).** See the
+  [working record](plans/spine-rebaseline-2026-11-05.md). The pinned upstream
+  checker now reads the 49 SN / 123 SR / 87 LLR / 240 TC rows. All four tiers
+  use TOML; six malformed TC rows were repaired without dropping prose,
+  and legacy evidence/statuses were harvested before LLR/TC were marked
+  Drafted for review. Native operation has its own proposed SN-055.
+  General hooks remain disabled; no tier approval, runtime change, full-kit
+  adoption or Rust implementation is claimed. The older entries below are
+  historical evidence, not the current carrier/checker state. Next: review
+  the proposed needs, reconcile the existing SRs against the fresh candidates,
+  then re-decompose and reattach actual code/test evidence.
 
 - **REPOSITORY REVIEW AND RUST MIGRATION DRAFT (2026-11-05).** On
   `Rust-Rewrite`, baseline `45c9a4d`: added the
@@ -6731,3 +6744,43 @@ Lesson for the next layout change: a check that something is absent passes
 vacuously when it looks in the old place, so a rename can leave a test that can
 never fail. Three were found this way (G9's `Prune_oldest_folder_gone` and two
 `Pruning_*` listings in Coverage), and the sweep for them is worth repeating.
+
+
+### 2026-11-05 — staged spine resync and requirements authoring checkpoint
+
+Owner direction: prioritize fleshing out the product spine while ai-template is
+in flux; keep general hooks disabled and enable spine checks in stages.
+Imported committed template e3e399b8d through an isolated, hash-pinned dependency
+closure; full kit stamp remains 9b697cc. The source checkout's unrelated dirty
+files were not copied. Python 3.11 is now the process-tool floor; the product
+remains PowerShell with the existing independent restore scripts.
+
+Preserved original CSV bytes and a complete 87-design/240-test evidence harvest;
+repaired six malformed test rows and converted both active tiers losslessly to
+TOML. Set their maturity to Drafted rather than promoting legacy test results
+into approvals. Corrected the two incoherent TC/SR/LLR links documented in the
+working record. Seeded the ID watermark from live rows and production claims,
+including LLR-150; missing/retired IDs still need historical reconciliation.
+
+Reviewed all 48 previous needs and proposed SN-055 for native engine/maintenance
+operation. Amended needs and frame remain Drafted. A separate input-restricted
+candidate derivation covers all 49 needs in 82 obligations; its inherited AGENTS
+context is disclosed, so it is not claimed fully blind. Independent semantic
+alignment covers all 123 existing SRs: 42 matched, 63 partial/conflicting and
+18 legacy-only; six candidates have no direct legacy match. No live SR text or
+production back-reference was rewritten to force agreement. All 87 current
+LLRs have a code/test attachment audit, not an implementation certification.
+
+Validation: upstream and vendored checkers agree; strict integrity exits 0.
+Full strict/schema exits 1 with 118 orphan relationships, 235 schema findings
+and one legacy interface-shape finding. The nine-hat audit has no unknown tag
+tokens. Pin hashes, original CSV bytes, conversion cell preservation, complete
+review ID coverage and unchanged generated PowerShell architecture regions
+passed. Documentation check: 89 documents, 246 links, zero broken, 28 existing
+orphan warnings. Harness syntax and diff whitespace checks pass. No runtime
+suite rerun and no platform/maturity approval claimed. Hooks are still inactive.
+
+Resume from [the rebaseline record](plans/spine-rebaseline-2026-11-05.md): settle
+the concrete need/policy choices, reconcile the authoritative SR tier, then
+rewrite design contracts and bind actual code/test evidence. The structural
+floor is now trustworthy; the full requirements assurance claim is not yet made.
