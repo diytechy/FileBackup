@@ -8,6 +8,11 @@ the slot for the *generated* map; link to AGENTS.md for detail.
 
 ## High-level flow
 
+For the user-facing run, per-file decisions, staging/copy paths and recovery
+flow, see [How a normal backup runs](backup-flow.md). See also the
+[requirements audit](requirements-audit-2026-11-05.md) and
+[Rust migration proposal](plans/rust-migration.md).
+
 Hand-written and small; diagrams are Mermaid fenced blocks (rendered natively by
 GitHub and the VS Code preview — see process.md "Diagrams are text"):
 

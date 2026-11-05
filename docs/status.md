@@ -24,6 +24,17 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **REPOSITORY REVIEW AND RUST MIGRATION DRAFT (2026-11-05).** On
+  `Rust-Rewrite`, baseline `45c9a4d`: added the
+  [user backup-flow diagrams](backup-flow.md), an
+  [implementation/requirements audit](requirements-audit-2026-11-05.md), and an
+  [initial Rust migration plan](plans/rust-migration.md). These are review
+  artifacts; no requirement status, store format or runtime behavior changed.
+  The audit reproduces the known trace-loader failure and records the
+  TC-255..260 CSV width defect. The plan retains standalone PowerShell/bash
+  recovery and requires format/lock/continuation evidence before Rust writes
+  existing stores. The earlier layout and HomeHub follow-ups below remain open.
+
 - **L9-L11 BUILT, INDEPENDENTLY REVIEWED, FIXED (2026-11-05).** The Owner changed
   the store's layout before `BoundedRebuild` merges: `CurrentBackup` replaces
   `Latest`, the snapshots sit in `BackupHistory` under date-only names, and a

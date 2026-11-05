@@ -26,14 +26,20 @@ everything in a `MANIFEST.csv`. When a run supersedes earlier content it preserv
 **dated point-in-time snapshot** (a dated folder in `BackupHistory`) of the prior state, and drops a
 **self-contained restore kit** into the backup so you can rebuild *any* point in time —
 the latest from the backup folder, or an earlier state from its dated snapshot — with
-nothing but that folder and the documented restore tools. No repository or NuGet
+the whole store folder and the documented restore tools. Snapshot data can be shared
+across the store. No repository or NuGet
 download is needed at restore time.
 
-> **Status:** functional and covered across all four storage modes, including the
+> **Status:** functional and covered across both compression modes, including the
 > G9 rollback matrix. Current suite totals and the full test matrix live in
 > **[AGENTS.md](AGENTS.md)**.
 > Contributors and agents modifying the tool should read **[AGENTS.md](AGENTS.md)**
 > (architecture, invariants, test matrix, history).
+
+For a walkthrough, see the [backup flow diagrams](docs/backup-flow.md).
+The [2026-11-05 requirements audit](docs/requirements-audit-2026-11-05.md) and
+[initial Rust migration plan](docs/plans/rust-migration.md) describe the current
+specification gaps and proposed cross-platform engine transition.
 
 ---
 
