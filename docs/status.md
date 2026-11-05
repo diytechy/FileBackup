@@ -24,14 +24,20 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **L9-L11 RULED, BEING BUILT (2026-11-04).** The Owner changed the store's
-  layout before `BoundedRebuild` merges: `CurrentBackup` replaces `Latest`, the
-  snapshots move into `BackupHistory` under date-only names, and a store with a
-  `CurrentBackup` but no `BackupHistory` is refused with 2. See
-  [plans/single-store-layout.md](plans/single-store-layout.md) (rulings L9-L11,
-  calls S10-S16). **Do not merge `BoundedRebuild` or build a HomeHub image until
-  this lands;** item 2 of the resume list below is held behind it, and HomeHub's
-  branch must follow the new names (its `count_snapshots` too).
+- **L9-L11 BUILT, INDEPENDENTLY REVIEWED, FIXED (2026-11-05).** The Owner changed
+  the store's layout before `BoundedRebuild` merges: `CurrentBackup` replaces
+  `Latest`, the snapshots sit in `BackupHistory` under date-only names, and a
+  store with a `CurrentBackup` but no `BackupHistory` is refused with 2 (kit
+  revision 16). See [plans/single-store-layout.md](plans/single-store-layout.md)
+  (rulings L9-L11, calls S10-S17). Evidence: the 2026-11-05 entry at the end of
+  this log. **Nothing is merged or pushed.** **Resume here:**
+  1. For the Owner: S10-S17, above all the three items left open in S17.
+  2. HomeHub's branch has NOT been changed and still speaks `Latest` and
+     `Snapshot_*`: its wrapper's mount check, `FB_LATEST`, `count_snapshots`
+     (`library-backup.sh:760`, which would silently report 0), the old-layout
+     checks, tests, README and LLR-1357/1360. Do this before building its image;
+     item 2 of the list below is held behind it.
+  3. Then the rest of the list below: the Owner's review of S1-S9, the merge.
 
 - **C43 AND C44 BUILT, INDEPENDENTLY REVIEWED, FIXED (2026-10-28).** The
   data-loss review of `7532b86` is now fully built on `BoundedRebuild`
@@ -6681,3 +6687,36 @@ tier - Pester unit 976 passed, 0 failed, 1 skipped (lint, docs, map, perf PASS;
 traceability as before); integration sweep G1-G10 x Plain/Compress 274 PASS,
 0 FAIL. The review worktree was removed; the tree is clean except the
 untracked `session-ses_e804.md` (the Owner's opencode transcript, not ours).
+
+### 2026-11-05 - L9-L11: CurrentBackup, BackupHistory, date-only snapshots
+
+The Owner's rulings of 2026-11-04 (`3be8937`), built in `88640a0`, review fixes in
+`d6d573a` and `753d88b`, the container fixtures in the commit that adds this
+entry. Independent Opus review of `88640a0`: nothing serious. Its findings and
+what was done with each are S17 in
+[plans/single-store-layout.md](plans/single-store-layout.md).
+
+Evidence, on `753d88b`:
+
+- `scripts/check.ps1 -Tier Full -Gate G2`: PSScriptAnalyzer, docs and the
+  architecture map pass; Pester unit 999 passed, 0 failed, 1 skipped; integration
+  sweep 274 passed, 0 failed, 2 skipped. It exits 1 on one step only,
+  `trace.py --strict`: `SN=0 SR=0 LLR=87 TC=240 orphans=499 integrity=0`, the same
+  output as on `fae17c1` before this work (the `system-requirements.csv` debt in
+  the list below). `-Gate G2` was used, not `docs/gate`'s G3, because the trace
+  step cannot pass at either until that debt is paid.
+- WSL Fedora: `bats tests/bash` 154/154; `verify_restores.sh tests/fixtures` 6
+  origins, 0 failing; shellcheck clean.
+
+On the commit that adds this entry, whose only other change is two fixture lines
+in `scripts/Invoke-Container.ps1`:
+
+- WSL Ubuntu, real Docker, `Invoke-Container.ps1 -Action BuildAndTest`: exit 0.
+  Backup, restore, snapshot restore, storage-form and probe checks pass, and a
+  `CurrentBackup` and a `BackupHistory` each mounted apart from the store are
+  refused with 2, writing no manifest.
+
+Lesson for the next layout change: a check that something is absent passes
+vacuously when it looks in the old place, so a rename can leave a test that can
+never fail. Three were found this way (G9's `Prune_oldest_folder_gone` and two
+`Pruning_*` listings in Coverage), and the sweep for them is worth repeating.

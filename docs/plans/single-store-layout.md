@@ -1,8 +1,9 @@
 # Work package: one store folder per backup set (plan call C44)
 
-*Ruled by the Owner 2026-10-27. Not yet built: it starts after the fix batches of
-the [2026-10-26 data-loss review](../reviews/2026-10-26-data-loss/consolidated.md)
-merge, because it touches the same code.*
+*Ruled by the Owner 2026-10-27, amended 2026-11-04 (L9-L11). Built on
+`BoundedRebuild`, after the fix batches of the
+[2026-10-26 data-loss review](../reviews/2026-10-26-data-loss/consolidated.md).
+HomeHub's side has not followed L9 yet.*
 
 ## Why
 

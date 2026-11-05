@@ -323,7 +323,7 @@ function Test-ContainerCompressProbe {
     $changes   = $store
     $logs      = Join-Path $probeRoot 'logs'
     $restore   = Join-Path $probeRoot 'restore'
-    $folders   = @($probeRoot,$source,$config,$store,$backup,$changes,$logs,$restore)
+    $folders   = @($probeRoot,$source,$config,$store,$backup,(Join-Path $store 'BackupHistory'),$changes,$logs,$restore)
     New-Item -ItemType Directory -Path $folders -Force | Out-Null
     if ($IsLinux -or $IsMacOS) {
         & chmod 0777 @folders
@@ -605,7 +605,7 @@ function Invoke-ContainerSmokeTest {
     $changes = $store
     $logs = Join-Path $smokeRoot 'logs'
     $restore = Join-Path $smokeRoot 'restore'
-    $folders = @($source,$config,$store,$backup,$changes,$logs,$restore)
+    $folders = @($source,$config,$store,$backup,(Join-Path $store 'BackupHistory'),$changes,$logs,$restore)
 
     try {
         New-Item -ItemType Directory -Path $folders -Force | Out-Null
