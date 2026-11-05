@@ -1,6 +1,13 @@
 # Requirements spine rebaseline and staged template resync
 
-Status: **authoring in progress; no tier approved by this change**.
+Status: **stakeholder needs approved by the owner; boundary review next**.
+
+The [needs approval record](spine-rebaseline-2026-11-05/needs-approval.md)
+records the owner's approval of all 49 needs on 2026-11-05, without changing
+their normative text. The external frame, assumptions and downstream tiers
+remain Drafted. Review [external.toml](../requirements/external.toml) next,
+then [assumptions.toml](../requirements/assumptions.toml), before reconciling
+the system requirements.
 
 **Latest owner review:** [Review 01](spine-rebaseline-2026-11-05/owner-review-01.md)
 revises SN-029, SN-046, SN-039, SN-041 and SN-033, with a consistency edit to
@@ -74,7 +81,7 @@ or removed implementation symbols are current.
 
 The live needs remain in
 [stakeholder-needs.toml](../requirements/stakeholder-needs.toml).
-There are now 49 Drafted needs. SN-055 adds native backup/maintenance; SN-023
+There are now 49 Approved needs. SN-055 adds native backup/maintenance; SN-023
 owns store interchangeability and SN-022 owns engine-independent shell recovery.
 That separation keeps an available restorer from being mistaken for an
 available native backup product.
@@ -82,7 +89,9 @@ available native backup product.
 An independent read-only needs review considered all 48 preceding needs. It
 used the audit and architecture and is therefore not a blind derivation.
 The [needs review](spine-rebaseline-2026-11-05/needs-review.md) records every
-row's disposition. The amended text is proposed for review, not approval.
+row's disposition. The owner subsequently reviewed the amended need text and
+approved it in the needs approval record; those earlier analyses remain
+historical review inputs.
 
 The frame now distinguishes native release delivery, source reads, store-side
 operational records and whole-store handoff. CROSS-PLATFORM reaches
@@ -91,11 +100,16 @@ interruption from power loss, local coordination from unsupported multi-host
 writers, and display dates from unique state identity. B-24 remains explicitly
 retired while its legacy SR references are reconciled; it authorizes no write.
 
-## Decisions needing review before the next tier is approved
+## Downstream decisions after needs approval
+
+The need-level text, including owner review 01, is approved. The following
+worklist now guides frame, requirement and design review; it is not a request
+to approve the needs again. A proposed change to an approved need must be
+identified as an amendment rather than silently introduced downstream.
 
 | Decision | Proposed baseline | Remaining choice / evidence |
 |---|---|---|
-| N1 — interrupted run (SN-013) | Preserve prior saved states and complete per-file checkpoints; latest may contain partial run progress. | Confirm this bounded-run interpretation in the need text. This does not promise whole-source transactional capture. |
+| N1 — interrupted run (SN-013) | Preserve prior saved states and complete per-file checkpoints; latest may contain partial run progress. | Derive interruption cases and evidence for the approved bounded-run outcome. This does not promise whole-source transactional capture. |
 | N2 — space exhaustion (SN-019) | Safe failure and recoverability; useful admission estimates without an impossible future-capacity guarantee. | Whether stronger restore preflight is a required enhancement, and its scope for compressed data. |
 | N3 — record integrity (SN-025/026) | Structural validation and verified recovered file content; no claim to detect every well-formed truncation/substitution. | Whether stronger completeness/authenticity evidence is wanted as a future format change. Current R5 removes the witness. |
 | N4 — names and links (SN-001/032/036) | No silent omission, aliasing or overwrite. Preserve the requested link-fidelity outcome for explicit disposition. | Portable name/collision policy and exact link-follow/recreate scope; unsupported cases must be explicit. |
@@ -110,9 +124,9 @@ reporting (SN-044), space/media analysis (SN-051), and redistribution notices
 
 ## Decomposition and code attachment sequence
 
-1. Review the proposed needs and the choices above. Preserve existing IDs where
-   their outcome survives; track retirements and splits explicitly. Authoring
-   does not approve its own rows.
+1. The owner has approved the needs. Review the external frame and assumptions
+   against them next. Preserve existing IDs where their outcome survives;
+   track retirements and splits explicitly. Authoring does not approve its own rows.
 2. Use the input-restricted derivation as a **validation proposal**, then align
    every candidate and all 123 existing SRs: matched, legacy-only or fresh-only.
    Read each legacy rationale before retiring an obligation. A valid unmet

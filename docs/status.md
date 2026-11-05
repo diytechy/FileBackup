@@ -25,6 +25,16 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **STAKEHOLDER NEEDS APPROVED (2026-11-05).** The owner explicitly approved
+  all 49 needs following review 01. Only their statuses changed; the approved
+  normative text is unchanged from `3363994`. See the
+  [approval record and next review](plans/spine-rebaseline-2026-11-05/needs-approval.md).
+  The initial approval baseline and act ledger preserve exactly this scope;
+  other copied records retain their existing statuses. The three stakeholder
+  records, external frame, assumptions and downstream tiers are not approved
+  by this act. **Next: external entities and boundary crossings in
+  `docs/requirements/external.toml`, then environmental assumptions.**
+
 - **OWNER NEEDS REVIEW 01 (2026-11-05).** Applied the owner's corrections to
   SN-029/046/039/041/033 and scoped SN-034 consistently. See
   [the ruling and downstream impacts](plans/spine-rebaseline-2026-11-05/owner-review-01.md).
@@ -6813,3 +6823,22 @@ exits 0; the existing 118 orphan relationships and interface debt remain.
 Documentation: 90 documents, 253 links, zero broken, 28 existing orphan warnings.
 Whitespace check passes. Product tests were not rerun for these requirements
 and review-record edits.
+
+
+### 2026-11-05 — owner approves stakeholder needs
+
+Authority: the owner explicitly said, "This looks good, stakeholder needs can
+be approved, boundaries are next?" Recorded 49 SN status moves to Approved,
+without changing normative need text from `3363994`. The three stakeholder
+records and every downstream tier retain their prior statuses. The initial
+approval baseline was written with the pinned snapshot writer; its act ledger
+names exactly the 49 SN IDs, and the needs copy is byte-identical to live.
+An empty component registry records that no component decomposition exists,
+as required by the snapshot reader; it introduces no component or approval.
+
+Strict integrity passes. Trace now reports 450 Drafted spine rows and 119
+orphan relationships: approval exposes the still-missing decomposition of
+SN-055 instead of hiding it as draft work. Existing interface and other
+reconciliation debt remain. No runtime code or hook changes. The next owner
+review is the external frame, followed by assumptions and system requirements;
+the approval record lists the known frame issues to reconcile.

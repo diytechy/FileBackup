@@ -1,7 +1,8 @@
 # Stakeholder Needs (SN-###): FileBackup's need tier
 #
-# Every need below serves the [PROJECT-VISION](../../README.md#vision). All rows
-# are Drafted: authored here, approved only by a reviewed Status-change commit.
+# Every need below serves the [PROJECT-VISION](../../README.md#vision).
+# Need approval is recorded by a reviewed Status-change commit; stakeholder
+# records have their own statuses and are not implicitly approved with needs.
 # Legacy ids are kept where the need's meaning survives; new needs start at
 # SN-037. SN-014, SN-016, SN-017, SN-018 and SN-020 were merged into surviving
 # needs and SN-028 is retired; none of those ids is reused.
@@ -9,7 +10,7 @@
 # --- BACKUP: WHAT IS CAPTURED -------------------------------------------------
 
 [need.SN-001]
-status = "Drafted"
+status = "Approved"
 need = """Every run backs up the whole of each source tree, capturing every file in it, and picks up new and changed files on later runs. A file the run could not capture is never skipped silently."""
 why = """The point of a backup is that whatever was in the source is in the backup. A file that is silently left out is discovered missing only when it is needed, which is the one moment it cannot be recovered."""
 priority = "M"
@@ -18,7 +19,7 @@ tags = ["filesystem"]
 stakeholder_refs = ["STK-01"]
 
 [need.SN-052]
-status = "Drafted"
+status = "Approved"
 need = """A file that is briefly in use or unreadable when a run reaches it is still backed up once it can be read, and a file that stays unreadable never costs me the copy an earlier run already saved."""
 why = """Files are routinely held open for a moment by other programs. A run that gives up on the first refusal leaves gaps for no good reason, one that waits forever never finishes, and one that drops the earlier saved copy of an unreadable file turns a passing lock into data loss."""
 priority = "S"
@@ -27,7 +28,7 @@ tags = ["filesystem", "unattended"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-032]
-status = "Drafted"
+status = "Approved"
 need = """The owner can recover supported file names without ambiguity across Windows, Linux and macOS, and learns when a name or a pair of names cannot be represented safely on a supported target."""
 why = """A restore that brings a file back under a different name, or loses it because its name was misread, has lost that file as surely as if its bytes were gone. A name one platform cannot hold breaks the promise that every backup restores on any of the supported systems, and is a name the owner almost always wants fixed at the source."""
 priority = "S"
@@ -36,7 +37,7 @@ tags = ["filesystem", "restore-host", "backup-host"]
 stakeholder_refs = ["STK-01", "STK-02"]
 
 [need.SN-037]
-status = "Drafted"
+status = "Approved"
 need = """Backing up does not write, move or delete source content or intentionally change source modification times, attributes or directory structure; a source available only for reading is sufficient."""
 why = """The owner's live files are the thing being protected. A backup tool that changes them, even by touching a time stamp or an attribute, can damage the very data it exists to keep safe and makes the source no longer trustworthy as the reference a restore is compared against."""
 priority = "M"
@@ -45,7 +46,7 @@ tags = ["filesystem", "backup-host"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-038]
-status = "Drafted"
+status = "Approved"
 need = """A source that suddenly looks empty, because a drive dropped off or a share was not mounted, never causes a run to record all my files as deleted."""
 why = """An unattended run cannot tell a missing drive from a deliberate wipe unless it is told. Treating the empty view as truth replaces the latest state with nothing, and a host acting on that state, or an owner restoring the latest state, would find every file gone."""
 priority = "M"
@@ -54,7 +55,7 @@ tags = ["unattended"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-009]
-status = "Drafted"
+status = "Approved"
 need = """One configured job covers several independent source and backup locations, and a failure in one does not stop the others from being backed up."""
 why = """The owner's data lives under more than one root. One scheduled job per root multiplies the setup and the places to look for failures, while a job that aborts all roots when one fails leaves good data unprotected because of an unrelated problem."""
 priority = "S"
@@ -65,7 +66,7 @@ stakeholder_refs = ["STK-01", "STK-03"]
 # --- SPACE --------------------------------------------------------------------
 
 [need.SN-002]
-status = "Drafted"
+status = "Approved"
 need = """Identical content is stored once, however many files, folders, runs or saved states contain it."""
 why = """Large media and document trees hold many duplicates and many files that do not change between runs. Storing each copy again multiplies the space the backup costs the owner for no gain in what can be restored."""
 priority = "M"
@@ -74,7 +75,7 @@ tags = ["store-mutation"]
 stakeholder_refs = ["STK-01"]
 
 [need.SN-003]
-status = "Drafted"
+status = "Approved"
 need = """The owner can trade compression work against storage savings for newly stored content, while every captured file remains recoverable byte-for-byte."""
 why = """Documents and text shrink a lot, while media is already compressed and gets no smaller, only slower to store and restore. Choosing by a file's name rather than by the measured result either wastes space or wastes time."""
 priority = "S"
@@ -83,7 +84,7 @@ tags = ["store-mutation", "redistribution"]
 stakeholder_refs = ["STK-01"]
 
 [need.SN-051]
-status = "Drafted"
+status = "Approved"
 need = """Where the owner turns it on, the owner can see where backup space goes, such as the largest files and media that could be re-encoded at a lower bitrate."""
 why = """The owner pays for the space the backup takes and can only reduce it by knowing what fills it. Without that view, the choices that would save the most space are invisible."""
 priority = "C"
@@ -94,7 +95,7 @@ stakeholder_refs = ["STK-01"]
 # --- HISTORY AND RETENTION ----------------------------------------------------
 
 [need.SN-004]
-status = "Drafted"
+status = "Approved"
 need = """Each run that changes anything keeps the previous backed-up state as a saved point in time, identified by its date, alongside the latest state."""
 why = """An accidental edit or deletion is often noticed only after the next backup has run. Without earlier states, the backup faithfully copies the mistake and the good version is gone."""
 priority = "M"
@@ -103,7 +104,7 @@ tags = ["store-mutation"]
 stakeholder_refs = ["STK-01"]
 
 [need.SN-034]
-status = "Drafted"
+status = "Approved"
 need = """Operations of the tool preserve stored content needed by the latest state and saved states within the supported recovery window. Explicit history removal may withdraw recovery of the removed date and older dependent states as described by the retention policy."""
 why = """Files and saved states share stored content. Ordinary capture or maintenance must not silently damage states the operator still relies on. Explicit retirement of older history is a different choice: it can remove shared content needed only by states outside the retained recovery window."""
 priority = "M"
@@ -112,7 +113,7 @@ tags = ["store-mutation"]
 stakeholder_refs = ["STK-01", "STK-02"]
 
 [need.SN-029]
-status = "Drafted"
+status = "Approved"
 need = """The operator can remove saved history to limit storage use, accepting that removing history at a given date may invalidate recovery of that date and every older state that depends on content removed with it. The supported recovery window then contains only retained states after that date and the latest state."""
 why = """Saved states share content identified by its content identity. Removing a history folder can remove the only stored copy needed by earlier states even when their records remain. Retention therefore trades the older recovery window for space; it does not promise independent deletion of arbitrary snapshots while preserving all other dates."""
 priority = "M"
@@ -121,7 +122,7 @@ tags = ["store-mutation", "filesystem", "scale"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-046]
-status = "Drafted"
+status = "Approved"
 need = """When the operator or an automation host requests retention information from the tool, they can obtain an estimate of the storage affected and an explanation that removal can invalidate older recovery points."""
 why = """Retention information helps an operator choose how much history to keep, but the tool cannot control deletion through a file manager or another program, require that its report be consulted, or ensure that a person understands or follows its explanation."""
 priority = "M"
@@ -130,7 +131,7 @@ tags = ["store-mutation", "scale"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-021]
-status = "Drafted"
+status = "Approved"
 need = """A run in which the captured source state did not change reports no content changes and adds no saved state."""
 why = """Spurious changes bury real ones, create saved states that hold nothing new, and make the owner distrust every change the tool reports."""
 priority = "S"
@@ -139,7 +140,7 @@ tags = ["store-mutation"]
 stakeholder_refs = ["STK-01"]
 
 [need.SN-007]
-status = "Drafted"
+status = "Approved"
 need = """The owner can choose how often the content of files that look unchanged is re-read and checked, trading run time against catching changes their size and time do not show."""
 why = """Re-reading a large library on every run can take longer than the backup window, while never re-reading it trusts that a file whose size and time are unchanged really is unchanged. The owner, not the tool, should pick the point on that trade-off."""
 priority = "S"
@@ -150,7 +151,7 @@ stakeholder_refs = ["STK-01"]
 # --- STORE INTEGRITY ----------------------------------------------------------
 
 [need.SN-013]
-status = "Drafted"
+status = "Approved"
 need = """Interruption of a backup preserves previously saved content and leaves any published progress recoverable; the next run can resume safe work without a person reconstructing internal working state."""
 why = """Unattended runs get killed by reboots, power cuts and hosts stopping containers. A later run that builds on the half-finished work corrupts the store, while one that refuses forever stops all future backups until someone notices."""
 priority = "M"
@@ -159,7 +160,7 @@ tags = ["store-mutation", "filesystem", "unattended"]
 stakeholder_refs = ["STK-01", "STK-02", "STK-03"]
 
 [need.SN-039]
-status = "Drafted"
+status = "Approved"
 need = """Within a single configuration, each backup set points to a unique backup root, and competing operations using that configuration do not mutate the same backup at the same time. A configuration that assigns the same backup root to more than one set is refused before backup work proceeds."""
 why = """Duplicate destinations within a job and overlapping launches of that job can make writers interfere with each other. The tool can validate and coordinate the configuration it is given; this need does not promise coordination across independently supplied configurations or external writers."""
 priority = "M"
@@ -168,7 +169,7 @@ tags = ["store-mutation", "filesystem", "unattended", "backup-host"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-031]
-status = "Drafted"
+status = "Approved"
 need = """If something outside the tool removes or quarantines content stored in the backup, such as antivirus quarantine, a cloud-sync space sweep or someone tidying a folder that looks like an ordinary copy, the next run puts it right while the source still holds the bytes."""
 why = """The backup looks like a plain copy but its content is shared between files and states. If lost content were only forgotten rather than restored, every later run would report success while that file could no longer be restored, and a new file with the same content would silently share the loss."""
 priority = "M"
@@ -177,7 +178,7 @@ tags = ["store-mutation", "unattended"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-030]
-status = "Drafted"
+status = "Approved"
 need = """On request, the owner can check the whole backup, the latest state and every saved state, and be told every place where what is stored is missing or disagrees with what the backup records about it, without the check changing anything."""
 why = """The backup's record of how each file was stored is kept apart from the stored bytes. Unless something compares the two, a wrong record or a lost file stays invisible until a restore fails, and a backup that says "fine" because nobody looked is not one the owner can trust."""
 priority = "M"
@@ -186,7 +187,7 @@ tags = ["scale", "store-format", "restore-host"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-047]
-status = "Drafted"
+status = "Approved"
 need = """On request, the tool repairs the problems a check found where the right answer is certain, and leaves and reports every problem it cannot repair with certainty."""
 why = """A problem that can only be reported keeps the owner choosing between living with it and starting a fresh backup, which throws away all history. A repair that guesses can turn a recoverable store into a lost one."""
 priority = "S"
@@ -195,7 +196,7 @@ tags = ["store-mutation", "store-format"]
 stakeholder_refs = ["STK-01"]
 
 [need.SN-048]
-status = "Drafted"
+status = "Approved"
 need = """Turning compression on or off, or changing how it chooses, never makes any existing saved state restore wrongly or forces content already stored to be rewritten."""
 why = """The owner changes space settings in ordinary use, which leaves one store holding content in both forms. If the tool then misjudged which form a stored file is in, a restore could hand back archive bytes under the original file name and still report success."""
 priority = "M"
@@ -204,7 +205,7 @@ tags = ["store-format", "store-mutation"]
 stakeholder_refs = ["STK-01", "STK-02"]
 
 [need.SN-019]
-status = "Drafted"
+status = "Approved"
 need = """Insufficient storage space does not destroy previously recoverable content or cause an incomplete capture or restore to be reported as successful."""
 why = """A backup that fills its volume midway can leave the store's record and its content out of step, and a restore that fills its target leaves a partial tree that looks finished. Knowing beforehand costs nothing; finding out halfway costs the run or the restore."""
 priority = "M"
@@ -213,7 +214,7 @@ tags = ["filesystem", "unattended", "restore-host", "backup-host"]
 stakeholder_refs = ["STK-01", "STK-02", "STK-03"]
 
 [need.SN-043]
-status = "Drafted"
+status = "Approved"
 need = """Backing up, checking and restoring a library of terabytes and millions of files fits in the backup host's memory and completes within a scheduled window, with a run's time driven by how much changed rather than by how much is stored."""
 why = """A personal library grows for years. A tool whose time or memory grows faster than the library eventually stops fitting its nightly window or the host's memory, and the backup quietly stops happening exactly when there is the most to lose."""
 priority = "S"
@@ -224,7 +225,7 @@ stakeholder_refs = ["STK-01", "STK-03"]
 # --- COMPATIBILITY ACROSS VERSIONS --------------------------------------------
 
 [need.SN-040]
-status = "Drafted"
+status = "Approved"
 need = """The owner can tell which existing stores a newer FileBackup can continue, and an unsupported store is refused without damaging its independent recovery route."""
 why = """A backup holds years of history. An upgrade that strands it forces the owner to keep two stores or give up that history, and a version that half-understands an unfamiliar form can damage a store it should have left alone."""
 priority = "M"
@@ -234,7 +235,7 @@ lifecycle = "Startup"
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-041]
-status = "Drafted"
+status = "Approved"
 need = """The owner can determine which designated older versions a release supports and whether continued use requires a supported upgrade or migration. Compatibility should be retained where reasonable, but a newer design may require migration and need not support every legacy store or restore kit."""
 why = """Perpetual compatibility can prevent useful design changes and cannot be assured for every historical format. Explicit support boundaries and designated transition paths let an owner plan an upgrade without mistaking the existence of a newer release for a promise that it can use their old store."""
 priority = "M"
@@ -243,7 +244,7 @@ tags = ["store-format", "restore-host"]
 stakeholder_refs = ["STK-01", "STK-02"]
 
 [need.SN-023]
-status = "Drafted"
+status = "Approved"
 need = """Stores made on supported Windows, Linux and macOS backup hosts are interchangeable: supported hosts can continue them and supported recovery routes can restore them without converting their contents."""
 why = """The owner may move backup duty between a Windows machine and a Linux host. If each wrote its own incompatible form, moving would strand the history, and a restorer would need to know which kind of host made the backup."""
 priority = "C"
@@ -254,7 +255,7 @@ stakeholder_refs = ["STK-01", "STK-03"]
 # --- RESTORE ------------------------------------------------------------------
 
 [need.SN-005]
-status = "Drafted"
+status = "Approved"
 need = """Any backed-up state can be restored bit-for-bit on a clean machine using the complete store and its carried recovery scripts, without installing the backup engine or obtaining anything from its source repository."""
 why = """A backup that can only be restored with the tool that made it is hostage to that tool still existing, installing and running on whatever machine is at hand when the disaster comes. The folder alone must be enough."""
 priority = "M"
@@ -263,7 +264,7 @@ tags = ["restore-host", "redistribution", "store-format"]
 stakeholder_refs = ["STK-02"]
 
 [need.SN-006]
-status = "Drafted"
+status = "Approved"
 need = """The restorer can pick any saved state by its date and restore exactly that state, not only the latest."""
 why = """The reason to keep history is to get back what existed before a mistake. A restore that can only reproduce the latest state brings back the mistake along with everything else."""
 priority = "M"
@@ -272,7 +273,7 @@ tags = ["restore-host", "store-format"]
 stakeholder_refs = ["STK-02"]
 
 [need.SN-022]
-status = "Drafted"
+status = "Approved"
 need = """Recovery remains available on Windows, Linux and macOS through the carried PowerShell or bash scripts and documented local tools, independently of the implementation language and availability of the backup engine."""
 why = """The machine at hand after a disaster is often not the one that made the backup: a NAS, a rescue stick, a borrowed laptop that may be a Mac. A backup restorable on only one system, or one that misreads a different set of system tools and reports damage on an intact backup, fails the restorer when it matters."""
 priority = "S"
@@ -281,7 +282,7 @@ tags = ["restore-host"]
 stakeholder_refs = ["STK-02"]
 
 [need.SN-035]
-status = "Drafted"
+status = "Approved"
 need = """A person can start a restore without remembering a command and can read its outcome before it disappears; a scripted restore is unaffected."""
 why = """The moment a restore is needed is the worst moment to recall a parameter name, and a window that closes on its result leaves the restorer not knowing whether the files are back."""
 priority = "S"
@@ -290,7 +291,7 @@ tags = ["restore-host"]
 stakeholder_refs = ["STK-02"]
 
 [need.SN-033]
-status = "Drafted"
+status = "Approved"
 need = """The restorer receives reasonable assurance that restored files match the selected backup record through documented integrity checks, with detected discrepancies and verification failures reported rather than presented as successful recovery."""
 why = """Checks can detect ordinary corruption, truncation and selection of the wrong stored content, but cannot establish absolute correctness under every fault or corner case. Stating the method and its limits makes a successful result meaningful without claiming mathematical proof or perfect detection."""
 priority = "M"
@@ -299,7 +300,7 @@ tags = ["restore-host", "unattended"]
 stakeholder_refs = ["STK-02", "STK-03"]
 
 [need.SN-053]
-status = "Drafted"
+status = "Approved"
 need = """When part of a backup cannot be restored, everything else still is, and the restorer is told exactly which files did not come back and why."""
 why = """A backup damaged in one place still holds everything else. A restore that stops at the first problem throws away what could be saved, and one that does not list what is missing leaves the restorer believing the tree is whole."""
 priority = "M"
@@ -308,7 +309,7 @@ tags = ["restore-host", "unattended"]
 stakeholder_refs = ["STK-02", "STK-03"]
 
 [need.SN-025]
-status = "Drafted"
+status = "Approved"
 need = """The restorer is told when a state record cannot be interpreted safely and is not given a success result for content the recovery process could not validate."""
 why = """If the record of what a state holds is truncated or replaced, a restore that trusts it reproduces a shrunken tree and reports success, and the restorer has no way to know files are missing."""
 priority = "M"
@@ -317,7 +318,7 @@ tags = ["restore-host"]
 stakeholder_refs = ["STK-02", "STK-03"]
 
 [need.SN-042]
-status = "Drafted"
+status = "Approved"
 need = """A restore never writes into the backup it is restoring from, nor anywhere outside the target the restorer chose, whatever the backup's contents say."""
 why = """A restorer under stress may pick the wrong folder, and a damaged or crafted record may name a path that climbs out of the target. Writing into the backup can destroy the content being restored; writing outside the target can overwrite files the restorer never meant to touch."""
 priority = "M"
@@ -326,7 +327,7 @@ tags = ["filesystem", "restore-host"]
 stakeholder_refs = ["STK-02"]
 
 [need.SN-036]
-status = "Drafted"
+status = "Approved"
 need = """A restored tree comes back the way it was, not merely with the right bytes: every file with its own modification time, empty folders present, links within the tree still links, and a folder made hidden still hidden where the target system supports it."""
 why = """Identical files are stored once, so unless each file's own time is restored, every twin comes back with the time of whichever was stored first; and a tree missing its empty folders or its hidden folders is not the tree the owner had."""
 priority = "S"
@@ -335,7 +336,7 @@ tags = ["filesystem", "restore-host"]
 stakeholder_refs = ["STK-02"]
 
 [need.SN-026]
-status = "Drafted"
+status = "Approved"
 need = """When a restore fails, a script and the restorer can tell what kind of failure it was without reading its log."""
 why = """A host supervising restores has to choose between "the bytes are gone", "fix this machine and retry" and "you pointed me at the wrong folder". One generic failure forces a person into the log every time and can send a script into retrying over real damage."""
 priority = "S"
@@ -344,7 +345,7 @@ tags = ["unattended", "restore-host"]
 stakeholder_refs = ["STK-02", "STK-03"]
 
 [need.SN-008]
-status = "Drafted"
+status = "Approved"
 need = """The owner can see what is in the backup and find a file by name without running a restore."""
 why = """The backup is organised by content rather than by the original folder tree, so it cannot be browsed directly. Without another way in, finding one file means restoring everything."""
 priority = "S"
@@ -355,7 +356,7 @@ stakeholder_refs = ["STK-01"]
 # --- UNATTENDED OPERATION AND OUTCOMES ----------------------------------------
 
 [need.SN-011]
-status = "Drafted"
+status = "Approved"
 need = """A run started with nobody present never waits for a person to answer."""
 why = """A scheduled task that hangs on a prompt is a silent backup failure: nothing is backed up, nothing reports failure, and the next run may be blocked behind it."""
 priority = "M"
@@ -364,7 +365,7 @@ tags = ["unattended"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-045]
-status = "Drafted"
+status = "Approved"
 need = """A backup host learns the outcome of every backup, removal and check from the result alone, as one of a few documented kinds, without reading the log."""
 why = """A host acting for the owner has to decide whether to retry, alert or carry on. If every failure looks the same, it either alerts on everything or ignores everything, and a run that silently backed up nothing looks like one that worked."""
 priority = "M"
@@ -373,7 +374,7 @@ tags = ["unattended"]
 stakeholder_refs = ["STK-03", "STK-01"]
 
 [need.SN-044]
-status = "Drafted"
+status = "Approved"
 need = """The owner can find out what a run did and why: what was added, changed and removed, what failed and the cause, and, while a long run is going, that it is still making progress."""
 why = """An unattended tool is trusted only as far as its record can be checked. Without a readable account of each run, a failure cannot be diagnosed and a success cannot be believed, and a long run that shows nothing cannot be told apart from a hung one."""
 priority = "S"
@@ -382,7 +383,7 @@ tags = ["unattended"]
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-010]
-status = "Drafted"
+status = "Approved"
 need = """Where the owner sets it up, the owner is told by message whether each run succeeded or failed, and a failure to send that message never changes the run's own outcome."""
 why = """For scheduled runs the owner wants to know without checking logs. But a mail outage must not turn a good backup into a reported failure, nor a failed one into a success."""
 priority = "C"
@@ -391,7 +392,7 @@ tags = ["unattended"]
 stakeholder_refs = ["STK-01"]
 
 [need.SN-049]
-status = "Drafted"
+status = "Approved"
 need = """The account details used to send notifications are never kept where someone who can read the configuration or the backup can read them in plain form."""
 why = """Configurations are copied, shared with hosts and kept beside backups. A mail password readable there gives anyone holding the folder the owner's mail account."""
 priority = "S"
@@ -403,7 +404,7 @@ stakeholder_refs = ["STK-01"]
 # --- CONTAINER AND HOSTS ------------------------------------------------------
 
 [need.SN-024]
-status = "Drafted"
+status = "Approved"
 need = """A backup host can run backups, removals and the saved-state report inside a container, without installing the backup tool's runtime on the host, with no more access than reading the source and writing the backup."""
 why = """A home server or NAS often runs its services as containers and should not need a separate runtime installed to protect its files. A container that needed write access to the source or administrative rights would put the files at risk to protect them."""
 priority = "M"
@@ -412,7 +413,7 @@ tags = ["unattended", "redistribution", "filesystem", "backup-host"]
 stakeholder_refs = ["STK-03", "STK-01"]
 
 [need.SN-054]
-status = "Drafted"
+status = "Approved"
 need = """Every third-party component redistributed in a native release, a backup recovery kit or a container is shipped under terms that permit that distribution, with the required notices travelling with it."""
 why = """Each backup and the container carry other people's code so that a restore needs nothing else. If that code is shipped against its licence, every backup the owner hands on is a licence breach, and the owner, not the component's author, carries the risk."""
 priority = "S"
@@ -423,7 +424,7 @@ stakeholder_refs = ["STK-01", "STK-02"]
 # --- SETUP AND LAUNCH ---------------------------------------------------------
 
 [need.SN-012]
-status = "Drafted"
+status = "Approved"
 need = """A new owner can get from nothing to a first successful backup by following the shipped guidance, without reverse-engineering the configuration or hunting for prerequisites."""
 why = """A tool that can only be configured by reading its code is set up wrongly or not at all, and the owner returning to it years later is a new user too."""
 priority = "S"
@@ -433,7 +434,7 @@ lifecycle = "Provision"
 stakeholder_refs = ["STK-01"]
 
 [need.SN-050]
-status = "Drafted"
+status = "Approved"
 need = """A backup host can write a configuration from a documented, versioned description of it, and the example configuration that ships is itself accepted."""
 why = """A host that generates configurations for the owner needs a contract it can rely on across versions. An undocumented form, or a shipped example that is itself rejected, leaves every integrator guessing."""
 priority = "S"
@@ -442,7 +443,7 @@ lifecycle = "Provision"
 stakeholder_refs = ["STK-03", "STK-01"]
 
 [need.SN-027]
-status = "Drafted"
+status = "Approved"
 need = """A missing or wrong configuration stops the run before it touches any backup, saying exactly what is wrong; the tool never guesses at a setting it does not understand."""
 why = """A mistyped key or a quoted "false" where a yes-or-no belongs can silently change what the owner asked for, including switching on something destructive. A configuration written for another version is safe only if it is refused rather than half-understood."""
 priority = "M"
@@ -452,7 +453,7 @@ lifecycle = "Startup"
 stakeholder_refs = ["STK-01", "STK-03"]
 
 [need.SN-015]
-status = "Drafted"
+status = "Approved"
 need = """When something the run needs is missing or unsupported on this host, the run stops before changing the backup and says what to install; only optional extras may be skipped, and then visibly."""
 why = """A run that proceeds without its content-identity function, or without the tool a chosen storage setting needs, writes a backup that cannot be trusted or cannot be restored. Failing first, with the fix, costs one run; failing later costs the store."""
 priority = "M"
@@ -483,7 +484,7 @@ status = "Drafted"
 
 # Native operation is separate from store interchangeability and independent recovery.
 [need.SN-055]
-status = "Drafted"
+status = "Approved"
 need = """The owner can run backup and store maintenance natively on Windows, Linux and macOS without installing a language runtime or build toolchain for the backup engine."""
 why = """Requiring a container or development environment excludes otherwise suitable personal computers and unattended hosts. A native executable makes the same protection available on each supported operating system while recovery remains independently available from carried scripts."""
 priority = "M"

@@ -1,0 +1,235 @@
+# assumptions.toml: the claims about the world FileBackup's outcomes rely on,
+# and the test stand-ins for outside parties, round-1 derivation. All rows are
+# Drafted and active.
+
+[assumption.DA-01]
+effect_at = ["B-02"]
+assumption = """A same-filesystem rename publishes one complete namespace entry to other processes; durability after power loss additionally depends on persistence of the file data and directory updates."""
+holds_when = """The particular host, filesystem and mount options provide the required rename semantics; source and destination of the operation share that filesystem."""
+obstacle = """Separate mounts, weaker network or synchronization semantics, or lost directory updates after power failure can violate the publication or persistence premise."""
+falsifier = """An observer sees a partial published file after process interruption, or a power-loss exercise loses a supposedly durable namespace update."""
+obstacle_hats = ["FILESYSTEM-SEMANTICS", "INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-02]
+effect_at = ["B-04"]
+assumption = "A claim of exclusive use held by a process is released by the operating system when that process dies."
+holds_when = "The claiming process and the backup run on the same machine or kernel, or on Windows file sharing."
+obstacle = "Network file locks that outlive a dead client, or a share that loses the lock on reconnect."
+falsifier = "After a run is killed, the next run is refused as busy although no FileBackup process is alive anywhere."
+obstacle_hats = ["FILESYSTEM-SEMANTICS", "INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-03]
+effect_at = ["B-04"]
+assumption = """An exclusive-use claim taken by an operation using a single validated configuration is observed by competing operations using that same configuration on the supported host and store filesystem."""
+holds_when = """The configuration assigns each backup set a unique resolved backup root and all operations within this coordination scope use interoperable exclusion on the declared host and filesystem."""
+obstacle = """Independent configurations or external writers targeting the same root are outside this coordination promise; network or multi-host locking may also lack the required behavior."""
+falsifier = """Two operations using the same validated configuration are both observed mutating the same backup on a supported host."""
+obstacle_hats = ["FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-04]
+effect_at = ["B-01"]
+assumption = "A source file's bytes do not change while it is being read, or a change during the read shows in its size or modification time."
+holds_when = "The file is not being written while the run reads it, which holds for most personal documents and media."
+obstacle = "A live database, a virtual disk or a file being appended to during the read, with no point-in-time snapshot of the source."
+falsifier = "A file restored from a run differs from every version the source ever held."
+obstacle_hats = ["INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-05]
+effect_at = ["B-02"]
+assumption = "Two different contents sharing one content key (digest and length) is so unlikely that it can be ignored."
+holds_when = "The source is the owner's own files, not content crafted to collide."
+obstacle = "Content deliberately constructed to collide under a non-cryptographic digest."
+falsifier = "A restore produces bytes that match the recorded digest and length but differ from the source file."
+accepted_risk = "A crafted collision is outside the threat model of one owner backing up his own files."
+obstacle_hats = ["SECURITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-06]
+effect_at = ["B-03", "B-17"]
+assumption = "The free space a volume reports is the space a writer can actually use."
+holds_when = "The volume is local, not thin-provisioned, has no per-user quota below its reported free space, and nothing else is filling it during the run."
+obstacle = "Quotas, thin provisioning, cloud-sync placeholders, compression or deduplication by the filesystem, or another writer filling the volume at the same time."
+falsifier = "A backup or restore that passed its space check fails with the volume full."
+obstacle_hats = ["FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-07]
+effect_at = ["B-16"]
+assumption = "The restore target keeps the modification times and folder attributes a restore applies."
+holds_when = "The target is NTFS for Windows attributes, or any modern filesystem for modification times."
+obstacle = "FAT and exFAT round times to coarse steps, and Linux and macOS filesystems have no Hidden or System attributes."
+falsifier = "A restored file's modification time or a restored folder's attribute differs from what the restore applied."
+obstacle_hats = ["FILESYSTEM-SEMANTICS", "CROSS-PLATFORM"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-08]
+effect_at = ["B-16"]
+assumption = """The supported source and target name policies can represent each captured path distinctly across the declared Windows, Linux and macOS combinations."""
+holds_when = "The target is case-sensitive, or the source held no two names differing only by case, and the target does not rewrite Unicode normalisation."
+obstacle = "macOS normalisation of Unicode names, or two source names differing only by case restored onto a case-insensitive target."
+falsifier = "A restored tree lists fewer files than the state recorded, or a name differs in its bytes from the recorded name."
+obstacle_hats = ["CROSS-PLATFORM", "FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-09]
+effect_at = ["B-08", "B-09"]
+assumption = "Someone, a person or the backup host, reads each run's outcome or notification and acts on a failure."
+holds_when = "The host is configured to act on the outcome, or the owner reads notifications."
+obstacle = "A host that ignores the exit status, or notifications filtered as junk or sent to an abandoned address."
+falsifier = "A run of failures goes unnoticed until a restore is needed."
+accepted_risk = "FileBackup cannot make anyone read its outcome; it can only make the outcome unambiguous."
+obstacle_hats = ["UNATTENDED-OPS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-10]
+effect_at = ["B-18"]
+assumption = "The documented restore-tool floor is present on the restore host or can be installed there."
+holds_when = "The restore host is a mainstream desktop or server system with its standard package manager reachable, or has the language runtime as the alternative route."
+obstacle = "A minimal or locked-down system with no package manager, no network and neither restore route available."
+falsifier = "A restorer on a supported system cannot obtain any tool route the restore documents."
+obstacle_hats = ["CROSS-PLATFORM"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-11]
+effect_at = ["B-02"]
+assumption = "Damage done to a backup from outside the tool removes, quarantines, moves or corrupts files; it does not write different content that matches the recorded digest and length."
+holds_when = "The damage comes from antivirus, sync tools, storage faults or a person tidying, not from a deliberate forger."
+obstacle = "A deliberate attacker with write access to the backup volume substituting crafted content."
+falsifier = "A check reports a store clean whose restore differs from the source."
+obstacle_hats = ["INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-12]
+effect_at = ["B-01"]
+assumption = "The system folders a volume keeps at its root (volume metadata, recycle bin) hold no files the owner wants backed up."
+holds_when = "The owner uses the recycle bin and volume metadata only as the operating system intends."
+obstacle = "An owner who keeps wanted files inside a volume's recycle bin or system folder."
+falsifier = "A file the owner expected in the backup lived only under such a folder."
+obstacle_hats = ["FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-13]
+effect_at = ["B-12"]
+assumption = "The container platform enforces the read-only source mount and the unprivileged user it is given."
+holds_when = "The host's container runtime is a mainstream one configured as documented."
+obstacle = "A platform configured to mount the source writable or run the container with elevated rights, overriding the documented setup."
+falsifier = "A process inside the container can write to the source mount."
+obstacle_hats = ["SECURITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-14]
+effect_at = ["B-01"]
+assumption = "When a source file's content changes, its size or its modification time changes too."
+holds_when = "Files are edited by ordinary applications that update the modification time."
+obstacle = "Tools that rewrite a file and restore its old time, or same-size edits within the filesystem's time granularity."
+falsifier = "A periodic full re-read finds content that differs from the stored copy of a file whose size and time had not changed."
+obstacle_hats = ["FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-15]
+effect_at = ["B-02"]
+assumption = """Data whose persistence was requested and acknowledged survives power loss to the extent guaranteed by the declared filesystem, mount, device and controller combination."""
+holds_when = """The host stack honors flush requests and the required namespace updates have also persisted; a process-kill test alone does not establish this."""
+obstacle = "A drive or controller that acknowledges writes it has only cached, or removal of a drive without ejecting it."
+falsifier = "After a power cut, content recorded as stored in a completed state is missing or short."
+obstacle_hats = ["INTEGRITY-RECOVERABILITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-16]
+effect_at = ["B-02", "B-04"]
+assumption = """The backup host clock provides useful display dates for completed states; date order does not by itself prove distinct state identity or writer ownership."""
+holds_when = """The clock is configured correctly for human interpretation. State-identifier collisions and exclusive ownership are handled independently of clock accuracy."""
+obstacle = """Clock rollback, equal completion timestamps or timezone changes can make display dates ambiguous."""
+falsifier = """Two distinct completed states become indistinguishable or one is lost because they received the same displayed date."""
+obstacle_hats = ["INTEGRITY-RECOVERABILITY", "UNATTENDED-OPS"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-17]
+effect_at = ["B-02", "B-03", "B-04"]
+assumption = "A virtual drive mapped over a temporary folder behaves like the backup volume for writing, renaming, locking and reporting free space, as far as the tests that use it rely on."
+holds_when = "The real backup volume is a local NTFS volume."
+obstacle = "Real exFAT, FAT or removable volumes, network shares or cloud-synced folders behave differently from the mapped folder."
+falsifier = "A behaviour that passes on the mapped drive fails on a real volume of a supported type."
+realized_by = "SUR-01"
+obstacle_hats = ["FILESYSTEM-SEMANTICS"]
+status = "Drafted"
+standing = "active"
+
+[surrogate.SUR-01]
+name = "Mapped temporary drives"
+emulates = ["EXT-04", "EXT-05"]
+description = "Temporary folders mapped to free drive letters, used by the integration tests as the source filesystem and the backup volume so that every test runs without administrative rights or real hardware."
+status = "Drafted"
+
+[surrogate.SUR-02]
+name = "Stock Linux test environment"
+emulates = ["EXT-10", "EXT-11", "EXT-12"]
+description = "A stock Linux environment, locally or in hosted test runs, that restores committed fixture backups with only the documented restore tools installed and compares the result byte for byte."
+status = "Drafted"
+
+[assumption.DA-18]
+effect_at = ["B-10", "B-18"]
+assumption = "The hashing and archive implementations found on a backup or restore host compute the documented algorithms, so the same content yields the same digest and the same expanded bytes on every host."
+holds_when = "The component comes from its upstream project or a mainstream distribution at a supported version."
+obstacle = "A modified, incompatible or wrongly versioned build is installed under the expected name."
+falsifier = "The same stored content yields a different digest or different expanded bytes on two hosts."
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-19]
+effect_at = ["B-13"]
+assumption = """Recovery is handed the complete store, including every object needed by the chosen state, not just that state's folder."""
+holds_when = "The folder is copied or moved as one unit."
+obstacle = "Someone copies only the record of a state, or one saved state's folder, believing it to be a self-contained copy."
+falsifier = "A restore from a handed-over folder reports content missing that the original folder holds."
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-20]
+effect_at = ["B-21"]
+assumption = "The host's credential protection lets only the owner's account on that host read the protected notification credentials."
+holds_when = "The credentials were protected by the account that runs the backups, on the host that runs them."
+obstacle = "The protected file is read under another account, on another host, or by a facility that does not bind it to the account."
+falsifier = "The protected credentials can be read in plain form by another account or on another host."
+obstacle_hats = ["SECURITY"]
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-21]
+effect_at = ["B-01"]
+assumption = "Nothing other than FileBackup changes a source tree while a run is reading it."
+holds_when = "The owner and the owner's programs are not editing, syncing or deleting files in the source during the run, as in a scheduled night run or a test that prepares its tree before the run starts."
+obstacle = "A sync client, an indexer that writes metadata, an application saving files, or the owner editing during the run."
+falsifier = "A watch on the source during a run records a write, move, deletion or time change made by a process other than FileBackup."
+status = "Drafted"
+standing = "active"
+
+[assumption.DA-22]
+effect_at = ["B-06", "B-20"]
+assumption = "A run's process is not suspended by its host while the run is in progress, so its active execution time and the wall time differ only by ordinary scheduling delays."
+holds_when = "The run executes as an ordinary scheduled task, service or container on a host that stays awake and does not pause the run's virtual machine or container during the run."
+obstacle = "A paused virtual machine, a frozen or checkpointed container, or a host that sleeps or hibernates during the run."
+falsifier = "A run on a host meeting the holding condition is found to have been suspended while it was in progress."
+obstacle_hats = ["UNATTENDED-OPS"]
+status = "Drafted"
+standing = "active"

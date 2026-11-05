@@ -1,0 +1,12 @@
+# APPROVAL ACTS, appended by `intake.py snapshot` (baseline_snapshot.copy_live).
+# One entry per act that copied a registry: the rows it carried into approval,
+# the rows it re-attested and the registries it copied. Do not edit; accepted
+# risks are anchored to these entries, and git holds the commit each act
+# landed in.
+
+[[act]]
+seq = 1
+date = "2026-11-05"
+approved = ["SN-001", "SN-002", "SN-003", "SN-004", "SN-005", "SN-006", "SN-007", "SN-008", "SN-009", "SN-010", "SN-011", "SN-012", "SN-013", "SN-015", "SN-019", "SN-021", "SN-022", "SN-023", "SN-024", "SN-025", "SN-026", "SN-027", "SN-029", "SN-030", "SN-031", "SN-032", "SN-033", "SN-034", "SN-035", "SN-036", "SN-037", "SN-038", "SN-039", "SN-040", "SN-041", "SN-042", "SN-043", "SN-044", "SN-045", "SN-046", "SN-047", "SN-048", "SN-049", "SN-050", "SN-051", "SN-052", "SN-053", "SN-054", "SN-055"]
+reattested = []
+copied = ["docs/requirements/assumptions.toml", "docs/requirements/components.toml", "docs/requirements/external.toml", "docs/requirements/interfaces.toml", "docs/requirements/low-level-requirements.toml", "docs/requirements/stakeholder-needs.toml", "docs/requirements/system-requirements.toml", "docs/test/test-cases.toml"]
