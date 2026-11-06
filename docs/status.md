@@ -7033,3 +7033,13 @@ The clarification corrected an erroneous SR count and withdrew two candidates;
 external-link expansion and the scale counting basis remain for owner decision.
 Recorded both responses, author assessment and input fingerprints. No normative
 registry or approval status changed; hooks remain disabled.
+
+### 2026-11-05 — Portable in-root folder-link preference
+
+The owner prefers restoring folder links as relative links where their targets
+map within the captured root, subject to reasonable feasibility. SR-150/151/152
+now state that Drafted direction; see the folder-link policy note linked from
+the SR review guide. Existing scripts lack link destination records/recreation,
+so this is a contained future feature, not an implemented capability. External
+link expansion and scale counting remain open. Approved upstream records and
+approval baselines are unchanged.

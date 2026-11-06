@@ -43,6 +43,11 @@ Decide the SR-137 nested/repeated-link policy and define the SR-064/112/113
 benchmark counting basis. No approved record or Drafted SR was changed by this
 review. The report records the candidate dispositions and input provenance.
 
+The subsequent [folder-link preference](folder-link-policy.md) narrows SR-150/151/152
+to portable relative links whose destinations remain within the captured root.
+This is feasible but requires new link records and support in both recovery
+scripts; genuinely external-link fallback and scale counting remain open.
+
 ## Proposed policies needing particular attention
 
 These are proposals in Drafted SRs, not conclusions extracted from current code
@@ -55,7 +60,7 @@ the legacy draft so they are not silently lost during rebaseline.
 | Compression — SR-081 | Measure above **256 KiB** and compress at **at least 10% measured saving**; retain explicit type-based fallback/exemption modes. | Inclusive threshold, sampling basis and fallback must be deliberate; matching current code is not sufficient reason to choose them. |
 | Progress — SR-125 | No gap longer than **120 seconds of active execution time**, including long reads and finalization. | Suspension is excluded by DA-22, but blocking calls must not silently evade the active-time budget. |
 | Scale — SR-064/112/113 | **2 TiB, one million files, 365 dated saved states plus latest**; four-core host, **2 GB available RAM and 100 MiB/s local SSD**, as corrected by the owner; combined concurrent resident memory must fit that available-memory budget. Proposed time targets remain **8 hours** check/full restore and **30 minutes** routine backup with at most 1 GiB changed. | The saved-state count is a benchmark envelope, not a retention limit or 365 separate full copies. Time targets remain unvalidated on the revised host. Corpus composition, shared-content history size, warm/cold runs and repeatability must be fixed in the benchmark design before claiming evidence. |
-| External links — SR-137/150–152 | Follow supported outside-folder links and file links as captured content; record in-tree/cyclic/system-location links. | Outside-tree traversal expands the selected capture domain. The approved needs require visible, safe behavior but do not choose this particular external-link policy. Retained for an explicit owner choice. |
+| External links — SR-137/150–152 | Preserve supported in-root folder links as relative links. Outside-folder expansion in SR-137 remains a proposal; system-location links are not traversed and links that cannot be preserved are reported. | Outside-tree traversal expands the selected capture domain. The approved needs require visible, safe behavior but do not choose this particular external-link policy. Retained for an explicit owner choice. |
 | Names and exclusions — SR-055/074 | Declare a supported name domain; report invalid/colliding names. Limit system exclusions to actual volume-owned metadata/recycle entries at volume roots, never familiar nested names. | Exact name/tool/filesystem support belongs in the matrix. Case and normalization collisions must not be hidden by an assumption. |
 | Metadata outcomes — SR-066/122/146/152 | Malformed required current metadata is incomplete; unsupported target attributes/links are reported under a documented limitation policy. | The proposal treats unsupported attributes as complete-with-warning. The revised proposal explicitly applies complete-with-warning to unsupported links too; this needs owner agreement. Unsupported is different from lost current metadata. |
 | Capacity — SR-023/052/158 | Refuse known shortfalls against a disclosed bounded-work estimate; report unmeasurable capacity and handle later failures safely. | Estimates do not reserve space. The missing-measurement admission policy and allocation/temporary allowances must be explicit in design; no promise that passing an estimate prevents disk-full. |
@@ -272,9 +277,9 @@ The detailed reason is in the thematic sections above or the retirement record.
 | SR-147 | Retained outcome; delivery links reviewed | With the space view off, the run's record says the media measure was not taken |
 | SR-148 | Retired with record | A change-detection state given a location is kept there |
 | SR-149 | Retired with record | A change-detection state location inside a source or inside the store is refused |
-| SR-150 | Retained outcome; delivery links reviewed | A link inside its own source, or back to its own ancestor, is recorded, not followed |
-| SR-151 | Reconciled | A link into the system's own locations is recorded, not followed |
-| SR-152 | Reconciled | A recorded link is rebuilt at restore |
+| SR-150 | Reconciled | In-root folder links record a portable destination without repeated traversal |
+| SR-151 | Reconciled | Links into protected system locations are not traversed |
+| SR-152 | Reconciled | Supported in-root folder links restore as relative links |
 
 ## Need-to-SR review index
 

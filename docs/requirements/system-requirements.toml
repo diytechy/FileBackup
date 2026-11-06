@@ -1701,14 +1701,14 @@ delivered_with = ["SR-097", "SR-098", "SR-099"]
 form = "interface"
 
 [requirement.SR-150]
-title = "A link inside its own source, or back to its own ancestor, is recorded, not followed"
+title = "In-root folder links record a portable destination without repeated traversal"
 sn_refs = ["SN-001", "SN-036"]
 boundary_refs = ["B-01", "B-02"]
 hat_refs = ["PERFORMANCE"]
-requirement = "When a source holds a link or junction to a folder inside that same source, or to a folder that is one of the link's own ancestors in the walk, the system shall record the link and where it leads without following it."
-rationale = "Derived in part through PERFORMANCE: a link back to one of its own ancestors makes a walk that follows it never end, and a link to a folder already inside the source would capture that content a second time under another path for no gain, since the content itself is captured at its real place. Recording the link instead keeps the restored tree the way it was (SN-036): the link comes back as a link. Following inside links and relying on de-duplication lost: it cannot end on a cycle."
-acceptance_criteria = "With a link and a junction inside a source each leading to another folder of that source, and a link inside a followed outside folder leading to one of its own ancestors, the run finishes, captures the content behind each only at its real place, records each link with where it leads, and their presence does not change the outcome from complete."
-permutations = "link=set{folder-link,junction}; leads_to=set{inside-source,ancestor-in-source,ancestor-in-followed-folder}; @pairwise"
+requirement = "When a folder link or junction resolves to a supported directory within its configured source root, the system shall record the link and its destination within that root without traversing the target again through the link."
+rationale = "An in-root link can be recreated relative to its restored parent without depending on the original drive or mount path. Capturing its target through every alias would lose link identity and multiply restored data. Containment is based on resolved destinations, not a textual path prefix; a relative path can still escape the root. Traversal cycles encountered while following the separately proposed external-link policy must also terminate without repeated capture."
+acceptance_criteria = "Exercise relative and absolute source links to sibling, descendant and ancestor directories within the configured root, including a link back to the root. Each supported link records an unambiguous destination within that root; target data is captured at its ordinary source path, not again under the alias. A textually internal target that resolves outside the root is not classified as internal. An ancestor cycle encountered in an externally followed tree is not traversed again; if its destination cannot be mapped within the configured source root, it is reported as unsupported for portable link recreation. Unresolvable destinations are reported rather than guessed."
+permutations = "link=set{folder-symlink,junction}; spelling=set{relative,absolute}; destination=set{sibling,descendant,ancestor,root,outside-via-alias,unresolvable}; @pairwise"
 priority = "M"
 verification = "Test"
 status = "Drafted"
@@ -1716,13 +1716,13 @@ delivered_with = ["SR-001", "SR-065", "SR-066", "SR-074", "SR-088", "SR-089", "S
 form = "interface"
 
 [requirement.SR-151]
-title = "A link into the system's own locations is recorded, not followed"
+title = "Links into protected system locations are not traversed"
 sn_refs = ["SN-001"]
 boundary_refs = ["B-01", "B-02"]
 hat_refs = ["PERFORMANCE"]
-requirement = "If a source link leads into FileBackup’s own protected store or operational locations, then the system shall record the supported link without traversing those locations as source content."
-rationale = "Following the backup into itself causes unbounded growth. Preserving link metadata retains the owner’s structure without admitting the system’s output into capture."
-acceptance_criteria = "Links to backup content, saved states, operational records and logs do not cause those locations to be captured again. Supported links are recorded for SR-152; unsupported link kinds are reported without implying capture. No source-side cache is assumed."
+requirement = "If a source link leads into FileBackup’s own protected store or operational locations, then the system shall avoid traversing those locations as source content and report any link it cannot preserve under the in-root relative-link policy."
+rationale = "Following the backup into itself causes unbounded growth. Recording an external destination for diagnosis does not make that destination portable or authorize recreating an absolute or root-escaping link during recovery."
+acceptance_criteria = "Links to backup content, saved states, operational records and logs do not cause those locations to be captured again. A link whose destination cannot be mapped safely within the source root is identified as unsupported for link recreation, not counted as a successfully preserved link or silently recreated to the original external location. No source-side cache is assumed."
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
@@ -1731,14 +1731,14 @@ delivered_with = ["SR-001", "SR-074", "SR-088", "SR-089", "SR-137", "SR-150"]
 form = "interface"
 
 [requirement.SR-152]
-title = "A recorded link is rebuilt at restore"
+title = "Supported in-root folder links restore as relative links"
 sn_refs = ["SN-036"]
 boundary_refs = ["B-16"]
 hat_refs = ["CROSS-PLATFORM", "SECURITY"]
-requirement = "When a state records a supported link, the recovery route shall recreate it within the target, remapping an in-source destination to the corresponding restored path and preventing restore writes through the link."
-rationale = "Link fidelity is a metadata obligation, not authorization to write into the link destination. Unsupported link semantics or privileges must be disclosed. External-target links follow the declared capture policy."
-acceptance_criteria = "In-tree links and supported junctions lead to their restored counterparts; declared external-target links preserve the documented target meaning. No restore writes follow a recreated link. Unsupported link type, target semantics or insufficient privilege is named per link as a metadata limitation; otherwise complete content recovery remains complete with those explicit warnings, consistently with SR-122. Missing or malformed required recorded link metadata is incomplete rather than an unsupported-target exemption."
-permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
+requirement = "When a recorded folder link has a supported destination within the captured source root, the recovery route shall recreate it as a relative folder link to the corresponding directory within the restored root, without writing restored content through that link."
+rationale = "A relative target calculated from the restored link’s parent keeps the relationship valid when the whole restored tree moves to another drive or location. The original link may have been absolute or a junction; portable folder-link behavior is preferred over retaining a host-specific representation. Links are created after ordinary directory and file recovery so they cannot redirect that work. An external absolute target or a relative target escaping the restored root is not a valid fallback."
+acceptance_criteria = "Restore the supported in-root link cases of SR-150 through both carried recovery routes. Each link reaches the corresponding restored directory using a target relative to its own parent, including a parent component where the resolved destination still stays inside the restored root. Move the complete recovered root to a different location: the links still reach its directories. Ordinary directories and files are restored before links are created, and no content writes follow those links. Outside-root, ambiguous or unavailable target mappings are reported without recreating an absolute or escaping link. If the host lacks the required link capability or privilege, report the affected link as a metadata limitation rather than silently replacing it with copied content; otherwise complete content recovery may remain complete with those warnings. Missing or malformed required recorded link metadata remains incomplete."
+permutations = "route=set{PowerShell,bash}; source_link=set{relative,absolute,junction}; destination=set{sibling,descendant,ancestor,root,outside,unavailable}; target_capability=set{supported,unsupported,permission-denied}; moved_root=bool; @pairwise"
 priority = "S"
 verification = "Test"
 status = "Drafted"
