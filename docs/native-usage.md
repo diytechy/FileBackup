@@ -8,7 +8,9 @@ history as a conversion experiment.
 
 The executable needs no compiler or PowerShell runtime for backup. Install 7-Zip
 locally when new compression is enabled or existing compressed content must be
-verified. Recovery has its own independent prerequisites below. See the shipped
+verified. Native compression and both recovery kits limit 7-Zip to two workers
+to leave memory for file indexes. Recovery has its own independent prerequisites
+below. See the shipped
 [support matrix](native-support.md) for exercised coverage
 and remaining qualification work.
 

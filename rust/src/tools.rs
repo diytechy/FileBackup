@@ -244,7 +244,7 @@ pub fn run(cmd: &mut Command, timeout: Duration) -> Result<()> {
 pub fn compress(tool: &Path, input: &Path, archive: &Path) -> Result<()> {
     run(
         Command::new(tool)
-            .args(["a", "-t7z", "-mx=5", "-y", "--"])
+            .args(["a", "-t7z", "-mx=5", TOOL_THREADS, "-y", "--"])
             .arg(archive)
             .arg(input),
         deadline(std::fs::metadata(input)?.len()),
@@ -252,6 +252,9 @@ pub fn compress(tool: &Path, input: &Path, archive: &Path) -> Result<()> {
     OpenOptions::new().write(true).open(archive)?.sync_all()?;
     Ok(())
 }
+// Leave memory for the live file/object indexes instead of letting 7-Zip select
+// a separate compression/decompression buffer set for every host CPU.
+const TOOL_THREADS: &str = "-mmt=2";
 // A finite allowance that grows with bytes, including slow external disks.
 pub fn deadline(length: u64) -> Duration {
     Duration::from_secs(300u64.saturating_add(length / (1024 * 1024)))
@@ -291,7 +294,7 @@ pub fn verify_form(
     };
     let mut child = ToolChild::spawn(
         Command::new(tool)
-            .args(["e", "-so", "-y", "--"])
+            .args(["e", "-so", TOOL_THREADS, "-y", "--"])
             .arg(path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

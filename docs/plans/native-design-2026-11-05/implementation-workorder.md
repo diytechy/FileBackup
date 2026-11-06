@@ -159,3 +159,10 @@ Additional implementation decisions within the allocated contracts:
 Full resource/host qualification remains N7 work. In particular, process-kill
 fixtures do not establish power-loss durability, and a small metadata/capture
 probe does not establish the 2 TiB/365-state restore/check budgets.
+
+The owner deferred macOS execution and requested continued Windows/Linux work.
+The [performance record](performance-validation.md) now covers a million distinct
+source/object pairs, measured allocation reductions, independent recovery timing,
+history scaling and combined process-tree sampling. These measurements guide
+focused changes without introducing a spill system or changing the store protocol.
+Unmeasured reference-host and hardware obligations remain open.

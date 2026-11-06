@@ -372,21 +372,29 @@ fn csv_bytes<T: Serialize>(header: &[&str], rows: &[T]) -> Result<Vec<u8>> {
     }
     Ok(writer.into_inner()?)
 }
+fn sorted_by_path<'a, T: 'a>(
+    rows: impl IntoIterator<Item = &'a T>,
+    path: fn(&T) -> &str,
+) -> Vec<&'a T> {
+    let mut sorted: Vec<_> = rows.into_iter().collect();
+    sorted.sort_by(|a, b| path(a).encode_utf16().cmp(path(b).encode_utf16()));
+    sorted
+}
+/// Compare the same canonical records as serialization, without two CSV buffers.
+pub fn same_manifest(a: &[FileRow], b: &[FileRow]) -> bool {
+    a.len() == b.len()
+        && sorted_by_path(a, |r| &r.relative_path) == sorted_by_path(b, |r| &r.relative_path)
+}
+pub fn same_directories(a: &[DirectoryRow], b: &[DirectoryRow]) -> bool {
+    a.len() == b.len()
+        && sorted_by_path(a, |r| &r.relative_path) == sorted_by_path(b, |r| &r.relative_path)
+}
 pub fn manifest_bytes(rows: &[FileRow]) -> Result<Vec<u8>> {
-    let mut sorted: Vec<_> = rows.iter().collect();
-    sorted.sort_by(|a, b| {
-        a.relative_path
-            .encode_utf16()
-            .cmp(b.relative_path.encode_utf16())
-    });
-    csv_bytes(&FILE_HEADER, &sorted)
+    manifest_ref_bytes(rows)
+}
+pub fn manifest_ref_bytes<'a>(rows: impl IntoIterator<Item = &'a FileRow>) -> Result<Vec<u8>> {
+    csv_bytes(&FILE_HEADER, &sorted_by_path(rows, |r| &r.relative_path))
 }
 pub fn directory_bytes(rows: &[DirectoryRow]) -> Result<Vec<u8>> {
-    let mut sorted: Vec<_> = rows.iter().collect();
-    sorted.sort_by(|a, b| {
-        a.relative_path
-            .encode_utf16()
-            .cmp(b.relative_path.encode_utf16())
-    });
-    csv_bytes(&DIR_HEADER, &sorted)
+    csv_bytes(&DIR_HEADER, &sorted_by_path(rows, |r| &r.relative_path))
 }

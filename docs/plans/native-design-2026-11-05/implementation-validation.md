@@ -8,6 +8,11 @@ of every obligation. See the [bindings](implementation-map.md),
 [review dispositions](implementation-reviews.md) and
 [host support limits](../../native-support.md).
 
+The subsequent [performance validation](performance-validation.md) records real
+million-file allocation work, process-tree RSS sampling, history/restore timings
+and additional regressions. It supersedes the resource-probe limitations below
+only where explicitly measured. macOS validation is now deferred by the owner.
+
 ## Executed checks
 
 | Check | Observed result |
@@ -85,7 +90,7 @@ performance. No 2 TiB fixture fits the available scratch capacity.
 - Hard deadlines for blocked source filesystem operations remain implementation
   work. Tool subprocess deadlines are implemented and exercised, but cannot make
   a stalled OS filesystem call bounded.
-- Full 1M-file/2 TiB/365-state reference tests, combined 2 GB RSS accounting,
+- Full 1M-file/2 TiB/365-state reference tests, combined 2 GB RSS qualification,
   restore/check timing, and any indexing/spill changes demanded by those results.
 - macOS/APFS execution, Windows link privilege profiles, real removable/network
   filesystems, disconnect/suspend/power-loss tests, and broader path-alias cases.

@@ -54,7 +54,7 @@ def main():
         shutil.copy2(ROOT / source, args.output / destination)
     support = args.output / "native-support.md"
     text = support.read_text(encoding="utf-8")
-    for label, filename in (("implementation workorder", "implementation-workorder.md"), ("implementation bindings", "implementation-map.md")):
+    for label, filename in (("implementation workorder", "implementation-workorder.md"), ("implementation bindings", "implementation-map.md"), ("performance validation", "performance-validation.md")):
         text = text.replace(f"[{label}](plans/native-design-2026-11-05/{filename})", f"{label} in the source repository")
     support.write_text(text, encoding="utf-8")
     for relative, data in notices.items():

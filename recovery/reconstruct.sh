@@ -60,7 +60,7 @@ ordinary_ancestors() {
     local p="$1"
     while [[ -n "$p" && "$p" != / ]]; do
         [[ ! -L "$p" ]] || return 1
-        p="$(dirname -- "$p")"
+        p="${p%/*}"; [[ -n "$p" ]] || p=/
     done
 }
 valid_relative() {
@@ -88,7 +88,7 @@ manifest="$origin/MANIFEST.csv$suffix"; directories="$origin/DIRECTORIES.csv$suf
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/filebackup-recovery.XXXXXXXX")" || fail 'Cannot allocate scratch.'
 temporary=''
 # shellcheck disable=SC2317 # called by EXIT trap
-cleanup_native() { [[ -z "$temporary" ]] || rm -f -- "$temporary"; rm -f -- "$scratch/files" "$scratch/dirs" "$scratch/objects" "$scratch/accepted" "$scratch/metadata-errors"; rmdir -- "$scratch"; }
+cleanup_native() { [[ -z "$temporary" ]] || rm -f -- "$temporary"; rm -f -- "$scratch/files" "$scratch/dirs" "$scratch/accepted" "$scratch/metadata-errors"; rmdir -- "$scratch"; }
 trap cleanup_native EXIT
 # Paths/control characters cannot cross the line-oriented script protocol. Reject
 # malformed record shapes before writing any target output; never drop a bad row.
@@ -144,31 +144,31 @@ states=("$store/CurrentBackup")
 for state in "$store/BackupHistory"/*; do
     [[ -d "$state" && ! -L "$state" && "${state##*/}" =~ ^[0-9]{4}(_[0-9]{2}){5}(_[0-9]+)?$ ]] && states+=("$state")
 done
-: >"$scratch/objects"
-for state in "${states[@]}"; do
-    ordinary_ancestors "$state" || { finding 4 'Unsafe pool directory skipped.'; continue; }
-    if [[ "$state" == "$store/CurrentBackup" ]]; then
-        for shard in "$state"/??; do
+list_state_objects() {
+    local folder="$1" sharded="$2" shard object name prefix
+    if [[ -n "$sharded" ]]; then
+        for shard in "$folder"/??; do
             [[ -d "$shard" && ! -L "$shard" ]] || continue
             for object in "$shard"/*; do
                 [[ -f "$object" && ! -L "$object" ]] || continue
-                name="${object##*/}"; prefix="${name:0:2}"; prefix="$(printf '%s' "$prefix" | tr '[:upper:]' '[:lower:]')"
-                [[ "${shard##*/}" == "$prefix" ]] && printf '%s\n' "$object" >>"$scratch/objects"
+                name="${object##*/}"; prefix="${name:0:2}"
+                [[ "${shard##*/}" == "${prefix,,}" ]] && printf '%s\0' "$object"
             done
         done
     else
-        for object in "$state"/*; do
-            [[ -f "$object" && ! -L "$object" && "${object##*/}" =~ ^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+(\..*)?$ ]] && printf '%s\n' "$object" >>"$scratch/objects"
+        for object in "$folder"/*; do
+            [[ -f "$object" && ! -L "$object" && "${object##*/}" =~ ^[2-9A-HJ-NP-Za-km-z]{22}_[2-9A-HJ-NP-Za-km-z]+(\..*)?$ ]] && printf '%s\0' "$object"
         done
     fi
-done
+}
 declare -A native_index=()
 for state in "${states[@]}"; do
+    ordinary_ancestors "$state" || { finding 4 'Unsafe pool directory skipped.'; continue; }
     if [[ "$state" == "$store/CurrentBackup" ]]; then sharded=1; else sharded=''; fi
     while IFS=$'\037' read -r -d '' object_hash object_length candidate; do
         key="$object_hash|$object_length"
         native_index[$key]="${native_index[$key]-}$candidate"$'\n'
-    done < <(gawk -v prefix="$state/" 'index($0,prefix)==1 {printf "%s%c",$0,0}' "$scratch/objects" | decode_hash_size_names "$state/" "$sharded")
+    done < <(list_state_objects "$state" "$sharded" | decode_hash_size_names "$state/" "$sharded")
 done
 # Determine prerequisites from actual object forms, before target mutation.
 needs_extractor=0
@@ -187,7 +187,7 @@ while IFS=$'\037' read -r _data _rel length _stamp hash _compressed _storage _du
     done < <(printf '%s' "${native_index[$key]-}")
     if (( has_archive )); then
         if [[ -z "$raw_supply" ]]; then
-            for candidate in "${raw_candidates[@]}"; do
+            for candidate in ${raw_candidates[@]+"${raw_candidates[@]}"}; do
                 if [[ "$(hash_file "$candidate")" == "$hash" ]]; then raw_supply="$candidate"; break; fi
             done
         fi
@@ -200,37 +200,47 @@ if (( needs_extractor )); then
     "$timeout_tool" -k 5 10 "$SEVEN_ZIP" i </dev/null >/dev/null 2>&1 || host_fail '7-Zip prerequisite check failed or timed out.'
 fi
 sync_tool=sync; if have gsync; then sync_tool=gsync; fi
-"$sync_tool" -f "$scratch/files" || host_fail 'GNU sync (coreutils) is required for durable target publication.'
+# With file operands, GNU sync uses fsync; -f would flush the entire filesystem.
+"$sync_tool" -f -- "$scratch/files" || host_fail 'GNU sync (coreutils) is required for durable target publication.'
+output_mode="$(printf '%o' "$((0666 & ~$(umask)))")"
+test_content() { [[ "$(stat_size "$1")" == "$2" && "$(hash_file "$1")" == "$3" ]]; }
+restore_candidate() {
+    local candidate="$1" destination="$2" length="$3" hash="$4" relative="$5" extract_status
+    # Verify the staged bytes once; hashing the source before copying did not
+    # replace this required verification and added a full read per raw file.
+    if [[ "$(stat_size "$candidate")" == "$length" ]]; then
+        if cp -- "$candidate" "$destination"; then
+            test_content "$destination" "$length" "$hash" && return 0
+        elif [[ "$(hash_file "$candidate")" == "$hash" ]]; then
+            finding 4 "Copy failed: $relative"; return 1
+        fi
+    fi
+    [[ "$(od -An -N6 -tx1 -- "$candidate" 2>/dev/null | tr -d ' \n')" == 377abcaf271c ]] || return 1
+    if [[ -z "$SEVEN_ZIP" || -z "$timeout_tool" ]]; then finding 4 'Compressed content requires local 7-Zip and timeout (GNU coreutils).'; return 1; fi
+    # Fixed program and positional paths; bound the complete extractor pipeline.
+    # shellcheck disable=SC2016 # Arguments expand in the child Bash only.
+    "$timeout_tool" -k 5 "$((300 + length / 1048576))" "$BASH" -c \
+        'set -o pipefail; "$1" e -so -mmt=2 -y -- "$2" 2>/dev/null | head -c "$3"' \
+        filebackup-extract "$SEVEN_ZIP" "$candidate" "$((length + 1))" </dev/null >"$destination"
+    extract_status=$?
+    if (( extract_status == 124 || extract_status == 137 )); then finding 4 "Extractor deadline exceeded: $relative"; return 1; fi
+    (( extract_status == 0 )) && test_content "$destination" "$length" "$hash"
+}
 mkdir -p -- "$target" || host_fail 'Cannot create target.'
 while IFS=$'\037' read -r _data rel length stamp hash _compressed _storage _duplicate _media; do
     [[ -n "$rel" ]] || continue
-    dest="$target/$rel"; parent="$(dirname -- "$dest")"
+    dest="$target/$rel"; parent="${dest%/*}"
     if [[ -d "$dest" ]] || ! ordinary_ancestors "$dest" || ! mkdir -p -- "$parent"; then ((failed_files+=1)); finding 4 "Unsafe/unwritable target: $rel"; continue; fi
     temporary="$(mktemp "$parent/.filebackup.XXXXXXXX")" || { ((failed_files+=1)); finding 4 "Cannot stage target: $rel"; continue; }
     restored=0
     # Identity lookup already includes every decodable candidate across the pool.
     # Never extract unrelated objects once per missing logical file.
-        while IFS= read -r candidate; do
-            [[ -n "$candidate" ]] || continue
-            if [[ "$(stat_size "$candidate")" == "$length" && "$(hash_file "$candidate")" == "$hash" ]]; then
-                cp -- "$candidate" "$temporary" || { finding 4 "Copy failed: $rel"; continue; }
-            else
-                [[ "$(od -An -N6 -tx1 -- "$candidate" 2>/dev/null | tr -d ' \n')" == 377abcaf271c ]] || continue
-                if [[ -z "$SEVEN_ZIP" || -z "$timeout_tool" ]]; then finding 4 'Compressed content requires local 7-Zip and timeout (GNU coreutils).'; continue; fi
-                # Fixed shell program, paths passed only as positional arguments.
-                # Bound the entire pipeline, including a head waiting on inherited pipes.
-                # shellcheck disable=SC2016 # Positional arguments expand in the child Bash only.
-                "$timeout_tool" -k 5 "$((300 + length / 1048576))" "$BASH" -c \
-                    'set -o pipefail; "$1" e -so -y -- "$2" 2>/dev/null | head -c "$3"' \
-                    filebackup-extract "$SEVEN_ZIP" "$candidate" "$((length + 1))" </dev/null >"$temporary"
-                extract_status=$?
-                if (( extract_status == 124 || extract_status == 137 )); then finding 4 "Extractor deadline exceeded: $rel"; continue; fi
-                (( extract_status == 0 )) || continue
-            fi
-            if [[ "$(stat_size "$temporary")" == "$length" && "$(hash_file "$temporary")" == "$hash" ]]; then restored=1; break; fi
-        done < <(printf '%s' "${native_index["$hash|$length"]-}")
+    while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        if restore_candidate "$candidate" "$temporary" "$length" "$hash" "$rel"; then restored=1; break; fi
+    done < <(printf '%s' "${native_index["$hash|$length"]-}")
     if (( restored )); then
-        if [[ ! -d "$dest" ]] && ordinary_ancestors "$dest" && chmod "$(printf '%o' "$((0666 & ~$(umask)))")" -- "$temporary" && "$sync_tool" -f "$temporary" && mv -f -- "$temporary" "$dest" && "$sync_tool" -f "$parent"; then
+        if [[ ! -d "$dest" ]] && ordinary_ancestors "$dest" && chmod "$output_mode" -- "$temporary" && "$sync_tool" -- "$temporary" && mv -f -- "$temporary" "$dest" && "$sync_tool" -- "$parent"; then
             ((restored_files+=1)); stamp_mtime "$dest" "$stamp" "$rel"
         else ((failed_files+=1)); finding 4 "Publication failed: $rel"; fi
     else
@@ -262,6 +272,9 @@ for phase in Directory FolderLink; do
         fi
     done <"$scratch/dirs"
 done
+# Persist newly created ancestor directories, timestamps and metadata entries too.
+# One final filesystem flush replaces a whole-filesystem flush for every file.
+"$sync_tool" -f -- "$target" || finding 4 'Final target sync failed.'
 printf 'Recovery totals: restored=%s, failed=%s, required-metadata-findings=%s, exit=%s\n' "$restored_files" "$failed_files" "$metadata_failures" "$result"
 if (( interactive && !unattended )) && [[ -t 0 && -t 1 ]]; then log "Recovery finished with exit $result"; read -r -p 'Press Enter to close' _answer; fi
 exit "$result"

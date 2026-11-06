@@ -3,7 +3,7 @@ use crate::{
     config::{BackupSet, Config},
     format::{self, ContentKey, DirectoryRow, FileRow},
     kit, platform,
-    store::{Object, Store},
+    store::{Object, Store, index_object},
     tools,
 };
 use anyhow::{Context, Result, ensure};
@@ -95,6 +95,26 @@ struct Walk {
     frozen: Vec<String>,
     complete: bool,
     observed: usize,
+}
+// Keep unchanged rows borrowed without reserving an entire FileRow in every
+// map slot. Only successfully captured replacements need owned row storage.
+enum RunRow<'a> {
+    Prior(&'a FileRow),
+    Captured(Box<FileRow>),
+}
+impl RunRow<'_> {
+    fn as_ref(&self) -> &FileRow {
+        match self {
+            Self::Prior(row) => row,
+            Self::Captured(row) => row,
+        }
+    }
+    fn into_owned(self) -> FileRow {
+        match self {
+            Self::Prior(row) => row.clone(),
+            Self::Captured(row) => *row,
+        }
+    }
 }
 fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
     let mut result = Walk {
@@ -231,26 +251,36 @@ fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
             }
         }
     }
-    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // Borrow names already owned by the walk; don't allocate a Vec per unique path.
+    // An occupied None means the group's first path was already frozen.
+    let mut groups: BTreeMap<String, Option<&str>> = BTreeMap::new();
     for rel in result
         .files
         .iter()
         .map(|(r, _)| r)
         .chain(result.dirs.iter().map(|r| &r.relative_path))
     {
-        groups
-            .entry(format::path_key(rel))
-            .or_default()
-            .push(rel.clone());
+        match groups.entry(format::path_key(rel)) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(Some(rel));
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                result.complete = false;
+                if let Some(first) = entry.get_mut().take() {
+                    result.frozen.push(first.to_owned());
+                }
+                result.frozen.push(rel.clone());
+            }
+        }
     }
-    for paths in groups.values().filter(|v| v.len() > 1) {
-        result.complete = false;
-        result.frozen.extend(paths.clone());
-    }
+    drop(groups);
     let frozen = result.frozen.clone();
     let blocked = |p: &str| {
         frozen.iter().any(|prefix| {
-            prefix.is_empty() || p == prefix || p.starts_with(&(prefix.clone() + "/"))
+            prefix.is_empty()
+                || p == prefix
+                || p.strip_prefix(prefix)
+                    .is_some_and(|tail| tail.starts_with('/'))
         })
     };
     result.files.retain(|(rel, _)| !blocked(rel));
@@ -563,17 +593,20 @@ fn capture(
     }
     platform::sync_directory(destination.parent().unwrap())?;
     platform::checkpoint("object");
-    index.entry(key.clone()).or_default().push(Object {
-        path: destination,
-        state: store.current.clone(),
-        name: name.clone(),
-        key: key.clone(),
-        verified: Some(if compressed {
-            tools::StoredForm::Archive
-        } else {
-            tools::StoredForm::Raw
-        }),
-    });
+    index_object(
+        index,
+        Object {
+            path: destination,
+            state: store.current.clone(),
+            name: name.clone(),
+            key: key.clone(),
+            verified: Some(if compressed {
+                tools::StoredForm::Archive
+            } else {
+                tools::StoredForm::Raw
+            }),
+        },
+    );
     Ok(FileRow {
         data_path: name,
         relative_path: relative.into(),
@@ -635,6 +668,53 @@ fn append_log(set: &BackupSet, report: &Report) -> Result<()> {
     bytes.push(b'\n');
     log.write_all(&bytes)?;
     Ok(())
+}
+fn record_changes(
+    prior: &[FileRow],
+    final_rows: &[FileRow],
+    prior_dirs: &[DirectoryRow],
+    dirs: &[DirectoryRow],
+    report: &mut Report,
+) {
+    let prior_map: BTreeMap<_, _> = prior.iter().map(|r| (&r.relative_path, r)).collect();
+    for row in final_rows {
+        match prior_map.get(&row.relative_path) {
+            None => report.added += 1,
+            Some(old)
+                if row.hash != old.hash
+                    || row.length != old.length
+                    || row.modified != old.modified =>
+            {
+                report.changed += 1
+            }
+            _ => (),
+        }
+    }
+    let latest_paths: BTreeSet<_> = final_rows.iter().map(|r| &r.relative_path).collect();
+    report.removed = prior
+        .iter()
+        .filter(|r| !latest_paths.contains(&r.relative_path))
+        .count() as u64;
+    let prior_directories: BTreeMap<_, _> =
+        prior_dirs.iter().map(|d| (&d.relative_path, d)).collect();
+    for dir in dirs {
+        match prior_directories.get(&dir.relative_path) {
+            None => report.added += 1,
+            Some(old)
+                if old.kind != dir.kind
+                    || old.target != dir.target
+                    || old.attributes != dir.attributes =>
+            {
+                report.changed += 1
+            }
+            _ => (),
+        }
+    }
+    let latest_directories: BTreeSet<_> = dirs.iter().map(|d| &d.relative_path).collect();
+    report.removed += prior_dirs
+        .iter()
+        .filter(|d| !latest_directories.contains(&d.relative_path))
+        .count() as u64;
 }
 fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result<()> {
     kit::preflight()?;
@@ -709,7 +789,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             eprintln!("Backup still active: {set_name}");
         }
     });
-    let mut work = || -> Result<()> {
+    let work = || -> Result<()> {
         if !fresh {
             store.preserve()?;
         }
@@ -719,20 +799,22 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             None
         };
         let mut index = store.index()?;
+        platform::checkpoint("pool-indexed");
         let protected: Vec<_> = config
             .sets
             .iter()
             .flat_map(|s| std::iter::once(s.store.clone()).chain(s.view.clone()))
             .collect();
         let walked = walk(&set.source, &protected);
+        platform::checkpoint("source-walked");
         for prefix in &walked.frozen {
             report.finding_at(1,"source_prefix_unavailable",Some(prefix),format!("Source prefix unavailable, unsupported or cyclic; prior rows retained: {prefix}"));
         }
         report.frozen = walked.frozen.len() as u64;
         let reread = full_reread(set, &store);
-        let mut rows: BTreeMap<String, FileRow> = prior
+        let mut rows: BTreeMap<String, RunRow<'_>> = prior
             .iter()
-            .map(|r| (r.relative_path.clone(), r.clone()))
+            .map(|r| (r.relative_path.clone(), RunRow::Prior(r)))
             .collect();
         let mut seen = BTreeSet::new();
         let mut row_keys: BTreeMap<String, String> = rows
@@ -746,6 +828,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         for i in 0..walked.files.len() {
             queue.push(std::cmp::Reverse((now, i, 0u8)));
         }
+        platform::checkpoint("capture-ready");
         while let Some(std::cmp::Reverse((eligible, i, attempt))) = queue.pop() {
             let (relative, path) = &walked.files[i];
             seen.insert(format::path_key(relative));
@@ -762,6 +845,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             let current = fs::metadata(path).ok();
             let reusable = attempt == 0
                 && rows.get(relative).is_some_and(|row| {
+                    let row = row.as_ref();
                     !reread
                         && current.as_ref().is_some_and(|m| {
                             m.len() == row.length && modified(m).is_ok_and(|v| v == row.modified)
@@ -821,7 +905,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                     }
                 }
                 row_keys.insert(key, relative.clone());
-                rows.insert(relative.clone(), row);
+                rows.insert(relative.clone(), RunRow::Captured(Box::new(row)));
                 report.captured += 1;
             } else {
                 report.failed += 1;
@@ -832,7 +916,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             if checkpoint.elapsed() >= Duration::from_secs(60) {
                 platform::atomic_write(
                     &store.current.join(format::MANIFEST),
-                    &format::manifest_bytes(&rows.values().cloned().collect::<Vec<_>>())?,
+                    &format::manifest_ref_bytes(rows.values().map(RunRow::as_ref))?,
                     true,
                 )?;
                 checkpoint = Instant::now();
@@ -847,6 +931,12 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         if walked.complete {
             rows.retain(|path, _| seen.contains(&format::path_key(path)));
         }
+        platform::checkpoint("capture-finished");
+        // Capture-only indexes must not coexist with finalization's fresh indexes.
+        drop(index);
+        drop(row_keys);
+        drop(seen);
+        drop(walked.files);
         let mut dirs = walked.dirs;
         if !walked.complete {
             let existing: BTreeSet<_> = dirs
@@ -859,7 +949,8 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 }
             }
         }
-        let mut final_rows: Vec<_> = rows.into_values().collect();
+        let mut final_rows: Vec<_> = rows.into_values().map(RunRow::into_owned).collect();
+        platform::checkpoint("final-rows");
         // A checkpoint can legitimately have newer files than the old sidecar.
         // Keep independent file content and exclude conflicting supplemental rows.
         let files: BTreeSet<_> = final_rows
@@ -888,11 +979,8 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             }
             true
         });
-        let ordinary: BTreeSet<_> = dirs
-            .iter()
-            .filter(|d| d.kind == "Directory")
-            .map(|d| format::path_key(&d.relative_path))
-            .collect();
+        drop(files);
+        drop(ancestors);
         let links: BTreeSet<_> = dirs
             .iter()
             .filter(|d| d.kind == "FolderLink")
@@ -909,11 +997,18 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             }
             true
         });
+        let ordinary: BTreeSet<_> = dirs
+            .iter()
+            .filter(|d| d.kind == "Directory")
+            .map(|d| format::path_key(&d.relative_path))
+            .collect();
         dirs.retain(|d| {
             d.kind != "FolderLink"
                 || d.target == "."
                 || ordinary.contains(&format::path_key(&d.target))
         });
+        drop(ordinary);
+        drop(links);
         let mut owners = BTreeSet::new();
         for row in &mut final_rows {
             row.duplicate = if owners.insert(row.key()) {
@@ -922,43 +1017,12 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 "Duplicate".into()
             };
         }
-        let changed = format::manifest_bytes(&prior)? != format::manifest_bytes(&final_rows)?
-            || format::directory_bytes(&prior_dirs)? != format::directory_bytes(&dirs)?;
-        let prior_map: BTreeMap<_, _> = prior.iter().map(|r| (&r.relative_path, r)).collect();
-        for row in &final_rows {
-            match prior_map.get(&row.relative_path) {
-                None => report.added += 1,
-                Some(old) if row.key() != old.key() || row.modified != old.modified => {
-                    report.changed += 1
-                }
-                _ => (),
-            }
-        }
-        let latest_paths: BTreeSet<_> = final_rows.iter().map(|r| &r.relative_path).collect();
-        report.removed = prior
-            .iter()
-            .filter(|r| !latest_paths.contains(&r.relative_path))
-            .count() as u64;
-        let prior_directories: BTreeMap<_, _> =
-            prior_dirs.iter().map(|d| (&d.relative_path, d)).collect();
-        for dir in &dirs {
-            match prior_directories.get(&dir.relative_path) {
-                None => report.added += 1,
-                Some(old)
-                    if old.kind != dir.kind
-                        || old.target != dir.target
-                        || old.attributes != dir.attributes =>
-                {
-                    report.changed += 1
-                }
-                _ => (),
-            }
-        }
-        let latest_directories: BTreeSet<_> = dirs.iter().map(|d| &d.relative_path).collect();
-        report.removed += prior_dirs
-            .iter()
-            .filter(|d| !latest_directories.contains(&d.relative_path))
-            .count() as u64;
+        drop(owners);
+        let changed = !format::same_manifest(&prior, &final_rows)
+            || !format::same_directories(&prior_dirs, &dirs);
+        record_changes(&prior, &final_rows, &prior_dirs, &dirs, report);
+        drop(prior);
+        drop(prior_dirs);
         store.write(&final_rows, &dirs)?;
         platform::checkpoint("final-definitions");
         let old_state = fs::read(store.current.join("FileBackupState.json"))

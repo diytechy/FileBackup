@@ -26,6 +26,12 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **NATIVE PERFORMANCE WORK (2026-11-06).** macOS validation is deferred by the
+  owner. The [performance record](plans/native-design-2026-11-05/performance-validation.md)
+  covers measured memory reductions, a million real source/object pairs,
+  independent recovery timing and process-tree RSS sampling. Windows/Linux
+  regressions pass; full reference-host/resource qualification remains open.
+
 - **NATIVE PREVIEW IMPLEMENTED (2026-11-06).** The owner authorized implementation
   following Gemini Argon readiness review. Rust backup, maintenance, standalone
   PowerShell/bash recovery, delivery adapters and CI now exist. DeepSeek Flash

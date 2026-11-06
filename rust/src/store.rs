@@ -18,6 +18,14 @@ pub struct Object {
     pub key: ContentKey,
     pub verified: Option<crate::tools::StoredForm>,
 }
+/// Most identities have one supply. Avoid reserving four large Object slots for
+/// every key; retain a growable list for the duplicate candidates readers support.
+pub fn index_object(index: &mut BTreeMap<ContentKey, Vec<Object>>, object: Object) {
+    index
+        .entry(object.key.clone())
+        .or_insert_with(|| Vec::with_capacity(1))
+        .push(object);
+}
 #[derive(Clone, Debug)]
 pub struct Store {
     pub root: PathBuf,
@@ -153,13 +161,16 @@ impl Store {
                         {
                             continue;
                         }
-                        map.entry(key.clone()).or_default().push(Object {
-                            path: entry.path(),
-                            state: state.clone(),
-                            name,
-                            key,
-                            verified: None,
-                        });
+                        index_object(
+                            &mut map,
+                            Object {
+                                path: entry.path(),
+                                state: state.clone(),
+                                name,
+                                key,
+                                verified: None,
+                            },
+                        );
                     }
                 }
             }

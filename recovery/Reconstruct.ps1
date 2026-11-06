@@ -43,10 +43,12 @@ function Test-RecordedPath([string]$Path) {
 function Assert-OrdinaryAncestors([string]$Path) {
     $cursor = [IO.Path]::GetFullPath($Path)
     while ($cursor) {
-        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
-        if ($null -ne $item) {
-            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Unsafe redirected path: $cursor" }
+        try {
+            if ([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint) { throw "Unsafe redirected path: $cursor" }
+        } catch [IO.FileNotFoundException], [IO.DirectoryNotFoundException] {
+            Write-Verbose 'Target ancestry component not yet created.'
         }
+        # Other access/I/O failures remain errors: ordinary ancestry is unconfirmed.
         $parent = [IO.Path]::GetDirectoryName($cursor)
         if ($parent -eq $cursor) { break }
         $cursor = $parent
@@ -58,6 +60,9 @@ function Test-Within([string]$Child, [string]$Parent) {
 }
 function Get-RowKey($Row) { return "$($Row.xxH2Hash)|$($Row.Length)" }
 function Get-PathKey([string]$Text) {
+    # ASCII has no decomposition/combining marks; its full fold is A-Z -> a-z.
+    # Keep the generated Unicode mapping for every non-ASCII path.
+    if ($Text -cmatch '^[\x00-\x7f]*$') { return $Text.ToLowerInvariant() }
     $mapped = [Text.StringBuilder]::new()
     for ($i=0; $i -lt $Text.Length; $i++) {
         $count = if ([char]::IsHighSurrogate($Text[$i])) { 2 } else { 1 }
@@ -97,7 +102,7 @@ function Expand-BoundedObject([string]$Archive, [string]$Destination, [long]$Len
     $info.UseShellExecute = $false; $info.CreateNoWindow = $true
     $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true
     $info.RedirectStandardInput = $true
-    foreach ($arg in @('e','-so','-y','--',$Archive)) { $info.ArgumentList.Add($arg) }
+    foreach ($arg in @('e','-so','-mmt=2','-y','--',$Archive)) { $info.ArgumentList.Add($arg) }
     $process = [Diagnostics.Process]::Start($info)
     $process.StandardInput.Close()
     [void]$process.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)

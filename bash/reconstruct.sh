@@ -275,7 +275,8 @@ hash_file() {
         return 3
     fi
     # Output is "<hex>  <name>"; take the first whitespace-delimited token.
-    printf '%s' "${line%% *}" | tr '[:lower:]' '[:upper:]'
+    line="${line%% *}"
+    printf '%s' "${line^^}"
 }
 
 # find_seven_zip : echo the first available p7zip binary, or empty.

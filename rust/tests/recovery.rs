@@ -249,3 +249,60 @@ fn target_cannot_contain_detached_records_or_the_executing_kit() {
     assert_eq!(restore(&detached_kit, &store, &target, false, false), 2);
     assert!(!target.join("file.txt").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn unreadable_candidate_can_fall_back_but_target_write_failure_is_a_host_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let (tmp, cfg) = fixture(false);
+    let store = Store::new(&cfg.sets[0].store);
+    let object = store
+        .index()
+        .unwrap()
+        .into_values()
+        .next()
+        .unwrap()
+        .remove(0);
+    let history = store.history.join("2025_01_01_00_00_00");
+    fs::create_dir(&history).unwrap();
+    fs::copy(&object.path, history.join(&object.name)).unwrap();
+    let bin = tmp.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    // Model a source read error independently of user/root permission profiles.
+    for tool in ["cp", "xxh128sum", "xxhsum"] {
+        let real = Command::new("which").arg(tool).output().unwrap();
+        assert!(real.status.success());
+        let real = String::from_utf8(real.stdout).unwrap();
+        let script = format!(
+            "#!/usr/bin/env bash\nif [[ $FAIL_SOURCE == 1 ]]; then\n  for arg in \"$@\"; do [[ $arg == \"$BAD_OBJECT\" ]] && exit 1; done\nelif [[ {} == cp ]]; then exit 1; fi\nexec {} \"$@\"\n",
+            tool,
+            real.trim()
+        );
+        fs::write(bin.join(tool), script).unwrap();
+        fs::set_permissions(bin.join(tool), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    for (label, source_error, expected) in [("source-error", "1", 0), ("target-error", "0", 4)] {
+        let target = tmp.path().join(label);
+        let status = Command::new("bash")
+            .arg(store.current.join("reconstruct.sh"))
+            .arg("--target-root")
+            .arg(&target)
+            .env(
+                "PATH",
+                format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+            )
+            .env("BAD_OBJECT", &object.path)
+            .env("FAIL_SOURCE", source_error)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(expected));
+        if expected == 0 {
+            assert_eq!(
+                format::hash_file(&target.join("file.txt")).unwrap(),
+                object.key
+            );
+        } else {
+            assert!(!target.join("file.txt").exists());
+        }
+    }
+}

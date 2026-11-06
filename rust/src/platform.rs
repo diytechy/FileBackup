@@ -271,6 +271,10 @@ pub fn is_host_stop(error: &anyhow::Error) -> bool {
 /// Fault injection is absent from release/default builds.
 pub fn checkpoint(_name: &str) {
     #[cfg(feature = "test-hooks")]
+    if std::env::var("FILEBACKUP_TEST_TRACE").ok().as_deref() == Some("1") {
+        eprintln!("Test phase: {_name}");
+    }
+    #[cfg(feature = "test-hooks")]
     if std::env::var("FILEBACKUP_TEST_PAUSE").ok().as_deref() == Some(_name) {
         if let Ok(signal) = std::env::var("FILEBACKUP_TEST_SIGNAL") {
             fs::write(signal, _name).expect("test signal");

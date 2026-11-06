@@ -9,6 +9,30 @@ fn fixture(compress: bool) -> (tempfile::TempDir, config::Config) {
     let config = config::load(&path).unwrap();
     (tmp, config)
 }
+#[cfg(unix)]
+#[test]
+fn every_member_of_a_three_way_portable_collision_is_frozen() {
+    let (_tmp, config) = fixture(false);
+    let set = &config.sets[0];
+    for name in ["Abc", "aBc", "ABC", "safe.txt"] {
+        fs::write(set.source.join(name), name).unwrap();
+    }
+    assert_eq!(
+        fs::read_dir(&set.source).unwrap().count(),
+        4,
+        "fixture needs a case-sensitive filesystem"
+    );
+    let report = engine::backup(&config, set);
+    assert_eq!(report.code, 1, "{report:?}");
+    assert_eq!(
+        report.frozen, 3,
+        "each colliding path is reported exactly once"
+    );
+    let rows =
+        format::read_manifest(&Store::new(&set.store).current.join(format::MANIFEST)).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].relative_path, "safe.txt");
+}
 #[test]
 fn backup_dedup_noop_history_and_empty_folder_changes() {
     let (_tmp, config) = fixture(false);
@@ -242,6 +266,7 @@ fn folder_to_link_during_incomplete_walk_excludes_stale_descendants() {
     let set = &cfg.sets[0];
     fs::create_dir_all(set.source.join("a/x")).unwrap();
     fs::create_dir(set.source.join("b")).unwrap();
+    std::os::unix::fs::symlink("a/x", set.source.join("z")).unwrap();
     assert_eq!(engine::backup(&cfg, set).code, 0);
     fs::remove_dir(set.source.join("a/x")).unwrap();
     fs::remove_dir(set.source.join("a")).unwrap();
@@ -255,6 +280,7 @@ fn folder_to_link_during_incomplete_walk_excludes_stale_descendants() {
             .any(|d| d.relative_path == "a" && d.kind == "FolderLink")
     );
     assert!(!dirs.iter().any(|d| d.relative_path == "a/x"));
+    assert!(!dirs.iter().any(|d| d.relative_path == "z"));
 }
 #[cfg(unix)]
 #[test]

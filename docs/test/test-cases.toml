@@ -85,7 +85,7 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Run Unicode, bracket, space, reserved-name, case and normalization pairs on distinguishing and nondistinguishing target profiles. Distinct representable names remain exact; collision groups write no member and unaffected files restore. Profile conformance is tested on each real target filesystem."
 automated = "Yes"
 status = "Drafted"
-notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-157). contracts::portable_paths_and_previous_publication; contracts::unicode_collision_profile_covers_sigma_and_normalization. Cross-host collision corpus needs broader qualification."
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-157). contracts::portable_paths_and_previous_publication; contracts::unicode_collision_profile_covers_sigma_and_normalization; backup::every_member_of_a_three_way_portable_collision_is_frozen. Cross-host collision corpus needs broader qualification."
 
 
 [test.TC-268]
@@ -277,7 +277,7 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use raw files, raw source archives, compressed objects, flipped form flags, corrupt-first/intact-second copies and target I/O errors. Every reported restored file matches an independently constructed expected tree and SHA-256 oracle; failure list/count exactly matches unrecovered paths."
 automated = "Yes"
 status = "Drafted"
-notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-173). backup::compressed_native_store_restores_with_independent_script. Bash top-level per-row loop; damaged alternate/oversized archive matrix remains."
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-173). backup::compressed_native_store_restores_with_independent_script; recovery::missing_extractor_precedes_writes_and_oversized_archive_keeps_existing_target; recovery::verified_raw_supply_does_not_require_an_extractor_for_a_bad_duplicate; recovery::unreadable_candidate_can_fall_back_but_target_write_failure_is_a_host_error. Full damage/host-failure matrix remains."
 
 
 [test.TC-284]
@@ -457,7 +457,7 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Scale from small fixtures to the declared million-path/365-state corpus while observing all concurrent processes, scratch space and object reads. Peak combined RSS fits 2 GB, index deletion is recoverable, and script recovery works with no index or native binary."
 automated = "Yes"
 status = "Drafted"
-notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-188). rust/examples/scale_fixture.rs; scripts/measure_native.py. One-million-row probe is not the full pool-cardinality or concurrent-RSS proof; spilling not implemented."
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-188). rust/examples/cardinality_fixture.rs; scripts/measure_native.py; docs/plans/native-design-2026-11-05/performance-validation.md. Million distinct real source/object pairs measured; full reference topology and 2 GB host qualification remain. Spilling not implemented."
 
 
 [test.TC-299]
@@ -469,7 +469,7 @@ parameters = "states=set{0,182,364,365}; paths=set{1,1000000}; bytes=set{0,2TiB}
 expected = "On the declared reference, each full check/restore completes in eight hours and routine capture in thirty minutes; observed memory stays inside the available budget. Repeated matched 182/364 runs show less-than-twofold time growth. Publish failures, environment and all trial values; no fixture-only timing is accepted as cross-host evidence."
 automated = "Yes"
 status = "Drafted"
-notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-189). Synthetic metadata probes only. Full reference topology/2 TiB/365 states and repeated cold/warm runs not completed."
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-189). scripts/performance_native.py; scripts/performance_history.py; scripts/measure_native.py; docs/plans/native-design-2026-11-05/performance-validation.md. Real-file/history/independent-recovery/process-tree measurements; full reference topology/2 TiB/365 states and repeated cold/warm runs not completed."
 
 
 [test.TC-300]

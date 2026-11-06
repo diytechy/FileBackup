@@ -6,10 +6,10 @@ implementation remains available while the native transition is exercised.
 | Combination | Current evidence |
 |---|---|
 | Windows x64 / Rust 1.96 / local NTFS | Native codec, backup, compression, history, retention, view and forced-termination fixtures executed locally. |
-| Ubuntu WSL / Rust 1.96 / mounted local NTFS | Native fixtures and independent bash compressed restoration executed locally. This is not an ext4/network-filesystem qualification. |
+| Ubuntu WSL / Rust 1.96 / Linux temporary filesystem and mounted NTFS | Native fixtures and independent Bash compressed restoration executed locally. Million-file RAM-filesystem probes measure application memory; full disk/network qualification remains open. |
 | PowerShell 7 recovery | Shared-content, Unicode/bracketed paths, empty directory, relative link, compressed content and missing-required-metadata fixtures executed. |
 | Bash 4+ recovery | Same basic carried-kit fixtures, plus native compressed-output fixture, executed under Ubuntu WSL. |
-| macOS / APFS | Planned CI build/test lane; not yet executed here and not designated supported. |
+| macOS / APFS | Planned CI build/test lane; validation deferred by the owner on 2026-11-06, not designated supported. |
 | Linux OCI container / local Docker under WSL | Image built; compressed backup and independent Bash restore passed with no network, a read-only image/source, dropped capabilities and a non-root user. |
 | Network filesystems, removable exFAT/FAT32, ARM CPUs | Require their declared build/runtime/hardware evidence before support designation. |
 
@@ -20,17 +20,21 @@ Small fixtures and process termination do not establish those claims.
 
 Notification adapters, optional media reporting, interactive desktop launchers,
 inspection/repair and retention estimates are implemented. Live mail/credential
-access and desktop UI are not yet qualified. A one-million-row, single-object
-release-build deep-check probe completed in 7.6 seconds at about 490 MB peak RSS.
-A synthetic backup replacing one million prior paths with one source path used
-about 1.09 GB peak RSS and 33.5 seconds. These are single-process measurements;
-this synthetic warm metadata probe does not establish full-volume or combined
-process memory compliance. A separate 100,000-row-per-state probe with 365
-historical states plus latest checked 36.6 million rows in 161.4 seconds at about
-64 MB peak RSS; its historical manifests were hard-linked to limit fixture disk
-use, and the entire pool held one small object. Hard deadlines for blocked source filesystem I/O,
-full resource measurements and the remaining requirement/test permutations are
-still open. See the [implementation bindings](plans/native-design-2026-11-05/implementation-map.md).
+access and desktop UI are not yet qualified. A release-build corpus with one
+million real source files and independent stored objects completed unchanged
+backup at 1.681 GB peak application RSS and deep check at 1.183 GB. This used a
+RAM filesystem, whose kernel memory is outside application RSS; it does not
+establish operation on a 2 GB host or disk throughput. Adding a new compressed
+1 GiB file to a million-file corpus completed at 1.815 GB simultaneous engine/tool
+RSS after limiting 7-Zip to two workers. The process-tree sampler has 50 ms
+sampling limitations. Small SSD PowerShell restoration improved from 76.6 to 30.3
+seconds; Bash on WSL's Linux filesystem improved from 215.4 to 148.8 seconds.
+Every restored path and SHA-256 digest matched. See the
+[performance validation](plans/native-design-2026-11-05/performance-validation.md)
+for real-file/history/compression measurements, exclusions and reproducible
+commands. Hard deadlines for blocked source filesystem I/O, full reference
+resource measurements and remaining permutations are still open. See the
+[implementation bindings](plans/native-design-2026-11-05/implementation-map.md).
 Recovery targets must be supplied in their ordinary, fully expanded absolute
 spelling; DOS short-name aliases and case aliases on unqualified hosts are not
 covered by the current script qualification. Use exclusively controlled targets.
