@@ -306,3 +306,13 @@ fn unreadable_candidate_can_fall_back_but_target_write_failure_is_a_host_error()
         }
     }
 }
+
+#[test]
+fn zero_byte_manifest_is_not_a_successful_restore() {
+    let (tmp, cfg) = fixture(false);
+    let store = Store::new(&cfg.sets[0].store);
+    fs::write(store.current.join(format::MANIFEST), b"").unwrap();
+    let target = tmp.path().join("restored");
+    assert_ne!(restore(&store.current, &store, &target, false, false), 0);
+    assert!(!target.join("file.txt").exists());
+}

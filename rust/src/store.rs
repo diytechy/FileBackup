@@ -19,6 +19,13 @@ pub struct Object {
     pub key: ContentKey,
     pub verified: Option<crate::tools::StoredForm>,
 }
+/// A file any state folder may hold, stored objects aside.
+pub fn is_state_file(name: &std::ffi::OsStr) -> bool {
+    name == format::MANIFEST
+        || name == format::DIRECTORIES
+        || name == format::STATE
+        || kit::members().any(|k| name == k)
+}
 /// Most identities have one supply. Avoid reserving four large Object slots for
 /// every key; retain a growable list for the duplicate candidates readers support.
 pub fn index_object(index: &mut BTreeMap<ContentKey, Vec<Object>>, object: Object) {
@@ -58,10 +65,7 @@ impl Store {
                     ensure!(
                         fs::read_dir(entry.path())?.all(|e| e.is_ok_and(|e| {
                             let n = e.file_name();
-                            n == format::MANIFEST
-                                || n == format::DIRECTORIES
-                                || kit::members().any(|k| n == k)
-                                || n.to_string_lossy().starts_with(".tmp")
+                            is_state_file(&n) || n.to_string_lossy().starts_with(".tmp")
                         })),
                         "unknown initialization residue"
                     );
@@ -89,9 +93,7 @@ impl Store {
         fs::create_dir_all(&self.history)?;
         // Publish a fully initialized directory. An interrupted first run must
         // not strand an empty CurrentBackup that looks like damaged history.
-        let staged = tempfile::Builder::new()
-            .prefix("Initializing_")
-            .tempdir_in(&self.root)?;
+        let staged = platform::store_temp_dir("Initializing_", &self.root)?;
         kit::publish(staged.path())?;
         platform::atomic_write(
             &staged.path().join(format::MANIFEST),
@@ -103,8 +105,19 @@ impl Store {
             &format::directory_bytes(&[])?,
             false,
         )?;
+        // A first run hashes everything it captures, so the schedule starts here.
+        // Without this, a killed first run would re-read all it had stored.
+        platform::atomic_write(
+            &staged.path().join(format::STATE),
+            &serde_json::to_vec(&serde_json::json!({"LastHashRun":Utc::now().to_rfc3339()}))?,
+            false,
+        )?;
         fs::rename(staged.path(), &self.current)?;
         platform::sync_directory(&self.root)
+    }
+    /// The latest state's run dates; absent or unreadable reads as none.
+    pub fn state(&self) -> Option<serde_json::Value> {
+        serde_json::from_slice(&fs::read(self.current.join(format::STATE)).ok()?).ok()
     }
     pub fn states(&self) -> Result<Vec<PathBuf>> {
         platform::ordinary_dir(&self.current)?;
@@ -187,19 +200,12 @@ impl Store {
             for entry in &entries {
                 let name = entry.file_name();
                 let m = fs::symlink_metadata(entry.path())?;
-                ensure!(
-                    m.is_file() && !platform::is_redirect(&m),
-                    "unknown residue entry"
-                );
+                ensure!(platform::is_ordinary_file(&m), "unknown residue entry");
                 ensure!(
                     if archive {
                         name == "content.7z"
                     } else {
-                        name == format::MANIFEST
-                            || name == format::DIRECTORIES
-                            || name == "FileBackupState.json"
-                            || name.to_string_lossy().starts_with(".tmp")
-                            || kit::members().any(|n| name == n)
+                        is_state_file(&name) || name.to_string_lossy().starts_with(".tmp")
                     },
                     "unknown residue preserved"
                 );
@@ -241,7 +247,7 @@ impl Store {
                     let name = entry.file_name();
                     let name = name.to_string_lossy();
                     let m = fs::symlink_metadata(entry.path())?;
-                    if name.starts_with(".tmp") && m.is_file() && !platform::is_redirect(&m) {
+                    if name.starts_with(".tmp") && platform::is_ordinary_file(&m) {
                         fs::remove_file(entry.path())?;
                     } else if name.starts_with("archive-") {
                         if let Err(e) = clean_files(&entry.path(), true) {
@@ -283,9 +289,7 @@ impl Store {
                     let member = member?;
                     let m = fs::symlink_metadata(member.path())?;
                     let n = member.file_name().to_string_lossy().into_owned();
-                    if m.is_file()
-                        && !platform::is_redirect(&m)
-                        && format::shard(&n).is_ok_and(|s| s != name)
+                    if platform::is_ordinary_file(&m) && format::shard(&n).is_ok_and(|s| s != name)
                     {
                         found.push(member.path());
                     }
@@ -302,10 +306,7 @@ impl Store {
         let root = self.root.join("Verify");
         fs::create_dir_all(&root)?;
         platform::ordinary_dir(&root)?;
-        let folder = tempfile::Builder::new()
-            .prefix("object-")
-            .tempdir_in(&root)?
-            .keep();
+        let folder = platform::store_temp_dir("object-", &root)?.keep();
         let target = folder.join(path.file_name().context("missing object name")?);
         fs::rename(path, &target)?;
         platform::sync_directory(path.parent().unwrap())?;
@@ -331,10 +332,7 @@ impl Store {
         let mut existing = false;
         for name in [format::MANIFEST, format::DIRECTORIES] {
             if let Some(m) = platform::entry_metadata(&self.current.join(format!("{name}.prev")))? {
-                ensure!(
-                    m.is_file() && !platform::is_redirect(&m),
-                    "unsafe previous definition"
-                );
+                ensure!(platform::is_ordinary_file(&m), "unsafe previous definition");
                 existing = true;
             }
         }
@@ -358,9 +356,8 @@ impl Store {
             .iter()
             .filter_map(|p| snapshot_time(&p.file_name()?.to_string_lossy()))
             .max();
-        let now = fs::read(self.current.join("FileBackupState.json"))
-            .ok()
-            .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok())
+        let now = self
+            .state()
             .and_then(|v| {
                 v.get("LastBackupRun")
                     .and_then(|v| v.as_str())
@@ -379,9 +376,7 @@ impl Store {
         let name = date.format("%Y_%m_%d_%H_%M_%S").to_string();
         let target = self.history.join(&name);
         ensure!(!target.try_exists()?, "snapshot identity collision");
-        let staged = tempfile::Builder::new()
-            .prefix("Building_")
-            .tempdir_in(&self.history)?;
+        let staged = platform::store_temp_dir("Building_", &self.history)?;
         kit::publish(staged.path())?;
         platform::atomic_write_with(&staged.path().join(format::MANIFEST), false, |file| {
             format::write_manifest(file, rows)
@@ -391,8 +386,8 @@ impl Store {
             &format::directory_bytes(dirs)?,
             false,
         )?;
-        if let Ok(bytes) = fs::read(self.current.join("FileBackupState.json")) {
-            platform::atomic_write(&staged.path().join("FileBackupState.json"), &bytes, false)?;
+        if let Ok(bytes) = fs::read(self.current.join(format::STATE)) {
+            platform::atomic_write(&staged.path().join(format::STATE), &bytes, false)?;
         }
         fs::rename(staged.path(), &target)?;
         platform::checkpoint("snapshot");
@@ -409,10 +404,7 @@ impl Store {
             let entry = entry?;
             let name = entry.file_name();
             ensure!(
-                name == format::MANIFEST
-                    || name == format::DIRECTORIES
-                    || name == "FileBackupState.json"
-                    || kit::members().any(|n| name == n),
+                is_state_file(&name),
                 "unexpected content prevents snapshot cleanup"
             );
         }

@@ -105,7 +105,7 @@ parse_native() {
         }
         for(i=1;i<=NF;i++)printf "%s%s",v[i],(i==NF?"\n":"\037")
       }
-      END {if(count==9)for(key in seen){p=key;while(sub(/\/[^/]+$/, "", p))if(p in seen)exit 2}}
+      END {if(NR==0)exit 2;if(count==9)for(key in seen){p=key;while(sub(/\/[^/]+$/, "", p))if(p in seen)exit 2}}
     ' "$1"
 }
 parse_native "$manifest" 'DataPath,RelativePath,Length,LastWriteTimeStr,xxH2Hash,Compressed,StoredAsHashSize,Duplicate,MediaMBPerSec' 9 >"$scratch/files" || fail 'Malformed/colliding file records.'

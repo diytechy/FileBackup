@@ -6,6 +6,26 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Run a writer to a named pause, then kill it there.
+fn kill_at_pause(command: &mut Command, pause: &str, signal: &std::path::Path) {
+    let mut child = command
+        .env("FILEBACKUP_TEST_PAUSE", pause)
+        .env("FILEBACKUP_TEST_SIGNAL", signal)
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    while !signal.exists() && start.elapsed() < Duration::from_secs(30) {
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "writer ended before {pause}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(signal.exists(), "did not reach {pause}");
+}
+
 #[test]
 fn killed_writer_leaves_recoverable_pool_and_next_run_repairs() {
     for stage in [
@@ -28,25 +48,14 @@ fn killed_writer_leaves_recoverable_pool_and_next_run_repairs() {
         assert_eq!(engine::backup(&cfg, &cfg.sets[0]).code, 0);
         fs::write(source.join("file"), b"new captured bytes").unwrap();
         let signal = tmp.path().join("signal");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_filebackup"))
-            .args(["backup", "--config"])
-            .arg(&path)
-            .env("FILEBACKUP_TEST_PAUSE", stage)
-            .env("FILEBACKUP_TEST_CHECKPOINT", "1")
-            .env("FILEBACKUP_TEST_SIGNAL", &signal)
-            .spawn()
-            .unwrap();
-        let start = Instant::now();
-        while !signal.exists() && start.elapsed() < Duration::from_secs(30) {
-            assert!(
-                child.try_wait().unwrap().is_none(),
-                "writer ended before {stage}"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        child.kill().unwrap();
-        child.wait().unwrap();
-        assert!(signal.exists(), "did not reach {stage}");
+        kill_at_pause(
+            Command::new(env!("CARGO_BIN_EXE_filebackup"))
+                .args(["backup", "--config"])
+                .arg(&path)
+                .env("FILEBACKUP_TEST_CHECKPOINT", "1"),
+            stage,
+            &signal,
+        );
         let store = Store::new(&cfg.sets[0].store);
         let index = store.index().unwrap();
         for state in store.states().unwrap() {
@@ -82,35 +91,24 @@ fn killed_prune_resumes_original_selection_after_a_folder_is_gone() {
     let names = filebackup::maintenance::snapshots(set).unwrap();
     assert_eq!(names.len(), 2);
     let signal = tmp.path().join("signal");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_filebackup"))
-        .args(["prune", "--config"])
-        .arg(&path)
-        .arg("--snapshot")
-        .arg(&names[0])
-        .arg("--snapshot")
-        .arg(&names[1])
-        .env("FILEBACKUP_TEST_PAUSE", "prune-deleted")
-        .env("FILEBACKUP_TEST_SIGNAL", &signal)
-        .spawn()
-        .unwrap();
-    let start = Instant::now();
-    while !signal.exists() && start.elapsed() < Duration::from_secs(30) {
-        assert!(child.try_wait().unwrap().is_none());
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    child.kill().unwrap();
-    child.wait().unwrap();
-    assert!(signal.exists());
+    kill_at_pause(
+        Command::new(env!("CARGO_BIN_EXE_filebackup"))
+            .args(["prune", "--config"])
+            .arg(&path)
+            .arg("--snapshot")
+            .arg(&names[0])
+            .arg("--snapshot")
+            .arg(&names[1]),
+        "prune-deleted",
+        &signal,
+    );
     assert!(set.store.join("PrunePlan.json").exists());
     assert_ne!(engine::backup(&cfg, set).code, 0);
-    let result = filebackup::maintenance::prune(&cfg, set, &names, false);
+    let result = filebackup::maintenance::prune(set, &names, false);
     assert_eq!(result.code, 0, "{result:?}");
     assert!(!set.store.join("PrunePlan.json").exists());
     assert!(filebackup::maintenance::snapshots(set).unwrap().is_empty());
-    assert_eq!(
-        filebackup::maintenance::verify(&cfg, set, true, false).code,
-        0
-    );
+    assert_eq!(filebackup::maintenance::verify(set, true, false).code, 0);
 }
 
 #[test]
@@ -131,25 +129,17 @@ fn killed_prune_before_journal_reuses_the_verified_rehome() {
     fs::write(store.current.join("MANIFEST.csv.prev"), previous).unwrap();
     let names = filebackup::maintenance::snapshots(set).unwrap();
     let signal = tmp.path().join("signal");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_filebackup"))
-        .args(["prune", "--config"])
-        .arg(&path)
-        .arg("--snapshot")
-        .arg(&names[0])
-        .env("FILEBACKUP_TEST_PAUSE", "prune-rehome")
-        .env("FILEBACKUP_TEST_SIGNAL", &signal)
-        .spawn()
-        .unwrap();
-    let start = Instant::now();
-    while !signal.exists() && start.elapsed() < Duration::from_secs(30) {
-        assert!(child.try_wait().unwrap().is_none());
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    child.kill().unwrap();
-    child.wait().unwrap();
-    assert!(signal.exists());
+    kill_at_pause(
+        Command::new(env!("CARGO_BIN_EXE_filebackup"))
+            .args(["prune", "--config"])
+            .arg(&path)
+            .arg("--snapshot")
+            .arg(&names[0]),
+        "prune-rehome",
+        &signal,
+    );
     assert!(!store.root.join("PrunePlan.json").exists());
-    let report = filebackup::maintenance::prune(&cfg, set, &names, false);
+    let report = filebackup::maintenance::prune(set, &names, false);
     assert_eq!(report.code, 0, "{report:?}");
     let prior = format::read_manifest(&store.current.join("MANIFEST.csv.prev")).unwrap();
     assert!(
@@ -157,5 +147,32 @@ fn killed_prune_before_journal_reuses_the_verified_rehome() {
             .iter()
             .any(|o| o.state == store.current
                 && format::hash_file(&o.path).unwrap() == prior[0].key())
+    );
+}
+
+#[test]
+fn killed_first_run_resumes_from_its_checkpoint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("source");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("a.bin"), b"first").unwrap();
+    fs::write(source.join("b.bin"), b"second").unwrap();
+    let path = tmp.path().join("config.json");
+    fs::write(&path, serde_json::to_vec(&serde_json::json!({"ConfigVersion":3,"BackupSets":[{"Name":"first-kill","SourcePath":source,"StorePath":tmp.path().join("store"),"CompressEnabled":false,"HashRecalcFreq":"W"}]})).unwrap()).unwrap();
+    let cfg = config::load(&path).unwrap();
+    let signal = tmp.path().join("signal");
+    kill_at_pause(
+        Command::new(env!("CARGO_BIN_EXE_filebackup"))
+            .args(["backup", "--config"])
+            .arg(&path)
+            .env("FILEBACKUP_TEST_CHECKPOINT", "1"),
+        "manifest-checkpoint",
+        &signal,
+    );
+    let report = engine::backup(&cfg, &cfg.sets[0]);
+    assert_eq!(
+        (report.code, report.reused, report.captured),
+        (0, 1, 1),
+        "{report:?}"
     );
 }

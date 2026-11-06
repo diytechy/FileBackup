@@ -1,10 +1,10 @@
 //! Explicit maintenance; read-only inspection writes only external scratch.
 use crate::{
-    config::{BackupSet, Config},
+    config::BackupSet,
     engine::Report,
     format::{self, ContentKey},
     kit, platform,
-    store::{Store, snapshot_order},
+    store::{Store, is_state_file, snapshot_order},
     tools,
 };
 use anyhow::{Context, Result, ensure};
@@ -54,7 +54,7 @@ pub fn inventory(set: &BackupSet) -> Report {
     }
     report
 }
-pub fn verify(config: &Config, set: &BackupSet, deep: bool, repair: bool) -> Report {
+pub fn verify(set: &BackupSet, deep: bool, repair: bool) -> Report {
     let mut report = Report::new(if repair { "repair" } else { "verify" }, &set.name);
     report.details = Some(
         serde_json::json!({"inspection_mode":if deep || repair {"verified_content"} else {"metadata_only"}}),
@@ -68,18 +68,12 @@ pub fn verify(config: &Config, set: &BackupSet, deep: bool, repair: bool) -> Rep
                 .into(),
         );
     }
-    if let Err(e) = verify_inner(config, set, deep, repair, &mut report) {
+    if let Err(e) = verify_inner(set, deep, repair, &mut report) {
         report.finding(4, format!("{e:#}"));
     }
     report
 }
-fn verify_inner(
-    _config: &Config,
-    set: &BackupSet,
-    deep: bool,
-    repair: bool,
-    report: &mut Report,
-) -> Result<()> {
+fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) -> Result<()> {
     let store = Store::new(&set.store);
     ensure!(
         store.current.is_dir() && store.history.is_dir(),
@@ -178,13 +172,7 @@ fn verify_inner(
                                 continue;
                             }
                         };
-                        if n == row.length {
-                            Some(tools::StoredForm::Raw)
-                        } else if n > 0 && tools::is_archive(&object.path).unwrap_or(false) {
-                            Some(tools::StoredForm::Archive)
-                        } else {
-                            None
-                        }
+                        tools::listed_form(&object.path, n, row.length)
                     };
                     if let Some(form) = form {
                         usable = true;
@@ -323,9 +311,9 @@ fn verify_inner(
     }
     Ok(())
 }
-pub fn prune(config: &Config, set: &BackupSet, names: &[String], dry_run: bool) -> Report {
+pub fn prune(set: &BackupSet, names: &[String], dry_run: bool) -> Report {
     let mut report = Report::new("prune", &set.name);
-    if let Err(e) = prune_inner(config, set, names, dry_run, &mut report) {
+    if let Err(e) = prune_inner(set, names, dry_run, &mut report) {
         let code =
             if platform::is_host_stop(&e) || e.chain().any(|cause| cause.is::<std::io::Error>()) {
                 4
@@ -351,8 +339,7 @@ fn known_snapshot_files(folder: &Path) -> Result<()> {
                 let member = member?;
                 let m = fs::symlink_metadata(member.path())?;
                 ensure!(
-                    m.is_file()
-                        && !platform::is_redirect(&m)
+                    platform::is_ordinary_file(&m)
                         && kit::members().any(|n| member.file_name() == n),
                     "unknown previous kit member"
                 );
@@ -360,15 +347,11 @@ fn known_snapshot_files(folder: &Path) -> Result<()> {
             continue;
         }
         ensure!(
-            metadata.is_file() && !platform::is_redirect(&metadata),
+            platform::is_ordinary_file(&metadata),
             "unknown/redirected entry prevents deletion"
         );
         ensure!(
-            name == format::MANIFEST
-                || name == format::DIRECTORIES
-                || name == "FileBackupState.json"
-                || kit::members().any(|n| n == name)
-                || format::parse_name(&name).is_ok(),
+            is_state_file(name.as_ref()) || format::parse_name(&name).is_ok(),
             "unknown content prevents deletion"
         );
     }
@@ -391,7 +374,6 @@ fn delete_committed(folder: &Path) -> Result<()> {
     Ok(())
 }
 fn prune_inner(
-    _config: &Config,
     set: &BackupSet,
     names: &[String],
     dry_run: bool,
@@ -418,6 +400,12 @@ fn prune_inner(
         .filter_map(|p| snapshot_order(p.file_name()?.to_str()?))
         .min()
         .context("missing cutoff")?;
+    let committed_name = |path: &Path| {
+        store.history.join(format!(
+            "Pruning_{}",
+            path.file_name().unwrap().to_string_lossy()
+        ))
+    };
     let journal = store.root.join("PrunePlan.json");
     let selection: BTreeSet<String> = names.iter().cloned().collect();
     let resuming = if journal.try_exists()? {
@@ -431,10 +419,7 @@ fn prune_inner(
         false
     };
     for path in &selected {
-        let committed = store.history.join(format!(
-            "Pruning_{}",
-            path.file_name().unwrap().to_string_lossy()
-        ));
+        let committed = committed_name(path);
         if committed.exists() {
             ensure!(
                 !path.exists(),
@@ -531,7 +516,7 @@ fn prune_inner(
                 "Capacity is unavailable; rehome will stop on write failure".into(),
             );
         }
-        let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+        let mut staged = platform::store_temp_file(parent)?;
         std::io::copy(&mut File::open(&source.path)?, &mut staged)?;
         staged.flush()?;
         staged.as_file().sync_all()?;
@@ -559,10 +544,7 @@ fn prune_inner(
             if !path.exists() {
                 continue;
             }
-            let committed = store.history.join(format!(
-                "Pruning_{}",
-                path.file_name().unwrap().to_string_lossy()
-            ));
+            let committed = committed_name(&path);
             fs::rename(&path, &committed)?;
             platform::sync_directory(&store.history)?;
             delete_committed(&committed)?;

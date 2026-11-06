@@ -14,6 +14,7 @@ use xxhash_rust::xxh3::Xxh3;
 pub const ALPHABET: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 pub const MANIFEST: &str = "MANIFEST.csv";
 pub const DIRECTORIES: &str = "DIRECTORIES.csv";
+pub const STATE: &str = "FileBackupState.json";
 pub const FILE_HEADER: [&str; 9] = [
     "DataPath",
     "RelativePath",
@@ -244,6 +245,18 @@ pub fn validate_path(path: &str) -> Result<()> {
 pub fn path_key(path: &str) -> String {
     path.nfd().default_case_fold().nfd().collect()
 }
+/// Every parent of a recorded path, nearest first.
+pub fn ancestors(path: &str) -> impl Iterator<Item = &str> {
+    std::iter::successors(Some(path), |p| p.rsplit_once('/').map(|(head, _)| head)).skip(1)
+}
+/// Lower-case extension of a recorded name, without its dot.
+pub fn lower_extension(name: &str) -> String {
+    Path::new(name)
+        .extension()
+        .and_then(|v| v.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
 fn reader(path: &Path, header: &[&str]) -> Result<csv::Reader<File>> {
     let mut reader = csv::ReaderBuilder::new().flexible(false).from_path(path)?;
     ensure!(
@@ -279,33 +292,35 @@ pub fn read_manifest(path: &Path) -> Result<Vec<FileRow>> {
         rows.push(row);
     }
     for key in &seen {
-        let mut parent = key.as_str();
-        while let Some((p, _)) = parent.rsplit_once('/') {
-            ensure!(!seen.contains(p), "file ancestor collision");
-            parent = p;
+        for parent in ancestors(key) {
+            ensure!(!seen.contains(parent), "file ancestor collision");
         }
     }
     Ok(rows)
+}
+fn validate_directory(row: &DirectoryRow) -> Result<()> {
+    validate_path(&row.relative_path)?;
+    match row.kind.as_str() {
+        "Directory" => ensure!(row.target.is_empty(), "ordinary directory has link target"),
+        "FolderLink" => {
+            if row.target != "." {
+                validate_path(&row.target)?;
+            }
+        }
+        _ => bail!("unsupported directory entry kind"),
+    }
+    Ok(())
 }
 pub fn read_directories(path: &Path) -> Result<Vec<DirectoryRow>> {
     let mut seen = BTreeSet::new();
     let mut rows = Vec::new();
     for row in reader(path, &DIR_HEADER)?.deserialize::<DirectoryRow>() {
         let row = row?;
-        validate_path(&row.relative_path)?;
+        validate_directory(&row)?;
         ensure!(
             seen.insert(path_key(&row.relative_path)),
             "colliding directory paths"
         );
-        match row.kind.as_str() {
-            "Directory" => ensure!(row.target.is_empty(), "ordinary directory has link target"),
-            "FolderLink" => {
-                if row.target != "." {
-                    validate_path(&row.target)?;
-                }
-            }
-            _ => bail!("unsupported directory entry kind"),
-        }
         rows.push(row);
     }
     Ok(rows)
@@ -314,7 +329,7 @@ pub fn read_directories(path: &Path) -> Result<Vec<DirectoryRow>> {
 /// from an interrupted checkpoint whose older supplemental table conflicts.
 pub fn validate_records(rows: &[impl AsRef<FileRow>], dirs: &[DirectoryRow]) -> Result<()> {
     let mut files = BTreeSet::new();
-    let mut ancestors = BTreeSet::new();
+    let mut parents = BTreeSet::new();
     for row in rows.iter().map(AsRef::as_ref) {
         validate_path(&row.relative_path)?;
         ensure!(
@@ -322,62 +337,42 @@ pub fn validate_records(rows: &[impl AsRef<FileRow>], dirs: &[DirectoryRow]) -> 
             "colliding file paths"
         );
         let key = path_key(&row.relative_path);
-        let mut parent = key.as_str();
-        while let Some((p, _)) = parent.rsplit_once('/') {
-            ancestors.insert(p.to_owned());
-            parent = p;
-        }
+        parents.extend(ancestors(&key).map(str::to_owned));
     }
-    ensure!(files.is_disjoint(&ancestors), "file ancestor collision");
+    ensure!(files.is_disjoint(&parents), "file ancestor collision");
     let mut directory_keys = BTreeSet::new();
     let mut links = BTreeSet::new();
     for row in dirs {
-        validate_path(&row.relative_path)?;
+        validate_directory(row)?;
         let key = path_key(&row.relative_path);
         ensure!(
             directory_keys.insert(key.clone()),
             "colliding directory paths"
         );
         ensure!(!files.contains(&key), "file/directory collision");
-        let mut parent = key.as_str();
-        while let Some((p, _)) = parent.rsplit_once('/') {
-            ensure!(!files.contains(p), "directory beneath file");
-            parent = p;
+        for parent in ancestors(&key) {
+            ensure!(!files.contains(parent), "directory beneath file");
         }
-        match row.kind.as_str() {
-            "Directory" => ensure!(row.target.is_empty(), "ordinary directory has link target"),
-            "FolderLink" => {
-                ensure!(!ancestors.contains(&key), "file beneath folder link");
-                if row.target != "." {
-                    validate_path(&row.target)?;
-                }
-                links.insert(key);
-            }
-            _ => bail!("unsupported directory kind"),
+        if row.kind == "FolderLink" {
+            ensure!(!parents.contains(&key), "file beneath folder link");
+            links.insert(key);
         }
     }
     for row in dirs {
         let key = path_key(&row.relative_path);
-        let mut parent = key.as_str();
-        while let Some((p, _)) = parent.rsplit_once('/') {
-            ensure!(!links.contains(p), "metadata beneath folder link");
-            parent = p;
+        for parent in ancestors(&key) {
+            ensure!(!links.contains(parent), "metadata beneath folder link");
         }
         if row.kind == "FolderLink" && row.target != "." {
             let target = path_key(&row.target);
             ensure!(
                 !links.contains(&target)
-                    && (directory_keys.contains(&target) || ancestors.contains(&target)),
+                    && (directory_keys.contains(&target) || parents.contains(&target)),
                 "folder link target not captured"
             );
         }
     }
     Ok(())
-}
-pub fn paths_conflict(a: &str, b: &str) -> bool {
-    let a = path_key(a);
-    let b = path_key(b);
-    a == b || a.starts_with(&(b.clone() + "/")) || b.starts_with(&(a + "/"))
 }
 fn write_csv<T: Serialize>(output: impl Write, header: &[&str], rows: &[T]) -> Result<()> {
     let mut writer = csv::WriterBuilder::new()
@@ -409,9 +404,6 @@ pub fn same_directories(a: &[DirectoryRow], b: &[DirectoryRow]) -> bool {
         && sorted_by_path(a, |r| &r.relative_path) == sorted_by_path(b, |r| &r.relative_path)
 }
 pub fn manifest_bytes(rows: &[FileRow]) -> Result<Vec<u8>> {
-    manifest_ref_bytes(rows)
-}
-pub fn manifest_ref_bytes<'a>(rows: impl IntoIterator<Item = &'a FileRow>) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     write_manifest(&mut bytes, rows)?;
     Ok(bytes)

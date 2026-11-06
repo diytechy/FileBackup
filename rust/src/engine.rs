@@ -167,8 +167,14 @@ fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
             };
             result.observed += 1;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                // Freeze this entry alone; a lossy name matches no real path.
+                let lossy = entry.file_name().to_string_lossy().into_owned();
                 result.complete = false;
-                result.frozen.push(relative.clone());
+                result.frozen.push(if relative.is_empty() {
+                    lossy
+                } else {
+                    format!("{relative}/{lossy}")
+                });
                 continue;
             };
             let rel = if relative.is_empty() {
@@ -346,10 +352,12 @@ fn modified(metadata: &fs::Metadata) -> Result<String> {
 }
 fn usable(object: &Object) -> bool {
     fs::metadata(&object.path).is_ok_and(|m| {
-        m.is_file()
-            && (m.len() == object.key.length
-                || (m.len() > 0 && tools::is_archive(&object.path).unwrap_or(false)))
+        m.is_file() && tools::listed_form(&object.path, m.len(), object.key.length).is_some()
     })
+}
+/// True when size and time stayed put across a read of the source.
+fn unmoved(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    before.len() == after.len() && before.modified().ok() == after.modified().ok()
 }
 fn full_reread(set: &BackupSet, store: &Store) -> bool {
     if set.frequency == "N" {
@@ -358,10 +366,8 @@ fn full_reread(set: &BackupSet, store: &Store) -> bool {
     if ["A", "E"].contains(&set.frequency.as_str()) {
         return true;
     }
-    let state = fs::read(store.current.join("FileBackupState.json"))
-        .ok()
-        .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok());
-    let last = state
+    let last = store
+        .state()
         .as_ref()
         .and_then(|v| v.get("LastHashRun"))
         .and_then(|v| v.as_str())
@@ -385,11 +391,7 @@ fn should_compress(
     if !set.compress {
         return false;
     }
-    let ext = Path::new(source_name)
-        .extension()
-        .and_then(|v| v.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let ext = format::lower_extension(source_name);
     let exempt = [
         "7z", "zip", "gz", "xz", "bz2", "rar", "zst", "jpg", "jpeg", "png", "webp", "mp4", "mkv",
         "mp3", "flac", "pdf",
@@ -478,16 +480,14 @@ fn capture(
     {
         return Err(platform::HostStop("insufficient staging capacity").into());
     }
-    let mut staged = tempfile::NamedTempFile::new_in(&incoming)?;
+    let mut staged = platform::store_temp_file(&incoming)?;
     let key = format::copy_hash(File::open(path)?, &mut staged)?;
     staged.as_file().sync_all()?;
     // Close the staging writer before another process reads the file on Windows.
     let staged = staged.into_temp_path();
     let after = fs::metadata(path)?;
     ensure!(
-        before.len() == after.len()
-            && before.modified()? == after.modified()?
-            && key.length == after.len(),
+        unmoved(&before, &after) && key.length == after.len(),
         "source changed while being copied"
     );
     let media = match tools::media_rate(ffprobe, &staged, relative, key.length) {
@@ -657,10 +657,7 @@ fn append_log(set: &BackupSet, report: &Report) -> Result<()> {
     platform::ordinary_dir(&set.store)?;
     let path = set.store.join("backup.log");
     if let Some(m) = platform::entry_metadata(&path)? {
-        ensure!(
-            m.is_file() && !platform::is_redirect(&m),
-            "unsafe operational log"
-        );
+        ensure!(platform::is_ordinary_file(&m), "unsafe operational log");
     }
     let mut log = fs::OpenOptions::new()
         .append(true)
@@ -720,6 +717,83 @@ fn record_changes(
         .iter()
         .filter(|d| !latest_directories.contains(&d.relative_path))
         .count() as u64;
+}
+// A checkpoint can legitimately have newer files than the old sidecar. Keep
+// independent file content and drop supplemental rows that conflict with it.
+fn reconcile_directories(
+    rows: &[impl AsRef<FileRow>],
+    mut dirs: Vec<DirectoryRow>,
+) -> Vec<DirectoryRow> {
+    let files: BTreeSet<_> = rows
+        .iter()
+        .map(|r| format::path_key(&r.as_ref().relative_path))
+        .collect();
+    let mut parents = BTreeSet::new();
+    for key in &files {
+        parents.extend(format::ancestors(key).map(str::to_owned));
+    }
+    dirs.retain(|dir| {
+        let d = format::path_key(&dir.relative_path);
+        let conflicts = files.contains(&d)
+            || (dir.kind == "FolderLink" && parents.contains(&d))
+            || format::ancestors(&d).any(|p| files.contains(p));
+        !conflicts
+    });
+    // Release the per-file sets before building the per-directory ones.
+    drop(files);
+    drop(parents);
+    let links: BTreeSet<_> = dirs
+        .iter()
+        .filter(|d| d.kind == "FolderLink")
+        .map(|d| format::path_key(&d.relative_path))
+        .collect();
+    dirs.retain(|d| {
+        !format::ancestors(&format::path_key(&d.relative_path)).any(|p| links.contains(p))
+    });
+    let ordinary: BTreeSet<_> = dirs
+        .iter()
+        .filter(|d| d.kind == "Directory")
+        .map(|d| format::path_key(&d.relative_path))
+        .collect();
+    dirs.retain(|d| {
+        d.kind != "FolderLink" || d.target == "." || ordinary.contains(&format::path_key(&d.target))
+    });
+    dirs
+}
+// Resolve destinations one manifest at a time, never move a final dependency.
+fn move_superseded(store: &Store, required: &BTreeSet<ContentKey>) -> Result<()> {
+    let mut superseded: BTreeMap<ContentKey, Object> = store
+        .index()?
+        .into_iter()
+        .filter(|(k, _)| !required.contains(k))
+        .filter_map(|(k, v)| {
+            v.into_iter()
+                .find(|o| o.state == store.current)
+                .map(|o| (k, o))
+        })
+        .collect();
+    let mut states = store.states()?;
+    states.reverse();
+    for state in states
+        .into_iter()
+        .filter(|s| s.as_path() != store.current.as_ref())
+    {
+        if superseded.is_empty() {
+            break;
+        }
+        for row in format::read_manifest(&state.join(format::MANIFEST))? {
+            if let Some(object) = superseded.remove(&row.key()) {
+                let destination = state.join(&object.name);
+                if !destination.try_exists()? {
+                    fs::rename(&object.path, destination)?;
+                    platform::sync_directory(object.path.parent().unwrap())?;
+                    platform::sync_directory(&state)?;
+                    platform::checkpoint("superseded");
+                }
+            }
+        }
+    }
+    Ok(())
 }
 fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result<()> {
     kit::preflight()?;
@@ -843,11 +917,10 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 wait_budget -= delay;
             }
             let current = fs::metadata(&path).ok();
-            let reusable = attempt == 0
+            let recorded = attempt == 0
                 && rows.get(&key).is_some_and(|row| {
                     let row = row.as_ref();
-                    !reread
-                        && row.relative_path == *relative
+                    row.relative_path == *relative
                         && current.as_ref().is_some_and(|m| {
                             m.len() == row.length && modified(m).is_ok_and(|v| v == row.modified)
                         })
@@ -855,9 +928,37 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                             .get(&row.key())
                             .is_some_and(|objects| objects.iter().any(usable))
                 });
-            if reusable {
-                report.reused += 1;
-                continue;
+            if recorded {
+                // A scheduled re-read hashes a recorded file in place and writes
+                // nothing. Changed bytes fall through to a staged capture, so an
+                // object is still named after the bytes written. Stored objects
+                // are the deep verify's job, on its own cadence.
+                let found = reread.then(|| format::hash_file(&path));
+                let same = match &found {
+                    None => true,
+                    // As in a staged capture: a file written during the read proves nothing.
+                    Some(Ok(found)) => {
+                        rows.get(&key).is_some_and(|r| r.as_ref().key() == *found)
+                            && current
+                                .as_ref()
+                                .zip(fs::metadata(&path).ok())
+                                .is_some_and(|(before, after)| unmoved(before, &after))
+                    }
+                    Some(Err(_)) => false,
+                };
+                if same {
+                    report.reused += 1;
+                    continue;
+                }
+                if matches!(found, Some(Ok(_))) {
+                    report.finding_at(
+                        0,
+                        "content_changed_on_reread",
+                        Some(relative),
+                        "Content changed during or behind an unchanged size and time; capturing it"
+                            .into(),
+                    );
+                }
             }
             let outcome = match capture(
                 set,
@@ -901,11 +1002,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                     .map(|(k, _)| k.clone())
                     .collect();
                 conflicts.push(key.clone());
-                let mut parent = key.as_str();
-                while let Some((p, _)) = parent.rsplit_once('/') {
-                    conflicts.push(p.to_owned());
-                    parent = p;
-                }
+                conflicts.extend(format::ancestors(&key).map(str::to_owned));
                 for conflict in conflicts {
                     rows.remove(&conflict);
                 }
@@ -956,64 +1053,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         // Portable lookup order must not change which recorded path owns a duplicate.
         final_rows.sort_unstable_by(|a, b| a.relative_path.cmp(&b.relative_path));
         platform::checkpoint("final-rows");
-        // A checkpoint can legitimately have newer files than the old sidecar.
-        // Keep independent file content and exclude conflicting supplemental rows.
-        let files: BTreeSet<_> = final_rows
-            .iter()
-            .map(|r| format::path_key(&r.relative_path))
-            .collect();
-        let mut ancestors = BTreeSet::new();
-        for key in &files {
-            let mut parent = key.as_str();
-            while let Some((p, _)) = parent.rsplit_once('/') {
-                ancestors.insert(p.to_owned());
-                parent = p;
-            }
-        }
-        dirs.retain(|dir| {
-            let d = format::path_key(&dir.relative_path);
-            if files.contains(&d) || (dir.kind == "FolderLink" && ancestors.contains(&d)) {
-                return false;
-            }
-            let mut parent = d.as_str();
-            while let Some((p, _)) = parent.rsplit_once('/') {
-                if files.contains(p) {
-                    return false;
-                }
-                parent = p;
-            }
-            true
-        });
-        drop(files);
-        drop(ancestors);
-        let links: BTreeSet<_> = dirs
-            .iter()
-            .filter(|d| d.kind == "FolderLink")
-            .map(|d| format::path_key(&d.relative_path))
-            .collect();
-        dirs.retain(|d| {
-            let key = format::path_key(&d.relative_path);
-            let mut parent = key.as_str();
-            while let Some((p, _)) = parent.rsplit_once('/') {
-                if links.contains(p) {
-                    return false;
-                }
-                parent = p;
-            }
-            true
-        });
-        let ordinary: BTreeSet<_> = dirs
-            .iter()
-            .filter(|d| d.kind == "Directory")
-            .map(|d| format::path_key(&d.relative_path))
-            .collect();
-        dirs.retain(|d| {
-            d.kind != "FolderLink"
-                || d.target == "."
-                || ordinary.contains(&format::path_key(&d.target))
-        });
-        drop(ordinary);
-        drop(links);
+        let dirs = reconcile_directories(&final_rows, dirs);
         let mut owners = BTreeSet::new();
         for row in &mut final_rows {
             let duplicate = if owners.insert(row.key()) {
@@ -1032,20 +1072,18 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         drop(prior_dirs);
         store.write(&final_rows, &dirs)?;
         platform::checkpoint("final-definitions");
-        let old_state = fs::read(store.current.join("FileBackupState.json"))
-            .ok()
-            .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok());
-        let last_hash = if reread && report.code == 0 {
+        let last_hash = if reread {
             Some(Utc::now().to_rfc3339())
         } else {
-            old_state
+            store
+                .state()
                 .as_ref()
                 .and_then(|v| v.get("LastHashRun"))
                 .and_then(|v| v.as_str())
                 .map(str::to_owned)
         };
         platform::atomic_write(
-            &store.current.join("FileBackupState.json"),
+            &store.current.join(format::STATE),
             &serde_json::to_vec(
                 &serde_json::json!({"LastBackupRun":Utc::now().to_rfc3339(),"LastHashRun":last_hash}),
             )?,
@@ -1058,37 +1096,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         let required: BTreeSet<_> = final_rows.iter().map(|row| row.key()).collect();
         drop(final_rows);
         drop(prior);
-        let mut superseded: BTreeMap<ContentKey, Object> = store
-            .index()?
-            .into_iter()
-            .filter(|(k, _)| !required.contains(k))
-            .filter_map(|(k, v)| {
-                v.into_iter()
-                    .find(|o| o.state == store.current)
-                    .map(|o| (k, o))
-            })
-            .collect();
-        let mut states = store.states()?;
-        states.reverse();
-        for state in states
-            .into_iter()
-            .filter(|s| s.as_path() != store.current.as_ref())
-        {
-            if superseded.is_empty() {
-                break;
-            }
-            for row in format::read_manifest(&state.join(format::MANIFEST))? {
-                if let Some(object) = superseded.remove(&row.key()) {
-                    let destination = state.join(&object.name);
-                    if !destination.try_exists()? {
-                        fs::rename(&object.path, destination)?;
-                        platform::sync_directory(object.path.parent().unwrap())?;
-                        platform::sync_directory(&state)?;
-                        platform::checkpoint("superseded");
-                    }
-                }
-            }
-        }
+        move_superseded(&store, &required)?;
         if report.code == 0 {
             for name in [format::MANIFEST, format::DIRECTORIES] {
                 let path = store.current.join(format!("{name}.prev"));
