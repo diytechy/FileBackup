@@ -1,14 +1,14 @@
 # Requirements spine rebaseline and staged template resync
 
-Status: **stakeholder needs and active external frame approved; assumptions next**.
+Status: **needs, active external frame and assumptions approved; SR generation in progress**.
 
 The [needs approval record](spine-rebaseline-2026-11-05/needs-approval.md)
 records the owner's approval of all 49 needs on 2026-11-05, without changing
 their normative text. The [boundary approval](spine-rebaseline-2026-11-05/boundary-approval.md)
 records approval of 18 entities, 23 active crossings and five external
-relationships. B-24 is excluded. Review
-[assumptions.toml](../requirements/assumptions.toml) next, before reconciling
-the system requirements; those tiers remain Drafted.
+relationships. B-24 is excluded. The owner has also
+[accepted the assumptions](spine-rebaseline-2026-11-05/assumptions-approval.md).
+System requirements are being reconciled and remain Drafted.
 
 The [assumptions review guide](spine-rebaseline-2026-11-05/assumptions-review.md)
 explains the revised conditions, residual risks and limits of the test fixtures.
@@ -134,8 +134,8 @@ reporting (SN-044), space/media analysis (SN-051), and redistribution notices
 
 ## Decomposition and code attachment sequence
 
-1. The owner has approved the needs and active external frame. Review the
-   assumptions against them next. Preserve existing IDs where their outcome survives;
+1. The owner has approved the needs, active external frame and assumptions.
+   Preserve existing IDs where their outcome survives;
    track retirements and splits explicitly. Authoring does not approve its own rows.
 2. Use the input-restricted derivation as a **validation proposal**, then align
    every candidate and all 123 existing SRs: matched, legacy-only or fresh-only.

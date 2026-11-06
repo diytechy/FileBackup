@@ -1,7 +1,7 @@
 # Environmental assumptions review
 
-Status: draft for owner review. The 22 assumptions and two test surrogates in
-[assumptions.toml](../../requirements/assumptions.toml) remain Drafted. The
+Status: [accepted by the owner](assumptions-approval.md). The 22 assumptions and two test surrogates in
+[assumptions.toml](../../requirements/assumptions.toml) are Approved. The
 [approved needs](../../requirements/stakeholder-needs.toml) and
 [approved external frame](boundary-approval.md) are unchanged.
 
@@ -66,7 +66,7 @@ necessarily something the running tool can detect by itself.
 Twenty assumptions and both surrogates were revised; DA-01 and DA-15
 were retained after review. IDs, statuses, existing boundary references and
 surrogate links were preserved. No assumption has been added to the approval
-ledger or copied over the standing approval baseline.
+ledger by drafting; their subsequent owner acceptance is recorded separately.
 
 ## Independent cross-review and disposition
 

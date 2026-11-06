@@ -1,9 +1,9 @@
 # assumptions.toml: the claims about the world FileBackup's outcomes rely on,
-# and the test stand-ins for outside parties. All rows remain Drafted.
+# and the test stand-ins for outside parties. All rows are owner-approved.
 # Each holding condition limits the particular claim, not the approved needs.
 # A failed premise must not erase required refusal, reporting or recovery behavior.
 # DA-17 and DA-21 are verification conditions, not production prerequisites.
-# accepted_risk fields are proposals until their own rows are approved.
+# Risk acceptance is recorded by the owner approval act, not by drafting.
 
 [assumption.DA-01]
 effect_at = ["B-02"]
@@ -12,7 +12,7 @@ holds_when = """The particular host, filesystem and mount options provide the re
 obstacle = """Separate mounts, weaker network or synchronization semantics, or lost directory updates after power failure can violate the publication or persistence premise."""
 falsifier = """An observer sees a partial published file after process interruption, or a power-loss exercise loses a supposedly durable namespace update."""
 obstacle_hats = ["FILESYSTEM-SEMANTICS", "INTEGRITY-RECOVERABILITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-02]
@@ -22,7 +22,7 @@ holds_when = "The supported local or network storage combination provides the re
 obstacle = "A disconnected network client leaves stale ownership, a reconnect loses ownership while the process continues, or another process retains the resource that holds the claim."
 falsifier = "On a declared supported combination, after the holder ends or dies and storage is available, another operation remains blocked solely by ownership that cannot be released without manual repair."
 obstacle_hats = ["FILESYSTEM-SEMANTICS", "INTEGRITY-RECOVERABILITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-03]
@@ -32,7 +32,7 @@ holds_when = """For an already validated configuration, the declared host and fi
 obstacle = """Independent configurations or external writers targeting the same root are outside this coordination promise; network or multi-host locking may also lack the required behavior."""
 falsifier = """Two operations using the same validated configuration are both observed mutating the same backup on a supported host."""
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-04]
@@ -42,7 +42,7 @@ holds_when = "The individual file remains stable for its capture attempt, or the
 obstacle = "Concurrent writes can produce a mixture of versions, including same-size changes or changes hidden by timestamp granularity. Live databases and virtual disks may need application-specific consistency arrangements."
 falsifier = "A capture made under the stated stable-file or coherent-view condition contains bytes that differ from the version exposed by that view."
 obstacle_hats = ["INTEGRITY-RECOVERABILITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-05]
@@ -53,7 +53,7 @@ obstacle = "Accidental collisions, deliberately constructed collisions, or a wor
 falsifier = "Independent comparison establishes that different contents accepted under the same recorded identity produced an incorrect recovered file."
 accepted_risk = "Residual content-identity collisions can escape the documented checks. This does not permit skipping required checks or ignoring a detected discrepancy."
 obstacle_hats = ["SECURITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-06]
@@ -63,7 +63,7 @@ holds_when = "A usable capacity estimate is available for the actual destination
 obstacle = "Quotas, thin provisioning, placeholders, filesystem compression or deduplication, and competing writers can make reported free space differ from usable capacity."
 falsifier = "Independent measurement under the stated estimate conditions shows that the reported available capacity does not describe what the execution account can allocate. Later exhaustion alone does not falsify a reservation, because none is claimed."
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-07]
@@ -73,7 +73,7 @@ holds_when = "The particular target filesystem, mount and account support the re
 obstacle = "Timestamp rounding, unsupported folder attributes, link restrictions, permission limits or target-side rewriting prevent exact fidelity for some metadata."
 falsifier = "A target reports a supported metadata or link operation as successful but the resulting value or link differs beyond its declared semantics or precision."
 obstacle_hats = ["FILESYSTEM-SEMANTICS", "CROSS-PLATFORM"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-08]
@@ -83,7 +83,7 @@ holds_when = "The individual name is valid on the target and does not collide wi
 obstacle = "Case folding, normalization, reserved names, length limits or existing target entries can make distinct recorded paths resolve to one name or to an invalid path; required collision detection and reporting still apply."
 falsifier = "Names classified as representable and distinct under the declared target rules are merged, rewritten or rejected by a target conforming to those rules."
 obstacle_hats = ["CROSS-PLATFORM", "FILESYSTEM-SEMANTICS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-09]
@@ -94,7 +94,7 @@ obstacle = "Ignored outcomes, filtered or undelivered notifications, abandoned a
 falsifier = "A monitoring exercise shows that results intended to trigger external action are not observed or acted on under the stated operating process."
 accepted_risk = "FileBackup cannot make anyone read its outcome; it can only make the outcome unambiguous."
 obstacle_hats = ["UNATTENDED-OPS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-10]
@@ -104,7 +104,7 @@ holds_when = "The selected route's declared tools have been installed or are bun
 obstacle = "A locked-down or offline host may lack every supported route and permission or media to provision one. Missing prerequisites must still be named before affected work; the documented Windows, Linux and macOS routes must recover offline once their prerequisites are present."
 falsifier = "A host meeting a declared recovery-route tool floor cannot execute the carried route because it requires an undeclared external prerequisite."
 obstacle_hats = ["CROSS-PLATFORM"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-11]
@@ -114,7 +114,7 @@ holds_when = "The selected state record and shared content have been retained wi
 obstacle = "Accidental record replacement or truncation and deliberate tampering can leave a well-formed but wrong record whose remaining content passes its checks; this limitation is not restricted to a malicious attacker."
 falsifier = "Independent capture evidence shows that a well-formed record accepted by recovery omits or substitutes captured content while all required checks against that record pass."
 obstacle_hats = ["INTEGRITY-RECOVERABILITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-12]
@@ -124,7 +124,7 @@ holds_when = "Any excluded filesystem objects or system-managed locations are di
 obstacle = "Wanted data can reside in a system-managed location or an unsupported object, and an owner may overlook the declared exclusion."
 falsifier = "An excluded object contains data the owner intended to recover from the backup, showing that the declared scope and that intent differ."
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-13]
@@ -134,7 +134,7 @@ holds_when = "The specific runtime and launch configuration implement the docume
 obstacle = "A privileged launch, a writable source mount, host overrides or a platform defect can remove the intended access restriction. FileBackup's own source-write prohibition still applies."
 falsifier = "A permission probe under the documented unprivileged, read-only-source configuration can write to the source or obtain privileges the configuration was meant to deny."
 obstacle_hats = ["SECURITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-14]
@@ -144,7 +144,7 @@ holds_when = "An update is visible in the metadata actually observed by the run,
 obstacle = "Same-size edits, restored timestamps and coarse time resolution can conceal updates. The owner-selected re-read schedule remains required, including its documented limits when disabled."
 falsifier = "A controlled content change expected to be visible under the stated metadata-update conditions leaves both observed size and time unchanged."
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-15]
@@ -154,7 +154,7 @@ holds_when = """The host stack honors flush requests and the required namespace 
 obstacle = "A drive or controller that acknowledges writes it has only cached, or removal of a drive without ejecting it."
 falsifier = "After a power cut, content recorded as stored in a completed state is missing or short."
 obstacle_hats = ["INTEGRITY-RECOVERABILITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-16]
@@ -164,7 +164,7 @@ holds_when = "The host clock and timezone are configured as intended, and the cl
 obstacle = "Clock rollback, equal timestamps and timezone changes can make dates ambiguous and complicate date-based history selection."
 falsifier = "A recorded display date differs from an independent time reference beyond the host's declared accuracy or intended timezone interpretation."
 obstacle_hats = ["INTEGRITY-RECOVERABILITY", "UNATTENDED-OPS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-17]
@@ -175,20 +175,20 @@ obstacle = "A mapped path can differ from the underlying volume in volume discov
 falsifier = "A paired file, name or rename test through a mapped path and its direct backing path produces different results for a documented case that claims those operations behave equivalently."
 realized_by = "SUR-01"
 obstacle_hats = ["FILESYSTEM-SEMANTICS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [surrogate.SUR-01]
 name = "Mapped temporary drives"
 emulates = ["EXT-04", "EXT-05"]
 description = "Windows test stand-in using temporary folders mapped to drive letters for exercised file, name and rename cases. Merely creating the mapping supplies no evidence for capacity, volume identity or cross-process ownership; those require separately identified exercises on the real backing volume. It supplies no Linux/macOS, network, removable-device or power-loss evidence."
-status = "Drafted"
+status = "Approved"
 
 [surrogate.SUR-02]
 name = "Stock Linux test environment"
 emulates = ["EXT-10", "EXT-11", "EXT-12"]
 description = "Linux recovery test stand-in using declared shell tools and fixture stores, with file comparisons for the exercised cases. It supplies no evidence of native engine operation, macOS behavior or untested storage and failure conditions."
-status = "Drafted"
+status = "Approved"
 
 [assumption.DA-18]
 effect_at = ["B-10", "B-18"]
@@ -196,7 +196,7 @@ assumption = "Separately supplied hash and archive tools implement the declared 
 holds_when = "The external tool build and invocation satisfy the documented version and format contract and the relevant conformance checks pass; a familiar package name alone is insufficient."
 obstacle = "Incompatible, modified or faulty external builds can compute different identities or expanded bytes. FileBackup's embedded implementations remain its own verification responsibility."
 falsifier = "A declared-compatible external tool produces a different identity or expanded payload for a known conformance input."
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-19]
@@ -205,7 +205,7 @@ assumption = "A complete-store handoff preserves the records, carried recovery s
 holds_when = "The transfer captures a coherent store, preserves required file contents and layout, includes its recovery guidance and required notices, and includes content needed by states within the retained recovery window; any present older state records may remain outside that window."
 obstacle = "Copying only a state folder, omitting shared content, or copying during mutation without a coherent transfer can lose dependencies. Earlier retention may already have invalidated older states."
 falsifier = "A purported complete transfer omits or changes required content, recovery files, guidance or redistribution notices available in the coherent source store."
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-20]
@@ -215,7 +215,7 @@ holds_when = "The mechanism is provisioned for the account or service identity t
 obstacle = "Wrong execution identity, unsupported transfer between hosts, permissive access controls or a compromised credential facility can prevent access or disclose secrets."
 falsifier = "An identity outside the declared access policy can obtain the protected credentials through that facility, or readable configuration, backup or run records expose them."
 obstacle_hats = ["SECURITY"]
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-21]
@@ -224,7 +224,7 @@ assumption = "A before-and-after fixture comparison can attribute source changes
 holds_when = "The source-nonmutation test controls its fixture and accounts for host-managed read effects and external writes; this is a verification condition, not a requirement for a quiet production source."
 obstacle = "Concurrent application writes, synchronization, metadata changes or unobserved host effects make a simple difference an ambiguous attribution."
 falsifier = "A supposedly isolated nonmutation test records an unaccounted source change caused by another process or by the host."
-status = "Drafted"
+status = "Approved"
 standing = "active"
 
 [assumption.DA-22]
@@ -234,5 +234,5 @@ holds_when = "The host stays awake and supplies the declared execution resources
 obstacle = "Host sleep, virtual-machine or container suspension, and severe scheduling starvation can extend wall time without active execution. Required reporting during available execution is not waived."
 falsifier = "An observation interval claimed to represent continuously available execution includes an unaccounted host suspension or scheduling outage."
 obstacle_hats = ["UNATTENDED-OPS"]
-status = "Drafted"
+status = "Approved"
 standing = "active"

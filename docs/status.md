@@ -25,6 +25,12 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **ASSUMPTIONS ACCEPTED; SR GENERATION NEXT (2026-11-05).** The owner
+  [accepted DA-01..22 and SUR-01/02](plans/spine-rebaseline-2026-11-05/assumptions-approval.md),
+  including their stated limits and residual risks. Only the assumptions
+  registry was refreshed in the approval baseline. System requirements remain
+  Drafted; DeepSeek is authorized as a sounding board for their generation.
+
 - **ASSUMPTIONS DRAFT PREPARED (2026-11-05).** The
   [assumptions review guide](plans/spine-rebaseline-2026-11-05/assumptions-review.md)
   covers all 22 assumptions and two test surrogates, which remain Drafted.
@@ -6981,3 +6987,13 @@ trace links are preserved. Strict integrity passes with the existing 119
 orphan relationships and interface debt. Documentation: 97 docs, 281 links,
 zero broken and 28 existing orphan warnings. Whitespace passes; no runtime or
 hook changes and no product test rerun for this documentation-only work.
+
+### 2026-11-05 — owner accepts assumptions and authorizes SR generation
+
+Recorded the owner's explicit acceptance of DA-01..22 and SUR-01/02 as
+Approved, without changing their text from 1077efb. The scoped approval writer
+copied only assumptions.toml and recorded exactly 24 newly approved IDs.
+Other baseline registries are unchanged. The acceptance includes the discussed
+consistency, integrity, power-loss and handoff limits and prerequisite
+reporting; it does not approve implementation or downstream requirements.
+The owner authorized moving to SR generation with DeepSeek as a sounding board.
