@@ -26,9 +26,22 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **NATIVE PREVIEW IMPLEMENTED (2026-11-06).** The owner authorized implementation
+  following Gemini Argon readiness review. Rust backup, maintenance, standalone
+  PowerShell/bash recovery, delivery adapters and CI now exist. DeepSeek Flash
+  and Opus low code reviews are recorded in the
+  [implementation review](plans/native-design-2026-11-05/implementation-reviews.md).
+  [Real code/partial test bindings](plans/native-design-2026-11-05/implementation-map.md)
+  replace planned symbols; broad LLR/TC/IF approval and verification remain Drafted.
+  [Support limits](native-support.md) explicitly retain the unexecuted platform,
+  full resource and hardware qualification. Hooks remain disabled. Existing
+  PowerShell runtime remains available; this preview starts a new native store.
+  Entries below are historical stages, not the current implementation state.
+
 - **FORMAL INTERFACES DRAFTED.** The
   [interface review](plans/native-design-2026-11-05/interfaces-review.md) adopts
-  the pinned TOML carrier: preserved IF-001 and Drafted IF-002..025. Each new
+  the pinned TOML carrier: then-preserved IF-001 and Drafted IF-002..025. IF-001
+  was subsequently retired by the linked cleanup record. Each new
   interface links LLRs, their parent SRs and planned TCs. Previous-definition
   wording now rests on copy-before-mutation and delete-after-success ordering;
   leftover copies do not invalidate current records. Approved tiers and runtime

@@ -1,5 +1,10 @@
 # FileBackup
 
+The Rust transition is available as a development preview. See
+[native usage](docs/native-usage.md) and the [support/evidence matrix](docs/native-support.md).
+The PowerShell instructions below remain applicable to existing stores and their
+carried recovery kits.
+
 <a id="vision"></a>
 **PROJECT-VISION:** FileBackup keeps a trustworthy, space-efficient history of
 one owner's files. It runs unattended, and any saved point in time can be

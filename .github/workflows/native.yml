@@ -1,0 +1,72 @@
+name: Native preview
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Linux recovery tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gawk xxhash p7zip-full shellcheck
+      - name: Install macOS recovery tools
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash gawk xxhash sevenzip coreutils
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+      - name: Provision pinned toolchain and carried dependency
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.96.0 --profile minimal --component clippy,rustfmt
+          rustup override set 1.96.0
+          $dll = python scripts/prepare_native_hash.py --cache (Join-Path $env:RUNNER_TEMP 'hash-dependency')
+          if ($LASTEXITCODE) { throw 'Dependency provisioning failed' }
+          "FILEBACKUP_HASH_DLL=$dll" >> $env:GITHUB_ENV
+          "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP 'native-target')" >> $env:GITHUB_ENV
+          rustc -vV
+      - name: Format, lint and exercised contracts
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml -- --check
+          if ($LASTEXITCODE) { throw 'Formatting failed' }
+          cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets --features test-hooks -- -D warnings
+          if ($LASTEXITCODE) { throw 'Lint failed' }
+          cargo test --locked --manifest-path rust/Cargo.toml --features test-hooks
+          if ($LASTEXITCODE) { throw 'Native contracts failed' }
+      - name: Recovery shell lint
+        if: runner.os == 'Linux'
+        run: shellcheck recovery/reconstruct.sh recovery/RECONSTRUCT.command
+      - name: Build and package without test hooks
+        shell: pwsh
+        run: |
+          cargo build --locked --release --manifest-path rust/Cargo.toml
+          if ($LASTEXITCODE) { throw 'Release build failed' }
+          $name = if ($IsWindows) { 'filebackup.exe' } else { 'filebackup' }
+          python scripts/package_native.py --binary (Join-Path $env:CARGO_TARGET_DIR "release/$name") --output (Join-Path $env:RUNNER_TEMP 'native-preview')
+          if ($LASTEXITCODE) { throw 'Notice/package assembly failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-preview-${{ matrix.os }}
+          path: ${{ runner.temp }}/native-preview.zip
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f container/native.Dockerfile -t filebackup-native:test .
+      - name: Unprivileged offline container round trip
+        shell: bash
+        run: bash scripts/test_native_container.sh filebackup-native:test "$RUNNER_TEMP"

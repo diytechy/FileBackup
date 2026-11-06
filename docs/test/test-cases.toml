@@ -1,7 +1,7 @@
-# Active native draft; no implementation or executed verification is implied.
+# Planned native cases remain Drafted; partial implementation/test links are in notes.
 # Retired legacy IDs: docs/plans/native-design-2026-11-05/legacy-cleanup.md.
 
-# Native design draft: planned cases, no execution evidence.
+# Broad case expectations are not marked passed by narrower runtime tests.
 # See docs/plans/native-design-2026-11-05/review.md.
 
 [test.TC-261]
@@ -13,6 +13,8 @@ parameters = "case=set{valid,unknown-key,missing-key,wrong-type,unsupported-vers
 expected = "Feed current-schema valid/invalid examples, unknown fields, wrong types, missing configuration and unsupported declared versions. Loader/schema verdicts agree, examples need only location substitution, and a filesystem observer sees no store writes on refusal. Put a readable notification secret in otherwise valid configuration, with notifications enabled/disabled and backup/check/prune/view actions. Admission refuses before any store mutation and neither diagnostics nor logs echo the secret."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-151). contracts::config_admission_is_nonmutating_and_rejects_shared_store; notification::notification_admission_rejects_secrets_without_echoing_them. Published JSON schema/example agreement needs additional negative cases."
+
 
 [test.TC-262]
 verifies = ["LLR-152", "SR-063", "SR-138", "SR-154", "IF-002"]
@@ -23,6 +25,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use three sets with duplicate spelling, case aliases, symlink aliases, nested roots, prefix siblings and a prepopulated unrelated view folder. Only safe distinct configurations start; refused cases preserve sentinel files and identify both conflicting entries."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-152). contracts::config_admission_is_nonmutating_and_rejects_shared_store; contracts::dangling_roots_and_lock_redirects_are_refused. Full host alias/mount matrix remains qualification."
+
 
 [test.TC-263]
 verifies = ["LLR-153", "SR-014", "SR-043", "SR-095", "SR-142", "IF-003", "IF-004", "IF-019"]
@@ -33,6 +37,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Run three sets with each failure position and mixed result classes. All admitted independent sets are attempted, aggregate precedence matches the documented result contract, no default container action invokes maintenance, and unknown actions do not silently become backup."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-153). CLI smoke; contracts::config_admission_is_nonmutating_and_rejects_shared_store. Exhaustive multi-set failure-position permutations remain."
+
 
 [test.TC-264]
 verifies = ["LLR-154", "SR-016", "SR-019", "SR-118", "SR-132", "SR-133", "IF-016"]
@@ -43,6 +49,8 @@ parameters = "tool=set{shell,hash,archive,media}; availability=set{supported,mis
 expected = "Remove each required/optional tool and supply unsupported versions with redirected stdin and no network. Required cases do not mutate, optional media absence preserves content/outcome, and no process waits for input."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-154). backup::compressed_native_store_restores_with_independent_script. Full missing/too-old interpreter/tool matrix remains."
+
 
 [test.TC-265]
 verifies = ["LLR-155", "SR-085", "SR-086", "SR-107", "IF-014"]
@@ -53,6 +61,8 @@ parameters = "operation=set{backup,remove,repair,refresh,view}; event=set{conten
 expected = "Pair every mutation with a contender at admission, middle and finalization; suspend and kill the holder. At most one mutates, suspension does not admit a contender, death does, and permission/I/O failures never authorize writes."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-155). contracts::exclusive_lock_and_nonreplacement_publication; interruption::killed_writer_leaves_recoverable_pool_and_next_run_repairs. Suspend/network and every mutator pairing remain."
+
 
 [test.TC-266]
 verifies = ["LLR-156", "SR-001", "SR-074", "SR-088", "SR-089", "SR-093", "SR-094", "IF-013"]
@@ -63,6 +73,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Walk ordinary and volume-root fixtures containing hidden entries and infrastructure-like names; deny individual directories and observe source bytes/times/structure under DA-21 controls. Every in-scope entry is captured or named as failed and no source-side state is created."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-156). backup::folder_links_expand_external_aliases_but_never_ingest_stores. Full hidden/system/access-denial and actual-volume matrix remains."
+
 
 [test.TC-267]
 verifies = ["LLR-157", "SR-021", "SR-055", "SR-092", "IF-013"]
@@ -73,6 +85,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Run Unicode, bracket, space, reserved-name, case and normalization pairs on distinguishing and nondistinguishing target profiles. Distinct representable names remain exact; collision groups write no member and unaffected files restore. Profile conformance is tested on each real target filesystem."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-157). contracts::portable_paths_and_previous_publication; contracts::unicode_collision_profile_covers_sigma_and_normalization. Cross-host collision corpus needs broader qualification."
+
 
 [test.TC-268]
 verifies = ["LLR-158", "SR-011", "SR-024", "SR-105", "SR-005", "SR-100", "IF-008", "IF-013"]
@@ -83,6 +97,8 @@ parameters = "schedule=set{every,never,periodic}; metadata=set{same,changed}; pr
 expected = "Change bytes while preserving size/time and interrupt a due reread. The concealed change is found at the next due read, incomplete passes do not postpone it, and repeated unchanged runs produce zero source-change counts and no history. Remove supply while preserving source size/time: identical recapture is a repair, different hash is a source change plus an unrecoverable-prior-content diagnostic. With file rows and stored bytes unchanged, add/remove an empty directory, change only directory attributes and add/remove/retarget an in-root folder link. Each semantic change retains the prior state; identical reruns do not. Compare represented metadata, not record order or previous-copy presence."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-158). backup::backup_dedup_noop_history_and_empty_folder_changes; backup::failed_case_rename_keeps_previous_row_after_complete_walk. Periodic schedule and metadata-only retarget permutations remain."
+
 
 [test.TC-269]
 verifies = ["LLR-159", "SR-003", "SR-053", "SR-059", "SR-108", "IF-007", "IF-013"]
@@ -93,6 +109,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Mutate, truncate and lock sources during reads, delete a reused object externally, and add identical content with different names/extensions. Each published record resolves to bytes matching its own identity; known missing supply is captured again and undetected coherent-source limits stay within DA-04."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-159). backup::changed_case_during_incomplete_walk_and_damaged_object_heal. Concurrent source mutation and unreachable source I/O deadline remain."
+
 
 [test.TC-270]
 verifies = ["LLR-160", "SR-067", "SR-090", "SR-091", "IF-013"]
@@ -103,6 +121,8 @@ parameters = "locked=range[1..10000]; release=set{early,late,never}; folder_fail
 expected = "Release locks before second/third eligibility, retain thousands of locks, and interleave readable files. Attempt count never exceeds three, deliberate aggregate wait never exceeds 60 seconds active time, readable files proceed and earlier copies survive."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-160). backup::failed_case_rename_keeps_previous_row_after_complete_walk. Large failed-file queue and exact aggregate-wait budget measurement remain."
+
 
 [test.TC-271]
 verifies = ["LLR-161", "SR-036", "SR-091", "IF-013"]
@@ -113,6 +133,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Disconnect or empty a populated source before and during capture, including only-empty-directory trees; retained content remains recoverable and mass deletion is never published. An initially empty source is valid; removing its config entry leaves the old store untouched."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-161). backup::missing_source_and_invalid_old_store_do_not_replace_state. Mid-read source disconnect matrix remains."
+
 
 [test.TC-272]
 verifies = ["LLR-162", "SR-081", "SR-096", "SR-111", "IF-007", "IF-016"]
@@ -123,6 +145,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Test sizes below/at/above the floor, measured savings below/at/above 10%, misleading extensions, failed probes and changing settings. Decision vectors match both native hosts; existing object bytes remain unchanged and either stored form recovers the original bytes."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-162). backup::compression_probe_policy_and_disabled_new_compression_reuse. Exact 10% threshold and failing probe tool permutations remain."
+
 
 [test.TC-273]
 verifies = ["LLR-163", "SR-003", "SR-041", "SR-059", "SR-108", "SR-136", "IF-007", "IF-014"]
@@ -133,6 +157,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Exercise content reuse/move-back and superseded relocation in the current sharded-latest/flat-history layout. Inject corrupt/unreadable destinations and failures before/after sync/rename. No valid object is overwritten and no final latest dependency is moved away."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-163). backup::backup_dedup_noop_history_and_empty_folder_changes; backup::changed_case_during_incomplete_walk_and_damaged_object_heal. Power-loss and large duplicate groups remain."
+
 
 [test.TC-274]
 verifies = ["LLR-164", "SR-039", "SR-065", "SR-066", "SR-146", "SR-150", "SR-152", "IF-006"]
@@ -143,6 +169,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use current manifests plus revised directory/link sidecars containing commas, quotes, Unicode, malformed fields, missing required records and conflicting path kinds. Both script routes and native readers agree; conflicting links are reported while independently valid file bytes remain recoverable. A header-only current-revision directory record is valid empty metadata; absence is diagnosed under the declared format. Previous copies are not automatically merged into selected current records."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-164). contracts::manifest_roundtrip_and_metadata_required; contracts::existing_name_decoder_corpus. Every malformed CSV form across both readers remains."
+
 
 [test.TC-275]
 verifies = ["LLR-165", "SR-005", "SR-010", "SR-017", "SR-075", "SR-082", "SR-100", "IF-008"]
@@ -153,6 +181,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Interrupt between the two previous-definition copies and between their deletions: during initial preservation both current definitions remain old and usable; during cleanup both current definitions are successfully replaced and usable. No current definition changes before initial copies finish. Existing previous copies stay byte-identical through unsuccessful later runs, and are deleted only after successful backup finalization. A lone previous file is housekeeping residue and does not fail current recovery; no implicit old/current mixing occurs. Also interrupt dated snapshot publication, latest checkpoints, sidecar publication, completion dates and superseded moves; prior history and valid checkpoint dependencies survive. Folder/link-only changes retain history; unchanged runs add no dated state; equal dates/clock rollback never overwrite history."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-165). backup::backup_dedup_noop_history_and_empty_folder_changes; interruption::killed_writer_leaves_recoverable_pool_and_next_run_repairs. Clock rollback/identity collision fixture remains."
+
 
 [test.TC-276]
 verifies = ["LLR-166", "SR-017", "SR-075", "SR-082", "SR-158", "IF-008", "IF-014"]
@@ -163,6 +193,8 @@ parameters = "event=set{kill,power-cut,sync-error,unknown-residue,unreadable-man
 expected = "Inject identified Incoming/Building residue, interrupted Pruning work, unknown folders, malformed records and sync failures. Cleanup is limited to known disposable work; resumable deletion preserves required supply and uncertainty produces a named blocker. Previous-definition copies survive cleanup unchanged, including lone-file residue; they are not disposable Incoming/Building work and do not invalidate current definitions."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-166). interruption::killed_writer_leaves_recoverable_pool_and_next_run_repairs. Physical power loss and restart on each supported filesystem remain."
+
 
 [test.TC-277]
 verifies = ["LLR-167", "SR-023", "SR-052", "SR-158", "IF-015"]
@@ -173,6 +205,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Exercise shared volumes, compressed expansion, ten aliases to the same content, actual relative links, unavailable capacity and disk loss after admission. Known shortfalls write no affected output; late failure never reports partial bytes as verified or destroys previous recovery."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-167). maintenance::compressed_prune_rehome_verifies_closed_staging_file. Capacity checks exist; controlled full/unknown/shared-volume tests remain."
+
 
 [test.TC-278]
 verifies = ["LLR-168", "SR-047", "SR-049", "SR-103", "SR-104", "IF-005", "IF-024"]
@@ -183,6 +217,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Check an intact store and variants with defects in latest, later retained and older invalidated states. Compare all store bytes and mtimes before/after, excluding access time. Findings identify only affected states, inaccessible records are explicit, and empty findings denote a completed clean inspection."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-168). maintenance::verify_continues_past_a_state_with_missing_manifest. Concurrent mutation/read-denial matrix remains; no consistent concurrent snapshot claim."
+
 
 [test.TC-279]
 verifies = ["LLR-169", "SR-045", "SR-046", "SR-047", "SR-101", "SR-102", "IF-023"]
@@ -193,6 +229,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use shared objects spanning before/at/after cutoff, identical dates with different state IDs, clock rollback, missing protected content and a full volume. Interrupt each phase. Later/latest recover, only needed temporary-space shortages block removal, outside sentinels remain untouched, and repeating the request is idempotent. For a batch, required outside supply excludes every selected folder; unselected older folders remain untouched. Crash before/after durable rehoming, survivor metadata and Pruning commit: resumption never broadens deletion or removes unrehomed last copies."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-169). maintenance::retention_protects_latest_and_later_but_does_not_promise_older_states; interruption::killed_prune_resumes_original_selection_after_a_folder_is_gone. Full multi-cutoff and interrupted-copy matrix remains."
+
 
 [test.TC-280]
 verifies = ["LLR-170", "SR-045", "SR-046", "SR-059", "SR-101", "IF-023"]
@@ -203,6 +241,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Fail protected-manifest enumeration halfway and inject stale indexes, missing outside-folder copies and failed rehoming. No selected folder is destructively removed until every protected dependency has usable supply; repeat the removal safely after the fault clears."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-170). maintenance::prune_protects_previous_definitions_and_refuses_unknown_contents; maintenance::compressed_prune_rehome_verifies_closed_staging_file. Known-full volume and all shared-content graph permutations remain."
+
 
 [test.TC-281]
 verifies = ["LLR-171", "SR-109", "SR-110", "IF-024"]
@@ -213,6 +253,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Exercise existing repair classes, metadata publication and quarantine with verified alternate copies. Change a candidate after the scan and kill at mutation boundaries; preserved states still recover, ambiguous findings remain and no guessed historical content is published."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-171). maintenance::repair_reports_form_mismatch_duplicates_and_misplaced_bytes. Repair under power loss and all ambiguous supply cases remain."
+
 
 [test.TC-282]
 verifies = ["LLR-172", "SR-008", "SR-009", "SR-010", "SR-031", "SR-039", "SR-118", "SR-141", "SR-145", "IF-010"]
@@ -223,6 +265,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Before target mutation, combine invalid target/format/tool/space conditions with corrupt entries. Admitted current states recover selected last-known definitions without consulting previous copies as an authority or success flag. Explicit previous selection uses matching previous records only; unavailable previous members are diagnosed only for explicit previous selection, while independently valid files can recover. Both routes diagnose actual missing/conflicting required metadata, and valid current directories/links remain applicable after interrupted capture."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-172). scripts/Test-NativeRecovery.ps1; backup::compressed_native_store_restores_with_independent_script. Explicit previous/malformed/unsupported-format selection matrix remains."
+
 
 [test.TC-283]
 verifies = ["LLR-173", "SR-029", "SR-056", "SR-068", "SR-119", "SR-120", "IF-007", "IF-011"]
@@ -233,6 +277,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use raw files, raw source archives, compressed objects, flipped form flags, corrupt-first/intact-second copies and target I/O errors. Every reported restored file matches an independently constructed expected tree and SHA-256 oracle; failure list/count exactly matches unrecovered paths."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-173). backup::compressed_native_store_restores_with_independent_script. Bash top-level per-row loop; damaged alternate/oversized archive matrix remains."
+
 
 [test.TC-284]
 verifies = ["LLR-174", "SR-009", "SR-092", "SR-121", "SR-141", "IF-011", "IF-012"]
@@ -243,6 +289,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use crafted absolute/parent paths, case/normalization groups, a symlink parent into the store, conflicting directory/link records and target replacement races in supported profiles. No write leaves the chosen root or reaches store data; unaffected paths recover and each rejected entry is counted. With a valid file row and a stale supplemental directory/link at the same path or redirecting an ancestor, reject/report the conflicting supplemental metadata and recover the valid file through safe ordinary parents. Do not infer authority from timestamps or previous-copy presence; existing unsafe target redirects still refuse affected writes."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-174). scripts/Test-NativeRecovery.ps1. Full redirected target/existing-path collision matrix remains."
+
 
 [test.TC-285]
 verifies = ["LLR-175", "SR-065", "SR-066", "SR-122", "SR-146", "IF-011", "IF-012"]
@@ -253,6 +301,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Restore duplicate-byte files with distinct times, nested empty directories, hidden/system folders and malformed/missing records. Independent comparisons use declared precision; unsupported attributes warn, required-record loss is incomplete, and good bytes remain available."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-175). scripts/Test-NativeRecovery.ps1. Top-level metadata phases; full host attributes/unsupported fidelity matrix remains."
+
 
 [test.TC-286]
 verifies = ["LLR-176", "SR-150", "SR-151", "SR-152", "IF-011", "IF-012"]
@@ -263,6 +313,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Capture absolute/relative links and junctions to sibling/ancestor/root directories, restore on both routes, then move the whole recovered root. Links still reach the expected directories, no alias duplicates are materialized, escaped/unavailable mappings are reported and privilege failure is a visible metadata limitation. Include link-only parents, a target absent from the captured tree, and absolute/junction source spellings convertible to an in-root relative target. Missing targets are reported; junction-to-relative-symlink capability changes are disclosed. Move the restored tree and verify links still resolve internally."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-176). scripts/Test-NativeRecovery.ps1; backup::folder_links_expand_external_aliases_but_never_ingest_stores. Top-level link phases; Windows privilege and macOS qualification remain."
+
 
 [test.TC-287]
 verifies = ["LLR-177", "SR-001", "SR-137", "SR-150", "SR-151", "IF-013"]
@@ -273,6 +325,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use A-to-B-to-A cycles, two aliases to a 100 MiB tree, nested acyclic diamonds, a link into the store and an unreachable share. Cycles terminate, noncyclic aliases produce distinct recorded output paths with shared stored bytes, and demand counts their expanded bytes. Both routes restore repeated external aliases as separate ordinary output trees sharing stored content before restore. In-root and external single-file links restore ordinary file bytes. Unreachable targets honor bounded access/retry handling and retain prior prefix rows. A link-only parent is not treated as empty source."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-177). backup::folder_links_expand_external_aliases_but_never_ingest_stores; backup::folder_to_link_during_incomplete_walk_excludes_stale_descendants. Hard deadline for blocked source filesystem operations remains implementation work."
+
 
 [test.TC-288]
 verifies = ["LLR-178", "SR-040", "SR-043", "SR-104", "SR-120", "SR-126", "IF-004", "IF-005"]
@@ -283,6 +337,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Inject each result and pairwise mixed failures through native, container and both script routes. Exit/JSON mappings and counts agree; malformed output cannot be mistaken for complete, and collision/host failures never become generic missing-content reports."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-178). backup and maintenance outcome assertions. Full source/tool/host error classification matrix remains."
+
 
 [test.TC-289]
 verifies = ["LLR-179", "SR-016", "SR-072", "SR-073", "IF-004", "IF-010", "IF-012"]
@@ -293,6 +349,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Exercise desktop selection/cancel, interactive console, closed stdin, redirected stdin and explicit targets. Only eligible attended routes prompt; unattended routes terminate with an outcome and never write to an implicit fallback."
 automated = "No"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-179). scripts/Test-NativeRecovery.ps1 unattended invocation. Launchers/top-level selection implemented; desktop GUI/cancellation qualification remains."
+
 
 [test.TC-290]
 verifies = ["LLR-180", "SR-089", "SR-124", "SR-125", "SR-126", "IF-005", "IF-020"]
@@ -303,6 +361,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Hold a read/compressor/finalization step beyond 120 seconds while other work is absent. Progress still appears within the active-time bound, suspend/resume is accounted explicitly, and final path categories/counts match the independently known fixture."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-180). backup outcome assertions. Progress heartbeat/suspend and exact aggregate counters need additional tests."
+
 
 [test.TC-291]
 verifies = ["LLR-181", "SR-015", "SR-127", "SR-128", "SR-129", "IF-017", "IF-018"]
@@ -313,6 +373,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Use successful/refusing/unreachable relays and unavailable/unauthorized credential adapters. Search config, store, logs and error output for injected secrets. Only enabled runs submit, failures warn without changing outcome, and a source file containing the same bytes remains normal backed-up content."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-181). notification::bounded_message_can_be_prepared_without_contacting_a_relay; notification::large_incident_summary_omits_paths_messages_and_remains_bounded. Live OS credential access and TLS relay outcomes have not been exercised."
+
 
 [test.TC-292]
 verifies = ["LLR-182", "SR-062", "SR-063", "SR-097", "SR-098", "SR-099", "SR-147", "IF-020"]
@@ -323,6 +385,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Compare view entries to the selected state, including duplicates and media/no-duration cases; delete the view and recover successfully. Missing media tools preserve backup behavior and display an unavailable measure; interrupted view publication leaves recoverable data untouched."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-182). maintenance::view_never_adopts_an_unrelated_index_and_escapes_names; contracts::media_measurements_do_not_invent_zero_for_missing_duration. Live ffprobe failures and large HTML views remain qualification."
+
 
 [test.TC-293]
 verifies = ["LLR-183", "SR-034", "SR-048", "SR-095", "SR-130", "SR-142", "IF-019", "IF-021"]
@@ -333,6 +397,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "On a host without engine runtimes, run backup/list/remove/verify under read-only sources and no network/capabilities, including three sets. Outcomes and resulting recovery match direct execution; nonmutating reports do not write store-side logs."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-183). .github/workflows/native.yml container lane. Container offline read-only round trip must execute before support designation."
+
 
 [test.TC-294]
 verifies = ["LLR-184", "SR-007", "SR-008", "SR-031", "SR-033", "SR-153", "IF-009", "IF-021"]
@@ -343,6 +409,8 @@ parameters = "host=set{Windows,Linux,macOS}; action=set{backup,list,remove,verif
 expected = "Install each declared native artifact on a clean provisioned host without language development tools. Exercise all actions, then remove engine/repository access and network and restore shared/raw/compressed states using each supported script route."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-184). Local release build/package; .github/workflows/native.yml. macOS/ARM artifacts and installer/user environment qualification remain."
+
 
 [test.TC-295]
 verifies = ["LLR-185", "SR-061", "SR-084", "SR-114", "SR-115", "SR-116", "SR-123", "SR-156", "IF-006", "IF-022"]
@@ -353,6 +421,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Feed the retained layout with declared supported and unsupported metadata/kit revisions through every action. Only explicitly supported combinations proceed; unknown required link metadata refuses or is reported without being silently ignored. Reuse of the current layout is not reported as tested support for old versions."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-185). backup::missing_source_and_invalid_old_store_do_not_replace_state. No older continuation versions designated; old stores retain old kits."
+
 
 [test.TC-296]
 verifies = ["LLR-186", "SR-007", "SR-084", "SR-110", "SR-117", "IF-009", "IF-025"]
@@ -363,6 +433,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Interrupt each kit file write and commit/validation boundary, remove one bundled dependency and request an unsupported-format refresh. A supported prior or new route remains usable, partial routes are detected, and state records/data bytes are unchanged. Existing previous-definition copies remain byte-identical through successful and interrupted kit refresh."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-186). maintenance::kit_refresh_preserves_previous_inventory_and_bytes. Every multi-file refresh interruption stage remains qualification."
+
 
 [test.TC-297]
 verifies = ["LLR-187", "SR-068", "SR-071", "SR-081", "SR-098", "SR-118", "IF-016"]
@@ -373,6 +445,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Paths with spaces/quotes, GNU/BSD utility variants, malformed archives, raw source archives, missing executables and tool timeouts produce equivalent documented outcomes across supported routes. No path becomes a shell command."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-187). backup::compression_probe_policy_and_disabled_new_compression_reuse; contracts::media_measurements_do_not_invent_zero_for_missing_duration. GNU/BSD/tool floor and malformed subprocess output matrix remain."
+
 
 [test.TC-298]
 verifies = ["LLR-188", "SR-049", "SR-064", "SR-112", "SR-113", "IF-024"]
@@ -383,6 +457,8 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Scale from small fixtures to the declared million-path/365-state corpus while observing all concurrent processes, scratch space and object reads. Peak combined RSS fits 2 GB, index deletion is recoverable, and script recovery works with no index or native binary."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-188). rust/examples/scale_fixture.rs; scripts/measure_native.py. One-million-row probe is not the full pool-cardinality or concurrent-RSS proof; spilling not implemented."
+
 
 [test.TC-299]
 verifies = ["LLR-189", "SR-064", "SR-112", "SR-113"]
@@ -393,6 +469,8 @@ parameters = "states=set{0,182,364,365}; paths=set{1,1000000}; bytes=set{0,2TiB}
 expected = "On the declared reference, each full check/restore completes in eight hours and routine capture in thirty minutes; observed memory stays inside the available budget. Repeated matched 182/364 runs show less-than-twofold time growth. Publish failures, environment and all trial values; no fixture-only timing is accepted as cross-host evidence."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-189). Synthetic metadata probes only. Full reference topology/2 TiB/365 states and repeated cold/warm runs not completed."
+
 
 [test.TC-300]
 verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157", "IF-009", "IF-021", "IF-022"]
@@ -403,6 +481,8 @@ parameters = "artifact=set{native,container,carried-kit}; material=set{guidance,
 expected = "Inspect every shipped artifact against its dependency/license inventory and support evidence. Required notices, recovery instructions and assurance/history limitations travel with the store; unsupported hosts are explicit. Inspection alone does not verify the configuration helper or offline recovery behavior."
 automated = "No"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-190). scripts/prepare_native_hash.py; docs/native-usage.md; docs/native-support.md. Support material is linked to actual local results; full platform/notice qualification remains."
+
 
 [test.TC-301]
 verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157", "IF-009", "IF-021", "IF-022"]
@@ -413,3 +493,4 @@ parameters = "host=set{Windows,Linux,macOS}; route=set{PowerShell,bash}; network
 expected = "Run the shipped configuration helper and examples with only location substitution, then back up and recover a fixture on each supported provisioned host with network and engine access removed. Assert guidance and required notices exist in native/container/carried artifacts, result field meanings match the emitted events, and support labels match the designated matrix. Human assessment of clarity and license obligations remains TC-300."
 automated = "Yes"
 status = "Drafted"
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-190). scripts/prepare_native_hash.py; docs/native-usage.md; docs/native-support.md. Support material is linked to actual local results; full platform/notice qualification remains."

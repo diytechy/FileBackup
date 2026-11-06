@@ -5,6 +5,12 @@ the current PowerShell engine. They are a user-oriented view; the generated
 function map remains in [architecture.md](architecture.md), and the detailed
 rules remain in [AGENTS.md](../AGENTS.md).
 
+The Rust preview retains this main loop, with explicit previous-definition
+preservation before mutation and directory/link changes included in history.
+Its [native flow/design](plans/native-design-2026-11-05/flows.md),
+[implementation bindings](plans/native-design-2026-11-05/implementation-map.md)
+and [usage/support limits](native-usage.md) describe the implemented transition.
+
 ## 1. One run, from the user's perspective
 
 A configuration can contain several backup sets. Each set pairs one source

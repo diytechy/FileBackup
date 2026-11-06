@@ -4,6 +4,15 @@ Everything needed to safely modify FileBackup. Users who just want to run it sho
 [README.md](README.md); this file is the single source for architecture, invariants,
 conventions, the test matrix, and history.
 
+The native preview lives in `rust/`, with independent extended recovery readers
+in `recovery/`. Follow [its workorder](docs/plans/native-design-2026-11-05/implementation-workorder.md)
+and [support limits](docs/native-support.md). Run Cargo tests with `test-hooks`
+for interruption fixtures and build release artifacts without that feature.
+Keep build caches/scratch on a volume with space; this machine uses
+`D:/FileBackupBuild`. The generated maps below still describe the maintained
+PowerShell reference engine. Native implementation evidence does not silently
+approve drafted requirements or qualify an untested platform.
+
 ---
 
 ## 1. What this is

@@ -1,5 +1,10 @@
 # Native implementation: initial design breakdown
 
+Implementation now proceeds under the owner's authorization in the
+[native workorder](implementation-workorder.md). The text below records the
+initial design package; current execution evidence and limitations live with
+that workorder.
+
 Draft for owner review, 2026-11-05, against the 121 accepted SRs at `9e03be4`.
 This package changes documentation and proposed allocation only. No Rust engine,
 restore behavior, approved upstream record, approval snapshot or hook is changed.

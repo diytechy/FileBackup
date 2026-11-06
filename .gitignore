@@ -28,3 +28,6 @@ tests/Config/real-volumes.json
 
 # Generated interactive trace view
 docs/test/report.html
+
+# Native build products (normally redirected off C: by scripts/Invoke-Native.ps1).
+rust/target/
