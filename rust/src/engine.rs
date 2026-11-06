@@ -739,6 +739,9 @@ fn reconcile_directories(
             || format::ancestors(&d).any(|p| files.contains(p));
         !conflicts
     });
+    // Release the per-file sets before building the per-directory ones.
+    drop(files);
+    drop(parents);
     let links: BTreeSet<_> = dirs
         .iter()
         .filter(|d| d.kind == "FolderLink")
