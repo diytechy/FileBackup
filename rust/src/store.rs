@@ -60,6 +60,7 @@ impl Store {
                             let n = e.file_name();
                             n == format::MANIFEST
                                 || n == format::DIRECTORIES
+                                || n == "FileBackupState.json"
                                 || kit::members().any(|k| n == k)
                                 || n.to_string_lossy().starts_with(".tmp")
                         })),
@@ -89,9 +90,7 @@ impl Store {
         fs::create_dir_all(&self.history)?;
         // Publish a fully initialized directory. An interrupted first run must
         // not strand an empty CurrentBackup that looks like damaged history.
-        let staged = tempfile::Builder::new()
-            .prefix("Initializing_")
-            .tempdir_in(&self.root)?;
+        let staged = platform::store_temp_dir("Initializing_", &self.root)?;
         kit::publish(staged.path())?;
         platform::atomic_write(
             &staged.path().join(format::MANIFEST),
@@ -101,6 +100,13 @@ impl Store {
         platform::atomic_write(
             &staged.path().join(format::DIRECTORIES),
             &format::directory_bytes(&[])?,
+            false,
+        )?;
+        // A first run hashes everything it captures, so the schedule starts here.
+        // Without this, a killed first run would re-read all it had stored.
+        platform::atomic_write(
+            &staged.path().join("FileBackupState.json"),
+            &serde_json::to_vec(&serde_json::json!({"LastHashRun":Utc::now().to_rfc3339()}))?,
             false,
         )?;
         fs::rename(staged.path(), &self.current)?;
@@ -302,10 +308,7 @@ impl Store {
         let root = self.root.join("Verify");
         fs::create_dir_all(&root)?;
         platform::ordinary_dir(&root)?;
-        let folder = tempfile::Builder::new()
-            .prefix("object-")
-            .tempdir_in(&root)?
-            .keep();
+        let folder = platform::store_temp_dir("object-", &root)?.keep();
         let target = folder.join(path.file_name().context("missing object name")?);
         fs::rename(path, &target)?;
         platform::sync_directory(path.parent().unwrap())?;
@@ -379,9 +382,7 @@ impl Store {
         let name = date.format("%Y_%m_%d_%H_%M_%S").to_string();
         let target = self.history.join(&name);
         ensure!(!target.try_exists()?, "snapshot identity collision");
-        let staged = tempfile::Builder::new()
-            .prefix("Building_")
-            .tempdir_in(&self.history)?;
+        let staged = platform::store_temp_dir("Building_", &self.history)?;
         kit::publish(staged.path())?;
         platform::atomic_write_with(&staged.path().join(format::MANIFEST), false, |file| {
             format::write_manifest(file, rows)

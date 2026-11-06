@@ -203,3 +203,21 @@ fn carried_shell_and_unicode_data_have_lf_endings() {
         }
     }
 }
+
+#[test]
+fn source_and_store_may_not_contain_each_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let outer = dir.path().join("outer");
+    let inner = outer.join("inner");
+    fs::create_dir_all(&inner).unwrap();
+    let path = dir.path().join("config.json");
+    for (source, store) in [(&outer, &inner), (&inner, &outer)] {
+        let set = serde_json::json!({"Name":"one","SourcePath":source,"StorePath":store});
+        fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({"ConfigVersion":3,"BackupSets":[set]})).unwrap(),
+        )
+        .unwrap();
+        assert!(config::load(&path).is_err());
+    }
+}

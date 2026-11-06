@@ -165,6 +165,27 @@ pub fn sync_directory(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+/// Store files take the host's ordinary creation mode, so umask and any default
+/// ACL decide who may read the store, not tempfile's private default.
+pub fn store_temp_file(parent: &Path) -> std::io::Result<tempfile::NamedTempFile> {
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o666));
+    }
+    builder.tempfile_in(parent)
+}
+pub fn store_temp_dir(prefix: &str, parent: &Path) -> std::io::Result<tempfile::TempDir> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(prefix);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o777));
+    }
+    builder.tempdir_in(parent)
+}
 // Implements: LLR-165/166. tempfile persist uses host rename/replace semantics.
 pub fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
     atomic_write_with(path, replace, |file| Ok(file.write_all(bytes)?))
@@ -183,13 +204,12 @@ pub fn atomic_write_with(
             "redirected publication target"
         );
     }
-    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    let mut tmp = store_temp_file(parent)?;
     write(tmp.as_file_mut())?;
     #[cfg(unix)]
     if let Some(metadata) = entry_metadata(path)? {
         tmp.as_file().set_permissions(metadata.permissions())?;
     }
-    // New metadata is private (0600 on Unix); the backup owner runs the carried kit.
     tmp.as_file().sync_all()?;
     #[cfg(unix)]
     {

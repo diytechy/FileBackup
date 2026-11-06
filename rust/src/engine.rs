@@ -167,8 +167,14 @@ fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
             };
             result.observed += 1;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                // Freeze this entry alone; a lossy name matches no real path.
+                let lossy = entry.file_name().to_string_lossy().into_owned();
                 result.complete = false;
-                result.frozen.push(relative.clone());
+                result.frozen.push(if relative.is_empty() {
+                    lossy
+                } else {
+                    format!("{relative}/{lossy}")
+                });
                 continue;
             };
             let rel = if relative.is_empty() {
@@ -478,7 +484,7 @@ fn capture(
     {
         return Err(platform::HostStop("insufficient staging capacity").into());
     }
-    let mut staged = tempfile::NamedTempFile::new_in(&incoming)?;
+    let mut staged = platform::store_temp_file(&incoming)?;
     let key = format::copy_hash(File::open(path)?, &mut staged)?;
     staged.as_file().sync_all()?;
     // Close the staging writer before another process reads the file on Windows.
@@ -843,11 +849,10 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 wait_budget -= delay;
             }
             let current = fs::metadata(&path).ok();
-            let reusable = attempt == 0
+            let recorded = attempt == 0
                 && rows.get(&key).is_some_and(|row| {
                     let row = row.as_ref();
-                    !reread
-                        && row.relative_path == *relative
+                    row.relative_path == *relative
                         && current.as_ref().is_some_and(|m| {
                             m.len() == row.length && modified(m).is_ok_and(|v| v == row.modified)
                         })
@@ -855,9 +860,29 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                             .get(&row.key())
                             .is_some_and(|objects| objects.iter().any(usable))
                 });
-            if reusable {
-                report.reused += 1;
-                continue;
+            if recorded {
+                // A scheduled re-read hashes a recorded file in place and writes
+                // nothing. Changed bytes fall through to a staged capture, so an
+                // object is still named after the bytes written. Stored objects
+                // are the deep verify's job, on its own cadence.
+                let found = reread.then(|| format::hash_file(&path));
+                let same = match &found {
+                    None => true,
+                    Some(Ok(found)) => rows.get(&key).is_some_and(|r| r.as_ref().key() == *found),
+                    Some(Err(_)) => false,
+                };
+                if same {
+                    report.reused += 1;
+                    continue;
+                }
+                if matches!(found, Some(Ok(_))) {
+                    report.finding_at(
+                        0,
+                        "content_changed_on_reread",
+                        Some(relative),
+                        "Content changed with size and time unchanged; capturing it".into(),
+                    );
+                }
             }
             let outcome = match capture(
                 set,
@@ -1035,7 +1060,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         let old_state = fs::read(store.current.join("FileBackupState.json"))
             .ok()
             .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok());
-        let last_hash = if reread && report.code == 0 {
+        let last_hash = if reread {
             Some(Utc::now().to_rfc3339())
         } else {
             old_state

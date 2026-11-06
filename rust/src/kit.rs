@@ -37,7 +37,7 @@ pub fn publish(folder: &Path) -> Result<()> {
         #[cfg(unix)]
         if name.ends_with(".sh") || name.ends_with(".command") {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(folder.join(name), std::fs::Permissions::from_mode(0o700))?;
+            std::fs::set_permissions(folder.join(name), std::fs::Permissions::from_mode(0o750))?;
         }
     }
     let inventory: String = FILES

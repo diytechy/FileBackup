@@ -26,6 +26,8 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **HUB FIXES (2026-11-06).** A hub-shaped audit found five faults the native suite did not reach; details are in HomeHub `docs/reviews/2026-11-06-filebackup-native/`. A scheduled re-read now hashes a file already in the manifest in place and writes nothing; stored objects are left to the deep verify, because the library re-read and the backup verify are two separate cadences. The re-read date advances on any re-read run and starts with the store, so a lasting exit 1 or a killed first run no longer re-reads everything. A non-Unicode name freezes itself only. The bash kit refuses a zero-byte manifest. Store files take the host creation mode (umask and default ACL) rather than 0600.
+
 - **NATIVE MEMORY REDUCED (2026-11-06).** [Implementation and measurements](plans/native-design-2026-11-05/memory-optimization-2026-11-06.md)
   replace redundant maps/copies with shared records and streamed publication.
   The million-file release backup measured 973 MB RSS; both platform suites and
