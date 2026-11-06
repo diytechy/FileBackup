@@ -9,8 +9,11 @@ history as a conversion experiment.
 The executable includes hashing and 7z compression/decompression; native backup,
 verification and retention need no installed 7-Zip, compiler or PowerShell runtime.
 Codec work runs in a short-lived copy of the same executable with a finite deadline.
-The streaming LZMA2 encoder uses the fast preset, one thread and at most an
-8 MiB dictionary. Compression speed and ratio can differ from external 7-Zip.
+The LZMA2 encoder uses level 5, a 32 MiB default dictionary (reduced for smaller
+inputs), and up to two encoder workers. Files over 128 MiB use independent
+128 MiB chunks; smaller files stream through one encoder. This matches the
+installed 7-Zip 24.09 `-mx=5` dictionary and a two-worker limit, but its threading
+differs from 7-Zip's `-mmt=2` pipeline. Speed, memory and ratio can therefore differ.
 Optional media-duration reporting still uses locally configured `ffprobe`.
 PowerShell/bash recovery remains independent and has its own prerequisites below,
 including external 7-Zip for compressed objects. See the shipped

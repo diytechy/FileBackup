@@ -44,12 +44,16 @@ commands. Hard deadlines for blocked source filesystem I/O, full reference
 resource measurements and remaining permutations are still open. See the
 [implementation bindings](plans/native-design-2026-11-05/implementation-map.md).
 
-Native compression and verification now include the 7z codec in the executable;
-script recovery retains its independent extractor prerequisites. A codec-only
-1 GiB compressible-file probe measured 7.438 seconds / 52,305,920 bytes peak RSS
-for the selected fast encoder, versus 4.718 seconds / 401,653,760 bytes for
-external 7-Zip. This is one warm-cache, four-logical-CPU-affinity probe, not a
-replacement for full workload qualification. See the
+Native compression and verification include the 7z codec in the executable;
+script recovery retains its independent extractor prerequisites. The owner-requested
+comparison baseline now uses level 5, a 32 MiB default dictionary and up to two
+encoder workers. Three 1 GiB compressible-file probes measured a median 20.328 s
+and up to 1,182,126,080 bytes codec RSS, versus 5.079 s and 401,670,144 bytes for
+external 7-Zip. The Rust library parallelizes buffered chunks rather than 7-Zip's
+match-finder pipeline; equal level/dictionary/worker limits do not imply identical
+execution. This baseline leaves little room for large indexes under the 2 GB
+combined limit and is not qualified for that envelope. Prior fast-preset memory
+results describe the superseded configuration. See the
 [embedded codec results](plans/native-design-2026-11-05/embedded-codec-2026-11-06.md).
 Recovery targets must be supplied in their ordinary, fully expanded absolute
 spelling; DOS short-name aliases and case aliases on unqualified hosts are not

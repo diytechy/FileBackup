@@ -259,13 +259,20 @@ pub fn codec_worker() -> i32 {
             use sevenz_rust2::{ArchiveEntry, ArchiveWriter, encoder_options::Lzma2Options};
             let source = File::open(&input)?;
             let length = source.metadata()?.len();
-            // Single-thread streaming avoids per-thread chunk copies. Reduce the
-            // dictionary for small files; cap it at 8 MiB for larger inputs.
-            let mut options = Lzma2Options::from_level(1);
+            // Match 7-Zip 24.09 -mx=5's 32 MiB default dictionary and allow
+            // two encoder workers. This library parallelizes independent chunks,
+            // not the match-finder pipeline used by 7-Zip's -mmt=2.
+            const DICTIONARY: u64 = 32 * 1024 * 1024;
+            const CHUNK: u64 = 4 * DICTIONARY;
+            let mut options = if length > CHUNK {
+                Lzma2Options::from_level_mt(5, 2, CHUNK)
+            } else {
+                // A single chunk cannot use the second worker; stream it directly.
+                Lzma2Options::from_level(5)
+            };
+            // Like 7-Zip, reduce the dictionary for inputs below its default.
             // LZMA2's header must represent the encoder's complete window.
-            options.set_dictionary_size(
-                    length.clamp(4096, 8 * 1024 * 1024).next_power_of_two() as u32,
-                );
+            options.set_dictionary_size(length.clamp(4096, DICTIONARY).next_power_of_two() as u32);
             let destination = std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
