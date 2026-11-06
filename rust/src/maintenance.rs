@@ -306,7 +306,22 @@ fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) 
             "Object is outside its declared shard; not usable pool supply".into(),
         );
         if repair {
-            store.quarantine(&path)?;
+            // An only copy goes home, not aside; its bytes must prove its name.
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .context("non-Unicode object name")?;
+            let home = store.path(name)?;
+            if !home.try_exists()? && tools::verify(&path, &format::parse_name(name)?)? {
+                let parent = home.parent().context("object has no shard")?;
+                fs::create_dir_all(parent)?;
+                platform::ordinary_dir(parent)?;
+                fs::rename(&path, &home)?;
+                platform::sync_directory(path.parent().context("object has no folder")?)?;
+                platform::sync_directory(parent)?;
+            } else {
+                store.quarantine(&path)?;
+            }
         }
     }
     Ok(())
