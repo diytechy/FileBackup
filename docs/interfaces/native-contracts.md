@@ -99,8 +99,10 @@ Owner: `rust/src/tools.rs`. Channel: `call`. Coverage: LLR-154, LLR-162, LLR-187
 
 Admit action-dependent local tools and execute direct argument arrays with bounded output, diagnostic classification and no path interpolation through a shell. Required absence refuses with provisioning guidance; optional tools report skipped features. Native embedded libraries are implementation, not external prerequisites. PowerShell/bash recovery implements the same documented tool semantics locally without loading native code. Declare supported tool floors/flavors and distinguish byte damage from host inability. Automatic package download is not offered in the initial design, so B-11 remains conditional and unrealized.
 
-Native 7z encoding/verification uses the embedded codec through a bounded worker
-invocation of the same executable. Verification streams the single object's bytes
+Native 7z encoding/verification invokes the pinned official helper shipped at
+`tools/7zip` relative to the executable, with no runtime download or PATH fallback.
+Build/package provisioning verifies pinned archive digests and includes license
+notices and corresponding source. Verification streams the single object's bytes
 into the content hash without extracting archive paths. Standard single-file
 LZMA/LZMA2/COPY objects remain readable by the native verifier; newly written
 objects use LZMA2 and remain extractable by independent 7-Zip tools. Encryption

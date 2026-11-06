@@ -22,7 +22,7 @@ jobs:
       - name: Validate performance sampler
         run: |
           python -m pip install -r scripts/requirements-performance.txt
-          python -m unittest discover -s tests -p test_native_measure.py
+          python -m unittest discover -s tests -p "test_native_*.py"
       - name: Install Linux recovery tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gawk xxhash p7zip-full shellcheck
@@ -40,6 +40,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Dependency provisioning failed' }
           "FILEBACKUP_HASH_DLL=$dll" >> $env:GITHUB_ENV
           "CARGO_TARGET_DIR=$(Join-Path $env:RUNNER_TEMP 'native-target')" >> $env:GITHUB_ENV
+          python scripts/prepare_native_sevenzip.py --cache (Join-Path $env:RUNNER_TEMP 'sevenzip') --output (Join-Path $env:RUNNER_TEMP 'native-target/debug/tools/7zip')
+          if ($LASTEXITCODE) { throw '7-Zip provisioning failed' }
           rustc -vV
       - name: Format, lint and exercised contracts
         shell: pwsh
@@ -59,7 +61,7 @@ jobs:
           cargo build --locked --release --manifest-path rust/Cargo.toml
           if ($LASTEXITCODE) { throw 'Release build failed' }
           $name = if ($IsWindows) { 'filebackup.exe' } else { 'filebackup' }
-          python scripts/package_native.py --binary (Join-Path $env:CARGO_TARGET_DIR "release/$name") --output (Join-Path $env:RUNNER_TEMP 'native-preview')
+          python scripts/package_native.py --binary (Join-Path $env:CARGO_TARGET_DIR "release/$name") --output (Join-Path $env:RUNNER_TEMP 'native-preview') --sevenzip-cache (Join-Path $env:RUNNER_TEMP 'sevenzip') --offline
           if ($LASTEXITCODE) { throw 'Notice/package assembly failed' }
       - uses: actions/upload-artifact@v4
         with:

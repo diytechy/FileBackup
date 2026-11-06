@@ -723,6 +723,9 @@ fn record_changes(
 }
 fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result<()> {
     kit::preflight()?;
+    if set.compress {
+        tools::preflight()?;
+    }
     let store = Store::new(&set.store);
     if store.root.join("PrunePlan.json").exists() {
         report.finding(

@@ -29,6 +29,11 @@ try {
     $env:TMP = $env:TEMP
     $env:TMPDIR = $env:TEMP
     $manifest = Join-Path $repo 'rust/Cargo.toml'
+    if ($Action -ne 'Format') {
+        $profile = if ($Release) { 'release' } else { 'debug' }
+        python (Join-Path $repo 'scripts/prepare_native_sevenzip.py') --cache (Join-Path $BuildRoot 'sevenzip/26.05') --output (Join-Path $env:CARGO_TARGET_DIR "$profile/tools/7zip")
+        if ($LASTEXITCODE) { throw 'Bundled 7-Zip provisioning failed' }
+    }
     $cargoArgs = switch ($Action) {
         'Test' { @('test','--locked','--manifest-path',$manifest,'--features','test-hooks') }
         'Build' { @('build','--locked','--manifest-path',$manifest) }

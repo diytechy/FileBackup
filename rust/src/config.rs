@@ -233,7 +233,7 @@ pub fn load(path: &Path) -> Result<Config> {
             }
         }
     }
-    // Accepted for existing configurations; native 7z is now built in.
+    // Accepted for existing configurations; native operations always use the packaged helper.
     let _ = tool("SevenZipPath")?;
     Ok(Config {
         sets,

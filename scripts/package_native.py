@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import zipfile
+from prepare_native_sevenzip import provision
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -15,11 +16,16 @@ def main():
     parser.add_argument("--binary", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--target", help="Rust target triple; defaults to the build host")
+    parser.add_argument("--sevenzip-cache", type=Path, help="Pinned download cache (may be prepopulated for offline builds)")
+    parser.add_argument("--offline", action="store_true", help="Require cached 7-Zip archives; never download")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("output directory already exists; choose a fresh directory")
     target = args.target or next(line.split(": ", 1)[1] for line in subprocess.check_output(["rustc", "-vV"], text=True).splitlines() if line.startswith("host: "))
-    metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", target, "--manifest-path", str(ROOT / "rust/Cargo.toml")]))
+    metadata_command = ["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", target, "--manifest-path", str(ROOT / "rust/Cargo.toml")]
+    if args.offline:
+        metadata_command.append("--offline")
+    metadata = json.loads(subprocess.check_output(metadata_command))
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
     active = set()
     pending = [metadata["resolve"]["root"]]
@@ -49,12 +55,14 @@ def main():
             relative = path.relative_to(home).as_posix().replace("/", "_")
             notices[f"notices/{name}/{relative}"] = path.read_bytes()
     args.output.mkdir(parents=True)
+    inventory.append(provision(args.sevenzip_cache or args.binary.parent / ".sevenzip-cache",
+                               args.output / "tools" / "7zip", target, args.offline))
     shutil.copy2(args.binary, args.output / args.binary.name)
     for source, destination in (("docs/native-usage.md", "README.md"), ("docs/native-support.md", "native-support.md"), ("recovery/THIRD-PARTY-NOTICES.txt", "RECOVERY-NOTICES.txt")):
         shutil.copy2(ROOT / source, args.output / destination)
     support = args.output / "native-support.md"
     text = support.read_text(encoding="utf-8")
-    for label, filename in (("implementation workorder", "implementation-workorder.md"), ("implementation bindings", "implementation-map.md"), ("performance validation", "performance-validation.md"), ("owner-corrected reference", "owner-hdd-reference.md"), ("memory optimization results", "memory-optimization-2026-11-06.md"), ("embedded codec results", "embedded-codec-2026-11-06.md")):
+    for label, filename in (("implementation workorder", "implementation-workorder.md"), ("implementation bindings", "implementation-map.md"), ("performance validation", "performance-validation.md"), ("owner-corrected reference", "owner-hdd-reference.md"), ("memory optimization results", "memory-optimization-2026-11-06.md"), ("embedded codec results", "embedded-codec-2026-11-06.md"), ("bundled helper results", "bundled-sevenzip-2026-11-06.md")):
         text = text.replace(f"[{label}](plans/native-design-2026-11-05/{filename})", f"{label} in the source repository")
     support.write_text(text, encoding="utf-8")
     for relative, data in notices.items():

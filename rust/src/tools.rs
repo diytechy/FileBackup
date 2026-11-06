@@ -1,11 +1,11 @@
-//! IF-016: built-in 7z codec and bounded optional tools; no shell interpolation.
+//! IF-016: packaged 7-Zip and bounded optional tools; no shell interpolation.
 use crate::format::{ContentKey, hash_file};
 use anyhow::{Context, Result, ensure};
 use std::{
     fs::File,
     io::Read,
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdout, Command, ExitStatus, Stdio},
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -106,24 +106,45 @@ impl Drop for ToolChild {
         }
     }
 }
-pub fn output(cmd: &mut Command, limit: u64, timeout: Duration) -> Result<Vec<u8>> {
+// One lifetime/deadline implementation for bounded text output and streamed hashes.
+fn invoke<T: Send + 'static>(
+    cmd: &mut Command,
+    timeout: Duration,
+    read: impl FnOnce(ChildStdout) -> Result<T> + Send + 'static,
+) -> Result<(ExitStatus, T, Vec<u8>)> {
     let mut child = ToolChild::spawn(
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null()),
+            .stderr(Stdio::piped()),
     )?;
-    let pipe = child.stdout.take().context("missing output pipe")?;
+    let stdout = child.stdout.take().context("missing output pipe")?;
+    let mut stderr = child.stderr.take().context("missing diagnostic pipe")?;
     let (send, receive) = mpsc::sync_channel(1);
     thread::spawn(move || {
+        let _ = send.send(read(stdout));
+    });
+    let (send_error, receive_error) = mpsc::sync_channel(1);
+    thread::spawn(move || {
         let mut bytes = Vec::new();
-        let result = pipe
-            .take(limit.saturating_add(1))
-            .read_to_end(&mut bytes)
-            .map(|_| bytes);
-        let _ = send.send(result);
+        let result: std::io::Result<Vec<u8>> = (|| {
+            stderr.by_ref().take(8192).read_to_end(&mut bytes)?;
+            std::io::copy(&mut stderr, &mut std::io::sink())?;
+            Ok(bytes)
+        })();
+        let _ = send_error.send(result);
     });
     let start = Instant::now();
+    let mut result = None;
     let status = loop {
+        if result.is_none() {
+            match receive.try_recv() {
+                Ok(value) => result = Some(value?), // A limit violation kills the child immediately.
+                Err(mpsc::TryRecvError::Empty) => (),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err(crate::platform::HostStop("tool reader unavailable").into());
+                }
+            }
+        }
         if let Some(status) = child.try_wait()? {
             break status;
         }
@@ -132,13 +153,39 @@ pub fn output(cmd: &mut Command, limit: u64, timeout: Duration) -> Result<Vec<u8
         }
         thread::sleep(Duration::from_millis(20));
     };
-    let bytes = receive
+    let result = match result {
+        Some(value) => value,
+        None => receive
+            .recv_timeout(timeout.saturating_sub(start.elapsed()))
+            .map_err(|_| {
+                crate::platform::HostStop("tool output did not close before deadline")
+            })??,
+    };
+    let diagnostic = receive_error
         .recv_timeout(timeout.saturating_sub(start.elapsed()))
-        .map_err(|_| crate::platform::HostStop("tool output did not close before deadline"))??;
-    ensure!(
-        status.success() && bytes.len() as u64 <= limit,
-        "tool failed or exceeded output budget"
-    );
+        .map_err(|_| {
+            crate::platform::HostStop("tool diagnostics did not close before deadline")
+        })??;
+    Ok((status, result, diagnostic))
+}
+fn capture_output(
+    cmd: &mut Command,
+    limit: u64,
+    timeout: Duration,
+) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    invoke(cmd, timeout, move |pipe| {
+        let mut bytes = Vec::new();
+        pipe.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > limit {
+            return Err(anyhow::Error::new(OutputLimit)
+                .context(crate::platform::HostStop("tool exceeded output budget")));
+        }
+        Ok(bytes)
+    })
+}
+pub fn output(cmd: &mut Command, limit: u64, timeout: Duration) -> Result<Vec<u8>> {
+    let (status, bytes, _) = capture_output(cmd, limit, timeout)?;
+    ensure!(status.success(), "tool exited unsuccessfully: {status}");
     Ok(bytes)
 }
 pub fn parse_media_rate(length: u64, duration: &str) -> Option<String> {
@@ -192,174 +239,113 @@ pub fn media_rate(
         parse_media_rate(length, duration).context("media duration unavailable or nonpositive")?,
     ))
 }
-pub fn run(cmd: &mut Command, timeout: Duration) -> Result<()> {
-    let mut child = ToolChild::spawn(
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null()),
-    )?;
-    let start = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait()? {
-            ensure!(status.success(), "tool exited unsuccessfully: {status}");
-            return Ok(());
-        }
-        if start.elapsed() >= timeout {
-            return Err(crate::platform::HostStop("tool deadline exceeded").into());
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-}
-// Reuse the executable and existing process deadline/cleanup rather than requiring
-// an installed compressor or leaving an uninterruptible codec thread in the engine.
-fn codec_command() -> Result<Command> {
+pub fn bundled_seven_zip() -> Result<PathBuf> {
     let executable = std::env::current_exe()?;
+    let directory = executable
+        .parent()
+        .context("executable directory unavailable")?;
     #[cfg(feature = "test-hooks")]
-    let executable =
-        if executable.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new("deps")) {
-            // Cargo integration tests call the library from a test harness. Cargo also
-            // builds the actual CLI alongside deps; exercise its real worker route.
-            executable
-                .parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .join(format!("filebackup{}", std::env::consts::EXE_SUFFIX))
-        } else {
-            executable
-        };
-    let mut command = Command::new(executable);
-    command.arg("__codec_worker");
-    Ok(command)
+    let directory = if directory.file_name() == Some(std::ffi::OsStr::new("deps")) {
+        directory
+            .parent()
+            .context("Cargo output directory unavailable")?
+    } else {
+        directory
+    };
+    let name = if cfg!(windows) { "7za.exe" } else { "7zz" };
+    let path = directory.join("tools").join("7zip").join(name);
+    ensure!(
+        path.is_file(),
+        crate::platform::HostStop(
+            "bundled 7-Zip missing; extract the complete FileBackup package including tools/7zip"
+        )
+    );
+    Ok(path)
 }
-fn codec_result(command: &mut Command, length: u64) -> Result<Option<ContentKey>> {
-    let bytes = output(command, 4096, deadline(length))?;
-    let result: std::result::Result<Option<ContentKey>, String> = serde_json::from_slice(&bytes)?;
-    result.map_err(|message| {
-        anyhow::Error::new(crate::platform::HostStop("codec unavailable")).context(message)
-    })
+fn seven_zip_command() -> Result<Command> {
+    Ok(Command::new(bundled_seven_zip()?))
 }
-pub fn compress(input: &Path, archive: &Path) -> Result<()> {
-    codec_result(
-        codec_command()?.arg("compress").arg(input).arg(archive),
-        std::fs::metadata(input)?.len(),
+// Only explicit corruption diagnostics establish damage. Unsupported formats,
+// password requirements, allocation failures and OS errors remain unavailable.
+fn seven_zip_success(status: ExitStatus, diagnostic: &[u8]) -> Result<bool> {
+    if status.success() {
+        return Ok(true);
+    }
+    let message = String::from_utf8_lossy(diagnostic).to_lowercase();
+    if status.code() == Some(2)
+        && !["wrong password", "unsupported method"]
+            .iter()
+            .any(|text| message.contains(text))
+        && message.lines().any(|line| {
+            let line = line.trim();
+            matches!(
+                line,
+                "data error"
+                    | "crc failed"
+                    | "headers error"
+                    | "unexpected end of archive"
+                    | "is not archive"
+                    | "unavailable data"
+            ) || [
+                "error: data error",
+                "error: crc failed",
+                "error: headers error",
+                "error: unexpected end",
+                "error: unavailable data",
+            ]
+            .iter()
+            .any(|prefix| line.starts_with(prefix))
+        })
+    {
+        return Ok(false);
+    }
+    Err(anyhow::Error::new(crate::platform::HostStop(
+        "bundled 7-Zip could not complete the operation",
+    ))
+    .context(message))
+}
+pub fn preflight() -> Result<()> {
+    let (status, _, diagnostic) = capture_output(
+        seven_zip_command()?.arg("i"),
+        256 * 1024,
+        Duration::from_secs(10),
     )?;
+    ensure!(
+        seven_zip_success(status, &diagnostic)?,
+        "bundled 7-Zip preflight failed"
+    );
     Ok(())
 }
-// Internal entry point: only the parent-facing result is written to stdout.
-// Verification streams into a hash, never to archive-supplied filesystem paths.
-pub fn codec_worker() -> i32 {
-    let result = (|| -> Result<Option<ContentKey>> {
-        let mut args = std::env::args_os().skip(2);
-        let operation = args.next().context("missing codec operation")?;
-        let input = PathBuf::from(args.next().context("missing codec input")?);
-        let argument = args.next().context("missing codec argument")?;
-        ensure!(args.next().is_none(), "unexpected codec argument");
-        if operation == "compress" {
-            use sevenz_rust2::{ArchiveEntry, ArchiveWriter, encoder_options::Lzma2Options};
-            let source = File::open(&input)?;
-            let length = source.metadata()?.len();
-            // Match 7-Zip 24.09 -mx=5's 32 MiB default dictionary and allow
-            // two encoder workers. This library parallelizes independent chunks,
-            // not the match-finder pipeline used by 7-Zip's -mmt=2.
-            const DICTIONARY: u64 = 32 * 1024 * 1024;
-            const CHUNK: u64 = 4 * DICTIONARY;
-            let mut options = if length > CHUNK {
-                Lzma2Options::from_level_mt(5, 2, CHUNK)
-            } else {
-                // A single chunk cannot use the second worker; stream it directly.
-                Lzma2Options::from_level(5)
-            };
-            // Like 7-Zip, reduce the dictionary for inputs below its default.
-            // LZMA2's header must represent the encoder's complete window.
-            options.set_dictionary_size(length.clamp(4096, DICTIONARY).next_power_of_two() as u32);
-            let destination = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(PathBuf::from(argument))?;
-            let mut writer = ArchiveWriter::new(destination)?;
-            writer.set_content_methods(vec![options.into()]);
-            writer.push_archive_entry(
-                ArchiveEntry::from_path(&input, "content".into()),
-                Some(source),
-            )?;
-            writer.finish()?.sync_all()?;
-            Ok(None)
-        } else {
-            ensure!(operation == "verify", "unknown codec operation");
-            let expected: u64 = argument.to_str().context("invalid length")?.parse()?;
-            let source = File::open(&input)?;
-            match decode_key(source, expected) {
-                Ok(key) => Ok(key),
-                // Short/corrupt streams are content damage, not a host outage.
-                Err(e) => classify_decode_error(e),
-            }
-        }
-    })()
-    .map_err(|e| format!("{e:#}").chars().take(1024).collect::<String>());
-    match serde_json::to_writer(std::io::stdout(), &result) {
-        Ok(()) => 0,
-        Err(_) => 4,
+pub fn compress(input: &Path, archive: &Path) -> Result<()> {
+    ensure!(!archive.exists(), "compression destination already exists");
+    let (status, _, diagnostic) = capture_output(
+        seven_zip_command()?
+            .args([
+                "a", "-t7z", "-mx=5", "-mmt=2", "-y", "-bso0", "-bsp0", "-spd", "-sae", "--",
+            ])
+            .arg(archive)
+            .arg(input),
+        4096,
+        deadline(std::fs::metadata(input)?.len()),
+    )?;
+    ensure!(
+        seven_zip_success(status, &diagnostic)?,
+        "compression failed"
+    );
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(archive)?
+        .sync_all()?;
+    Ok(())
+}
+#[derive(Debug)]
+struct OutputLimit;
+impl std::fmt::Display for OutputLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stored object output exceeds expected limits")
     }
 }
-fn classify_decode_error(error: sevenz_rust2::Error) -> Result<Option<ContentKey>> {
-    use sevenz_rust2::Error;
-    match error {
-        Error::Io(e, _) => {
-            let crc_mismatch = matches!(
-                e.get_ref().and_then(|inner| inner.downcast_ref::<Error>()),
-                Some(Error::ChecksumVerificationFailed)
-            );
-            if crc_mismatch
-                || matches!(
-                    e.kind(),
-                    std::io::ErrorKind::InvalidData
-                        | std::io::ErrorKind::InvalidInput
-                        | std::io::ErrorKind::UnexpectedEof
-                )
-            {
-                Ok(None)
-            } else {
-                Err(e.into())
-            }
-        }
-        // An unavailable decoder is not evidence that stored bytes are damaged.
-        e @ (Error::UnsupportedCompressionMethod(_)
-        | Error::Unsupported(_)
-        | Error::UnsupportedVersion { .. }
-        | Error::ExternalUnsupported
-        | Error::PasswordRequired
-        | Error::MaxMemLimited { .. }
-        | Error::FileOpen(_, _)) => Err(e.into()),
-        _ => Ok(None),
-    }
-}
-fn decode_key(
-    source: File,
-    expected: u64,
-) -> std::result::Result<Option<ContentKey>, sevenz_rust2::Error> {
-    use sevenz_rust2::{ArchiveReader, Password};
-    let mut reader = ArchiveReader::new(source, Password::empty())?;
-    reader.set_thread_count(1);
-    let files = &reader.archive().files;
-    if files.len() != 1 || files[0].is_directory || files[0].size != expected {
-        return Ok(None);
-    }
-    let mut key = None;
-    reader.for_each_entries(|_, content| {
-        key = Some(
-            crate::format::copy_hash(content.take(expected.saturating_add(1)), std::io::sink())
-                .map_err(|e| {
-                    sevenz_rust2::Error::from(
-                        e.downcast::<std::io::Error>()
-                            .unwrap_or_else(std::io::Error::other),
-                    )
-                })?,
-        );
-        Ok(true)
-    })?;
-    Ok(key.filter(|key| key.length == expected))
-}
+impl std::error::Error for OutputLimit {}
 // A finite allowance that grows with bytes, including slow external disks.
 pub fn deadline(length: u64) -> Duration {
     Duration::from_secs(300u64.saturating_add(length / (1024 * 1024)))
@@ -385,12 +371,55 @@ pub fn verify_form(path: &Path, key: &ContentKey) -> Result<Option<StoredForm>> 
     if !is_archive(path)? {
         return Ok(None);
     }
-    let actual = codec_result(
-        codec_command()?
-            .arg("verify")
-            .arg(path)
-            .arg(key.length.to_string()),
-        key.length,
-    )?;
-    Ok((actual == Some(*key)).then_some(StoredForm::Archive))
+    let (status, listing, diagnostic) = match capture_output(
+        seven_zip_command()?
+            .args(["l", "-slt", "-ba", "-sccUTF-8", "-t7z", "-p-", "-spd", "--"])
+            .arg(path),
+        32 * 1024,
+        deadline(key.length),
+    ) {
+        Ok(result) => result,
+        Err(e) if e.is::<OutputLimit>() => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if !seven_zip_success(status, &diagnostic)? {
+        return Ok(None);
+    }
+    let listing = String::from_utf8_lossy(&listing);
+    let sizes: Vec<_> = listing
+        .lines()
+        .filter_map(|line| line.strip_prefix("Size = "))
+        .collect();
+    if sizes.len() != 1
+        || sizes[0].trim().parse::<u64>().ok() != Some(key.length)
+        || listing
+            .lines()
+            .any(|line| line.starts_with("Attributes = D") || line == "Folder = +")
+    {
+        return Ok(None);
+    }
+    ensure!(
+        !listing.lines().any(|line| line == "Encrypted = +"),
+        crate::platform::HostStop("encrypted stored object is unsupported")
+    );
+    let expected = key.length;
+    let result = invoke(
+        seven_zip_command()?
+            .args(["e", "-so", "-t7z", "-mmt=2", "-p-", "-spd", "--"])
+            .arg(path),
+        deadline(expected),
+        move |pipe| {
+            let actual =
+                crate::format::copy_hash(pipe.take(expected.saturating_add(1)), std::io::sink())?;
+            ensure!(actual.length <= expected, OutputLimit);
+            Ok(actual)
+        },
+    );
+    match result {
+        Ok((status, actual, diagnostic)) => Ok((seven_zip_success(status, &diagnostic)?
+            && actual == *key)
+            .then_some(StoredForm::Archive)),
+        Err(e) if e.is::<OutputLimit>() => Ok(None),
+        Err(e) => Err(e),
+    }
 }

@@ -10,6 +10,7 @@ rust/target
 !bash/reconstruct.sh
 !scripts
 !scripts/prepare_native_hash.py
+!scripts/prepare_native_sevenzip.py
 !scripts/package_native.py
 !docs
 !docs/native-usage.md

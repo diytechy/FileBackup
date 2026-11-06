@@ -44,17 +44,14 @@ commands. Hard deadlines for blocked source filesystem I/O, full reference
 resource measurements and remaining permutations are still open. See the
 [implementation bindings](plans/native-design-2026-11-05/implementation-map.md).
 
-Native compression and verification include the 7z codec in the executable;
-script recovery retains its independent extractor prerequisites. The owner-requested
-comparison baseline now uses level 5, a 32 MiB default dictionary and up to two
-encoder workers. Three 1 GiB compressible-file probes measured a median 20.328 s
-and up to 1,182,126,080 bytes codec RSS, versus 5.079 s and 401,670,144 bytes for
-external 7-Zip. The Rust library parallelizes buffered chunks rather than 7-Zip's
-match-finder pipeline; equal level/dictionary/worker limits do not imply identical
-execution. This baseline leaves little room for large indexes under the 2 GB
-combined limit and is not qualified for that envelope. Prior fast-preset memory
-results describe the superseded configuration. See the
-[embedded codec results](plans/native-design-2026-11-05/embedded-codec-2026-11-06.md).
+Native compression and verification now use the packaged official 7-Zip 26.05
+helper. The embedded Rust codec experiment is historical. Three codec-only 1 GiB
+compressible-file probes measured 4.891 seconds median and at most 401,465,344
+bytes peak RSS with `-mx=5 -mmt=2`; full native backup of that one-file fixture
+completed in 19.469 seconds at 408,784,896 bytes combined parent/helper RSS.
+This does not requalify the million-file/2 GB envelope. See the
+[bundled helper results](plans/native-design-2026-11-05/bundled-sevenzip-2026-11-06.md)
+for exact dependency identity, review decisions and validation scope.
 Recovery targets must be supplied in their ordinary, fully expanded absolute
 spelling; DOS short-name aliases and case aliases on unqualified hosts are not
 covered by the current script qualification. Use exclusively controlled targets.

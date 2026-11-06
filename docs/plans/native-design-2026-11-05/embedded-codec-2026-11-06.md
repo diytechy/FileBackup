@@ -1,5 +1,9 @@
 # Embedded 7z codec — 2026-11-06
 
+Historical experiment: the owner subsequently selected a packaged official
+7-Zip helper. The embedded codec and its worker were removed; current behavior
+and evidence are in [the bundled helper record](bundled-sevenzip-2026-11-06.md).
+
 The owner requested a native package that does not require an installed 7-Zip.
 Native backup, deep verification and retention now use the embedded
 `sevenz-rust2` 0.24.2 library. Only its `compress` feature is enabled; the locked

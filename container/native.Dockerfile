@@ -7,7 +7,7 @@ COPY rust ./rust
 COPY recovery ./recovery
 COPY Modules/FileBackup.Common.psm1 ./Modules/FileBackup.Common.psm1
 COPY bash/reconstruct.sh ./bash/reconstruct.sh
-COPY scripts/prepare_native_hash.py scripts/package_native.py ./scripts/
+COPY scripts/prepare_native_hash.py scripts/prepare_native_sevenzip.py scripts/package_native.py ./scripts/
 COPY docs/native-usage.md docs/native-support.md ./docs/
 RUN python3 scripts/prepare_native_hash.py --cache /build/deps
 ENV FILEBACKUP_HASH_DLL=/build/deps/System.IO.Hashing.dll

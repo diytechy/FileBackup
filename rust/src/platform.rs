@@ -261,20 +261,22 @@ impl std::fmt::Display for HostStop {
 }
 impl std::error::Error for HostStop {}
 pub fn is_host_stop(error: &anyhow::Error) -> bool {
-    error.chain().any(|e| {
-        e.is::<HostStop>()
-            || e.downcast_ref::<std::io::Error>().is_some_and(|io| {
-                #[cfg(windows)]
-                let disk_full = matches!(io.raw_os_error(), Some(39 | 112));
-                #[cfg(unix)]
-                let disk_full = matches!(io.raw_os_error(), Some(libc::ENOSPC | libc::EDQUOT));
-                disk_full
-                    || matches!(
-                        io.kind(),
-                        std::io::ErrorKind::NotConnected | std::io::ErrorKind::BrokenPipe
-                    )
-            })
-    })
+    // Typed anyhow context is not necessarily a separate std::error::Error source.
+    error.is::<HostStop>()
+        || error.chain().any(|e| {
+            e.is::<HostStop>()
+                || e.downcast_ref::<std::io::Error>().is_some_and(|io| {
+                    #[cfg(windows)]
+                    let disk_full = matches!(io.raw_os_error(), Some(39 | 112));
+                    #[cfg(unix)]
+                    let disk_full = matches!(io.raw_os_error(), Some(libc::ENOSPC | libc::EDQUOT));
+                    disk_full
+                        || matches!(
+                            io.kind(),
+                            std::io::ErrorKind::NotConnected | std::io::ErrorKind::BrokenPipe
+                        )
+                })
+        })
 }
 /// Fault injection is absent from release/default builds.
 pub fn checkpoint(_name: &str) {

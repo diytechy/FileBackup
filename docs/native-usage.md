@@ -6,14 +6,14 @@ version is designated supported for native continuation. Existing backups keep
 restoring with their own carried kits. Do not point a native writer at production
 history as a conversion experiment.
 
-The executable includes hashing and 7z compression/decompression; native backup,
-verification and retention need no installed 7-Zip, compiler or PowerShell runtime.
-Codec work runs in a short-lived copy of the same executable with a finite deadline.
-The LZMA2 encoder uses level 5, a 32 MiB default dictionary (reduced for smaller
-inputs), and up to two encoder workers. Files over 128 MiB use independent
-128 MiB chunks; smaller files stream through one encoder. This matches the
-installed 7-Zip 24.09 `-mx=5` dictionary and a two-worker limit, but its threading
-differs from 7-Zip's `-mmt=2` pipeline. Speed, memory and ratio can therefore differ.
+Extract the **whole package**, keeping `tools/7zip` beside `filebackup` or
+`filebackup.exe`. Native backup, verification and retention use the included
+official 7-Zip 26.05 helper (`7za.exe` on Windows, `7zz` on Linux/macOS).
+No separate 7-Zip installation, compiler or PowerShell runtime is required.
+Compression uses `-mx=5 -mmt=2` with the official default dictionary. Helper calls
+have finite deadlines and bounded output; verification streams decoded bytes
+through the content hash without extracting archive-supplied paths.
+The package includes 7-Zip license notices and its corresponding source archive.
 Optional media-duration reporting still uses locally configured `ffprobe`.
 PowerShell/bash recovery remains independent and has its own prerequisites below,
 including external 7-Zip for compressed objects. See the shipped
@@ -51,7 +51,7 @@ ConfigVersion 3 retains `BackupSets`, `Tools` and `Secrets`. Set keys are `Name`
 optional `ViewPath` when enabled. Tools can name `FfprobePath` using an absolute
 executable path or bare PATH command. The legacy `SevenZipPath` key is accepted
 and type-checked but unused by the native executable, which always uses its
-built-in codec. Recovery scripts retain their own extractor selection. Unknown/retired keys,
+packaged helper. Recovery scripts retain their own extractor selection. Unknown/retired keys,
 overlapping roots and readable credential values are refused before any set runs.
 Optional `Secrets` holds `ToEmail`, `FromEmail`, `SmtpServer`, `SmtpPort` (default
 587), and `Credential` such as `credential:backup-mail`. Omit `Credential` for a
@@ -125,6 +125,9 @@ protections. Complete a pending explicit prune batch before another backup.
 Rust 1.96 is the exercised toolchain. `scripts/Invoke-Native.ps1` uses an explicit
 build root, defaulting to `D:\FileBackupBuild` when available on Windows. It keeps
 Cargo downloads, output and scratch there without moving existing user caches.
+It also provisions the helper beside each build profile. Windows provisioning
+uses a build-time `7z`/`7zz` to unpack the pinned official standalone executable;
+the resulting deployable package needs no installed extractor.
 
 For other hosts, set `CARGO_HOME`, `CARGO_TARGET_DIR` and `TMPDIR` to suitable
 locations. Provision the carried DLL at build time using
@@ -134,13 +137,18 @@ offline NuGet package through `--package`. Runtime backup/recovery never downloa
 dependencies.
 
 ```sh
+python3 scripts/prepare_native_sevenzip.py --cache /large-disk/sevenzip --output "$CARGO_TARGET_DIR/debug/tools/7zip"
+python3 scripts/prepare_native_sevenzip.py --cache /large-disk/sevenzip --output "$CARGO_TARGET_DIR/release/tools/7zip"
 cargo test --locked --manifest-path rust/Cargo.toml --features test-hooks
 cargo clippy --locked --manifest-path rust/Cargo.toml --all-targets --features test-hooks -- -D warnings
 cargo build --locked --release --manifest-path rust/Cargo.toml
 ```
 
 `test-hooks` enables process-termination fixtures and must not be enabled in a
-release artifact. Use `scripts/package_native.py` to collect exact dependency
-notices and checksums into a fresh output directory. The repository has not
+release artifact. Use `scripts/package_native.py --sevenzip-cache /large-disk/sevenzip`
+with `--binary` and a fresh `--output` directory to collect the helper, exact
+dependency notices, corresponding 7-Zip source and checksums. Both provisioning
+and packaging accept `--offline` with a prepopulated cache; supported archive
+names and SHA-256 pins are in `scripts/prepare_native_sevenzip.py`. The repository has not
 designated a project redistribution license; this does not prevent authorized
 local development, but third-party licenses do not grant rights to FileBackup.
