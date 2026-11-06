@@ -1,5 +1,7 @@
 # Input-restricted candidate derivation
 
+> Current SR authoring and dispositions are in the [SR review guide](sr-generation-review.md). This earlier analysis is preserved as historical evidence.
+
 > **Review snapshot:** [Owner review 01](owner-review-01.md) supersedes the retention, reporting, coordination, compatibility and absolute-verification proposals affected by SN-029/046/039/041/033 and the consistency edit to SN-034. The analysis below records the earlier draft, not the current ruling.
 
 This is a validation instrument, not an approved specification or a replacement for the live system requirements. All 82 `F-###` obligations below are **Drafted candidates**. Their 49 stakeholder parents are also Drafted and contain proposed amendments awaiting owner review. Coverage here means an obligation has a candidate home; it does not mean its policy choices, acceptance thresholds, implementation or evidence have been approved.

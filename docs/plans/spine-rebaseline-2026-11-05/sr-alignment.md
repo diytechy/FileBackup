@@ -1,5 +1,7 @@
 # Candidate-to-legacy system requirement alignment
 
+> Current SR authoring and dispositions are in the [SR review guide](sr-generation-review.md). This earlier analysis is preserved as historical evidence.
+
 > **Review snapshot:** [Owner review 01](owner-review-01.md) supersedes the retention, reporting, coordination, compatibility and absolute-verification proposals affected by SN-029/046/039/041/033 and the consistency edit to SN-034. The analysis below records the earlier draft, not the current ruling.
 
 Reconciliation proposal, 2026-11-05. This is not owner adjudication, a replacement specification, approval of amended needs, or runtime evidence. No normative requirement, approval status, code or test was changed by this review.

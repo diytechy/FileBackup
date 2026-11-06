@@ -25,6 +25,17 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **SR DRAFT READY FOR OWNER REVIEW (2026-11-05).** The
+  [SR review guide](plans/spine-rebaseline-2026-11-05/sr-generation-review.md)
+  covers 121 Drafted SRs: all 49 approved needs have candidate coverage;
+  eight obsolete obligations have explicit retirement records and six new
+  requirements cover native delivery and missing cross-cutting behavior.
+  Assumptions are accepted; SR policy choices and downstream implementation
+  evidence are not approved. DeepSeek fresh and full-draft reviews are advisory.
+  Hooks remain disabled; LLR/test/interface reconciliation follows SR approval.
+  Strict integrity passed with zero findings and docs with zero broken links;
+  131 orphan findings and one inherited interface finding remain visible.
+
 - **ASSUMPTIONS ACCEPTED; SR GENERATION NEXT (2026-11-05).** The owner
   [accepted DA-01..22 and SUR-01/02](plans/spine-rebaseline-2026-11-05/assumptions-approval.md),
   including their stated limits and residual risks. Only the assumptions
@@ -6997,3 +7008,12 @@ Other baseline registries are unchanged. The acceptance includes the discussed
 consistency, integrity, power-loss and handoff limits and prerequisite
 reporting; it does not approve implementation or downstream requirements.
 The owner authorized moving to SR generation with DeepSeek as a sounding board.
+
+### 2026-11-05 — SR regeneration after assumptions acceptance
+
+Reconciled the SR tier against approved needs, frame and assumptions; retained
+121 Drafted rows with complete legacy accounting and visible policy proposals.
+Eight retirements have lookup records, B-24's inactive placeholder is removed,
+and SR-153..158 cover newly derived obligations. All 49 needs have draft homes.
+The approval snapshot remains unchanged by authoring. See the SR review guide
+and DeepSeek cross-review records for provenance, dispositions and validation.

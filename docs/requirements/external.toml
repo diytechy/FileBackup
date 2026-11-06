@@ -324,12 +324,3 @@ direction = "out"
 carries = """Quick-start guidance, configuration helper, versioned configuration contract and example, declared host and tool support, recovery instructions and assurance limits, retention-cutoff semantics, and any designated older-version continuation, upgrade or migration paths. No older version is supported merely because a historical store or kit exists."""
 system = "delivery"
 status = "Approved"
-
-# --- INACTIVE LEGACY REFERENCE: NOT PROPOSED FOR APPROVAL --------------------
-
-[boundary.B-24]
-entity = "EXT-04"
-direction = "out"
-carries = """Retired source-write crossing retained only while legacy requirements referring to source-side change-detection state are reconciled. The intended product performs no such write."""
-system = "operation"
-status = "Drafted"

@@ -1,6 +1,6 @@
 # Requirements spine rebaseline and staged template resync
 
-Status: **needs, active external frame and assumptions approved; SR generation in progress**.
+Status: **needs, active external frame and assumptions approved; SR draft ready for owner review**.
 
 The [needs approval record](spine-rebaseline-2026-11-05/needs-approval.md)
 records the owner's approval of all 49 needs on 2026-11-05, without changing
@@ -8,7 +8,7 @@ their normative text. The [boundary approval](spine-rebaseline-2026-11-05/bounda
 records approval of 18 entities, 23 active crossings and five external
 relationships. B-24 is excluded. The owner has also
 [accepted the assumptions](spine-rebaseline-2026-11-05/assumptions-approval.md).
-System requirements are being reconciled and remain Drafted.
+The [SR review guide](spine-rebaseline-2026-11-05/sr-generation-review.md) covers 121 Drafted requirements, their policy choices and legacy dispositions.
 
 The [assumptions review guide](spine-rebaseline-2026-11-05/assumptions-review.md)
 explains the revised conditions, residual risks and limits of the test fixtures.
@@ -16,8 +16,9 @@ No assumption is approved by its drafting or independent cross-review.
 
 The [boundary review guide](spine-rebaseline-2026-11-05/boundary-review.md)
 summarizes the accepted frame corrections and the assumptions worklist.
-B-24 remains an inactive legacy reference awaiting
-reconciliation of SR-093/139, not a source-write permission.
+The inactive B-24 placeholder was removed during SR reconciliation after
+SR-093 lost its source-write exception and SR-139 was retired. Approved frame
+rows and the standing approval snapshot were not changed by that cleanup.
 
 **Latest owner review:** [Review 01](spine-rebaseline-2026-11-05/owner-review-01.md)
 revises SN-029, SN-046, SN-039, SN-041 and SN-033, with a consistency edit to
