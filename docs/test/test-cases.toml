@@ -2379,3 +2379,416 @@ parameters = "host=set{Windows,container}; path=set{nested-file,empty-dir}"
 expected = """tests/Unit/RestoreFidelity.Tests.ps1 (DIRECTORIES.csv rows with '/'), tests/Common/Harness.ps1 Get-ManifestRow over the integration suites (G1, G2, G10), and the scratch end-to-end check of 2026-10-27 (nested rows recorded 'sub/deep/x.txt'). Expected outcome: RelativePath in MANIFEST.csv and DIRECTORIES.csv uses '/' on Windows; nested files and empty directories restore to their places."""
 automated = "Yes"
 status = "Drafted"
+
+# Native design draft: planned cases, no execution evidence.
+# See docs/plans/native-design-2026-11-05/review.md.
+
+[test.TC-261]
+verifies = ["LLR-151", "SR-018", "SR-042", "SR-123", "SR-134", "SR-135"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "case=set{valid,unknown-key,missing-key,wrong-type,unsupported-version,missing-file}; form=set{native-json,legacy-json,clixml}; @full"
+expected = "Feed current-schema valid/invalid examples, unknown fields, wrong types, missing configuration and unsupported declared versions. Loader/schema verdicts agree, examples need only location substitution, and a filesystem observer sees no store writes on refusal."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-262]
+verifies = ["LLR-152", "SR-063", "SR-138", "SR-154"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Use three sets with duplicate spelling, case aliases, symlink aliases, nested roots, prefix siblings and a prepopulated unrelated view folder. Only safe distinct configurations start; refused cases preserve sentinel files and identify both conflicting entries."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-263]
+verifies = ["LLR-153", "SR-014", "SR-043", "SR-095", "SR-142"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Run three sets with each failure position and mixed result classes. All admitted independent sets are attempted, aggregate precedence matches the documented result contract, no default container action invokes maintenance, and unknown actions do not silently become backup."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-264]
+verifies = ["LLR-154", "SR-016", "SR-019", "SR-118", "SR-132", "SR-133"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "tool=set{shell,hash,archive,media}; availability=set{supported,missing,too-old}; action=set{backup,raw-restore,compressed-restore}; @pairwise"
+expected = "Remove each required/optional tool and supply unsupported versions with redirected stdin and no network. Required cases do not mutate, optional media absence preserves content/outcome, and no process waits for input."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-265]
+verifies = ["LLR-155", "SR-085", "SR-086", "SR-107"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "operation=set{backup,remove,repair,refresh,view}; event=set{contend,suspend,kill,permission-denied,io-failure}; @pairwise"
+expected = "Pair every mutation with a contender at admission, middle and finalization; suspend and kill the holder. At most one mutates, suspension does not admit a contender, death does, and permission/I/O failures never authorize writes."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-266]
+verifies = ["LLR-156", "SR-001", "SR-074", "SR-088", "SR-089", "SR-093", "SR-094"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Walk ordinary and volume-root fixtures containing hidden entries and infrastructure-like names; deny individual directories and observe source bytes/times/structure under DA-21 controls. Every in-scope entry is captured or named as failed and no source-side state is created."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-267]
+verifies = ["LLR-157", "SR-021", "SR-055", "SR-092"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Run Unicode, bracket, space, reserved-name, case and normalization pairs on distinguishing and nondistinguishing target profiles. Distinct representable names remain exact; collision groups write no member and unaffected files restore. Profile conformance is tested on each real target filesystem."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-268]
+verifies = ["LLR-158", "SR-011", "SR-024", "SR-105"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "schedule=set{every,never,periodic}; metadata=set{same,changed}; prior_pass=set{complete,interrupted}; @pairwise"
+expected = "Change bytes while preserving size/time and interrupt a due reread. The concealed change is found at the next due read, incomplete passes do not postpone it, and repeated unchanged runs produce zero source-change counts and no history. Remove supply while preserving source size/time: identical recapture is a repair, different hash is a source change plus an unrecoverable-prior-content diagnostic."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-269]
+verifies = ["LLR-159", "SR-003", "SR-053", "SR-059", "SR-108"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Mutate, truncate and lock sources during reads, delete a reused object externally, and add identical content with different names/extensions. Each published record resolves to bytes matching its own identity; known missing supply is captured again and undetected coherent-source limits stay within DA-04."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-270]
+verifies = ["LLR-160", "SR-067", "SR-090", "SR-091"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "locked=range[1..10000]; release=set{early,late,never}; folder_failure=bool; @boundaries"
+expected = "Release locks before second/third eligibility, retain thousands of locks, and interleave readable files. Attempt count never exceeds three, deliberate aggregate wait never exceeds 60 seconds active time, readable files proceed and earlier copies survive."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-271]
+verifies = ["LLR-161", "SR-036", "SR-091"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Disconnect or empty a populated source before and during capture, including only-empty-directory trees; retained content remains recoverable and mass deletion is never published. An initially empty source is valid; removing its config entry leaves the old store untouched."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-272]
+verifies = ["LLR-162", "SR-081", "SR-096", "SR-111"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Test sizes below/at/above the floor, measured savings below/at/above 10%, misleading extensions, failed probes and changing settings. Decision vectors match both native hosts; existing object bytes remain unchanged and either stored form recovers the original bytes."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-273]
+verifies = ["LLR-163", "SR-003", "SR-041", "SR-059", "SR-108", "SR-136"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Exercise content reuse/move-back and superseded relocation in the current sharded-latest/flat-history layout. Inject corrupt/unreadable destinations and failures before/after sync/rename. No valid object is overwritten and no final latest dependency is moved away."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-274]
+verifies = ["LLR-164", "SR-039", "SR-065", "SR-066", "SR-146", "SR-150", "SR-152"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Use current manifests plus revised directory/link sidecars containing commas, quotes, Unicode, malformed fields, missing required records and conflicting path kinds. Both script routes and native readers agree; conflicting links are reported while independently valid file bytes remain recoverable."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-275]
+verifies = ["LLR-165", "SR-005", "SR-010", "SR-017", "SR-075", "SR-082", "SR-100"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Kill before/after prior-state publication, each manifest checkpoint, directory/link metadata replacement, completion-marker update and superseded move. The prior state remains recoverable; recorded valid file progress can recover; missing/conflicting metadata prevents a falsely complete result. Equal dates/clock rollback do not replace history and unchanged runs leave no extra state. Kill before/after INCOMPLETE_RUN install/clear; a checkpoint with stale but well-formed directory/link metadata is visibly incomplete in both scripts. Snapshot an already interrupted latest state and refresh its kit: the marker remains meaningful; completed unchanged capture clears it only after all final metadata is published."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-276]
+verifies = ["LLR-166", "SR-017", "SR-075", "SR-082", "SR-158"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "event=set{kill,power-cut,sync-error,unknown-residue,unreadable-manifest}; @full"
+expected = "Inject identified Incoming/Building residue, interrupted Pruning work, unknown folders, malformed records and sync failures. Cleanup is limited to known disposable work; resumable deletion preserves required supply and uncertainty produces a named blocker."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-277]
+verifies = ["LLR-167", "SR-023", "SR-052", "SR-158"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Exercise shared volumes, compressed expansion, ten aliases to the same content, actual relative links, unavailable capacity and disk loss after admission. Known shortfalls write no affected output; late failure never reports partial bytes as verified or destroys previous recovery."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-278]
+verifies = ["LLR-168", "SR-047", "SR-049", "SR-103", "SR-104"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Check an intact store and variants with defects in latest, later retained and older invalidated states. Compare all store bytes and mtimes before/after, excluding access time. Findings identify only affected states, inaccessible records are explicit, and empty findings denote a completed clean inspection."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-279]
+verifies = ["LLR-169", "SR-045", "SR-046", "SR-047", "SR-101", "SR-102"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Use shared objects spanning before/at/after cutoff, identical dates with different state IDs, clock rollback, missing protected content and a full volume. Interrupt each phase. Later/latest recover, only needed temporary-space shortages block removal, outside sentinels remain untouched, and repeating the request is idempotent. For a batch, required outside supply excludes every selected folder; unselected older folders remain untouched. Crash before/after durable rehoming, survivor metadata and Pruning commit: resumption never broadens deletion or removes unrehomed last copies."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-280]
+verifies = ["LLR-170", "SR-045", "SR-046", "SR-059", "SR-101"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Fail protected-manifest enumeration halfway and inject stale indexes, missing outside-folder copies and failed rehoming. No selected folder is destructively removed until every protected dependency has usable supply; repeat the removal safely after the fault clears."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-281]
+verifies = ["LLR-171", "SR-109", "SR-110"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Exercise existing repair classes, metadata publication and quarantine with verified alternate copies. Change a candidate after the scan and kill at mutation boundaries; preserved states still recover, ambiguous findings remain and no guessed historical content is published."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-282]
+verifies = ["LLR-172", "SR-008", "SR-009", "SR-010", "SR-031", "SR-039", "SR-118", "SR-141", "SR-145"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "On offline provisioned hosts without the engine/repository, combine each invalid target/format/tool/space condition with a corrupt entry. Admission cases write no restored entries; admitted valid states default to latest or select the exact requested identity, never newer source bytes. An INCOMPLETE_RUN marker admits safe verified file recovery but forces incomplete metadata status and suppresses unfinalized links."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-283]
+verifies = ["LLR-173", "SR-029", "SR-056", "SR-068", "SR-119", "SR-120"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Use raw files, raw source archives, compressed objects, flipped form flags, corrupt-first/intact-second copies and target I/O errors. Every reported restored file matches an independently constructed expected tree and SHA-256 oracle; failure list/count exactly matches unrecovered paths."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-284]
+verifies = ["LLR-174", "SR-009", "SR-092", "SR-121", "SR-141"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Use crafted absolute/parent paths, case/normalization groups, a symlink parent into the store, conflicting directory/link records and target replacement races in supported profiles. No write leaves the chosen root or reaches store data; unaffected paths recover and each rejected entry is counted."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-285]
+verifies = ["LLR-175", "SR-065", "SR-066", "SR-122", "SR-146"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Restore duplicate-byte files with distinct times, nested empty directories, hidden/system folders and malformed/missing records. Independent comparisons use declared precision; unsupported attributes warn, required-record loss is incomplete, and good bytes remain available."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-286]
+verifies = ["LLR-176", "SR-150", "SR-151", "SR-152"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Capture absolute/relative links and junctions to sibling/ancestor/root directories, restore on both routes, then move the whole recovered root. Links still reach the expected directories, no alias duplicates are materialized, escaped/unavailable mappings are reported and privilege failure is a visible metadata limitation."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-287]
+verifies = ["LLR-177", "SR-001", "SR-137", "SR-150", "SR-151"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Use A-to-B-to-A cycles, two aliases to a 100 MiB tree, nested acyclic diamonds, a link into the store and an unreachable share. Cycles terminate, noncyclic aliases produce distinct recorded output paths with shared stored bytes, and demand counts their expanded bytes."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-288]
+verifies = ["LLR-178", "SR-040", "SR-043", "SR-104", "SR-120", "SR-126"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Inject each result and pairwise mixed failures through native, container and both script routes. Exit/JSON mappings and counts agree; malformed output cannot be mistaken for complete, and collision/host failures never become generic missing-content reports."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-289]
+verifies = ["LLR-179", "SR-016", "SR-072", "SR-073"]
+level = "System"
+method = "Demonstration"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Exercise desktop selection/cancel, interactive console, closed stdin, redirected stdin and explicit targets. Only eligible attended routes prompt; unattended routes terminate with an outcome and never write to an implicit fallback."
+automated = "No"
+status = "Drafted"
+
+[test.TC-290]
+verifies = ["LLR-180", "SR-089", "SR-124", "SR-125", "SR-126"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Hold a read/compressor/finalization step beyond 120 seconds while other work is absent. Progress still appears within the active-time bound, suspend/resume is accounted explicitly, and final path categories/counts match the independently known fixture."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-291]
+verifies = ["LLR-181", "SR-015", "SR-127", "SR-128", "SR-129"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Use successful/refusing/unreachable relays and unavailable/unauthorized credential adapters. Search config, store, logs and error output for injected secrets. Only enabled runs submit, failures warn without changing outcome, and a source file containing the same bytes remains normal backed-up content."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-292]
+verifies = ["LLR-182", "SR-062", "SR-063", "SR-097", "SR-098", "SR-099", "SR-147"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Compare view entries to the selected state, including duplicates and media/no-duration cases; delete the view and recover successfully. Missing media tools preserve backup behavior and display an unavailable measure; interrupted view publication leaves recoverable data untouched."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-293]
+verifies = ["LLR-183", "SR-034", "SR-048", "SR-095", "SR-130", "SR-142"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "On a host without engine runtimes, run backup/list/remove/verify under read-only sources and no network/capabilities, including three sets. Outcomes and resulting recovery match direct execution; nonmutating reports do not write store-side logs."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-294]
+verifies = ["LLR-184", "SR-007", "SR-008", "SR-031", "SR-033", "SR-153"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "host=set{Windows,Linux,macOS}; action=set{backup,list,remove,verify,repair,refresh,view}; @full"
+expected = "Install each declared native artifact on a clean provisioned host without language development tools. Exercise all actions, then remove engine/repository access and network and restore shared/raw/compressed states using each supported script route."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-295]
+verifies = ["LLR-185", "SR-061", "SR-084", "SR-114", "SR-115", "SR-116", "SR-123", "SR-156"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Feed the retained layout with declared supported and unsupported metadata/kit revisions through every action. Only explicitly supported combinations proceed; unknown required link metadata refuses or is reported without being silently ignored. Reuse of the current layout is not reported as tested support for old versions."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-296]
+verifies = ["LLR-186", "SR-007", "SR-084", "SR-110", "SR-117"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Interrupt each kit file write and commit/validation boundary, remove one bundled dependency and request an unsupported-format refresh. A supported prior or new route remains usable, partial routes are detected, and state records/data bytes are unchanged."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-297]
+verifies = ["LLR-187", "SR-068", "SR-071", "SR-081", "SR-098", "SR-118"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Paths with spaces/quotes, GNU/BSD utility variants, malformed archives, raw source archives, missing executables and tool timeouts produce equivalent documented outcomes across supported routes. No path becomes a shell command."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-298]
+verifies = ["LLR-188", "SR-049", "SR-064", "SR-112", "SR-113"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "fault=set{none,invalid,unavailable}; @pairwise"
+expected = "Scale from small fixtures to the declared million-path/365-state corpus while observing all concurrent processes, scratch space and object reads. Peak combined RSS fits 2 GB, index deletion is recoverable, and script recovery works with no index or native binary."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-299]
+verifies = ["LLR-189", "SR-064", "SR-112", "SR-113"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "states=set{0,182,364,365}; paths=set{1,1000000}; bytes=set{0,2TiB}; cache=set{cold,warm}; @boundaries"
+expected = "On the declared reference, each full check/restore completes in eight hours and routine capture in thirty minutes; observed memory stays inside the available budget. Repeated matched 182/364 runs show less-than-twofold time growth. Publish failures, environment and all trial values; no fixture-only timing is accepted as cross-host evidence."
+automated = "Yes"
+status = "Drafted"
+
+[test.TC-300]
+verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157"]
+level = "System"
+method = "Inspection"
+tier = "Full"
+parameters = "artifact=set{native,container,carried-kit}; material=set{guidance,licenses,support-matrix}; @full"
+expected = "Inspect every shipped artifact against its dependency/license inventory and support evidence. Required notices, recovery instructions and assurance/history limitations travel with the store; unsupported hosts are explicit. Inspection alone does not verify the configuration helper or offline recovery behavior."
+automated = "No"
+status = "Drafted"
+
+[test.TC-301]
+verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "host=set{Windows,Linux,macOS}; route=set{PowerShell,bash}; network=set{offline}; @supported"
+expected = "Run the shipped configuration helper and examples with only location substitution, then back up and recover a fixture on each supported provisioned host with network and engine access removed. Assert guidance and required notices exist in native/container/carried artifacts, result field meanings match the emitted events, and support labels match the designated matrix. Human assessment of clarity and license obligations remains TC-300."
+automated = "Yes"
+status = "Drafted"

@@ -212,6 +212,12 @@ The full product gate is not claimed green while the strict spine check is red.
 
 ## Checks and staged hook activation
 
+The accepted SR tier now has an
+[initial native design/decomposition package](native-design-2026-11-05/review.md).
+It preserves the existing architecture and adds Drafted LLRs and verification
+designs. This is not completed legacy reconciliation, code attachment, a gate
+closure or approval to strengthen the accepted product scope.
+
 Manual commands are in the [pinned tooling guide](../../scripts/spine-kit/README.md).
 The imported checker now reads all four live tiers. Full strict/schema checks
 remain diagnostic until inherited broken references and design/test debt are

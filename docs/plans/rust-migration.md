@@ -6,6 +6,12 @@ Draft for review, 2026-11-05. Based on `Rust-Rewrite` at `45c9a4d`, kit revision
 16 and ConfigVersion 3. This is a migration proposal, not an approved new store
 format or a request to start modifying production backups.
 
+The accepted needs, boundaries, assumptions and SRs now feed the
+[initial native design breakdown](native-design-2026-11-05/review.md).
+It retains the existing architecture and identifies the actual extensions and
+portability evidence needed. Its decisions supersede this initial proposal
+where the accepted spine differs; no legacy version is designated supported.
+
 The recommended path is to **replace the backup and maintenance engine while
 keeping the existing on-disk contract and independent PowerShell/bash restore
 kits**. Establish compatibility first, then expand native distribution and
@@ -48,9 +54,11 @@ Native verification and pruning belong in the final migration scope, not only
 initial backup and restore demonstrations.
 
 The first port preserves whole-file content addressing and sequential capture.
-Link/ACL/xattr/resource-fork fidelity, chunking, encryption, a mandatory database,
-multi-host writers, a GUI and a new compression format are separate product
-changes. They need their own requirements and recovery story.
+Portable in-root folder links are now in accepted SR-150/152 and the native
+breakdown, with relative reconstruction through the existing directory sidecar.
+Broader ACL/xattr/resource-fork fidelity, chunking, encryption, a mandatory
+database, multi-host writers, a GUI and a new compression format remain separate
+product changes requiring their own requirements and recovery story.
 
 ## 2. Compatibility contract to freeze before writing
 

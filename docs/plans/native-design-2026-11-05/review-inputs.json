@@ -1,0 +1,23 @@
+{
+  "initial": {
+    "commit": "9e03be4674fec0d9b154e3181c985b9caa439d64",
+    "files": {
+      "docs/requirements/stakeholder-needs.toml": "b30222bc7f7d8a454df68a5f979afce3f8b77d7ebd97dbf4f5d8d6df5ff0deff",
+      "docs/requirements/external.toml": "7379dedd13b5a24dc93a54d8c9aa1c5fbbf045951205aedd1c7ffbd2b267f157",
+      "docs/requirements/assumptions.toml": "8cec1b0f3aff8e9f3f60ef7500444e9dcce44bc1e3d4976b9f60963ed32505f7",
+      "docs/requirements/hats.toml": "bcd28d68d302bb16c75de38b103471306ad6d052d75f632741351485b0ab8cc5",
+      "docs/requirements/system-requirements.toml": "42d8f40deefed3e8a30b6ed5d22fe19afeb5db562e13a2edb45602ab6e63ee27",
+      "docs/plans/native-design-2026-11-05/review.md": "beeb78339d36f927c3200efeb8383e77fb32b220716b043168375d3429faf74f",
+      "docs/plans/native-design-2026-11-05/contracts.md": "3cda60e1ad28e0d394ebc9d2b52a8e220ecf38ce46837d969f777aaeff0dbbe5",
+      "docs/plans/native-design-2026-11-05/flows.md": "fbb6be9776f71c168adeb58d224bd8f7bd7994b754c45fa48a45e8ee6544964f",
+      "docs/requirements/low-level-requirements.toml": "03bad8d1c268c870b94e9cdad4880b99c44751d0390d5a9c7c77e03b8d735961",
+      "docs/test/test-cases.toml": "46817f870ecc9dbf21b696f948a5ef53ca3ce43e51a7600218e6da0b70ce13ca"
+    }
+  },
+  "followup": {
+    "docs/plans/native-design-2026-11-05/contracts.md": "9cc43a9e4c22c2508d05e2624735833568ffca84de226ddd2186080ef820aeff",
+    "docs/plans/native-design-2026-11-05/flows.md": "aba71c1a4c3b2cd432219f7bd108de5ccfdf352350ebc1d71e22e7a514ed4903",
+    "docs/requirements/low-level-requirements.toml": "129db9dbd15c3b5922dc9fae2c15cd9831d733122d7fd28e9fe03ea28ba8369b",
+    "docs/test/test-cases.toml": "74528ec3f0372e2956b2b7bd0a87bc8d702d16b849d163ec3d70800a03868175"
+  }
+}

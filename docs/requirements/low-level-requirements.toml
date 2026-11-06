@@ -784,3 +784,406 @@ code_symbol = "New-ReconstructScript;New-StoredObjectNameIndex;Resolve-RowDataSo
 detail = """Both restorers run from a folder named exactly CurrentBackup, whose parent is the store, or a dated folder whose parent is named BackupHistory, whose grandparent is the store; a dated folder anywhere else is no snapshot. The pool is <store>/CurrentBackup plus every dated folder in <store>/BackupHistory, and a restore from CurrentBackup still runs with BackupHistory missing, reporting a row whose object was in a snapshot as missing (1). No path sidecar is written or read and no sibling or child folder is guessed. From any other folder a restorer refuses with 2 before writing anything, unless -StoreRootOverride / --store-root names the store. The target must be outside the store and outside the restore's own origin folder. The kit has six files."""
 test_refs = "TC-257;TC-259"
 status = "Drafted"
+
+# Native design draft: planned symbols/cases, no implementation or result evidence.
+# Existing architecture is the baseline; see docs/plans/native-design-2026-11-05/review.md.
+
+[design.LLR-151]
+sr_refs = ["SR-018", "SR-042", "SR-123", "SR-134", "SR-135"]
+title = "Whole-configuration admission"
+module = "native/config"
+code_symbol = "validate_configuration"
+detail = "Parse the existing closed versioned JSON configuration into typed settings without creating logs or store files. Retain StorePath and the established single-store path derivation; reject unknown/retired keys, wrong types, missing fields and unsupported versions with a nonsecret field diagnostic. Derive explicit defaults and shipped examples from the same schema. Any configuration revision required by new fields is declared explicitly; do not invent a new configuration family merely because the implementation is Rust."
+rationale = "One validated representation prevents schema/loader disagreement and mutation before configuration refusal."
+test_refs = "TC-261"
+status = "Drafted"
+
+[design.LLR-152]
+sr_refs = ["SR-063", "SR-138", "SR-154"]
+title = "Resolved root and view ownership admission"
+module = "native/config"
+code_symbol = "validate_location_graph"
+detail = "Resolve existing ancestors and append normalized nonexistent tails. Compare configured sources, stores and owned derived-view areas using host path identity. Reject equal or ancestor-related protected roots, link aliases and duplicate set destinations before any set starts. Permit only a dedicated view area whose ownership is established without adopting unrelated existing files; lack of identity resolution refuses admission."
+rationale = "Text-prefix checks confuse sibling names and aliases; deciding the complete configuration before iterating sets avoids partial mutation for an invalid later entry."
+test_refs = "TC-262"
+status = "Drafted"
+
+[design.LLR-153]
+sr_refs = ["SR-014", "SR-043", "SR-095", "SR-142"]
+title = "Independent action dispatch and aggregate results"
+module = "native/cli"
+code_symbol = "dispatch_actions"
+detail = "Validate the whole configuration, then execute admitted sets independently with a typed per-set result. Default an omitted container action to backup. Aggregate with invalid-request/configuration ahead of busy/host-stop, ahead of incomplete, ahead of complete; retain all per-set reasons. One set failure after admission does not skip the remaining sets."
+rationale = "Separating configuration admission from per-set execution satisfies both no-mutation-on-invalid-config and failure independence."
+test_refs = "TC-263"
+status = "Drafted"
+
+[design.LLR-154]
+sr_refs = ["SR-016", "SR-019", "SR-118", "SR-132", "SR-133"]
+title = "Required and optional dependency admission"
+module = "native/tools"
+code_symbol = "admit_tools"
+detail = "Determine dependencies from the selected action and content form. Resolve local executable versions without interactive prompts; absent required tools refuse before store/restore writes with provisioning guidance, optional media tools emit a skipped-feature event. Initial native delivery offers guidance rather than automatic download. Script guidance covers a missing interpreter that cannot issue its own diagnostic."
+rationale = "Conditional tool admission avoids requiring an extractor for raw-only recovery or a media utility for backup correctness."
+test_refs = "TC-264"
+status = "Drafted"
+
+[design.LLR-155]
+sr_refs = ["SR-085", "SR-086", "SR-107"]
+title = "Supported ownership acquisition and release"
+module = "native/platform"
+code_symbol = "acquire_store_ownership"
+detail = "Obtain an OS-lifetime exclusive lock on one persistent store-side lock file before a mutation. Use the same mechanism for backup, removal, repair, refresh and view publication in one validated configuration. Retain the open handle through finalization; never unlink the lock or reclaim by elapsed age. Return observed contention/access/I/O causes without inferring permission to proceed."
+rationale = "OS owner-death release avoids stale-heartbeat fencing and keeps a suspended live owner protected."
+test_refs = "TC-265"
+status = "Drafted"
+
+[design.LLR-156]
+sr_refs = ["SR-001", "SR-074", "SR-088", "SR-089", "SR-093", "SR-094"]
+title = "Source walk and declared exclusions"
+module = "native/capture"
+code_symbol = "walk_source"
+detail = "Enumerate hidden/system/dot entries with a stack, retaining each directory enumeration result as complete, partial or unavailable. Exclude only volume-owned metadata/recycle locations at actual volume roots; do not exclude matching nested names. Source operations are reads only. Emit a capture error with the affected prefix instead of interpreting a failed listing as removal."
+rationale = "A typed walk result distinguishes absence from unreadability while preserving owner content and read-only mounts."
+test_refs = "TC-266"
+status = "Drafted"
+
+[design.LLR-157]
+sr_refs = ["SR-021", "SR-055", "SR-092"]
+title = "Portable names and collision groups"
+module = "native/paths"
+code_symbol = "classify_names"
+detail = "Validate UTF-8 path components, separators and the declared source/target naming profile. Build equivalence groups using the actual supported target comparison profile, covering case and normalization, rather than treating hash equality as path equality. Persist unsupported-source prefixes for prior-row preservation. For restore collisions reject every member and report target-name collision; do not choose a winner by record order."
+rationale = "Cross-host names need a separate comparison contract from content identity and from lexical containment."
+test_refs = "TC-267"
+status = "Drafted"
+
+[design.LLR-158]
+sr_refs = ["SR-011", "SR-024", "SR-105"]
+title = "Metadata reuse and deterministic rereads"
+module = "native/capture"
+code_symbol = "select_capture_work"
+detail = "Use the selected latest record as the change-detection baseline. Reuse a row only when size/time match, the scheduled reread is not due and its referenced object is available and not known unusable. Every/never/periodic schedules count elapsed time from the last completed full reread; checkpointing a partial pass does not advance that marker. Compare semantic state, not serialization order, when reporting changes. A forced recapture is an unchanged repair only if its fresh hash/length matches the recorded identity. Different captured identity is a source change even when source size/time matched."
+rationale = "A source cache is unnecessary; separating reread completion from capture checkpoints prevents an interrupted verification pass resetting the schedule."
+test_refs = "TC-268"
+status = "Drafted"
+
+[design.LLR-159]
+sr_refs = ["SR-003", "SR-053", "SR-059", "SR-108"]
+title = "Streaming capture and source-change detection"
+module = "native/capture"
+code_symbol = "capture_verified_object"
+detail = "Copy into private staging while incrementally computing xxHash128 and byte length from the exact bytes copied. Compare pre/post source metadata and read errors to detect supported change cases; unstable or unreadable reads enter retry handling. Name content from the captured bytes, never from an earlier independent source hash. Consult actual usable object supply before deduplicating. Re-capture known lost content from source without claiming changed current bytes reconstruct a missing historical version. If recaptured identity differs from the missing prior identity, retain the prior state record, count a source change and separately report that the old content could not be recovered from this source."
+rationale = "Content naming and capture must share one byte stream; metadata is a heuristic, not a coherent-snapshot proof."
+test_refs = "TC-269"
+status = "Drafted"
+
+[design.LLR-160]
+sr_refs = ["SR-067", "SR-090", "SR-091"]
+title = "Bounded retry scheduling and frozen prior rows"
+module = "native/capture"
+code_symbol = "retry_failed_entries"
+detail = "Maintain attempts and eligibility in a per-set queue: at most three attempts per file. Retry after other ready work, with proposed backoffs of 1 and 5 seconds; charge deliberate waiting once against one 60-second aggregate per-set budget, not once per file. Stop waiting when exhausted and report attempts. Retain prior rows for unreadable file/prefix groups; host-wide disappearance uses the source-stop rule. No failed new content acquires a successful row."
+rationale = "A shared waiting budget avoids multiplying sleep time by the number of locked files; queue fairness prevents immediate repeated attempts consuming all chances."
+test_refs = "TC-270"
+status = "Drafted"
+
+[design.LLR-161]
+sr_refs = ["SR-036", "SR-091"]
+title = "Missing and empty source stop semantics"
+module = "native/capture"
+code_symbol = "guard_source_availability"
+detail = "Before preserving/publishing a new run, distinguish a new empty source from an unavailable or empty previously populated root. Recheck source availability before final removal decisions. An incomplete walk never supplies a deletion list. Mid-run disappearance stops publication of removals, keeps earlier protected content and valid committed checkpoints, and reports host stop. Removing a set from configuration retires future capture without deleting its store."
+rationale = "Deletion evidence must come from a complete available walk, not an empty result created by a failed mount."
+test_refs = "TC-271"
+status = "Drafted"
+
+[design.LLR-162]
+sr_refs = ["SR-081", "SR-096", "SR-111"]
+title = "Compression decision and immutable mixed forms"
+module = "native/content"
+code_symbol = "choose_stored_form"
+detail = "With compression disabled, neither probe nor compressor is invoked. With it enabled, apply the accepted probe modes, 256 KiB boundary and inclusive 10% measured-savings threshold. Define measured saving as (sample raw bytes minus sample archive bytes)/sample raw bytes using bounded deterministic sample offsets; on measurement failure warn and use the declared type fallback. The stored-form decision follows the accepted measured-saving/fallback rule; a different final-size override requires reconciling SR-081 rather than silently changing it. Existing stored objects are not recompressed when settings change."
+rationale = "A reproducible bounded sample controls probe cost; the chosen storage form remains consistent with the accepted compression policy."
+test_refs = "TC-272"
+status = "Drafted"
+
+[design.LLR-163]
+sr_refs = ["SR-003", "SR-041", "SR-059", "SR-108", "SR-136"]
+title = "Existing content-addressed pool and immutable publication"
+module = "native/store"
+code_symbol = "publish_object"
+detail = "Retain the existing pool: sharded objects in CurrentBackup and flat objects in dated BackupHistory folders, using the existing hash/length/name codec. Stage through Incoming and publish complete synced content with no replacement of a valid existing object. Reuse available shared content and move it back from supported snapshots when needed. Move superseded objects only after final latest publication and only when no final latest row depends on them; the destination is a state that records the identity. A failed move leaves the available copy intact and reports failure. Verify candidates where the operation requires it; names alone are not content verification."
+rationale = "The current layout and bounded move protocol already deliver shared-content recovery. Porting these responsibilities is lower risk than introducing a new global object pool."
+test_refs = "TC-273"
+status = "Drafted"
+
+[design.LLR-164]
+sr_refs = ["SR-039", "SR-065", "SR-066", "SR-146", "SR-150", "SR-152"]
+title = "Versioned file and directory/link record codecs"
+module = "native/format"
+code_symbol = "decode_state_records"
+detail = "Retain the nine-column file manifest and extend the existing directory sidecar with explicit entry kind and a root-relative link destination, under a declared kit/metadata format revision. Use UTF-8 CSV with explicit headers, quoting, ordinal path ordering and slash-separated root-relative paths. Ordinary directories have no link destination. Validate shapes, path uniqueness and file/directory/link conflicts. Missing required current metadata is not an empty valid sidecar. A link record conflicting with captured file paths is rejected as metadata damage without preventing safe recovery of the file bytes. Parsing and per-file checks do not authenticate record completeness or provenance. A kit-visible INCOMPLETE_RUN marker denotes unfinished directory/link metadata; readers report incomplete and do not apply unfinalized link records. This is protocol state, not record authentication."
+rationale = "The existing directory record is the natural extension point for link metadata; it does not require a new content pool, database-backed format or metadata-generation architecture."
+test_refs = "TC-274"
+status = "Drafted"
+
+[design.LLR-165]
+sr_refs = ["SR-005", "SR-010", "SR-017", "SR-075", "SR-082", "SR-100"]
+title = "Existing bounded publication with explicit metadata failure handling"
+module = "native/state"
+code_symbol = "publish_latest_state"
+detail = "Preserve the existing ordered run: publish the prior manifest, directory record and kit into a Building folder and rename it to a dated history state before the first latest checkpoint; publish completed file progress through atomic manifest replacement; finalize directory/link metadata, then completion/reread markers; remove an unchanged newly created snapshot; finally move superseded content. Keep every record dependency available before publishing its row. A failed required directory/link write prevents a complete result and identifies the metadata gap; recovery preserves valid files and reports conflicting/unavailable metadata rather than claiming a whole tree. Use a disambiguator alongside the date label for equal dates/clock rollback; no state is overwritten. Tune checkpoint batching by measured metadata cost within the approved scale budgets, without changing recovery invariants. Before any latest record mutation, durably install INCOMPLETE_RUN using the same staged write/sync primitives. Clear it only after the final manifest, directory/link sidecar and completion markers are successfully published and synced; failed or interrupted finalization leaves it. If the prior selected state already carries this marker, carry it into the prior snapshot too. A current-format reader handles it before applying metadata; snapshots and kit refresh never silently remove an inherited marker."
+rationale = "The bounded run already preserves the previous state and allows mixed capture-time progress. Atomicity across the whole source tree or a new generation-selector store is unnecessary; the added metadata needs explicit partial-failure semantics."
+test_refs = "TC-275"
+status = "Drafted"
+
+[design.LLR-166]
+sr_refs = ["SR-017", "SR-075", "SR-082", "SR-158"]
+title = "Interruption cleanup and durability boundary"
+module = "native/state"
+code_symbol = "resume_interrupted_work"
+detail = "After exclusive admission, remove only identified interrupted Incoming and Building work that the existing bounded-run protocol declares disposable; resume or report Pruning work under the retention protocol. Rebuild disposable indexes from the retained manifests and stored objects. Preserve unknown or inaccessible items and report the blocker. Propagate file/directory sync failures as host stops, and qualify power-loss claims by separately exercised storage stacks. No stale-age reclamation or source-side cache is introduced. Preserve INCOMPLETE_RUN as semantic state, not disposable scratch; the next complete capture can clear it only through the finalization rule."
+rationale = "Reuse the existing restart-from-disk protocol rather than add a second journal or generation recovery mechanism."
+test_refs = "TC-276"
+status = "Drafted"
+
+[design.LLR-167]
+sr_refs = ["SR-023", "SR-052", "SR-158"]
+title = "Capacity estimates and late write failures"
+module = "native/capacity"
+code_symbol = "admit_storage_work"
+detail = "For each actual volume, estimate allocated output, temporary staging and metadata demand without double-counting shared free space. Restore demand sums each ordinary output path after duplicate/external-link expansion; recreated links add link/metadata allowance rather than target bytes again. Backup admits bounded next units. Unknown capacity emits a warning and proceeds with bounded writes; a known shortfall refuses the affected unit. Later full/disconnected volumes stop unsafe writes and retain valid earlier outputs and source/store data."
+rationale = "Free-space observations are estimates, not reservations; counting stored deduplicated bytes would understate recovery demand."
+test_refs = "TC-277"
+status = "Drafted"
+
+[design.LLR-168]
+sr_refs = ["SR-047", "SR-049", "SR-103", "SR-104"]
+title = "Read-only inventory and whole-store verification"
+module = "native/verify"
+code_symbol = "inspect_store"
+detail = "Read CurrentBackup and every remaining dated BackupHistory state, including older out-of-window folders. Stream one manifest at a time, using a bounded content-verdict cache and spillable index outside the store. Report paths/states affected by missing, unreadable, invalid, damaged, duplicate, misplaced and form-inconsistent content and metadata. Return findings without creating store-side logs, locks, scratch or views. Concurrent mutation is unsupported for a consistent whole-store inspection; detect observable record changes and return an incomplete concurrent-change diagnostic rather than a clean result."
+rationale = "Read-only tools must remain nonmutating even when inspection itself fails; one invalidated old date is not evidence of damage in a newer state."
+test_refs = "TC-278"
+status = "Drafted"
+
+[design.LLR-169]
+sr_refs = ["SR-045", "SR-046", "SR-047", "SR-101", "SR-102"]
+title = "Existing retention plan and resumable removal"
+module = "native/retention"
+code_symbol = "plan_and_commit_removal"
+detail = "Retain the existing prune planner and resumable commit protocol, with its protected dependency set explicitly including latest and all retained states later than the chosen cutoff. Resolve only named dated folders inside the store; reject wildcard/parent escapes and redirected state directories. Before removing a folder, rehome any last-copy content its protected survivors require and publish associated metadata safely. Validate actual temporary/publication allocation requirements; lack of spare capacity alone does not forbid deletion needing no allocation. Only after survivor supply is available commit the selected removal through the established Pruning phase and finish deletion. Repeating the request resumes safely; older remaining records may be incomplete and are still checked. Invalidation is not deletion: older folders are left alone unless explicitly selected and included in the same dependency/rehoming analysis. For batches, analyze supply outside the entire selected deletion set. Sync every required rehomed copy and survivor record before committing Pruning; an uncommitted removal is replanned, and committed resumption cannot broaden its deletion set."
+rationale = "The existing rehoming/removal mechanism already provides stronger preservation than the approved cutoff needs; it can be retained without introducing pool-wide garbage collection."
+test_refs = "TC-279"
+status = "Drafted"
+
+[design.LLR-170]
+sr_refs = ["SR-045", "SR-046", "SR-059", "SR-101"]
+title = "Protected dependency checks for snapshot deletion"
+module = "native/retention"
+code_symbol = "validate_prune_dependencies"
+detail = "Scan protected manifests one at a time to determine required content identities and use the existing object index to find supply outside the selected removal folder. Rehome and verify the last usable copy before deletion. If a protected record cannot be read, or required supply cannot be established, stop destructive removal. Keep unknown/unrecognized content out of automatic cleanup unless the declared removal protocol accounts for it. Do not delete a CurrentBackup object based merely on absence from an incomplete index. The deletion set is fixed by the checked plan, not inferred from the cutoff. A batch cannot count another selected-to-delete folder as surviving supply."
+rationale = "Dependency analysis belongs at the existing destructive prune boundary; a new global mark/sweep collector adds unnecessary semantics."
+test_refs = "TC-280"
+status = "Drafted"
+
+[design.LLR-171]
+sr_refs = ["SR-109", "SR-110"]
+title = "Verified repair without invented history"
+module = "native/verify"
+code_symbol = "repair_findings"
+detail = "Obtain ownership and revalidate findings before using the existing repair/quarantine responsibilities. Accept corrections backed by freshly verified bytes matching recorded identity, preserving a usable supply for all previously recoverable states. Publish corrected manifests with the existing atomic replacement primitive; stage other required metadata before its replacement and report any incomplete maintenance route. Quarantine damaged/misplaced duplicates instead of deleting uncertain supply. Do not substitute current source bytes for unrecoverable historical identities. Report ambiguous and unrepairable findings unchanged."
+rationale = "Repair is a checked transformation of evidence, not permission to guess content or mutate shared historical records in place."
+test_refs = "TC-281"
+status = "Drafted"
+
+[design.LLR-172]
+sr_refs = ["SR-008", "SR-009", "SR-010", "SR-031", "SR-039", "SR-118", "SR-141", "SR-145"]
+title = "Recovery selection and admission"
+module = "recovery/admission"
+code_symbol = "admit_selected_state"
+detail = "Locate the store from the selected CurrentBackup or dated BackupHistory kit using the established single-store relationship. Read the selected manifest and directory/link metadata using the declared kit/format support before target writes. Resolve the target through existing ancestors and reject store-contained, unresolvable or unsafe requests. Admit required local tools and expanded capacity before recovery. Recovery needs neither the native engine nor network. Unusable file-record structure refuses the whole restore; independently interpretable bad entries and metadata failures are reported during safe per-file continuation. Check INCOMPLETE_RUN in the selected state: allow verified ordinary file recovery but report unfinished metadata as incomplete and omit unfinalized links. Absence after an orderly completed run is meaningful only within the declared publication/durability assumptions, not proof against external record deletion."
+rationale = "Whole-restore refusal must precede avoidable output, while per-entry faults should not discard independent recoverable files."
+test_refs = "TC-282"
+status = "Drafted"
+
+[design.LLR-173]
+sr_refs = ["SR-029", "SR-056", "SR-068", "SR-119", "SR-120"]
+title = "Per-file verified recovery and fallback"
+module = "recovery/content"
+code_symbol = "recover_entry"
+detail = "Resolve candidates by recorded identity across the shared pool, test actual raw/archive forms rather than trusting the flag, and expand/copy to a private target-side temporary file. Check final byte length and xxHash128 before publishing to its validated destination. Retry a distinct verified candidate on damage; cap candidates by the finite discovered supply. Report missing/corrupt bytes separately from host/tool inability. Preserve an existing destination until a verified replacement is ready; never leave failed temporary output represented as restored."
+rationale = "Verification after expansion catches form errors and source archives mistaken for wrappers, while staging avoids corrupting a preexisting target on failure."
+test_refs = "TC-283"
+status = "Drafted"
+
+[design.LLR-174]
+sr_refs = ["SR-009", "SR-092", "SR-121", "SR-141"]
+title = "Restore path containment and collision admission"
+module = "recovery/paths"
+code_symbol = "validate_destination"
+detail = "Validate normalized record paths and resolve target parent chains before writes. Reject absolute/drive-qualified/escaping names, file-directory-link ancestor conflicts and target-comparison collisions as groups. Do not traverse pre-existing destination symlinks/reparse points to write content. When the target is mutable by an outside actor, use supported protected handle-relative operations or refuse that unsafe execution profile; do not claim string checks eliminate a concurrent redirection race."
+rationale = "Records and target paths are independent trust inputs; links-last alone cannot validate a preexisting target redirect."
+test_refs = "TC-284"
+status = "Drafted"
+
+[design.LLR-175]
+sr_refs = ["SR-065", "SR-066", "SR-122", "SR-146"]
+title = "Folder and per-file metadata restoration"
+module = "recovery/metadata"
+code_symbol = "apply_recorded_metadata"
+detail = "Create ordinary directories before their children, restore each file with its own recorded timestamp at the declared precision, then apply directory attributes after child creation. Distinguish missing/malformed required metadata from unsupported host attributes/ranges. Preserve verified file bytes on metadata failure; report exact known entries and unknown lost metadata separately. Required current metadata damage yields incomplete; supported-content recovery with declared target limitations can complete with warnings."
+rationale = "Applying a shared object timestamp to all duplicates loses per-path metadata, and applying directory metadata before children can immediately undo it."
+test_refs = "TC-285"
+status = "Drafted"
+
+[design.LLR-176]
+sr_refs = ["SR-150", "SR-151", "SR-152"]
+title = "Capture and reconstruct portable folder links"
+module = "recovery/links"
+code_symbol = "restore_relative_folder_links"
+detail = "Classify folder-link destinations by resolved containment in the configured source root and record the destination as a root-relative path. Do not traverse in-root aliases again. Restore regular directories/files first, then calculate a relative link target from the link parent to the restored destination. Accept parent components only when the resulting destination remains inside the root. Never synthesize an external absolute fallback or silently copy linked contents when link creation is unsupported. Do not traverse links into protected system locations."
+rationale = "Extending typed directory records preserves link identity without binding the recovered tree to the original machine; links-last protects content writes."
+test_refs = "TC-286"
+status = "Drafted"
+
+[design.LLR-177]
+sr_refs = ["SR-001", "SR-137", "SR-150", "SR-151"]
+title = "External-link capture scope and finite traversal"
+module = "native/capture"
+code_symbol = "walk_external_links"
+detail = "Apply the accepted external-folder expansion policy transitively, with a per-active-walk stack of resolved directory identities to stop ancestor cycles. Preserve distinct noncyclic alias paths rather than globally suppressing repeated targets, because they restore as separate ordinary paths. Classify links resolving back inside the configured source as in-root links. Count each expanded logical output path and its bytes in work/capacity estimates; never call the physical deduplicated source size the recovery size. Report unsupported/unreachable cycles or external link targets rather than invent portable destinations."
+rationale = "A global visited set silently drops accepted repeated-alias content; an ancestor stack prevents cycles while exposing acyclic expansion honestly."
+test_refs = "TC-287"
+status = "Drafted"
+
+[design.LLR-178]
+sr_refs = ["SR-040", "SR-043", "SR-104", "SR-120", "SR-126"]
+title = "Stable result classes and structured diagnostics"
+module = "native/results"
+code_symbol = "encode_result"
+detail = "Represent class, cause, state/set identity, affected path, counts and corrective guidance as typed data. Emit schema-versioned JSON separately from progress prose; documented exits are 0 complete, 1 incomplete, 2 invalid request/configuration/record and 4 busy/host/tool. Within a request use refusal-before-admission, then host-stop over incomplete, over complete; retain every cause in structured findings. Missing bytes, invalid names, bad records and unsupported metadata have distinct cause codes even where exits coincide."
+rationale = "A stable machine result should not depend on log wording or force one exit code per diagnostic."
+test_refs = "TC-288"
+status = "Drafted"
+
+[design.LLR-179]
+sr_refs = ["SR-016", "SR-072", "SR-073"]
+title = "Unattended execution and interactive recovery"
+module = "recovery/launch"
+code_symbol = "select_interaction_mode"
+detail = "Explicit inputs or redirected/noninteractive execution disable prompts and wait-for-key behavior. A missing target in unattended recovery produces usage refusal. A supported desktop launcher offers target selection and leaves the outcome visible; cancellation returns without choosing a fallback directory. An interactive console can prompt for a target only when input is actually available."
+rationale = "The launch environment, not whether a user happened to double-click a filename, determines whether a question can be answered."
+test_refs = "TC-289"
+status = "Drafted"
+
+[design.LLR-180]
+sr_refs = ["SR-089", "SR-124", "SR-125", "SR-126"]
+title = "Progress, change accounting and refusal explanations"
+module = "native/reporting"
+code_symbol = "record_progress"
+detail = "Track added/changed/removed/frozen/failed paths against the baseline, with causes and final counters. A separate progress reporter observes active-time deadlines independently of long reads/compressors/finalization and emits at least every 120 active seconds. Suspend time is excluded with a declared monotonic scheduling basis; completed counts do not count an attempted unpublished file. Refusals report condition and remedy without secret values."
+rationale = "Progress must remain observable while the worker blocks; otherwise a timer checked only between files cannot satisfy long-file progress."
+test_refs = "TC-290"
+status = "Drafted"
+
+[design.LLR-181]
+sr_refs = ["SR-015", "SR-127", "SR-128", "SR-129"]
+title = "Notification and credential isolation"
+module = "native/notify"
+code_symbol = "submit_result_notice"
+detail = "Read only opaque credential references from configuration, resolving them under the authorized execution identity through declared host credential adapters. Reject readable secrets without echoing them. Submit the completed run result only when configured/enabled, with bounded connection/read timeouts and no prompts. Record submission failure as a warning without changing the underlying backup outcome; do not assert delivery or recipient action from relay acceptance."
+rationale = "Separating result submission from operation success prevents mail outages altering backup status and avoids copying credentials into recovery material."
+test_refs = "TC-291"
+status = "Drafted"
+
+[design.LLR-182]
+sr_refs = ["SR-062", "SR-063", "SR-097", "SR-098", "SR-099", "SR-147"]
+title = "Derived browse and space/media views"
+module = "native/view"
+code_symbol = "publish_derived_view"
+detail = "Generate the latest-state view from the selected latest records into an owned temporary area, then replace the prior derived view after success. Include every logical path and duplicate, name search, stored-content access, stored size/shared marker and optional media rate. Media measurement uses positive duration and MiB/s to three decimals; disabled/missing/failed measurement is explicitly unavailable. Never infer zero from absence or let a view/tool failure change captured content."
+rationale = "A disposable view must not become recovery authority or overwrite unrelated files, and shared physical bytes still need every logical path shown."
+test_refs = "TC-292"
+status = "Drafted"
+
+[design.LLR-183]
+sr_refs = ["SR-034", "SR-048", "SR-095", "SR-130", "SR-142"]
+title = "Container execution parity and confinement"
+module = "native/container"
+code_symbol = "run_container_action"
+detail = "Package the native executable and documented tools in an unprivileged image. Accept the same typed configuration/actions and multiple sets as the native route; mount sources read-only and writable locations only for stores and declared scratch/log output. No added capabilities or network are needed for a locally provisioned non-notifying fixture. Container CLI behavior is a new native contract, not an unreviewed change to the legacy HomeHub v1 interface."
+rationale = "Container deployment is a delivery adapter, not a second backup implementation or an excuse for single-set divergence."
+test_refs = "TC-293"
+status = "Drafted"
+
+[design.LLR-184]
+sr_refs = ["SR-007", "SR-008", "SR-031", "SR-033", "SR-153"]
+title = "Native builds and independent script recovery packaging"
+module = "native/package"
+code_symbol = "assemble_release"
+detail = "Produce release executables for the declared Windows/Linux/macOS CPU matrix with embedded engine dependencies. Bundle version-matched PowerShell/bash recovery sources, restore-safe module/hash dependency where needed, launchers, guidance and notices as release assets; publish their exact bytes into state kits. Build tools and repository are not runtime dependencies. Recovery invokes only its local script/tool stack, never the native engine."
+rationale = "Using native code for backup must not make disaster recovery depend on obtaining that executable later."
+test_refs = "TC-294"
+status = "Drafted"
+
+[design.LLR-185]
+sr_refs = ["SR-061", "SR-084", "SR-114", "SR-115", "SR-116", "SR-123", "SR-156"]
+title = "Format support and explicit transition paths"
+module = "native/format"
+code_symbol = "admit_format_family"
+detail = "Retain the current single-store layout and existing record conventions as the native design baseline. Declare the metadata/kit revision needed for link records before enabling that capability. Reuse does not designate an older executable or store version as supported: the older-version support set remains empty until tested and explicitly designated. Old stores retain their own kits; any conversion or new-store transition is explicit. Unknown required record kinds or versions refuse without mutation, and missing current metadata is not an older-format exemption."
+rationale = "Preserving a useful existing architecture is distinct from promising backward compatibility. Only the actual link-format extension needs a format decision; Rust alone does not justify a new store family."
+test_refs = "TC-295"
+status = "Drafted"
+
+[design.LLR-186]
+sr_refs = ["SR-007", "SR-084", "SR-110", "SR-117"]
+title = "Interrupted kit refresh with a usable prior route"
+module = "native/kit"
+code_symbol = "refresh_supported_kit"
+detail = "Retain the existing explicit kit-refresh entry point and staged file-write primitives. Preflight the complete version-matched inventory and supported state-format pair before replacing any file. Preserve a usable previous kit copy until the refreshed kit set is committed; if a mix of files can execute incorrectly, add only the smallest kit-local commit/validation mechanism needed to detect that mix and provide a resumption path. A full-store generation-selector redesign is not required. Do not rewrite state records or stored content during refresh. Preserve the selected state's INCOMPLETE_RUN marker across refresh."
+rationale = "The current kit mechanism is reusable, but multi-file interruption behavior still needs evidence under the accepted maintenance contract."
+test_refs = "TC-296"
+status = "Drafted"
+
+[design.LLR-187]
+sr_refs = ["SR-068", "SR-071", "SR-081", "SR-098", "SR-118"]
+title = "Stored-form detection and optional tool adapters"
+module = "native/tools"
+code_symbol = "execute_checked_tool"
+detail = "Invoke tools with direct argument arrays, bounded captured output and exit/time/error classification; never interpolate record paths through a shell. Declare tool-floor versions and GNU/BSD/Windows flavor adapters for both script routes. Detect form from content/signature and verified output, not extension alone. Embedded native algorithms are tested as implementation, not assumed external conformance."
+rationale = "Tool invocation and error classification are portability/security seams; apparently archive-shaped damage is different from a missing executable."
+test_refs = "TC-297"
+status = "Drafted"
+
+[design.LLR-188]
+sr_refs = ["SR-049", "SR-064", "SR-112", "SR-113"]
+title = "Resource-bounded indexes and streaming records"
+module = "native/index"
+code_symbol = "open_spillable_index"
+detail = "Start with the existing one-manifest-at-a-time discipline and bounded in-memory indexes. If measured cardinality exceeds the budget, spill path/content joins and changed-row merging to a disposable on-disk index; any such index is rebuilt from the existing committed manifests and directory records and never required by recovery scripts. Bound in-memory caches and buffers as a fraction of the 2 GB combined budget, leaving headroom for external tools. Readers/checkers process one state record at a time and spill sorting/collision groups to scratch rather than retaining all histories. Script implementations use the same bounded processing principle without reading the native index."
+rationale = "Record-count and history growth must not multiply process memory; an authoritative database would add a recovery runtime dependency."
+test_refs = "TC-298"
+status = "Drafted"
+
+[design.LLR-189]
+sr_refs = ["SR-064", "SR-112", "SR-113"]
+title = "Scale corpus and reproducible performance measurements"
+module = "verification/scale"
+code_symbol = "measure_reference_workload"
+detail = "Interpret each selected-state envelope as at most one million logical output file paths and 2 TiB expanded logical file bytes, with up to 365 saved states plus latest. Bound the shared pool to 2 TiB of distinct uncompressed content for the reference check corpus; declare the total historical row count and alias factor separately. Use four cores, 2 GB available memory and 100 MiB/s local SSD without competing load. Measure whole-store check/full restore and routine <=1 GiB changed backup, recording cold/warm cache conditions and repeated trials. Compare 182/364-state runs with identical changes and cache state; count simultaneous RSS, not a sum of independent peaks."
+rationale = "Logical-size accounting resolves alias expansion in the benchmark without weakening real capture behavior; total history and unique pool size are separate costs."
+test_refs = "TC-299"
+status = "Drafted"
+
+[design.LLR-190]
+sr_refs = ["SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157"]
+title = "Guidance, helper and assurance disclosures"
+module = "delivery/guidance"
+code_symbol = "publish_support_material"
+detail = "Ship a configuration helper/examples, offline provisioning guidance, restore route instructions and a versioned support matrix linked to measured evidence. Explain content checks versus provenance/completeness, retention cutoff, complete-store handoff, external-link expansion and unsupported metadata outcomes. Inventory redistributed components and attach their required license/notice texts to native, container and carried-kit artifacts; distinguish separately installed tools. Never label an untested platform combination supported."
+rationale = "Delivery material is part of recovery capability and redistribution compliance, not an optional web link unavailable offline."
+test_refs = "TC-300, TC-301"
+status = "Drafted"

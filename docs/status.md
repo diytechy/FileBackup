@@ -25,7 +25,16 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **SR TIER ACCEPTED; DESIGN DECOMPOSITION NEXT (2026-11-05).** The owner
+- **INITIAL NATIVE DESIGN DRAFT (2026-11-05).** The
+  [design review package](plans/native-design-2026-11-05/review.md) retains the
+  existing store and bounded run architecture. LLR-151..190 and TC-261..301
+  propose design/verification allocation for all 121 accepted SRs; none is
+  implementation evidence or owner approval. Link metadata, kit interruption,
+  platform primitives and scale corpus details need design review. Legacy
+  semantic reconciliation and code/test attachment remain open; hooks remain
+  disabled and upstream approval baselines are unchanged.
+
+- **SR TIER ACCEPTED (2026-11-05).** The owner
   [accepted all 121 SRs](plans/spine-rebaseline-2026-11-05/sr-approval.md)
   as written at `0a17487`. Only SR statuses and the scoped SR approval snapshot
   changed; no normative text, LLR, test or implementation was approved.
