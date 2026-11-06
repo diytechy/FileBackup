@@ -275,6 +275,12 @@ not hidden by changing approved normative text. General hooks remain disabled.
 
 ## Reproduction and outstanding qualification
 
+The subsequent [Opus memory review](memory-review-2026-11-06.md) identifies
+remaining allocation costs and a staged optimization sequence. Its projections
+are unmeasured. It also identifies early compression placement and missing
+timed-checkpoint coverage in the short combined run; the existing measurements
+remain valid for their executed order, not worst-case concurrent memory bounds.
+
 Install `scripts/requirements-performance.txt` into a development environment.
 Set Cargo caches/targets and scratch to a drive with sufficient capacity, then:
 

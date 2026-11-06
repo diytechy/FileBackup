@@ -26,6 +26,11 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **OPUS MEMORY REVIEW (2026-11-06).** The [review and disposition](plans/native-design-2026-11-05/memory-review-2026-11-06.md)
+  identify redundant per-file allocations and late-compression/checkpoint tests.
+  Under 1 GB is an unmeasured optimization goal for the unchanged corpus;
+  proposed changes are not implemented or qualified by the review.
+
 - **REFERENCE STORAGE CORRECTED (2026-11-06).** The owner identified platter
   drives as the deployed storage. The [scoped SR-064 amendment](plans/native-design-2026-11-05/owner-hdd-reference.md)
   uses rotational HDDs with D: as the candidate test drive. Existing budgets
@@ -7138,3 +7143,11 @@ The owner corrected the deployed storage medium. SR-064, LLR-189, TC-299 and
 active performance/support documents now use rotational HDDs. Only SR-064 is
 re-attested; budgets and unexecuted qualification remain unchanged. See the
 [owner amendment](plans/native-design-2026-11-05/owner-hdd-reference.md).
+
+### 2026-11-06 — Remaining native memory costs reviewed with Opus
+
+Opus 5.5 low reviewed the explicitly authorized seven-file bundle. The
+[disposition](plans/native-design-2026-11-05/memory-review-2026-11-06.md) records
+practical allocation reductions, separates estimates from measurements, and
+corrects the suggested compression/checkpoint overlap to match synchronous
+execution. Runtime code, budgets and approval statuses remain unchanged.
