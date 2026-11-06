@@ -12,7 +12,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 pub fn snapshots(set: &BackupSet) -> Result<Vec<String>> {
@@ -31,7 +31,7 @@ pub fn inventory(set: &BackupSet) -> Report {
         let store = Store::new(&set.store);
         let mut states = Vec::new();
         for state in store.states()? {
-            let name = if state == store.current {
+            let name = if state.as_path() == store.current.as_ref() {
                 "CurrentBackup".into()
             } else {
                 state.file_name().unwrap().to_string_lossy().into_owned()
@@ -93,7 +93,7 @@ fn verify_inner(
     let scratch = tempfile::tempdir()?;
     let tool = tools::seven_zip(config.seven_zip.as_deref()).ok();
     let index = store.index()?;
-    let mut verdicts: BTreeMap<PathBuf, Option<tools::StoredForm>> = BTreeMap::new();
+    let mut verdicts: BTreeMap<&Path, Option<tools::StoredForm>> = BTreeMap::new();
     for state in store.states()? {
         let path = state.join(format::MANIFEST);
         let before = match fs::metadata(&path).and_then(|m| m.modified()) {
@@ -146,7 +146,7 @@ fn verify_inner(
             if let Some(objects) = index.get(&row.key()) {
                 for object in objects {
                     let form = if deep || repair {
-                        if let Some(form) = verdicts.get(&object.path) {
+                        if let Some(form) = verdicts.get(object.path.as_path()) {
                             *form
                         } else {
                             match tools::verify_form(
@@ -156,7 +156,7 @@ fn verify_inner(
                                 scratch.path(),
                             ) {
                                 Ok(form) => {
-                                    verdicts.insert(object.path.clone(), form);
+                                    verdicts.insert(object.path.as_path(), form);
                                     form
                                 }
                                 Err(e) => {
@@ -256,7 +256,7 @@ fn verify_inner(
                 "Metadata changed during inspection; no metadata repair published".into(),
             );
         } else if changed {
-            platform::atomic_write(&path, &format::manifest_bytes(&rows)?, true)?;
+            platform::atomic_write_with(&path, true, |file| format::write_manifest(file, &rows))?;
         }
     }
     for objects in index.values() {
@@ -271,7 +271,7 @@ fn verify_inner(
         let mut good = Vec::new();
         for object in objects {
             if deep || repair {
-                let form = if let Some(form) = verdicts.get(&object.path) {
+                let form = if let Some(form) = verdicts.get(object.path.as_path()) {
                     *form
                 } else {
                     match tools::verify_form(
@@ -469,7 +469,7 @@ fn prune_inner(
     let mut demand: BTreeSet<ContentKey> = BTreeSet::new();
     let mut protected_states = Vec::new();
     for state in store.states()? {
-        let protected = state == store.current
+        let protected = state.as_path() == store.current.as_ref()
             || snapshot_order(state.file_name().unwrap().to_str().unwrap())
                 .is_some_and(|t| t > cutoff);
         if protected && !selected.contains(&state) {
@@ -508,7 +508,7 @@ fn prune_inner(
         let mut source = None;
         for object in candidates {
             if tools::verify(&object.path, &key, tool.as_deref(), scratch.path())? {
-                if !selected.contains(&object.state) {
+                if !selected.contains(object.state.as_ref()) {
                     survivor = true;
                     break;
                 }

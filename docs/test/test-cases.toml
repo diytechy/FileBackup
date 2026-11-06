@@ -457,7 +457,7 @@ parameters = "fault=set{none,invalid,unavailable}; @pairwise"
 expected = "Scale from small fixtures to the declared million-path/365-state corpus while observing all concurrent processes, scratch space and object reads. Peak combined RSS fits 2 GB, index deletion is recoverable, and script recovery works with no index or native binary."
 automated = "Yes"
 status = "Drafted"
-notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-188). rust/examples/cardinality_fixture.rs; scripts/measure_native.py; docs/plans/native-design-2026-11-05/performance-validation.md. Million distinct real source/object pairs measured; full reference topology and 2 GB host qualification remain. Spilling not implemented."
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-188). rust/examples/cardinality_fixture.rs; scripts/measure_native.py; docs/plans/native-design-2026-11-05/performance-validation.md; docs/plans/native-design-2026-11-05/memory-optimization-2026-11-06.md. Million distinct real source/object pairs measured; full reference topology and 2 GB host qualification remain. Spilling not implemented."
 
 
 [test.TC-299]
@@ -469,7 +469,7 @@ parameters = "states=set{0,182,364,365}; paths=set{1,1000000}; bytes=set{0,2TiB}
 expected = "On the declared rotational hard-disk reference, each full check/restore completes in eight hours and routine capture in thirty minutes; observed memory stays inside the available budget. Repeated matched 182/364 runs show less-than-twofold time growth. Publish failures, environment and all trial values, including physical devices, filesystems, sequential throughput and source/store/restore-target/scratch placement with any shared spindles; no fixture-only timing is accepted as cross-host evidence."
 automated = "Yes"
 status = "Drafted"
-notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-189). scripts/performance_native.py; scripts/performance_history.py; scripts/measure_native.py; docs/plans/native-design-2026-11-05/performance-validation.md. Real-file/history/independent-recovery/process-tree measurements; full reference topology/2 TiB/365 states and repeated cold/warm runs not completed."
+notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-189). scripts/performance_native.py; scripts/performance_history.py; scripts/measure_native.py; docs/plans/native-design-2026-11-05/performance-validation.md; docs/plans/native-design-2026-11-05/memory-optimization-2026-11-06.md. Real-file/history/independent-recovery/process-tree measurements; full reference topology/2 TiB/365 states and repeated cold/warm runs not completed."
 
 
 [test.TC-300]

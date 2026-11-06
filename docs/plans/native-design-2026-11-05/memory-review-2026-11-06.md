@@ -6,7 +6,9 @@ The owner requested another Opus perspective on optimization and explicitly
 authorized sharing the seven-file source/measurement bundle. Claude Opus 5.5,
 low effort, returned session `0ef5cb1d-a65a-4a52-b4fc-d8d442cfdb0a` through the
 Claude CLI. Tools were disabled. This was static review, not execution or proof
-of a memory bound. Runtime code and requirement statuses are unchanged.
+of a memory bound. At the time of this review, runtime code and requirement statuses were unchanged.
+The subsequent [implementation and measurements](memory-optimization-2026-11-06.md)
+record the adopted changes and correct the walk-order assessment below.
 
 The bundle included `rust/src/{engine,format,store,maintenance,tools}.rs`,
 `scripts/measure_native.py` and [performance-validation.md](performance-validation.md).
@@ -59,13 +61,12 @@ Longer paths and runs changing many files can have different peaks.
    second object index. Start with 100,000 files; confirm promising changes at
    one million. Record allocator/environment and distinguish live allocations
    from RSS. Release measurements must still omit `test-hooks`.
-2. Repeat compression late in the actual walk order. The existing combined
-   fixture puts `new-gib.txt` at the source root, while its million existing
-   files are in subdirectories. The walker queues root files before descending,
-   so that successful 1,814,810,624-byte result does not establish the peak when
-   `seen` has filled. Verify execution order rather than assuming lexical file
-   naming controls `read_dir` order. Do not assert a 2 GB violation from adding
-   independent engine and compressor peaks.
+2. Check compression late in the actual capture order. **Corrected during
+   implementation:** the walker sorts its completed file list before capture.
+   The existing `new-gib.txt` therefore already follows the million `d...` paths,
+   despite being encountered during the root scan. Opus's early-file concern
+   and the initial local assessment overlooked this sort; that concern is
+   withdrawn. Do not assert a 2 GB violation by adding independent peaks.
 3. Exercise a mixed run with a timed manifest checkpoint on D: HDD storage.
    The 43-second combined run does not exercise the 60-second checkpoint budget.
    Opus suggested forcing a checkpoint during compression, but compression is

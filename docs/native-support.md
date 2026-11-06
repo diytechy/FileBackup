@@ -26,13 +26,15 @@ Small fixtures and process termination do not establish those claims.
 
 Notification adapters, optional media reporting, interactive desktop launchers,
 inspection/repair and retention estimates are implemented. Live mail/credential
-access and desktop UI are not yet qualified. A release-build corpus with one
+access and desktop UI are not yet qualified. The latest release-build corpus with one
 million real source files and independent stored objects completed unchanged
-backup at 1.681 GB peak application RSS and deep check at 1.183 GB. This used a
+backup at 0.973 GB peak application RSS and deep check at 0.920 GB. This used a
 RAM filesystem, whose kernel memory is outside application RSS; it does not
 establish operation on a 2 GB host or disk throughput. Adding a new compressed
-1 GiB file to a million-file corpus completed at 1.815 GB simultaneous engine/tool
-RSS after limiting 7-Zip to two workers. The process-tree sampler has 50 ms
+1 GiB file to a million-file corpus completed at 1.144 GB simultaneous engine/tool
+RSS with two 7-Zip workers. See the
+[memory optimization results](plans/native-design-2026-11-05/memory-optimization-2026-11-06.md)
+for matched iterations and scope. The process-tree sampler has 50 ms
 sampling limitations. Small SSD PowerShell restoration improved from 76.6 to 30.3
 seconds; Bash on WSL's Linux filesystem improved from 215.4 to 148.8 seconds.
 Every restored path and SHA-256 digest matched. See the

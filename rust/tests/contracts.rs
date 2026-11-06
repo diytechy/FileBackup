@@ -12,7 +12,7 @@ fn independently_generated_hash_vectors() {
     for row in reader.records() {
         let row = row.unwrap();
         assert_eq!(
-            hash_file(&base.join(&row[0])).unwrap().hash,
+            String::from(hash_file(&base.join(&row[0])).unwrap().hash),
             row[1],
             "{}",
             &row[0]
@@ -32,7 +32,7 @@ fn existing_name_decoder_corpus() {
             continue;
         }
         let key = parse_name(&row[0]).unwrap();
-        assert_eq!(key.hash, row[1]);
+        assert_eq!(String::from(key.hash), row[1]);
         assert_eq!(key.length, row[2].parse::<u64>().unwrap());
         let tail = &row[0][23..];
         let end = tail.bytes().take_while(|b| ALPHABET.contains(b)).count();
@@ -74,6 +74,15 @@ fn manifest_roundtrip_and_metadata_required() {
     };
     let path = dir.path().join(MANIFEST);
     fs::write(&path, manifest_bytes(std::slice::from_ref(&row)).unwrap()).unwrap();
+    let expected = fs::read(&path).unwrap();
+    platform::atomic_write_with(&path, true, |file| write_manifest(file, [&row])).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), expected);
+    let failed = platform::atomic_write_with(&path, true, |file| {
+        std::io::Write::write_all(file, b"partial new manifest")?;
+        anyhow::bail!("injected writer failure")
+    });
+    assert!(failed.is_err());
+    assert_eq!(fs::read(&path).unwrap(), expected);
     assert_eq!(read_manifest(&path).unwrap(), vec![row]);
     assert!(read_directories(&dir.path().join(DIRECTORIES)).is_err());
     fs::write(dir.path().join(DIRECTORIES), directory_bytes(&[]).unwrap()).unwrap();

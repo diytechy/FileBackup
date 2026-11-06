@@ -90,7 +90,7 @@ pub fn rank(code: i32) -> u8 {
 }
 #[derive(Default)]
 struct Walk {
-    files: Vec<(String, PathBuf)>,
+    files: Vec<String>,
     dirs: Vec<DirectoryRow>,
     frozen: Vec<String>,
     complete: bool,
@@ -102,17 +102,28 @@ enum RunRow<'a> {
     Prior(&'a FileRow),
     Captured(Box<FileRow>),
 }
-impl RunRow<'_> {
+impl AsRef<FileRow> for RunRow<'_> {
     fn as_ref(&self) -> &FileRow {
         match self {
             Self::Prior(row) => row,
             Self::Captured(row) => row,
         }
     }
-    fn into_owned(self) -> FileRow {
+}
+impl std::ops::Deref for RunRow<'_> {
+    type Target = FileRow;
+    fn deref(&self) -> &FileRow {
+        self.as_ref()
+    }
+}
+impl RunRow<'_> {
+    fn make_mut(&mut self) -> &mut FileRow {
+        if let Self::Prior(row) = self {
+            *self = Self::Captured(Box::new((*row).clone()));
+        }
         match self {
-            Self::Prior(row) => row.clone(),
-            Self::Captured(row) => *row,
+            Self::Captured(row) => row,
+            Self::Prior(_) => unreachable!(),
         }
     }
 }
@@ -244,7 +255,7 @@ fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
                     result.frozen.push(rel);
                     continue;
                 }
-                result.files.push((rel, path));
+                result.files.push(rel);
             } else {
                 result.complete = false;
                 result.frozen.push(rel);
@@ -257,7 +268,6 @@ fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
     for rel in result
         .files
         .iter()
-        .map(|(r, _)| r)
         .chain(result.dirs.iter().map(|r| &r.relative_path))
     {
         match groups.entry(format::path_key(rel)) {
@@ -283,7 +293,7 @@ fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
                     .is_some_and(|tail| tail.starts_with('/'))
         })
     };
-    result.files.retain(|(rel, _)| !blocked(rel));
+    result.files.retain(|rel| !blocked(rel));
     result.dirs.retain(|row| !blocked(&row.relative_path));
     let ordinary: BTreeSet<_> = result
         .dirs
@@ -301,7 +311,7 @@ fn walk(source: &Path, protected: &[PathBuf]) -> Walk {
         }
         keep
     });
-    result.files.sort_by(|a, b| a.0.cmp(&b.0));
+    result.files.sort();
     result
         .dirs
         .sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
@@ -503,7 +513,7 @@ fn capture(
             }
             if object.state == store.current && object.verified.is_none() {
                 object.path = store.quarantine(&object.path)?;
-                object.state = store.root.join("Verify");
+                object.state = store.root.join("Verify").into();
                 report.finding(
                     1,
                     format!(
@@ -513,7 +523,7 @@ fn capture(
                 );
             }
         }
-        objects.retain(|object| object.state != store.root.join("Verify"));
+        objects.retain(|object| object.state.as_ref() != store.root.join("Verify"));
         for object in objects {
             if let Some(form) = object.verified {
                 let destination = store.path(&object.name)?;
@@ -599,7 +609,7 @@ fn capture(
             path: destination,
             state: store.current.clone(),
             name: name.clone(),
-            key: key.clone(),
+            key,
             verified: Some(if compressed {
                 tools::StoredForm::Archive
             } else {
@@ -671,13 +681,13 @@ fn append_log(set: &BackupSet, report: &Report) -> Result<()> {
 }
 fn record_changes(
     prior: &[FileRow],
-    final_rows: &[FileRow],
+    final_rows: &[impl AsRef<FileRow>],
     prior_dirs: &[DirectoryRow],
     dirs: &[DirectoryRow],
     report: &mut Report,
 ) {
     let prior_map: BTreeMap<_, _> = prior.iter().map(|r| (&r.relative_path, r)).collect();
-    for row in final_rows {
+    for row in final_rows.iter().map(AsRef::as_ref) {
         match prior_map.get(&row.relative_path) {
             None => report.added += 1,
             Some(old)
@@ -690,7 +700,10 @@ fn record_changes(
             _ => (),
         }
     }
-    let latest_paths: BTreeSet<_> = final_rows.iter().map(|r| &r.relative_path).collect();
+    let latest_paths: BTreeSet<_> = final_rows
+        .iter()
+        .map(|r| &r.as_ref().relative_path)
+        .collect();
     report.removed = prior
         .iter()
         .filter(|r| !latest_paths.contains(&r.relative_path))
@@ -814,24 +827,25 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         let reread = full_reread(set, &store);
         let mut rows: BTreeMap<String, RunRow<'_>> = prior
             .iter()
-            .map(|r| (r.relative_path.clone(), RunRow::Prior(r)))
-            .collect();
-        let mut seen = BTreeSet::new();
-        let mut row_keys: BTreeMap<String, String> = rows
-            .keys()
-            .map(|p| (format::path_key(p), p.clone()))
+            .map(|r| (format::path_key(&r.relative_path), RunRow::Prior(r)))
             .collect();
         let mut checkpoint = Instant::now();
+        #[cfg(feature = "test-hooks")]
+        if std::env::var("FILEBACKUP_TEST_CHECKPOINT").ok().as_deref() == Some("1") {
+            checkpoint -= Duration::from_secs(60);
+        }
         let mut wait_budget = Duration::from_secs(60);
         let mut queue = BinaryHeap::new();
-        let now = Instant::now();
-        for i in 0..walked.files.len() {
-            queue.push(std::cmp::Reverse((now, i, 0u8)));
-        }
+        let mut first_attempts = 0..walked.files.len();
         platform::checkpoint("capture-ready");
-        while let Some(std::cmp::Reverse((eligible, i, attempt))) = queue.pop() {
-            let (relative, path) = &walked.files[i];
-            seen.insert(format::path_key(relative));
+        while let Some((eligible, i, attempt)) = first_attempts
+            .next()
+            .map(|i| (Instant::now(), i, 0u8))
+            .or_else(|| queue.pop().map(|std::cmp::Reverse(item)| item))
+        {
+            let relative = &walked.files[i];
+            let path = set.source.join(relative.split('/').collect::<PathBuf>());
+            let key = format::path_key(relative);
             let delay = eligible.saturating_duration_since(Instant::now());
             if !delay.is_zero() {
                 if delay > wait_budget {
@@ -842,11 +856,12 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 thread::sleep(delay);
                 wait_budget -= delay;
             }
-            let current = fs::metadata(path).ok();
+            let current = fs::metadata(&path).ok();
             let reusable = attempt == 0
-                && rows.get(relative).is_some_and(|row| {
+                && rows.get(&key).is_some_and(|row| {
                     let row = row.as_ref();
                     !reread
+                        && row.relative_path == *relative
                         && current.as_ref().is_some_and(|m| {
                             m.len() == row.length && modified(m).is_ok_and(|v| v == row.modified)
                         })
@@ -858,7 +873,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 report.reused += 1;
                 continue;
             }
-            let outcome = match capture(set, &store, relative, path, &mut index, &adapters, report)
+            let outcome = match capture(set, &store, relative, &path, &mut index, &adapters, report)
             {
                 Ok(row) => Some(row),
                 Err(e) => {
@@ -886,9 +901,8 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             if let Some(row) = outcome {
                 // A captured replacement is authoritative even if a different
                 // subtree was unreadable. Never checkpoint old conflicting paths.
-                let key = format::path_key(relative);
                 let prefix = key.clone() + "/";
-                let mut conflicts: Vec<_> = row_keys
+                let mut conflicts: Vec<_> = rows
                     .range(prefix.clone()..)
                     .take_while(|(k, _)| k.starts_with(&prefix))
                     .map(|(k, _)| k.clone())
@@ -900,12 +914,9 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                     parent = p;
                 }
                 for conflict in conflicts {
-                    if let Some(old) = row_keys.remove(&conflict) {
-                        rows.remove(&old);
-                    }
+                    rows.remove(&conflict);
                 }
-                row_keys.insert(key, relative.clone());
-                rows.insert(relative.clone(), RunRow::Captured(Box::new(row)));
+                rows.insert(key, RunRow::Captured(Box::new(row)));
                 report.captured += 1;
             } else {
                 report.failed += 1;
@@ -914,11 +925,10 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 }
             }
             if checkpoint.elapsed() >= Duration::from_secs(60) {
-                platform::atomic_write(
-                    &store.current.join(format::MANIFEST),
-                    &format::manifest_ref_bytes(rows.values().map(RunRow::as_ref))?,
-                    true,
-                )?;
+                platform::atomic_write_with(&store.current.join(format::MANIFEST), true, |file| {
+                    format::write_manifest(file, rows.values().map(RunRow::as_ref))
+                })?;
+                platform::checkpoint("manifest-checkpoint");
                 checkpoint = Instant::now();
             }
         }
@@ -928,14 +938,14 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                     || (walked.observed > 0 && fs::read_dir(&set.source)?.next().is_some())),
             "source vanished/emptied; refusing final removals"
         );
-        if walked.complete {
-            rows.retain(|path, _| seen.contains(&format::path_key(path)));
-        }
         platform::checkpoint("capture-finished");
-        // Capture-only indexes must not coexist with finalization's fresh indexes.
+        // Only retries need queue storage. Release capture supply before removal checks.
+        drop(queue);
         drop(index);
-        drop(row_keys);
-        drop(seen);
+        if walked.complete {
+            let seen: BTreeSet<_> = walked.files.iter().map(|p| format::path_key(p)).collect();
+            rows.retain(|key, _| seen.contains(key));
+        }
         drop(walked.files);
         let mut dirs = walked.dirs;
         if !walked.complete {
@@ -949,7 +959,9 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 }
             }
         }
-        let mut final_rows: Vec<_> = rows.into_values().map(RunRow::into_owned).collect();
+        let mut final_rows: Vec<_> = rows.into_values().collect();
+        // Portable lookup order must not change which recorded path owns a duplicate.
+        final_rows.sort_unstable_by(|a, b| a.relative_path.cmp(&b.relative_path));
         platform::checkpoint("final-rows");
         // A checkpoint can legitimately have newer files than the old sidecar.
         // Keep independent file content and exclude conflicting supplemental rows.
@@ -1011,17 +1023,19 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         drop(links);
         let mut owners = BTreeSet::new();
         for row in &mut final_rows {
-            row.duplicate = if owners.insert(row.key()) {
-                String::new()
+            let duplicate = if owners.insert(row.key()) {
+                ""
             } else {
-                "Duplicate".into()
+                "Duplicate"
             };
+            if row.duplicate != duplicate {
+                row.make_mut().duplicate = duplicate.into();
+            }
         }
         drop(owners);
         let changed = !format::same_manifest(&prior, &final_rows)
             || !format::same_directories(&prior_dirs, &dirs);
         record_changes(&prior, &final_rows, &prior_dirs, &dirs, report);
-        drop(prior);
         drop(prior_dirs);
         store.write(&final_rows, &dirs)?;
         platform::checkpoint("final-definitions");
@@ -1048,7 +1062,9 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             store.remove_unneeded_snapshot(path)?;
         }
         // Resolve destinations one manifest at a time, never move a final dependency.
-        let required: BTreeSet<_> = final_rows.iter().map(FileRow::key).collect();
+        let required: BTreeSet<_> = final_rows.iter().map(|row| row.key()).collect();
+        drop(final_rows);
+        drop(prior);
         let mut superseded: BTreeMap<ContentKey, Object> = store
             .index()?
             .into_iter()
@@ -1061,7 +1077,10 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             .collect();
         let mut states = store.states()?;
         states.reverse();
-        for state in states.into_iter().filter(|s| *s != store.current) {
+        for state in states
+            .into_iter()
+            .filter(|s| s.as_path() != store.current.as_ref())
+        {
             if superseded.is_empty() {
                 break;
             }

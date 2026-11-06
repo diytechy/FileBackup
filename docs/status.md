@@ -26,10 +26,11 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
-- **OPUS MEMORY REVIEW (2026-11-06).** The [review and disposition](plans/native-design-2026-11-05/memory-review-2026-11-06.md)
-  identify redundant per-file allocations and late-compression/checkpoint tests.
-  Under 1 GB is an unmeasured optimization goal for the unchanged corpus;
-  proposed changes are not implemented or qualified by the review.
+- **NATIVE MEMORY REDUCED (2026-11-06).** [Implementation and measurements](plans/native-design-2026-11-05/memory-optimization-2026-11-06.md)
+  replace redundant maps/copies with shared records and streamed publication.
+  The million-file release backup measured 973 MB RSS; both platform suites and
+  Opus reviews pass within their documented scope. Full HDD/2 GB-host qualification
+  remains open; this is not a universal memory bound.
 
 - **REFERENCE STORAGE CORRECTED (2026-11-06).** The owner identified platter
   drives as the deployed storage. The [scoped SR-064 amendment](plans/native-design-2026-11-05/owner-hdd-reference.md)
@@ -7151,3 +7152,12 @@ Opus 5.5 low reviewed the explicitly authorized seven-file bundle. The
 practical allocation reductions, separates estimates from measurements, and
 corrects the suggested compression/checkpoint overlap to match synchronous
 execution. Runtime code, budgets and approval statuses remain unchanged.
+
+### 2026-11-06 — Shared-record memory optimization implemented
+
+The owner authorized measured simplification. One path map, borrowed final rows,
+binary hashes, shared state paths and streamed canonical CSV lowered the matched
+million-file diagnostic peak from 1.760 GB to 0.977 GB; the final release measured
+0.973 GB. Opus reviewed the core changes and follow-up state sharing. The earlier
+early-compression concern was withdrawn because the walk sorts before capture.
+See [results and limits](plans/native-design-2026-11-05/memory-optimization-2026-11-06.md).

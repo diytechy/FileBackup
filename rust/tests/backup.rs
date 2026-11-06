@@ -66,6 +66,36 @@ fn backup_dedup_noop_history_and_empty_folder_changes() {
     assert!(!store.current.join("MANIFEST.csv.prev").exists());
 }
 #[test]
+fn duplicate_owner_uses_recorded_order_and_history_keeps_old_flags() {
+    let (_tmp, mut config) = fixture(false);
+    config.sets[0].frequency = "N".into();
+    let set = &config.sets[0];
+    for name in ["B.bin", "a.bin"] {
+        fs::write(set.source.join(name), b"same content").unwrap();
+    }
+    let store = Store::new(&set.store);
+    let manifest = store.current.join(format::MANIFEST);
+    assert_eq!(engine::backup(&config, set).code, 0);
+    let before = fs::read(&manifest).unwrap();
+    let rows = format::read_manifest(&manifest).unwrap();
+    assert_eq!(rows[0].relative_path, "B.bin");
+    assert_eq!(rows[0].duplicate, "");
+    assert_eq!(rows[1].duplicate, "Duplicate");
+    let report = engine::backup(&config, set);
+    assert_eq!(report.code, 0, "{report:?}");
+    assert_eq!(report.reused, 2);
+    assert_eq!(fs::read(&manifest).unwrap(), before);
+    assert_eq!(store.states().unwrap().len(), 1);
+    fs::remove_file(set.source.join("B.bin")).unwrap();
+    let report = engine::backup(&config, set);
+    assert_eq!(report.code, 0, "{report:?}");
+    assert_eq!(report.removed, 1);
+    assert_eq!(format::read_manifest(&manifest).unwrap()[0].duplicate, "");
+    let history = store.states().unwrap().pop().unwrap();
+    assert_eq!(fs::read(history.join(format::MANIFEST)).unwrap(), before);
+}
+
+#[test]
 fn missing_source_and_invalid_old_store_do_not_replace_state() {
     let (_tmp, config) = fixture(false);
     let set = &config.sets[0];

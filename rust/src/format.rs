@@ -27,9 +27,25 @@ pub const FILE_HEADER: [&str; 9] = [
 ];
 pub const DIR_HEADER: [&str; 4] = ["RelativePath", "Attributes", "EntryKind", "LinkTarget"];
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+// Keep one binary identity in memory; the carried CSV remains uppercase hex.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ContentHash([u8; 16]);
+impl TryFrom<String> for ContentHash {
+    type Error = anyhow::Error;
+    fn try_from(value: String) -> Result<Self> {
+        validate_hash(&value)?;
+        Ok(Self(u128::from_str_radix(&value, 16)?.to_be_bytes()))
+    }
+}
+impl From<ContentHash> for String {
+    fn from(value: ContentHash) -> Self {
+        format!("{:032X}", u128::from_be_bytes(value.0))
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ContentKey {
-    pub hash: String,
+    pub hash: ContentHash,
     pub length: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +59,7 @@ pub struct FileRow {
     #[serde(rename = "LastWriteTimeStr")]
     pub modified: String,
     #[serde(rename = "xxH2Hash")]
-    pub hash: String,
+    pub hash: ContentHash,
     #[serde(rename = "Compressed")]
     pub compressed: String,
     #[serde(rename = "StoredAsHashSize")]
@@ -53,10 +69,15 @@ pub struct FileRow {
     #[serde(rename = "MediaMBPerSec")]
     pub media: String,
 }
+impl AsRef<FileRow> for FileRow {
+    fn as_ref(&self) -> &FileRow {
+        self
+    }
+}
 impl FileRow {
     pub fn key(&self) -> ContentKey {
         ContentKey {
-            hash: self.hash.clone(),
+            hash: self.hash,
             length: self.length,
         }
     }
@@ -90,7 +111,7 @@ pub fn copy_hash(mut input: impl Read, mut output: impl Write) -> Result<Content
             .context("file length overflow")?;
     }
     Ok(ContentKey {
-        hash: format!("{:032X}", hasher.digest128()),
+        hash: ContentHash(hasher.digest128().to_be_bytes()),
         length,
     })
 }
@@ -127,7 +148,6 @@ pub fn decode(s: &str) -> Result<u128> {
     })
 }
 pub fn object_name(key: &ContentKey, extension: &str) -> Result<String> {
-    validate_hash(&key.hash)?;
     ensure!(
         key.length <= i64::MAX as u64,
         "length exceeds shared script codec"
@@ -142,7 +162,7 @@ pub fn object_name(key: &ContentKey, extension: &str) -> Result<String> {
     );
     Ok(format!(
         "{}_{}{}",
-        encode(u128::from_str_radix(&key.hash, 16)?, 22)?,
+        encode(u128::from_be_bytes(key.hash.0), 22)?,
         encode(key.length as u128, 0)?,
         extension
     ))
@@ -164,7 +184,7 @@ pub fn parse_name(name: &str) -> Result<ContentKey> {
     );
     ensure!(!ext.contains(['/', '\\', '\0']), "invalid object extension");
     Ok(ContentKey {
-        hash: format!("{:032X}", decode(&name[..22])?),
+        hash: ContentHash(decode(&name[..22])?.to_be_bytes()),
         length: i64::try_from(decode(&tail[..end])?)? as u64,
     })
 }
@@ -240,7 +260,6 @@ pub fn read_manifest(path: &Path) -> Result<Vec<FileRow>> {
     for row in reader(path, &FILE_HEADER)?.deserialize::<FileRow>() {
         let row = row?;
         validate_path(&row.relative_path)?;
-        validate_hash(&row.hash)?;
         ensure!(row.length <= i64::MAX as u64, "unsupported content length");
         ensure!(row.storage == "Hash", "unsupported storage form");
         ensure!(
@@ -293,12 +312,11 @@ pub fn read_directories(path: &Path) -> Result<Vec<DirectoryRow>> {
 }
 /// Validate the published pair. Readers may still recover independent files
 /// from an interrupted checkpoint whose older supplemental table conflicts.
-pub fn validate_records(rows: &[FileRow], dirs: &[DirectoryRow]) -> Result<()> {
+pub fn validate_records(rows: &[impl AsRef<FileRow>], dirs: &[DirectoryRow]) -> Result<()> {
     let mut files = BTreeSet::new();
     let mut ancestors = BTreeSet::new();
-    for row in rows {
+    for row in rows.iter().map(AsRef::as_ref) {
         validate_path(&row.relative_path)?;
-        validate_hash(&row.hash)?;
         ensure!(
             files.insert(path_key(&row.relative_path)),
             "colliding file paths"
@@ -361,16 +379,16 @@ pub fn paths_conflict(a: &str, b: &str) -> bool {
     let b = path_key(b);
     a == b || a.starts_with(&(b.clone() + "/")) || b.starts_with(&(a + "/"))
 }
-fn csv_bytes<T: Serialize>(header: &[&str], rows: &[T]) -> Result<Vec<u8>> {
+fn write_csv<T: Serialize>(output: impl Write, header: &[&str], rows: &[T]) -> Result<()> {
     let mut writer = csv::WriterBuilder::new()
         .has_headers(false)
         .quote_style(csv::QuoteStyle::Always)
-        .from_writer(Vec::new());
+        .from_writer(output);
     writer.write_record(header)?;
     for row in rows {
         writer.serialize(row)?;
     }
-    Ok(writer.into_inner()?)
+    Ok(writer.flush()?)
 }
 fn sorted_by_path<'a, T: 'a>(
     rows: impl IntoIterator<Item = &'a T>,
@@ -381,9 +399,10 @@ fn sorted_by_path<'a, T: 'a>(
     sorted
 }
 /// Compare the same canonical records as serialization, without two CSV buffers.
-pub fn same_manifest(a: &[FileRow], b: &[FileRow]) -> bool {
+pub fn same_manifest(a: &[FileRow], b: &[impl AsRef<FileRow>]) -> bool {
     a.len() == b.len()
-        && sorted_by_path(a, |r| &r.relative_path) == sorted_by_path(b, |r| &r.relative_path)
+        && sorted_by_path(a, |r| &r.relative_path)
+            == sorted_by_path(b.iter().map(AsRef::as_ref), |r| &r.relative_path)
 }
 pub fn same_directories(a: &[DirectoryRow], b: &[DirectoryRow]) -> bool {
     a.len() == b.len()
@@ -393,8 +412,26 @@ pub fn manifest_bytes(rows: &[FileRow]) -> Result<Vec<u8>> {
     manifest_ref_bytes(rows)
 }
 pub fn manifest_ref_bytes<'a>(rows: impl IntoIterator<Item = &'a FileRow>) -> Result<Vec<u8>> {
-    csv_bytes(&FILE_HEADER, &sorted_by_path(rows, |r| &r.relative_path))
+    let mut bytes = Vec::new();
+    write_manifest(&mut bytes, rows)?;
+    Ok(bytes)
+}
+pub fn write_manifest<'a>(
+    output: impl Write,
+    rows: impl IntoIterator<Item = &'a FileRow>,
+) -> Result<()> {
+    write_csv(
+        output,
+        &FILE_HEADER,
+        &sorted_by_path(rows, |r| &r.relative_path),
+    )
 }
 pub fn directory_bytes(rows: &[DirectoryRow]) -> Result<Vec<u8>> {
-    csv_bytes(&DIR_HEADER, &sorted_by_path(rows, |r| &r.relative_path))
+    let mut bytes = Vec::new();
+    write_csv(
+        &mut bytes,
+        &DIR_HEADER,
+        &sorted_by_path(rows, |r| &r.relative_path),
+    )?;
+    Ok(bytes)
 }

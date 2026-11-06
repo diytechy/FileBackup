@@ -12,6 +12,7 @@ fn killed_writer_leaves_recoverable_pool_and_next_run_repairs() {
         "previous-manifest",
         "snapshot",
         "object",
+        "manifest-checkpoint",
         "final-manifest",
         "final-definitions",
         "superseded",
@@ -31,6 +32,7 @@ fn killed_writer_leaves_recoverable_pool_and_next_run_repairs() {
             .args(["backup", "--config"])
             .arg(&path)
             .env("FILEBACKUP_TEST_PAUSE", stage)
+            .env("FILEBACKUP_TEST_CHECKPOINT", "1")
             .env("FILEBACKUP_TEST_SIGNAL", &signal)
             .spawn()
             .unwrap();

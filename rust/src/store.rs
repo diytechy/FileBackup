@@ -9,11 +9,12 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 #[derive(Clone, Debug)]
 pub struct Object {
     pub path: PathBuf,
-    pub state: PathBuf,
+    pub state: Arc<Path>,
     pub name: String,
     pub key: ContentKey,
     pub verified: Option<crate::tools::StoredForm>,
@@ -22,21 +23,21 @@ pub struct Object {
 /// every key; retain a growable list for the duplicate candidates readers support.
 pub fn index_object(index: &mut BTreeMap<ContentKey, Vec<Object>>, object: Object) {
     index
-        .entry(object.key.clone())
+        .entry(object.key)
         .or_insert_with(|| Vec::with_capacity(1))
         .push(object);
 }
 #[derive(Clone, Debug)]
 pub struct Store {
     pub root: PathBuf,
-    pub current: PathBuf,
+    pub current: Arc<Path>,
     pub history: PathBuf,
 }
 impl Store {
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.into(),
-            current: root.join("CurrentBackup"),
+            current: root.join("CurrentBackup").into(),
             history: root.join("BackupHistory"),
         }
     }
@@ -108,7 +109,7 @@ impl Store {
     pub fn states(&self) -> Result<Vec<PathBuf>> {
         platform::ordinary_dir(&self.current)?;
         platform::ordinary_dir(&self.history)?;
-        let mut states = vec![self.current.clone()];
+        let mut states = vec![self.current.to_path_buf()];
         for entry in fs::read_dir(&self.history)? {
             let entry = entry?;
             if snapshot_order(&entry.file_name().to_string_lossy()).is_some() {
@@ -122,7 +123,8 @@ impl Store {
     pub fn index(&self) -> Result<BTreeMap<ContentKey, Vec<Object>>> {
         let mut map: BTreeMap<ContentKey, Vec<Object>> = BTreeMap::new();
         for state in self.states()? {
-            let folders = if state == self.current {
+            let state: Arc<Path> = state.into();
+            let folders = if state.as_ref() == self.current.as_ref() {
                 let mut shards = Vec::new();
                 for entry in fs::read_dir(&state)? {
                     let entry = entry?;
@@ -139,7 +141,7 @@ impl Store {
                 }
                 shards
             } else {
-                vec![state.clone()]
+                vec![state.to_path_buf()]
             };
             for folder in folders {
                 for entry in fs::read_dir(&folder)? {
@@ -155,7 +157,7 @@ impl Store {
                         .into_string()
                         .map_err(|_| anyhow::anyhow!("non-Unicode stored filename"))?;
                     if let Ok(key) = format::parse_name(&name) {
-                        if state == self.current
+                        if state.as_ref() == self.current.as_ref()
                             && folder.file_name().and_then(|v| v.to_str())
                                 != Some(format::shard(&name)?.as_str())
                         {
@@ -310,13 +312,11 @@ impl Store {
         platform::sync_directory(&folder)?;
         Ok(target)
     }
-    pub fn write(&self, rows: &[FileRow], dirs: &[DirectoryRow]) -> Result<()> {
+    pub fn write(&self, rows: &[impl AsRef<FileRow>], dirs: &[DirectoryRow]) -> Result<()> {
         format::validate_records(rows, dirs)?;
-        platform::atomic_write(
-            &self.current.join(format::MANIFEST),
-            &format::manifest_bytes(rows)?,
-            true,
-        )?;
+        platform::atomic_write_with(&self.current.join(format::MANIFEST), true, |file| {
+            format::write_manifest(file, rows.iter().map(AsRef::as_ref))
+        })?;
         platform::checkpoint("final-manifest");
         platform::atomic_write(
             &self.current.join(format::DIRECTORIES),
@@ -383,11 +383,9 @@ impl Store {
             .prefix("Building_")
             .tempdir_in(&self.history)?;
         kit::publish(staged.path())?;
-        platform::atomic_write(
-            &staged.path().join(format::MANIFEST),
-            &format::manifest_bytes(rows)?,
-            false,
-        )?;
+        platform::atomic_write_with(&staged.path().join(format::MANIFEST), false, |file| {
+            format::write_manifest(file, rows)
+        })?;
         platform::atomic_write(
             &staged.path().join(format::DIRECTORIES),
             &format::directory_bytes(dirs)?,

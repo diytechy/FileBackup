@@ -167,6 +167,14 @@ pub fn sync_directory(path: &Path) -> Result<()> {
 }
 // Implements: LLR-165/166. tempfile persist uses host rename/replace semantics.
 pub fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
+    atomic_write_with(path, replace, |file| Ok(file.write_all(bytes)?))
+}
+/// Stream into the same atomic publication protocol used by byte-slice callers.
+pub fn atomic_write_with(
+    path: &Path,
+    replace: bool,
+    write: impl FnOnce(&mut File) -> Result<()>,
+) -> Result<()> {
     let parent = path.parent().context("publication without parent")?;
     ordinary_dir(parent)?;
     if let Some(metadata) = entry_metadata(path)? {
@@ -176,7 +184,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
         );
     }
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-    tmp.write_all(bytes)?;
+    write(tmp.as_file_mut())?;
     #[cfg(unix)]
     if let Some(metadata) = entry_metadata(path)? {
         tmp.as_file().set_permissions(metadata.permissions())?;
@@ -273,6 +281,15 @@ pub fn checkpoint(_name: &str) {
     #[cfg(feature = "test-hooks")]
     if std::env::var("FILEBACKUP_TEST_TRACE").ok().as_deref() == Some("1") {
         eprintln!("Test phase: {_name}");
+        #[cfg(target_os = "linux")]
+        if let Ok(status) = fs::read_to_string("/proc/self/status") {
+            for line in status
+                .lines()
+                .filter(|s| s.starts_with("VmRSS:") || s.starts_with("VmHWM:"))
+            {
+                eprintln!("Test memory: {_name} {line}");
+            }
+        }
     }
     #[cfg(feature = "test-hooks")]
     if std::env::var("FILEBACKUP_TEST_PAUSE").ok().as_deref() == Some(_name) {

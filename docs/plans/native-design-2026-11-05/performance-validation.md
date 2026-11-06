@@ -12,6 +12,10 @@ for further HDD testing. Historical SSD and RAM measurements below retain their
 actual labels; they do not establish elapsed-time compliance on HDDs. Time and
 memory budgets remain unchanged and full qualification remains open.
 
+The later [memory optimization results](memory-optimization-2026-11-06.md)
+supersede the memory figures below for the current executable. This record
+preserves the earlier stage's measurements and implementation description.
+
 ## Method and scope
 
 The reusable `scripts/measure_native.py` sampler uses development-only psutil
@@ -275,11 +279,11 @@ not hidden by changing approved normative text. General hooks remain disabled.
 
 ## Reproduction and outstanding qualification
 
-The subsequent [Opus memory review](memory-review-2026-11-06.md) identifies
-remaining allocation costs and a staged optimization sequence. Its projections
-are unmeasured. It also identifies early compression placement and missing
-timed-checkpoint coverage in the short combined run; the existing measurements
-remain valid for their executed order, not worst-case concurrent memory bounds.
+The subsequent [Opus memory review](memory-review-2026-11-06.md) led to the
+[memory optimization work](memory-optimization-2026-11-06.md). Its early-compression
+concern was withdrawn after checking the walk's final sort: the large file was
+already captured late. The newer work records checkpoint coverage and measured
+savings; neither stage establishes a worst-case memory bound.
 
 Install `scripts/requirements-performance.txt` into a development environment.
 Set Cargo caches/targets and scratch to a drive with sufficient capacity, then:
