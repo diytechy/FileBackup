@@ -2,6 +2,10 @@
 
 Status: **[accepted by the owner](sr-approval.md); design decomposition next**.
 
+The [2026-11-06 owner correction](../native-design-2026-11-05/owner-hdd-reference.md)
+changes the reference storage from SSD to rotational HDD; the SSD discussions
+below are historical. Other reference parameters and budgets are unchanged.
+
 The review discussions below preserve the authoring/review context. The live
 registry now has 121 Approved SRs. The approval record defines its scope and
 the next breakdown; earlier Drafted/proposal language is historical, not a

@@ -188,9 +188,14 @@ separately. That pool cap resolves an otherwise unbounded history workload but
 is a **review decision**, not an implicit amendment of SR-064/112/113. Run larger
 history pools as characterization and do not claim the same time guarantee.
 
-Use four cores, 2,000,000,000 bytes available RAM and 100 MiB/s local SSD, as
-accepted. Peak memory is simultaneous resident use of the engine/scripts and
-their child processes; independent peak values are not added. Record cache
+Use four cores, 2,000,000,000 bytes available RAM and local rotational hard-disk
+(platter) storage sustaining 100 MiB/s sequential transfers, per the
+[owner correction](owner-hdd-reference.md). D: is the candidate test drive.
+Record physical devices, filesystems and source/store/restore-target/scratch
+placement, including shared spindles. Sequential throughput does not establish
+small-file seek, metadata or flush performance. Peak memory is simultaneous
+resident use of the engine/scripts and their child processes; independent peak
+values are not added. Record cache
 conditions, actual I/O, scratch demand and repeat trials. The 8-hour check/restore,
 30-minute routine backup and 182/364-state growth comparisons require measured
 evidence. A process-kill test is not power-loss evidence, and passed byte checks

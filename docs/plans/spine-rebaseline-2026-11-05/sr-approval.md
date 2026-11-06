@@ -2,6 +2,11 @@
 
 Date: 2026-11-05 (America/Chicago).
 
+Subsequent scoped amendment: the
+[2026-11-06 owner correction](../native-design-2026-11-05/owner-hdd-reference.md)
+changes SR-064's reference storage from SSD to rotational HDD. This original
+acceptance record otherwise remains unchanged.
+
 After reviewing the SR draft, the DeepSeek and Gemini reviews, the smaller
 reference host and the portable folder-link preference, the owner directed:
 

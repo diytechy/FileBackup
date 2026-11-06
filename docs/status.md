@@ -26,6 +26,11 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **REFERENCE STORAGE CORRECTED (2026-11-06).** The owner identified platter
+  drives as the deployed storage. The [scoped SR-064 amendment](plans/native-design-2026-11-05/owner-hdd-reference.md)
+  uses rotational HDDs with D: as the candidate test drive. Existing budgets
+  remain targets; SSD/RAM results do not qualify HDD elapsed-time performance.
+
 - **NATIVE PERFORMANCE WORK (2026-11-06).** macOS validation is deferred by the
   owner. The [performance record](plans/native-design-2026-11-05/performance-validation.md)
   covers measured memory reductions, a million real source/object pairs,
@@ -7126,3 +7131,10 @@ red with 39 missing native test bindings, 18 form findings and four AC advisorie
 this is not a gate closure or executed verification. Documentation links, generated
 interface map and whitespace pass. Work-package reconciliation of legacy assertions,
 concrete fixtures, platform measurements and native implementation remain ahead.
+
+### 2026-11-06 — Reference storage corrected to platter drives
+
+The owner corrected the deployed storage medium. SR-064, LLR-189, TC-299 and
+active performance/support documents now use rotational HDDs. Only SR-064 is
+re-attested; budgets and unexecuted qualification remain unchanged. See the
+[owner amendment](plans/native-design-2026-11-05/owner-hdd-reference.md).

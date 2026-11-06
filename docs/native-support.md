@@ -13,6 +13,12 @@ implementation remains available while the native transition is exercised.
 | Linux OCI container / local Docker under WSL | Image built; compressed backup and independent Bash restore passed with no network, a read-only image/source, dropped capabilities and a non-root user. |
 | Network filesystems, removable exFAT/FAT32, ARM CPUs | Require their declared build/runtime/hardware evidence before support designation. |
 
+The [owner-corrected reference](plans/native-design-2026-11-05/owner-hdd-reference.md)
+uses local rotational hard-disk (platter) storage sustaining 100 MiB/s sequential
+transfers, four cores and 2 GB available RAM. D: is the candidate test drive.
+SSD and RAM measurements characterize those environments; their timings do not
+qualify the HDD reference.
+
 Pending qualification includes the 1M-file/2 TiB/365-state envelope, combined
 2 GB resident-memory limit, restore/check elapsed-time budgets, suspend/resume,
 network disconnects, physical power loss and the full target-host metadata matrix.

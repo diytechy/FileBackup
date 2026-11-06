@@ -6,6 +6,12 @@ performance work. These are development measurements, not acceptance of the full
 See the [implementation bindings](implementation-map.md) and
 [earlier validation](implementation-validation.md) for the remaining obligations.
 
+The owner subsequently clarified that deployed drives are platter drives. The
+[reference storage correction](owner-hdd-reference.md) makes D: the candidate
+for further HDD testing. Historical SSD and RAM measurements below retain their
+actual labels; they do not establish elapsed-time compliance on HDDs. Time and
+memory budgets remain unchanged and full qualification remains open.
+
 ## Method and scope
 
 The reusable `scripts/measure_native.py` sampler uses development-only psutil
@@ -23,7 +29,10 @@ has 24 logical CPUs and substantially more available RAM than the 2 GB reference
 host. Affinity does not reproduce four dedicated physical cores. C: is the local
 SSD; D: is an HGST SATA rotational disk. WSL accesses Windows-mounted paths through
 its filesystem bridge. Caches are uncontrolled. None of these results establish
-100 MiB/s SSD performance, cold-cache behavior, or operation on a 2 GB host.
+compliance with the full 100 MiB/s sequential HDD reference, cold-cache behavior,
+or operation on a 2 GB host. Further HDD trials must record physical-device
+placement for source, store, restore target and scratch, including whether they
+share a spindle. Existing D: trials remain partial evidence, not full qualification.
 
 Fixtures are private. Cargo caches, packages and large disk corpora stay on D:.
 The small C: corpus contains 3,000 distinct 4 KiB files plus eight 8 MiB files:
