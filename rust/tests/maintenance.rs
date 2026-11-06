@@ -62,6 +62,14 @@ fn prune_protects_previous_definitions_and_refuses_unknown_contents() {
     assert_eq!(r.code, 0, "{r:?}");
     let previous = format::read_manifest(&store.current.join("MANIFEST.csv.prev")).unwrap();
     assert!(store.index().unwrap().contains_key(&previous[0].key()));
+    // A re-homed object takes the store's creation mode, like any other.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let rehomed = &store.index().unwrap()[&previous[0].key()][0].path;
+        assert_eq!(mode(rehomed), mode(&store.current.join(format::MANIFEST)));
+    }
 }
 #[test]
 fn view_never_adopts_an_unrelated_index_and_escapes_names() {

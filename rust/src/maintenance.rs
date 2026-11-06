@@ -531,7 +531,7 @@ fn prune_inner(
                 "Capacity is unavailable; rehome will stop on write failure".into(),
             );
         }
-        let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+        let mut staged = platform::store_temp_file(parent)?;
         std::io::copy(&mut File::open(&source.path)?, &mut staged)?;
         staged.flush()?;
         staged.as_file().sync_all()?;
