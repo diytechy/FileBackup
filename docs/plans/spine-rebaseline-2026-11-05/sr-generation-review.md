@@ -1,10 +1,15 @@
 # System requirements review
 
-Status: **complete first SR draft for owner review; no SR approved**.
+Status: **[accepted by the owner](sr-approval.md); design decomposition next**.
+
+The review discussions below preserve the authoring/review context. The live
+registry now has 121 Approved SRs. The approval record defines its scope and
+the next breakdown; earlier Drafted/proposal language is historical, not a
+claim that implementation or verification has been approved.
 
 The owner accepted the [22 assumptions and two surrogates](assumptions-approval.md).
 The [live system registry](../../requirements/system-requirements.toml) now holds
-121 Drafted SRs: 115 retained/reconciled legacy IDs and six additions. All 49
+121 Approved SRs: 115 retained/reconciled legacy IDs and six additions. All 49
 approved needs have candidate SR coverage. Coverage means an obligation has a
 draft home, not that its policy, implementation or verification has passed.
 

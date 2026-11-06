@@ -1,6 +1,6 @@
 # Requirements spine rebaseline and staged template resync
 
-Status: **needs, active external frame and assumptions approved; SR draft ready for owner review**.
+Status: **needs, active external frame, assumptions and SRs approved; design/LLR decomposition next**.
 
 The [needs approval record](spine-rebaseline-2026-11-05/needs-approval.md)
 records the owner's approval of all 49 needs on 2026-11-05, without changing
@@ -8,7 +8,9 @@ their normative text. The [boundary approval](spine-rebaseline-2026-11-05/bounda
 records approval of 18 entities, 23 active crossings and five external
 relationships. B-24 is excluded. The owner has also
 [accepted the assumptions](spine-rebaseline-2026-11-05/assumptions-approval.md).
-The [SR review guide](spine-rebaseline-2026-11-05/sr-generation-review.md) covers 121 Drafted requirements, their policy choices and legacy dispositions.
+The [SR review guide](spine-rebaseline-2026-11-05/sr-generation-review.md) covers the 121 requirements, their policy choices and legacy dispositions.
+The [SR acceptance](spine-rebaseline-2026-11-05/sr-approval.md) records owner
+approval and the next design/contracts/LLR/verification breakdown.
 
 The [assumptions review guide](spine-rebaseline-2026-11-05/assumptions-review.md)
 explains the revised conditions, residual risks and limits of the test fixtures.

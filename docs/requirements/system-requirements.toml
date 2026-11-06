@@ -1,9 +1,9 @@
-# System requirements: owner-review draft, 2026-11-05.
-# Derived from approved needs, boundary frame and assumptions; no SR is approved.
+# System requirements: owner-approved, 2026-11-05.
+# Approval: docs/plans/spine-rebaseline-2026-11-05/sr-approval.md.
 # docs/plans/spine-rebaseline-2026-11-05/sr-generation-review.md records legacy
 # dispositions, policy proposals and independent DeepSeek review. LLRs, tests and
-# implementation links remain legacy evidence to reconcile after SR approval.
-# Numeric policy proposals retained below are not inferred owner approvals.
+# implementation links remain legacy evidence to reconcile during decomposition.
+# Acceptance records the specified targets, not implementation conformance.
 
 [requirement.SR-001]
 title = "Every file in a source tree is captured"
@@ -15,7 +15,7 @@ acceptance_criteria = "After one run against a known tree, every file of the tre
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-04"]
 delivered_with = ["SR-074", "SR-088", "SR-089", "SR-137", "SR-150", "SR-151"]
 form = "assumption"
@@ -30,7 +30,7 @@ acceptance_criteria = "Two files with identical bytes, under different names or 
 permutations = "placement=set{same-folder,different-folder,same-run,different-run,different-saved-state}; size=range[0..4GiB]; compress=bool; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-05"]
 form = "assumption"
 delivered_with = ["SR-056", "SR-059", "SR-108"]
@@ -46,7 +46,7 @@ acceptance_criteria = "After several runs with changes between them, each earlie
 permutations = "runs=range[2..20]; change_kind=set{add,edit,remove,rename,duplicate-only-add,shared-content-remove,time-only}; compress=bool; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-16"]
 delivered_with = ["SR-041", "SR-100"]
 form = "assumption"
@@ -61,7 +61,7 @@ rationale = "A future restorer may have only the handed-off store. A state folde
 acceptance_criteria = "Hand off a coherent complete store to a clean supported host. With only the documented recovery tools installed and no engine, repository or network, recover latest and each in-window saved state. Each state carries the recovery routes and required accompanying material."
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-10", "DA-19"]
 delivered_with = ["SR-008", "SR-118"]
 form = "assumption"
@@ -78,7 +78,7 @@ acceptance_criteria = "The delivered guidance identifies each route, supported h
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-10", "DA-18", "DA-19"]
 delivered_with = ["SR-007", "SR-031", "SR-071", "SR-118", "SR-156"]
 form = "assumption"
@@ -95,7 +95,7 @@ acceptance_criteria = "Targets equal to the backup folder, inside it, and reachi
 permutations = "target=set{equal,inside,via-link,prefix-sibling,outside}; restorer=set{windows,linux,macos}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-121", "SR-141", "SR-145"]
 form = "interface"
 
@@ -109,7 +109,7 @@ acceptance_criteria = "For each available in-window state, recovered paths, byte
 permutations = "state=set{latest,oldest,middle}; later_change=set{edit,remove,add}; compress=bool; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 coincident = "The stated boundary result directly supplies the cited need; verification remains required."
 
@@ -123,7 +123,7 @@ acceptance_criteria = "For each schedule and each elapsed time since the last co
 permutations = "schedule=set{every-run,periodic,never}; elapsed=range[0..400d]; last_reread_interrupted=bool; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-14", "DA-16"]
 delivered_with = ["SR-105"]
 form = "assumption"
@@ -138,7 +138,7 @@ acceptance_criteria = "With one of three configured sets made to fail after conf
 permutations = "failing_position=set{first,middle,last}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-095"]
 form = "interface"
 hat_refs = ["UNATTENDED-OPS"]
@@ -153,7 +153,7 @@ acceptance_criteria = "With notification set up, a message stating the run's out
 permutations = "configured=bool; switched_off_for_run=bool; outcome=set{success,failure}; @full"
 priority = "C"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-09"]
 delivered_with = ["SR-127"]
 form = "assumption"
@@ -169,7 +169,7 @@ acceptance_criteria = "A backup, a removal, a check, a repair, a kit refresh and
 permutations = "operation=set{backup,removal,check,repair,kit-refresh,restore}; start=set{non-interactive,redirected-input,closed-input,no-console-no-desktop}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 delivered_with = ["SR-073"]
 
@@ -183,7 +183,7 @@ acceptance_criteria = "Exercise disposable incomplete work, an unreadable latest
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-075", "SR-082", "SR-086", "SR-158"]
 form = "assumption"
 da_refs = ["DA-01", "DA-02"]
@@ -200,7 +200,7 @@ acceptance_criteria = "Each fault in turn refuses with the documented refusal re
 permutations = "fault=set{missing-file,unknown-key,retired-key,wrong-type,quoted-boolean,missing-required,version-too-old,version-too-new,non-integer-version}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 delivered_with = ["SR-063", "SR-123", "SR-126", "SR-138", "SR-154"]
 
@@ -215,7 +215,7 @@ acceptance_criteria = "For each declared required capability/tool, remove it or 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-099", "SR-126", "SR-132", "SR-133"]
 form = "assumption"
 da_refs = ["DA-18"]
@@ -231,7 +231,7 @@ acceptance_criteria = "Across supported writer/reader/target combinations, Unico
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-08"]
 form = "assumption"
 delivered_with = ["SR-055", "SR-092"]
@@ -247,7 +247,7 @@ acceptance_criteria = "With measurable target capacity, raw and compressed fixtu
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-06"]
 form = "assumption"
 delivered_with = ["SR-052", "SR-145", "SR-158"]
@@ -262,7 +262,7 @@ acceptance_criteria = "Repeat runs over unchanged sources with compression on an
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-100"]
 form = "interface"
 
@@ -275,7 +275,7 @@ rationale = "A tool that can only be configured by reading its code is set up wr
 acceptance_criteria = "A user new to the tool, following only the shipped quick-start guidance and its configuration helper on a supported host, builds a configuration the launch checks accept and completes a first backup with the complete outcome."
 priority = "S"
 verification = "Demonstration"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-132"]
 form = "interface"
 
@@ -289,7 +289,7 @@ acceptance_criteria = "With the stored content of some files missing, damaged be
 permutations = "damage=set{missing,corrupt,expand-fails,mixed}; failure_position=set{first,middle,last}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-18", "DA-19"]
 delivered_with = ["SR-092", "SR-119", "SR-120", "SR-145", "SR-146", "SR-158"]
 form = "assumption"
@@ -305,7 +305,7 @@ acceptance_criteria = "On each declared recovery host/tool combination, provisio
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-10", "DA-18", "DA-19"]
 delivered_with = ["SR-008", "SR-071", "SR-118", "SR-156"]
 form = "assumption"
@@ -321,7 +321,7 @@ acceptance_criteria = "For each declared Windows, Linux and macOS writer paired 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "C"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-136", "SR-156"]
 form = "assumption"
 da_refs = ["DA-07", "DA-08", "DA-10", "DA-19"]
@@ -336,7 +336,7 @@ acceptance_criteria = "On a host with no backup runtime installed, a containeris
 permutations = "compress=bool; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-048", "SR-094", "SR-130", "SR-142"]
 form = "interface"
 
@@ -351,7 +351,7 @@ acceptance_criteria = "Exercise missing, unreadable and empty roots before and d
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "assumption"
 da_refs = ["DA-04"]
 delivered_with = ["SR-082", "SR-091", "SR-158"]
@@ -367,7 +367,7 @@ acceptance_criteria = "Wrong headers, invalid field counts/types, interrupted qu
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-11"]
 delivered_with = ["SR-116", "SR-145", "SR-155"]
 form = "assumption"
@@ -383,7 +383,7 @@ acceptance_criteria = "Inject each class and combinations of classes through eve
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 coincident = "The stated boundary result directly supplies the cited need; verification remains required."
 
@@ -398,7 +398,7 @@ acceptance_criteria = "Deny a relocation and interrupt it in turn. Previously re
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-005", "SR-059", "SR-063", "SR-089", "SR-100", "SR-124", "SR-125", "SR-126"]
 form = "assumption"
 da_refs = ["DA-01", "DA-15"]
@@ -413,7 +413,7 @@ acceptance_criteria = "For a corpus of valid and invalid configurations in each 
 permutations = "form=set{json,native-windows}; case=set{valid,unknown-key,wrong-type,missing-required,bad-version}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-123", "SR-134", "SR-135"]
 form = "interface"
 
@@ -428,7 +428,7 @@ acceptance_criteria = "For backup, removal, verification, repair and kit refresh
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 delivered_with = ["SR-104"]
 
@@ -443,7 +443,7 @@ acceptance_criteria = "Use content shared across dates before, at and after the 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-046", "SR-101", "SR-102", "SR-155"]
 form = "interface"
 
@@ -458,7 +458,7 @@ acceptance_criteria = "Missing required content, uninterpretable records of prot
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-045", "SR-101", "SR-102", "SR-155"]
 form = "assumption"
 da_refs = ["DA-05", "DA-06", "DA-11"]
@@ -474,7 +474,7 @@ acceptance_criteria = "A nonmutating report identifies the latest state and save
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-103", "SR-104", "SR-155"]
 form = "assumption"
 da_refs = ["DA-06", "DA-09"]
@@ -489,7 +489,7 @@ acceptance_criteria = "Against equivalent stores, direct and unprivileged contai
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-034", "SR-094", "SR-130", "SR-142"]
 form = "assumption"
 da_refs = ["DA-13"]
@@ -504,7 +504,7 @@ acceptance_criteria = "Introduce missing bytes, altered content, malformed recor
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-05", "DA-11"]
 delivered_with = ["SR-103", "SR-104"]
 form = "assumption"
@@ -521,7 +521,7 @@ acceptance_criteria = "Exercise raw and compressed writes, temporary storage and
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-06"]
 form = "assumption"
 delivered_with = ["SR-023", "SR-145", "SR-158"]
@@ -537,7 +537,7 @@ acceptance_criteria = "Remove a latest-state object externally, and separately i
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-04", "DA-05"]
 delivered_with = ["SR-108"]
 form = "assumption"
@@ -552,7 +552,7 @@ acceptance_criteria = "The release names its accepted name domain and collision 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "assumption"
 da_refs = ["DA-08"]
 delivered_with = ["SR-021", "SR-092"]
@@ -569,7 +569,7 @@ acceptance_criteria = "For raw, compressed and shared content and fallback copie
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-05", "DA-11"]
 delivered_with = ["SR-119", "SR-155"]
 form = "assumption"
@@ -585,7 +585,7 @@ acceptance_criteria = "Across edits, removals, renames, duplicate additions and 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-041", "SR-063"]
 form = "assumption"
 da_refs = ["DA-05"]
@@ -601,7 +601,7 @@ acceptance_criteria = "Exercise recognized unsupported and unrecognized forms th
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-114", "SR-126", "SR-156"]
 form = "assumption"
 da_refs = ["DA-19"]
@@ -616,7 +616,7 @@ acceptance_criteria = "With the browse view on, after a run the listing holds ev
 permutations = "browse_view=set{off,on}; duplicates=bool; change=set{add,edit,remove,none}; compress=bool; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 coincident = "The stated boundary result directly supplies the cited need; verification remains required."
 
@@ -630,7 +630,7 @@ acceptance_criteria = "Exercise direct, ancestor and link-resolved overlaps with
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-018", "SR-041", "SR-059", "SR-093", "SR-094", "SR-123", "SR-126", "SR-138", "SR-154"]
 form = "interface"
 hat_refs = ["SECURITY"]
@@ -646,7 +646,7 @@ acceptance_criteria = "For a library of up to 2 TiB in up to one million files, 
 permutations = "operation=set{check,full-restore}; files=range[1..1000000]; bytes=range[0..2TiB]; saved_states=range[1..365]; compress=bool; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-112", "SR-113"]
 form = "interface"
 
@@ -660,7 +660,7 @@ acceptance_criteria = "An empty folder and a nested chain of empty folders in th
 permutations = "nesting=range[1..8]; restorer=set{windows,linux,macos}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-066", "SR-122", "SR-146", "SR-150", "SR-152"]
 form = "interface"
 
@@ -674,7 +674,7 @@ acceptance_criteria = "Two identical files with different modification times res
 permutations = "compress=bool; restorer=set{windows,linux,macos}; entry=set{unique,shared-first,shared-twin,blank-time,unreadable-time}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-07"]
 delivered_with = ["SR-065", "SR-122", "SR-146", "SR-150", "SR-152"]
 form = "assumption"
@@ -690,7 +690,7 @@ acceptance_criteria = "A file held locked when the run first reaches it and rele
 permutations = "lock_released=set{before-second-attempt,before-third-attempt,never}; retry_limit=set{available,spent}; group=set{unique,shared-content}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-089", "SR-090", "SR-091"]
 form = "interface"
 hat_refs = ["UNATTENDED-OPS"]
@@ -706,7 +706,7 @@ acceptance_criteria = "In a store whose compression was turned on and off betwee
 permutations = "history=set{on-off,off-on,on-off-on}; recorded_form=set{correct,flipped}; item=set{tool-compressed,raw,source-archive-stored-raw,damaged}; restorer=set{windows,linux,macos}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-18"]
 form = "assumption"
 delivered_with = ["SR-111"]
@@ -722,7 +722,7 @@ acceptance_criteria = "An intact backup restores with the complete result, every
 permutations = "tool_flavour=set{gnu,bsd,windows}; state=set{latest,saved}; compress=bool; folder_attributes=bool; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-18"]
 form = "assumption"
 delivered_with = ["SR-008", "SR-031", "SR-118", "SR-156"]
@@ -737,7 +737,7 @@ acceptance_criteria = "Double-clicking the restore on Windows and on macOS prese
 permutations = "restore_system=set{windows,macos}; outcome=set{complete,failed}; @full"
 priority = "S"
 verification = "Demonstration"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-073"]
 form = "interface"
 
@@ -751,7 +751,7 @@ acceptance_criteria = "A restore started without a target in non-interactive mod
 permutations = "start=set{non-interactive,redirected-input,closed-input,no-console-no-desktop,console-only,desktop,cancelled-choice}; restore_system=set{windows,linux,macos}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-016", "SR-072"]
 form = "interface"
 
@@ -765,7 +765,7 @@ acceptance_criteria = "The proposed scope excludes only declared volume-owned me
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-12"]
 delivered_with = ["SR-001", "SR-088", "SR-089", "SR-137", "SR-150", "SR-151"]
 form = "assumption"
@@ -781,7 +781,7 @@ acceptance_criteria = "Kill a run at each persistence/publication stage. Once ow
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-01", "DA-02", "DA-03", "DA-15"]
 delivered_with = ["SR-017", "SR-082", "SR-086", "SR-158"]
 form = "assumption"
@@ -796,7 +796,7 @@ acceptance_criteria = "With compression on and every file measured, content larg
 permutations = "content=set{compressible,incompressible,partly-compressible}; name_class=set{media-type,document-type,listed-incompressible,none}; measuring=set{off,skip-listed-types,every-file}; size=set{below-floor,above-floor}; measurement=set{taken,unavailable}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-18"]
 delivered_with = ["SR-096"]
 form = "assumption"
@@ -812,7 +812,7 @@ acceptance_criteria = "Kill at each declared publication stage: earlier protecte
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-01", "DA-04", "DA-15"]
 delivered_with = ["SR-017", "SR-075", "SR-086", "SR-158"]
 form = "assumption"
@@ -828,7 +828,7 @@ acceptance_criteria = "For each designated path, exercise its documented old/cur
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-110", "SR-115", "SR-116", "SR-117", "SR-156"]
 form = "assumption"
 da_refs = ["DA-19"]
@@ -843,7 +843,7 @@ acceptance_criteria = "For each ordered pair of backup, removal, repair, kit ref
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-02", "DA-03"]
 delivered_with = ["SR-086", "SR-107", "SR-154"]
 form = "assumption"
@@ -860,7 +860,7 @@ acceptance_criteria = "Inject contention, access denial, unusable ownership loca
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-017", "SR-075", "SR-082", "SR-085", "SR-107", "SR-154", "SR-158"]
 form = "assumption"
 da_refs = ["DA-02", "DA-03"]
@@ -875,7 +875,7 @@ acceptance_criteria = "After a file is added and another edited between two runs
 permutations = "change=set{added,edited-size,edited-time,edited-both}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-14", "DA-04"]
 form = "assumption"
 delivered_with = ["SR-001", "SR-074", "SR-089", "SR-137", "SR-150", "SR-151"]
@@ -890,7 +890,7 @@ acceptance_criteria = "With one file and one folder made unreadable, the run's r
 permutations = "unreadable=set{file,folder,both}; prior_capture=bool; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-001", "SR-041", "SR-067", "SR-074", "SR-088", "SR-090", "SR-091", "SR-124", "SR-125", "SR-126", "SR-137", "SR-150", "SR-151"]
 form = "interface"
 hat_refs = ["UNATTENDED-OPS"]
@@ -906,7 +906,7 @@ acceptance_criteria = "With many files of one location held unreadable throughou
 permutations = "unreadable_count=range[1..10000]; availability=set{next-retry,after-limit,never}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-067", "SR-089", "SR-091"]
 form = "interface"
 
@@ -920,7 +920,7 @@ acceptance_criteria = "After a run in which a previously captured file and folde
 permutations = "unreadable=set{file,folder}; shared=bool; @full"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-067", "SR-089", "SR-090"]
 form = "interface"
 hat_refs = ["SHARED-CONTENT"]
@@ -936,7 +936,7 @@ acceptance_criteria = "A state holding two names differing only by case, restore
 permutations = "collision=set{case,unicode-normalisation}; target_case_sensitive=bool; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-021", "SR-029", "SR-055", "SR-119", "SR-120", "SR-145", "SR-146", "SR-158"]
 form = "interface"
 
@@ -950,7 +950,7 @@ acceptance_criteria = "Under the controlled attribution conditions of DA-21, com
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-21"]
 delivered_with = ["SR-063", "SR-094", "SR-138"]
 form = "assumption"
@@ -966,7 +966,7 @@ acceptance_criteria = "On each supported native host and the container route, de
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-13"]
 delivered_with = ["SR-034", "SR-048", "SR-063", "SR-093", "SR-130", "SR-138", "SR-142"]
 form = "assumption"
@@ -981,7 +981,7 @@ acceptance_criteria = "A configuration naming three location pairs produces, in 
 permutations = "location_count=range[1..8]; shared_volume=bool; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-014"]
 form = "interface"
 
@@ -995,7 +995,7 @@ acceptance_criteria = "With compression off, no newly stored content is in compr
 permutations = "compressibility=set{high,low}; empty=bool; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-081"]
 form = "interface"
 
@@ -1008,7 +1008,7 @@ rationale = "The owner can only reduce the space the backup costs by knowing wha
 acceptance_criteria = "With the space view on, the owner obtains a listing of the latest state's files ordered by the size of each file's stored copy, largest first, covering every file; a file whose stored copy is shared with other files is listed at the full size of that copy and marked as shared."
 priority = "C"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-098", "SR-099", "SR-147"]
 form = "interface"
 
@@ -1022,7 +1022,7 @@ acceptance_criteria = "With the feature on and the tool present, each backed-up 
 permutations = "file=set{video,audio,still-image,malformed-media,non-media}; @full"
 priority = "C"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-18"]
 delivered_with = ["SR-097", "SR-099", "SR-147"]
 form = "assumption"
@@ -1037,7 +1037,7 @@ acceptance_criteria = "With the tool absent and with it failing, a run's stored 
 permutations = "tool=set{absent,failing}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-019", "SR-097", "SR-098", "SR-126", "SR-132", "SR-133", "SR-147"]
 form = "interface"
 
@@ -1051,7 +1051,7 @@ acceptance_criteria = "Repeat unchanged runs with compression on and off, and se
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-005", "SR-024", "SR-041"]
 form = "interface"
 
@@ -1066,7 +1066,7 @@ acceptance_criteria = "Interrupt removal at each mutation stage. Latest and reta
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-01", "DA-15"]
 delivered_with = ["SR-045", "SR-046", "SR-102", "SR-155"]
 form = "assumption"
@@ -1082,7 +1082,7 @@ acceptance_criteria = "Removal requests naming an absolute location, a parent-cl
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-045", "SR-046", "SR-101", "SR-155"]
 form = "interface"
 
@@ -1096,7 +1096,7 @@ acceptance_criteria = "A saved-state report, retention estimate and check withou
 permutations = "action=set{report,check,check-latest-only}; store=set{intact,damaged}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-047", "SR-049", "SR-104", "SR-155"]
 form = "interface"
 
@@ -1110,7 +1110,7 @@ acceptance_criteria = "The output of the saved-state report and of a check parse
 permutations = "operation=set{report,check}; findings=set{none,one,many}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-043", "SR-047", "SR-049", "SR-103", "SR-155"]
 form = "interface"
 
@@ -1123,7 +1123,7 @@ rationale = "A re-read that notices a change but keeps the old copy buys the cos
 acceptance_criteria = "A file edited without changing its size or time is restored at its new content after the first run its setting makes re-read it, and at its old content from the states before."
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-011"]
 form = "interface"
 
@@ -1138,7 +1138,7 @@ acceptance_criteria = "Complete, fail and kill each holding action; a later acti
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-02", "DA-03"]
 delivered_with = ["SR-085", "SR-086", "SR-154"]
 form = "assumption"
@@ -1153,7 +1153,7 @@ rationale = "Recording a new file as sharing content that was lost silently exte
 acceptance_criteria = "After stored content is deleted from outside the tool, a new source file with identical content is restorable byte-exact from the latest state after the next run."
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-05"]
 delivered_with = ["SR-053"]
 form = "assumption"
@@ -1168,7 +1168,7 @@ acceptance_criteria = "The proposed repair classes cover verified storage-form/r
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-05", "DA-11"]
 delivered_with = ["SR-110"]
 form = "assumption"
@@ -1185,7 +1185,7 @@ acceptance_criteria = "Interrupt each declared record, content and kit publicati
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-01", "DA-15"]
 delivered_with = ["SR-084", "SR-109", "SR-115", "SR-116", "SR-117", "SR-156"]
 form = "assumption"
@@ -1201,7 +1201,7 @@ acceptance_criteria = "After a run under each change of setting, every previousl
 permutations = "from_compress=bool; to_compress=bool; measuring_change=set{none,off-to-every-file,every-file-to-skip-listed-types}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-068"]
 form = "interface"
 
@@ -1216,7 +1216,7 @@ acceptance_criteria = "On the reference host and library of SR-064, the peak tot
 permutations = "operation=set{run-few-changes,check,full-restore}; files=range[1..1000000]; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-064", "SR-113"]
 form = "cross-cutting"
 
@@ -1231,7 +1231,7 @@ acceptance_criteria = "With at most 1 GiB changed in a library of up to 2 TiB in
 permutations = "saved_states=range[1..365]; changed_bytes=range[0..1GiB]; files=range[1..1000000]; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-064", "SR-112"]
 form = "cross-cutting"
 
@@ -1246,7 +1246,7 @@ acceptance_criteria = "The release names supported older versions and path type,
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-061", "SR-126", "SR-156"]
 form = "interface"
 
@@ -1261,7 +1261,7 @@ acceptance_criteria = "For each explicitly designated older state form and suppo
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-084", "SR-110", "SR-116", "SR-117", "SR-156"]
 form = "interface"
 
@@ -1276,7 +1276,7 @@ acceptance_criteria = "For each designated older form, use positive format ident
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-039", "SR-084", "SR-110", "SR-115", "SR-117", "SR-145", "SR-155", "SR-156"]
 form = "assumption"
 da_refs = ["DA-11"]
@@ -1291,7 +1291,7 @@ acceptance_criteria = "On a supported store, refresh the requested latest/saved-
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-084", "SR-110", "SR-115", "SR-116", "SR-156"]
 form = "interface"
 hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
@@ -1306,7 +1306,7 @@ acceptance_criteria = "With the route able to start, remove each required text, 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-007", "SR-008", "SR-031", "SR-071", "SR-156"]
 form = "assumption"
 da_refs = ["DA-10", "DA-18"]
@@ -1322,7 +1322,7 @@ acceptance_criteria = "With one copy of a content damaged and another intact in 
 permutations = "intact_copy=set{none,latest,saved-state}; form=set{raw,compressed}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-029", "SR-056", "SR-092", "SR-120", "SR-145", "SR-146", "SR-155", "SR-158"]
 form = "interface"
 hat_refs = ["INTEGRITY-RECOVERABILITY"]
@@ -1337,7 +1337,7 @@ acceptance_criteria = "The reported failed-file list equals the set not restored
 permutations = "cause=set{missing,fallback-failed,expand-failed,content-mismatch,name-collision,unsafe-path,host-write-failed,metadata-only,mixed}; count=range[0..100]; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-029", "SR-092", "SR-119", "SR-145", "SR-146", "SR-158"]
 form = "interface"
 hat_refs = ["UNATTENDED-OPS"]
@@ -1353,7 +1353,7 @@ acceptance_criteria = "Exercise absolute, drive-qualified and parent-climbing en
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-009", "SR-141", "SR-145"]
 form = "assumption"
 da_refs = ["DA-08"]
@@ -1369,7 +1369,7 @@ acceptance_criteria = "A hidden and system folder restores hidden and system on 
 permutations = "restore_system=set{windows,linux,macos}; attribute=set{hidden,system,both}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-07"]
 delivered_with = ["SR-065", "SR-066", "SR-146", "SR-150", "SR-152"]
 form = "assumption"
@@ -1384,7 +1384,7 @@ acceptance_criteria = "Exercise every designated configuration version/form and 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-018", "SR-042", "SR-063", "SR-126", "SR-134", "SR-135", "SR-138", "SR-154"]
 form = "interface"
 hat_refs = ["STORE-FORMAT-COMPATIBILITY"]
@@ -1399,7 +1399,7 @@ acceptance_criteria = "After a run with known additions, changes, removals and o
 permutations = "change=set{added,changed,removed,failed,mixed,none,none-with-unreadable}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-041", "SR-089", "SR-125", "SR-126"]
 form = "interface"
 
@@ -1414,7 +1414,7 @@ acceptance_criteria = "During a run lasting several times the interval, while re
 permutations = "phase=set{reading,storing,finalising}; duration=set{short,long}; gap=set{start-to-first,between-entries,last-to-completion}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-22"]
 delivered_with = ["SR-041", "SR-089", "SR-124", "SR-126"]
 form = "assumption"
@@ -1429,7 +1429,7 @@ acceptance_criteria = "For each documented refusal (configuration, busy, record 
 permutations = "cause=set{configuration,busy,record-damage,capacity,tool,unsupported-form}; @full"
 priority = "M"
 verification = "Inspection"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-018", "SR-019", "SR-041", "SR-061", "SR-063", "SR-089", "SR-099", "SR-114", "SR-123", "SR-124", "SR-125", "SR-132", "SR-133", "SR-138", "SR-154", "SR-156"]
 form = "cross-cutting"
 hat_refs = ["UNATTENDED-OPS"]
@@ -1444,7 +1444,7 @@ acceptance_criteria = "With the relay unreachable or refusing, a successful run 
 permutations = "relay=set{unreachable,auth-refused,ok}; outcome=set{success,failure}; @full"
 priority = "C"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-015"]
 form = "interface"
 hat_refs = ["UNATTENDED-OPS"]
@@ -1460,7 +1460,7 @@ acceptance_criteria = "After credentials are set up and a run sends a notificati
 permutations = "surface=set{configuration,backup-records-and-kits,record,error-output}; send=set{ok,failed}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-20"]
 delivered_with = ["SR-129"]
 form = "assumption"
@@ -1476,7 +1476,7 @@ acceptance_criteria = "In each supported configuration form, readable secrets re
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-20"]
 delivered_with = ["SR-128"]
 form = "assumption"
@@ -1491,7 +1491,7 @@ rationale = "A container needing write access to the source or administrative ri
 acceptance_criteria = "A run in a container as an unprivileged user with no added capabilities and no network, with a read-only source mount and write access only to the backup, working-state and record locations, completes with the complete outcome and writes nowhere else."
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 da_refs = ["DA-13"]
 delivered_with = ["SR-034", "SR-048", "SR-094", "SR-142"]
 form = "assumption"
@@ -1507,7 +1507,7 @@ acceptance_criteria = "For each third-party component found in a backup folder, 
 permutations = "component=set{hashing,archive,runtime-module}; @full"
 priority = "S"
 verification = "Inspection"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-143", "SR-157"]
 form = "interface"
 
@@ -1521,7 +1521,7 @@ acceptance_criteria = "For each external prerequisite, the shipped guidance and 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-019", "SR-027", "SR-099", "SR-126", "SR-133"]
 form = "assumption"
 da_refs = ["DA-18"]
@@ -1536,7 +1536,7 @@ rationale = "Refusing a run over an optional extra stops backups for no data rea
 acceptance_criteria = "With only the media-measurement tool absent, the run completes with the complete outcome and its record says the extra was skipped."
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-019", "SR-099", "SR-126", "SR-132"]
 form = "interface"
 hat_refs = ["UNATTENDED-OPS"]
@@ -1550,7 +1550,7 @@ rationale = "A shipped example that is itself rejected teaches an integrator not
 acceptance_criteria = "The shipped example, with only its locations changed to existing folders, is accepted by the launch checks and by the published description, and a run with it produces a backup that restores byte-exact."
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-042", "SR-123", "SR-135"]
 form = "interface"
 
@@ -1564,7 +1564,7 @@ acceptance_criteria = "For every declared supported configuration form, a missin
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-042", "SR-123", "SR-134"]
 form = "interface"
 
@@ -1579,7 +1579,7 @@ acceptance_criteria = "For every supported writer-to-continuation-host pair, han
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "C"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-033", "SR-156"]
 form = "assumption"
 da_refs = ["DA-07", "DA-08", "DA-19"]
@@ -1594,7 +1594,7 @@ acceptance_criteria = "With a folder link and a junction inside a source, each l
 permutations = "link=set{folder-link,junction,file-link}; target=set{other-volume,network-share,unreachable}; repeated=bool; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-001", "SR-074", "SR-088", "SR-089", "SR-150", "SR-151"]
 form = "interface"
 
@@ -1608,7 +1608,7 @@ acceptance_criteria = "Within one configuration, exercise equal, ancestor/descen
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-018", "SR-063", "SR-093", "SR-094", "SR-123", "SR-126", "SR-154"]
 form = "interface"
 hat_refs = ["FILESYSTEM-SEMANTICS", "SECURITY"]
@@ -1624,7 +1624,7 @@ acceptance_criteria = "A target that cannot be resolved, and a target path holdi
 permutations = "target=set{unresolvable,parent-component,plain}; restorer=set{windows,linux,macos}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-009", "SR-121", "SR-145"]
 form = "interface"
 
@@ -1637,7 +1637,7 @@ rationale = "SN-024's acceptance asks that a container started without naming an
 acceptance_criteria = "A container start naming no action backs up its configured locations and returns the same outcome as a start naming a backup."
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-034", "SR-048", "SR-094", "SR-130"]
 form = "interface"
 
@@ -1652,7 +1652,7 @@ acceptance_criteria = "For each third-party component found in the container ima
 permutations = "component=set{hashing,archive,media-probe,runtime}; @full"
 priority = "S"
 verification = "Inspection"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-131", "SR-157"]
 form = "interface"
 
@@ -1666,7 +1666,7 @@ acceptance_criteria = "Combine each whole-restore refusal with a missing object 
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-009", "SR-023", "SR-029", "SR-039", "SR-052", "SR-092", "SR-116", "SR-119", "SR-120", "SR-121", "SR-141", "SR-146", "SR-155", "SR-158"]
 form = "interface"
 hat_refs = ["INTEGRITY-RECOVERABILITY"]
@@ -1681,7 +1681,7 @@ acceptance_criteria = "Remove or corrupt required directory records. Independent
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-029", "SR-065", "SR-066", "SR-092", "SR-119", "SR-120", "SR-122", "SR-145", "SR-150", "SR-152", "SR-158"]
 form = "interface"
 hat_refs = ["INTEGRITY-RECOVERABILITY"]
@@ -1696,7 +1696,7 @@ acceptance_criteria = "With the space view off, with the media-measurement tool 
 permutations = "tool=set{present,absent}; @full"
 priority = "C"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-097", "SR-098", "SR-099"]
 form = "interface"
 
@@ -1711,7 +1711,7 @@ acceptance_criteria = "Exercise relative and absolute source links to sibling, d
 permutations = "link=set{folder-symlink,junction}; spelling=set{relative,absolute}; destination=set{sibling,descendant,ancestor,root,outside-via-alias,unresolvable}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-001", "SR-065", "SR-066", "SR-074", "SR-088", "SR-089", "SR-122", "SR-137", "SR-146", "SR-151", "SR-152"]
 form = "interface"
 
@@ -1726,7 +1726,7 @@ acceptance_criteria = "Links to backup content, saved states, operational record
 permutations = "host=set{Windows,Linux,macOS}; condition=set{nominal,missing,invalid,interrupted}; @pairwise"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-001", "SR-074", "SR-088", "SR-089", "SR-137", "SR-150"]
 form = "interface"
 
@@ -1741,7 +1741,7 @@ acceptance_criteria = "Restore the supported in-root link cases of SR-150 throug
 permutations = "route=set{PowerShell,bash}; source_link=set{relative,absolute,junction}; destination=set{sibling,descendant,ancestor,root,outside,unavailable}; target_capability=set{supported,unsupported,permission-denied}; moved_root=bool; @pairwise"
 priority = "S"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 delivered_with = ["SR-065", "SR-066", "SR-122", "SR-146", "SR-150"]
 form = "assumption"
 da_refs = ["DA-07", "DA-08"]
@@ -1756,7 +1756,7 @@ acceptance_criteria = "On each declared OS/CPU combination, with no engine langu
 permutations = "host=set{Windows,Linux,macOS}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 hat_refs = ["CROSS-PLATFORM"]
 delivered_with = ["SR-156"]
@@ -1771,7 +1771,7 @@ acceptance_criteria = "Exercise literal duplicates and applicable normalized, ca
 permutations = "host=set{Windows,Linux,macOS}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 hat_refs = ["FILESYSTEM-SEMANTICS", "UNATTENDED-OPS"]
 delivered_with = ["SR-018", "SR-063", "SR-085", "SR-086", "SR-107", "SR-123", "SR-126", "SR-138"]
@@ -1786,7 +1786,7 @@ acceptance_criteria = "Guidance states per-file check coverage, collision and we
 permutations = "host=set{Windows,Linux,macOS}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "assumption"
 da_refs = ["DA-05", "DA-09", "DA-11", "DA-19"]
 hat_refs = ["INTEGRITY-RECOVERABILITY", "SHARED-CONTENT"]
@@ -1802,7 +1802,7 @@ acceptance_criteria = "The release matrix names OS/CPU and tool floors, tested s
 permutations = "host=set{Windows,Linux,macOS}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "assumption"
 da_refs = ["DA-01", "DA-02", "DA-07", "DA-08", "DA-10", "DA-15", "DA-17", "DA-18"]
 hat_refs = ["CROSS-PLATFORM", "FILESYSTEM-SEMANTICS"]
@@ -1818,7 +1818,7 @@ acceptance_criteria = "Inventory every native release artifact: each bundled dep
 permutations = "host=set{Windows,Linux,macOS}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "interface"
 hat_refs = ["LEGAL"]
 delivered_with = ["SR-131", "SR-143"]
@@ -1833,7 +1833,7 @@ acceptance_criteria = "Inject disk-full and device/share disappearance after adm
 permutations = "host=set{Windows,Linux,macOS}; @full"
 priority = "M"
 verification = "Test"
-status = "Drafted"
+status = "Approved"
 form = "assumption"
 da_refs = ["DA-06", "DA-15"]
 hat_refs = ["FILESYSTEM-SEMANTICS", "INTEGRITY-RECOVERABILITY", "UNATTENDED-OPS"]

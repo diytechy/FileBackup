@@ -25,6 +25,18 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **SR TIER ACCEPTED; DESIGN DECOMPOSITION NEXT (2026-11-05).** The owner
+  [accepted all 121 SRs](plans/spine-rebaseline-2026-11-05/sr-approval.md)
+  as written at `0a17487`. Only SR statuses and the scoped SR approval snapshot
+  changed; no normative text, LLR, test or implementation was approved.
+  Next: architecture/critical flows, store/recovery and interface contracts,
+  implementable LLRs, verification design, and reconciliation to existing code
+  before Rust work packages. Prior review-state entries below are historical.
+  Hooks remain disabled and downstream traceability debt remains visible.
+  Integrity is zero; approval exposes 261 orphan findings and 18 form findings,
+  plus the existing interface finding. These remain decomposition/checker work,
+  not evidence that the owner acceptance or existing runtime has failed.
+
 - **GEMINI HIGH-RISK REVIEW COMPLETE (2026-11-05).** The owner-requested
   [Gemini 4 Argon review](plans/spine-rebaseline-2026-11-05/gemini-high-risk-review.md)
   used OpenCode Go on low and permitted critique of approved needs/boundaries.
@@ -7043,3 +7055,11 @@ the SR review guide. Existing scripts lack link destination records/recreation,
 so this is a contained future feature, not an implemented capability. External
 link expansion and scale counting remain open. Approved upstream records and
 approval baselines are unchanged.
+
+### 2026-11-05 — Owner acceptance of the SR tier
+
+Recorded explicit acceptance of all 121 live SRs without changing normative
+content. The approval act refreshes only the SR registry snapshot and records
+exactly those IDs; upstream and other snapshot bytes are unchanged. The next
+breakdown is design/contracts, LLRs and verification coverage, followed by
+existing-code/test reconciliation and Rust implementation work packages.
