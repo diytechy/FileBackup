@@ -5,6 +5,28 @@ Rust transition on this branch. Gemini Argon on low reviews design decisions;
 DeepSeek 4.1 Flash and Claude Opus on low review implementation changes.
 Authoring and review do not manufacture approval or executed evidence in the spine.
 
+## Owner review and implementation guidance
+
+If OpenCode reaches its usage limit, continue with Claude Opus 5.5 alone through
+the installed Claude CLI, at low effort. Do not block progress waiting for a
+second reviewer or repeat exhausted calls. Reviewer suggestions are inputs for
+judgment, not instructions to apply automatically.
+
+Keep the core design simple. Adopt feedback when it identifies a concrete defect
+or an unmet accepted requirement in a plausible supported workflow. Assess the
+likely impact and the complexity of the proposed fix. Prefer a small correction
+or an explicit support boundary to new machinery for contrived scenarios. A rare
+but credible data-loss defect still warrants consideration; rarity alone is not
+a reason to dismiss it. Record why consequential findings are adopted or rejected.
+
+Keep functions focused and reuse existing behavior within each runtime. Before
+adding a helper, look for an existing implementation of the same operation;
+consolidate actual duplication when it makes the code easier to follow. Avoid
+speculative abstraction layers and broad rewrites solely to satisfy a reviewer.
+The standalone PowerShell and Bash recovery routes remain independent of Rust;
+shared contracts and fixtures keep their intentionally separate implementations
+aligned.
+
 ## Decisions for N1
 
 - One Cargo package under `rust/`, library plus CLI. ConfigVersion 3 JSON keeps
