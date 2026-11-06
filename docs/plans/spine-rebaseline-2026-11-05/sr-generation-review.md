@@ -43,13 +43,30 @@ the legacy draft so they are not silently lost during rebaseline.
 | Retry budget — SR-067/090 | At most three attempts per file, within **60 seconds aggregate extra waiting per configured location**. | This differs from the current engine's per-file delayed retry schedule. The attempt spacing/fairness belongs in design, but the aggregate budget needs agreement. |
 | Compression — SR-081 | Measure above **256 KiB** and compress at **at least 10% measured saving**; retain explicit type-based fallback/exemption modes. | Inclusive threshold, sampling basis and fallback must be deliberate; matching current code is not sufficient reason to choose them. |
 | Progress — SR-125 | No gap longer than **120 seconds of active execution time**, including long reads and finalization. | Suspension is excluded by DA-22, but blocking calls must not silently evade the active-time budget. |
-| Scale — SR-064/112/113 | **2 TiB, one million files, 365 states**; four-core host, 8 GiB available RAM and 200 MiB/s local SSD reference; **4 GiB total concurrent RSS**, **8 hours** check/full restore, **30 minutes** routine backup with at most 1 GiB changed. | These are unvalidated acceptance targets. Corpus composition, shared-content history size, warm/cold runs and repeatability must be fixed in the benchmark design before claiming evidence. |
+| Scale — SR-064/112/113 | **2 TiB, one million files, 365 dated saved states plus latest**; four-core host, **2 GB available RAM and 100 MiB/s local SSD**, as corrected by the owner; combined concurrent resident memory must fit that available-memory budget. Proposed time targets remain **8 hours** check/full restore and **30 minutes** routine backup with at most 1 GiB changed. | The saved-state count is a benchmark envelope, not a retention limit or 365 separate full copies. Time targets remain unvalidated on the revised host. Corpus composition, shared-content history size, warm/cold runs and repeatability must be fixed in the benchmark design before claiming evidence. |
 | External links — SR-137/150–152 | Follow supported outside-folder links and file links as captured content; record in-tree/cyclic/system-location links. | Outside-tree traversal expands the selected capture domain. The approved needs require visible, safe behavior but do not choose this particular external-link policy. Retained for an explicit owner choice. |
 | Names and exclusions — SR-055/074 | Declare a supported name domain; report invalid/colliding names. Limit system exclusions to actual volume-owned metadata/recycle entries at volume roots, never familiar nested names. | Exact name/tool/filesystem support belongs in the matrix. Case and normalization collisions must not be hidden by an assumption. |
 | Metadata outcomes — SR-066/122/146/152 | Malformed required current metadata is incomplete; unsupported target attributes/links are reported under a documented limitation policy. | The proposal treats unsupported attributes as complete-with-warning. The revised proposal explicitly applies complete-with-warning to unsupported links too; this needs owner agreement. Unsupported is different from lost current metadata. |
 | Capacity — SR-023/052/158 | Refuse known shortfalls against a disclosed bounded-work estimate; report unmeasurable capacity and handle later failures safely. | Estimates do not reserve space. The missing-measurement admission policy and allocation/temporary allowances must be explicit in design; no promise that passing an estimate prevents disk-full. |
 | Configuration representation — SR-042/123/135 | Publish declared forms/versions and their exact meanings; no automatic old-version support. | The older draft specifically named JSON and native Windows forms and accepted integral decimal version values. Those are now explicit interface/design decisions, not silently guaranteed legacy compatibility. |
 | Concurrent readers — SR-156 | Publish supported read-during-mutation limits; no general reader-isolation guarantee. | Legacy SR-106 promised coherent checks/restores during every mutation without an approved supporting need or evidence. Its retirement does not authorize a silently incorrect recovery result. |
+
+“365 saved states” means 365 dated records of earlier captured trees, in addition
+to latest. For example, one changing backup per day could produce roughly a
+year of history; unchanged runs add no saved state. These records share stored
+file content, so this does not require 365 copies of the whole library or impose
+a maximum retention period.
+
+RSS means **resident set size**: process memory currently resident in physical
+RAM. The earlier “4 GiB total concurrent RSS” proposal limited the combined
+memory of FileBackup and all helper processes running at the same instant, not
+4 GiB per process. The owner reduced the reference host to 2 GB available RAM
+and 100 MiB/s SSD throughput; SR-112 now requires the combined memory to fit
+that available budget. GB here means 1,000,000,000 bytes; GiB means
+1,073,741,824 bytes. Measurement must state how shared pages are counted.
+This correction does not approve the remaining scale targets or the SR tier.
+The DeepSeek reports preserve their original reviewed values as historical
+evidence; this owner correction came afterward.
 
 The default re-read schedule, exact platform/CPU/tool floors, content-identity
 algorithm and protection checks, machine-readable result mapping/precedence,
