@@ -202,3 +202,26 @@ fn verify_continues_past_a_state_with_missing_manifest() {
             .any(|e| e.cause == "file_records_unavailable")
     );
 }
+
+#[test]
+fn repair_returns_an_only_copy_to_its_shard() {
+    let (_tmp, cfg) = fixture();
+    let set = &cfg.sets[0];
+    fs::write(set.source.join("file"), b"the only copy").unwrap();
+    assert_eq!(engine::backup(&cfg, set).code, 0);
+    let store = Store::new(&set.store);
+    let object = store
+        .index()
+        .unwrap()
+        .into_values()
+        .next()
+        .unwrap()
+        .remove(0);
+    let misplaced = store.current.join(&object.name);
+    fs::rename(&object.path, &misplaced).unwrap();
+    assert_eq!(maintenance::verify(set, true, false).code, 1);
+    assert_eq!(maintenance::verify(set, true, true).code, 1);
+    assert!(object.path.exists(), "the only copy was set aside");
+    assert!(!misplaced.exists());
+    assert_eq!(maintenance::verify(set, true, false).code, 0);
+}
