@@ -100,8 +100,8 @@ fn main() {
     for set in selected {
         let report = match args.action {
             Action::Backup => engine::backup(&config, set),
-            Action::Verify => maintenance::verify(&config, set, args.deep, args.repair_storage),
-            Action::Prune => maintenance::prune(&config, set, &args.snapshot, args.dry_run),
+            Action::Verify => maintenance::verify(set, args.deep, args.repair_storage),
+            Action::Prune => maintenance::prune(set, &args.snapshot, args.dry_run),
             Action::View => maintenance::view(set),
             Action::RefreshKits => maintenance::refresh(set),
             Action::Validate => Report::new("validate", &set.name),

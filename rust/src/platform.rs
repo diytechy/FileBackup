@@ -88,6 +88,9 @@ pub fn is_redirect(metadata: &fs::Metadata) -> bool {
         metadata.file_type().is_symlink()
     }
 }
+pub fn is_ordinary_file(metadata: &fs::Metadata) -> bool {
+    metadata.is_file() && !is_redirect(metadata)
+}
 pub fn is_volume_root(path: &Path) -> bool {
     let Some(parent) = path.parent() else {
         return true;
@@ -127,10 +130,7 @@ impl StoreLock {
         ordinary_dir(root)?;
         let path = root.join("Temp.lock");
         if let Some(metadata) = entry_metadata(&path)? {
-            ensure!(
-                metadata.is_file() && !is_redirect(&metadata),
-                "redirected lock"
-            );
+            ensure!(is_ordinary_file(&metadata), "redirected lock");
         }
         let mut opts = OpenOptions::new();
         opts.read(true).write(true).create(true).truncate(false);
@@ -146,10 +146,7 @@ impl StoreLock {
         }
         let file = opts.open(path).context("store busy or lock unavailable")?;
         let metadata = file.metadata()?;
-        ensure!(
-            metadata.is_file() && !is_redirect(&metadata),
-            "redirected or non-file lock"
-        );
+        ensure!(is_ordinary_file(&metadata), "redirected or non-file lock");
         file.try_lock().context("store busy or lock unavailable")?;
         Ok(Self { _file: file })
     }
@@ -199,10 +196,7 @@ pub fn atomic_write_with(
     let parent = path.parent().context("publication without parent")?;
     ordinary_dir(parent)?;
     if let Some(metadata) = entry_metadata(path)? {
-        ensure!(
-            metadata.is_file() && !is_redirect(&metadata),
-            "redirected publication target"
-        );
+        ensure!(is_ordinary_file(&metadata), "redirected publication target");
     }
     let mut tmp = store_temp_file(parent)?;
     write(tmp.as_file_mut())?;
@@ -247,7 +241,7 @@ pub fn atomic_write_with(
 pub fn preserve(path: &Path, previous: &Path) -> Result<()> {
     if let Some(metadata) = entry_metadata(previous)? {
         ensure!(
-            metadata.is_file() && !is_redirect(&metadata),
+            is_ordinary_file(&metadata),
             "redirected previous definition"
         );
         return Ok(());

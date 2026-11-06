@@ -22,10 +22,10 @@ fn retention_protects_latest_and_later_but_does_not_promise_older_states() {
     let names = maintenance::snapshots(set).unwrap();
     assert_eq!(names.len(), 2);
     assert_eq!(maintenance::refresh(set).code, 0);
-    let report = maintenance::prune(&cfg, set, &[names[1].clone()], true);
+    let report = maintenance::prune(set, &[names[1].clone()], true);
     assert_eq!(report.code, 0, "{report:?}");
     assert!(set.store.join("BackupHistory").join(&names[1]).exists());
-    let report = maintenance::prune(&cfg, set, &[names[1].clone()], false);
+    let report = maintenance::prune(set, &[names[1].clone()], false);
     assert_eq!(report.code, 0, "{report:?}");
     let store = Store::new(&set.store);
     let pool = store.index().unwrap();
@@ -40,7 +40,7 @@ fn retention_protects_latest_and_later_but_does_not_promise_older_states() {
         store.history.join(&names[0]).exists(),
         "unselected folder must survive"
     );
-    assert_eq!(maintenance::verify(&cfg, set, true, false).code, 1);
+    assert_eq!(maintenance::verify(set, true, false).code, 1);
 }
 #[test]
 fn prune_protects_previous_definitions_and_refuses_unknown_contents() {
@@ -56,9 +56,9 @@ fn prune_protects_previous_definitions_and_refuses_unknown_contents() {
     let names = maintenance::snapshots(set).unwrap();
     let unknown = store.history.join(&names[0]).join("owner-note.txt");
     fs::write(&unknown, b"keep").unwrap();
-    assert_eq!(maintenance::prune(&cfg, set, &names, false).code, 2);
+    assert_eq!(maintenance::prune(set, &names, false).code, 2);
     fs::remove_file(unknown).unwrap();
-    let r = maintenance::prune(&cfg, set, &names, false);
+    let r = maintenance::prune(set, &names, false);
     assert_eq!(r.code, 0, "{r:?}");
     let previous = format::read_manifest(&store.current.join("MANIFEST.csv.prev")).unwrap();
     assert!(store.index().unwrap().contains_key(&previous[0].key()));
@@ -117,12 +117,12 @@ fn repair_reports_form_mismatch_duplicates_and_misplaced_bytes() {
     let misplaced = store.current.join(&object.name);
     fs::copy(&object.path, &misplaced).unwrap();
     let before = fs::read(&manifest).unwrap();
-    let r = maintenance::verify(&cfg, set, true, false);
+    let r = maintenance::verify(set, true, false);
     assert_eq!(r.code, 1, "{r:?}");
     assert_eq!(fs::read(&manifest).unwrap(), before);
-    let r = maintenance::verify(&cfg, set, true, true);
+    let r = maintenance::verify(set, true, true);
     assert_eq!(r.code, 1, "{r:?}");
-    assert_eq!(maintenance::verify(&cfg, set, true, false).code, 0);
+    assert_eq!(maintenance::verify(set, true, false).code, 0);
     assert_eq!(
         format::read_manifest(&manifest).unwrap()[0].compressed,
         "No"
@@ -176,7 +176,7 @@ fn compressed_prune_rehome_verifies_closed_staging_file() {
     assert_eq!(engine::backup(&cfg, set).code, 0);
     fs::write(store.current.join("MANIFEST.csv.prev"), previous).unwrap();
     let names = maintenance::snapshots(set).unwrap();
-    let result = maintenance::prune(&cfg, set, &names, false);
+    let result = maintenance::prune(set, &names, false);
     assert_eq!(result.code, 0, "{result:?}");
     let pool = store.index().unwrap();
     assert!(filebackup::tools::verify(&pool[&old[0].key()][0].path, &old[0].key(),).unwrap());
@@ -192,7 +192,7 @@ fn verify_continues_past_a_state_with_missing_manifest() {
     assert_eq!(engine::backup(&cfg, set).code, 0);
     let store = Store::new(&set.store);
     fs::remove_file(store.current.join(format::MANIFEST)).unwrap();
-    let report = maintenance::verify(&cfg, set, true, false);
+    let report = maintenance::verify(set, true, false);
     assert_eq!(report.code, 1, "{report:?}");
     assert_eq!(report.reused, 1, "remaining history was not inspected");
     assert!(

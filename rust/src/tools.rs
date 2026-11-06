@@ -207,11 +207,7 @@ pub fn media_rate(
     let Some(tool) = tool else {
         return Ok(None);
     };
-    let ext = Path::new(name)
-        .extension()
-        .and_then(|v| v.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let ext = crate::format::lower_extension(name);
     if ![
         "mp4", "mkv", "mov", "avi", "wmv", "m4v", "mp3", "flac", "wav", "ogg", "m4a", "webm",
     ]
@@ -360,6 +356,16 @@ pub fn is_archive(path: &Path) -> Result<bool> {
 pub enum StoredForm {
     Raw,
     Archive,
+}
+/// What an object's stored size and signature say it is, reading no content.
+pub fn listed_form(path: &Path, stored: u64, length: u64) -> Option<StoredForm> {
+    if stored == length {
+        Some(StoredForm::Raw)
+    } else if stored > 0 && is_archive(path).unwrap_or(false) {
+        Some(StoredForm::Archive)
+    } else {
+        None
+    }
 }
 pub fn verify(path: &Path, key: &ContentKey) -> Result<bool> {
     Ok(verify_form(path, key)?.is_some())
