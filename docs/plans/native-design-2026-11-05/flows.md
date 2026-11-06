@@ -20,7 +20,7 @@ sequenceDiagram
     Run->>Run: Validate config, roots and prerequisites; acquire ownership
     Run->>Latest: Read prior state and index available content
     Run->>History: Stage prior records and kit; rename Building to dated state
-    Run->>Latest: Publish and sync INCOMPLETE_RUN before latest record changes
+    Run->>Latest: Preserve pre-run records as .prev if no previous set exists
     loop Entries, with bounded retries
         Run->>Source: Read metadata; copy/hash changed file or classify folder/link
         Run->>Latest: Reuse or publish complete content
@@ -30,17 +30,21 @@ sequenceDiagram
     alt Required metadata failed
         Run-->>Operator: Incomplete/host-stop with named metadata gap
     else Finalization succeeded
-        Run->>Latest: Clear INCOMPLETE_RUN after required metadata is synced
         Run->>History: Remove unneeded new snapshot; move superseded objects last
+        opt Successful backup result
+            Run->>Latest: Delete .prev after required capture and finalization succeeded
+        end
         Run-->>Operator: Complete or incomplete file result plus metadata warnings
     end
     Note over Run,History: On interruption, prior state and published file dependencies remain available
     Run->>Run: Release ownership on every exit
 ```
 
-The directory/link record extends the existing sidecar phase. Interruption tests
-must cover cross-file consistency; ordering alone is not a claim that the pair
-is atomic. A failed row or source disappearance never supplies a removal list.
+The directory/link record extends the existing sidecar phase. Change detection
+includes folders and links. Interruption tests cover partial previous-copy
+creation/deletion without overwriting surviving copies on a later run. Existing
+previous copies do not mark current metadata invalid. A failed row or source
+disappearance never supplies a removal list.
 
 ## Managed removal
 
@@ -76,14 +80,14 @@ sequenceDiagram
     participant Pool
     participant Target
     Operator->>Kit: Select state and target
-    Kit->>Pool: Read declared supported records and INCOMPLETE_RUN state
+    Kit->>Pool: Read selected current records or explicitly selected .prev definitions
     Kit->>Target: Validate ancestry, collisions, tools and expanded capacity
     loop Ordinary directories and file rows
         Kit->>Pool: Resolve content; try verified alternate candidates if needed
         Kit->>Target: Write private temp; verify length/hash; publish file
     end
     Kit->>Target: Apply supported directory/file metadata
-    loop Valid supported in-root folder links in finalized metadata
+    loop Valid supported in-root folder links in selected metadata
         Kit->>Target: Compute target relative to link parent; validate; create link last
     end
     Kit-->>Operator: File result and distinct metadata limitations/incompleteness

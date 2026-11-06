@@ -12,6 +12,8 @@ StorePath/
   CurrentBackup/
     MANIFEST.csv
     DIRECTORIES.csv
+    MANIFEST.csv.prev       (when prior definitions are being preserved)
+    DIRECTORIES.csv.prev    (same previous record set)
     <two-character-shard>/<content-name>
     <carried recovery kit>
   BackupHistory/<date>/
@@ -46,8 +48,10 @@ Proposed revised header:
 `FolderLink`; ordinary directories have an empty `LinkTarget`. `LinkTarget` is
 a normalized source-root-relative path, with `.` reserved for the root itself.
 These are metadata values, never shell commands. The final revision number and
-admission marker are an N1 decision; header guessing cannot silently treat a
-missing current sidecar as an older format.
+admission mechanism are an N1 decision. The new revision writes a header-only
+sidecar when there are no entries; header guessing cannot silently treat a
+missing current sidecar as empty or as an older format. This is a proposed
+extension: the current PowerShell writer removes an empty advisory sidecar.
 
 Capture resolves the destination. If it is a supported directory inside the
 configured source root, record its root-relative destination without traversing
@@ -64,33 +68,68 @@ link's subtree, recreate an absolute external destination or write content
 through a restored link. Reject file/directory/link path conflicts and report
 the conflicting metadata while preserving independently recoverable file bytes.
 
-External folder links retain SR-137's capture-under-alias behavior. Follow nested
+External folder links implement SR-137's capture-under-alias policy; this is
+required new traversal work, not a claim that the current walk implements it.
+The restored alias is an ordinary folder containing duplicate output files,
+while identical stored content remains deduplicated. Follow nested
 links using an ancestor-identity stack to stop cycles; do not globally suppress
 another acyclic alias to the same external folder. Each logical alias contributes
 output paths/bytes even when content is stored once. Links into protected system
 locations are not followed. Targets inside the configured root use the portable
 link rule. An unsupported external cycle is reported, not called complete.
+Single-file links are captured/restored as ordinary file content under their
+alias path, whether their targets are inside or outside the source, subject to
+protected-location exclusions. Unreachable targets use bounded access/retry
+handling and retain previously recorded content under that prefix. A source
+junction can become a relative directory symlink on recovery; the host's link
+capability/privilege applies. Valid links require an available captured target
+within the restored root. They never retain an external absolute destination.
 
 ## Publication and maintenance: retain ordering, check failure edges
 
 LLR-163..171 retain the prior snapshot before latest checkpoints, staged object
 publication, final directory record and dates, and superseded moves last. This
 is bounded progress, not a coherent instant of an entire live source tree.
-Required sidecar failure prevents a complete result. Before the first latest
-record mutation, publish and sync a small `INCOMPLETE_RUN` marker in CurrentBackup.
-It is a protocol/infrastructure file, not source content. Clear it only after
-successful publication and sync of the final manifest, directory/link record and
-completion markers. A killed or failed run leaves the marker. Both current-format
-kits check it before metadata application: verified ordinary files can recover,
-but unfinalized links are omitted and the overall result reports incomplete
-metadata. A stale yet well-formed sidecar therefore cannot produce silent success.
+Before latest records change, copy the pre-run definitions to `MANIFEST.csv.prev`
+and `DIRECTORIES.csv.prev` in CurrentBackup, using staged, synced copies published
+without replacement. These are infrastructure metadata, not stored content.
+Existing copies are never overwritten by a later run. A fresh store has no
+previous definitions. Initial preservation failure stops before latest mutation.
 
-When the next run snapshots a latest state that already has this marker, it copies
-the marker with the prior records. Cleanup and kit refresh preserve it; only a
-successful capture finalization clears it in latest. N1/N3 test the lifecycle,
-including sync/removal ordering on each qualified storage stack. This addition
-detects protocol interruption, not an external actor deleting or substituting
-records. No cross-file transaction or new pool is needed.
+Interrupted or incomplete backups retain the copies. Delete them only after a
+successful backup, including required metadata publication and finalization.
+Cleanup and kit refresh leave them alone. An interruption between the two copy
+or delete operations can leave a partial set: report that fact, preserve what
+remains, and never fill it using potentially newer definitions. Later successful
+completion can delete the residue. This edge does not make the current records
+invalid or block their ordinary use.
+
+Recovery defaults to the selected current records. The operator can explicitly
+inspect/select previous definitions; a partial previous set is diagnosed, never
+silently combined with current metadata. Independently valid file bytes can still
+recover with required metadata loss reported. The copies preserve definitions,
+not a second content pool or an additional retention guarantee: the existing
+dated snapshot and shared pool remain the normal history/recovery mechanism.
+
+There is no incomplete-run marker. Restore success means the selected recorded
+definitions were recovered, not that the last backup completed its source scan.
+Valid recorded directories and relative links remain eligible after interruption.
+Actual missing/malformed/conflicting required metadata is still reported; a
+failed required sidecar write prevents a successful backup result. Source-scan
+completion and recoverability of a recorded checkpoint are different outcomes.
+
+Change detection includes the represented directory tree, directory attributes,
+and folder-link kind/destination alongside file definitions. Adding/removing only
+an empty folder, changing only an attribute, or adding/removing/retargeting only a
+link retains the preceding dated state. Operational copies and serialization
+order are not source changes. This corrects the current file-row-only comparison.
+
+If a selected directory/link record conflicts with valid file-manifest paths,
+reject that supplemental metadata and report it while recovering the independent
+file bytes through safe ordinary directories. This rule uses record roles, not
+timestamps or `.prev` presence. Impossible/colliding file rows and pre-existing
+unsafe target redirects still refuse the affected writes. Thus a checkpointed
+file replacing a former folder need not be discarded because the sidecar is older.
 
 Prune keeps the existing dependency planning, rehoming and resumable deletion.
 Latest and retained later states are protected; dates at/before removal can be

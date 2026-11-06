@@ -36,10 +36,10 @@ recovery format.
 3. Use the [allocation map](allocation.md) to review LLR-151..190 and TC-261..301
    in the [LLR registry](../../requirements/low-level-requirements.toml) and
    [test registry](../../test/test-cases.toml).
-4. Read the [Gemini high-risk review and dispositions](gemini-review.md).
-   Its follow-up found no remaining high-risk findings after the targeted
-   interruption-marker change and two clarifications. This is static advice,
-   not implementation or platform evidence.
+4. Read the [owner's scoped correction and review disposition](owner-prev-review.md).
+   The earlier [Gemini review](gemini-review.md) is historical: its marker-based
+   resolution is superseded by preserved previous definitions and explicit
+   last-known-checkpoint semantics. It does not validate the revised design.
 
 All 121 accepted SRs have a proposed design allocation and verification case.
 These 40 LLRs and 41 cases are an **initial breakdown**, not evidence that the
@@ -52,11 +52,11 @@ prepared. Planned symbols identify responsibilities, not existing functions.
 - **Link metadata revision:** retain the nine-column manifest and extend the
   directory sidecar. Pin header/version admission and mandatory metadata failure
   behavior with both script readers before enabling the writer.
-- **Publication:** retain the bounded loop. Demonstrate that stale/missing link
-  metadata cannot cause a falsely complete restore or write through a link.
-  Safe recovery of independent file bytes remains useful after metadata damage.
-  The draft now specifies a kit-visible `INCOMPLETE_RUN` marker; its lifecycle
-  and inheritance into snapshots need the fault tests in TC-275/282.
+- **Publication:** retain the bounded loop and preserve previous definitions as
+  `.prev` until success, without overwriting them on later runs. TC-275/282 cover
+  partial copies, repeated interruptions and explicit record selection. Current
+  valid checkpoints remain usable; missing/conflicting required metadata still
+  produces a diagnostic. Folder/link-only changes count when retaining history.
 - **Kit refresh:** current staged per-file writes are reusable; prove a usable
   prior or new kit survives every interruption. If mixed files are unsafe, add
   the smallest kit-local validation/commit mechanism needed.
@@ -74,7 +74,7 @@ prepared. Planned symbols identify responsibilities, not existing functions.
 |---|---|
 | N1: contract fixtures | Name/hash/CSV/path golden vectors; both script readers agree on existing and proposed link records; explicit supported-version matrix |
 | N2: platform primitives | Locks, volume/capacity, staged publication, path identity and containment exercised on each supported host/filesystem |
-| N3: bounded backup port | Existing ordered loop reproduced; fault injection preserves prior state and valid checkpoints; retries and results match approved policy |
+| N3: bounded backup port | Existing ordered loop reproduced; previous definitions survive interruptions; main walk captures/classifies links; folder/link changes retain history; retries/results match approved policy |
 | N4: maintenance port | Inventory/check, retention, repair, kit refresh and view behavior reconciled against legacy tests and protected dependencies |
 | N5: portable recovery | Link recreation and metadata outcomes in both carried scripts; clean-host offline restore independent of native engine |
 | N6: delivery and operations | Native artifacts, container actions, credentials, progress and shipped guidance tested on declared support matrix |
@@ -85,6 +85,10 @@ before this design review. Existing code/test reconciliation occurs within each
 package before implementation attachment. Preserve old rationale and results;
 retire a trace only with an explicit disposition. A shared SR ID is not proof
 that an old assertion verifies its revised meaning.
+
+Include a small recovery throughput/memory feasibility probe in N1/N2 for each
+script route and the proposed storage topology. N7 is full acceptance evidence;
+it is not the first opportunity to discover an unsuitable recovery strategy.
 
 The modern interface-carrier migration remains separate: IF-001's existing
 HomeHub agreement stays in place. The contracts here are draft internal/product

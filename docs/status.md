@@ -25,6 +25,14 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **NATIVE DRAFT CORRECTED AFTER OWNER REVIEW (2026-11-05).**
+  [Previous definitions and folder/link changes](plans/native-design-2026-11-05/owner-prev-review.md)
+  replace the blanket incomplete-run marker. `.prev` copies survive failed runs
+  without replacement and are deleted only on success; valid current checkpoints
+  remain usable. Folder/link-only changes retain history, and external links
+  restore as ordinary expanded content. This remains drafted design, not runtime
+  implementation; the earlier marker review is historical.
+
 - **INITIAL NATIVE DESIGN DRAFT (2026-11-05).** The
   [design review package](plans/native-design-2026-11-05/review.md) retains the
   existing store and bounded run architecture. LLR-151..190 and TC-261..301

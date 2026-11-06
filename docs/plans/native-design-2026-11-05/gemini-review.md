@@ -1,5 +1,10 @@
 # Gemini Argon high-risk design review
 
+> **Historical review:** the owner subsequently replaced the incomplete-run
+> marker proposal with preserved `.prev` definitions and last-known-checkpoint
+> semantics. See the [owner disposition](owner-prev-review.md). The responses
+> below are retained as review history, not validation of the revised mechanism.
+
 2026-11-05. Requested by the owner; OpenCode Go model
 `opencode-go/gemini-4-argon`, variant `low`, CLI 1.19.4. Session
 `ses_e50f8a664ffe1gFvSAthNlADSF`. Both responses completed with `step_finish=stop`.

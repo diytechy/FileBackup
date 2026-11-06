@@ -16,7 +16,7 @@ demonstrate semantic completeness. See the [review guide](review.md).
 | LLR-155 | Supported ownership acquisition and release | SR-085, SR-086, SR-107 | TC-265 |
 | LLR-156 | Source walk and declared exclusions | SR-001, SR-074, SR-088, SR-089, SR-093, SR-094 | TC-266 |
 | LLR-157 | Portable names and collision groups | SR-021, SR-055, SR-092 | TC-267 |
-| LLR-158 | Metadata reuse and deterministic rereads | SR-011, SR-024, SR-105 | TC-268 |
+| LLR-158 | Metadata reuse and deterministic rereads | SR-011, SR-024, SR-105, SR-005, SR-100 | TC-268 |
 | LLR-159 | Streaming capture and source-change detection | SR-003, SR-053, SR-059, SR-108 | TC-269 |
 | LLR-160 | Bounded retry scheduling and frozen prior rows | SR-067, SR-090, SR-091 | TC-270 |
 | LLR-161 | Missing and empty source stop semantics | SR-036, SR-091 | TC-271 |
@@ -56,7 +56,7 @@ demonstrate semantic completeness. See the [review guide](review.md).
 |---|---|
 | SR-001 | LLR-156, LLR-177 |
 | SR-003 | LLR-159, LLR-163 |
-| SR-005 | LLR-165 |
+| SR-005 | LLR-158, LLR-165 |
 | SR-007 | LLR-184, LLR-186 |
 | SR-008 | LLR-172, LLR-184 |
 | SR-009 | LLR-172, LLR-174 |
@@ -122,7 +122,7 @@ demonstrate semantic completeness. See the [review guide](review.md).
 | SR-097 | LLR-182 |
 | SR-098 | LLR-182, LLR-187 |
 | SR-099 | LLR-182 |
-| SR-100 | LLR-165 |
+| SR-100 | LLR-158, LLR-165 |
 | SR-101 | LLR-169, LLR-170 |
 | SR-102 | LLR-169 |
 | SR-103 | LLR-168 |
@@ -196,7 +196,7 @@ not permission to delete the legacy row.
 | LLR-002 | — |
 | LLR-003 | LLR-159, LLR-163 |
 | LLR-004 | — |
-| LLR-005 | LLR-165 |
+| LLR-005 | LLR-158, LLR-165 |
 | LLR-006 | — |
 | LLR-007 | LLR-184, LLR-186 |
 | LLR-008 | LLR-172, LLR-184 |
