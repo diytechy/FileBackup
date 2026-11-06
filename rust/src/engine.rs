@@ -379,7 +379,6 @@ fn should_compress(
     set: &BackupSet,
     path: &Path,
     source_name: &str,
-    tool: Option<&Path>,
     incoming: &Path,
     report: &mut Report,
 ) -> bool {
@@ -402,7 +401,6 @@ fn should_compress(
         return !exempt;
     }
     let probe = || -> Result<bool> {
-        let tool = tool.context("compressor unavailable")?;
         let mut source = File::open(path)?;
         let mut sample = tempfile::NamedTempFile::new_in(incoming)?;
         let mut buffer = vec![0u8; 256 * 1024];
@@ -428,7 +426,7 @@ fn should_compress(
             "{}.7z",
             sample.file_name().unwrap().to_string_lossy()
         ));
-        let outcome = tools::compress(tool, &sample, &archive)
+        let outcome = tools::compress(&sample, &archive)
             .and_then(|_| Ok(fs::metadata(&archive)?.len() as f64 <= total as f64 * 0.9));
         let _ = fs::remove_file(archive);
         outcome
@@ -449,10 +447,9 @@ fn capture(
     relative: &str,
     path: &Path,
     index: &mut BTreeMap<ContentKey, Vec<Object>>,
-    adapters: &tools::Adapters,
+    ffprobe: Option<&Path>,
     report: &mut Report,
 ) -> Result<FileRow> {
-    let tool = adapters.seven_zip.as_deref();
     let before = fs::metadata(path)?;
     let stamp = modified(&before)?;
     let incoming = store.root.join("Incoming");
@@ -484,7 +481,7 @@ fn capture(
     let mut staged = tempfile::NamedTempFile::new_in(&incoming)?;
     let key = format::copy_hash(File::open(path)?, &mut staged)?;
     staged.as_file().sync_all()?;
-    // 7-Zip opens inputs without sharing an existing write handle on Windows.
+    // Close the staging writer before another process reads the file on Windows.
     let staged = staged.into_temp_path();
     let after = fs::metadata(path)?;
     ensure!(
@@ -493,8 +490,7 @@ fn capture(
             && key.length == after.len(),
         "source changed while being copied"
     );
-    let media = match tools::media_rate(adapters.ffprobe.as_deref(), &staged, relative, key.length)
-    {
+    let media = match tools::media_rate(ffprobe, &staged, relative, key.length) {
         Ok(value) => value.unwrap_or_default(),
         Err(_) => {
             report.finding_at(
@@ -509,7 +505,7 @@ fn capture(
     if let Some(objects) = index.get_mut(&key) {
         for object in objects.iter_mut() {
             if object.verified.is_none() {
-                object.verified = tools::verify_form(&object.path, &key, tool, &incoming)?;
+                object.verified = tools::verify_form(&object.path, &key)?;
             }
             if object.state == store.current && object.verified.is_none() {
                 object.path = store.quarantine(&object.path)?;
@@ -537,7 +533,7 @@ fn capture(
                     object.state = store.current.clone();
                 }
                 let form = if object.path != destination {
-                    tools::verify_form(&destination, &key, tool, &incoming)?
+                    tools::verify_form(&destination, &key)?
                         .context("destination object is unusable")?
                 } else {
                     form
@@ -557,19 +553,15 @@ fn capture(
             }
         }
     }
-    let compressed = should_compress(set, &staged, relative, tool, &incoming, report);
+    let compressed = should_compress(set, &staged, relative, &incoming, report);
     let archive_dir = tempfile::Builder::new()
         .prefix("archive-")
         .tempdir_in(&incoming)?;
     let archive = archive_dir.path().join("content.7z");
     if compressed {
-        tools::compress(
-            tool.context("required compressor unavailable")?,
-            &staged,
-            &archive,
-        )?;
+        tools::compress(&staged, &archive)?;
         ensure!(
-            tools::verify(&archive, &key, tool, &incoming)?,
+            tools::verify(&archive, &key)?,
             "compressor output failed round-trip verification"
         );
     }
@@ -587,7 +579,7 @@ fn capture(
     platform::ordinary_dir(destination.parent().unwrap())?;
     if destination.try_exists()? {
         ensure!(
-            !tools::verify(&destination, &key, tool, &incoming)?,
+            !tools::verify(&destination, &key)?,
             "unexpected usable destination; retry index"
         );
         store.quarantine(&destination)?;
@@ -750,16 +742,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         set.source.is_dir(),
         "source unavailable; no removals published"
     );
-    let tool = if set.compress {
-        Some(tools::seven_zip(config.seven_zip.as_deref())?)
-    } else {
-        config.seven_zip.clone()
-    };
-    let adapters = tools::Adapters {
-        seven_zip: tool,
-        ffprobe: config.ffprobe.clone(),
-    };
-    if adapters.ffprobe.is_none() {
+    if config.ffprobe.is_none() {
         report.finding_at(
             0,
             "media_disabled",
@@ -873,8 +856,15 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 report.reused += 1;
                 continue;
             }
-            let outcome = match capture(set, &store, relative, &path, &mut index, &adapters, report)
-            {
+            let outcome = match capture(
+                set,
+                &store,
+                relative,
+                &path,
+                &mut index,
+                config.ffprobe.as_deref(),
+                report,
+            ) {
                 Ok(row) => Some(row),
                 Err(e) => {
                     if platform::is_host_stop(&e) {

@@ -21,7 +21,6 @@ pub struct BackupSet {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub sets: Vec<BackupSet>,
-    pub seven_zip: Option<PathBuf>,
     pub ffprobe: Option<PathBuf>,
     pub notification: Option<crate::notify::Settings>,
 }
@@ -234,9 +233,10 @@ pub fn load(path: &Path) -> Result<Config> {
             }
         }
     }
+    // Accepted for existing configurations; native 7z is now built in.
+    let _ = tool("SevenZipPath")?;
     Ok(Config {
         sets,
-        seven_zip: tool("SevenZipPath")?,
         ffprobe: tool("FfprobePath")?,
         notification,
     })

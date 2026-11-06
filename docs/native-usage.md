@@ -6,11 +6,14 @@ version is designated supported for native continuation. Existing backups keep
 restoring with their own carried kits. Do not point a native writer at production
 history as a conversion experiment.
 
-The executable needs no compiler or PowerShell runtime for backup. Install 7-Zip
-locally when new compression is enabled or existing compressed content must be
-verified. Native compression and both recovery kits limit 7-Zip to two workers
-to leave memory for file indexes. Recovery has its own independent prerequisites
-below. See the shipped
+The executable includes hashing and 7z compression/decompression; native backup,
+verification and retention need no installed 7-Zip, compiler or PowerShell runtime.
+Codec work runs in a short-lived copy of the same executable with a finite deadline.
+The streaming LZMA2 encoder uses the fast preset, one thread and at most an
+8 MiB dictionary. Compression speed and ratio can differ from external 7-Zip.
+Optional media-duration reporting still uses locally configured `ffprobe`.
+PowerShell/bash recovery remains independent and has its own prerequisites below,
+including external 7-Zip for compressed objects. See the shipped
 [support matrix](native-support.md) for exercised coverage
 and remaining qualification work.
 
@@ -42,8 +45,10 @@ the selected definitions, not provenance or source completeness.
 ConfigVersion 3 retains `BackupSets`, `Tools` and `Secrets`. Set keys are `Name`,
 `SourcePath`, `StorePath`, `HashRecalcFreq` (A/E/D/W/M/Y/N), `CompressEnabled`,
 `CompressProbe` (always/off/excluded-extensions), `BrowseView` (off/index), and an
-optional `ViewPath` when enabled. Tools can name `SevenZipPath` and `FfprobePath`
-using absolute executable paths or bare PATH commands. Unknown/retired keys,
+optional `ViewPath` when enabled. Tools can name `FfprobePath` using an absolute
+executable path or bare PATH command. The legacy `SevenZipPath` key is accepted
+and type-checked but unused by the native executable, which always uses its
+built-in codec. Recovery scripts retain their own extractor selection. Unknown/retired keys,
 overlapping roots and readable credential values are refused before any set runs.
 Optional `Secrets` holds `ToEmail`, `FromEmail`, `SmtpServer`, `SmtpPort` (default
 587), and `Credential` such as `credential:backup-mail`. Omit `Credential` for a

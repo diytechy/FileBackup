@@ -171,16 +171,7 @@ fn compressed_prune_rehome_verifies_closed_staging_file() {
     let result = maintenance::prune(&cfg, set, &names, false);
     assert_eq!(result.code, 0, "{result:?}");
     let pool = store.index().unwrap();
-    let tool = filebackup::tools::seven_zip(None).unwrap();
-    assert!(
-        filebackup::tools::verify(
-            &pool[&old[0].key()][0].path,
-            &old[0].key(),
-            Some(&tool),
-            _tmp.path()
-        )
-        .unwrap()
-    );
+    assert!(filebackup::tools::verify(&pool[&old[0].key()][0].path, &old[0].key(),).unwrap());
 }
 
 #[test]

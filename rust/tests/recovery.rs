@@ -152,7 +152,7 @@ fn missing_extractor_precedes_writes_and_oversized_archive_keeps_existing_target
     let big = tmp.path().join("big.txt");
     let archive = tmp.path().join("wrong.7z");
     fs::write(&big, vec![b'y'; 600_000]).unwrap();
-    tools::compress(&tools::seven_zip(None).unwrap(), &big, &archive).unwrap();
+    tools::compress(&big, &archive).unwrap();
     fs::copy(&archive, &object.path).unwrap();
     let target = tmp.path().join("damaged");
     fs::create_dir(&target).unwrap();

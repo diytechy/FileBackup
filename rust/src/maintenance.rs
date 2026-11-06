@@ -74,7 +74,7 @@ pub fn verify(config: &Config, set: &BackupSet, deep: bool, repair: bool) -> Rep
     report
 }
 fn verify_inner(
-    config: &Config,
+    _config: &Config,
     set: &BackupSet,
     deep: bool,
     repair: bool,
@@ -90,8 +90,6 @@ fn verify_inner(
     } else {
         None
     };
-    let scratch = tempfile::tempdir()?;
-    let tool = tools::seven_zip(config.seven_zip.as_deref()).ok();
     let index = store.index()?;
     let mut verdicts: BTreeMap<&Path, Option<tools::StoredForm>> = BTreeMap::new();
     for state in store.states()? {
@@ -149,12 +147,7 @@ fn verify_inner(
                         if let Some(form) = verdicts.get(object.path.as_path()) {
                             *form
                         } else {
-                            match tools::verify_form(
-                                &object.path,
-                                &row.key(),
-                                tool.as_deref(),
-                                scratch.path(),
-                            ) {
+                            match tools::verify_form(&object.path, &row.key()) {
                                 Ok(form) => {
                                     verdicts.insert(object.path.as_path(), form);
                                     form
@@ -274,12 +267,7 @@ fn verify_inner(
                 let form = if let Some(form) = verdicts.get(object.path.as_path()) {
                     *form
                 } else {
-                    match tools::verify_form(
-                        &object.path,
-                        &object.key,
-                        tool.as_deref(),
-                        scratch.path(),
-                    ) {
+                    match tools::verify_form(&object.path, &object.key) {
                         Ok(form) => form,
                         Err(e) => {
                             report.finding_at(
@@ -308,7 +296,7 @@ fn verify_inner(
             for object in objects {
                 if &object.path != keeper {
                     ensure!(
-                        tools::verify(keeper, &object.key, tool.as_deref(), scratch.path())?,
+                        tools::verify(keeper, &object.key)?,
                         "retained supply changed before repair"
                     );
                     store.quarantine(&object.path)?;
@@ -403,7 +391,7 @@ fn delete_committed(folder: &Path) -> Result<()> {
     Ok(())
 }
 fn prune_inner(
-    config: &Config,
+    _config: &Config,
     set: &BackupSet,
     names: &[String],
     dry_run: bool,
@@ -488,8 +476,6 @@ fn prune_inner(
             demand.insert(row.key());
         }
     }
-    let scratch = tempfile::tempdir()?;
-    let tool = tools::seven_zip(config.seven_zip.as_deref()).ok();
     let mut rehome_bytes = 0u128;
     let mut selected_bytes = 0u128;
     for path in &selected {
@@ -507,7 +493,7 @@ fn prune_inner(
         let mut survivor = false;
         let mut source = None;
         for object in candidates {
-            if tools::verify(&object.path, &key, tool.as_deref(), scratch.path())? {
+            if tools::verify(&object.path, &key)? {
                 if !selected.contains(object.state.as_ref()) {
                     survivor = true;
                     break;
@@ -551,7 +537,7 @@ fn prune_inner(
         staged.as_file().sync_all()?;
         let staged = staged.into_temp_path();
         ensure!(
-            tools::verify(&staged, &key, tool.as_deref(), scratch.path())?,
+            tools::verify(&staged, &key)?,
             "rehomed bytes failed verification"
         );
         staged.persist_noclobber(&destination)?;

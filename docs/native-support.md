@@ -32,7 +32,7 @@ backup at 0.973 GB peak application RSS and deep check at 0.920 GB. This used a
 RAM filesystem, whose kernel memory is outside application RSS; it does not
 establish operation on a 2 GB host or disk throughput. Adding a new compressed
 1 GiB file to a million-file corpus completed at 1.144 GB simultaneous engine/tool
-RSS with two 7-Zip workers. See the
+RSS with two external 7-Zip workers before the embedded-codec change. See the
 [memory optimization results](plans/native-design-2026-11-05/memory-optimization-2026-11-06.md)
 for matched iterations and scope. The process-tree sampler has 50 ms
 sampling limitations. Small SSD PowerShell restoration improved from 76.6 to 30.3
@@ -43,6 +43,14 @@ for real-file/history/compression measurements, exclusions and reproducible
 commands. Hard deadlines for blocked source filesystem I/O, full reference
 resource measurements and remaining permutations are still open. See the
 [implementation bindings](plans/native-design-2026-11-05/implementation-map.md).
+
+Native compression and verification now include the 7z codec in the executable;
+script recovery retains its independent extractor prerequisites. A codec-only
+1 GiB compressible-file probe measured 7.438 seconds / 52,305,920 bytes peak RSS
+for the selected fast encoder, versus 4.718 seconds / 401,653,760 bytes for
+external 7-Zip. This is one warm-cache, four-logical-CPU-affinity probe, not a
+replacement for full workload qualification. See the
+[embedded codec results](plans/native-design-2026-11-05/embedded-codec-2026-11-06.md).
 Recovery targets must be supplied in their ordinary, fully expanded absolute
 spelling; DOS short-name aliases and case aliases on unqualified hosts are not
 covered by the current script qualification. Use exclusively controlled targets.

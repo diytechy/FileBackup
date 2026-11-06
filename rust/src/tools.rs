@@ -1,8 +1,8 @@
-//! IF-016: direct bounded subprocess adapters; no shell interpolation.
+//! IF-016: built-in 7z codec and bounded optional tools; no shell interpolation.
 use crate::format::{ContentKey, hash_file};
 use anyhow::{Context, Result, ensure};
 use std::{
-    fs::{File, OpenOptions},
+    fs::File,
     io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -10,10 +10,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-pub struct Adapters {
-    pub seven_zip: Option<PathBuf>,
-    pub ffprobe: Option<PathBuf>,
-}
 // Own the tool's process group/job so inherited output pipes cannot defeat the
 // deadline. A successful direct child may still have left descendants behind.
 struct ToolChild {
@@ -196,33 +192,6 @@ pub fn media_rate(
         parse_media_rate(length, duration).context("media duration unavailable or nonpositive")?,
     ))
 }
-pub fn seven_zip(configured: Option<&Path>) -> Result<PathBuf> {
-    let candidates = if let Some(p) = configured {
-        vec![p.to_path_buf()]
-    } else {
-        let c = vec![
-            PathBuf::from("7z"),
-            PathBuf::from("7zz"),
-            PathBuf::from("7za"),
-        ];
-        #[cfg(windows)]
-        let c = {
-            let mut c = c;
-            c.push(PathBuf::from("C:/Program Files/7-Zip/7z.exe"));
-            c
-        };
-        c
-    };
-    for path in candidates {
-        if run(Command::new(&path).arg("i"), Duration::from_secs(10)).is_ok() {
-            return Ok(path);
-        }
-    }
-    Err(crate::platform::HostStop(
-        "required 7-Zip unavailable; provision it locally or disable new compression",
-    )
-    .into())
-}
 pub fn run(cmd: &mut Command, timeout: Duration) -> Result<()> {
     let mut child = ToolChild::spawn(
         cmd.stdin(Stdio::null())
@@ -241,20 +210,149 @@ pub fn run(cmd: &mut Command, timeout: Duration) -> Result<()> {
         thread::sleep(Duration::from_millis(20));
     }
 }
-pub fn compress(tool: &Path, input: &Path, archive: &Path) -> Result<()> {
-    run(
-        Command::new(tool)
-            .args(["a", "-t7z", "-mx=5", TOOL_THREADS, "-y", "--"])
-            .arg(archive)
-            .arg(input),
-        deadline(std::fs::metadata(input)?.len()),
+// Reuse the executable and existing process deadline/cleanup rather than requiring
+// an installed compressor or leaving an uninterruptible codec thread in the engine.
+fn codec_command() -> Result<Command> {
+    let executable = std::env::current_exe()?;
+    #[cfg(feature = "test-hooks")]
+    let executable =
+        if executable.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new("deps")) {
+            // Cargo integration tests call the library from a test harness. Cargo also
+            // builds the actual CLI alongside deps; exercise its real worker route.
+            executable
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join(format!("filebackup{}", std::env::consts::EXE_SUFFIX))
+        } else {
+            executable
+        };
+    let mut command = Command::new(executable);
+    command.arg("__codec_worker");
+    Ok(command)
+}
+fn codec_result(command: &mut Command, length: u64) -> Result<Option<ContentKey>> {
+    let bytes = output(command, 4096, deadline(length))?;
+    let result: std::result::Result<Option<ContentKey>, String> = serde_json::from_slice(&bytes)?;
+    result.map_err(|message| {
+        anyhow::Error::new(crate::platform::HostStop("codec unavailable")).context(message)
+    })
+}
+pub fn compress(input: &Path, archive: &Path) -> Result<()> {
+    codec_result(
+        codec_command()?.arg("compress").arg(input).arg(archive),
+        std::fs::metadata(input)?.len(),
     )?;
-    OpenOptions::new().write(true).open(archive)?.sync_all()?;
     Ok(())
 }
-// Leave memory for the live file/object indexes instead of letting 7-Zip select
-// a separate compression/decompression buffer set for every host CPU.
-const TOOL_THREADS: &str = "-mmt=2";
+// Internal entry point: only the parent-facing result is written to stdout.
+// Verification streams into a hash, never to archive-supplied filesystem paths.
+pub fn codec_worker() -> i32 {
+    let result = (|| -> Result<Option<ContentKey>> {
+        let mut args = std::env::args_os().skip(2);
+        let operation = args.next().context("missing codec operation")?;
+        let input = PathBuf::from(args.next().context("missing codec input")?);
+        let argument = args.next().context("missing codec argument")?;
+        ensure!(args.next().is_none(), "unexpected codec argument");
+        if operation == "compress" {
+            use sevenz_rust2::{ArchiveEntry, ArchiveWriter, encoder_options::Lzma2Options};
+            let source = File::open(&input)?;
+            let length = source.metadata()?.len();
+            // Single-thread streaming avoids per-thread chunk copies. Reduce the
+            // dictionary for small files; cap it at 8 MiB for larger inputs.
+            let mut options = Lzma2Options::from_level(1);
+            // LZMA2's header must represent the encoder's complete window.
+            options.set_dictionary_size(
+                    length.clamp(4096, 8 * 1024 * 1024).next_power_of_two() as u32,
+                );
+            let destination = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(PathBuf::from(argument))?;
+            let mut writer = ArchiveWriter::new(destination)?;
+            writer.set_content_methods(vec![options.into()]);
+            writer.push_archive_entry(
+                ArchiveEntry::from_path(&input, "content".into()),
+                Some(source),
+            )?;
+            writer.finish()?.sync_all()?;
+            Ok(None)
+        } else {
+            ensure!(operation == "verify", "unknown codec operation");
+            let expected: u64 = argument.to_str().context("invalid length")?.parse()?;
+            let source = File::open(&input)?;
+            match decode_key(source, expected) {
+                Ok(key) => Ok(key),
+                // Short/corrupt streams are content damage, not a host outage.
+                Err(e) => classify_decode_error(e),
+            }
+        }
+    })()
+    .map_err(|e| format!("{e:#}").chars().take(1024).collect::<String>());
+    match serde_json::to_writer(std::io::stdout(), &result) {
+        Ok(()) => 0,
+        Err(_) => 4,
+    }
+}
+fn classify_decode_error(error: sevenz_rust2::Error) -> Result<Option<ContentKey>> {
+    use sevenz_rust2::Error;
+    match error {
+        Error::Io(e, _) => {
+            let crc_mismatch = matches!(
+                e.get_ref().and_then(|inner| inner.downcast_ref::<Error>()),
+                Some(Error::ChecksumVerificationFailed)
+            );
+            if crc_mismatch
+                || matches!(
+                    e.kind(),
+                    std::io::ErrorKind::InvalidData
+                        | std::io::ErrorKind::InvalidInput
+                        | std::io::ErrorKind::UnexpectedEof
+                )
+            {
+                Ok(None)
+            } else {
+                Err(e.into())
+            }
+        }
+        // An unavailable decoder is not evidence that stored bytes are damaged.
+        e @ (Error::UnsupportedCompressionMethod(_)
+        | Error::Unsupported(_)
+        | Error::UnsupportedVersion { .. }
+        | Error::ExternalUnsupported
+        | Error::PasswordRequired
+        | Error::MaxMemLimited { .. }
+        | Error::FileOpen(_, _)) => Err(e.into()),
+        _ => Ok(None),
+    }
+}
+fn decode_key(
+    source: File,
+    expected: u64,
+) -> std::result::Result<Option<ContentKey>, sevenz_rust2::Error> {
+    use sevenz_rust2::{ArchiveReader, Password};
+    let mut reader = ArchiveReader::new(source, Password::empty())?;
+    reader.set_thread_count(1);
+    let files = &reader.archive().files;
+    if files.len() != 1 || files[0].is_directory || files[0].size != expected {
+        return Ok(None);
+    }
+    let mut key = None;
+    reader.for_each_entries(|_, content| {
+        key = Some(
+            crate::format::copy_hash(content.take(expected.saturating_add(1)), std::io::sink())
+                .map_err(|e| {
+                    sevenz_rust2::Error::from(
+                        e.downcast::<std::io::Error>()
+                            .unwrap_or_else(std::io::Error::other),
+                    )
+                })?,
+        );
+        Ok(true)
+    })?;
+    Ok(key.filter(|key| key.length == expected))
+}
 // A finite allowance that grows with bytes, including slow external disks.
 pub fn deadline(length: u64) -> Duration {
     Duration::from_secs(300u64.saturating_add(length / (1024 * 1024)))
@@ -270,63 +368,22 @@ pub enum StoredForm {
     Raw,
     Archive,
 }
-pub fn verify(path: &Path, key: &ContentKey, tool: Option<&Path>, scratch: &Path) -> Result<bool> {
-    Ok(verify_form(path, key, tool, scratch)?.is_some())
+pub fn verify(path: &Path, key: &ContentKey) -> Result<bool> {
+    Ok(verify_form(path, key)?.is_some())
 }
-pub fn verify_form(
-    path: &Path,
-    key: &ContentKey,
-    tool: Option<&Path>,
-    _scratch: &Path,
-) -> Result<Option<StoredForm>> {
+pub fn verify_form(path: &Path, key: &ContentKey) -> Result<Option<StoredForm>> {
     if std::fs::metadata(path)?.len() == key.length && hash_file(path)? == *key {
         return Ok(Some(StoredForm::Raw));
     }
     if !is_archive(path)? {
         return Ok(None);
     }
-    let discovered;
-    let tool = if let Some(tool) = tool {
-        tool
-    } else {
-        discovered = seven_zip(None).context("compressed candidate requires local 7-Zip")?;
-        &discovered
-    };
-    let mut child = ToolChild::spawn(
-        Command::new(tool)
-            .args(["e", "-so", TOOL_THREADS, "-y", "--"])
+    let actual = codec_result(
+        codec_command()?
+            .arg("verify")
             .arg(path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null()),
+            .arg(key.length.to_string()),
+        key.length,
     )?;
-    let stdout = child.stdout.take().context("missing extractor pipe")?;
-    // Reader holds only bounded chunks and stops after the expected bytes plus one.
-    let expected = key.length;
-    let (send, receive) = mpsc::sync_channel(1);
-    thread::spawn(move || {
-        let _ = send.send(crate::format::copy_hash(
-            stdout.take(expected.saturating_add(1)),
-            std::io::sink(),
-        ));
-    });
-    let start = Instant::now();
-    let status = loop {
-        if start.elapsed() > deadline(key.length) {
-            return Err(crate::platform::HostStop(
-                "extractor deadline exceeded; content verdict unavailable",
-            )
-            .into());
-        }
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        thread::sleep(Duration::from_millis(20));
-    };
-    let actual = receive
-        .recv_timeout(deadline(key.length).saturating_sub(start.elapsed()))
-        .map_err(|_| {
-            crate::platform::HostStop("extractor output did not close before deadline")
-        })??;
-    Ok((status.success() && actual == *key).then_some(StoredForm::Archive))
+    Ok((actual == Some(*key)).then_some(StoredForm::Archive))
 }
