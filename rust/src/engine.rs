@@ -868,7 +868,16 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 let found = reread.then(|| format::hash_file(&path));
                 let same = match &found {
                     None => true,
-                    Some(Ok(found)) => rows.get(&key).is_some_and(|r| r.as_ref().key() == *found),
+                    // As in a staged capture: a file written during the read proves nothing.
+                    Some(Ok(found)) => {
+                        rows.get(&key).is_some_and(|r| r.as_ref().key() == *found)
+                            && current.as_ref().zip(fs::metadata(&path).ok()).is_some_and(
+                                |(before, after)| {
+                                    before.len() == after.len()
+                                        && before.modified().ok() == after.modified().ok()
+                                },
+                            )
+                    }
                     Some(Err(_)) => false,
                 };
                 if same {
@@ -880,7 +889,8 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                         0,
                         "content_changed_on_reread",
                         Some(relative),
-                        "Content changed with size and time unchanged; capturing it".into(),
+                        "Content changed during or behind an unchanged size and time; capturing it"
+                            .into(),
                     );
                 }
             }
