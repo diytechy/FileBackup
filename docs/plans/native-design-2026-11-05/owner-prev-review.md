@@ -5,6 +5,15 @@ the owner's review of Claude's feedback. Accepted SN/SR/frame/assumption text an
 approval snapshots remain unchanged. Changed LLRs/cases stay Drafted. No runtime
 code is changed by this record.
 
+## Ordering clarification
+
+The owner's follow-up clarified that an interruption between the two copies
+leaves the original current definitions intact; interruption between deletions
+leaves the successful new definitions intact. A lone `.prev` file is housekeeping
+residue, not an inherently failed recovery state. The live draft now states this
+ordering directly. Missing previous members matter only when explicitly choosing
+those previous definitions; they do not affect current recovery.
+
 ## Decisions applied
 
 - Replace the blanket incomplete-run marker with pre-run `MANIFEST.csv.prev` and

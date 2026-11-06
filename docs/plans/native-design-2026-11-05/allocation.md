@@ -9,7 +9,7 @@ demonstrate semantic completeness. See the [review guide](review.md).
 
 | Design | Responsibility | Parent SRs | Planned cases |
 |---|---|---|---|
-| LLR-151 | Whole-configuration admission | SR-018, SR-042, SR-123, SR-134, SR-135 | TC-261 |
+| LLR-151 | Whole-configuration admission | SR-018, SR-042, SR-123, SR-134, SR-135, SR-129 | TC-261 |
 | LLR-152 | Resolved root and view ownership admission | SR-063, SR-138, SR-154 | TC-262 |
 | LLR-153 | Independent action dispatch and aggregate results | SR-014, SR-043, SR-095, SR-142 | TC-263 |
 | LLR-154 | Required and optional dependency admission | SR-016, SR-019, SR-118, SR-132, SR-133 | TC-264 |
@@ -150,7 +150,7 @@ demonstrate semantic completeness. See the [review guide](review.md).
 | SR-126 | LLR-178, LLR-180, LLR-190 |
 | SR-127 | LLR-181 |
 | SR-128 | LLR-181 |
-| SR-129 | LLR-181 |
+| SR-129 | LLR-151, LLR-181 |
 | SR-130 | LLR-183 |
 | SR-131 | LLR-190 |
 | SR-132 | LLR-154 |

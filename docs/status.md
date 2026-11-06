@@ -13,9 +13,9 @@ last) — it is the record, not required reading for every pass.
 > [requirements/stakeholder-needs.toml](requirements/stakeholder-needs.toml)
 > (formerly `user-needs.md`/UN-###; ids kept their numbers, so audit entries
 > below still resolve). Cross-project contracts live in
-> [requirements/interfaces.csv](requirements/interfaces.csv) — IF-001 (the
+> [requirements/interfaces.toml](requirements/interfaces.toml) — IF-001 (the
 > HomeHub OCI image contract) since 2026-08-12. [interfaces.md](interfaces.md)
-> is the thin, human-readable pointer over that CSV (rewritten 2026-08-23, WP6).
+> indexes preserved legacy and Drafted native contract definitions with their trace map.
 
 > **Naming caution.** The kit's **gates** are `G1, G2, G3, G-Release, G-Final`.
 > FileBackup's existing test **groups** are `G1…G9` (storage-mode suites in
@@ -24,6 +24,14 @@ last) — it is the record, not required reading for every pass.
 ---
 
 ## Current State
+
+- **FORMAL INTERFACES DRAFTED.** The
+  [interface review](plans/native-design-2026-11-05/interfaces-review.md) adopts
+  the pinned TOML carrier: preserved IF-001 and Drafted IF-002..025. Each new
+  interface links LLRs, their parent SRs and planned TCs. Previous-definition
+  wording now rests on copy-before-mutation and delete-after-success ordering;
+  leftover copies do not invalidate current records. Approved tiers and runtime
+  code remain unchanged; hooks remain disabled.
 
 - **NATIVE DRAFT CORRECTED AFTER OWNER REVIEW (2026-11-05).**
   [Previous definitions and folder/link changes](plans/native-design-2026-11-05/owner-prev-review.md)

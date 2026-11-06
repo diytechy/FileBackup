@@ -1,157 +1,29 @@
-# Cross-Project Interfaces (IF-###)
+# FileBackup interfaces
 
-Owned by the **System Engineer** hat. The machine source of truth is
-[`requirements/interfaces.csv`](requirements/interfaces.csv) — **this page never
-restates its fields; it points at them and renders the current contract in
-prose for a human reader.** If this page and the CSV ever disagree, the CSV
-wins; fix this page.
+The [interface registry](requirements/interfaces.toml) records each owning
+surface, its requestors or consumers, the channel, boundary crossings and
+verification links. Contract bodies live in the definition documents below.
+All rows are Drafted for this rebaseline; no new implementation or approval is
+implied by a trace link.
 
-FileBackup has exactly one interface today: **IF-001**, the OCI image contract
-between FileBackup (`Provides`) and **HomeHub** (`Counterpart`). See the CSV row
-for the authoritative `SR-Refs` / `Version` / `Stability` / `Status` columns
-(`Direction`, `Contract`, etc. are self-describing from the CSV header) —
-process.md §8 covers the registry's rules; not duplicated here.
+- [Native contract definitions](interfaces/native-contracts.md): IF-002..025,
+  including configuration/actions, outcome/reporting, records/content, previous
+  definitions, recovery, filesystem/tool boundaries, maintenance and delivery.
+- [Interface → LLR → SR → test map](interfaces/trace-map.md): derived parent
+  coverage and direct planned test-case links, plus approved boundary coverage.
+- [Legacy HomeHub agreement](interfaces/legacy-homehub.md): IF-001, preserved
+  verbatim. Its one-set OCI v1 agreement is separate from Drafted native IF-019.
+- [Interface adoption and review](plans/native-design-2026-11-05/interfaces-review.md):
+  migration scope, unresolved design details, validation and Gemini review.
 
-## IF-001 in plain language
+`verified_by` points to the LLRs whose tests cover the interface. Those LLRs carry
+the authoritative `sr_refs`; planned cases additionally name IF IDs in `verifies`.
+The trace map renders that chain without introducing a second manually authored
+SR list in the interface registry. Planned logical module owners are not yet
+Rust files. Definition bodies move into their owning implementation when that
+binding is established; the documentation must not become a competing copy.
 
-**What it is:** FileBackup ships as a one-shot OCI container. HomeHub supplies a
-JSON config plus bind mounts; the container runs one backup/restore/prune/verify
-action and exits. HomeHub owns scheduling, mount-identity preflight, retention
-*policy*, and NagLight alerting; FileBackup owns the storage engine, retention
-*mechanism*, and its own exit-code contract.
-
-**Mounts.** Read-only `source` + `config`; writable `store` and `log`. The store
-is **one** mount, `/store`, and the set's config names it as its one store
-folder: `StorePath=/store` (ConfigVersion 3,
-[plans/single-store-layout.md](plans/single-store-layout.md) L1/L5). FileBackup
-lays it out itself: `/store/CurrentBackup/` is the latest state (its manifest, the
-restore kit, and every object in use, in two-character shard folders), the
-snapshots sit in `/store/BackupHistory/`, each named by its date, and the run's
-lock, log and working folders live in `/store`. A store with a `CurrentBackup` but no
-`BackupHistory` is refused with exit 2, and FileBackup never creates the folder
-for an existing store (L10): HomeHub must not create either one. Content moves between `CurrentBackup` and the snapshots by
-rename (bounded run loop R8), Linux cannot rename across two bind mounts even of
-one disk, and a `CurrentBackup` or `BackupHistory` mounted apart from its store (a
-second bind mount at `/store/CurrentBackup`) is refused with exit 2 (L4). There is no conversion from the
-old two-folder layout (`/store/backup` + `/store/changes`): a store still in it
-is refused with exit 2 and keeps restoring with the kits inside it, and HomeHub
-sets it aside and starts a clean store (L2, L5). There is no source-state mount
-any more: nothing is written into the source (R3).
-
-**Restore.** The kit (revision 16) runs from `<store>/CurrentBackup` or a dated
-`<store>/BackupHistory/<date>` folder and finds the store from there, so it needs no path arguments wherever the store is mounted or copied —
-in a container (`pwsh -File /store/CurrentBackup/RECONSTRUCT.ps1 -TargetRoot /restore`,
-the store mount may be read-only) or on the host. Run from anywhere else it
-exits 2 unless `-StoreRootOverride DIR` / `--store-root DIR` names the store;
-the target must be outside the store. A store written in the old layout
-restores only with the older kits inside it.
-
-**One BackupSet per container invocation** (ruled 2026-08-21). HomeHub runs one
-service/invocation per directory rather than one multi-set config; a JSON config
-with more than one `BackupSets` entry is accepted for native-Windows use but is
-outside this contract when run in the container.
-
-**Config schema v3** (`SR-042`/`SR-063`, published as
-[`container/FileBackup.schema.json`](../container/FileBackup.schema.json)):
-a required integer `ConfigVersion` (currently **3**; versions 1 and 2 are
-refused as too old); a **closed** schema — any unrecognized key aborts the run,
-naming the key; a required `StorePath` (the one store folder; `BackupPath` and
-`ChangePath`, version 2's two folders, are refused by name with a message saying
-how to convert); a JSON boolean `CompressEnabled` (`PreserveFolderTree` was removed at
-WP9 — storage is always content-addressed, and a config still carrying the key
-is refused with a named removal diagnostic); optional `BrowseView`
-(`off`|`index`, default `off` — `index` stays native-host functionality until
-IF-001 rules on it, see below) and `ViewPath` (default `<StorePath>/View`); `SourceStatePath` and `AllowEmptySource`,
-both still accepted and both ignored (R3; an empty source while the backup
-holds files stops the run with 4, writing no latest state, and a set meant to
-be empty is removed from the configuration); no
-`Secrets.Credential` (JSON can't carry a `PSCredential` — containerized runs are
-always `-NoMail`). CLIXML remains the unversioned legacy native-Windows form;
-JSON is the only form this contract covers.
-
-**Action selection.** A leading positional word — `backup`, `prune`,
-`snapshots`, or `verify` — or `FILEBACKUP_ACTION` selects the action; any
-argument starting with `-` passes through to `FileBackup.ps1` unchanged. `prune`
-also reads `FILEBACKUP_SNAPSHOT` / `-Snapshot` (required) and
-`FILEBACKUP_DRY_RUN` / `-WhatIf`; `verify` reads `FILEBACKUP_REPAIR=1` for its
-opt-in repair mode. `view` (SR-062) is deliberately **not** one of them: the
-browse view must be written outside `CurrentBackup` and the snapshots and on the
-store's volume. Its default, `<StorePath>/View` (`/store/View` in the
-container), would satisfy that, but no IF-001 revision has ruled on it yet, so
-it stays native-host functionality.
-
-**Environment overrides.** Beside the tool paths (`FILEBACKUP_7ZIP_PATH`,
-`FILEBACKUP_FFPROBE_PATH`), `FILEBACKUP_7Z_LEVEL` (added 2026-09-01) selects
-7-Zip's `-mx` effort level as a single digit `0`–`9`, default `9`; it is
-deliberately **not** a configuration key, so it needed no `ConfigVersion` bump
-(it was added at version 2; the current version, 3, is the store layout's). It
-changes only how hard 7-Zip tries — never *whether* content is compressed, and
-never the restore contract: the restorers read no *policy* from the variable and
-restore correctness is level-independent, every level's archive being read back
-by the same kit. (`Reconstruct.ps1`'s host self-test compresses a throwaway
-probe file of its own, so that probe archive inherits the resolved level —
-harmless, because every `0`–`9` archive round-trips.) An invalid value fails a
-compression-enabled backup on the existing exit `2` (a terminating error without
-`-ExitCode`) before anything is written.
-
-**Retention: policy vs. mechanism.** HomeHub decides *what* to keep; FileBackup
-decides *how* a snapshot is safely removed. **HomeHub must never delete a
-dated snapshot folder directly** — dedup means one snapshot's bytes can be the
-only physical copy another snapshot recovers by content hash. The container
-exposes `snapshots` (read-only inventory: name, date, row count, physical
-bytes, bytes-reclaimable-if-pruned — a figure only FileBackup can compute) and
-`prune` (`Remove-BackupSnapshot`; `Prune-` is not an approved PowerShell verb),
-which re-homes still-referenced bytes into the surviving pool and proves every
-surviving manifest still resolves before it deletes anything. Pruning needs the
-`store` mount writable.
-
-**JSON framing.** The `snapshots` inventory and `verify` findings documents are
-printed to stdout, which also carries timestamped log lines. A consumer must
-extract the document by LINE: it is either the single line `[]`, or the block
-from the line that is exactly `[` through the line that is exactly `]`. (The
-repo's own harness does exactly this — `scripts/Invoke-Container.ps1`.) `verify` (optionally with
-`FILEBACKUP_REPAIR=1`) audits storage form across the live backup and every
-snapshot without mutating anything unless repair is requested; it also reports
-duplicate objects (`DuplicateObject`) and damaged ones (`DamagedObject`: always
-for an object its listing shows empty or the wrong length, and under `-Deep` for
-one whose bytes do not reproduce its name; one it could not check is
-`UnverifiedObject` and is never moved) and misplaced ones (`MisplacedObject`: an
-object of `CurrentBackup` outside its own shard folder, which is no part of the pool),
-which repair MOVES into `/store/Verify/` — nothing is deleted.
-
-**Exit-code table** — one vocabulary for backup, restore (`RECONSTRUCT.cmd` /
-`reconstruct.sh`), prune, and verify:
-
-| Code | Backup | Restore / prune / verify | NagLight translation |
-|---|---|---|---|
-| 0 | Every file captured | Complete / nothing to report | ok |
-| 1 | Completed, but some files were not captured (each named in the set log; earlier copies kept), or a damaged stored object was set aside into `Verify/` (`[DamagedObject]` in the set log; its content stored again when the source still holds it) | Partial: content unrecoverable, a prune batch incomplete but nothing lost, or verify findings | warn |
-| 2 | Refused before changing anything (configuration, missing tool, source root missing, the one-mount check, a damaged latest manifest, a store in the old two-folder layout, a store whose `CurrentBackup` is gone while it holds snapshots, a store with a `CurrentBackup` but no `BackupHistory`) | Usage or precondition error (for a restore: also a kit run from outside a store's `CurrentBackup` or a dated folder in `BackupHistory` folder without the store override); nothing mutated | error — do not retry |
-| 3 | — never | Restore: retired from kit revision 14 (an older kit bundled in an older snapshot can still return it). Prune: a witness an older build left disagrees with its manifest; nothing mutated | error — **escalate** |
-| 4 | Stopped by a host problem (volume full or gone, the store's drive not attached, the source gone, or empty at the start or mid-run while the backup holds files) or another run holds the lock; every state stays restorable | Host/dependency I/O failure; prune, or Verify's repair or kit refresh, finding another run holding the lock | warn — retry |
-
-Precedence across sets or batch items is `2 > 3 > 4 > 1`. A backup no longer
-estimates the space it needs before it starts (plan C3): a write that fails for
-space stops the set with 4. There is no bash `prune` — `reconstruct.sh` stays
-restore-only, and pruning is never required to restore.
-
-**Stability: `Experimental`.** IF-001 stays `Experimental` — free to change
-without a version bump or counterpart notice — until it clears the joint exit
-condition below; then it can move to `Stable` (version bump + notice required
-for any breaking change thereafter).
-
-**Exit condition to leave `Experimental`** (both halves, jointly): **WP1**'s
-shared exit-code contract (`SR-040`; the witnessed-manifest half, `SR-038`/`SR-039`,
-was retired by the bounded run loop's R5), and
-**WP2**'s versioned, validating config loader (`SR-042`/`SR-043`) — i.e. both
-the restore-trust half and the config-contract half of this interface must be
-`Verified`, not merely `Implemented`. See [status.md](status.md) for current
-verification state.
-
-## Where the rest lives
-
-- Field-by-field contract: [`requirements/interfaces.csv`](requirements/interfaces.csv)
-  (`IF-001` row).
-- Human-readable background, findings, and the review this contract grew out
-  of: [`homehub-integration.md`](homehub-integration.md).
-- Current verification status of the SRs cited above: [`status.md`](status.md).
+The former [CSV registry](plans/native-design-2026-11-05/legacy/interfaces.csv)
+is archived byte-for-byte, including IF-001's historical status and SR references.
+It is not a second live carrier. Historical Implemented status is not evidence
+against the newly accepted SR meanings.

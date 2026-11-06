@@ -1,0 +1,327 @@
+# Interface registry: Drafted rebaseline allocation; not implementation evidence.
+# Contract bodies live at the definition homes in notes. SRs are reached through VerifiedBy LLR parents.
+
+[interface.IF-001]
+owner = "container/entrypoint.sh"
+consumers = ["external:HomeHub"]
+channel = "call"
+data = "Legacy OCI v1 invocation and response agreement"
+rationale = "Preserve the existing counterparty agreement separately from the drafted native contract."
+verified_by = ["LLR-042", "LLR-043", "LLR-048"]
+version = "v1"
+status = "Drafted"
+notes = "Definition: docs/interfaces/legacy-homehub.md, Contract IF-001. Historical status Implemented and stability Experimental are preserved in the archived CSV. Drafted here means rebaseline reconciliation pending, not a renegotiated deployed agreement; legacy LLR links are historical navigation, not current conformance evidence."
+
+[interface.IF-002]
+owner = "native/config"
+channel = "file"
+data = "Configuration admission"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-151", "LLR-152"]
+version = "draft-1"
+status = "Drafted"
+requestors = ["external:EXT-01", "external:EXT-03"]
+interface_from_external = ["B-05", "B-07"]
+coincident = "This contract defines the input accepted or artifact emitted at this crossing; it does not claim subsequent external action or interpretation."
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-002. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-003]
+owner = "native/cli"
+channel = "cli"
+data = "Action invocation"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-153"]
+version = "draft-1"
+status = "Drafted"
+requestors = ["external:EXT-01", "external:EXT-03"]
+interface_from_external = ["B-05", "B-07"]
+coincident = "This contract defines the input accepted or artifact emitted at this crossing; it does not claim subsequent external action or interpretation."
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-003. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-004]
+owner = "native/results"
+channel = "exit-code"
+data = "Exit outcome vocabulary"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-153", "LLR-178", "LLR-179"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-01", "external:EXT-03", "external:EXT-02"]
+interface_to_external = ["B-06", "B-08", "B-15"]
+bridged_by = ["DA-09"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-004. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-005]
+owner = "native/reporting"
+channel = "stdout"
+data = "Progress and machine-readable findings"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-168", "LLR-178", "LLR-180"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-01", "external:EXT-03", "external:EXT-02"]
+interface_to_external = ["B-06", "B-08", "B-15"]
+bridged_by = ["DA-09", "DA-22"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-005. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-006]
+owner = "native/format"
+channel = "file"
+data = "State-record format"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-164", "LLR-185"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/state", "native/verify", "native/retention", "recovery/admission"]
+interface_from_external = ["B-02"]
+interface_to_external = ["B-02"]
+bridged_by = ["DA-05", "DA-11"]
+carried_by = ["IF-009"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-006. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-007]
+owner = "native/store"
+channel = "bytes"
+data = "Stored-content pool"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-159", "LLR-162", "LLR-163", "LLR-173"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/capture", "native/verify", "native/retention", "recovery/content", "native/state"]
+interface_from_external = ["B-02"]
+interface_to_external = ["B-02"]
+bridged_by = ["DA-01", "DA-05", "DA-11", "DA-15"]
+carried_by = ["IF-009"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-007. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-008]
+owner = "native/state"
+channel = "call"
+data = "Checkpoint and previous-definition lifecycle"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-158", "LLR-165", "LLR-166"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/capture", "native/cli"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-008. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-009]
+owner = "native/package"
+channel = "file"
+data = "Complete store and independent recovery kit handoff"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-184", "LLR-186", "LLR-190"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-14"]
+interface_to_external = ["B-13"]
+bridged_by = ["DA-10", "DA-19"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-009. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-010]
+owner = "recovery/admission"
+channel = "cli"
+data = "Recovery invocation and record selection"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-172", "LLR-179"]
+version = "draft-1"
+status = "Drafted"
+requestors = ["external:EXT-02"]
+interface_from_external = ["B-14"]
+coincident = "This contract defines the input accepted or artifact emitted at this crossing; it does not claim subsequent external action or interpretation."
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-010. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-011]
+owner = "recovery/content"
+channel = "file"
+data = "Recovered tree publication"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-173", "LLR-174", "LLR-175", "LLR-176"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-12"]
+interface_to_external = ["B-16"]
+bridged_by = ["DA-07", "DA-08"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-011. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-012]
+owner = "recovery/paths"
+channel = "call"
+data = "Restore location and host capability observations"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-174", "LLR-175", "LLR-176", "LLR-179"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["recovery/admission", "recovery/content", "recovery/metadata", "recovery/links"]
+interface_from_external = ["B-17", "B-19"]
+bridged_by = ["DA-07", "DA-08"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-012. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-013]
+owner = "native/capture"
+channel = "call"
+data = "Source enumeration and capture observations"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-156", "LLR-157", "LLR-158", "LLR-159", "LLR-160", "LLR-161", "LLR-177"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/state", "native/content"]
+interface_from_external = ["B-01"]
+bridged_by = ["DA-04", "DA-12", "DA-14", "DA-21"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-013. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-014]
+owner = "native/platform"
+channel = "call"
+data = "Store ownership and publication primitives"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-155", "LLR-163", "LLR-166"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/state", "native/store", "native/retention", "native/verify", "native/kit"]
+interface_from_external = ["B-04", "B-10", "B-02"]
+interface_to_external = ["B-04", "B-02"]
+bridged_by = ["DA-01", "DA-02", "DA-03", "DA-15"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-014. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-015]
+owner = "native/capacity"
+channel = "call"
+data = "Volume identity and capacity estimates"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-167"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/state", "native/retention", "recovery/admission"]
+interface_from_external = ["B-03", "B-17"]
+bridged_by = ["DA-06"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-015. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-016]
+owner = "native/tools"
+channel = "call"
+data = "Local tool invocation and results"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-154", "LLR-162", "LLR-187"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/content", "native/view", "recovery/content", "recovery/admission"]
+interface_from_external = ["B-10", "B-18"]
+interface_to_external = ["B-10", "B-18"]
+bridged_by = ["DA-10", "DA-18"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-016. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-017]
+owner = "native/notify"
+channel = "call"
+data = "Notification relay submission"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-181"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-08"]
+interface_from_external = ["B-09"]
+interface_to_external = ["B-09"]
+bridged_by = ["DA-09"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-017. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-018]
+owner = "native/notify"
+channel = "call"
+data = "Protected credential access"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-181"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-16"]
+interface_from_external = ["B-21"]
+interface_to_external = ["B-21"]
+bridged_by = ["DA-20"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-018. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-019]
+owner = "native/container"
+channel = "call"
+data = "Native container invocation"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-153", "LLR-183"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-09"]
+interface_from_external = ["B-12"]
+interface_to_external = ["B-12"]
+bridged_by = ["DA-13"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-019. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-020]
+owner = "native/view"
+channel = "file"
+data = "Operational records and derived views"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-180", "LLR-182"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-15", "external:EXT-01"]
+interface_from_external = ["B-20"]
+interface_to_external = ["B-20", "B-06"]
+bridged_by = ["DA-22"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-020. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-021]
+owner = "native/package"
+channel = "file"
+data = "Native and container release artifacts"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-183", "LLR-184", "LLR-190"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-17"]
+interface_to_external = ["B-22"]
+coincident = "This contract defines the input accepted or artifact emitted at this crossing; it does not claim subsequent external action or interpretation."
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-021. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-022]
+owner = "delivery/guidance"
+channel = "file"
+data = "Shipped guidance and configuration support"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-151", "LLR-185", "LLR-190"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["external:EXT-18"]
+interface_to_external = ["B-23"]
+coincident = "This contract defines the input accepted or artifact emitted at this crossing; it does not claim subsequent external action or interpretation."
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-022. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-023]
+owner = "native/retention"
+channel = "call"
+data = "Retention planning and execution"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-169", "LLR-170"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/cli"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-023. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-024]
+owner = "native/verify"
+channel = "call"
+data = "Whole-store inspection and explicit repair"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-168", "LLR-171", "LLR-188"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/cli"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-024. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."
+
+[interface.IF-025]
+owner = "native/kit"
+channel = "call"
+data = "Explicit kit refresh"
+rationale = "Separate this observable exchange so its producer, consumers and verification obligations remain explicit."
+verified_by = ["LLR-186"]
+version = "draft-1"
+status = "Drafted"
+consumers = ["native/cli"]
+notes = "Draft definition: docs/interfaces/native-contracts.md, Contract IF-025. Owner is a planned logical module; VerifiedBy points to drafted design coverage, not passed tests."

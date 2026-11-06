@@ -2384,17 +2384,17 @@ status = "Drafted"
 # See docs/plans/native-design-2026-11-05/review.md.
 
 [test.TC-261]
-verifies = ["LLR-151", "SR-018", "SR-042", "SR-123", "SR-134", "SR-135"]
+verifies = ["LLR-151", "SR-018", "SR-042", "SR-123", "SR-134", "SR-135", "IF-002", "IF-022", "SR-129"]
 level = "System"
 method = "Test"
 tier = "Full"
 parameters = "case=set{valid,unknown-key,missing-key,wrong-type,unsupported-version,missing-file}; form=set{native-json,legacy-json,clixml}; @full"
-expected = "Feed current-schema valid/invalid examples, unknown fields, wrong types, missing configuration and unsupported declared versions. Loader/schema verdicts agree, examples need only location substitution, and a filesystem observer sees no store writes on refusal."
+expected = "Feed current-schema valid/invalid examples, unknown fields, wrong types, missing configuration and unsupported declared versions. Loader/schema verdicts agree, examples need only location substitution, and a filesystem observer sees no store writes on refusal. Put a readable notification secret in otherwise valid configuration, with notifications enabled/disabled and backup/check/prune/view actions. Admission refuses before any store mutation and neither diagnostics nor logs echo the secret."
 automated = "Yes"
 status = "Drafted"
 
 [test.TC-262]
-verifies = ["LLR-152", "SR-063", "SR-138", "SR-154"]
+verifies = ["LLR-152", "SR-063", "SR-138", "SR-154", "IF-002"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2404,7 +2404,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-263]
-verifies = ["LLR-153", "SR-014", "SR-043", "SR-095", "SR-142"]
+verifies = ["LLR-153", "SR-014", "SR-043", "SR-095", "SR-142", "IF-003", "IF-004", "IF-019"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2414,7 +2414,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-264]
-verifies = ["LLR-154", "SR-016", "SR-019", "SR-118", "SR-132", "SR-133"]
+verifies = ["LLR-154", "SR-016", "SR-019", "SR-118", "SR-132", "SR-133", "IF-016"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2424,7 +2424,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-265]
-verifies = ["LLR-155", "SR-085", "SR-086", "SR-107"]
+verifies = ["LLR-155", "SR-085", "SR-086", "SR-107", "IF-014"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2434,7 +2434,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-266]
-verifies = ["LLR-156", "SR-001", "SR-074", "SR-088", "SR-089", "SR-093", "SR-094"]
+verifies = ["LLR-156", "SR-001", "SR-074", "SR-088", "SR-089", "SR-093", "SR-094", "IF-013"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2444,7 +2444,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-267]
-verifies = ["LLR-157", "SR-021", "SR-055", "SR-092"]
+verifies = ["LLR-157", "SR-021", "SR-055", "SR-092", "IF-013"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2454,7 +2454,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-268]
-verifies = ["LLR-158", "SR-011", "SR-024", "SR-105", "SR-005", "SR-100"]
+verifies = ["LLR-158", "SR-011", "SR-024", "SR-105", "SR-005", "SR-100", "IF-008", "IF-013"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2464,7 +2464,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-269]
-verifies = ["LLR-159", "SR-003", "SR-053", "SR-059", "SR-108"]
+verifies = ["LLR-159", "SR-003", "SR-053", "SR-059", "SR-108", "IF-007", "IF-013"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2474,7 +2474,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-270]
-verifies = ["LLR-160", "SR-067", "SR-090", "SR-091"]
+verifies = ["LLR-160", "SR-067", "SR-090", "SR-091", "IF-013"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2484,7 +2484,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-271]
-verifies = ["LLR-161", "SR-036", "SR-091"]
+verifies = ["LLR-161", "SR-036", "SR-091", "IF-013"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2494,7 +2494,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-272]
-verifies = ["LLR-162", "SR-081", "SR-096", "SR-111"]
+verifies = ["LLR-162", "SR-081", "SR-096", "SR-111", "IF-007", "IF-016"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2504,7 +2504,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-273]
-verifies = ["LLR-163", "SR-003", "SR-041", "SR-059", "SR-108", "SR-136"]
+verifies = ["LLR-163", "SR-003", "SR-041", "SR-059", "SR-108", "SR-136", "IF-007", "IF-014"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2514,7 +2514,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-274]
-verifies = ["LLR-164", "SR-039", "SR-065", "SR-066", "SR-146", "SR-150", "SR-152"]
+verifies = ["LLR-164", "SR-039", "SR-065", "SR-066", "SR-146", "SR-150", "SR-152", "IF-006"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2524,27 +2524,27 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-275]
-verifies = ["LLR-165", "SR-005", "SR-010", "SR-017", "SR-075", "SR-082", "SR-100"]
+verifies = ["LLR-165", "SR-005", "SR-010", "SR-017", "SR-075", "SR-082", "SR-100", "IF-008"]
 level = "System"
 method = "Test"
 tier = "Full"
 parameters = "fault=set{none,invalid,unavailable}; @pairwise"
-expected = "Interrupt before/during/after previous-definition copies, prior dated publication, each latest checkpoint, directory/link publication, completion dates, superseded moves and previous-copy deletion. On an existing store, initial copies match pre-run definitions and are synced before latest mutation. On repeated interrupted/incomplete runs their bytes do not change; partial existing sets are reported and never replenished from current records. Failure creating initial copies stops before latest mutation. Valid current records still restore while copies exist. Successful backup deletes remaining copies; failure deleting one leaves reported residue preserved until a later success. Fresh stores require no previous copies. Folder/link-only changes retain history, unchanged runs leave no extra dated state, and equal dates/clock rollback do not replace history."
+expected = "Interrupt between the two previous-definition copies and between their deletions: during initial preservation both current definitions remain old and usable; during cleanup both current definitions are successfully replaced and usable. No current definition changes before initial copies finish. Existing previous copies stay byte-identical through unsuccessful later runs, and are deleted only after successful backup finalization. A lone previous file is housekeeping residue and does not fail current recovery; no implicit old/current mixing occurs. Also interrupt dated snapshot publication, latest checkpoints, sidecar publication, completion dates and superseded moves; prior history and valid checkpoint dependencies survive. Folder/link-only changes retain history; unchanged runs add no dated state; equal dates/clock rollback never overwrite history."
 automated = "Yes"
 status = "Drafted"
 
 [test.TC-276]
-verifies = ["LLR-166", "SR-017", "SR-075", "SR-082", "SR-158"]
+verifies = ["LLR-166", "SR-017", "SR-075", "SR-082", "SR-158", "IF-008", "IF-014"]
 level = "System"
 method = "Test"
 tier = "Full"
 parameters = "event=set{kill,power-cut,sync-error,unknown-residue,unreadable-manifest}; @full"
-expected = "Inject identified Incoming/Building residue, interrupted Pruning work, unknown folders, malformed records and sync failures. Cleanup is limited to known disposable work; resumable deletion preserves required supply and uncertainty produces a named blocker. Previous-definition copies survive cleanup unchanged, including partial sets; they are not disposable Incoming/Building work."
+expected = "Inject identified Incoming/Building residue, interrupted Pruning work, unknown folders, malformed records and sync failures. Cleanup is limited to known disposable work; resumable deletion preserves required supply and uncertainty produces a named blocker. Previous-definition copies survive cleanup unchanged, including lone-file residue; they are not disposable Incoming/Building work and do not invalidate current definitions."
 automated = "Yes"
 status = "Drafted"
 
 [test.TC-277]
-verifies = ["LLR-167", "SR-023", "SR-052", "SR-158"]
+verifies = ["LLR-167", "SR-023", "SR-052", "SR-158", "IF-015"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2554,7 +2554,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-278]
-verifies = ["LLR-168", "SR-047", "SR-049", "SR-103", "SR-104"]
+verifies = ["LLR-168", "SR-047", "SR-049", "SR-103", "SR-104", "IF-005", "IF-024"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2564,7 +2564,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-279]
-verifies = ["LLR-169", "SR-045", "SR-046", "SR-047", "SR-101", "SR-102"]
+verifies = ["LLR-169", "SR-045", "SR-046", "SR-047", "SR-101", "SR-102", "IF-023"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2574,7 +2574,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-280]
-verifies = ["LLR-170", "SR-045", "SR-046", "SR-059", "SR-101"]
+verifies = ["LLR-170", "SR-045", "SR-046", "SR-059", "SR-101", "IF-023"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2584,7 +2584,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-281]
-verifies = ["LLR-171", "SR-109", "SR-110"]
+verifies = ["LLR-171", "SR-109", "SR-110", "IF-024"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2594,17 +2594,17 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-282]
-verifies = ["LLR-172", "SR-008", "SR-009", "SR-010", "SR-031", "SR-039", "SR-118", "SR-141", "SR-145"]
+verifies = ["LLR-172", "SR-008", "SR-009", "SR-010", "SR-031", "SR-039", "SR-118", "SR-141", "SR-145", "IF-010"]
 level = "System"
 method = "Test"
 tier = "Full"
 parameters = "fault=set{none,invalid,unavailable}; @pairwise"
-expected = "Before target mutation, combine invalid target/format/tool/space conditions with corrupt entries. Admitted current states recover selected last-known definitions without consulting previous copies as an authority or success flag. Explicit previous selection uses matching previous records only; partial copies report missing metadata while independently valid files can recover. Both routes diagnose actual missing/conflicting required metadata, and valid current directories/links remain applicable after interrupted capture."
+expected = "Before target mutation, combine invalid target/format/tool/space conditions with corrupt entries. Admitted current states recover selected last-known definitions without consulting previous copies as an authority or success flag. Explicit previous selection uses matching previous records only; unavailable previous members are diagnosed only for explicit previous selection, while independently valid files can recover. Both routes diagnose actual missing/conflicting required metadata, and valid current directories/links remain applicable after interrupted capture."
 automated = "Yes"
 status = "Drafted"
 
 [test.TC-283]
-verifies = ["LLR-173", "SR-029", "SR-056", "SR-068", "SR-119", "SR-120"]
+verifies = ["LLR-173", "SR-029", "SR-056", "SR-068", "SR-119", "SR-120", "IF-007", "IF-011"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2614,7 +2614,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-284]
-verifies = ["LLR-174", "SR-009", "SR-092", "SR-121", "SR-141"]
+verifies = ["LLR-174", "SR-009", "SR-092", "SR-121", "SR-141", "IF-011", "IF-012"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2624,7 +2624,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-285]
-verifies = ["LLR-175", "SR-065", "SR-066", "SR-122", "SR-146"]
+verifies = ["LLR-175", "SR-065", "SR-066", "SR-122", "SR-146", "IF-011", "IF-012"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2634,7 +2634,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-286]
-verifies = ["LLR-176", "SR-150", "SR-151", "SR-152"]
+verifies = ["LLR-176", "SR-150", "SR-151", "SR-152", "IF-011", "IF-012"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2644,7 +2644,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-287]
-verifies = ["LLR-177", "SR-001", "SR-137", "SR-150", "SR-151"]
+verifies = ["LLR-177", "SR-001", "SR-137", "SR-150", "SR-151", "IF-013"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2654,7 +2654,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-288]
-verifies = ["LLR-178", "SR-040", "SR-043", "SR-104", "SR-120", "SR-126"]
+verifies = ["LLR-178", "SR-040", "SR-043", "SR-104", "SR-120", "SR-126", "IF-004", "IF-005"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2664,7 +2664,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-289]
-verifies = ["LLR-179", "SR-016", "SR-072", "SR-073"]
+verifies = ["LLR-179", "SR-016", "SR-072", "SR-073", "IF-004", "IF-010", "IF-012"]
 level = "System"
 method = "Demonstration"
 tier = "Full"
@@ -2674,7 +2674,7 @@ automated = "No"
 status = "Drafted"
 
 [test.TC-290]
-verifies = ["LLR-180", "SR-089", "SR-124", "SR-125", "SR-126"]
+verifies = ["LLR-180", "SR-089", "SR-124", "SR-125", "SR-126", "IF-005", "IF-020"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2684,7 +2684,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-291]
-verifies = ["LLR-181", "SR-015", "SR-127", "SR-128", "SR-129"]
+verifies = ["LLR-181", "SR-015", "SR-127", "SR-128", "SR-129", "IF-017", "IF-018"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2694,7 +2694,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-292]
-verifies = ["LLR-182", "SR-062", "SR-063", "SR-097", "SR-098", "SR-099", "SR-147"]
+verifies = ["LLR-182", "SR-062", "SR-063", "SR-097", "SR-098", "SR-099", "SR-147", "IF-020"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2704,7 +2704,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-293]
-verifies = ["LLR-183", "SR-034", "SR-048", "SR-095", "SR-130", "SR-142"]
+verifies = ["LLR-183", "SR-034", "SR-048", "SR-095", "SR-130", "SR-142", "IF-019", "IF-021"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2714,7 +2714,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-294]
-verifies = ["LLR-184", "SR-007", "SR-008", "SR-031", "SR-033", "SR-153"]
+verifies = ["LLR-184", "SR-007", "SR-008", "SR-031", "SR-033", "SR-153", "IF-009", "IF-021"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2724,7 +2724,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-295]
-verifies = ["LLR-185", "SR-061", "SR-084", "SR-114", "SR-115", "SR-116", "SR-123", "SR-156"]
+verifies = ["LLR-185", "SR-061", "SR-084", "SR-114", "SR-115", "SR-116", "SR-123", "SR-156", "IF-006", "IF-022"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2734,7 +2734,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-296]
-verifies = ["LLR-186", "SR-007", "SR-084", "SR-110", "SR-117"]
+verifies = ["LLR-186", "SR-007", "SR-084", "SR-110", "SR-117", "IF-009", "IF-025"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2744,7 +2744,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-297]
-verifies = ["LLR-187", "SR-068", "SR-071", "SR-081", "SR-098", "SR-118"]
+verifies = ["LLR-187", "SR-068", "SR-071", "SR-081", "SR-098", "SR-118", "IF-016"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2754,7 +2754,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-298]
-verifies = ["LLR-188", "SR-049", "SR-064", "SR-112", "SR-113"]
+verifies = ["LLR-188", "SR-049", "SR-064", "SR-112", "SR-113", "IF-024"]
 level = "System"
 method = "Test"
 tier = "Full"
@@ -2774,7 +2774,7 @@ automated = "Yes"
 status = "Drafted"
 
 [test.TC-300]
-verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157"]
+verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157", "IF-009", "IF-021", "IF-022"]
 level = "System"
 method = "Inspection"
 tier = "Full"
@@ -2784,7 +2784,7 @@ automated = "No"
 status = "Drafted"
 
 [test.TC-301]
-verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157"]
+verifies = ["LLR-190", "SR-027", "SR-126", "SR-131", "SR-143", "SR-155", "SR-156", "SR-157", "IF-009", "IF-021", "IF-022"]
 level = "System"
 method = "Test"
 tier = "Full"

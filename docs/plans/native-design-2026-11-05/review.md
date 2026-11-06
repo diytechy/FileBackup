@@ -90,9 +90,10 @@ Include a small recovery throughput/memory feasibility probe in N1/N2 for each
 script route and the proposed storage topology. N7 is full acceptance evidence;
 it is not the first opportunity to discover an unsuitable recovery strategy.
 
-The modern interface-carrier migration remains separate: IF-001's existing
-HomeHub agreement stays in place. The contracts here are draft internal/product
-contracts, not invented approved IF records. Hooks remain disabled and this
+The [formal interface breakdown](interfaces-review.md) now records IF-002..025
+and their SR/LLR/test relationships. IF-001's historical HomeHub contract is
+preserved verbatim, separately from the native container proposal. Remaining
+schema/format/platform decisions stay Drafted; hooks remain disabled and this
 package does not close a gate.
 
 ## Validation and outstanding trace work
@@ -102,7 +103,7 @@ all 87 legacy LLRs and 240 legacy cases are retained, and new rows are Drafted
 with no invented evidence. Planned references reach all 121 accepted SRs.
 
 The integrity check reports zero findings. Full strict/schema checking remains
-red: 131 orphan findings, 274 schema findings, one inherited interface finding,
+red at initial drafting: 131 orphan findings, 274 schema findings, one inherited interface finding,
 18 requirement-form findings and four acceptance-criteria advisories. In
 particular, `Automated=Yes` on a new case states intended automation but there
 is no implemented test binding yet; these evidence findings are deliberately
@@ -110,5 +111,5 @@ visible. Checker verification-method counts are not passed-test counts.
 
 Document navigation and whitespace are checked separately. No product suite or
 platform benchmark was run for this documentation-only change. Legacy semantic
-reconciliation, concrete interface carrier adoption, implementation bindings,
+reconciliation, interface/code binding, implementation bindings,
 executed verification and owner approval remain subsequent work.

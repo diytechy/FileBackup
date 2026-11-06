@@ -96,20 +96,21 @@ without replacement. These are infrastructure metadata, not stored content.
 Existing copies are never overwritten by a later run. A fresh store has no
 previous definitions. Initial preservation failure stops before latest mutation.
 
-Interrupted or incomplete backups retain the copies. Delete them only after a
-successful backup, including required metadata publication and finalization.
-Cleanup and kit refresh leave them alone. An interruption between the two copy
-or delete operations can leave a partial set: report that fact, preserve what
-remains, and never fill it using potentially newer definitions. Later successful
-completion can delete the residue. This edge does not make the current records
-invalid or block their ordinary use.
+Interrupted or incomplete backups retain existing copies unchanged. Delete them
+only after a successful replacement state and backup finalization. The ordering
+is the protection: interruption while initially copying leaves both old current
+definitions untouched; interruption while deleting leaves both successful new
+current definitions available. A lone `.prev` file is housekeeping residue, not
+a failed current state. Cleanup and kit refresh leave it alone until successful
+backup completion can remove it.
 
-Recovery defaults to the selected current records. The operator can explicitly
-inspect/select previous definitions; a partial previous set is diagnosed, never
-silently combined with current metadata. Independently valid file bytes can still
-recover with required metadata loss reported. The copies preserve definitions,
-not a second content pool or an additional retention guarantee: the existing
-dated snapshot and shared pool remain the normal history/recovery mechanism.
+Recovery defaults to the selected current records. Previous definitions are an
+explicit inspection/recovery choice, never an automatic fallback or a mixture
+with newer metadata. If that explicit choice lacks a required member, diagnose
+the missing record while recovering independent files where possible. This does
+not change default current recovery. Copies preserve definitions, not content
+or an extra retention guarantee; dated snapshots and the shared pool remain the
+normal history/recovery mechanism.
 
 There is no incomplete-run marker. Restore success means the selected recorded
 definitions were recovered, not that the last backup completed its source scan.
@@ -156,7 +157,7 @@ Retain versioned JSON and `StorePath`; declare any needed field/version addition
 Resolve and validate all configured root relationships before set execution.
 Within an admitted configuration, process independent sets despite an individual
 failure. Mutators hold one OS-lifetime store lock; suspended owners are not evicted
-by age. Existing cross-project IF-001 is not renegotiated by this draft.
+by age. Existing cross-project IF-001 is not renegotiated by this draft. The [formal interface definitions](../../interfaces/native-contracts.md) and [trace map](../../interfaces/trace-map.md) allocate these contracts; the registry is [interfaces.toml](../../requirements/interfaces.toml).
 
 Proposed CLI result codes retain `0` complete, `1` incomplete/content findings,
 `2` invalid request/configuration, `4` busy/host stop, with aggregate precedence

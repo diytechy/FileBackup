@@ -1,0 +1,581 @@
+{
+  "initial": {
+    "base_commit": "517939d3137e20902c525b5039009555d2e8561a",
+    "files": {
+      "docs/requirements/stakeholder-needs.toml": "b30222bc7f7d8a454df68a5f979afce3f8b77d7ebd97dbf4f5d8d6df5ff0deff",
+      "docs/requirements/external.toml": "7379dedd13b5a24dc93a54d8c9aa1c5fbbf045951205aedd1c7ffbd2b267f157",
+      "docs/requirements/assumptions.toml": "8cec1b0f3aff8e9f3f60ef7500444e9dcce44bc1e3d4976b9f60963ed32505f7",
+      "docs/requirements/interfaces.toml": "5045a8bef7a728728be2ef0953c5323e1dc91d93f04d6f3b377a15323b642e0c",
+      "docs/interfaces/native-contracts.md": "74ec14e7627c4bda8e9b1b7df38ce2a91f40af36efffdaf2fa0d5c8ad931efcf",
+      "docs/interfaces/trace-map.md": "b5abb83e349dec74e3e31f1aff6cb0e03adcb325772cf1f808bd5ea51cc07b74",
+      "docs/plans/native-design-2026-11-05/interfaces-review.md": "416a7ff7c29e9ebe4aaa6c0f8f16790f47498ee36af976cc494ac9fceb3b37b2",
+      "docs/plans/native-design-2026-11-05/contracts.md": "fe364c829daeaeb5743a3856a76611399921e93b5bd92a06c576b5405c9ee06d",
+      "docs/requirements/low-level-requirements.toml": "8dd427eb25655b9f20fc2cb365f6b366edc4f77f5dab0cfa9f79861042c58fd9",
+      "docs/test/test-cases.toml": "4a32ea9353ad7e0c1da658005e491a746af5d64bb7f2267ea134314953111f5d",
+      "docs/requirements/system-requirements.toml": "42d8f40deefed3e8a30b6ed5d22fe19afeb5db562e13a2edb45602ab6e63ee27",
+      "docs/interfaces/legacy-homehub.md": "e883055d328f1b7e16c43b3648b5b39a7784f5cad1e3bcdbf40b97496c50fbcd"
+    }
+  },
+  "followup": {
+    "sources": {
+      "docs/requirements/stakeholder-needs.toml": "b30222bc7f7d8a454df68a5f979afce3f8b77d7ebd97dbf4f5d8d6df5ff0deff",
+      "docs/requirements/system-requirements.toml": "42d8f40deefed3e8a30b6ed5d22fe19afeb5db562e13a2edb45602ab6e63ee27",
+      "docs/requirements/external.toml": "7379dedd13b5a24dc93a54d8c9aa1c5fbbf045951205aedd1c7ffbd2b267f157",
+      "docs/requirements/assumptions.toml": "8cec1b0f3aff8e9f3f60ef7500444e9dcce44bc1e3d4976b9f60963ed32505f7",
+      "docs/requirements/interfaces.toml": "f3555fb570601c0144550b3f519e89db3fd2e6ad4fea942adddb55d8f475e4df",
+      "docs/requirements/low-level-requirements.toml": "1165e732e078c334c5c1815ead8f51ef0adca844e9b831d012c6a0587fe9fcde",
+      "docs/test/test-cases.toml": "588b3770901de473d27ac8a1b935e26790a0e6f3efe080822456486c01c51cc9",
+      "docs/interfaces/native-contracts.md": "ced1eea488cfa0b3b76101ec8cfdabc431a5d517d03fc6a812b9f9163d6d7b2b",
+      "docs/interfaces/trace-map.md": "3b8aa0fdfeae878cb6e685d95d5a115246c4e1acee7c374c2990fff2e21a6f66",
+      "docs/plans/native-design-2026-11-05/interfaces-review.md": "416a7ff7c29e9ebe4aaa6c0f8f16790f47498ee36af976cc494ac9fceb3b37b2",
+      "docs/plans/native-design-2026-11-05/contracts.md": "fe364c829daeaeb5743a3856a76611399921e93b5bd92a06c576b5405c9ee06d",
+      "docs/interfaces/legacy-homehub.md": "e883055d328f1b7e16c43b3648b5b39a7784f5cad1e3bcdbf40b97496c50fbcd"
+    },
+    "attachments": {
+      "needs-01.txt": {
+        "bytes": 10808,
+        "sha256": "095be980c76a7a32f9aca23611a31f9ca5f65f069fd8fe1a4deec74a78a62791"
+      },
+      "needs-02.txt": {
+        "bytes": 11704,
+        "sha256": "cd3b28fb21d2ceef1a5e18f1d6cb4927679339c3f5a0b2116cf92d06bffe6f5b"
+      },
+      "needs-03.txt": {
+        "bytes": 11330,
+        "sha256": "cce0d0a86023527da1b8ebfd1b82d0cd1e09b4d9ca5896588af0b47d3e7e3a10"
+      },
+      "needs-04.txt": {
+        "bytes": 11436,
+        "sha256": "4b6b1522da1f68dff4fb47247006c0d8e5e6a9a3ad1e5acef14af13cb1cf03a8"
+      },
+      "needs-05.txt": {
+        "bytes": 499,
+        "sha256": "d9db70260e471ce427a21c88cb376de8cf8df33db84d72cd39efa2eace613af0"
+      },
+      "sr-01.txt": {
+        "bytes": 11250,
+        "sha256": "67e9ef32b75cd44db89fb7e2ab24188e2f1a2c39a9108c80b5a1abce340dc567"
+      },
+      "sr-02.txt": {
+        "bytes": 10992,
+        "sha256": "bdd1b39d3be6e250ab1d7e89e9d19a922256e702b8a8047a085146831319cccb"
+      },
+      "sr-03.txt": {
+        "bytes": 11362,
+        "sha256": "dbd54c5ace788bcefd157dae7d5f4f14631c6fa01801f2431a6577629d7274ee"
+      },
+      "sr-04.txt": {
+        "bytes": 11435,
+        "sha256": "fa832fc2abb87a07706904f87b97d7304f9459fd2b98a2d571a6c465e734b16f"
+      },
+      "sr-05.txt": {
+        "bytes": 9976,
+        "sha256": "ea40953a27a40d5d9dcfe8215c18c0609a75d32ec6d8aea8ac970013fc9412ff"
+      },
+      "sr-06.txt": {
+        "bytes": 11446,
+        "sha256": "07720ec40e952b2297e6f767ddbf5f1940cb9c0164ac41c885bfde79c7d6a4ac"
+      },
+      "sr-07.txt": {
+        "bytes": 10999,
+        "sha256": "4bb508bca57c84ff4f5bdd3bc3029228021c0a840ed18147f45e123f119a830d"
+      },
+      "sr-08.txt": {
+        "bytes": 10949,
+        "sha256": "c85da23f6cef1465f085a85418a4ba3b2d14bf2a3acf214253c469457f639e96"
+      },
+      "sr-09.txt": {
+        "bytes": 11237,
+        "sha256": "74fbc7303aa56a40ec616259f88f8b52b9383d41c23308a76f67bfe799e96906"
+      },
+      "sr-10.txt": {
+        "bytes": 10508,
+        "sha256": "e5fc499047133cbc39b30c6da7250df6eb4cf3bb8dc2a0dda929d2aa027a7119"
+      },
+      "sr-11.txt": {
+        "bytes": 11375,
+        "sha256": "04596f39eac63bf64114341d2fac73ccf91afaa91f2304485da3c5ad8cef1aae"
+      },
+      "sr-12.txt": {
+        "bytes": 11515,
+        "sha256": "446face8e6259008cd689e321ba9e54d6b4bf46b20756429e52f8d9761ece9b0"
+      },
+      "sr-13.txt": {
+        "bytes": 10569,
+        "sha256": "295a203131d8dfca988eb052a36da2a7bfb886b1e70c30ee6ebe9b508e12561d"
+      },
+      "sr-14.txt": {
+        "bytes": 9891,
+        "sha256": "ae274cecf09db8de7c5083d120ee25b80eef87701581d5385ef2d6005a5e038f"
+      },
+      "frame-01.txt": {
+        "bytes": 11390,
+        "sha256": "d2646399d61fc3163f8c35b6d3c8491518222d32a254ad924a8d00ea7b84f141"
+      },
+      "frame-02.txt": {
+        "bytes": 5908,
+        "sha256": "6708a1ea7a598ec76ef1a5375f472252c156260163d8f9e5c2fb111d0723b7a5"
+      },
+      "assumptions-01.txt": {
+        "bytes": 11099,
+        "sha256": "23b150d7a5af8de98c87d2d8355de3807685a5481743c1f60f14d5b21fd3f488"
+      },
+      "assumptions-02.txt": {
+        "bytes": 9625,
+        "sha256": "726ac982a803a4bacbaa253ec4ecaf4188a4db23ff366681901617ce1c5ab5cf"
+      },
+      "interfaces-01.txt": {
+        "bytes": 11439,
+        "sha256": "6005e2de1c06c96d1d52ab499ff1e1aacff096c1b685cf6fff078ca71d869193"
+      },
+      "interfaces-02.txt": {
+        "bytes": 4919,
+        "sha256": "a4e7f8ffd58eb9a284f83517178f66290e14d2dfb7932eeabfdda2259ecbe1a6"
+      },
+      "llrs-01.txt": {
+        "bytes": 10997,
+        "sha256": "83513ba036fb1780f8ed2116427732dffa1dc971fd931ac93636fb139daaf738"
+      },
+      "llrs-02.txt": {
+        "bytes": 11263,
+        "sha256": "7625e6ba751261a4eb1e2d5f89e19d23956556f7105d36f9c06bb0eeb5ca46fc"
+      },
+      "llrs-03.txt": {
+        "bytes": 10973,
+        "sha256": "89fa26a8e1c4115474d3d70156c781688e9e9b4c7f075f3c842bd9b3e8a0f01c"
+      },
+      "llrs-04.txt": {
+        "bytes": 8713,
+        "sha256": "c756349b9d6c81af18c3e0eb7f5d31950d6bacc48d08cde3b73ea4f1fcf01f8f"
+      },
+      "cases-01.txt": {
+        "bytes": 11582,
+        "sha256": "895735ed9f8c3ebb829b942905d5a59a864bb4f32252b2ca59ee98a842663fbb"
+      },
+      "cases-02.txt": {
+        "bytes": 11490,
+        "sha256": "b0c4918e6346fbb25422a6ed7051cb4a819acb97e04342b6ab022c5e2bf3064b"
+      },
+      "cases-03.txt": {
+        "bytes": 3176,
+        "sha256": "a5c4227922e44e62df5c9d6e50b9a5d7fa51e27e579c5e213a4040920cf7a250"
+      },
+      "definitions-01.txt": {
+        "bytes": 11693,
+        "sha256": "f55e72209cc0d1f3291b4be8aa21b966e7a337a5a2bf9994de42e131072747fc"
+      },
+      "definitions-02.txt": {
+        "bytes": 6039,
+        "sha256": "111072e79549b6785e135472e2be106ea2cd02c7629703b435bc14b89e507341"
+      },
+      "map-01.txt": {
+        "bytes": 5217,
+        "sha256": "0600e167da5bdef02ff3454e779e5b6b7179c0b3a2cd3234d9d400da8dc05fd4"
+      },
+      "adoption-01.txt": {
+        "bytes": 4447,
+        "sha256": "9b392c3281b4fd823c03a72a6c0b2f7a6c0894da6bf6a39db19ed09cb0b56699"
+      },
+      "store-01.txt": {
+        "bytes": 11794,
+        "sha256": "63f03ce73b8289878ae8447905877713ec1621a864f058fea8295a6216075e6f"
+      },
+      "store-02.txt": {
+        "bytes": 828,
+        "sha256": "d65919098297979917fdb555cb653cf51ef02493b575871395f8f334305443d4"
+      },
+      "legacy-01.txt": {
+        "bytes": 10374,
+        "sha256": "15c3346db2efc8353f68a8156294dd4d74ba89eac39b0fad7ca978744d909488"
+      }
+    },
+    "inventory": {
+      "needs": {
+        "count": 52,
+        "ids": [
+          "SN-001",
+          "SN-052",
+          "SN-032",
+          "SN-037",
+          "SN-038",
+          "SN-009",
+          "SN-002",
+          "SN-003",
+          "SN-051",
+          "SN-004",
+          "SN-034",
+          "SN-029",
+          "SN-046",
+          "SN-021",
+          "SN-007",
+          "SN-013",
+          "SN-039",
+          "SN-031",
+          "SN-030",
+          "SN-047",
+          "SN-048",
+          "SN-019",
+          "SN-043",
+          "SN-040",
+          "SN-041",
+          "SN-023",
+          "SN-005",
+          "SN-006",
+          "SN-022",
+          "SN-035",
+          "SN-033",
+          "SN-053",
+          "SN-025",
+          "SN-042",
+          "SN-036",
+          "SN-026",
+          "SN-008",
+          "SN-011",
+          "SN-045",
+          "SN-044",
+          "SN-010",
+          "SN-049",
+          "SN-024",
+          "SN-054",
+          "SN-012",
+          "SN-050",
+          "SN-027",
+          "SN-015",
+          "SN-055",
+          "STK-01",
+          "STK-02",
+          "STK-03"
+        ]
+      },
+      "sr": {
+        "count": 121,
+        "ids": [
+          "SR-001",
+          "SR-003",
+          "SR-005",
+          "SR-007",
+          "SR-008",
+          "SR-009",
+          "SR-010",
+          "SR-011",
+          "SR-014",
+          "SR-015",
+          "SR-016",
+          "SR-017",
+          "SR-018",
+          "SR-019",
+          "SR-021",
+          "SR-023",
+          "SR-024",
+          "SR-027",
+          "SR-029",
+          "SR-031",
+          "SR-033",
+          "SR-034",
+          "SR-036",
+          "SR-039",
+          "SR-040",
+          "SR-041",
+          "SR-042",
+          "SR-043",
+          "SR-045",
+          "SR-046",
+          "SR-047",
+          "SR-048",
+          "SR-049",
+          "SR-052",
+          "SR-053",
+          "SR-055",
+          "SR-056",
+          "SR-059",
+          "SR-061",
+          "SR-062",
+          "SR-063",
+          "SR-064",
+          "SR-065",
+          "SR-066",
+          "SR-067",
+          "SR-068",
+          "SR-071",
+          "SR-072",
+          "SR-073",
+          "SR-074",
+          "SR-075",
+          "SR-081",
+          "SR-082",
+          "SR-084",
+          "SR-085",
+          "SR-086",
+          "SR-088",
+          "SR-089",
+          "SR-090",
+          "SR-091",
+          "SR-092",
+          "SR-093",
+          "SR-094",
+          "SR-095",
+          "SR-096",
+          "SR-097",
+          "SR-098",
+          "SR-099",
+          "SR-100",
+          "SR-101",
+          "SR-102",
+          "SR-103",
+          "SR-104",
+          "SR-105",
+          "SR-107",
+          "SR-108",
+          "SR-109",
+          "SR-110",
+          "SR-111",
+          "SR-112",
+          "SR-113",
+          "SR-114",
+          "SR-115",
+          "SR-116",
+          "SR-117",
+          "SR-118",
+          "SR-119",
+          "SR-120",
+          "SR-121",
+          "SR-122",
+          "SR-123",
+          "SR-124",
+          "SR-125",
+          "SR-126",
+          "SR-127",
+          "SR-128",
+          "SR-129",
+          "SR-130",
+          "SR-131",
+          "SR-132",
+          "SR-133",
+          "SR-134",
+          "SR-135",
+          "SR-136",
+          "SR-137",
+          "SR-138",
+          "SR-141",
+          "SR-142",
+          "SR-143",
+          "SR-145",
+          "SR-146",
+          "SR-147",
+          "SR-150",
+          "SR-151",
+          "SR-152",
+          "SR-153",
+          "SR-154",
+          "SR-155",
+          "SR-156",
+          "SR-157",
+          "SR-158"
+        ]
+      },
+      "frame": {
+        "count": 46,
+        "ids": [
+          "EXT-01",
+          "EXT-02",
+          "EXT-03",
+          "EXT-04",
+          "EXT-05",
+          "EXT-06",
+          "EXT-07",
+          "EXT-08",
+          "EXT-09",
+          "EXT-10",
+          "EXT-11",
+          "EXT-12",
+          "EXT-13",
+          "EXT-14",
+          "EXT-15",
+          "EXT-16",
+          "EXT-17",
+          "EXT-18",
+          "B-01",
+          "B-02",
+          "B-03",
+          "B-04",
+          "B-05",
+          "B-06",
+          "B-07",
+          "B-08",
+          "B-09",
+          "B-10",
+          "B-11",
+          "B-12",
+          "B-13",
+          "B-14",
+          "B-15",
+          "B-16",
+          "B-17",
+          "B-18",
+          "B-19",
+          "B-20",
+          "B-21",
+          "B-22",
+          "B-23",
+          "REL-01",
+          "REL-02",
+          "REL-03",
+          "REL-04",
+          "REL-05"
+        ]
+      },
+      "assumptions": {
+        "count": 24,
+        "ids": [
+          "DA-01",
+          "DA-02",
+          "DA-03",
+          "DA-04",
+          "DA-05",
+          "DA-06",
+          "DA-07",
+          "DA-08",
+          "DA-09",
+          "DA-10",
+          "DA-11",
+          "DA-12",
+          "DA-13",
+          "DA-14",
+          "DA-15",
+          "DA-16",
+          "DA-17",
+          "DA-18",
+          "DA-19",
+          "DA-20",
+          "DA-21",
+          "DA-22",
+          "SUR-01",
+          "SUR-02"
+        ]
+      },
+      "interfaces": {
+        "count": 25,
+        "ids": [
+          "IF-001",
+          "IF-002",
+          "IF-003",
+          "IF-004",
+          "IF-005",
+          "IF-006",
+          "IF-007",
+          "IF-008",
+          "IF-009",
+          "IF-010",
+          "IF-011",
+          "IF-012",
+          "IF-013",
+          "IF-014",
+          "IF-015",
+          "IF-016",
+          "IF-017",
+          "IF-018",
+          "IF-019",
+          "IF-020",
+          "IF-021",
+          "IF-022",
+          "IF-023",
+          "IF-024",
+          "IF-025"
+        ]
+      },
+      "llrs": {
+        "count": 40,
+        "ids": [
+          "LLR-151",
+          "LLR-152",
+          "LLR-153",
+          "LLR-154",
+          "LLR-155",
+          "LLR-156",
+          "LLR-157",
+          "LLR-158",
+          "LLR-159",
+          "LLR-160",
+          "LLR-161",
+          "LLR-162",
+          "LLR-163",
+          "LLR-164",
+          "LLR-165",
+          "LLR-166",
+          "LLR-167",
+          "LLR-168",
+          "LLR-169",
+          "LLR-170",
+          "LLR-171",
+          "LLR-172",
+          "LLR-173",
+          "LLR-174",
+          "LLR-175",
+          "LLR-176",
+          "LLR-177",
+          "LLR-178",
+          "LLR-179",
+          "LLR-180",
+          "LLR-181",
+          "LLR-182",
+          "LLR-183",
+          "LLR-184",
+          "LLR-185",
+          "LLR-186",
+          "LLR-187",
+          "LLR-188",
+          "LLR-189",
+          "LLR-190"
+        ]
+      },
+      "cases": {
+        "count": 41,
+        "ids": [
+          "TC-261",
+          "TC-262",
+          "TC-263",
+          "TC-264",
+          "TC-265",
+          "TC-266",
+          "TC-267",
+          "TC-268",
+          "TC-269",
+          "TC-270",
+          "TC-271",
+          "TC-272",
+          "TC-273",
+          "TC-274",
+          "TC-275",
+          "TC-276",
+          "TC-277",
+          "TC-278",
+          "TC-279",
+          "TC-280",
+          "TC-281",
+          "TC-282",
+          "TC-283",
+          "TC-284",
+          "TC-285",
+          "TC-286",
+          "TC-287",
+          "TC-288",
+          "TC-289",
+          "TC-290",
+          "TC-291",
+          "TC-292",
+          "TC-293",
+          "TC-294",
+          "TC-295",
+          "TC-296",
+          "TC-297",
+          "TC-298",
+          "TC-299",
+          "TC-300",
+          "TC-301"
+        ]
+      }
+    }
+  },
+  "initial_prompt": "Review FileBackup's scoped interface breakdown on low, reporting HIGH-RISK findings only. There are 15 attachments, each below 50 KB, with END OF COMPLETE INPUT markers. Confirm the actual basenames/markers and inventory: 25 IF rows (preserved legacy IF001 plus 24 new Drafted), 40 new Drafted LLRs, 41 planned cases, 121 approved SRs, 49 approved SNs, approved frame/assumptions. Read the normative interface bodies plus registry and derived map, not only counts. No tools, repo access, edits or execution. Static advisory review is not approval or implementation evidence.\n\nTask: assess concrete contradictions/missing ownership or wrongly linked contracts that can cause protected data loss, falsely successful recovery, serious containment/credential breach, or an incompatible caller/writer/reader contract. Critique parent requirements/frame only for high risk and label any proposed upstream change. No stylistic comments, routine unfinished N1 schema details, generic missing implementations, lower risks or arbitrary idealized strengthening. No quota, at most four findings, under 1000 words. Each needs IDs and a causal scenario plus smallest correction.\n\nOwner direction: current bounded loop/shared content architecture is reused. Prior dated snapshot published before latest checkpoints, content hash-while-copy, final-dependent superseded relocation, no backup object deletion. Independent PS/bash scripts stay offline and do not call native engine. New interface owner paths are logical DESIGN responsibilities, not claims that Rust modules exist; shared protocol ownership does not create runtime dependencies. verified_by links LLRs; SRs derive through their parents; planned cases directly name IFs. Exact CLI/event/version fields, state identity implementation and platform benchmarks are ordinary N1/N2 design work still open. Do not treat Drafted references as passed tests.\n\nPrevious-definition policy: finish preserving manifest+directory sidecar as .prev before any current definition changes; existing previous copies are never overwritten on later unsuccessful runs. Delete only after successful replacement/finalization. Interruption during copying leaves old current records available; during deletion leaves new current records available. A lone previous file is housekeeping residue, not a failed current state. Default recovery uses valid last-known current records; previous selection is explicit and never mixes sets. Actual missing required metadata on the selected set is diagnosed. No blanket incomplete-run marker, no promise that recoverable checkpoints reflect a completed source scan. Conflicting supplemental directory/link records do not discard safe valid file rows.\n\nFolders/links enter change detection; internal folder links restore relative in-root links; external folder links restore expanded ordinary duplicates with stored-content dedup; file links restore bytes. Managed removal protects latest and retained later dates; external deletion bypasses protocol. Coordination is only within one validated configuration. IF001's original legacy one-set HomeHub OCI agreement is verbatim history, not silently widened by new native IF019; historical labels were archived, rebaseline carrier is Drafted. B11 provisioning is conditional and initially not offered, so no download interface is invented. Approved upstream texts are unchanged. Earlier marker-review conclusions are NOT authority for this scope.\n\nFor any finding distinguish an actual contract contradiction from an explicitly unfinished implementation detail or known accepted residual risk. If none qualifies, say so and state limits; do not invent fixes to satisfy a finding count.",
+  "followup_prompt": "Your initial review had unreliable input counts and a reported long-line truncation. Do not treat that as a complete review. This follow-up supplies ALL context afresh as lossless rendered text split at record/paragraph boundaries, each ordinary attachment under 12.5 KB with short lines and an end marker. inventory.json provides mechanically counted IDs and source/attachment hashes; it is metadata, not additional requirements. Preserve table identities/field meanings; wrapped records are review text, not executable TOML. Verify no truncation and read each complete file. Correct the earlier counts: 25 IFs, 40 drafted LLRs, 41 planned TCs, 121 approved SRs, 49 approved SNs (plus 3 stakeholder records). If any content is unavailable, say so rather than claiming complete review. Previous attachment versions are superseded by these rendered current contents.\n\nDisposition and changes: Finding 1 accepted as a useful ownership/allocation gap. LLR151 and TC261 now explicitly include SR129 and reject plaintext notification secrets before ANY action mutation, even when notifications are disabled. IF002 has the same explicit rule. Only protected references are accepted and values are not echoed.\n\nFinding 2 was NOT sustained as high-risk: LL163/165 already prohibit moving final-dependent objects early, and absence of an endpoint in a list does not permit violating that contract. Added native/state as a consumer of IF007, explicitly named IF006/014/007 orchestration in IF008's body, and attached B02 to the actual filesystem primitive surface IF014. IF008 remains internal; do not falsely give every internal call an external boundary just to fill a matrix. Confirm these links reflect the existing order rather than requiring a redesign.\n\nReview the revised contracts and their actual parent/test relationships for concrete HIGH-RISK contradictions or missing obligations only, under the original owner's scope. No arbitrary deletion protection, no blanket unfinished-run marker, no implicit .prev baseline, no assumption that planned references are executed evidence. Legacy IF001 is archived agreement context, new IF019 is Drafted native behavior. Check independent script recovery, previous-copy ordering, in-root relative versus external expanded links, pre-mutation admission and maintenance boundaries. Exact schema/format values and platform measurements remain explicit N1/N2 work, not grounds to manufacture high-risk findings. No quota, at most three new findings, under 900 words plus input confirmation. Give final dispositions and limits. Do not list low/medium suggestions."
+}

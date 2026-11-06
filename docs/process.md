@@ -667,16 +667,24 @@ the pair for every platform the project supports.
 `scripts/bootstrap.py` scaffolds all of the above (plus `docs/` and CI) into a new
 repo in one command. See `EXAMPLE.md` for a complete worked SN→SR→LLR→TC chain.
 
-## 8. Cross-project interfaces (only when projects interlink)
+## 8. Interface definitions and traceability
 
-When this project provides or consumes a contract shared with another repo,
-record each shared surface once in `requirements/interfaces.csv` as an `IF-###`
-(see `INTERFACES.template.md`): direction, counterpart, contract, the `SR-Refs`
-that realize/rely on it, version, and stability. The owning (`Provides`) side
-holds the authoritative spec; the consuming side links the same `IF-###` and
-pins the version. Every interface is backed by an SR and a contract/fixture test.
-This keeps interlinked projects from silently drifting apart without imposing a
-multi-repo build system. Standalone projects skip this section.
+The scoped native-design resync uses `requirements/interfaces.toml`. Each IF
+names one owning surface, exactly one of requestors/consumers, a typed channel,
+and a single contract-definition home. `verified_by` links relevant LLRs or TCs;
+the SRs are reached through those LLR parents. Planned cases name IF IDs in
+`verifies`. Boundary interfaces declare directional B-ID tie-backs and the
+assumptions that limit their interpretation. A trace link is not verification
+evidence or approval.
+
+The [interface index](interfaces.md) and
+[adoption record](plans/native-design-2026-11-05/interfaces-review.md) describe
+this project's scoped adoption. Planned native owners are logical module names,
+not implemented source paths. Definitions live in their design homes until code
+binding; move each body with its owner rather than duplicating it. IF-001's old
+HomeHub agreement remains preserved verbatim in the legacy definition/archive;
+its historical status does not approve new native behavior. New interfaces stay
+Drafted pending review. The rest of the process/hook resync is unchanged.
 
 A **purchased/external part** the product buys rather than builds (a motor, board,
 camera) is owned the same way — a repo/coordinator-held `IF-###` is its

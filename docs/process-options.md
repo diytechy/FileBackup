@@ -315,10 +315,14 @@ row is the owner-of-record** for such a part (MULTI_REPO.md §3.3). The
 **acquisition** facts the interface row doesn't carry: `PART-ID, Name, IF-Ref,
 Vendor, Cost, Status, Quantity, Notes`, where `IF-Ref` back-links the owning
 `IF-###` and `Status ∈ {needed, ordered, on-hand, backordered, obsolete}`. Off
-the `SN→SR→LLR→TC` spine and optional like `interfaces.csv`/`PB-###`: a project
+the `SN→SR→LLR→TC` spine and optional like `interfaces.toml`/`PB-###`: a project
 that buys nothing ignores the file; a leftover `PART-000` never blocks a gate.
 
-- **What `trace.py` checks (integrity only).** It flags a malformed/duplicate
+- **Historical scaffold guidance:** the trace/interface descriptions in this
+  subsection predate FileBackup's pinned-tool adoption. Current interface
+  ownership, links and carrier rules are in [process §8](process.md#8-interface-definitions-and-traceability)
+  and the [interface index](interfaces.md); the pinned checker reads IF records.
+- **What the original `trace.py` checked (integrity only).** It flags a malformed/duplicate
   `PART-` id, the always-on floor. It does **not** resolve `IF-Ref` against
   `interfaces.csv`, because trace.py never reads the `IF-###` tier (it is off the
   joined spine, §8); keeping PART integrity-only holds the "no more than PB"
@@ -480,8 +484,8 @@ releases as a whole.
   individually-green modules.
 - **`IF-###` applies *within* a repo, too.** The interface registry (§8) is not
   only for separate repos: two modules in one repo that share a contract record it
-  as an `IF-###`, with the counterpart naming the **other module** instead of
-  another repo and both rows living in the one `interfaces.csv`. Same
-  direction/owner/version/stability discipline, same "one contract, one home,
+  as an `IF-###`, with the far endpoint naming the **other module** instead of
+  another repo, in the one `interfaces.toml`. Use the current owner,
+  requestors-or-consumers, channel and version fields, with the same "one contract, one home,
   backed by a test" rule — applied to the internal seam, with no cross-repo build
   machinery.

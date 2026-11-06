@@ -15,7 +15,7 @@
 # ever renumbered, ids from the superseded numbering are NOT covered and
 # may be re-pointed by a mint — record those at the registry instead.
 #
-# basis: B=23 DA=22 EXT=18 IF=1 LLR=190 REL=5 SN=55 SR=158 STK=3 SUR=2 TC=301
+# basis: B=23 DA=22 EXT=18 IF=25 LLR=190 REL=5 SN=55 SR=158 STK=3 SUR=2 TC=301
 #
 ASSET = 0
 B = 24
@@ -23,7 +23,7 @@ CMP = 0
 DA = 22
 DP = 0
 EXT = 18
-IF = 1
+IF = 25
 LLR = 190
 MOD = 0
 OI = 0
