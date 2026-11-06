@@ -681,9 +681,10 @@ The [interface index](interfaces.md) and
 [adoption record](plans/native-design-2026-11-05/interfaces-review.md) describe
 this project's scoped adoption. Planned native owners are logical module names,
 not implemented source paths. Definitions live in their design homes until code
-binding; move each body with its owner rather than duplicating it. IF-001's old
-HomeHub agreement remains preserved verbatim in the legacy definition/archive;
-its historical status does not approve new native behavior. New interfaces stay
+binding; move each body with its owner rather than duplicating it. The
+[legacy cleanup](plans/native-design-2026-11-05/legacy-cleanup.md) records retirement
+of the old HomeHub IF-001 and its history lookup. Historical status does not
+approve new native behavior. New interfaces stay
 Drafted pending review. The rest of the process/hook resync is unchanged.
 
 A **purchased/external part** the product buys rather than builds (a motor, board,

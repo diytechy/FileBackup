@@ -157,7 +157,7 @@ Retain versioned JSON and `StorePath`; declare any needed field/version addition
 Resolve and validate all configured root relationships before set execution.
 Within an admitted configuration, process independent sets despite an individual
 failure. Mutators hold one OS-lifetime store lock; suspended owners are not evicted
-by age. Existing cross-project IF-001 is not renegotiated by this draft. The [formal interface definitions](../../interfaces/native-contracts.md) and [trace map](../../interfaces/trace-map.md) allocate these contracts; the registry is [interfaces.toml](../../requirements/interfaces.toml).
+by age. Legacy IF-001 is retired from this branch's active baseline (see [cleanup](legacy-cleanup.md)); native container integration is allocated to IF-019. Existing deployments are unchanged. The [formal interface definitions](../../interfaces/native-contracts.md) and [trace map](../../interfaces/trace-map.md) allocate these contracts; the registry is [interfaces.toml](../../requirements/interfaces.toml).
 
 Proposed CLI result codes retain `0` complete, `1` incomplete/content findings,
 `2` invalid request/configuration, `4` busy/host stop, with aggregate precedence

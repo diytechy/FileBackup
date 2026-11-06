@@ -24,8 +24,8 @@ Read alongside the [user flow](backup-flow.md),
 | [System requirements](requirements/system-requirements.toml) | 123 rows; all `Drafted`. Requirement statements and acceptance criteria reviewed. |
 | [Low-level requirements at audit time](plans/spine-rebaseline-2026-11-05/legacy/low-level-requirements.csv) | 87 rows: 25 Planned, 13 Implemented, 40 Verified, 9 Draft. Several still describe removed functions. |
 | [Test-case registry at audit time](plans/spine-rebaseline-2026-11-05/legacy/test-cases.csv) | 240 records. A normal CSV dictionary reader sees 181 Pass, 53 Draft and 6 Yes in the Status column; the last six records have an extra field. These are registry values, not new test-run results. |
-| [Interface registry at audit time](plans/native-design-2026-11-05/legacy/interfaces.csv) | One implemented IF-001 contract, with current layout text mixed with older kit wording. |
-| [Performance budgets](requirements/performance-budgets.csv) | Only the PB-000 example; no enforceable budget records. |
+| [Interface registry at audit time: history lookup](plans/native-design-2026-11-05/legacy-cleanup.md) | One implemented IF-001 contract, with current layout text mixed with older kit wording. |
+| [Performance budgets at audit time: cleanup disposition](plans/native-design-2026-11-05/legacy-cleanup.md) | Only the PB-000 example; no enforceable budget records. The example-only registry was subsequently removed. |
 | [Active gate](gate) | G3, despite the documented unfinished trace-tool migration. |
 
 Reproduced checks on this checkout:

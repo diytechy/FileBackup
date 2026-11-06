@@ -176,106 +176,106 @@ demonstrate semantic completeness. See the [review guide](review.md).
 | SR-157 | LLR-190 |
 | SR-158 | LLR-166, LLR-167 |
 
-## Legacy reconciliation limits
+## Retired legacy design crosswalk
 
-The existing 87 LLRs and 240 cases remain byte-for-byte in their original file
-prefixes. Their old status and results were already harvested during the spine
-resync; these new rows neither retire them nor relabel old runs as Rust evidence.
+The [cleanup decision](legacy-cleanup.md) retires the 87 imported LLRs and 240
+test definitions from the active baseline. Their original status/evidence remains
+in the spine resync harvest and git; executable tests remain migration inputs.
 The [earlier code attachment audit](../spine-rebaseline-2026-11-05/code-attachment-audit.md)
-is a navigation aid. Read actual code, rationale and assertions before deciding
-reuse/partial/conflicting/obsolete for each legacy row. That semantic reconciliation
-remains work before implementation attachment and gate closure.
+is historical navigation, not proof against the revised SRs. Read the actual
+code, rationale and assertions before reusing them in a native work package.
 
-The following candidates share a *current SR reference* with a new design. That
-intersection is not a claim of equivalence. A dash means no shared current parent,
-not permission to delete the legacy row.
+The following candidates share a *current SR reference* with a retired design.
+That intersection is not equivalence. A dash means no shared current parent,
+not that every behavior in the old row was invalid. Hash/name/CSV fixture details,
+for example, remain inputs to N1 even where parent IDs changed.
 
 | Legacy design | Candidate new designs by shared parent |
 |---|---|
-| LLR-001 | LLR-156, LLR-177 |
-| LLR-002 | — |
-| LLR-003 | LLR-159, LLR-163 |
-| LLR-004 | — |
-| LLR-005 | LLR-158, LLR-165 |
-| LLR-006 | — |
-| LLR-007 | LLR-184, LLR-186 |
-| LLR-008 | LLR-172, LLR-184 |
-| LLR-009 | LLR-172, LLR-174 |
-| LLR-010 | LLR-165, LLR-172 |
-| LLR-011 | LLR-158 |
-| LLR-014 | LLR-153 |
-| LLR-015 | LLR-181 |
-| LLR-016 | LLR-154, LLR-179 |
-| LLR-017 | LLR-165, LLR-166 |
-| LLR-018 | LLR-151 |
-| LLR-020 | — |
-| LLR-021 | LLR-157 |
-| LLR-022 | — |
-| LLR-023 | LLR-167 |
-| LLR-024 | LLR-158 |
-| LLR-025 | — |
-| LLR-026 | — |
-| LLR-028 | — |
-| LLR-027 | LLR-190 |
-| LLR-029 | LLR-173 |
-| LLR-030 | — |
-| LLR-031 | LLR-172, LLR-184 |
-| LLR-032 | — |
-| LLR-033 | LLR-184 |
-| LLR-035 | — |
-| LLR-036 | LLR-161 |
-| LLR-037 | — |
-| LLR-038 | — |
-| LLR-039 | LLR-164, LLR-172 |
-| LLR-040 | LLR-178 |
-| LLR-041 | LLR-163 |
-| LLR-042 | LLR-151 |
-| LLR-043 | LLR-153, LLR-178 |
-| LLR-045 | LLR-169, LLR-170 |
-| LLR-046 | LLR-164, LLR-169, LLR-170, LLR-172 |
-| LLR-047 | LLR-168, LLR-169, LLR-170 |
-| LLR-048 | LLR-153, LLR-178, LLR-183 |
-| LLR-049 | LLR-168, LLR-178, LLR-188 |
-| LLR-050 | LLR-173, LLR-178 |
-| LLR-051 | LLR-159, LLR-163, LLR-170 |
-| LLR-052 | LLR-153, LLR-167, LLR-178 |
-| LLR-053 | LLR-159 |
-| LLR-054 | LLR-169, LLR-170 |
-| LLR-055 | LLR-157 |
-| LLR-056 | LLR-173 |
-| LLR-057 | — |
-| LLR-058 | LLR-159, LLR-163 |
-| LLR-059 | LLR-159, LLR-163, LLR-165, LLR-170, LLR-172 |
-| LLR-060 | LLR-185 |
-| LLR-061 | LLR-182 |
-| LLR-062 | LLR-188, LLR-189 |
-| LLR-063 | LLR-151, LLR-152, LLR-182 |
-| LLR-064 | LLR-182 |
-| LLR-065 | LLR-164, LLR-175 |
-| LLR-066 | LLR-164, LLR-175 |
-| LLR-067 | LLR-160 |
-| LLR-068 | LLR-173, LLR-187 |
-| LLR-069 | LLR-185 |
-| LLR-070 | — |
-| LLR-071 | LLR-187 |
-| LLR-072 | LLR-172, LLR-174, LLR-187 |
-| LLR-073 | LLR-154, LLR-179 |
-| LLR-074 | LLR-179 |
-| LLR-075 | LLR-184, LLR-186 |
-| LLR-076 | LLR-168, LLR-184, LLR-186, LLR-188 |
-| LLR-077 | LLR-184, LLR-186 |
-| LLR-078 | LLR-156 |
-| LLR-079 | LLR-172, LLR-174 |
-| LLR-080 | LLR-165, LLR-166 |
-| LLR-086 | LLR-162, LLR-187 |
-| LLR-087 | LLR-165, LLR-166 |
-| LLR-088 | LLR-165, LLR-166 |
-| LLR-090 | LLR-155 |
-| LLR-091 | LLR-155, LLR-165, LLR-166 |
-| LLR-092 | LLR-155, LLR-169, LLR-170 |
-| LLR-093 | LLR-155 |
-| LLR-094 | LLR-155 |
-| LLR-095 | LLR-151, LLR-152, LLR-153, LLR-182 |
-| LLR-096 | LLR-159, LLR-163 |
-| LLR-097 | LLR-156, LLR-157, LLR-164, LLR-175, LLR-177 |
-| LLR-098 | LLR-165, LLR-172, LLR-174, LLR-184, LLR-186 |
+| [LLR-001](../../log.d/retired/LLR-001.md) | LLR-156, LLR-177 |
+| [LLR-002](../../log.d/retired/LLR-002.md) | — |
+| [LLR-003](../../log.d/retired/LLR-003.md) | LLR-159, LLR-163 |
+| [LLR-004](../../log.d/retired/LLR-004.md) | — |
+| [LLR-005](../../log.d/retired/LLR-005.md) | LLR-158, LLR-165 |
+| [LLR-006](../../log.d/retired/LLR-006.md) | — |
+| [LLR-007](../../log.d/retired/LLR-007.md) | LLR-184, LLR-186 |
+| [LLR-008](../../log.d/retired/LLR-008.md) | LLR-172, LLR-184 |
+| [LLR-009](../../log.d/retired/LLR-009.md) | LLR-172, LLR-174 |
+| [LLR-010](../../log.d/retired/LLR-010.md) | LLR-165, LLR-172 |
+| [LLR-011](../../log.d/retired/LLR-011.md) | LLR-158 |
+| [LLR-014](../../log.d/retired/LLR-014.md) | LLR-153 |
+| [LLR-015](../../log.d/retired/LLR-015.md) | LLR-181 |
+| [LLR-016](../../log.d/retired/LLR-016.md) | LLR-154, LLR-179 |
+| [LLR-017](../../log.d/retired/LLR-017.md) | LLR-165, LLR-166 |
+| [LLR-018](../../log.d/retired/LLR-018.md) | LLR-151 |
+| [LLR-020](../../log.d/retired/LLR-020.md) | — |
+| [LLR-021](../../log.d/retired/LLR-021.md) | LLR-157 |
+| [LLR-022](../../log.d/retired/LLR-022.md) | — |
+| [LLR-023](../../log.d/retired/LLR-023.md) | LLR-167 |
+| [LLR-024](../../log.d/retired/LLR-024.md) | LLR-158 |
+| [LLR-025](../../log.d/retired/LLR-025.md) | — |
+| [LLR-026](../../log.d/retired/LLR-026.md) | — |
+| [LLR-028](../../log.d/retired/LLR-028.md) | — |
+| [LLR-027](../../log.d/retired/LLR-027.md) | LLR-190 |
+| [LLR-029](../../log.d/retired/LLR-029.md) | LLR-173 |
+| [LLR-030](../../log.d/retired/LLR-030.md) | — |
+| [LLR-031](../../log.d/retired/LLR-031.md) | LLR-172, LLR-184 |
+| [LLR-032](../../log.d/retired/LLR-032.md) | — |
+| [LLR-033](../../log.d/retired/LLR-033.md) | LLR-184 |
+| [LLR-035](../../log.d/retired/LLR-035.md) | — |
+| [LLR-036](../../log.d/retired/LLR-036.md) | LLR-161 |
+| [LLR-037](../../log.d/retired/LLR-037.md) | — |
+| [LLR-038](../../log.d/retired/LLR-038.md) | — |
+| [LLR-039](../../log.d/retired/LLR-039.md) | LLR-164, LLR-172 |
+| [LLR-040](../../log.d/retired/LLR-040.md) | LLR-178 |
+| [LLR-041](../../log.d/retired/LLR-041.md) | LLR-163 |
+| [LLR-042](../../log.d/retired/LLR-042.md) | LLR-151 |
+| [LLR-043](../../log.d/retired/LLR-043.md) | LLR-153, LLR-178 |
+| [LLR-045](../../log.d/retired/LLR-045.md) | LLR-169, LLR-170 |
+| [LLR-046](../../log.d/retired/LLR-046.md) | LLR-164, LLR-169, LLR-170, LLR-172 |
+| [LLR-047](../../log.d/retired/LLR-047.md) | LLR-168, LLR-169, LLR-170 |
+| [LLR-048](../../log.d/retired/LLR-048.md) | LLR-153, LLR-178, LLR-183 |
+| [LLR-049](../../log.d/retired/LLR-049.md) | LLR-168, LLR-178, LLR-188 |
+| [LLR-050](../../log.d/retired/LLR-050.md) | LLR-173, LLR-178 |
+| [LLR-051](../../log.d/retired/LLR-051.md) | LLR-159, LLR-163, LLR-170 |
+| [LLR-052](../../log.d/retired/LLR-052.md) | LLR-153, LLR-167, LLR-178 |
+| [LLR-053](../../log.d/retired/LLR-053.md) | LLR-159 |
+| [LLR-054](../../log.d/retired/LLR-054.md) | LLR-169, LLR-170 |
+| [LLR-055](../../log.d/retired/LLR-055.md) | LLR-157 |
+| [LLR-056](../../log.d/retired/LLR-056.md) | LLR-173 |
+| [LLR-057](../../log.d/retired/LLR-057.md) | — |
+| [LLR-058](../../log.d/retired/LLR-058.md) | LLR-159, LLR-163 |
+| [LLR-059](../../log.d/retired/LLR-059.md) | LLR-159, LLR-163, LLR-165, LLR-170, LLR-172 |
+| [LLR-060](../../log.d/retired/LLR-060.md) | LLR-185 |
+| [LLR-061](../../log.d/retired/LLR-061.md) | LLR-182 |
+| [LLR-062](../../log.d/retired/LLR-062.md) | LLR-188, LLR-189 |
+| [LLR-063](../../log.d/retired/LLR-063.md) | LLR-151, LLR-152, LLR-182 |
+| [LLR-064](../../log.d/retired/LLR-064.md) | LLR-182 |
+| [LLR-065](../../log.d/retired/LLR-065.md) | LLR-164, LLR-175 |
+| [LLR-066](../../log.d/retired/LLR-066.md) | LLR-164, LLR-175 |
+| [LLR-067](../../log.d/retired/LLR-067.md) | LLR-160 |
+| [LLR-068](../../log.d/retired/LLR-068.md) | LLR-173, LLR-187 |
+| [LLR-069](../../log.d/retired/LLR-069.md) | LLR-185 |
+| [LLR-070](../../log.d/retired/LLR-070.md) | — |
+| [LLR-071](../../log.d/retired/LLR-071.md) | LLR-187 |
+| [LLR-072](../../log.d/retired/LLR-072.md) | LLR-172, LLR-174, LLR-187 |
+| [LLR-073](../../log.d/retired/LLR-073.md) | LLR-154, LLR-179 |
+| [LLR-074](../../log.d/retired/LLR-074.md) | LLR-179 |
+| [LLR-075](../../log.d/retired/LLR-075.md) | LLR-184, LLR-186 |
+| [LLR-076](../../log.d/retired/LLR-076.md) | LLR-168, LLR-184, LLR-186, LLR-188 |
+| [LLR-077](../../log.d/retired/LLR-077.md) | LLR-184, LLR-186 |
+| [LLR-078](../../log.d/retired/LLR-078.md) | LLR-156 |
+| [LLR-079](../../log.d/retired/LLR-079.md) | LLR-172, LLR-174 |
+| [LLR-080](../../log.d/retired/LLR-080.md) | LLR-165, LLR-166 |
+| [LLR-086](../../log.d/retired/LLR-086.md) | LLR-162, LLR-187 |
+| [LLR-087](../../log.d/retired/LLR-087.md) | LLR-165, LLR-166 |
+| [LLR-088](../../log.d/retired/LLR-088.md) | LLR-165, LLR-166 |
+| [LLR-090](../../log.d/retired/LLR-090.md) | LLR-155 |
+| [LLR-091](../../log.d/retired/LLR-091.md) | LLR-155, LLR-165, LLR-166 |
+| [LLR-092](../../log.d/retired/LLR-092.md) | LLR-155, LLR-169, LLR-170 |
+| [LLR-093](../../log.d/retired/LLR-093.md) | LLR-155 |
+| [LLR-094](../../log.d/retired/LLR-094.md) | LLR-155 |
+| [LLR-095](../../log.d/retired/LLR-095.md) | LLR-151, LLR-152, LLR-153, LLR-182 |
+| [LLR-096](../../log.d/retired/LLR-096.md) | LLR-159, LLR-163 |
+| [LLR-097](../../log.d/retired/LLR-097.md) | LLR-156, LLR-157, LLR-164, LLR-175, LLR-177 |
+| [LLR-098](../../log.d/retired/LLR-098.md) | LLR-165, LLR-172, LLR-174, LLR-184, LLR-186 |

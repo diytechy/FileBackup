@@ -11,8 +11,8 @@ implied by a trace link.
   definitions, recovery, filesystem/tool boundaries, maintenance and delivery.
 - [Interface → LLR → SR → test map](interfaces/trace-map.md): derived parent
   coverage and direct planned test-case links, plus approved boundary coverage.
-- [Legacy HomeHub agreement](interfaces/legacy-homehub.md): IF-001, preserved
-  verbatim. Its one-set OCI v1 agreement is separate from Drafted native IF-019.
+- [Legacy cleanup decision](plans/native-design-2026-11-05/legacy-cleanup.md):
+  retirement of IF-001 and the imported design/test baseline, with history lookup.
 - [Interface adoption and review](plans/native-design-2026-11-05/interfaces-review.md):
   migration scope, unresolved design details, validation and Gemini review.
 
@@ -23,7 +23,7 @@ SR list in the interface registry. Planned logical module owners are not yet
 Rust files. Definition bodies move into their owning implementation when that
 binding is established; the documentation must not become a competing copy.
 
-The former [CSV registry](plans/native-design-2026-11-05/legacy/interfaces.csv)
-is archived byte-for-byte, including IF-001's historical status and SR references.
-It is not a second live carrier. Historical Implemented status is not evidence
-against the newly accepted SR meanings.
+The active registry contains 24 native contracts. IF-001's former HomeHub OCI v1
+agreement is available in git at `a184d9a:docs/interfaces/legacy-homehub.md`.
+Its retirement here does not change deployed PowerShell/container behavior;
+native integration is governed by Drafted IF-019 and its parents.

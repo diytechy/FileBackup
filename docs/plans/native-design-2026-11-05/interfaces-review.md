@@ -1,5 +1,10 @@
 # Interface breakdown and scoped carrier adoption
 
+Historical adoption record for `a184d9a`. The subsequent
+[legacy cleanup](legacy-cleanup.md) removes IF-001, its redundant copies and the
+imported LLR/TC rows from the active baseline. Preservation statements and check
+counts below describe the adoption commit, not the current registry inventory.
+
 Draft for owner review. This completes the initial formal interface allocation
 requested after the native design breakdown. It does not approve interfaces,
 implement Rust code, change accepted requirements, enable hooks or close a gate.

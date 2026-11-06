@@ -13,9 +13,10 @@ last) — it is the record, not required reading for every pass.
 > [requirements/stakeholder-needs.toml](requirements/stakeholder-needs.toml)
 > (formerly `user-needs.md`/UN-###; ids kept their numbers, so audit entries
 > below still resolve). Cross-project contracts live in
-> [requirements/interfaces.toml](requirements/interfaces.toml) — IF-001 (the
-> HomeHub OCI image contract) since 2026-08-12. [interfaces.md](interfaces.md)
-> indexes preserved legacy and Drafted native contract definitions with their trace map.
+> [requirements/interfaces.toml](requirements/interfaces.toml).
+> [interfaces.md](interfaces.md) indexes Drafted native definitions and their
+> trace map; the [cleanup record](plans/native-design-2026-11-05/legacy-cleanup.md)
+> explains retirement of IF-001 and the imported LLR/TC baseline.
 
 > **Naming caution.** The kit's **gates** are `G1, G2, G3, G-Release, G-Final`.
 > FileBackup's existing test **groups** are `G1…G9` (storage-mode suites in
@@ -7088,3 +7089,21 @@ content. The approval act refreshes only the SR registry snapshot and records
 exactly those IDs; upstream and other snapshot bytes are unchanged. The next
 breakdown is design/contracts, LLRs and verification coverage, followed by
 existing-code/test reconciliation and Rust implementation work packages.
+
+
+### Native baseline cleanup after owner authorization
+
+Retired 87 imported LLRs and 240 legacy test definitions from the active registries,
+with per-ID lookup records and original definitions available at `a184d9a`.
+Removed IF-001 and redundant contract copies, plus three ID-000-only optional
+registries. The active native baseline is 40 Drafted LLRs, 41 planned cases and
+24 Drafted interfaces. Accepted parents, approval snapshots, native row contents,
+runtime code and executable tests are unchanged. See the
+[cleanup disposition and checks](plans/native-design-2026-11-05/legacy-cleanup.md).
+
+Gemini 4 Argon via OpenCode Go on low found no high-risk issue. Strict integrity
+passes with zero orphans/integrity/interface findings. Full strict/schema remains
+red with 39 missing native test bindings, 18 form findings and four AC advisories;
+this is not a gate closure or executed verification. Documentation links, generated
+interface map and whitespace pass. Work-package reconciliation of legacy assertions,
+concrete fixtures, platform measurements and native implementation remain ahead.

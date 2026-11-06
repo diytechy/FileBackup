@@ -1,17 +1,6 @@
 # Interface registry: Drafted rebaseline allocation; not implementation evidence.
 # Contract bodies live at the definition homes in notes. SRs are reached through VerifiedBy LLR parents.
 
-[interface.IF-001]
-owner = "container/entrypoint.sh"
-consumers = ["external:HomeHub"]
-channel = "call"
-data = "Legacy OCI v1 invocation and response agreement"
-rationale = "Preserve the existing counterparty agreement separately from the drafted native contract."
-verified_by = ["LLR-042", "LLR-043", "LLR-048"]
-version = "v1"
-status = "Drafted"
-notes = "Definition: docs/interfaces/legacy-homehub.md, Contract IF-001. Historical status Implemented and stability Experimental are preserved in the archived CSV. Drafted here means rebaseline reconciliation pending, not a renegotiated deployed agreement; legacy LLR links are historical navigation, not current conformance evidence."
-
 [interface.IF-002]
 owner = "native/config"
 channel = "file"

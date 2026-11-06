@@ -91,16 +91,19 @@ script route and the proposed storage topology. N7 is full acceptance evidence;
 it is not the first opportunity to discover an unsuitable recovery strategy.
 
 The [formal interface breakdown](interfaces-review.md) now records IF-002..025
-and their SR/LLR/test relationships. IF-001's historical HomeHub contract is
-preserved verbatim, separately from the native container proposal. Remaining
+and their SR/LLR/test relationships. The [legacy cleanup](legacy-cleanup.md)
+retires IF-001 and the imported LLR/TC baseline from the active registries. Remaining
 schema/format/platform decisions stay Drafted; hooks remain disabled and this
 package does not close a gate.
 
 ## Validation and outstanding trace work
 
-The scope check confirms all four accepted upstream registries are unchanged,
-all 87 legacy LLRs and 240 legacy cases are retained, and new rows are Drafted
-with no invented evidence. Planned references reach all 121 accepted SRs.
+All four accepted upstream registries are unchanged. The active baseline holds
+40 Drafted LLRs and 41 planned cases, with no invented evidence. Planned references
+reach all 121 accepted SRs. Legacy definitions and results remain available through
+retirement records, the original evidence harvest and git history; executable
+tests remain available for porting. See the [cleanup checks](legacy-cleanup.md)
+for current results. The numbers below describe the initial drafting pass.
 
 The integrity check reports zero findings. Full strict/schema checking remains
 red at initial drafting: 131 orphan findings, 274 schema findings, one inherited interface finding,

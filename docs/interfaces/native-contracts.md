@@ -24,7 +24,7 @@ Accept the requested action, configuration location and action-specific set/stat
 
 Owner: `native/results`. Channel: `exit-code`. Coverage: LLR-153, LLR-178, LLR-179.
 
-Return 0 complete, 1 incomplete/content findings, 2 invalid request/configuration and 4 busy/host stop, with multi-set precedence 2 > 4 > 1 > 0. Preserve the underlying operation result when notification fails. Host metadata limitations can accompany otherwise complete content with warnings; missing required recorded metadata is incomplete. A complete restore describes required checks on selected definitions, not completion of the most recent source scan. Both carried scripts implement this vocabulary independently; ownership of its definition does not introduce a native-engine dependency. Legacy IF-001 keeps its historical versioned exit table.
+Return 0 complete, 1 incomplete/content findings, 2 invalid request/configuration and 4 busy/host stop, with multi-set precedence 2 > 4 > 1 > 0. Preserve the underlying operation result when notification fails. Host metadata limitations can accompany otherwise complete content with warnings; missing required recorded metadata is incomplete. A complete restore describes required checks on selected definitions, not completion of the most recent source scan. Both carried scripts implement this vocabulary independently; ownership of its definition does not introduce a native-engine dependency.
 
 ## Contract IF-005: Progress and machine-readable findings
 
@@ -114,7 +114,7 @@ Use the declared host credential facility for setup/reference and authorized run
 
 Owner: `native/container`. Channel: `call`. Coverage: LLR-153, LLR-183.
 
-Accept the container launch environment, configuration, action, read-only source/config access and writable single store, under a declared unprivileged identity. Default omitted action to backup; process admitted configured sets independently under the native product contract. Return the same action results and leave source read-only. Internal store folders stay on a rename-compatible mount. This is a new Drafted native contract; it does not silently widen legacy IF-001, which remains one set per invocation. Qualify image/host combinations and supply offline delivery guidance.
+Accept the container launch environment, configuration, action, read-only source/config access and writable single store, under a declared unprivileged identity. Default omitted action to backup; process admitted configured sets independently under the native product contract. Return the same action results and leave source read-only. Internal store folders stay on a rename-compatible mount. This Drafted contract governs native integration; existing deployed PowerShell containers retain their behavior until explicitly replaced. Qualify image/host combinations and supply offline delivery guidance.
 
 ## Contract IF-020: Operational records and derived views
 
