@@ -32,6 +32,17 @@ DA-10 now has an explicit diagnostic obligation in **SR-118**, with engine-side
 prerequisite handling in SR-019/132. It does not presume that an absent shell
 can execute a warning about itself.
 
+## Additional high-risk cross-review
+
+The owner-requested [Gemini 4 Argon review](gemini-high-risk-review.md), run
+through OpenCode Go on low, included permission to critique approved needs and
+boundaries. After a clarification pass, **one high-risk policy decision remains**:
+external links can multiply logical capture paths and restored bytes, while the
+scale envelope does not yet explicitly distinguish logical from physical size.
+Decide the SR-137 nested/repeated-link policy and define the SR-064/112/113
+benchmark counting basis. No approved record or Drafted SR was changed by this
+review. The report records the candidate dispositions and input provenance.
+
 ## Proposed policies needing particular attention
 
 These are proposals in Drafted SRs, not conclusions extracted from current code

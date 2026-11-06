@@ -25,6 +25,13 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **GEMINI HIGH-RISK REVIEW COMPLETE (2026-11-05).** The owner-requested
+  [Gemini 4 Argon review](plans/spine-rebaseline-2026-11-05/gemini-high-risk-review.md)
+  used OpenCode Go on low and permitted critique of approved needs/boundaries.
+  One high-risk policy decision remains after clarification: external-link
+  expansion and whether the scale envelope counts logical or physical data.
+  No requirements, approved baselines or runtime code changed in this review.
+
 - **SR DRAFT READY FOR OWNER REVIEW (2026-11-05).** The
   [SR review guide](plans/spine-rebaseline-2026-11-05/sr-generation-review.md)
   covers 121 Drafted SRs: all 49 approved needs have candidate coverage;
@@ -7017,3 +7024,12 @@ Eight retirements have lookup records, B-24's inactive placeholder is removed,
 and SR-153..158 cover newly derived obligations. All 49 needs have draft homes.
 The approval snapshot remains unchanged by authoring. See the SR review guide
 and DeepSeek cross-review records for provenance, dispositions and validation.
+
+### 2026-11-05 — Gemini high-risk requirements cross-review
+
+Reviewed all 121 Drafted SRs with 49 needs and approved boundary/assumption
+context using owner-selected `opencode-go/gemini-4-argon --variant low`.
+The clarification corrected an erroneous SR count and withdrew two candidates;
+external-link expansion and the scale counting basis remain for owner decision.
+Recorded both responses, author assessment and input fingerprints. No normative
+registry or approval status changed; hooks remain disabled.
