@@ -260,7 +260,7 @@ fn bundled_archives_extract_with_external_seven_zip_including_empty_files() {
         let archive = input.with_extension("7z");
         fs::write(&input, &bytes).unwrap();
         let key = format::hash_file(&input).unwrap();
-        tools::compress(&input, &archive).unwrap();
+        tools::compress_counted(&input, &archive, &Default::default()).unwrap();
         assert!(tools::verify(&archive, &key).unwrap());
         let extracted = external_seven_zip()
             .args(["e", "-so"])
@@ -380,7 +380,7 @@ fn helper_paths_are_literal_even_with_wildcards() {
     )
     .unwrap();
     let archive = tmp.path().join("archive?.7z");
-    tools::compress(&input, &archive).unwrap();
+    tools::compress_counted(&input, &archive, &Default::default()).unwrap();
     assert!(tools::verify(&archive, &format::hash_file(&input).unwrap()).unwrap());
 }
 

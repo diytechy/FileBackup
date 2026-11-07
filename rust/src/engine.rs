@@ -955,10 +955,11 @@ fn capture(
     fs::create_dir_all(destination.parent().unwrap())?;
     platform::ordinary_dir(destination.parent().unwrap())?;
     if destination.try_exists()? {
-        ensure!(
-            !tools::verify(&destination, &key)?,
-            "unexpected usable destination; retry index"
-        );
+        let usable = {
+            let _step = counters.enter_step(Phase::CheckingArchive, key.length);
+            tools::verify_step(&destination, &key, counters)?
+        };
+        ensure!(!usable, "unexpected usable destination; retry index");
         store.quarantine(&destination)?;
         report.finding(
             1,

@@ -691,3 +691,28 @@ fn a_held_dedup_check_of_an_existing_object_shows_checking_archive() {
     );
     assert_eq!(report(&output)["captured"], 1);
 }
+
+#[test]
+fn a_compression_past_its_time_ceiling_is_a_host_stop_naming_the_ceiling() {
+    let f = fixture(SET, true);
+    compressible(&f);
+    // The archive keeps growing, so only the shrunken ceiling can be what stops it.
+    let sizes: Vec<String> = (1..=400).map(|n| (n * 100).to_string()).collect();
+    let output = run(
+        &f,
+        &["backup"],
+        &[
+            ("FILEBACKUP_TEST_COMPRESS_POLL_MS", "30"),
+            ("FILEBACKUP_TEST_COMPRESS_HOLD_MS", "5000"),
+            ("FILEBACKUP_TEST_COMPRESS_CEILING_MS", "400"),
+            ("FILEBACKUP_TEST_COMPRESS_SIZES", &sizes.join(",")),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(4), "{output:?}");
+    let all = format!("{}{}", stderr(&output), report(&output));
+    assert!(
+        all.contains("compression exceeded its time ceiling"),
+        "{all}"
+    );
+    assert!(!all.contains("stalled"), "{all}");
+}
