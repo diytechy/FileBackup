@@ -403,6 +403,8 @@ fn full_reread(set: &BackupSet, store: &Store) -> bool {
     };
     last.is_none_or(|v| Utc::now().signed_duration_since(v).num_seconds() >= seconds)
 }
+#[cfg(feature = "test-hooks")]
+static RETRY_FAULT_SPENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// SR-081: compress when the measured saving is at least 10%.
 const PROBE_THRESHOLD: f64 = 0.90;
 /// How the per-window ratios become one verdict. The Owner's scoring run sets
@@ -496,6 +498,25 @@ fn measure(how: Combination, windows: &[&[u8]]) -> Result<Measurement> {
         combined: how.combine(&sizes),
         ratios: sizes.iter().map(|&(r, p)| p as f64 / r as f64).collect(),
     })
+}
+/// Window ratios, then (name, value, compresses) per combination.
+pub type ProbeSummary = (Vec<f64>, Vec<(&'static str, f64, bool)>);
+/// Each window's ratio and every combination's value and verdict, for the
+/// `probe_windows` example; the decision itself never calls this.
+pub fn probe_summary(windows: &[&[u8]]) -> Result<ProbeSummary> {
+    let sizes = windows
+        .iter()
+        .map(|w| Ok((w.len(), brotli_size(w)?)))
+        .collect::<Result<Vec<_>>>()?;
+    ensure!(!sizes.is_empty(), "no probe windows");
+    let all = [Combination::Mean, Combination::Trimmed, Combination::Median].map(|c| {
+        let v = c.combine(&sizes);
+        (c.reason(), v, v <= PROBE_THRESHOLD)
+    });
+    Ok((
+        sizes.iter().map(|&(r, p)| p as f64 / r as f64).collect(),
+        all.to_vec(),
+    ))
 }
 const EXEMPT: [&str; 16] = [
     "7z", "zip", "gz", "xz", "bz2", "rar", "zst", "jpg", "jpeg", "png", "webp", "mp4", "mkv",
@@ -613,9 +634,16 @@ impl DecisionLog {
                 logs.push(((stamp.to_owned(), n), name));
             }
         }
+        // This run's own file is never a candidate and takes one of the slots.
+        logs.retain(|(_, n)| n != own);
         logs.sort();
-        let surplus = logs.len().saturating_sub(DECISION_LOGS_KEPT);
-        for (_, name) in logs.into_iter().take(surplus).filter(|(_, n)| n != own) {
+        #[cfg(feature = "test-hooks")]
+        ensure!(
+            std::env::var("FILEBACKUP_TEST_PROBE_FAULT").ok().as_deref() != Some("rotate"),
+            "forced rotation failure"
+        );
+        let surplus = logs.len().saturating_sub(DECISION_LOGS_KEPT - 1);
+        for (_, name) in logs.into_iter().take(surplus) {
             fs::remove_file(self.dir.join(name))?;
         }
         Ok(())
@@ -679,6 +707,36 @@ fn log_line(
         if compress { "compress" } else { "raw" },
     )
 }
+/// What the decision did, carried to the point where the object is published
+/// so a retried capture counts once (LLR-162).
+#[derive(Clone, Copy, Debug)]
+enum Outcome {
+    Unmeasured,
+    Measured { compress: bool, whole: bool },
+    Fallback,
+}
+impl ProbeCounters {
+    /// Count one published object; `packed` is its archive size when stored compressed.
+    fn record(&mut self, outcome: Outcome, compressed: bool, length: u64, packed: u64) {
+        match outcome {
+            Outcome::Unmeasured => self.unmeasured += 1,
+            Outcome::Fallback => self.fallback += 1,
+            Outcome::Measured { compress, whole } => {
+                self.measured += 1;
+                self.whole_file += u64::from(whole);
+                if compress {
+                    self.compressed += 1;
+                } else {
+                    self.raw += 1;
+                }
+            }
+        }
+        if compressed {
+            self.bytes_compressed_in += length;
+            self.bytes_compressed_out += packed;
+        }
+    }
+}
 /// Decide whether a new file is stored compressed.
 ///
 /// `sample` holds the windows taken from the copy that was hashed; it is
@@ -690,14 +748,13 @@ fn should_compress(
     sample: Option<&format::WindowSampler>,
     log: &mut DecisionLog,
     report: &mut Report,
-) -> bool {
+) -> (bool, Option<Outcome>) {
     if !set.compress {
-        return false;
+        return (false, None);
     }
     let exempt = exempt_type(source_name);
     let Some(sample) = sample.filter(|_| wants_probe(set, source_name, length)) else {
-        report.probe.get_or_insert_with(Default::default).unmeasured += 1;
-        return !exempt;
+        return (!exempt, Some(Outcome::Unmeasured));
     };
     match sample
         .windows()
@@ -707,14 +764,6 @@ fn should_compress(
         Ok(m) => {
             let compress = m.combined <= PROBE_THRESHOLD;
             let whole = sample.whole_file();
-            let counters = report.probe.get_or_insert_with(Default::default);
-            counters.measured += 1;
-            counters.whole_file += u64::from(whole);
-            if compress {
-                counters.compressed += 1;
-            } else {
-                counters.raw += 1;
-            }
             let reason = if whole {
                 "whole-file"
             } else {
@@ -722,16 +771,15 @@ fn should_compress(
             };
             let line = log_line(source_name, length, compress, reason, Some(&m));
             log.append(report, &line);
-            compress
+            (compress, Some(Outcome::Measured { compress, whole }))
         }
         Err(_) => {
-            report.probe.get_or_insert_with(Default::default).fallback += 1;
             report.findings.push(format!(
                 "Compression probe unavailable for {source_name}; type fallback used"
             ));
             let line = log_line(source_name, length, !exempt, "fallback", None);
             log.append(report, &line);
-            !exempt
+            (!exempt, Some(Outcome::Fallback))
         }
     }
 }
@@ -855,8 +903,17 @@ fn capture(
             }
         }
     }
-    let compressed = should_compress(set, relative, key.length, sampler.as_ref(), log, report);
+    let (compressed, outcome) =
+        should_compress(set, relative, key.length, sampler.as_ref(), log, report);
     drop(sampler);
+    // Fault injection is absent from release/default builds: fail the first
+    // capture after its decision, to prove a retry counts once.
+    #[cfg(feature = "test-hooks")]
+    ensure!(
+        std::env::var("FILEBACKUP_TEST_PROBE_FAULT").ok().as_deref() != Some("retry")
+            || RETRY_FAULT_SPENT.swap(true, std::sync::atomic::Ordering::SeqCst),
+        "forced capture failure"
+    );
     let archive_dir = tempfile::Builder::new()
         .prefix("archive-")
         .tempdir_in(&incoming)?;
@@ -867,10 +924,13 @@ fn capture(
             tools::verify(&archive, &key)?,
             "compressor output failed round-trip verification"
         );
-        let counters = report.probe.get_or_insert_with(Default::default);
-        counters.bytes_compressed_in += key.length;
-        counters.bytes_compressed_out += fs::metadata(&archive)?.len();
     }
+    // Read for the counters only; a failure here must not fail the capture.
+    let packed = if compressed {
+        fs::metadata(&archive).map_or(0, |m| m.len())
+    } else {
+        0
+    };
     let extension = if compressed {
         ".7z".to_owned()
     } else {
@@ -915,6 +975,12 @@ fn capture(
             }),
         },
     );
+    if let Some(outcome) = outcome {
+        report
+            .probe
+            .get_or_insert_with(Default::default)
+            .record(outcome, compressed, key.length, packed);
+    }
     Ok(FileRow {
         data_path: name,
         relative_path: relative.into(),
@@ -1142,7 +1208,16 @@ fn backup_inner(
     }
     fs::create_dir_all(&store.root)?;
     let _lock = platform::StoreLock::acquire(&store.root)?;
-    let mut log = DecisionLog::new(&store.root, Utc::now());
+    #[allow(unused_mut)]
+    let mut run_start = Utc::now();
+    #[cfg(feature = "test-hooks")]
+    if let Some(fixed) = std::env::var("FILEBACKUP_TEST_RUN_STAMP")
+        .ok()
+        .and_then(|v| DateTime::parse_from_rfc3339(&v).ok())
+    {
+        run_start = fixed.with_timezone(&Utc);
+    }
+    let mut log = DecisionLog::new(&store.root, run_start);
     // Re-read after acquiring ownership; another admitted writer may have run.
     ensure!(
         store.admit()? == fresh,

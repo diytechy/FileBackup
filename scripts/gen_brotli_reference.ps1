@@ -13,6 +13,12 @@ The generator is defined here and again in rust/tests/probe.rs; the table
 records its constants so a drift in either is visible. Run it only to change
 the buffer set; the checked-in table is the artifact the test reads.
 
+.PARAMETER File
+Instead of regenerating the table, print .NET quality-1/window-22 ratios for
+each named file at the probe plan's offsets (same formula as
+format::probe_plan), for comparison with `cargo run --example probe_windows`.
+Read-only. Several paths may be given comma-separated.
+
 .PARAMETER OutFile
 Where to write the table (default: rust/tests/fixtures/brotli-reference.json).
 
@@ -21,6 +27,7 @@ The table file; one summary line per buffer on the host.
 #>
 [CmdletBinding()]
 param(
+    [string[]]$File,
     [string]$OutFile = (Join-Path (Split-Path -Parent $PSScriptRoot) 'rust/tests/fixtures/brotli-reference.json')
 )
 $ErrorActionPreference = 'Stop'
@@ -106,6 +113,44 @@ public static class ProbeGen
     }
 }
 '@
+
+if ($File) {
+    # `pwsh -File` passes one string, so accept a comma-separated list too.
+    $File = @($File | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+    $win = 256KB
+    foreach ($path in $File) {
+        $length = (Get-Item -LiteralPath $path).Length
+        Write-Host "$path`tlength=$length"
+        if ($length -le $win) { Write-Host '  not measured (at or under 256 KiB)'; continue }
+        if ($length -lt 9 * $win) { $plan = @(, @([long]0, [int]$length)) }
+        else {
+            $plan = foreach ($k in 1..7) { , @([long][math]::Floor([decimal]$k * ([decimal]($length - $win)) / 8), [int]$win) }
+        }
+        $stream = [IO.File]::OpenRead($path)
+        $ratios = @(); $raw = 0; $packed = 0
+        try {
+            foreach ($w in $plan) {
+                $buf = New-Object byte[] $w[1]
+                [void]$stream.Seek($w[0], 'Begin')
+                $got = 0
+                while ($got -lt $buf.Length) { $n = $stream.Read($buf, $got, $buf.Length - $got); if ($n -le 0) { throw 'short read' }; $got += $n }
+                $size = [ProbeGen]::BrotliSize($buf)
+                $ratios += $size / $buf.Length; $raw += $buf.Length; $packed += $size
+            }
+        } finally { $stream.Dispose() }
+        $sorted = @($ratios | Sort-Object)
+        $mean = $packed / $raw
+        $trim = if ($sorted.Count -gt 2) { ($sorted[1..($sorted.Count - 2)] | Measure-Object -Average).Average } else { $sorted[[int][math]::Floor($sorted.Count / 2)] }
+        $med = $sorted[[int][math]::Floor($sorted.Count / 2)]
+        $inv = [Globalization.CultureInfo]::InvariantCulture
+        Write-Host ('  offsets=' + (($plan | ForEach-Object { $_[0] }) -join ','))
+        Write-Host ('  ratios=' + (($ratios | ForEach-Object { $_.ToString('F4', $inv) }) -join ','))
+        foreach ($c in @(@('mean', $mean), @('trimmed', $trim), @('median', $med))) {
+            Write-Host ('  {0}={1} {2}' -f $c[0], ([double]$c[1]).ToString('F4', $inv), $(if ($c[1] -le 0.90) { 'compress' } else { 'raw' }))
+        }
+    }
+    return
+}
 
 $entries = for ($i = 0; $i -lt [ProbeGen]::Names.Length; $i++) {
     $buffer = [ProbeGen]::Build($i)

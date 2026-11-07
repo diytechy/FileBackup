@@ -102,6 +102,12 @@ The newest 30 logs are kept; older ones are deleted when a new run creates its
 file, and nothing else in the folder is touched. A log that cannot be created or
 written produces one warning in the run report and never fails the backup.
 
+A line is written when the decision is made, before the file is compressed, so a
+run stopped mid-compression still shows what it was doing. A file whose capture
+is retried after a failure can therefore appear more than once in the log; the
+`probe` counters (below) are updated only when the object is published, so each
+file counts once.
+
 The backup report gains a `probe` object (all zero when compression is off):
 `measured`, `compressed`, `raw`, `whole_file` (measured as one sample),
 `unmeasured` (new files that reached the decision with compression on but were

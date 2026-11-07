@@ -382,6 +382,124 @@ mod forced_failures {
             unsafe { std::env::remove_var("FILEBACKUP_TEST_PROBE_FAULT") };
         }
     }
+    struct Stamp;
+    impl Stamp {
+        fn set(value: &str) -> Self {
+            // SAFETY: every test touching the variable holds SERIAL.
+            unsafe { std::env::set_var("FILEBACKUP_TEST_RUN_STAMP", value) };
+            Self
+        }
+    }
+    impl Drop for Stamp {
+        fn drop(&mut self) {
+            // SAFETY: as above.
+            unsafe { std::env::remove_var("FILEBACKUP_TEST_RUN_STAMP") };
+        }
+    }
+    fn log_names(set: &config::BackupSet) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(log_dir(set))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn runs_starting_in_the_same_second_get_numbered_names() {
+        let _serial = serial();
+        let _stamp = Stamp::set("2030-01-02T03:04:05Z");
+        let (_tmp, cfg) = fixture(true, "always");
+        let set = &cfg.sets[0];
+        for (i, name) in ["one.txt", "two.txt", "three.txt"].iter().enumerate() {
+            fs::write(set.source.join(name), text(300 * 1024 + i)).unwrap();
+            let report = engine::backup(&cfg, set);
+            assert_eq!(report.code, 0, "{report:?}");
+        }
+        assert_eq!(
+            log_names(set),
+            [
+                "2030_01_02_03_04_05.log",
+                "2030_01_02_03_04_05_1.log",
+                "2030_01_02_03_04_05_2.log"
+            ]
+        );
+        // Each run wrote only its own decision.
+        for name in log_names(set) {
+            let body = fs::read_to_string(log_dir(set).join(name)).unwrap();
+            assert_eq!(body.lines().count(), 1, "{body}");
+        }
+    }
+
+    #[test]
+    fn a_rotation_failure_keeps_the_log_and_warns_once() {
+        let _serial = serial();
+        let _fault = Fault::set("rotate");
+        let (_tmp, cfg) = fixture(true, "always");
+        let set = &cfg.sets[0];
+        fs::write(set.source.join("a.txt"), text(300 * 1024)).unwrap();
+        fs::write(set.source.join("b.txt"), text(301 * 1024)).unwrap();
+        fs::write(set.source.join("c.txt"), text(302 * 1024)).unwrap();
+        let report = engine::backup(&cfg, set);
+        assert_eq!(report.code, 0, "{report:?}");
+        let warnings = report
+            .events
+            .iter()
+            .filter(|e| e.cause == "decision_log_unavailable")
+            .count();
+        assert_eq!(warnings, 1, "{report:?}");
+        assert_eq!(decisions(set).len(), 3, "the log kept working");
+        assert!(manifest(set).iter().all(|r| r.compressed == "Yes"));
+    }
+
+    #[test]
+    fn a_retried_capture_counts_once_in_the_probe_counters() {
+        let _serial = serial();
+        let _fault = Fault::set("retry");
+        let (_tmp, cfg) = fixture(true, "always");
+        let set = &cfg.sets[0];
+        let content = text(300 * 1024);
+        fs::write(set.source.join("doc.txt"), &content).unwrap();
+        let report = engine::backup(&cfg, set);
+        assert_eq!(report.code, 0, "{report:?}");
+        let p = probe(&report);
+        assert_eq!((p.measured, p.compressed, p.raw), (1, 1, 0), "{p:?}");
+        assert_eq!(p.bytes_compressed_in, content.len() as u64);
+        assert!(p.bytes_compressed_out > 0 && p.bytes_compressed_out < p.bytes_compressed_in);
+        // The decision line is written at decision time, so the retry repeats it.
+        assert_eq!(decisions(set).len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_log_folder_is_refused_with_one_warning() {
+        let _serial = serial();
+        let (_tmp, cfg) = fixture(true, "always");
+        let set = &cfg.sets[0];
+        fs::write(set.source.join("one.txt"), text(300 * 1024)).unwrap();
+        assert_eq!(engine::backup(&cfg, set).code, 0);
+        let elsewhere = set.store.parent().unwrap().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        fs::remove_dir_all(log_dir(set)).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, log_dir(set)).unwrap();
+        fs::write(set.source.join("two.txt"), text(302 * 1024)).unwrap();
+        fs::write(set.source.join("three.txt"), text(303 * 1024)).unwrap();
+        let report = engine::backup(&cfg, set);
+        assert_eq!(report.code, 0, "{report:?}");
+        let warnings = report
+            .events
+            .iter()
+            .filter(|e| e.cause == "decision_log_unavailable")
+            .count();
+        assert_eq!(warnings, 1, "{report:?}");
+        assert_eq!(
+            fs::read_dir(&elsewhere).unwrap().count(),
+            0,
+            "nothing followed the link"
+        );
+        assert_eq!(manifest(set).len(), 3);
+    }
+
     #[test]
     fn a_sampler_or_coder_failure_falls_back_to_the_type_list() {
         let _serial = serial();
