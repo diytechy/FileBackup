@@ -11,6 +11,34 @@ from prepare_native_sevenzip import provision
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# A crate published without its licence file, whose licence text ships in a sibling crate from
+# the same repository. Each entry is reviewed by hand. The two crates must declare the same
+# repository and the same licence expression, or packaging still refuses.
+#   alloc-stdlib (brotli's allocator, from the native probe fix) lives in a subfolder of
+#   dropbox/rust-alloc-no-stdlib. The repository's BSD-3-Clause LICENSE is published with its
+#   root crate, alloc-no-stdlib, and not with alloc-stdlib.
+LICENSE_FROM_SIBLING = {"alloc-stdlib": "alloc-no-stdlib"}
+LICENSE_PATTERNS = ("LICENSE*", "LICENCE*", "COPYING*", "NOTICE*", "COPYRIGHT*", "UNLICENSE*", "license*", "LICENSES/*")
+
+
+def license_files(home):
+    return {p for pattern in LICENSE_PATTERNS for p in home.glob(pattern) if p.is_file()}
+
+
+def sibling_license_files(package, packages):
+    """The reviewed sibling's licence files, or an empty set when no entry or no exact match."""
+    sibling_name = LICENSE_FROM_SIBLING.get(package["name"])
+    if not sibling_name or not package.get("repository") or not package.get("license"):
+        return set(), None
+    matches = [p for p in packages
+               if p["name"] == sibling_name
+               and p.get("repository") == package["repository"]
+               and p.get("license") == package["license"]]
+    if len(matches) != 1:
+        return set(), None
+    sibling = matches[0]
+    return license_files(Path(sibling["manifest_path"]).parent), sibling
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, type=Path)
@@ -42,15 +70,18 @@ def main():
         if package["name"] == "filebackup" or package["id"] not in active:
             continue
         home = Path(package["manifest_path"]).parent
-        candidates = set()
-        for pattern in ("LICENSE*", "LICENCE*", "COPYING*", "NOTICE*", "COPYRIGHT*", "UNLICENSE*", "license*", "LICENSES/*"):
-            candidates.update(p for p in home.glob(pattern) if p.is_file())
+        candidates = license_files(home)
         if package.get("license_file"):
             candidates.add(home / package["license_file"])
+        entry_extra = {}
         if not candidates:
-            raise SystemExit(f"Missing license text for {package['name']} {package['version']}; packaging refused")
+            candidates, sibling = sibling_license_files(package, metadata["packages"])
+            if not candidates:
+                raise SystemExit(f"Missing license text for {package['name']} {package['version']}; packaging refused")
+            home = Path(sibling["manifest_path"]).parent
+            entry_extra = {"licenseTextFrom": sibling["name"] + "-" + sibling["version"]}
         name = package["name"] + "-" + package["version"]
-        inventory.append({"component": name, "license": package.get("license"), "source": package.get("source"), "target": target})
+        inventory.append({"component": name, "license": package.get("license"), "source": package.get("source"), "target": target, **entry_extra})
         for path in sorted(candidates):
             relative = path.relative_to(home).as_posix().replace("/", "_")
             notices[f"notices/{name}/{relative}"] = path.read_bytes()

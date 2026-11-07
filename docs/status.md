@@ -82,6 +82,14 @@ last) — it is the record, not required reading for every pass.
     - any run on the hub.
   - **Known wording quirk:** a raw object's dedup check says "expanded".
 
+  **Release packaging fix (2026-11-07).** The first image build from `f1c8f4b` refused: "Missing
+  license text for alloc-stdlib 0.2.4". `brotli`'s allocator crate is published without its
+  licence file, and the test suites never run the packager.
+  - `scripts/package_native.py` now takes the licence text from one reviewed sibling crate,
+    `alloc-no-stdlib`, from the same repository. It does so only when both declare the same
+    repository and the same licence, and records it as `licenseTextFrom` in the inventory.
+  - Any other crate without a licence file still refuses.
+
   **Next, the Owner's:** a new image from `Rust-Rewrite`, `FILEBACKUP_IMAGE_TAG` on the hub, the
   timer knob back to `true`, and the partial store. The audit found that a restarted run reuses the
   87 GB already stored and cleans `Incoming`.
