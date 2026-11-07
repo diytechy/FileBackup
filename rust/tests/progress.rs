@@ -465,3 +465,229 @@ fn the_reporter_ends_on_success_and_every_error_path() {
     fs::rename(&set.store, f.tmp.path().join("gone")).unwrap();
     finish(4, maintenance::verify(set, true, false), "a failed verify");
 }
+
+#[test]
+fn the_step_lines_publish_first_and_carry_no_path() {
+    let c = Arc::new(Counters::default());
+    c.enter_counted(Phase::Capturing, 4);
+    c.item_done();
+    {
+        let _step = c.enter_step(Phase::Compressing, 600 * 1024);
+        assert_eq!(
+            c.line("s", 7),
+            "Progress: set 's', compressing: 1 of 4 file(s), 0 B of a 600.0 KiB file written, 7 s\n"
+        );
+        c.step_set(2048);
+        assert_eq!(
+            c.line("s", 8),
+            "Progress: set 's', compressing: 1 of 4 file(s), 2.0 KiB of a 600.0 KiB file written, 8 s\n"
+        );
+    }
+    {
+        let _step = c.enter_step(Phase::CheckingArchive, 1024);
+        assert_eq!(
+            c.line("s", 9),
+            "Progress: set 's', checking archive: 1 of 4 file(s), 0 B of 1.0 KiB expanded, 9 s\n"
+        );
+    }
+}
+
+#[test]
+fn a_step_counts_into_its_own_counter_and_the_guard_restores_on_every_way_out() {
+    fn failing(c: &Arc<Counters>) -> anyhow::Result<()> {
+        let _step = c.enter_step(Phase::CheckingArchive, 4096);
+        let mut read = Reading::step(&[1u8; 4096][..], c);
+        std::io::copy(&mut read, &mut std::io::sink())?;
+        anyhow::ensure!(false, "forced failure");
+        Ok(())
+    }
+    let c = Arc::new(Counters::default());
+    c.enter_counted(Phase::Capturing, 1);
+    let mut read = Reading::new(&[2u8; 1000][..], &c);
+    std::io::copy(&mut read, &mut std::io::sink()).unwrap();
+    {
+        let _step = c.enter_step(Phase::Compressing, 99);
+        c.step_set(50);
+        assert_eq!(c.step_counts(), (50, 99));
+    }
+    assert_eq!(c.step_counts(), (0, 0));
+    assert!(
+        c.line("s", 1)
+            .contains("capturing: 0 of 1 file(s), 1000 B read")
+    );
+    assert!(failing(&c).is_err());
+    assert_eq!(c.step_counts(), (0, 0), "cleared after a forced failure");
+    assert!(
+        c.line("s", 2)
+            .contains("capturing: 0 of 1 file(s), 1000 B read")
+    );
+    // The step's bytes never reached "bytes read".
+    assert_eq!(c.bytes_read(), 1000);
+}
+
+// A compressible file above the probe floor, so the set stores it as an archive.
+fn compressible(f: &Fixture) -> usize {
+    let bytes = vec![b'x'; 600 * 1024];
+    fs::write(f.source.join(format!("{NAME}.txt")), &bytes).unwrap();
+    bytes.len()
+}
+
+#[test]
+fn a_held_compression_shows_a_rising_archive_and_no_names() {
+    let f = fixture(SET, true);
+    let source = compressible(&f);
+    let output = run(
+        &f,
+        &["backup"],
+        &[
+            ("FILEBACKUP_TEST_PROGRESS_MS", "20"),
+            ("FILEBACKUP_TEST_COMPRESS_POLL_MS", "30"),
+            ("FILEBACKUP_TEST_COMPRESS_HOLD_MS", "1500"),
+            (
+                "FILEBACKUP_TEST_COMPRESS_SIZES",
+                "1024,2048,3072,4096,5120,6144,7168,8192",
+            ),
+            ("FILEBACKUP_TEST_HOLD", "capture-finished=300"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let text = stderr(&output);
+    assert_only_numbers(&text, &f);
+    let shown = |written: &str| {
+        text.contains(&format!(
+            "compressing: 0 of 1 file(s), {written} of a 600.0 KiB file written"
+        ))
+    };
+    assert!(shown("1.0 KiB"), "{text}");
+    assert!(shown("3.0 KiB") || shown("2.0 KiB"), "{text}");
+    assert!(shown("5.0 KiB") || shown("6.0 KiB"), "{text}");
+    for banned in ["archive-", "content.7z"] {
+        assert!(!text.contains(banned), "{banned} in: {text}");
+    }
+    // Bytes read is still the one pass over the source, and the phase came back.
+    assert!(
+        text.contains(&format!(
+            "finishing: 1 of 1 file(s), {} read",
+            format_bytes(source as u64)
+        )),
+        "{text}"
+    );
+    assert_eq!(report(&output)["captured"], 1);
+}
+
+#[test]
+fn a_compression_that_stops_growing_is_a_host_stop_naming_the_stall() {
+    let f = fixture(SET, true);
+    compressible(&f);
+    let output = run(
+        &f,
+        &["backup"],
+        &[
+            ("FILEBACKUP_TEST_COMPRESS_POLL_MS", "30"),
+            ("FILEBACKUP_TEST_COMPRESS_HOLD_MS", "5000"),
+            ("FILEBACKUP_TEST_STALL_MS", "300"),
+            ("FILEBACKUP_TEST_COMPRESS_SIZES", "1024,2048,2048"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(4), "{output:?}");
+    let all = format!("{}{}", stderr(&output), report(&output));
+    assert!(all.contains("compression stalled"), "{all}");
+    assert!(!all.contains("time ceiling"), "{all}");
+}
+
+#[test]
+fn a_growing_compression_is_not_stopped_by_the_stall_bound() {
+    let f = fixture(SET, true);
+    compressible(&f);
+    // Growth on every poll for far longer than the 300 ms window.
+    let sizes: Vec<String> = (1..=200).map(|n| (n * 100).to_string()).collect();
+    let output = run(
+        &f,
+        &["backup"],
+        &[
+            ("FILEBACKUP_TEST_COMPRESS_POLL_MS", "30"),
+            ("FILEBACKUP_TEST_COMPRESS_HOLD_MS", "1200"),
+            ("FILEBACKUP_TEST_STALL_MS", "300"),
+            ("FILEBACKUP_TEST_COMPRESS_SIZES", &sizes.join(",")),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(report(&output)["captured"], 1);
+}
+
+#[test]
+fn a_held_archive_check_shows_a_rising_count_and_no_names() {
+    let f = fixture(SET, true);
+    let source = compressible(&f);
+    let output = run(
+        &f,
+        &["backup"],
+        &[
+            ("FILEBACKUP_TEST_PROGRESS_MS", "20"),
+            ("FILEBACKUP_TEST_READ_HOLD_MS", "150"),
+            ("FILEBACKUP_TEST_HOLD", "capture-finished=300"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let text = stderr(&output);
+    assert_only_numbers(&text, &f);
+    let counts: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("checking archive: 0 of 1 file(s), "))
+        .filter_map(|l| l.split(", ").nth(2))
+        .collect();
+    let mut distinct = counts.clone();
+    distinct.dedup();
+    assert!(distinct.len() >= 2, "the count did not move: {text}");
+    assert!(
+        counts.iter().all(|c| c.ends_with("of 600.0 KiB expanded")),
+        "{counts:?}"
+    );
+    for banned in ["archive-", "content.7z"] {
+        assert!(!text.contains(banned), "{banned} in: {text}");
+    }
+    // The archive check counted into its own counter: bytes read is the source once.
+    assert!(
+        text.contains(&format!(
+            "finishing: 1 of 1 file(s), {} read",
+            format_bytes(source as u64)
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_held_dedup_check_of_an_existing_object_shows_checking_archive() {
+    let f = fixture(SET, true);
+    let source = compressible(&f);
+    assert_eq!(run(&f, &["backup"], &[]).status.code(), Some(0));
+    fs::copy(
+        f.source.join(format!("{NAME}.txt")),
+        f.source.join(format!("{NAME}-copy.txt")),
+    )
+    .unwrap();
+    let output = run(
+        &f,
+        &["backup"],
+        &[
+            ("FILEBACKUP_TEST_PROGRESS_MS", "20"),
+            ("FILEBACKUP_TEST_READ_HOLD_MS", "150"),
+            ("FILEBACKUP_TEST_HOLD", "capture-finished=300"),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let text = stderr(&output);
+    assert_only_numbers(&text, &f);
+    assert!(
+        text.contains("checking archive: 0 of 2 file(s), "),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "finishing: 2 of 2 file(s), {} read",
+            format_bytes(source as u64)
+        )),
+        "{text}"
+    );
+    assert_eq!(report(&output)["captured"], 1);
+}

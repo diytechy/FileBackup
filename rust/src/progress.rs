@@ -33,8 +33,10 @@ pub enum Phase {
     Finishing,
     QuickVerify,
     DeepVerify,
+    Compressing,
+    CheckingArchive,
 }
-const PHASES: [(Phase, &str); 7] = [
+const PHASES: [(Phase, &str); 9] = [
     (Phase::Preparing, "preparing"),
     (Phase::IndexingStore, "indexing store"),
     (Phase::WalkingSource, "walking source"),
@@ -42,6 +44,8 @@ const PHASES: [(Phase, &str); 7] = [
     (Phase::Finishing, "finishing"),
     (Phase::QuickVerify, "quick verify"),
     (Phase::DeepVerify, "deep verify"),
+    (Phase::Compressing, "compressing"),
+    (Phase::CheckingArchive, "checking archive"),
 ];
 
 /// Shared run counters: the worker writes them, the reporter only reads them.
@@ -52,6 +56,20 @@ pub struct Counters {
     done: AtomicU64,
     bytes: AtomicU64,
     records: AtomicU64,
+    // The progress of one step inside a file (archive bytes written, or bytes
+    // expanded), kept apart from `bytes` so a file's bytes still count once.
+    step_done: AtomicU64,
+    step_total: AtomicU64,
+}
+/// Puts the phase back to `Capturing` and clears the step counters when it drops,
+/// on success and on every early return alike.
+pub struct StepGuard<'a>(&'a Counters);
+impl Drop for StepGuard<'_> {
+    fn drop(&mut self) {
+        self.0.enter(Phase::Capturing);
+        self.0.step_done.store(0, Relaxed);
+        self.0.step_total.store(0, Relaxed);
+    }
 }
 impl Counters {
     pub fn enter(&self, phase: Phase) {
@@ -61,6 +79,23 @@ impl Counters {
     pub fn enter_counted(&self, phase: Phase, total: u64) {
         self.total.store(total, Relaxed);
         self.enter(phase);
+    }
+    /// Enter a step phase inside a file. The step's total and a zero done are
+    /// published first, as `enter_counted` does, so no line shows the previous
+    /// file's figures. The phase returns to `Capturing` when the guard drops.
+    pub fn enter_step(&self, phase: Phase, total: u64) -> StepGuard<'_> {
+        self.step_total.store(total, Relaxed);
+        self.step_done.store(0, Relaxed);
+        self.enter(phase);
+        StepGuard(self)
+    }
+    /// The step's progress as the tool reports it (an archive's size so far).
+    pub fn step_set(&self, done: u64) {
+        self.step_done.store(done, Relaxed);
+    }
+    /// The step's (done, total).
+    pub fn step_counts(&self) -> (u64, u64) {
+        (self.step_done.load(Relaxed), self.step_total.load(Relaxed))
     }
     /// One finished unit of the phase's total. A retried attempt is not one.
     pub fn item_done(&self) {
@@ -93,6 +128,18 @@ impl Counters {
             Phase::DeepVerify => {
                 format!("{head}: {done} of {total} object(s), {read} read, {seconds} s\n")
             }
+            Phase::Compressing => {
+                let (x, y) = self.step_counts();
+                let (x, y) = (format_bytes(x), format_bytes(y));
+                format!(
+                    "{head}: {done} of {total} file(s), {x} of a {y} file written, {seconds} s\n"
+                )
+            }
+            Phase::CheckingArchive => {
+                let (x, y) = self.step_counts();
+                let (x, y) = (format_bytes(x), format_bytes(y));
+                format!("{head}: {done} of {total} file(s), {x} of {y} expanded, {seconds} s\n")
+            }
             Phase::QuickVerify => {
                 let records = self.records.load(Relaxed);
                 format!("{head}: {done} of {total} state(s), {records} record(s), {seconds} s\n")
@@ -119,19 +166,33 @@ pub fn format_bytes(bytes: u64) -> String {
 pub struct Reading<R> {
     inner: R,
     counters: Arc<Counters>,
+    step: bool,
 }
 impl<R> Reading<R> {
     pub fn new(inner: R, counters: &Arc<Counters>) -> Self {
         Self {
             inner,
             counters: counters.clone(),
+            step: false,
+        }
+    }
+    /// As `new`, but the bytes go to the step counter and never to `bytes`.
+    pub fn step(inner: R, counters: &Arc<Counters>) -> Self {
+        Self {
+            step: true,
+            ..Self::new(inner, counters)
         }
     }
 }
 impl<R: Read> Read for Reading<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(buffer)?;
-        self.counters.bytes.fetch_add(n as u64, Relaxed);
+        let target = if self.step {
+            &self.counters.step_done
+        } else {
+            &self.counters.bytes
+        };
+        target.fetch_add(n as u64, Relaxed);
         #[cfg(feature = "test-hooks")]
         if n > 0
             && let Some(ms) = test_ms("FILEBACKUP_TEST_READ_HOLD_MS")
@@ -146,8 +207,13 @@ pub fn hash_file(path: &Path, counters: &Arc<Counters>) -> Result<ContentKey> {
     format::copy_hash(Reading::new(File::open(path)?, counters), io::sink())
 }
 
+/// `hash_file`, counting into the step counter instead of `bytes`.
+pub fn hash_file_step(path: &Path, counters: &Arc<Counters>) -> Result<ContentKey> {
+    format::copy_hash(Reading::step(File::open(path)?, counters), io::sink())
+}
+
 #[cfg(feature = "test-hooks")]
-fn test_ms(name: &str) -> Option<u64> {
+pub fn test_ms(name: &str) -> Option<u64> {
     std::env::var(name).ok()?.parse().ok()
 }
 fn interval() -> Duration {
