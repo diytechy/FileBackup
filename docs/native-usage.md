@@ -73,6 +73,42 @@ qualification is still pending; do not put these secret values in configuration,
 shell arguments or logs. Configuration and credential-store access belong to the
 execution account's trust boundary; the executable does not elevate privileges.
 
+## Why a file was or was not compressed
+
+For each new file above 256 KiB that is not already stored, the engine measures
+how well it compresses while it copies the file. A file of 2.25 MiB or more is
+sampled at seven interior 256 KiB windows (one eighth, two eighths, up to seven
+eighths of the way through); a smaller one is sampled whole. It compresses the
+file when the combined saving is at least 10%. Nothing is read twice and no
+helper process runs for the measurement. A file whose content is already stored
+is not measured.
+
+Each measured decision is one line in a new file per run,
+`<StorePath>/compress-decisions/YYYY_MM_DD_HH_MM_SS.log` (the run's start time,
+UTC; a `_1`, `_2` suffix if two runs start in the same second). The file appears
+when the first decision is made. Fields are tab separated:
+
+1. the time (RFC 3339, UTC);
+2. the path relative to the source;
+3. the length in bytes;
+4. `compress` or `raw`;
+5. the reason: `mean` (the combination in use), `whole-file`, or `fallback`
+   (the measurement failed and the file type decided);
+6. the combined ratio to four decimals (compressed over raw; 0.90 or less
+   compresses), or `-`;
+7. the ratio of each window, comma separated, or `-`.
+
+The newest 30 logs are kept; older ones are deleted when a new run creates its
+file, and nothing else in the folder is touched. A log that cannot be created or
+written produces one warning in the run report and never fails the backup.
+
+The backup report gains a `probe` object (all zero when compression is off):
+`measured`, `compressed`, `raw`, `whole_file` (measured as one sample),
+`unmeasured` (new files that reached the decision with compression on but were
+not measured: 256 KiB or smaller, or excluded by `CompressProbe`), `fallback`,
+and `bytes_compressed_in` / `bytes_compressed_out` (source length and archive
+size of each object stored compressed).
+
 ## Recover without Rust
 
 Carry the **whole store**: CurrentBackup and all retained BackupHistory content.
