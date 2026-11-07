@@ -50,8 +50,16 @@ last) — it is the record, not required reading for every pass.
   - the deadline and progress-freeze fixes in the same release;
   - the name "native probe fix", with WP18 superseded.
 
-  **Next:** build on branch `native-probe-fix` with the combination as a switch defaulting to the
-  mean. The merge waits for the scoring result.
+  **BUILT (2026-11-07, branch `native-probe-fix`, not merged).** Every change was reviewed by
+  Sonnet at medium effort. Windows 94/0 and Linux 101/0, Lint and Format clean, trace unchanged.
+  - A Brotli feeding fault (4 KiB pieces) was found and fixed. The Rust probe now matches .NET to
+    0.0001 on 49 real media windows.
+  - On real files, the hub's AVCHD image is stored raw. The median would forgo a 32% saving on a
+    DVD image; the mean and the trimmed mean keep it.
+  - Record: [design §12](plans/native-probe-fix-design-2026-11-07.md).
+
+  **Next:** the Owner's scoring run sets the combination (default: the mean), then the merge. The
+  deadline and progress fixes follow on their own branch.
 
 - **HUB FIXES (2026-11-06).** A hub-shaped audit found five faults the native suite did not reach; details are in HomeHub `docs/reviews/2026-11-06-filebackup-native/`. A scheduled re-read now hashes a file already in the manifest in place and writes nothing; stored objects are left to the deep verify, because the library re-read and the backup verify are two separate cadences. The re-read date advances on any re-read run and starts with the store, so a lasting exit 1 or a killed first run no longer re-reads everything. A non-Unicode name freezes itself only. The bash kit refuses a zero-byte manifest. Store files take the host creation mode (umask and default ACL) rather than 0600.
 
