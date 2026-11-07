@@ -5,7 +5,7 @@ Plan owner: driver. Raised by the Owner 2026-09-02 from
 (§4 Option A, §5 recommendation, §7 open question). This plan expands that
 review's recommendation into an executable, requirement-traced package.
 
-**Status: DRAFT, pre-gate. Not approved, not started.** §7 carries the questions
+**Status: SUPERSEDED on 2026-11-07 by the [native probe fix](native-probe-fix-design-2026-11-07.md), by Owner ruling. Before that: DRAFT, pre-gate. Not approved, not started.** §7 carries the questions
 that need an Owner ruling before any code moves.
 
 ---
