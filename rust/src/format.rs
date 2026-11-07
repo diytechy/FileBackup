@@ -96,7 +96,17 @@ pub struct DirectoryRow {
 }
 
 // Implements: LLR-159, LLR-163. Hash the same chunks that are copied.
-pub fn copy_hash(mut input: impl Read, mut output: impl Write) -> Result<ContentKey> {
+pub fn copy_hash(input: impl Read, output: impl Write) -> Result<ContentKey> {
+    copy_hash_sampled(input, output, None)
+}
+/// `copy_hash` that also hands every chunk it wrote and hashed to a window
+/// sampler, so the compressibility probe never re-reads the source.
+// Implements: LLR-159, LLR-162, LLR-163.
+pub fn copy_hash_sampled(
+    mut input: impl Read,
+    mut output: impl Write,
+    mut sampler: Option<&mut WindowSampler>,
+) -> Result<ContentKey> {
     let mut hasher = Xxh3::new();
     let mut length = 0_u64;
     let mut buffer = [0u8; 256 * 1024];
@@ -107,6 +117,9 @@ pub fn copy_hash(mut input: impl Read, mut output: impl Write) -> Result<Content
         }
         output.write_all(&buffer[..n])?;
         hasher.update(&buffer[..n]);
+        if let Some(sampler) = sampler.as_deref_mut() {
+            sampler.feed(&buffer[..n]);
+        }
         length = length
             .checked_add(n as u64)
             .context("file length overflow")?;
@@ -115,6 +128,104 @@ pub fn copy_hash(mut input: impl Read, mut output: impl Write) -> Result<Content
         hash: ContentHash(hasher.digest128().to_be_bytes()),
         length,
     })
+}
+
+/// One probe window: 256 KiB, SR-081's floor.
+pub const PROBE_WINDOW: u64 = 256 * 1024;
+/// Below nine windows the seven windows would overlap, so the file is one sample.
+pub const PROBE_WHOLE_FILE_LIMIT: u64 = 9 * PROBE_WINDOW;
+const PROBE_WINDOWS: u64 = 7;
+
+/// The `(start, length)` of each probe window for a file of `length` bytes.
+// Implements: LLR-162. Empty at or under the floor; one whole-file sample below
+// 2.25 MiB; otherwise seven windows at floor(k * (length - 256 KiB) / 8), k = 1..7.
+pub fn probe_plan(length: u64) -> Vec<(u64, usize)> {
+    if length <= PROBE_WINDOW {
+        return Vec::new();
+    }
+    if length < PROBE_WHOLE_FILE_LIMIT {
+        return vec![(0, length as usize)];
+    }
+    let span = u128::from(length - PROBE_WINDOW);
+    (1..=PROBE_WINDOWS)
+        .map(|k| {
+            let start = (u128::from(k) * span / 8) as u64;
+            (start, PROBE_WINDOW as usize)
+        })
+        .collect()
+}
+
+/// Collects the planned windows from the chunks of one copy.
+///
+/// The buffer is sized once from the plan, so a file that grows during the copy
+/// cannot enlarge it. A stream that ends early leaves the sample incomplete.
+pub struct WindowSampler {
+    plan: Vec<(u64, usize)>,
+    starts: Vec<usize>,
+    buffer: Vec<u8>,
+    position: u64,
+    filled: usize,
+    failed: bool,
+}
+impl WindowSampler {
+    pub fn new(length: u64) -> Self {
+        let plan = probe_plan(length);
+        let mut starts = Vec::with_capacity(plan.len());
+        let mut total = 0usize;
+        for (_, len) in &plan {
+            starts.push(total);
+            total += len;
+        }
+        Self {
+            plan,
+            starts,
+            buffer: vec![0; total],
+            position: 0,
+            filled: 0,
+            // Fault injection is absent from release/default builds.
+            failed: cfg!(feature = "test-hooks")
+                && std::env::var("FILEBACKUP_TEST_PROBE_FAULT").ok().as_deref() == Some("sampler"),
+        }
+    }
+    /// Take the part of `chunk` that falls in a window; never panics or grows.
+    pub fn feed(&mut self, chunk: &[u8]) {
+        let Some(end) = self.position.checked_add(chunk.len() as u64) else {
+            self.failed = true;
+            return;
+        };
+        for (i, &(start, len)) in self.plan.iter().enumerate() {
+            if start >= end {
+                break;
+            }
+            let window_end = start + len as u64;
+            let (lo, hi) = (start.max(self.position), window_end.min(end));
+            if lo < hi {
+                let into = self.starts[i] + (lo - start) as usize;
+                let from = (lo - self.position) as usize;
+                let count = (hi - lo) as usize;
+                self.buffer[into..into + count].copy_from_slice(&chunk[from..from + count]);
+                self.filled += count;
+            }
+        }
+        self.position = end;
+    }
+    /// True when the sample is the whole file rather than seven windows.
+    pub fn whole_file(&self) -> bool {
+        self.plan.len() == 1
+    }
+    /// The windows in order, or `None` when the sample failed or is incomplete.
+    pub fn windows(&self) -> Option<Vec<&[u8]>> {
+        if self.failed || self.plan.is_empty() || self.filled != self.buffer.len() {
+            return None;
+        }
+        Some(
+            self.plan
+                .iter()
+                .zip(&self.starts)
+                .map(|(&(_, len), &start)| &self.buffer[start..start + len])
+                .collect(),
+        )
+    }
 }
 pub fn hash_file(path: &Path) -> Result<ContentKey> {
     copy_hash(File::open(path)?, std::io::sink())
@@ -426,4 +537,135 @@ pub fn directory_bytes(rows: &[DirectoryRow]) -> Result<Vec<u8>> {
         &sorted_by_path(rows, |r| &r.relative_path),
     )?;
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    fn data(n: usize) -> Vec<u8> {
+        let mut s = 0x2545F4914F6CDD1D_u64;
+        (0..n)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                (s >> 32) as u8
+            })
+            .collect()
+    }
+    /// Reads at most `step` bytes at a time, so windows straddle and split reads.
+    struct Short<'a>(&'a [u8], usize);
+    impl Read for Short<'_> {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.0.len().min(self.1).min(out.len());
+            out[..n].copy_from_slice(&self.0[..n]);
+            self.0 = &self.0[n..];
+            Ok(n)
+        }
+    }
+    fn expected<'a>(bytes: &'a [u8], plan: &[(u64, usize)]) -> Vec<&'a [u8]> {
+        plan.iter()
+            .map(|&(s, l)| &bytes[s as usize..s as usize + l])
+            .collect()
+    }
+
+    #[test]
+    fn plan_sizes_and_offsets() {
+        const W: u64 = PROBE_WINDOW;
+        assert!(probe_plan(0).is_empty());
+        assert!(probe_plan(W).is_empty());
+        assert_eq!(probe_plan(W + 1), vec![(0, W as usize + 1)]);
+        assert_eq!(probe_plan(9 * W - 1), vec![(0, 9 * W as usize - 1)]);
+        let plan = probe_plan(9 * W);
+        let starts: Vec<u64> = plan.iter().map(|p| p.0).collect();
+        assert_eq!(starts, (1..=7).map(|k| k * W).collect::<Vec<_>>());
+        // Interior, ordered, never touching either end, for any length.
+        for length in [
+            9 * W + 5,
+            16 * 1024 * 1024 + 3,
+            u64::MAX / 2,
+            i64::MAX as u64,
+        ] {
+            let plan = probe_plan(length);
+            assert_eq!(plan.len(), 7);
+            let mut previous_end = 0;
+            for &(start, len) in &plan {
+                assert!(start > 0 && start >= previous_end, "{length}");
+                previous_end = start + len as u64;
+                assert!(previous_end < length, "{length}");
+            }
+        }
+        // floor(k * (length - 256 KiB) / 8)
+        let length = 16 * 1024 * 1024 + 3;
+        assert_eq!(probe_plan(length)[2].0, 3 * (length - W) / 8);
+    }
+
+    #[test]
+    fn windows_survive_straddling_and_short_reads() {
+        let bytes = data(3 * 1024 * 1024 + 17);
+        let plan = probe_plan(bytes.len() as u64);
+        for step in [1_000_003, 777, 65_537, 256 * 1024, 5 * 1024 * 1024] {
+            let mut sampler = WindowSampler::new(bytes.len() as u64);
+            let key = copy_hash_sampled(Short(&bytes, step), std::io::sink(), Some(&mut sampler))
+                .unwrap();
+            assert_eq!(
+                key,
+                copy_hash(&bytes[..], std::io::sink()).unwrap(),
+                "{step}"
+            );
+            assert!(!sampler.whole_file());
+            assert_eq!(
+                sampler.windows().unwrap(),
+                expected(&bytes, &plan),
+                "{step}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_small_file_is_one_whole_sample() {
+        let bytes = data(300 * 1024);
+        let mut sampler = WindowSampler::new(bytes.len() as u64);
+        copy_hash_sampled(Short(&bytes, 4096), std::io::sink(), Some(&mut sampler)).unwrap();
+        assert!(sampler.whole_file());
+        assert_eq!(sampler.windows().unwrap(), vec![&bytes[..]]);
+        assert!(WindowSampler::new(PROBE_WINDOW).windows().is_none());
+    }
+
+    #[test]
+    fn a_shrinking_stream_is_incomplete_and_never_panics() {
+        let bytes = data(3 * 1024 * 1024);
+        for cut in [0, 1, 700_000, 10 * 256 * 1024] {
+            let mut sampler = WindowSampler::new(bytes.len() as u64);
+            copy_hash_sampled(
+                Short(&bytes[..cut], 99_999),
+                std::io::sink(),
+                Some(&mut sampler),
+            )
+            .unwrap();
+            assert!(sampler.windows().is_none(), "{cut}");
+        }
+    }
+
+    #[test]
+    fn a_growing_stream_never_enlarges_the_buffer() {
+        let bytes = data(6 * 1024 * 1024);
+        let planned = 3 * 1024 * 1024;
+        let plan = probe_plan(planned as u64);
+        let mut sampler = WindowSampler::new(planned as u64);
+        let capacity = sampler.buffer.len();
+        assert_eq!(capacity, 7 * PROBE_WINDOW as usize);
+        copy_hash_sampled(Short(&bytes, 300_000), std::io::sink(), Some(&mut sampler)).unwrap();
+        assert_eq!(sampler.buffer.len(), capacity);
+        assert_eq!(sampler.windows().unwrap(), expected(&bytes, &plan));
+    }
+
+    #[test]
+    fn offset_overflow_marks_the_sample_failed() {
+        let mut sampler = WindowSampler::new(3 * 1024 * 1024);
+        sampler.position = u64::MAX - 1;
+        sampler.feed(&[0; 16]);
+        assert!(sampler.windows().is_none());
+    }
 }

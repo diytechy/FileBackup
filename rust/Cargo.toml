@@ -23,6 +23,7 @@ tempfile = "3"
 unicode-normalization = "0.1"
 caseless = "0.2.2"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+brotli = { version = "=8.0.4", default-features = false, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
