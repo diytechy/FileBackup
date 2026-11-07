@@ -500,6 +500,49 @@ mod forced_failures {
         assert_eq!(manifest(set).len(), 3);
     }
 
+    // Windows twin of the symlink test: a directory junction is a reparse point.
+    #[cfg(windows)]
+    #[test]
+    fn a_junctioned_log_folder_is_refused_with_one_warning() {
+        let _serial = serial();
+        let (_tmp, cfg) = fixture(true, "always");
+        let set = &cfg.sets[0];
+        fs::write(set.source.join("one.txt"), text(300 * 1024)).unwrap();
+        assert_eq!(engine::backup(&cfg, set).code, 0);
+        let elsewhere = set.store.parent().unwrap().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        fs::remove_dir_all(log_dir(set)).unwrap();
+        let made = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(log_dir(set))
+            .arg(&elsewhere)
+            .output();
+        if !made.is_ok_and(|o| o.status.success()) {
+            eprintln!("SKIPPED: directory junction could not be created here");
+            return;
+        }
+        fs::write(set.source.join("two.txt"), text(302 * 1024)).unwrap();
+        fs::write(set.source.join("three.txt"), text(303 * 1024)).unwrap();
+        let report = engine::backup(&cfg, set);
+        assert_eq!(report.code, 0, "{report:?}");
+        let warnings = report
+            .events
+            .iter()
+            .filter(|e| e.cause == "decision_log_unavailable")
+            .count();
+        assert_eq!(warnings, 1, "{report:?}");
+        assert_eq!(
+            fs::read_dir(&elsewhere).unwrap().count(),
+            0,
+            "nothing followed the junction"
+        );
+        assert_eq!(manifest(set).len(), 3);
+        // Remove the junction itself, never its target's contents.
+        fs::remove_dir(log_dir(set)).unwrap();
+    }
+
     #[test]
     fn a_sampler_or_coder_failure_falls_back_to_the_type_list() {
         let _serial = serial();

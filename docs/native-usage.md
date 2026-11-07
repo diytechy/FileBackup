@@ -115,6 +115,9 @@ not measured: 256 KiB or smaller, or excluded by `CompressProbe`), `fallback`,
 and `bytes_compressed_in` / `bytes_compressed_out` (source length and archive
 size of each object stored compressed).
 
+`bytes_compressed_out` counts 0 for an object whose archive size could not be read
+after verification; it is a statistic only and the backup is unaffected.
+
 ## Recover without Rust
 
 Carry the **whole store**: CurrentBackup and all retained BackupHistory content.
