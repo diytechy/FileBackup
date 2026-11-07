@@ -13,6 +13,13 @@
 *.awk text eol=lf
 recovery/path-keys.tsv text eol=lf
 
+# Everything rust/src/kit.rs embeds must be pinned. core.autocrlf is true on the
+# Windows dev PC, so an unpinned file enters the binary with whatever endings that
+# checkout happens to hold, and the recovery kit then differs by build host.
+*.psm1 text eol=lf
+recovery/Reconstruct.ps1 text eol=lf
+recovery/THIRD-PARTY-NOTICES.txt text eol=lf
+
 # Windows batch launchers stay CRLF (LF-only batch can break cmd.exe parsing).
 *.cmd  text eol=crlf
 *.bat  text eol=crlf
