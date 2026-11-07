@@ -7163,3 +7163,11 @@ million-file diagnostic peak from 1.760 GB to 0.977 GB; the final release measur
 0.973 GB. Opus reviewed the core changes and follow-up state sharing. The earlier
 early-compression concern was withdrawn because the walk sorts before capture.
 See [results and limits](plans/native-design-2026-11-05/memory-optimization-2026-11-06.md).
+
+### 2026-11-06 — Recovery kit no longer depends on the build host's checkout
+
+A diff against a Linux clone found that a build from the Windows checkout embedded
+an LF `RECONSTRUCT.cmd` and a CRLF `FileBackup.Common.psm1`. `rust/src/kit.rs` embeds
+working-tree bytes, and `core.autocrlf` is true there. The owner asked for the fix:
+`.gitattributes` now pins every text file the kit embeds, and the stale working copies
+were rewritten. Only the attributes changed; no engine, kit or recovery source did.
