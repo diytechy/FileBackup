@@ -1,12 +1,15 @@
 //! IF-016: packaged 7-Zip and bounded optional tools; no shell interpolation.
-use crate::format::{ContentKey, hash_file};
+use crate::{
+    format::ContentKey,
+    progress::{self, Counters, Reading},
+};
 use anyhow::{Context, Result, ensure};
 use std::{
     fs::File,
     io::Read,
     path::{Path, PathBuf},
     process::{Child, ChildStdout, Command, ExitStatus, Stdio},
-    sync::mpsc,
+    sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -371,7 +374,17 @@ pub fn verify(path: &Path, key: &ContentKey) -> Result<bool> {
     Ok(verify_form(path, key)?.is_some())
 }
 pub fn verify_form(path: &Path, key: &ContentKey) -> Result<Option<StoredForm>> {
-    if std::fs::metadata(path)?.len() == key.length && hash_file(path)? == *key {
+    verify_form_counted(path, key, &Arc::default())
+}
+/// As `verify_form`, counting the bytes read: stored bytes for a raw object,
+/// expanded bytes for an archive.
+pub fn verify_form_counted(
+    path: &Path,
+    key: &ContentKey,
+    counters: &Arc<Counters>,
+) -> Result<Option<StoredForm>> {
+    if std::fs::metadata(path)?.len() == key.length && progress::hash_file(path, counters)? == *key
+    {
         return Ok(Some(StoredForm::Raw));
     }
     if !is_archive(path)? {
@@ -409,14 +422,15 @@ pub fn verify_form(path: &Path, key: &ContentKey) -> Result<Option<StoredForm>> 
         crate::platform::HostStop("encrypted stored object is unsupported")
     );
     let expected = key.length;
+    let counters = counters.clone();
     let result = invoke(
         seven_zip_command()?
             .args(["e", "-so", "-t7z", "-mmt=2", "-p-", "-spd", "--"])
             .arg(path),
         deadline(expected),
         move |pipe| {
-            let actual =
-                crate::format::copy_hash(pipe.take(expected.saturating_add(1)), std::io::sink())?;
+            let pipe = Reading::new(pipe.take(expected.saturating_add(1)), &counters);
+            let actual = crate::format::copy_hash(pipe, std::io::sink())?;
             ensure!(actual.length <= expected, OutputLimit);
             Ok(actual)
         },

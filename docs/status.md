@@ -7171,3 +7171,14 @@ an LF `RECONSTRUCT.cmd` and a CRLF `FileBackup.Common.psm1`. `rust/src/kit.rs` e
 working-tree bytes, and `core.autocrlf` is true there. The owner asked for the fix:
 `.gitattributes` now pins every text file the kit embeds, and the stale working copies
 were rewritten. Only the attributes changed; no engine, kit or recovery source did.
+
+### 2026-11-06 — Native progress lines restored
+
+The native engine had lost the PowerShell engine's `Progress:` line and printed only
+`Backup still active` every 120 s; shallow and deep verify printed nothing. Backup and
+verify now write a line to stderr every 60 s with the set name, phase, counts and elapsed
+seconds, from a timer thread that reads shared atomics, so it keeps printing during one
+huge file. No path or file name is in a line. The JSON report, `backup.log`, exit codes,
+formats and the kit are unchanged. SR-159, LLR-191 and TC-302 record it, Drafted, bound to
+`rust/tests/progress.rs`. The real 60 s cadence, multi-hour runs and arrival in the hub
+journal are not exercised.

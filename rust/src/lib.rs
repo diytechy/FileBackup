@@ -5,5 +5,6 @@ pub mod kit;
 pub mod maintenance;
 pub mod notify;
 pub mod platform;
+pub mod progress;
 pub mod store;
 pub mod tools;

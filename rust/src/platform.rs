@@ -316,4 +316,14 @@ pub fn checkpoint(_name: &str) {
             std::thread::park_timeout(std::time::Duration::from_secs(1));
         }
     }
+    // name=ms[,name=ms]: stay at a checkpoint for a while, then carry on.
+    #[cfg(feature = "test-hooks")]
+    if let Ok(holds) = std::env::var("FILEBACKUP_TEST_HOLD")
+        && let Some(ms) = holds
+            .split(',')
+            .filter_map(|hold| hold.split_once('='))
+            .find_map(|(name, ms)| (name == _name).then(|| ms.parse().ok())?)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
 }

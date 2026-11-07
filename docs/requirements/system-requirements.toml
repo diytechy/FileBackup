@@ -1838,3 +1838,18 @@ form = "assumption"
 da_refs = ["DA-06", "DA-15"]
 hat_refs = ["FILESYSTEM-SEMANTICS", "INTEGRITY-RECOVERABILITY", "UNATTENDED-OPS"]
 delivered_with = ["SR-017", "SR-023", "SR-029", "SR-052", "SR-075", "SR-082", "SR-086", "SR-092", "SR-119", "SR-120", "SR-145", "SR-146"]
+
+[requirement.SR-159]
+title = "A long backup or verification states its phase and counts on a timer"
+sn_refs = ["SN-044"]
+boundary_refs = ["B-06", "B-20"]
+hat_refs = ["UNATTENDED-OPS"]
+requirement = "While a backup or verification run is in progress, the system shall write to standard error, every 60 seconds of the run's active execution time, a line of the set name, the current phase, the elapsed seconds and, where the phase has a known total, the units finished of that total, with no path, file name or credential in the line."
+rationale = "SR-125 bounds how often progress appears but not what it says or where it goes. The native rewrite kept a bare still-active message and lost the PowerShell engine's counts, so a multi-day run showed only that a process existed. A timer keeps a stall on one large file visible where a per-file line goes silent. Standard error reaches the system journal, so the line carries numbers, the phase and the set name only."
+acceptance_criteria = "Hold a source file's read, the store index, the source walk and a verification read beyond several intervals. A line appears at each interval throughout and names its phase; a phase with no known total shows no count. Finished counts and bytes read match the fixture, and a retried file counts once. No line contains a path or file name. The JSON report fields, the operational log and the exit code are those of a run without the lines, and the timer stops on success and on every failure path."
+permutations = "action=set{backup,quick-verify,deep-verify}; phase=set{preparing,indexing,walking,counted,finishing}; outcome=set{complete,refused,host-stop}; @pairwise"
+priority = "S"
+verification = "Test"
+status = "Drafted"
+form = "assumption"
+da_refs = ["DA-22"]

@@ -4,6 +4,7 @@ use crate::{
     engine::Report,
     format::{self, ContentKey},
     kit, platform,
+    progress::{Counters, Phase, Reporter},
     store::{Store, is_state_file, snapshot_order},
     tools,
 };
@@ -13,6 +14,7 @@ use std::{
     fs::{self, File},
     io::Write,
     path::Path,
+    sync::Arc,
 };
 
 pub fn snapshots(set: &BackupSet) -> Result<Vec<String>> {
@@ -54,7 +56,9 @@ pub fn inventory(set: &BackupSet) -> Report {
     }
     report
 }
+// Implements: LLR-191.
 pub fn verify(set: &BackupSet, deep: bool, repair: bool) -> Report {
+    let reporter = Reporter::start(&set.name);
     let mut report = Report::new(if repair { "repair" } else { "verify" }, &set.name);
     report.details = Some(
         serde_json::json!({"inspection_mode":if deep || repair {"verified_content"} else {"metadata_only"}}),
@@ -68,12 +72,18 @@ pub fn verify(set: &BackupSet, deep: bool, repair: bool) -> Report {
                 .into(),
         );
     }
-    if let Err(e) = verify_inner(set, deep, repair, &mut report) {
+    if let Err(e) = verify_inner(set, deep, repair, &mut report, reporter.counters()) {
         report.finding(4, format!("{e:#}"));
     }
     report
 }
-fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) -> Result<()> {
+fn verify_inner(
+    set: &BackupSet,
+    deep: bool,
+    repair: bool,
+    report: &mut Report,
+    counters: &Arc<Counters>,
+) -> Result<()> {
     let store = Store::new(&set.store);
     ensure!(
         store.current.is_dir() && store.history.is_dir(),
@@ -84,9 +94,19 @@ fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) 
     } else {
         None
     };
+    counters.enter(Phase::IndexingStore);
     let index = store.index()?;
     let mut verdicts: BTreeMap<&Path, Option<tools::StoredForm>> = BTreeMap::new();
-    for state in store.states()? {
+    let states = store.states()?;
+    // A deep pass hashes each object once, so objects are its measure. A quick pass
+    // has no total before it reads each manifest, so it counts states and records.
+    if deep || repair {
+        let objects = index.values().map(Vec::len).sum::<usize>();
+        counters.enter_counted(Phase::DeepVerify, objects as u64);
+    } else {
+        counters.enter_counted(Phase::QuickVerify, states.len() as u64);
+    }
+    for state in states {
         let path = state.join(format::MANIFEST);
         let before = match fs::metadata(&path).and_then(|m| m.modified()) {
             Ok(stamp) => stamp,
@@ -133,6 +153,7 @@ fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) 
         }
         let mut changed = false;
         for row in &mut rows {
+            counters.record_seen();
             let mut usable = false;
             let mut unavailable = false;
             if let Some(objects) = index.get(&row.key()) {
@@ -141,9 +162,10 @@ fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) 
                         if let Some(form) = verdicts.get(object.path.as_path()) {
                             *form
                         } else {
-                            match tools::verify_form(&object.path, &row.key()) {
+                            match tools::verify_form_counted(&object.path, &row.key(), counters) {
                                 Ok(form) => {
                                     verdicts.insert(object.path.as_path(), form);
+                                    counters.item_done();
                                     form
                                 }
                                 Err(e) => {
@@ -239,6 +261,9 @@ fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) 
         } else if changed {
             platform::atomic_write_with(&path, true, |file| format::write_manifest(file, &rows))?;
         }
+        if !deep && !repair {
+            counters.item_done();
+        }
     }
     for objects in index.values() {
         if objects.len() > 1 {
@@ -255,8 +280,11 @@ fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) 
                 let form = if let Some(form) = verdicts.get(object.path.as_path()) {
                     *form
                 } else {
-                    match tools::verify_form(&object.path, &object.key) {
-                        Ok(form) => form,
+                    match tools::verify_form_counted(&object.path, &object.key, counters) {
+                        Ok(form) => {
+                            counters.item_done();
+                            form
+                        }
                         Err(e) => {
                             report.finding_at(
                                 4,
@@ -298,6 +326,7 @@ fn verify_inner(set: &BackupSet, deep: bool, repair: bool, report: &mut Report) 
             }
         }
     }
+    platform::checkpoint("verify-objects-checked");
     for path in store.misplaced()? {
         report.finding_at(
             1,
