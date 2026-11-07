@@ -124,14 +124,14 @@ fn brotli_sizes_match_the_dotnet_reference_table() {
         assert_eq!(buffer.len() as f64, raw, "{name}");
         let ours = engine::brotli_size(&buffer).unwrap() as f64 / raw;
         let theirs = size / raw;
-        if (ours - theirs).abs() > 0.005 {
+        if (ours - theirs).abs() > 0.001 {
             off.push(format!("{name}: rust {ours:.4} vs .NET {theirs:.4}"));
         }
         near_threshold += usize::from((0.85..=0.95).contains(&theirs));
         // The verdict at SR-081's threshold must agree as well.
         assert_eq!(ours <= 0.90, theirs <= 0.90, "{name} verdict");
     }
-    assert!(off.is_empty(), "outside 0.005 of .NET: {off:?}");
+    assert!(off.is_empty(), "outside 0.001 of .NET: {off:?}");
     assert!(near_threshold >= 5, "table needs mixtures near 0.90");
 }
 

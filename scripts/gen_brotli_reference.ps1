@@ -7,7 +7,7 @@ Builds the deterministic 256 KiB buffers defined below and records the exact
 compressed size of each from .NET's BrotliEncoder.TryCompress at quality 1,
 window 22 (the PowerShell probe's own settings). The Rust test
 `rust/tests/probe.rs` builds the same buffers with the same generator and
-requires its ratio to land within 0.005 of each recorded one (LLR-162).
+requires its ratio to land within 0.001 of each recorded one (LLR-162).
 
 The generator is defined here and again in rust/tests/probe.rs; the table
 records its constants so a drift in either is visible. Run it only to change

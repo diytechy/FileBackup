@@ -449,14 +449,15 @@ impl Combination {
         }
     }
 }
-/// A finished Brotli stream's size, matching .NET's `BrotliEncoder` at quality 1,
-/// window 22: the coder SR-081's threshold was calibrated on. Measuring only;
-/// nothing stored depends on it.
+/// A finished Brotli stream's size at quality 1, window 22, matching .NET's
+/// `BrotliEncoder`: the coder SR-081's threshold was calibrated on. Measuring
+/// only; nothing stored depends on it.
 ///
-/// The crate's own quality 1 is not that encoder: it misses a 64 KiB repeat
-/// that .NET's quality 1 finds (ratio 1.0006 against 0.2502). The crate's
-/// quality 2 reproduces .NET's sizes, so that is what is set here; the
-/// checked-in .NET table pins the equivalence within 0.005 in ratio.
+/// The whole window must reach the encoder in one call. `brotli::BrotliCompress`
+/// reads its input through a 4 KiB buffer, and the quality 0/1 fast path
+/// compresses whatever it is handed per call, so a 256 KiB window would be
+/// compressed as 4 KiB pieces and miss repeats longer than that (a 64 KiB
+/// repeat reads 1.0 instead of 0.25). Never feed it in small pieces.
 pub fn brotli_size(data: &[u8]) -> Result<usize> {
     struct Count(usize);
     impl Write for Count {
@@ -474,12 +475,16 @@ pub fn brotli_size(data: &[u8]) -> Result<usize> {
         "forced coder failure"
     );
     let params = brotli::enc::BrotliEncoderParams {
-        quality: 2,
+        quality: 1,
         lgwin: 22,
         ..Default::default()
     };
     let mut count = Count(0);
-    brotli::BrotliCompress(&mut &data[..], &mut count, &params)?;
+    {
+        let mut encoder = brotli::CompressorWriter::with_params(&mut count, 1 << 20, &params);
+        encoder.write_all(data)?;
+        encoder.flush()?;
+    }
     Ok(count.0)
 }
 /// One measured decision: the combined ratio and each window's ratio.
@@ -1506,6 +1511,24 @@ fn backup_inner(
 #[cfg(test)]
 mod probe_tests {
     use super::*;
+
+    // A 64 KiB random block repeated four times: fed whole it compresses to
+    // about a quarter; fed in 4 KiB pieces it would read 1.0.
+    #[test]
+    fn the_window_is_presented_to_the_encoder_whole() {
+        let mut s = 0x9E3779B97F4A7C15_u64;
+        let block: Vec<u8> = (0..65536)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                (s >> 32) as u8
+            })
+            .collect();
+        let window = block.repeat(4);
+        let ratio = brotli_size(&window).unwrap() as f64 / window.len() as f64;
+        assert!(ratio < 0.30, "longrange measured {ratio:.4}");
+    }
 
     /// (raw, packed) pairs for seven windows from their ratios in thousandths.
     fn windows(thousandths: [usize; 7]) -> Vec<(usize, usize)> {
