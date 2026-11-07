@@ -399,3 +399,13 @@ detail = "Ship a configuration helper/examples, offline provisioning guidance, r
 rationale = "Delivery material is part of recovery capability and redistribution compliance, not an optional web link unavailable offline."
 test_refs = "TC-300, TC-301"
 status = "Drafted"
+
+[design.LLR-191]
+sr_refs = ["SR-125", "SR-159"]
+title = "Timed progress reporter over shared counters"
+module = "rust/src/progress.rs"
+code_symbol = "Reporter, Counters, Reading"
+detail = "backup and verify each own one Reporter, whose thread waits 60 s on a stop channel and writes Counters::line to stderr in one write, ignoring failure. Dropping the Reporter stops the thread, so every return and unwind ends it; the drop waits at most 2 s, so a stalled stderr reader abandons the thread and never holds the run. A thread that cannot start costs the lines only. Workers update relaxed atomics, one add per 256 KiB read through Reading and one per finished unit, with no lock, stat or extra read. Backup phases are preparing, indexing store and walking source, with no count, then capturing and finishing with files done of files walked and bytes read. A file is done when reused or captured, never per attempt: a failed attempt, or a re-read that finds changed bytes, rewinds its bytes, so a file's bytes count once and a file that fails every attempt is not done. Deep verify counts each object at its first completed verdict against the indexed object count; bytes are stored bytes for a raw object and expanded bytes for an archive. Quick verify counts finished states of all states and records seen, because no record total exists before each manifest is read. Lines enter neither the JSON report nor backup.log."
+rationale = "The worker may sit inside one read for hours, so the timer owns the output and the hot loop owns only the counters. A drop-based stop has no early return to miss, unlike a paired stop call."
+test_refs = "TC-302"
+status = "Drafted"

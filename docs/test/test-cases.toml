@@ -494,3 +494,15 @@ expected = "Run the shipped configuration helper and examples with only location
 automated = "Yes"
 status = "Drafted"
 notes = "Partial binding: docs/plans/native-design-2026-11-05/implementation-map.md (LLR-190). scripts/prepare_native_hash.py; docs/native-usage.md; docs/native-support.md. Support material is linked to actual local results; full platform/notice qualification remains."
+
+
+[test.TC-302]
+verifies = ["LLR-191", "SR-125", "SR-159"]
+level = "System"
+method = "Test"
+tier = "Full"
+parameters = "action=set{backup,quick-verify,deep-verify}; hold=set{index,walk,read,finish}; outcome=set{complete,refused,host-stop}; @pairwise"
+expected = "With a short injected interval and held reads, lines keep appearing during one file and name their phase; a phase with no total shows no count. Counts and bytes match the fixture; a retried or changed file counts once; each deep-verify object counts once, including one no record names. No line holds a path or file name. Report fields and backup.log are unchanged, the reporter thread ends on success and on each failure path, and a stalled stderr reader does not hold the run."
+automated = "Yes"
+status = "Drafted"
+notes = "Binding: rust/tests/progress.rs. Linux-executed with an injected interval; the real 60 s cadence, multi-hour runs and arrival in the hub journal are not exercised, and a file that fails all three attempts is not exercised."

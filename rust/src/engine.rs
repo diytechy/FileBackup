@@ -3,6 +3,7 @@ use crate::{
     config::{BackupSet, Config},
     format::{self, ContentKey, DirectoryRow, FileRow},
     kit, platform,
+    progress::{self, Counters, Phase, Reading, Reporter},
     store::{Object, Store, index_object},
     tools,
 };
@@ -14,7 +15,7 @@ use std::{
     fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    sync::mpsc,
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
@@ -443,6 +444,7 @@ fn should_compress(
         }
     }
 }
+#[allow(clippy::too_many_arguments)]
 fn capture(
     set: &BackupSet,
     store: &Store,
@@ -451,6 +453,7 @@ fn capture(
     index: &mut BTreeMap<ContentKey, Vec<Object>>,
     ffprobe: Option<&Path>,
     report: &mut Report,
+    counters: &Arc<Counters>,
 ) -> Result<FileRow> {
     let before = fs::metadata(path)?;
     let stamp = modified(&before)?;
@@ -481,7 +484,7 @@ fn capture(
         return Err(platform::HostStop("insufficient staging capacity").into());
     }
     let mut staged = platform::store_temp_file(&incoming)?;
-    let key = format::copy_hash(File::open(path)?, &mut staged)?;
+    let key = format::copy_hash(Reading::new(File::open(path)?, counters), &mut staged)?;
     staged.as_file().sync_all()?;
     // Close the staging writer before another process reads the file on Windows.
     let staged = staged.into_temp_path();
@@ -621,11 +624,12 @@ fn capture(
         media,
     })
 }
-// Implements: LLR-153, LLR-155..167, LLR-180.
+// Implements: LLR-153, LLR-155..167, LLR-180, LLR-191.
 pub fn backup(config: &Config, set: &BackupSet) -> Report {
     let start = Instant::now();
+    let reporter = Reporter::start(&set.name);
     let mut report = Report::new("backup", &set.name);
-    if let Err(e) = backup_inner(config, set, &mut report) {
+    if let Err(e) = backup_inner(config, set, &mut report, reporter.counters()) {
         report.finding(4, format!("{e:#}"));
     }
     report.elapsed_ms = start.elapsed().as_millis();
@@ -795,7 +799,12 @@ fn move_superseded(store: &Store, required: &BTreeSet<ContentKey>) -> Result<()>
     }
     Ok(())
 }
-fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result<()> {
+fn backup_inner(
+    config: &Config,
+    set: &BackupSet,
+    report: &mut Report,
+    counters: &Arc<Counters>,
+) -> Result<()> {
     kit::preflight()?;
     if set.compress {
         tools::preflight()?;
@@ -854,14 +863,6 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         prior.is_empty() || fs::read_dir(&set.source)?.next().is_some(),
         "previously populated source appears empty; refusing removals"
     );
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
-    let set_name = set.name.clone();
-    let progress = thread::spawn(move || {
-        while stop_rx.recv_timeout(Duration::from_secs(120)) == Err(mpsc::RecvTimeoutError::Timeout)
-        {
-            eprintln!("Backup still active: {set_name}");
-        }
-    });
     let work = || -> Result<()> {
         if !fresh {
             store.preserve()?;
@@ -871,6 +872,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         } else {
             None
         };
+        counters.enter(Phase::IndexingStore);
         let mut index = store.index()?;
         platform::checkpoint("pool-indexed");
         let protected: Vec<_> = config
@@ -878,6 +880,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             .iter()
             .flat_map(|s| std::iter::once(s.store.clone()).chain(s.view.clone()))
             .collect();
+        counters.enter(Phase::WalkingSource);
         let walked = walk(&set.source, &protected);
         platform::checkpoint("source-walked");
         for prefix in &walked.frozen {
@@ -897,6 +900,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         let mut wait_budget = Duration::from_secs(60);
         let mut queue = BinaryHeap::new();
         let mut first_attempts = 0..walked.files.len();
+        counters.enter_counted(Phase::Capturing, walked.files.len() as u64);
         platform::checkpoint("capture-ready");
         while let Some((eligible, i, attempt)) = first_attempts
             .next()
@@ -906,6 +910,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
             let relative = &walked.files[i];
             let path = set.source.join(relative.split('/').collect::<PathBuf>());
             let key = format::path_key(relative);
+            let read_mark = counters.bytes_read();
             let delay = eligible.saturating_duration_since(Instant::now());
             if !delay.is_zero() {
                 if delay > wait_budget {
@@ -933,7 +938,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 // nothing. Changed bytes fall through to a staged capture, so an
                 // object is still named after the bytes written. Stored objects
                 // are the deep verify's job, on its own cadence.
-                let found = reread.then(|| format::hash_file(&path));
+                let found = reread.then(|| progress::hash_file(&path, counters));
                 let same = match &found {
                     None => true,
                     // As in a staged capture: a file written during the read proves nothing.
@@ -948,8 +953,10 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 };
                 if same {
                     report.reused += 1;
+                    counters.item_done();
                     continue;
                 }
+                counters.rewind_bytes(read_mark);
                 if matches!(found, Some(Ok(_))) {
                     report.finding_at(
                         0,
@@ -968,12 +975,14 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 &mut index,
                 config.ffprobe.as_deref(),
                 report,
+                counters,
             ) {
                 Ok(row) => Some(row),
                 Err(e) => {
                     if platform::is_host_stop(&e) {
                         return Err(e);
                     }
+                    counters.rewind_bytes(read_mark);
                     if attempt < 2 {
                         let backoff = Duration::from_secs(if attempt == 0 { 1 } else { 5 });
                         queue.push(std::cmp::Reverse((
@@ -1008,6 +1017,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 }
                 rows.insert(key, RunRow::Captured(Box::new(row)));
                 report.captured += 1;
+                counters.item_done();
             } else {
                 report.failed += 1;
                 if report.code == 0 {
@@ -1022,6 +1032,7 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
                 checkpoint = Instant::now();
             }
         }
+        counters.enter(Phase::Finishing);
         ensure!(
             set.source.is_dir()
                 && (prior.is_empty()
@@ -1108,8 +1119,5 @@ fn backup_inner(config: &Config, set: &BackupSet, report: &mut Report) -> Result
         }
         Ok(())
     };
-    let result = work();
-    drop(stop_tx);
-    let _ = progress.join();
-    result
+    work()
 }
