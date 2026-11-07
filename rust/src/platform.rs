@@ -165,6 +165,8 @@ pub fn sync_directory(path: &Path) -> Result<()> {
 /// Store files take the host's ordinary creation mode, so umask and any default
 /// ACL decide who may read the store, not tempfile's private default.
 pub fn store_temp_file(parent: &Path) -> std::io::Result<tempfile::NamedTempFile> {
+    // Only the unix branch mutates the builder.
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = tempfile::Builder::new();
     #[cfg(unix)]
     {
