@@ -45,6 +45,28 @@ then 1. Explicit repair preserves uncertain bytes in `Verify`; inspect those
 bytes before manually clearing them. A content hash verifies byte agreement with
 the selected definitions, not provenance or source completeness.
 
+Helper deadlines are 300 s plus 1 s per MiB of the file for a listing and an
+expand. Compression is held to two bounds, and the first to trip is a host stop
+(exit 4) that names which one: a ceiling of 300 s plus 4 s per MiB (a floor of about
+0.25 MiB/s, so a 21 GB file may run about 22.3 hours), and a stall bound, no growth
+of the archive for 60 minutes. The archive's size is read once a second for the
+progress line below.
+
+While a file is compressed or its stored archive is checked (the read-back after
+compression, the check of an object it already matches, and the check of an object
+moved into place), progress carries two more phases, so a very large file no longer
+shows one unchanged line for hours. Neither line holds a path or file name:
+
+```
+Progress: set 'Photos', compressing: 41 of 900 file(s), 3.2 GiB of a 20.0 GiB file written, 3600 s
+Progress: set 'Photos', checking archive: 41 of 900 file(s), 9.6 GiB of 20.0 GiB expanded, 4200 s
+```
+
+In `compressing` the first figure is the archive's size so far, so it rises more
+slowly than the input is read; in `checking archive` it is bytes expanded. Both
+figures are separate from the `bytes read` figure of `capturing`, which still counts
+each file's source bytes once. A deep verify keeps its own `deep verify` line.
+
 ConfigVersion 3 retains `BackupSets`, `Tools` and `Secrets`. Set keys are `Name`,
 `SourcePath`, `StorePath`, `HashRecalcFreq` (A/E/D/W/M/Y/N), `CompressEnabled`,
 `CompressProbe` (always/off/excluded-extensions), `BrowseView` (off/index), and an

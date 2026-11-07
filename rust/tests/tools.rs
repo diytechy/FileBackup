@@ -260,7 +260,7 @@ fn bundled_archives_extract_with_external_seven_zip_including_empty_files() {
         let archive = input.with_extension("7z");
         fs::write(&input, &bytes).unwrap();
         let key = format::hash_file(&input).unwrap();
-        tools::compress(&input, &archive).unwrap();
+        tools::compress_counted(&input, &archive, &Default::default()).unwrap();
         assert!(tools::verify(&archive, &key).unwrap());
         let extracted = external_seven_zip()
             .args(["e", "-so"])
@@ -380,6 +380,44 @@ fn helper_paths_are_literal_even_with_wildcards() {
     )
     .unwrap();
     let archive = tmp.path().join("archive?.7z");
-    tools::compress(&input, &archive).unwrap();
+    tools::compress_counted(&input, &archive, &Default::default()).unwrap();
     assert!(tools::verify(&archive, &format::hash_file(&input).unwrap()).unwrap());
+}
+
+#[test]
+fn compression_gets_four_seconds_per_mib_and_the_others_keep_one() {
+    use filebackup::tools::{compress_deadline, deadline};
+    let s = Duration::from_secs;
+    assert_eq!(compress_deadline(1024 * 1024), s(304));
+    assert_eq!(compress_deadline(1024 * 1024 * 1024), s(4396));
+    // A 21 GB file is 20,027 whole MiB: 80,408 s, about 22.3 hours.
+    assert_eq!(compress_deadline(21_000_000_000), s(80_408));
+    assert_eq!(compress_deadline(u64::MAX), s(300 + (u64::MAX >> 20) * 4));
+    // The listing and the expand keep today's allowance.
+    assert_eq!(deadline(1024 * 1024), s(301));
+    assert_eq!(deadline(1024 * 1024 * 1024), s(1324));
+    assert_eq!(deadline(21_000_000_000), s(20_327));
+    assert_eq!(deadline(0), s(300));
+}
+
+#[test]
+fn the_stall_bound_trips_only_after_a_whole_window_without_growth() {
+    use filebackup::tools::StallWatch;
+    let t0 = Instant::now();
+    let at = |s: u64| t0 + Duration::from_secs(s);
+    let mut watch = StallWatch::new(Duration::from_secs(60), t0);
+    assert!(!watch.observe(Some(0), at(30)));
+    assert!(
+        !watch.observe(Some(10), at(50)),
+        "growth restarts the window"
+    );
+    // An unreadable size is no growth, and it does not hide a stall.
+    assert!(!watch.observe(None, at(109)));
+    assert!(watch.observe(None, at(110)));
+    assert!(
+        !watch.observe(Some(11), at(111)),
+        "a later growth clears it"
+    );
+    // A size that repeats is no growth.
+    assert!(watch.observe(Some(11), at(171)));
 }

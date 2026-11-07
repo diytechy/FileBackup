@@ -501,11 +501,11 @@ verifies = ["LLR-191", "SR-125", "SR-159"]
 level = "System"
 method = "Test"
 tier = "Full"
-parameters = "action=set{backup,quick-verify,deep-verify}; hold=set{index,walk,read,finish}; outcome=set{complete,refused,host-stop}; @pairwise"
-expected = "With a short injected interval and held reads, lines keep appearing during one file and name their phase; a phase with no total shows no count. Counts and bytes match the fixture; a retried or changed file counts once; each deep-verify object counts once, including one no record names. No line holds a path or file name. Report fields and backup.log are unchanged, the reporter thread ends on success and on each failure path, and a stalled stderr reader does not hold the run."
+parameters = "action=set{backup,quick-verify,deep-verify}; hold=set{index,walk,read,compress,check,finish}; outcome=set{complete,refused,host-stop}; @pairwise"
+expected = "With a short injected interval and held reads, lines keep appearing during one file and name their phase; a phase with no total shows no count. Counts and bytes match the fixture; a retried or changed file counts once; each deep-verify object counts once, including one no record names. A held compression shows a compressing line whose archive count rises between lines, and a held archive check a checking archive line whose expanded count rises; both step counts stay out of bytes read, and the phase returns to capturing with cleared step counters after success and after a forced failure. No line holds a path, file name, archive- or content.7z. Report fields and backup.log are unchanged, the reporter thread ends on success and on each failure path, and a stalled stderr reader does not hold the run."
 automated = "Yes"
 status = "Drafted"
-notes = "Binding: rust/tests/progress.rs. Linux-executed with an injected interval; the real 60 s cadence, multi-hour runs and arrival in the hub journal are not exercised, and a file that fails all three attempts is not exercised."
+notes = "Binding: rust/tests/progress.rs (the step lines and the guard, held compression, stall bound, held archive check and dedup check) and rust/tests/tools.rs (compress_deadline pins, StallWatch). The compression poll is driven by a scripted archive-size source under test-hooks, because a real hold does not grow an archive; the real-time growth of an archive on Windows is not exercised, and the new tests ran on Windows only. Linux-executed with an injected interval; the real 60 s cadence, multi-hour runs and arrival in the hub journal are not exercised, and a file that fails all three attempts is not exercised."
 
 
 [test.TC-303]

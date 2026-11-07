@@ -860,7 +860,8 @@ fn capture(
     if let Some(objects) = index.get_mut(&key) {
         for object in objects.iter_mut() {
             if object.verified.is_none() {
-                object.verified = tools::verify_form(&object.path, &key)?;
+                let _step = counters.enter_step(Phase::CheckingArchive, key.length);
+                object.verified = tools::verify_form_step(&object.path, &key, counters)?;
             }
             if object.state == store.current && object.verified.is_none() {
                 object.path = store.quarantine(&object.path)?;
@@ -888,7 +889,8 @@ fn capture(
                     object.state = store.current.clone();
                 }
                 let form = if object.path != destination {
-                    tools::verify_form(&destination, &key)?
+                    let _step = counters.enter_step(Phase::CheckingArchive, key.length);
+                    tools::verify_form_step(&destination, &key, counters)?
                         .context("destination object is unusable")?
                 } else {
                     form
@@ -924,9 +926,13 @@ fn capture(
         .tempdir_in(&incoming)?;
     let archive = archive_dir.path().join("content.7z");
     if compressed {
-        tools::compress(&staged, &archive)?;
+        {
+            let _step = counters.enter_step(Phase::Compressing, key.length);
+            tools::compress_counted(&staged, &archive, counters)?;
+        }
+        let _step = counters.enter_step(Phase::CheckingArchive, key.length);
         ensure!(
-            tools::verify(&archive, &key)?,
+            tools::verify_step(&archive, &key, counters)?,
             "compressor output failed round-trip verification"
         );
     }
@@ -949,10 +955,11 @@ fn capture(
     fs::create_dir_all(destination.parent().unwrap())?;
     platform::ordinary_dir(destination.parent().unwrap())?;
     if destination.try_exists()? {
-        ensure!(
-            !tools::verify(&destination, &key)?,
-            "unexpected usable destination; retry index"
-        );
+        let usable = {
+            let _step = counters.enter_step(Phase::CheckingArchive, key.length);
+            tools::verify_step(&destination, &key, counters)?
+        };
+        ensure!(!usable, "unexpected usable destination; retry index");
         store.quarantine(&destination)?;
         report.finding(
             1,

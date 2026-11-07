@@ -110,10 +110,13 @@ impl Drop for ToolChild {
     }
 }
 // One lifetime/deadline implementation for bounded text output and streamed hashes.
+// `progress`, when given, runs on the calling thread at most once per
+// `poll_interval()`, timed with `Instant`; an error from it ends the tool.
 fn invoke<T: Send + 'static>(
     cmd: &mut Command,
     timeout: Duration,
     read: impl FnOnce(ChildStdout) -> Result<T> + Send + 'static,
+    mut progress: Option<&mut dyn FnMut() -> Result<()>>,
 ) -> Result<(ExitStatus, T, Vec<u8>)> {
     let mut child = ToolChild::spawn(
         cmd.stdin(Stdio::null())
@@ -137,6 +140,12 @@ fn invoke<T: Send + 'static>(
         let _ = send_error.send(result);
     });
     let start = Instant::now();
+    let mut last_poll = start;
+    let hold = if progress.is_some() {
+        compress_hold()
+    } else {
+        Duration::ZERO
+    };
     let mut result = None;
     let status = loop {
         if result.is_none() {
@@ -148,11 +157,19 @@ fn invoke<T: Send + 'static>(
                 }
             }
         }
-        if let Some(status) = child.try_wait()? {
+        if let Some(poll) = progress.as_mut()
+            && last_poll.elapsed() >= poll_interval()
+        {
+            last_poll = Instant::now();
+            poll()?;
+        }
+        if let Some(status) = child.try_wait()?
+            && start.elapsed() >= hold
+        {
             break status;
         }
         if start.elapsed() >= timeout {
-            return Err(crate::platform::HostStop("tool deadline exceeded").into());
+            return Err(expired("tool deadline exceeded"));
         }
         thread::sleep(Duration::from_millis(20));
     };
@@ -160,31 +177,41 @@ fn invoke<T: Send + 'static>(
         Some(value) => value,
         None => receive
             .recv_timeout(timeout.saturating_sub(start.elapsed()))
-            .map_err(|_| {
-                crate::platform::HostStop("tool output did not close before deadline")
-            })??,
+            .map_err(|_| expired("tool output did not close before deadline"))??,
     };
     let diagnostic = receive_error
         .recv_timeout(timeout.saturating_sub(start.elapsed()))
-        .map_err(|_| {
-            crate::platform::HostStop("tool diagnostics did not close before deadline")
-        })??;
+        .map_err(|_| expired("tool diagnostics did not close before deadline"))??;
     Ok((status, result, diagnostic))
+}
+/// Marks a host stop as the tool running out of time, so a caller with its own
+/// bound can tell it from the other stops without matching on a message.
+#[derive(Debug)]
+struct Expired(&'static str);
+impl std::fmt::Display for Expired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+fn expired(message: &'static str) -> anyhow::Error {
+    anyhow::Error::new(crate::platform::HostStop(message)).context(Expired(message))
+}
+// Up to `limit` bytes of a tool's output; more is a host stop.
+fn read_bounded(pipe: ChildStdout, limit: u64) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    pipe.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        return Err(anyhow::Error::new(OutputLimit)
+            .context(crate::platform::HostStop("tool exceeded output budget")));
+    }
+    Ok(bytes)
 }
 fn capture_output(
     cmd: &mut Command,
     limit: u64,
     timeout: Duration,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-    invoke(cmd, timeout, move |pipe| {
-        let mut bytes = Vec::new();
-        pipe.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > limit {
-            return Err(anyhow::Error::new(OutputLimit)
-                .context(crate::platform::HostStop("tool exceeded output budget")));
-        }
-        Ok(bytes)
-    })
+    invoke(cmd, timeout, move |pipe| read_bounded(pipe, limit), None)
 }
 pub fn output(cmd: &mut Command, limit: u64, timeout: Duration) -> Result<Vec<u8>> {
     let (status, bytes, _) = capture_output(cmd, limit, timeout)?;
@@ -315,27 +342,141 @@ pub fn preflight() -> Result<()> {
     );
     Ok(())
 }
-pub fn compress(input: &Path, archive: &Path) -> Result<()> {
+fn compress_command(input: &Path, archive: &Path) -> Result<Command> {
     ensure!(!archive.exists(), "compression destination already exists");
-    let (status, _, diagnostic) = capture_output(
-        seven_zip_command()?
-            .args([
-                "a", "-t7z", "-mx=5", "-mmt=2", "-y", "-bso0", "-bsp0", "-spd", "-sae", "--",
-            ])
-            .arg(archive)
-            .arg(input),
-        4096,
-        deadline(std::fs::metadata(input)?.len()),
-    )?;
-    ensure!(
-        seven_zip_success(status, &diagnostic)?,
-        "compression failed"
-    );
+    let mut command = seven_zip_command()?;
+    command
+        .args([
+            "a", "-t7z", "-mx=5", "-mmt=2", "-y", "-bso0", "-bsp0", "-spd", "-sae", "--",
+        ])
+        .arg(archive)
+        .arg(input);
+    Ok(command)
+}
+fn finish_compress(status: ExitStatus, diagnostic: &[u8], archive: &Path) -> Result<()> {
+    ensure!(seven_zip_success(status, diagnostic)?, "compression failed");
     std::fs::OpenOptions::new()
         .write(true)
         .open(archive)?
         .sync_all()?;
     Ok(())
+}
+/// Compress `input` into `archive` under the compression ceiling and stall bound, and polling the
+/// archive's size once a second into the step counter. A poll never fails a run;
+/// only the stall bound can end it.
+pub fn compress_counted(input: &Path, archive: &Path, counters: &Arc<Counters>) -> Result<()> {
+    let mut command = compress_command(input, archive)?;
+    let ceiling = compress_ceiling(std::fs::metadata(input)?.len());
+    let mut stall = StallWatch::new(stall_window(), Instant::now());
+    let script = scripted_sizes();
+    let mut polls = 0usize;
+    let mut poll = || {
+        let size = if script.is_empty() {
+            match std::fs::metadata(archive) {
+                Ok(meta) => Some(meta.len()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(0),
+                Err(_) => None,
+            }
+        } else {
+            let value = script[polls.min(script.len() - 1)];
+            polls += 1;
+            Some(value)
+        };
+        if let Some(size) = size {
+            counters.step_set(size);
+        }
+        if stall.observe(size, Instant::now()) {
+            return Err(crate::platform::HostStop(
+                "compression stalled: the archive did not grow within the stall window",
+            )
+            .into());
+        }
+        Ok(())
+    };
+    let result = invoke(
+        &mut command,
+        ceiling,
+        |pipe| read_bounded(pipe, 4096),
+        Some(&mut poll),
+    );
+    let (status, _, diagnostic) = result.map_err(|e| {
+        if e.is::<Expired>() {
+            crate::platform::HostStop("compression exceeded its time ceiling (300 s + 4 s per MiB)")
+                .into()
+        } else {
+            e
+        }
+    })?;
+    finish_compress(status, &diagnostic, archive)
+}
+/// Compression is a host stop when the archive has not grown for the window.
+pub struct StallWatch {
+    window: Duration,
+    size: u64,
+    grew: Instant,
+}
+impl StallWatch {
+    pub fn new(window: Duration, now: Instant) -> Self {
+        Self {
+            window,
+            size: 0,
+            grew: now,
+        }
+    }
+    /// Feed a poll; `None` is a poll that could not read the size. True when the
+    /// archive has not grown for the whole window.
+    pub fn observe(&mut self, size: Option<u64>, now: Instant) -> bool {
+        if let Some(size) = size
+            && size > self.size
+        {
+            self.size = size;
+            self.grew = now;
+        }
+        now.saturating_duration_since(self.grew) >= self.window
+    }
+}
+fn compress_ceiling(length: u64) -> Duration {
+    #[cfg(feature = "test-hooks")]
+    if let Some(ms) = progress::test_ms("FILEBACKUP_TEST_COMPRESS_CEILING_MS") {
+        return Duration::from_millis(ms);
+    }
+    compress_deadline(length)
+}
+const STALL_WINDOW: Duration = Duration::from_secs(60 * 60);
+const POLL_INTERVAL: Duration = Duration::from_secs(1);
+fn stall_window() -> Duration {
+    #[cfg(feature = "test-hooks")]
+    if let Some(ms) = progress::test_ms("FILEBACKUP_TEST_STALL_MS") {
+        return Duration::from_millis(ms);
+    }
+    STALL_WINDOW
+}
+fn poll_interval() -> Duration {
+    #[cfg(feature = "test-hooks")]
+    if let Some(ms) = progress::test_ms("FILEBACKUP_TEST_COMPRESS_POLL_MS") {
+        return Duration::from_millis(ms);
+    }
+    POLL_INTERVAL
+}
+// Test hooks: keep a finished compression running, so the poll has time to show it.
+fn compress_hold() -> Duration {
+    #[cfg(feature = "test-hooks")]
+    if let Some(ms) = progress::test_ms("FILEBACKUP_TEST_COMPRESS_HOLD_MS") {
+        return Duration::from_millis(ms);
+    }
+    Duration::ZERO
+}
+// Test hooks: a scripted archive-size source (comma-separated, the last repeats),
+// because holding a real compression does not grow its archive.
+fn scripted_sizes() -> Vec<u64> {
+    #[cfg(feature = "test-hooks")]
+    if let Ok(list) = std::env::var("FILEBACKUP_TEST_COMPRESS_SIZES") {
+        return list
+            .split(',')
+            .filter_map(|v| v.trim().parse().ok())
+            .collect();
+    }
+    Vec::new()
 }
 #[derive(Debug)]
 struct OutputLimit;
@@ -348,6 +489,10 @@ impl std::error::Error for OutputLimit {}
 // A finite allowance that grows with bytes, including slow external disks.
 pub fn deadline(length: u64) -> Duration {
     Duration::from_secs(300u64.saturating_add(length / (1024 * 1024)))
+}
+/// Compression only: a ceiling of 300 s plus 4 s per MiB, a floor of about 0.25 MiB/s.
+pub fn compress_deadline(length: u64) -> Duration {
+    Duration::from_secs(300u64.saturating_add((length / (1024 * 1024)).saturating_mul(4)))
 }
 pub fn is_archive(path: &Path) -> Result<bool> {
     let mut f = File::open(path)?;
@@ -383,8 +528,32 @@ pub fn verify_form_counted(
     key: &ContentKey,
     counters: &Arc<Counters>,
 ) -> Result<Option<StoredForm>> {
-    if std::fs::metadata(path)?.len() == key.length && progress::hash_file(path, counters)? == *key
-    {
+    verify_form_with(path, key, counters, false)
+}
+/// As `verify_form_counted`, but the expanded bytes (and a raw object's hash bytes)
+/// go to the step counter and never to `bytes`.
+pub fn verify_form_step(
+    path: &Path,
+    key: &ContentKey,
+    counters: &Arc<Counters>,
+) -> Result<Option<StoredForm>> {
+    verify_form_with(path, key, counters, true)
+}
+pub fn verify_step(path: &Path, key: &ContentKey, counters: &Arc<Counters>) -> Result<bool> {
+    Ok(verify_form_step(path, key, counters)?.is_some())
+}
+fn verify_form_with(
+    path: &Path,
+    key: &ContentKey,
+    counters: &Arc<Counters>,
+    step: bool,
+) -> Result<Option<StoredForm>> {
+    let raw = if step {
+        progress::hash_file_step
+    } else {
+        progress::hash_file
+    };
+    if std::fs::metadata(path)?.len() == key.length && raw(path, counters)? == *key {
         return Ok(Some(StoredForm::Raw));
     }
     if !is_archive(path)? {
@@ -429,11 +598,17 @@ pub fn verify_form_counted(
             .arg(path),
         deadline(expected),
         move |pipe| {
-            let pipe = Reading::new(pipe.take(expected.saturating_add(1)), &counters);
+            let pipe = pipe.take(expected.saturating_add(1));
+            let pipe = if step {
+                Reading::step(pipe, &counters)
+            } else {
+                Reading::new(pipe, &counters)
+            };
             let actual = crate::format::copy_hash(pipe, std::io::sink())?;
             ensure!(actual.length <= expected, OutputLimit);
             Ok(actual)
         },
+        None,
     );
     match result {
         Ok((status, actual, diagnostic)) => Ok((seven_zip_success(status, &diagnostic)?
