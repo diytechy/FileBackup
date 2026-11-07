@@ -26,6 +26,15 @@ last) — it is the record, not required reading for every pass.
 
 ## Current State
 
+- **DEFECT AUDIT FOR THE PROBE FIX (2026-11-07).** The first real Rust library run was stopped
+  after 7.5 h compressing video. The [read-only audit](defect-audit-2026-11-07.md) (step 1 of the
+  [brief](plans/2026-11-07-native-probe-fix-brief.md)) traces every defect review, unapproved
+  plan, Owner's queue item and port gap. Defect-review fixes reached Rust only where a live
+  requirement stated them; probe placement (WP18 / the 2026-09-07 corpus) was never built in
+  either engine. It also answers the restart question: the 87 GB is reused, and `Incoming` is
+  cleaned. No code changed. **Next:** step 2, the probe design brought to the Owner after a
+  reviewer cross-check; awaiting the Owner.
+
 - **HUB FIXES (2026-11-06).** A hub-shaped audit found five faults the native suite did not reach; details are in HomeHub `docs/reviews/2026-11-06-filebackup-native/`. A scheduled re-read now hashes a file already in the manifest in place and writes nothing; stored objects are left to the deep verify, because the library re-read and the backup verify are two separate cadences. The re-read date advances on any re-read run and starts with the store, so a lasting exit 1 or a killed first run no longer re-reads everything. A non-Unicode name freezes itself only. The bash kit refuses a zero-byte manifest. Store files take the host creation mode (umask and default ACL) rather than 0600.
 
 - **NATIVE MEMORY REDUCED (2026-11-06).** [Implementation and measurements](plans/native-design-2026-11-05/memory-optimization-2026-11-06.md)
