@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap},
     fs::{self, File},
-    io::{Read, Seek, SeekFrom, Write},
+    io::Write,
     path::{Path, PathBuf},
     sync::Arc,
     thread,
@@ -36,8 +36,29 @@ pub struct Report {
     pub elapsed_ms: u128,
     pub findings: Vec<String>,
     pub events: Vec<Finding>,
+    /// Compression probe counters; present on backup reports only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe: Option<ProbeCounters>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+}
+/// What the compression decision did this run (LLR-162).
+#[derive(Default, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct ProbeCounters {
+    /// Files whose saving was measured; always `compressed + raw`.
+    pub measured: u64,
+    pub compressed: u64,
+    pub raw: u64,
+    /// Measured files that were small enough to sample whole.
+    pub whole_file: u64,
+    /// New files that reached the decision with compression on but no measurement.
+    pub unmeasured: u64,
+    /// The measurement failed, so the type list decided.
+    pub fallback: u64,
+    /// Source length of each object stored compressed.
+    pub bytes_compressed_in: u64,
+    /// Archive size of each object stored compressed.
+    pub bytes_compressed_out: u64,
 }
 #[derive(Serialize, Debug)]
 pub struct Finding {
@@ -382,65 +403,388 @@ fn full_reread(set: &BackupSet, store: &Store) -> bool {
     };
     last.is_none_or(|v| Utc::now().signed_duration_since(v).num_seconds() >= seconds)
 }
-fn should_compress(
-    set: &BackupSet,
-    path: &Path,
-    source_name: &str,
-    incoming: &Path,
-    report: &mut Report,
-) -> bool {
-    if !set.compress {
-        return false;
+#[cfg(feature = "test-hooks")]
+static RETRY_FAULT_SPENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// SR-081: compress when the measured saving is at least 10%.
+const PROBE_THRESHOLD: f64 = 0.90;
+/// How the per-window ratios become one verdict. The Owner's scoring run sets
+/// this constant before the change is merged; it is not configuration.
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Combination {
+    /// Sum of compressed bytes over sum of raw bytes.
+    Mean,
+    /// Drop the highest and lowest window ratio, average the rest.
+    Trimmed,
+    /// The middle window ratio.
+    Median,
+}
+const COMBINATION: Combination = Combination::Mean;
+impl Combination {
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Mean => "mean",
+            Self::Trimmed => "trimmed",
+            Self::Median => "median",
+        }
     }
-    let ext = format::lower_extension(source_name);
-    let exempt = [
-        "7z", "zip", "gz", "xz", "bz2", "rar", "zst", "jpg", "jpeg", "png", "webp", "mp4", "mkv",
-        "mp3", "flac", "pdf",
-    ]
-    .contains(&ext.as_str());
-    let length = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    if length <= 256 * 1024 || set.probe == "off" || (set.probe == "excluded-extensions" && exempt)
+    /// The combined ratio from each window's (raw, compressed) byte counts.
+    fn combine(self, windows: &[(usize, usize)]) -> f64 {
+        let mut ratios: Vec<f64> = windows
+            .iter()
+            .map(|&(raw, packed)| packed as f64 / raw as f64)
+            .collect();
+        ratios.sort_by(f64::total_cmp);
+        match self {
+            Self::Mean => {
+                let raw: usize = windows.iter().map(|w| w.0).sum();
+                let packed: usize = windows.iter().map(|w| w.1).sum();
+                packed as f64 / raw as f64
+            }
+            Self::Trimmed if ratios.len() > 2 => {
+                let kept = &ratios[1..ratios.len() - 1];
+                kept.iter().sum::<f64>() / kept.len() as f64
+            }
+            Self::Median | Self::Trimmed => ratios[ratios.len() / 2],
+        }
+    }
+}
+/// A finished Brotli stream's size at quality 1, window 22, matching .NET's
+/// `BrotliEncoder`: the coder SR-081's threshold was calibrated on. Measuring
+/// only; nothing stored depends on it.
+///
+/// The whole window must reach the encoder in one call. `brotli::BrotliCompress`
+/// reads its input through a 4 KiB buffer, and the quality 0/1 fast path
+/// compresses whatever it is handed per call, so a 256 KiB window would be
+/// compressed as 4 KiB pieces and miss repeats longer than that (a 64 KiB
+/// repeat reads 1.0 instead of 0.25). Never feed it in small pieces.
+pub fn brotli_size(data: &[u8]) -> Result<usize> {
+    struct Count(usize);
+    impl Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    #[cfg(feature = "test-hooks")]
+    ensure!(
+        std::env::var("FILEBACKUP_TEST_PROBE_FAULT").ok().as_deref() != Some("coder"),
+        "forced coder failure"
+    );
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 1,
+        lgwin: 22,
+        ..Default::default()
+    };
+    let mut count = Count(0);
     {
-        return !exempt;
+        let mut encoder = brotli::CompressorWriter::with_params(&mut count, 1 << 20, &params);
+        encoder.write_all(data)?;
+        encoder.flush()?;
     }
-    let probe = || -> Result<bool> {
-        let mut source = File::open(path)?;
-        let mut sample = tempfile::NamedTempFile::new_in(incoming)?;
-        let mut buffer = vec![0u8; 256 * 1024];
-        let mut total = 0usize;
-        let offsets = if length < 3 * 256 * 1024 {
-            vec![0]
-        } else {
-            vec![0, (length - 256 * 1024) / 2, length - 256 * 1024]
+    Ok(count.0)
+}
+/// One measured decision: the combined ratio and each window's ratio.
+#[derive(Debug)]
+struct Measurement {
+    combined: f64,
+    ratios: Vec<f64>,
+}
+fn measure(how: Combination, windows: &[&[u8]]) -> Result<Measurement> {
+    let sizes = windows
+        .iter()
+        .map(|w| Ok((w.len(), brotli_size(w)?)))
+        .collect::<Result<Vec<_>>>()?;
+    ensure!(!sizes.is_empty(), "no probe windows");
+    Ok(Measurement {
+        combined: how.combine(&sizes),
+        ratios: sizes.iter().map(|&(r, p)| p as f64 / r as f64).collect(),
+    })
+}
+/// Window ratios, then (name, value, compresses) per combination.
+pub type ProbeSummary = (Vec<f64>, Vec<(&'static str, f64, bool)>);
+/// Each window's ratio and every combination's value and verdict, for the
+/// `probe_windows` example; the decision itself never calls this.
+pub fn probe_summary(windows: &[&[u8]]) -> Result<ProbeSummary> {
+    let sizes = windows
+        .iter()
+        .map(|w| Ok((w.len(), brotli_size(w)?)))
+        .collect::<Result<Vec<_>>>()?;
+    ensure!(!sizes.is_empty(), "no probe windows");
+    let all = [Combination::Mean, Combination::Trimmed, Combination::Median].map(|c| {
+        let v = c.combine(&sizes);
+        (c.reason(), v, v <= PROBE_THRESHOLD)
+    });
+    Ok((
+        sizes.iter().map(|&(r, p)| p as f64 / r as f64).collect(),
+        all.to_vec(),
+    ))
+}
+const EXEMPT: [&str; 16] = [
+    "7z", "zip", "gz", "xz", "bz2", "rar", "zst", "jpg", "jpeg", "png", "webp", "mp4", "mkv",
+    "mp3", "flac", "pdf",
+];
+fn exempt_type(source_name: &str) -> bool {
+    EXEMPT.contains(&format::lower_extension(source_name).as_str())
+}
+/// True when this file's saving is measured rather than decided by type.
+/// Implements: SR-081, SR-096 (floor, modes and exempt list as before).
+fn wants_probe(set: &BackupSet, source_name: &str, length: u64) -> bool {
+    set.compress
+        && length > format::PROBE_WINDOW
+        && set.probe != "off"
+        && !(set.probe == "excluded-extensions" && exempt_type(source_name))
+}
+/// Per-run record of why each measured file was or was not compressed.
+struct DecisionLog {
+    dir: PathBuf,
+    started: DateTime<Utc>,
+    file: Option<File>,
+    dead: bool,
+    warned: bool,
+}
+/// Runs of decisions kept; older logs are deleted when a new one starts.
+const DECISION_LOGS_KEPT: usize = 30;
+/// `YYYY_MM_DD_HH_MM_SS.log` or `..._N.log` as (stamp, N); anything else is not ours.
+fn decision_log_name(name: &str) -> Option<(&str, u64)> {
+    let stem = name.strip_suffix(".log")?;
+    let stamp = stem.get(..19)?;
+    let shape = b"dddd_dd_dd_dd_dd_dd";
+    let fits = stamp.bytes().zip(shape).all(|(b, s)| match s {
+        b'd' => b.is_ascii_digit(),
+        _ => b == *s,
+    });
+    if !fits {
+        return None;
+    }
+    match &stem[19..] {
+        "" => Some((stamp, 0)),
+        tail => {
+            let digits = tail.strip_prefix('_')?;
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            Some((stamp, digits.parse().ok()?))
+        }
+    }
+}
+impl DecisionLog {
+    fn new(store_root: &Path, started: DateTime<Utc>) -> Self {
+        Self {
+            dir: store_root.join("compress-decisions"),
+            started,
+            file: None,
+            dead: false,
+            warned: false,
+        }
+    }
+    fn warn(&mut self, report: &mut Report, what: &str) {
+        if !self.warned {
+            self.warned = true;
+            report.finding_at(
+                0,
+                "decision_log_unavailable",
+                None,
+                format!("Compression decision log unavailable: {what}"),
+            );
+        }
+    }
+    /// Create this run's file exclusively, then trim older ones. A rotation
+    /// failure keeps the new log and comes back beside it.
+    fn open(&self) -> Result<(File, Option<anyhow::Error>)> {
+        match fs::create_dir(&self.dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e.into()),
+        }
+        platform::ordinary_dir(&self.dir)?;
+        let stamp = self.started.format("%Y_%m_%d_%H_%M_%S");
+        let mut attempt = 0u32;
+        let (file, name) = loop {
+            let name = if attempt == 0 {
+                format!("{stamp}.log")
+            } else {
+                format!("{stamp}_{attempt}.log")
+            };
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(self.dir.join(&name))
+            {
+                Ok(file) => break (file, name),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt < 1000 => {
+                    attempt += 1;
+                }
+                Err(e) => return Err(e.into()),
+            }
         };
-        if offsets.len() == 1 {
-            total = std::io::copy(&mut source, &mut sample)? as usize;
-        } else {
-            for offset in offsets {
-                source.seek(SeekFrom::Start(offset))?;
-                source.read_exact(&mut buffer)?;
-                sample.write_all(&buffer)?;
-                total += buffer.len();
+        Ok((file, self.rotate(&name).err()))
+    }
+    /// Delete the oldest ordinary files of this log's own name shape beyond the
+    /// newest `DECISION_LOGS_KEPT`; anything else in the folder is left alone.
+    fn rotate(&self, own: &str) -> Result<()> {
+        let mut logs = Vec::new();
+        for entry in fs::read_dir(&self.dir)? {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some((stamp, n)) = decision_log_name(&name) else {
+                continue;
+            };
+            if fs::symlink_metadata(entry.path()).is_ok_and(|m| platform::is_ordinary_file(&m)) {
+                logs.push(((stamp.to_owned(), n), name));
             }
         }
-        sample.flush()?;
-        let sample = sample.into_temp_path();
-        let archive = incoming.join(format!(
-            "{}.7z",
-            sample.file_name().unwrap().to_string_lossy()
-        ));
-        let outcome = tools::compress(&sample, &archive)
-            .and_then(|_| Ok(fs::metadata(&archive)?.len() as f64 <= total as f64 * 0.9));
-        let _ = fs::remove_file(archive);
-        outcome
+        // This run's own file is never a candidate and takes one of the slots.
+        logs.retain(|(_, n)| n != own);
+        logs.sort();
+        #[cfg(feature = "test-hooks")]
+        ensure!(
+            std::env::var("FILEBACKUP_TEST_PROBE_FAULT").ok().as_deref() != Some("rotate"),
+            "forced rotation failure"
+        );
+        let surplus = logs.len().saturating_sub(DECISION_LOGS_KEPT - 1);
+        for (_, name) in logs.into_iter().take(surplus) {
+            fs::remove_file(self.dir.join(name))?;
+        }
+        Ok(())
+    }
+    /// Append one flushed line, creating the file on first use. Any failure is
+    /// one code-0 warning per run; it never fails a capture.
+    fn append(&mut self, report: &mut Report, line: &str) {
+        if self.dead {
+            return;
+        }
+        if self.file.is_none() {
+            match self.open() {
+                Ok((file, rotation)) => {
+                    self.file = Some(file);
+                    if let Some(e) = rotation {
+                        self.warn(report, &format!("rotation failed: {e}"));
+                    }
+                }
+                Err(e) => {
+                    self.dead = true;
+                    self.warn(report, &format!("{e}"));
+                    return;
+                }
+            }
+        }
+        let wrote = self.file.as_mut().is_some_and(|f| {
+            f.write_all(line.as_bytes())
+                .and_then(|_| f.write_all(b"\n"))
+                .and_then(|_| f.flush())
+                .is_ok()
+        });
+        if !wrote {
+            self.dead = true;
+            self.warn(report, "write failed");
+        }
+    }
+}
+fn log_line(
+    relative: &str,
+    length: u64,
+    compress: bool,
+    reason: &str,
+    measurement: Option<&Measurement>,
+) -> String {
+    let (combined, windows) = match measurement {
+        Some(m) => (
+            format!("{:.4}", m.combined),
+            m.ratios
+                .iter()
+                .map(|r| format!("{r:.4}"))
+                .collect::<Vec<_>>()
+                .join(","),
+        ),
+        None => ("-".into(), "-".into()),
     };
-    match probe() {
-        Ok(v) => v,
+    // A path may legally hold a tab or a newline; keep one decision per line.
+    let path = relative.replace(['\t', '\n', '\r'], "?");
+    format!(
+        "{}\t{path}\t{length}\t{}\t{reason}\t{combined}\t{windows}",
+        Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        if compress { "compress" } else { "raw" },
+    )
+}
+/// What the decision did, carried to the point where the object is published
+/// so a retried capture counts once (LLR-162).
+#[derive(Clone, Copy, Debug)]
+enum Outcome {
+    Unmeasured,
+    Measured { compress: bool, whole: bool },
+    Fallback,
+}
+impl ProbeCounters {
+    /// Count one published object; `packed` is its archive size when stored compressed.
+    fn record(&mut self, outcome: Outcome, compressed: bool, length: u64, packed: u64) {
+        match outcome {
+            Outcome::Unmeasured => self.unmeasured += 1,
+            Outcome::Fallback => self.fallback += 1,
+            Outcome::Measured { compress, whole } => {
+                self.measured += 1;
+                self.whole_file += u64::from(whole);
+                if compress {
+                    self.compressed += 1;
+                } else {
+                    self.raw += 1;
+                }
+            }
+        }
+        if compressed {
+            self.bytes_compressed_in += length;
+            self.bytes_compressed_out += packed;
+        }
+    }
+}
+/// Decide whether a new file is stored compressed.
+///
+/// `sample` holds the windows taken from the copy that was hashed; it is
+/// `None` when no measurement was planned. Implements: SR-081, SR-096, LLR-162.
+fn should_compress(
+    set: &BackupSet,
+    source_name: &str,
+    length: u64,
+    sample: Option<&format::WindowSampler>,
+    log: &mut DecisionLog,
+    report: &mut Report,
+) -> (bool, Option<Outcome>) {
+    if !set.compress {
+        return (false, None);
+    }
+    let exempt = exempt_type(source_name);
+    let Some(sample) = sample.filter(|_| wants_probe(set, source_name, length)) else {
+        return (!exempt, Some(Outcome::Unmeasured));
+    };
+    match sample
+        .windows()
+        .context("probe sample unavailable")
+        .and_then(|w| measure(COMBINATION, &w))
+    {
+        Ok(m) => {
+            let compress = m.combined <= PROBE_THRESHOLD;
+            let whole = sample.whole_file();
+            let reason = if whole {
+                "whole-file"
+            } else {
+                COMBINATION.reason()
+            };
+            let line = log_line(source_name, length, compress, reason, Some(&m));
+            log.append(report, &line);
+            (compress, Some(Outcome::Measured { compress, whole }))
+        }
         Err(_) => {
             report.findings.push(format!(
                 "Compression probe unavailable for {source_name}; type fallback used"
             ));
-            !exempt
+            let line = log_line(source_name, length, !exempt, "fallback", None);
+            log.append(report, &line);
+            (!exempt, Some(Outcome::Fallback))
         }
     }
 }
@@ -453,6 +797,7 @@ fn capture(
     index: &mut BTreeMap<ContentKey, Vec<Object>>,
     ffprobe: Option<&Path>,
     report: &mut Report,
+    log: &mut DecisionLog,
     counters: &Arc<Counters>,
 ) -> Result<FileRow> {
     let before = fs::metadata(path)?;
@@ -484,7 +829,14 @@ fn capture(
         return Err(platform::HostStop("insufficient staging capacity").into());
     }
     let mut staged = platform::store_temp_file(&incoming)?;
-    let key = format::copy_hash(Reading::new(File::open(path)?, counters), &mut staged)?;
+    // The windows come from the very chunks that are hashed and staged.
+    let mut sampler =
+        wants_probe(set, relative, before.len()).then(|| format::WindowSampler::new(before.len()));
+    let key = format::copy_hash_sampled(
+        Reading::new(File::open(path)?, counters),
+        &mut staged,
+        sampler.as_mut(),
+    )?;
     staged.as_file().sync_all()?;
     // Close the staging writer before another process reads the file on Windows.
     let staged = staged.into_temp_path();
@@ -556,7 +908,17 @@ fn capture(
             }
         }
     }
-    let compressed = should_compress(set, &staged, relative, &incoming, report);
+    let (compressed, outcome) =
+        should_compress(set, relative, key.length, sampler.as_ref(), log, report);
+    drop(sampler);
+    // Fault injection is absent from release/default builds: fail the first
+    // capture after its decision, to prove a retry counts once.
+    #[cfg(feature = "test-hooks")]
+    ensure!(
+        std::env::var("FILEBACKUP_TEST_PROBE_FAULT").ok().as_deref() != Some("retry")
+            || RETRY_FAULT_SPENT.swap(true, std::sync::atomic::Ordering::SeqCst),
+        "forced capture failure"
+    );
     let archive_dir = tempfile::Builder::new()
         .prefix("archive-")
         .tempdir_in(&incoming)?;
@@ -568,6 +930,12 @@ fn capture(
             "compressor output failed round-trip verification"
         );
     }
+    // Read for the counters only; a failure here must not fail the capture.
+    let packed = if compressed {
+        fs::metadata(&archive).map_or(0, |m| m.len())
+    } else {
+        0
+    };
     let extension = if compressed {
         ".7z".to_owned()
     } else {
@@ -612,6 +980,12 @@ fn capture(
             }),
         },
     );
+    if let Some(outcome) = outcome {
+        report
+            .probe
+            .get_or_insert_with(Default::default)
+            .record(outcome, compressed, key.length, packed);
+    }
     Ok(FileRow {
         data_path: name,
         relative_path: relative.into(),
@@ -629,6 +1003,7 @@ pub fn backup(config: &Config, set: &BackupSet) -> Report {
     let start = Instant::now();
     let reporter = Reporter::start(&set.name);
     let mut report = Report::new("backup", &set.name);
+    report.probe = Some(ProbeCounters::default());
     if let Err(e) = backup_inner(config, set, &mut report, reporter.counters()) {
         report.finding(4, format!("{e:#}"));
     }
@@ -838,6 +1213,16 @@ fn backup_inner(
     }
     fs::create_dir_all(&store.root)?;
     let _lock = platform::StoreLock::acquire(&store.root)?;
+    #[allow(unused_mut)]
+    let mut run_start = Utc::now();
+    #[cfg(feature = "test-hooks")]
+    if let Some(fixed) = std::env::var("FILEBACKUP_TEST_RUN_STAMP")
+        .ok()
+        .and_then(|v| DateTime::parse_from_rfc3339(&v).ok())
+    {
+        run_start = fixed.with_timezone(&Utc);
+    }
+    let mut log = DecisionLog::new(&store.root, run_start);
     // Re-read after acquiring ownership; another admitted writer may have run.
     ensure!(
         store.admit()? == fresh,
@@ -975,6 +1360,7 @@ fn backup_inner(
                 &mut index,
                 config.ffprobe.as_deref(),
                 report,
+                &mut log,
                 counters,
             ) {
                 Ok(row) => Some(row),
@@ -1120,4 +1506,109 @@ fn backup_inner(
         Ok(())
     };
     work()
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    // A 64 KiB random block repeated four times: fed whole it compresses to
+    // about a quarter; fed in 4 KiB pieces it would read 1.0.
+    #[test]
+    fn the_window_is_presented_to_the_encoder_whole() {
+        let mut s = 0x9E3779B97F4A7C15_u64;
+        let block: Vec<u8> = (0..65536)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                (s >> 32) as u8
+            })
+            .collect();
+        let window = block.repeat(4);
+        let ratio = brotli_size(&window).unwrap() as f64 / window.len() as f64;
+        assert!(ratio < 0.30, "longrange measured {ratio:.4}");
+    }
+
+    /// (raw, packed) pairs for seven windows from their ratios in thousandths.
+    fn windows(thousandths: [usize; 7]) -> Vec<(usize, usize)> {
+        thousandths.iter().map(|&t| (1000, t)).collect()
+    }
+    fn verdicts(shape: [usize; 7]) -> [bool; 3] {
+        let w = windows(shape);
+        [Combination::Mean, Combination::Trimmed, Combination::Median]
+            .map(|c| c.combine(&w) <= PROBE_THRESHOLD)
+    }
+
+    // Design 4.2: each shape's verdict under mean, trimmed mean and median.
+    #[test]
+    fn the_three_combinations_on_the_known_shapes() {
+        let table = [
+            ("remux / disc image / phone video", [1000; 7], [false; 3]),
+            (
+                "screen recording",
+                [1000, 80, 80, 80, 80, 80, 80],
+                [true; 3],
+            ),
+            ("sparse 42%", [1000, 1000, 1000, 0, 0, 0, 0], [true; 3]),
+            (
+                "mixed-third",
+                [1000, 1000, 0, 0, 0, 1000, 1000],
+                [true, true, false],
+            ),
+            (
+                "one interior padding window",
+                [0, 1000, 1000, 1000, 1000, 1000, 1000],
+                [true, false, false],
+            ),
+            ("already compressed", [990; 7], [false; 3]),
+        ];
+        for (shape, ratios, expected) in table {
+            assert_eq!(verdicts(ratios), expected, "{shape}");
+        }
+    }
+
+    #[test]
+    fn combinations_are_exact() {
+        let w = windows([100, 200, 300, 400, 500, 600, 700]);
+        assert!((Combination::Mean.combine(&w) - 0.4).abs() < 1e-12);
+        assert!((Combination::Trimmed.combine(&w) - 0.4).abs() < 1e-12);
+        assert!((Combination::Median.combine(&w) - 0.4).abs() < 1e-12);
+        // The mean is sum over sum, not a mean of ratios, when windows differ.
+        let uneven = [(100usize, 100usize), (300, 0)];
+        assert!((Combination::Mean.combine(&uneven) - 0.25).abs() < 1e-12);
+        // One window (a whole-file sample) is its own ratio under every rule.
+        for c in [Combination::Mean, Combination::Trimmed, Combination::Median] {
+            assert!((c.combine(&[(1000, 123)]) - 0.123).abs() < 1e-12);
+        }
+        assert_eq!(COMBINATION, Combination::Mean);
+    }
+
+    #[test]
+    fn only_our_own_log_names_match() {
+        let ours = [
+            ("2026_11_07_12_30_59.log", ("2026_11_07_12_30_59", 0)),
+            ("2026_11_07_12_30_59_1.log", ("2026_11_07_12_30_59", 1)),
+            ("2026_11_07_12_30_59_12.log", ("2026_11_07_12_30_59", 12)),
+        ];
+        for (name, parsed) in ours {
+            assert_eq!(decision_log_name(name), Some(parsed), "{name}");
+        }
+        for other in [
+            "notes.txt",
+            "2026_11_07_12_30_59.log.bak",
+            "2026_11_07_12_30_59_.log",
+            "2026_11_07_12_30_59_x.log",
+            "2026_11_07_12_30_59_+1.log",
+            "2026-11-07_12_30_59.log",
+            "x2026_11_07_12_30_59.log",
+            "2026_11_07_12_30_5.log",
+            "2026_11_07_12_30_599.log",
+            "",
+            ".log",
+            "\u{e9}2026_11_07_12_30_59.log",
+        ] {
+            assert_eq!(decision_log_name(other), None, "{other}");
+        }
+    }
 }

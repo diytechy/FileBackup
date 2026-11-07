@@ -644,3 +644,67 @@ nine findings and how each was taken:
 9. **The script's coverage was overstated:** accepted. A 2.25-32 MiB cohort was added, an empty
    result is handled, the "shipped" rows are labelled geometry-only, and the limits are stated
    (§8.1).
+
+## 12. Implementation record (2026-11-07, branch `native-probe-fix`)
+
+**The commits.** A Sonnet builder worked from
+[the builder brief](native-probe-fix-builder-brief.md). Each round went to an independent Sonnet
+review at medium effort, and the fixes went back to the same builder.
+
+- **The build:** `90b66da`, `a6afeb0` and `34ff233`. The first review returned approve with changes.
+- **Fix round:** `e822a9e`. Counters are recorded at publication, rotation is safer, and four
+  tests were added. Re-review: approve.
+- **Windows junction test:** `7f27fd9`.
+- **Brotli feeding:** `70b7e83`.
+
+**The Brotli feeding fault.** The builder first found that the crate at quality 1 did not match
+.NET. It used quality 2, which matched the synthetic table. The driver traced the real cause:
+
+- `brotli::BrotliCompress` reads its input through a 4 KiB buffer, and at qualities 0 and 1 the
+  crate's fast path compresses whatever input is available. So each window was compressed in 4 KiB
+  pieces.
+- Quality 2 only masked this. On real media it read up to 0.045 lower than .NET, biasing towards
+  compression: one disc-image window read 0.538 against 0.583.
+- `70b7e83` hands the whole window to the encoder in one write, at quality 1, window 22.
+
+**Real-media cross-check, measured on this machine on 2026-11-07.** Files are identified by type
+and size only.
+
+- Seven interior windows were measured on each of seven real files, by `rust/examples/probe_windows.rs`
+  and by `scripts/gen_brotli_reference.ps1 -File`. The worst difference between the corrected Rust
+  probe and .NET on any window was **0.0001**, and every verdict agreed.
+
+| File (bytes) | Kind | Mean | Trimmed | Median | Realised 7-Zip ratio |
+|---|---|---|---|---|---|
+| 8,429,502,464 | AVCHD disc image (the hub's ESB `.iso`) | 0.9126 raw | 0.9635 raw | 0.9644 raw | 0.934 (brief) |
+| 20,628,305,972 | Matroska film (the hub's ROTJ) | 0.9959 raw | 0.9964 raw | 1.0000 raw | 0.985 (corpus 4b) |
+| 21,454,398,564 | Matroska film | 0.9965 raw | 0.9969 raw | 1.0000 raw | 0.985 (corpus 4b) |
+| 8,483,371,008 | AVCHD transport stream | 0.9578 raw | 0.9688 raw | 0.9696 raw | — |
+| 7,271,940,096 | DVD disc image | **0.5656 compress** | 0.5919 compress | **0.9815 raw** | **0.675** (corpus 4c) |
+| 2,356,034,367 | MP4 video | 0.9921 raw | 0.9916 raw | 0.9925 raw | — |
+| 1,467,768,350 | AVI video | 1.0000 raw | 1.0000 raw | 1.0000 raw | — |
+
+What the table shows:
+
+- **The hub's AVCHD image is stored raw under every combination** (§4.3 is now measured, not
+  inferred). Its mean sits 0.013 above the threshold.
+- **The median fails a real file.** The DVD image's padding occupies three of seven windows. The
+  median calls it raw and would forgo a 32.5% saving, about 2.2 GiB. The mean and the trimmed mean
+  compress it correctly.
+- This is seven files, not the scoring run. It does not replace §8.1, but it is real-file evidence
+  that the default (the mean) passes both named cases.
+
+**Test evidence for `70b7e83`.**
+
+- **Windows**, `scripts/Invoke-Native.ps1`: Test 94 passed, 0 failed; Lint and Format clean. The
+  Windows junction test ran rather than skipped.
+- **Linux**, Ubuntu WSL from a worktree on `D:` with `--no-fail-fast`: 101 passed, 0 failed,
+  including the Unix symlink test.
+  - An earlier Linux run, with the repository read through WSL's `C:` mount, failed
+    `recovery::mixed_live_kit_refuses_and_preserved_kit_still_recovers` (refresh returned 4).
+  - The same test passed for both `Rust-Rewrite` and this branch from `D:`. The failure was
+    environmental and is not a regression.
+- **Trace:** `orphans=0 integrity=0 form-findings=18`, unchanged.
+
+**Still open:** the Owner's scoring run (§8.1), which sets the combination; the default stays the
+mean.

@@ -156,14 +156,17 @@ fn a_held_file_keeps_printing_with_right_counts_and_no_names() {
         "{text}"
     );
     let r = report(&output);
-    assert_eq!(keys(&r), REPORT_KEYS, "the report gained or lost a field");
+    // A backup report also carries the compression probe counters (LLR-162).
+    let mut backup_keys = REPORT_KEYS.map(String::from).to_vec();
+    backup_keys.insert(10, "probe".into());
+    assert_eq!(keys(&r), backup_keys, "the report gained or lost a field");
     assert_eq!(r["captured"], 2);
     assert_eq!(r["failed"], 0);
     let log = fs::read_to_string(f.tmp.path().join("store/backup.log")).unwrap();
     assert_eq!(log.lines().count(), 1, "{log}");
     assert_eq!(
         keys(&serde_json::from_str(log.trim()).unwrap()),
-        REPORT_KEYS
+        backup_keys
     );
 }
 
