@@ -1,0 +1,72 @@
+codec=brotli-q1-w22 threshold=0.90
+distinct compressed objects >= 2.25 MiB: 3356 (object missing: 0)
+  stratum 2.25-32MiB band 0: population   124  graded   30  excluded    0
+  stratum 2.25-32MiB band 1: population    93  graded   30  excluded    0
+  stratum 2.25-32MiB band 2: population   170  graded   30  excluded    0
+  stratum 2.25-32MiB band 3: population   153  graded   30  excluded    0
+  stratum 2.25-32MiB band 4: population   221  graded   30  excluded    0
+  stratum 2.25-32MiB band 5: population   235  graded   30  excluded    0
+  stratum 2.25-32MiB band 6: population   146  graded   30  excluded    0
+  stratum 2.25-32MiB band 7: population   118  graded   30  excluded    0
+  stratum 2.25-32MiB band 8: population   218  graded   30  excluded    0
+  stratum 2.25-32MiB band 9: population  1287  graded   30  excluded    0
+  stratum >=32MiB    band 0: population    42  graded   30  excluded    0
+  stratum >=32MiB    band 1: population     9  graded    9  excluded    0
+  stratum >=32MiB    band 2: population    15  graded   15  excluded    0
+  stratum >=32MiB    band 3: population    17  graded   17  excluded    0
+  stratum >=32MiB    band 4: population    14  graded   13  excluded    1
+  stratum >=32MiB    band 5: population    13  graded   13  excluded    0
+  stratum >=32MiB    band 6: population    25  graded   25  excluded    0
+  stratum >=32MiB    band 7: population    17  graded   17  excluded    0
+  stratum >=32MiB    band 8: population    30  graded   29  excluded    1
+  stratum >=32MiB    band 9: population   409  graded   30  excluded    0
+excluded 2 of 500 tried (0.4%): weights assume the graded objects stand for the excluded ones in their stratum
+
+[all] 498 graded, codec brotli-q1-w22; population-weighted; saving available 54.67 GiB
+  geometry             combine   corr    MAE  wasted GiB  forgone GiB  forgone%  7z-in GiB
+  shipped 0/50/100     mean     +0.858  0.130       444.0         0.00      0.0%      575.7
+  shipped 0/50/100     median   +0.906  0.087       272.9         0.94      1.7%      399.2
+  shipped 0/50/100     trimmed  +0.906  0.087       272.9         0.94      1.7%      399.2
+  interior 25/50/75    mean     +0.949  0.083         0.0         6.17     11.3%       97.8
+  interior 25/50/75    median   +0.937  0.089         0.0        15.37     28.1%       63.7
+  interior 25/50/75    trimmed  +0.937  0.089         0.0        15.37     28.1%       63.7
+  interior 7 (k/8)     mean     +0.958  0.079         0.0         4.30      7.9%      106.6
+  interior 7 (k/8)     median   +0.942  0.088         0.0        14.82     27.1%       64.5
+  interior 7 (k/8)     trimmed  +0.954  0.083         0.0         8.63     15.8%       83.1
+  interior 9 (k/10)    mean     +0.959  0.078         0.0         6.12     11.2%       97.6
+  interior 9 (k/10)    median   +0.944  0.087         0.0        12.10     22.1%       75.0
+  interior 9 (k/10)    trimmed  +0.956  0.082         0.0         9.39     17.2%       80.1
+
+[2.25-32MiB] 300 graded, codec brotli-q1-w22; population-weighted; saving available 6.92 GiB
+  geometry             combine   corr    MAE  wasted GiB  forgone GiB  forgone%  7z-in GiB
+  shipped 0/50/100     mean     +0.882  0.119         5.5         0.00      0.0%       18.5
+  shipped 0/50/100     median   +0.934  0.086         0.0         0.16      2.3%       12.3
+  shipped 0/50/100     trimmed  +0.934  0.086         0.0         0.16      2.3%       12.3
+  interior 25/50/75    mean     +0.947  0.091         0.0         0.44      6.3%       11.3
+  interior 25/50/75    median   +0.936  0.096         0.0         0.50      7.2%       11.2
+  interior 25/50/75    trimmed  +0.936  0.096         0.0         0.50      7.2%       11.2
+  interior 7 (k/8)     mean     +0.956  0.087         0.0         0.19      2.8%       12.0
+  interior 7 (k/8)     median   +0.942  0.096         0.0         0.36      5.2%       11.5
+  interior 7 (k/8)     trimmed  +0.952  0.091         0.0         0.24      3.5%       11.8
+  interior 9 (k/10)    mean     +0.957  0.087         0.0         0.22      3.2%       12.0
+  interior 9 (k/10)    median   +0.943  0.095         0.0         0.34      4.9%       11.5
+  interior 9 (k/10)    trimmed  +0.954  0.090         0.0         0.32      4.6%       11.6
+
+[>=32MiB] 198 graded, codec brotli-q1-w22; population-weighted; saving available 47.74 GiB
+  geometry             combine   corr    MAE  wasted GiB  forgone GiB  forgone%  7z-in GiB
+  shipped 0/50/100     mean     +0.836  0.183       438.5         0.00      0.0%      557.2
+  shipped 0/50/100     median   +0.857  0.092       272.9         0.78      1.6%      386.9
+  shipped 0/50/100     trimmed  +0.857  0.092       272.9         0.78      1.6%      386.9
+  interior 25/50/75    mean     +0.966  0.042         0.0         5.74     12.0%       86.4
+  interior 25/50/75    median   +0.944  0.053         0.0        14.88     31.2%       52.5
+  interior 25/50/75    trimmed  +0.944  0.053         0.0        14.88     31.2%       52.5
+  interior 7 (k/8)     mean     +0.972  0.041         0.0         4.10      8.6%       94.6
+  interior 7 (k/8)     median   +0.948  0.053         0.0        14.46     30.3%       53.0
+  interior 7 (k/8)     trimmed  +0.965  0.046         0.0         8.39     17.6%       71.4
+  interior 9 (k/10)    mean     +0.974  0.040         0.0         5.89     12.3%       85.7
+  interior 9 (k/10)    median   +0.955  0.050         0.0        11.75     24.6%       63.4
+  interior 9 (k/10)    trimmed  +0.970  0.043         0.0         9.07     19.0%       68.5
+
+selection (interior 7, forgone <= 10.0% of saving available):
+  mean     wasted 0.0 GiB, forgone 4.30 GiB (7.9%)
+WINNER: mean (QUALIFYING: measured with Brotli q1/w22)

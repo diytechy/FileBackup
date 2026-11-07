@@ -1,0 +1,12 @@
+codec=brotli-q1-w22 threshold=0.90
+/source/NonDocs/Media/Movies/Star Wars/ESB_DEED_v2.0_AVCHD/Harmy's THE EMPIRE STRIKES BACK DE 2.0 Remastered (AVCHD)/ESB_DESPECIALIZED_v2.0_AVCHD.iso length=8429502464
+  shipped 0/50/100     windows=0.002,0.972,0.022  mean=0.332->compress, median=0.022->compress, trimmed=0.022->compress
+  interior 25/50/75    windows=0.583,0.972,0.953  mean=0.836->compress, median=0.953->raw, trimmed=0.953->raw
+  interior 7 (k/8)     windows=0.986,0.583,0.942,0.972,0.964,0.953,0.988  mean=0.913->raw, median=0.964->raw, trimmed=0.963->raw
+  interior 9 (k/10)    windows=0.764,0.977,0.958,0.970,0.972,0.967,0.988,0.988,0.965  mean=0.950->raw, median=0.970->raw, trimmed=0.971->raw
+/source/NonDocs/Media/Movies/Star Wars/ROTJ_DEED_v2.5_MKV/ROTJ v2.5/Return.of.the.Jedi.Despecialized.Edition.v2.5.mkv length=20628305972
+  shipped 0/50/100     windows=0.640,1.000,0.617  mean=0.752->compress, median=0.640->compress, trimmed=0.640->compress
+  interior 25/50/75    windows=1.000,1.000,1.000  mean=1.000->raw, median=1.000->raw, trimmed=1.000->raw
+  interior 7 (k/8)     windows=0.992,1.000,0.989,1.000,0.990,1.000,1.000  mean=0.996->raw, median=1.000->raw, trimmed=0.996->raw
+  interior 9 (k/10)    windows=1.000,0.989,0.989,1.000,1.000,1.000,0.988,0.989,1.000  mean=0.995->raw, median=1.000->raw, trimmed=0.995->raw
+/source/NonDocs/Media/Movies/Star Wars/ESB_DEED_v2.0_MKV/ESB v2.0/The.Empire.Strikes.Back.Despecialized.Edition.Remastered.v2.0.mkv: unreadable ([Errno 2] No such file or directory: '/source/NonDocs/Media/Movies/Star Wars/ESB_DEED_v2.0_MKV/ESB v2.0/The.Empire.Strikes.Back.Despecialized.Edition.Remastered.v2.0.mkv')

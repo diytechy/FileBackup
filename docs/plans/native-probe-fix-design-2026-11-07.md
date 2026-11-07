@@ -706,5 +706,12 @@ What the table shows:
     environmental and is not a regression.
 - **Trace:** `orphans=0 integrity=0 form-findings=18`, unchanged.
 
-**Still open:** the Owner's scoring run (§8.1), which sets the combination; the default stays the
-mean.
+**Scoring run (§8.1), 2026-11-07, run on the hub at the Owner's request:** Brotli q1/w22, so it
+**qualifies**.
+- **Ground truth:** the September PowerShell store on Backup-old. 498 objects graded, 0.4% excluded.
+- **Winner:** the mean of seven interior windows. It is the only seven-window combination within the 10% budget, with
+  0.0 GiB wasted and 4.30 GiB (7.9%) forgone. 7-Zip input falls from 575.7 GiB under today's geometry to 106.6 GiB.
+- **Outcome:** the default stands and the code does not change.
+- **Evidence:** [docs/experiments/probe-scoring-2026-11-07/](../experiments/probe-scoring-2026-11-07/README.md).
+
+**Merged** into `Rust-Rewrite` (`ef6a285`), followed by the deadline and progress fixes (`a223f5a`).

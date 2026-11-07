@@ -58,8 +58,33 @@ last) — it is the record, not required reading for every pass.
     DVD image; the mean and the trimmed mean keep it.
   - Record: [design §12](plans/native-probe-fix-design-2026-11-07.md).
 
-  **Next:** the Owner's scoring run sets the combination (default: the mean), then the merge. The
-  deadline and progress fixes follow on their own branch.
+  **SCORED AND MERGED (2026-11-07).** The scoring run ran on the hub with Brotli against the
+  September store, grading 498 objects. **The mean of seven interior windows won** (0.0 GiB wasted,
+  7.9% forgone, 7-Zip input 575.7 to 106.6 GiB), so the default stands. Evidence:
+  [experiments/probe-scoring-2026-11-07](experiments/probe-scoring-2026-11-07/README.md). Merged
+  `--no-ff` as `ef6a285`.
+
+- **DEADLINE AND PROGRESS FIXES MERGED (2026-11-07).** The
+  [design](plans/native-restart-fixes-design-2026-11-07.md) is built and merged as `a223f5a`.
+  - **Compression bounds:** compression has its own ceiling of 300 s + 4 s per MiB, and a host stop
+    after 60 minutes without archive growth. Every other tool call keeps the old deadline.
+  - **Progress lines:** `compressing` and `checking archive` lines move during long files, with no
+    paths. All five archive checks are wrapped.
+  - **Tests:** Windows 104/0, and Linux 112/0 on the merged `a223f5a` (Ubuntu WSL, from a
+    `git archive` copy on `D:`, `--features test-hooks`). Lint and Format clean, trace `orphans=0 integrity=0` with 18 form
+    findings. The first builder's session died without saving anything; a restarted builder
+    finished it.
+  - **Review:** two rounds by Sonnet at medium effort. Round 1 added a ceiling test, removed the old
+    `tools::compress` and its 1 s/MiB deadline, made the output-budget stop a host stop again, and
+    wrapped the fifth check.
+  - **Not proven:**
+    - archive growth on a live Windows archive (the poll tests use scripted sizes);
+    - any run on the hub.
+  - **Known wording quirk:** a raw object's dedup check says "expanded".
+
+  **Next, the Owner's:** a new image from `Rust-Rewrite`, `FILEBACKUP_IMAGE_TAG` on the hub, the
+  timer knob back to `true`, and the partial store. The audit found that a restarted run reuses the
+  87 GB already stored and cleans `Incoming`.
 
 - **HUB FIXES (2026-11-06).** A hub-shaped audit found five faults the native suite did not reach; details are in HomeHub `docs/reviews/2026-11-06-filebackup-native/`. A scheduled re-read now hashes a file already in the manifest in place and writes nothing; stored objects are left to the deep verify, because the library re-read and the backup verify are two separate cadences. The re-read date advances on any re-read run and starts with the store, so a lasting exit 1 or a killed first run no longer re-reads everything. A non-Unicode name freezes itself only. The bash kit refuses a zero-byte manifest. Store files take the host creation mode (umask and default ACL) rather than 0600.
 

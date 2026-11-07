@@ -1,6 +1,6 @@
 # Design, 2026-11-07: two small fixes for a clean restart
 
-**Status:** revision 2, reviewed; being built on branch `native-restart-fixes`. The Owner approved making both fixes in the same release as the
+**Status:** revision 2, reviewed; **built and merged** into `Rust-Rewrite` (`a223f5a`, 2026-11-07). Two review rounds by Sonnet at medium effort; the final verdict was approve. The Owner approved making both fixes in the same release as the
 [native probe fix](native-probe-fix-design-2026-11-07.md), as separate small changes (that design's
 §9 decision 7, ruled 2026-11-07). The approach below is the driver's, under that approval.
 
