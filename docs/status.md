@@ -32,8 +32,15 @@ last) — it is the record, not required reading for every pass.
   plan, Owner's queue item and port gap. Defect-review fixes reached Rust only where a live
   requirement stated them; probe placement (WP18 / the 2026-09-07 corpus) was never built in
   either engine. It also answers the restart question: the 87 GB is reused, and `Incoming` is
-  cleaned. No code changed. **Next:** step 2, the probe design brought to the Owner after a
-  reviewer cross-check; awaiting the Owner.
+  cleaned. No code changed.
+- **PROBE DESIGN PROPOSED (2026-11-07), awaiting the Owner.** The
+  [design](plans/native-probe-fix-design-2026-11-07.md) (revision 4) puts the windows inside the
+  file, takes them from the staging copy, measures them with Brotli at the PowerShell settings, and
+  restores the decision log and counters. The combination of windows is gated on a read-only
+  scoring run on the hub (`docs/experiments/probe-window-interior.py`). It was reviewed by Sonnet
+  at medium effort and cross-checked by Codex at medium effort, plus a fix-round confirmation;
+  all returned "approve with changes", and the changes are applied. **Next:** the Owner's
+  rulings on the design's §9 decisions; no engine code until then.
 
 - **HUB FIXES (2026-11-06).** A hub-shaped audit found five faults the native suite did not reach; details are in HomeHub `docs/reviews/2026-11-06-filebackup-native/`. A scheduled re-read now hashes a file already in the manifest in place and writes nothing; stored objects are left to the deep verify, because the library re-read and the backup verify are two separate cadences. The re-read date advances on any re-read run and starts with the store, so a lasting exit 1 or a killed first run no longer re-reads everything. A non-Unicode name freezes itself only. The bash kit refuses a zero-byte manifest. Store files take the host creation mode (umask and default ACL) rather than 0600.
 

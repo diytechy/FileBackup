@@ -30,7 +30,13 @@ ratios) and stderr (tables). Cost: one manifest read, one stat per candidate
 object, then 41 reads of 256 KiB and two stats per sampled file.
 
   python3 probe-window-interior.py --manifest M --objects O [--sharded] \
-      --source S [--target 600] [--file PATH ...] > windows.csv
+      --source S [--target 600] [--budget 10] [--file PATH ...] > windows.csv
+
+The last lines apply the design's selection rule: among the seven-interior-window
+combinations whose forgone saving is within --budget percent of the saving
+available (the saving the graded objects that realised <= 0.90 achieved), the
+least wasted 7-Zip input wins (ties within 0.1 GiB: less forgone, then mean,
+trimmed, median). The winner is QUALIFYING only when measured with Brotli.
 
 --sharded: objects live in two-character shard folders (native CurrentBackup);
 otherwise flat (the 2026-09 PowerShell store). --file prints, on stderr, the
@@ -163,13 +169,17 @@ def main():
     ap.add_argument("--sharded", action="store_true")
     ap.add_argument("--target", type=int, default=600)
     ap.add_argument("--file", action="append", default=[])
+    ap.add_argument("--budget", type=float, default=10.0,
+                    help="forgone saving allowed, %% of the saving available (design 4.4)")
     a = ap.parse_args()
     sys.stderr.write("codec=%s threshold=%.2f\n" % (CODEC, THRESHOLD))
     report_files(a.file)
     if not a.manifest:
         return
 
-    # one candidate per distinct stored object (dedup: one capture compresses it once)
+    # one candidate per distinct stored object (dedup: one capture compresses it
+    # once); every path that holds it is kept, so a changed or vanished first
+    # path does not exclude an object another unchanged copy still represents
     objects = {}
     with open(a.manifest, newline="", encoding="utf-8") as fh:
         for r in csv.reader(fh):
@@ -179,18 +189,18 @@ def main():
                 ln = int(r[2])
             except ValueError:
                 continue
-            if ln >= MINLEN and r[0] not in objects:
-                objects[r[0]] = (r[1], ln, parse_time(r[3]))
+            if ln >= MINLEN:
+                objects.setdefault(r[0], (ln, []))[1].append((r[1], parse_time(r[3])))
     strata = {}
     missing = 0
-    for dp, (rel, ln, stamp) in objects.items():
+    for dp, (ln, paths) in objects.items():
         try:
             realised = os.stat(object_path(a.objects, dp, a.sharded)).st_size / ln
         except OSError:
             missing += 1
             continue
         key = (cohort(ln), min(int(realised * 10), 9))
-        strata.setdefault(key, []).append((rel, ln, stamp, realised))
+        strata.setdefault(key, []).append((paths, ln, realised))
     sys.stderr.write("distinct compressed objects >= 2.25 MiB: %d (object missing: %d)\n"
                      % (sum(len(v) for v in strata.values()), missing))
 
@@ -203,19 +213,22 @@ def main():
         pool = strata[key][:]
         random.shuffle(pool)
         got = excluded = 0
-        for rel, ln, stamp, realised in pool:
+        for paths, ln, realised in pool:
             if got >= per:
                 break
-            path = os.path.join(a.source, rel)
-            try:
-                if not unchanged(path, ln, stamp):
-                    excluded += 1
-                    continue
-                w = sample(path, ln)
-                if w is None or not unchanged(path, ln, stamp):
-                    excluded += 1
-                    continue
-            except OSError:
+            w = None
+            for rel, stamp in paths:
+                path = os.path.join(a.source, rel)
+                try:
+                    if not unchanged(path, ln, stamp):
+                        continue
+                    w = sample(path, ln)
+                    if w is not None and unchanged(path, ln, stamp):
+                        break
+                    w = None
+                except OSError:
+                    w = None
+            if w is None:
                 excluded += 1
                 continue
             graded.append((key, ln, realised, w))
@@ -225,6 +238,13 @@ def main():
         sys.stderr.write("  stratum %-10s band %d: population %5d  graded %4d  excluded %4d\n"
                          % (key[0], key[1], len(strata[key]), got, excluded))
 
+    tried = sum(g + x for _, g, x in coverage.values())
+    dropped = sum(x for _, _, x in coverage.values())
+    if tried:
+        sys.stderr.write("excluded %d of %d tried (%.1f%%): weights assume the graded objects stand"
+                         " for the excluded ones in their stratum\n" % (dropped, tried, 100.0 * dropped / tried))
+        if dropped > 0.10 * tried:
+            sys.stderr.write("WARNING: more than 10% excluded; the result is not representative\n")
     empty = [k for k, (_, g, _) in coverage.items() if g == 0]
     if empty:
         sys.stderr.write("WARNING: %d strata have no graded object and are NOT represented: %s\n"
@@ -235,12 +255,18 @@ def main():
 
     weight = {k: coverage[k][0] / coverage[k][1] for k in coverage if coverage[k][1]}
     gib = 1024 ** 3
+    results = {}
     for scope in ["all"] + [c[2] for c in COHORTS]:
         rows = [g for g in graded if scope == "all" or g[0][0] == scope]
         if not rows:
             continue
-        sys.stderr.write("\n[%s] %d graded, codec %s; population-weighted\n" % (scope, len(rows), CODEC))
-        sys.stderr.write("  %-20s %-8s  corr    MAE  wasted GiB  forgone GiB  7z-in GiB\n" % ("geometry", "combine"))
+        # budget denominator: the saving the graded objects worth compressing
+        # (realised <= 0.90) actually achieved, population-weighted
+        available = sum(weight[k] * ln * (1 - r) for k, ln, r, _ in rows if r <= THRESHOLD)
+        sys.stderr.write("\n[%s] %d graded, codec %s; population-weighted; saving available %.2f GiB\n"
+                         % (scope, len(rows), CODEC, available / gib))
+        sys.stderr.write("  %-20s %-8s  corr    MAE  wasted GiB  forgone GiB  forgone%%  7z-in GiB\n"
+                         % ("geometry", "combine"))
         for gname, ix in GEOMETRIES.items():
             for cname, f in COMBINERS.items():
                 pairs, mae_n, mae_d = [], 0.0, 0.0
@@ -257,9 +283,29 @@ def main():
                             wasted += wt * ln
                     elif r <= THRESHOLD:
                         forgone += wt * ln * (1 - r)
-                sys.stderr.write("  %-20s %-8s %+.3f  %.3f  %10.1f  %11.2f  %9.1f\n" %
+                pct = 100.0 * forgone / available if available else 0.0
+                if scope == "all":
+                    results[(gname, cname)] = (wasted, forgone, pct)
+                sys.stderr.write("  %-20s %-8s %+.3f  %.3f  %10.1f  %11.2f  %7.1f%%  %9.1f\n" %
                                  (gname, cname, wcorr(pairs), mae_n / mae_d,
-                                  wasted / gib, forgone / gib, spent / gib))
+                                  wasted / gib, forgone / gib, pct, spent / gib))
+
+    # the selection rule fixed in the design (section 4.4) before any run
+    order = list(COMBINERS)
+    eligible = [(k, v) for k, v in results.items() if k[0] == "interior 7 (k/8)" and v[2] <= a.budget]
+    sys.stderr.write("\nselection (interior 7, forgone <= %.1f%% of saving available):\n" % a.budget)
+    if not eligible:
+        sys.stderr.write("  no candidate fits the budget: back to the Owner\n")
+        return
+    eligible.sort(key=lambda kv: (round(kv[1][0] / gib, 1), kv[1][1], order.index(kv[0][1])))
+    for (g, c), (wasted, forgone, pct) in eligible:
+        sys.stderr.write("  %-8s wasted %.1f GiB, forgone %.2f GiB (%.1f%%)\n" % (c, wasted / gib, forgone / gib, pct))
+    winner = eligible[0][0][1]
+    if CODEC.startswith("brotli"):
+        sys.stderr.write("WINNER: %s (QUALIFYING: measured with Brotli q1/w22)\n" % winner)
+    else:
+        sys.stderr.write("WINNER: %s (NON-QUALIFYING: measured with %s, not Brotli; needs an Owner"
+                         " exception to decide a release)\n" % (winner, CODEC))
 
 if __name__ == "__main__":
     main()

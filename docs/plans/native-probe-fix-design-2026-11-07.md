@@ -1,13 +1,15 @@
 # Design, 2026-11-07: the native engine's compressibility probe
 
-**Status:** PROPOSED, revision 3. This is step 2 of
+**Status:** PROPOSED, revision 4. This is step 2 of
 [the 2026-11-07 brief](2026-11-07-native-probe-fix-brief.md). No code may be written under this
 design until the Owner rules on the decisions in §9.
 
 - **Revision 1** was reviewed by an independent Sonnet reviewer at medium effort.
-- **Revision 2** was cross-checked by Codex at medium effort.
+- **Revision 2** was cross-checked by Codex at medium effort, and revision 3 went back to Codex for a
+  fix-round confirmation.
 
-Both returned "approve with changes". Their findings and what changed are in §11.
+Both returned "approve with changes", and so did the confirmation. Their findings and what changed
+are in §11. Revision 4's own changes have not been reviewed again.
 
 **Built from:**
 
@@ -217,10 +219,22 @@ files that realised 0.90 or below (**forgone**), both in GiB.
 
 **The selection rule is fixed before the run, so the result cannot steer it.** Among the
 seven-interior-window combinations, adopt the one with the least wasted 7-Zip input whose forgone
-saving stays within a budget the Owner sets (§9 decision 4). Proposed budget: forgone saving no
-more than **10% of the saving the candidates realise in total**. That is the trade the corpus's
-own recommendation made (it kept 90.9%). If none fits the budget, the result comes back to the
-Owner.
+saving stays within a budget the Owner sets (§9 decision 4).
+
+- **Proposed budget:** forgone saving no more than **10% of the saving available**: the saving the
+  graded objects that realised 0.90 or below actually achieved, population-weighted. That is the
+  trade the corpus's own recommendation made (it kept 90.9%).
+- **Tie-break:** wasted input equal to within 0.1 GiB is a tie. A tie goes to the smaller forgone
+  saving, then to the mean, the trimmed mean and the median, in that order.
+- **The script applies this rule itself.** It prints the denominator, each candidate's forgone
+  percentage and the winner.
+- **Brotli only.** A winner measured with Brotli qualifies. One measured with zlib is printed as
+  non-qualifying: zlib's ratios near 0.90 differ from Brotli's, and they can change the winner.
+  Deciding a release on zlib needs the Owner's explicit exception (decision 4).
+- **Exclusions.** Objects excluded by the ground-truth guard are assumed to resemble the graded
+  ones in their stratum. The script prints the exclusion rate and warns above 10%, at which point
+  the result is not representative.
+- **No fit:** if no candidate fits the budget, the result comes back to the Owner.
 
 **The run is a release gate.** If it cannot be run, the Owner chooses between shipping the mean,
 the PowerShell probe's own estimator applied to interior windows, and holding the release
@@ -255,10 +269,11 @@ that is up to about half a million process starts, plus temporary writes on the 
   `BrotliEncoder` at quality 1, window 22 produced byte-identical sizes on random, text and mixed
   256 KiB buffers (pwsh 7, this machine); qualities 0, 2 and 3 differed.
 - **The encoder is pinned by tests, not by memory.**
-  - Matching settings do not prove that two implementations produce the same sizes. A table of
-    exact compressed sizes from .NET's `BrotliEncoder` at quality 1, window 22 is checked in, over
-    generated buffers that include ratios near 0.90 and WP17's fixtures (for example
-    `longrange-64KiB-x256.bin` at 0.2502).
+  - Matching settings do not prove that two implementations produce the same sizes.
+  - **Built in this change:** a small pwsh script generates deterministic buffers, including
+    ratios near 0.90 and WP17's fixtures (for example `longrange-64KiB-x256.bin` at 0.2502), and
+    records .NET's exact `BrotliEncoder` sizes at quality 1, window 22. That table is checked in
+    with the tests. It does not exist yet.
   - The Rust probe must agree with that table within 0.005 in ratio. Each window is a finished,
     independent stream.
   - If the scoring run uses zlib (the hub has no Brotli module), its results are placement and
@@ -485,8 +500,11 @@ buffers near 0.90.
 4. **The scoring run as a release gate, its budget, and the fallback.**
    - Recommended: **run it before the build.** It is read-only, takes well under an hour, and is
      the only evidence for seven interior windows, the combination and the AVCHD image.
-   - **Budget:** forgone saving no more than 10% of the total saving the candidates realise,
-     unless you set another.
+   - **Budget:** forgone saving no more than 10% of the saving available (§4.4), unless you set
+     another.
+   - **Codec:** the run qualifies only if measured with Brotli. The hub has no Python Brotli
+     module, so either install one in a throwaway virtual environment for the run (a change on the
+     hub, so yours to make), or grant an explicit exception to decide on zlib.
    - **If it cannot be run:** ship the mean (recommended: the PowerShell probe's own estimator,
      moved off the ends), or hold the release.
 5. **The decision record:** a per-run `compress-decisions/<run start>.log` plus the report counters?
@@ -561,6 +579,24 @@ findings and how each was taken:
 10. **Correlation is not decision accuracy:** accepted. The script reports wasted and forgone GiB.
 11. **Unexplained codes:** glossed.
 12. **The deadline:** raised to the Owner (decision 7).
+
+**Revision 3 → 4.** Codex fix-round confirmation: six findings resolved, three partly. It raised
+two new MAJOR findings and one MINOR:
+
+- **The budget could not be read from the report:** the denominator is now defined, and the script
+  prints it, each candidate's percentage and the winner, with a tie-break (§4.4).
+- **A zlib run could decide a Brotli release:** zlib results are now non-qualifying unless the
+  Owner grants an exception (§4.4, decision 4).
+- **Duplicates discarded alternative source paths** (MINOR): the script now tries every path that
+  holds an object.
+
+The three partly resolved points were also closed:
+
+- the budget output (above);
+- the assumption that excluded objects resemble the graded ones, now stated and warned about;
+- the .NET size table, now stated as a deliverable of this change, not an existing file (§5).
+
+The script was re-run on the synthetic store, covering exclusion, alternative paths and selection.
 
 **Revision 2 → 3.** Codex cross-check at medium effort (read-only): *approve with changes*. Its
 nine findings and how each was taken:
