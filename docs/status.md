@@ -39,8 +39,19 @@ last) — it is the record, not required reading for every pass.
   restores the decision log and counters. The combination of windows is gated on a read-only
   scoring run on the hub (`docs/experiments/probe-window-interior.py`). It was reviewed by Sonnet
   at medium effort and cross-checked by Codex at medium effort, plus a fix-round confirmation;
-  all returned "approve with changes", and the changes are applied. **Next:** the Owner's
-  rulings on the design's §9 decisions; no engine code until then.
+  all returned "approve with changes", and the changes are applied.
+  **OWNER RULING (2026-11-07): every §9 recommendation accepted.** That covers:
+  - the `brotli` crate for measuring only;
+  - seven interior windows;
+  - the combination chosen by the scoring run, which the Owner runs on the hub with Brotli and a
+    10% budget, the mean otherwise;
+  - 30 decision logs kept;
+  - whole-file sampling below 2.25 MiB;
+  - the deadline and progress-freeze fixes in the same release;
+  - the name "native probe fix", with WP18 superseded.
+
+  **Next:** build on branch `native-probe-fix` with the combination as a switch defaulting to the
+  mean. The merge waits for the scoring result.
 
 - **HUB FIXES (2026-11-06).** A hub-shaped audit found five faults the native suite did not reach; details are in HomeHub `docs/reviews/2026-11-06-filebackup-native/`. A scheduled re-read now hashes a file already in the manifest in place and writes nothing; stored objects are left to the deep verify, because the library re-read and the backup verify are two separate cadences. The re-read date advances on any re-read run and starts with the store, so a lasting exit 1 or a killed first run no longer re-reads everything. A non-Unicode name freezes itself only. The bash kit refuses a zero-byte manifest. Store files take the host creation mode (umask and default ACL) rather than 0600.
 

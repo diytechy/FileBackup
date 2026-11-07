@@ -1,6 +1,24 @@
 # Design, 2026-11-07: the native engine's compressibility probe
 
-**Status:** PROPOSED, revision 4. This is step 2 of
+**Status:** APPROVED, revision 4. On 2026-11-07 the Owner accepted every recommendation in §9:
+
+1. add the `brotli` crate for measuring only;
+2. seven interior windows at eighths, fixed;
+3. the combination chosen by the §8.1 scoring run under the §4.4 rule, the mean by default;
+4. the scoring run before the build, with a budget of 10% of the saving available, measured with
+   Brotli in a throwaway environment on the hub (the Owner's action); if it cannot run, ship the
+   mean;
+5. a per-run decision log keeping 30 runs, plus the report counters;
+6. whole-file sampling below 2.25 MiB;
+7. the 7-Zip deadline and the progress freeze as separate small changes in the same release;
+8. the name "native probe fix", with WP18 superseded.
+
+**How the build proceeds.** Everything is built now with the combination as a single switch,
+defaulting to the mean. The merge back to `Rust-Rewrite`, and so any image, waits for the
+Owner's scoring result, which sets that switch. If the run cannot be done, the mean stands.
+
+The text below is the approved revision 4 as reviewed. Before the rulings it read:
+"PROPOSED, revision 4". This is step 2 of
 [the 2026-11-07 brief](2026-11-07-native-probe-fix-brief.md). No code may be written under this
 design until the Owner rules on the decisions in §9.
 
